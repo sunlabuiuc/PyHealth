@@ -24,6 +24,8 @@ VALID_MODES = (
     "regression",
     "timeseries_binary",
     "timeseries_regression",
+    "segmentation_binary",
+    "segmentation_multiclass",
 )
 
 
@@ -55,6 +57,28 @@ def _label_record_loss(
     return loss_fn(logits, values)
 
 
+def _segmentation_ce_loss(
+    input: torch.Tensor,
+    target: torch.Tensor,
+    **kwargs: Any,
+) -> torch.Tensor:
+    """Cross-entropy with the singleton mask channel removed."""
+    if target.ndim == input.ndim and target.shape[1] == 1:
+        target = target[:, 0]
+    return F.cross_entropy(input, target, **kwargs)
+
+
+def _segmentation_bce_loss(
+    input: torch.Tensor,
+    target: torch.Tensor,
+    **kwargs: Any,
+) -> torch.Tensor:
+    """BCE with a singleton mask channel added when needed."""
+    if target.ndim == input.ndim - 1:
+        target = target.unsqueeze(1)
+    return F.binary_cross_entropy_with_logits(input, target, **kwargs)
+
+
 class BaseModel(ABC, nn.Module):
     """Abstract class for PyTorch models.
 
@@ -76,8 +100,9 @@ class BaseModel(ABC, nn.Module):
     Mode
     --------
         ``mode`` is always one of ``"binary"``, ``"multiclass"``, ``"multilabel"``,
-        ``"regression"``, ``"timeseries_binary"``, ``"timeseries_regression"``
-        or ``None``. It is resolved from the single label's
+        ``"regression"``, ``"timeseries_binary"``, ``"timeseries_regression"``,
+        ``"segmentation_binary"``, ``"segmentation_multiclass"`` or ``None``.
+        It is resolved from the single label's
         ``output_schema`` entry, which may be a string, a processor class, a
         processor instance or a ``(name, kwargs)`` tuple. Assigning ``self.mode``
         in a subclass resolves the value the same way.
@@ -314,6 +339,11 @@ class BaseModel(ABC, nn.Module):
             - timeseries_binary: `F.binary_cross_entropy_with_logits` over
               the label records
             - timeseries_regression: `F.mse_loss` over the label records
+            - segmentation_binary: `F.binary_cross_entropy_with_logits`
+            - segmentation_multiclass: `F.cross_entropy`
+
+        ``UNet`` adds a Dice term on top of the default CE/BCE loss; models
+        that want the combined loss should construct it in their own module.
 
         The timeseries losses take one logit per label record, ``[ΣN, 1]``,
         and the packed batch of a
@@ -330,7 +360,9 @@ class BaseModel(ABC, nn.Module):
             len(self.label_keys) == 1
         ), "Only one label key is supported if get_loss_function is called"
         label_key = self.label_keys[0]
-        mode = self._resolve_mode(self.dataset.output_schema[label_key])
+        mode = self.mode
+        if mode is None:
+            mode = self._resolve_mode(self.dataset.output_schema[label_key])
         pos_weight = self.pos_weight
         if mode in ("binary", "multilabel") and pos_weight is not None:
 
@@ -354,6 +386,10 @@ class BaseModel(ABC, nn.Module):
             )
         elif mode == "timeseries_regression":
             return functools.partial(_label_record_loss, F.mse_loss)
+        elif mode == "segmentation_binary":
+            return _segmentation_bce_loss
+        elif mode == "segmentation_multiclass":
+            return _segmentation_ce_loss
         else:
             raise ValueError(f"Invalid mode: {mode}")
 
@@ -375,6 +411,10 @@ class BaseModel(ABC, nn.Module):
                 values in [0, 1], from `torch.sigmoid()`
             - timeseries_regression: a tensor of shape (label records, 1)
                 with raw logits
+            - segmentation_binary: a tensor of shape
+                (batch_size, 1, *spatial) with sigmoid probabilities
+            - segmentation_multiclass: a tensor of shape
+                (batch_size, num_classes, *spatial) with softmax probabilities
 
         Args:
             logits (torch.Tensor): The predicted logit tensor.
@@ -384,9 +424,11 @@ class BaseModel(ABC, nn.Module):
         """
         assert (
             len(self.label_keys) == 1
-        ), "Only one label key is supported if get_loss_function is called"
+        ), "Only one label key is supported if prepare_y_prob is called"
         label_key = self.label_keys[0]
-        mode = self._resolve_mode(self.dataset.output_schema[label_key])
+        mode = self.mode
+        if mode is None:
+            mode = self._resolve_mode(self.dataset.output_schema[label_key])
         if mode in ["binary"]:
             y_prob = torch.sigmoid(logits)
         elif mode in ["multiclass"]:
@@ -399,6 +441,10 @@ class BaseModel(ABC, nn.Module):
             y_prob = torch.sigmoid(logits)
         elif mode in ["timeseries_regression"]:
             y_prob = logits
+        elif mode in ["segmentation_binary"]:
+            y_prob = torch.sigmoid(logits)
+        elif mode in ["segmentation_multiclass"]:
+            y_prob = F.softmax(logits, dim=1)
         else:
             raise NotImplementedError
         return y_prob

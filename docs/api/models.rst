@@ -45,6 +45,9 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.StageNet`
      - You have time-stamped vital signs with irregular measurement intervals
      - Requires ``StageNetProcessor`` or ``StageNetTensorProcessor`` in the task schema
+   * - :doc:`models/pyhealth.models.UNet`
+     - Your task is pixel/voxel-level segmentation with an image and a mask
+     - ``UNet2D``/``UNet3D``; pair with ``PatchDataset``, ``PatchSampler`` and Dice/IoU metrics
    * - :doc:`models/pyhealth.models.GNN`
      - Features include graph-structured data
      - Works with ``GraphProcessor``; see :doc:`graph` for setup
@@ -132,12 +135,42 @@ processor instance, or a ``(name, kwargs)`` tuple. These are equivalent:
     output_schema = {"icd_codes": MultiLabelProcessor}
     output_schema = {"icd_codes": ("multilabel", {})}
 
-Whichever form a task uses, ``model.mode`` is always the plain string
-(``"binary"``, ``"multiclass"``, ``"multilabel"`` or ``"regression"``), or
-``None`` when the label is not one of these kinds. ``Trainer.evaluate()`` and
-the calibration methods use it to pick metrics. ``BaseModel`` sets it for you,
-so custom models don't need to assign ``self.mode``; if they do, the value is
-resolved the same way.
+Whichever form a task uses, ``model.mode`` is a plain string such as
+``"binary"``, ``"multiclass"``, ``"multilabel"``, ``"regression"``,
+``"timeseries_binary"``, ``"timeseries_regression"``,
+``"segmentation_binary"`` or ``"segmentation_multiclass"``, or ``None`` when
+the label is not one of these kinds. ``UNet`` sets the two segmentation modes
+from its ``num_classes`` argument (or the mask processor's ``num_classes``
+metadata).
+``Trainer.evaluate()`` and the calibration methods use it to pick metrics.
+``BaseModel`` sets it for you, so custom models don't need to assign
+``self.mode``; if they do, the value is resolved the same way.
+
+Segmentation
+^^^^^^^^^^^^
+
+For pixel/voxel-level tasks, use :doc:`models/pyhealth.models.UNet` together
+with :class:`~pyhealth.datasets.PatchDataset` and
+:class:`~pyhealth.sampler.PatchSampler`. ``num_classes=1`` selects binary
+segmentation; larger values select multiclass segmentation.
+
+.. code-block:: python
+
+    from pyhealth.datasets import PatchDataset, PatientSplit, get_dataloader
+    from pyhealth.models import UNet3D
+    from pyhealth.sampler import PatchSampler
+
+    train, val = dataset.set_task(
+        dataset.default_task,
+        split=PatientSplit((0.8, 0.2), seed=42),
+    )
+    patches = PatchDataset(
+        train,
+        PatchSampler((64, 64, 64), foreground_prob=1 / 3),
+        mode="train",
+    )
+    model = UNet3D(train)  # original U-Net defaults: 64 channels, depth 5
+    loader = get_dataloader(patches, batch_size=2, shuffle=True)
 
 Imbalanced outcomes
 ^^^^^^^^^^^^^^^^^^^
@@ -214,6 +247,7 @@ API Reference
     models/pyhealth.models.LogisticRegression
     models/pyhealth.models.MLP
     models/pyhealth.models.CNN
+    models/pyhealth.models.UNet
     models/pyhealth.models.RNN
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer

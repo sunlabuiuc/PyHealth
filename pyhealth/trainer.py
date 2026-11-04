@@ -1,4 +1,5 @@
 import copy
+import functools
 import logging
 import os
 from datetime import datetime
@@ -20,6 +21,10 @@ from pyhealth.metrics import (
     regression_metrics_fn,
     timeseries_binary_metrics_fn,
     timeseries_regression_metrics_fn,
+)
+from pyhealth.metrics.segmentation import (
+    remap_class_mask,
+    segmentation_metrics_fn,
 )
 from pyhealth.utils import create_directory
 
@@ -58,8 +63,9 @@ def get_metrics_fn(mode: str) -> Callable:
 
     Args:
         mode: One of ``"binary"``, ``"multiclass"``, ``"multilabel"``,
-            ``"regression"``, ``"timeseries_binary"`` or
-            ``"timeseries_regression"``.
+            ``"regression"``, ``"timeseries_binary"``,
+            ``"timeseries_regression"``, ``"segmentation_binary"`` or
+            ``"segmentation_multiclass"``.
 
     Returns:
         The function computing the metrics of that mode. The ``timeseries_*``
@@ -82,6 +88,8 @@ def get_metrics_fn(mode: str) -> Callable:
         return timeseries_binary_metrics_fn
     elif mode == "timeseries_regression":
         return timeseries_regression_metrics_fn
+    elif mode in ("segmentation_binary", "segmentation_multiclass"):
+        return functools.partial(segmentation_metrics_fn, mode=mode)
     else:
         raise ValueError(f"Mode {mode} is not supported")
 
@@ -371,6 +379,10 @@ class Trainer:
         if additional_outputs is not None:
             additional_outputs = {k: [] for k in additional_outputs}
         per_step = self.model.mode in ("timeseries_binary", "timeseries_regression")
+        per_sample = per_step or self.model.mode in (
+            "segmentation_binary",
+            "segmentation_multiclass",
+        )
         self.model.eval()
         for data in tqdm(dataloader, desc="Evaluation"):
             with torch.no_grad():
@@ -385,6 +397,37 @@ class Trainer:
                     for lo, hi in pairwise(offsets):
                         y_true_all.append(values[lo:hi, 0])
                         y_prob_all.append(y_prob[lo:hi])
+                elif per_sample:
+                    # Segmentation masks differ in shape, so keep one array
+                    # per sample and let the metrics average over cases.
+                    y_true = output["y_true"].cpu().numpy()
+                    y_prob = output["y_prob"].cpu().numpy()
+                    class_mask = data.get("class_mask")
+                    if class_mask is not None:
+                        mask = torch.as_tensor(
+                            class_mask, dtype=torch.bool
+                        ).cpu().numpy()
+                        ignore_index = (
+                            getattr(
+                                self.model,
+                                "segmentation_ignore_index",
+                                255,
+                            )
+                            or 255
+                        )
+                        for i in range(len(y_true)):
+                            target, probability = remap_class_mask(
+                                y_true[i],
+                                y_prob[i],
+                                mask[i],
+                                ignore_index=ignore_index,
+                            )
+                            y_true_all.append(target)
+                            y_prob_all.append(probability)
+                    else:
+                        for i in range(len(y_true)):
+                            y_true_all.append(y_true[i])
+                            y_prob_all.append(y_prob[i])
                 else:
                     y_true_all.append(output["y_true"].cpu().numpy())
                     y_prob_all.append(output["y_prob"].cpu().numpy())
@@ -394,13 +437,19 @@ class Trainer:
             if return_patient_ids:
                 patient_ids.extend(data["patient_id"])
         loss_mean = sum(loss_all) / len(loss_all)
-        if not per_step:
+        if not per_sample:
             y_true_all = np.concatenate(y_true_all, axis=0)
             y_prob_all = np.concatenate(y_prob_all, axis=0)
         outputs = [y_true_all, y_prob_all, loss_mean]
         if additional_outputs is not None:
-            additional_outputs = {key: np.concatenate(val)
-                                  for key, val in additional_outputs.items()}
+            additional_outputs = {
+                key: (
+                    val
+                    if per_sample
+                    else np.concatenate(val)
+                )
+                for key, val in additional_outputs.items()
+            }
             outputs.append(additional_outputs)
         if return_patient_ids:
             outputs.append(patient_ids)
@@ -419,7 +468,17 @@ class Trainer:
             y_true_all, y_prob_all, loss_mean = self.inference(dataloader)
             mode = self.model.mode
             metrics_fn = get_metrics_fn(mode)
-            scores = metrics_fn(y_true_all, y_prob_all, metrics=self.metrics)
+            if mode in ("segmentation_binary", "segmentation_multiclass"):
+                scores = metrics_fn(
+                    y_true_all,
+                    y_prob_all,
+                    metrics=self.metrics,
+                    ignore_index=getattr(
+                        self.model, "segmentation_ignore_index", None
+                    ),
+                )
+            else:
+                scores = metrics_fn(y_true_all, y_prob_all, metrics=self.metrics)
             scores["loss"] = loss_mean
         else:
             loss_all = []
