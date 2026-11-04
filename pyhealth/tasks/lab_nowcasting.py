@@ -17,6 +17,7 @@ was used only to confirm details such as the 100-event window.
 
 from __future__ import annotations
 
+import logging
 import math
 from bisect import bisect_left
 from datetime import datetime
@@ -25,6 +26,8 @@ from typing import Any, ClassVar
 import polars as pl
 
 from .base_task import BaseTask
+
+logger = logging.getLogger(__name__)
 
 
 def lab_flag(
@@ -118,8 +121,10 @@ class LabNowcasting(BaseTask):
 
     Args:
         event_tables: Tables whose events make up the trajectory; they must
-            be loaded in the dataset and be keys of ``CODE_COLUMNS``.
-            ``"labevents"`` is required (it supplies the targets).
+            be keys of ``CODE_COLUMNS`` and should be loaded in the dataset
+            (``set_task`` logs a warning for any that is not, since it would
+            add no events). ``"labevents"`` is required (it supplies the
+            targets).
         max_events: Number of most recent events kept (99 in the paper's
             code, which appends a mask token to make 100). None keeps all.
         min_history: Minimum number of earlier events for a draw to be a
@@ -152,7 +157,6 @@ class LabNowcasting(BaseTask):
         "outputevents": ("OUTPUT", "itemid"),
         "chartevents": ("CHART", "itemid"),
         "microbiologyevents": ("MICRO", "test_name"),
-        "emar": ("EMAR", "medication"),
     }
     DEFAULT_TABLES: ClassVar[tuple[str, ...]] = ("labevents",)
 
@@ -179,6 +183,41 @@ class LabNowcasting(BaseTask):
         self.max_events = max_events
         self.min_history = max(int(min_history), 0)
         self.target = target
+
+    def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        """Warns once if an ``event_tables`` entry is not loaded in the dataset.
+
+        A table that is not loaded has no columns in the dataset's event
+        frame, and each patient would silently get no events from it.
+        ``BaseDataset.set_task`` calls this once before running the task.
+
+        Args:
+            df: The dataset's global event frame.
+
+        Returns:
+            ``df`` unchanged.
+
+        Examples:
+            >>> import polars as pl
+            >>> frame = pl.LazyFrame({"labevents/itemid": ["1"]})
+            >>> task = LabNowcastingMIMIC4()  # labevents and prescriptions
+            >>> task.pre_filter(frame).collect().height  # warns: prescriptions
+            1
+        """
+        columns = df.collect_schema().names()
+        missing = [
+            table
+            for table in self.event_tables
+            if not any(c.startswith(f"{table}/") for c in columns)
+        ]
+        if missing:
+            logger.warning(
+                "%s: event table(s) %s are not loaded in the dataset, so they "
+                "contribute no events; add them to the dataset's tables.",
+                self.task_name,
+                missing,
+            )
+        return df
 
     def _codes(self, df: pl.DataFrame, table: str) -> pl.DataFrame:
         prefix, column = self.CODE_COLUMNS[table]

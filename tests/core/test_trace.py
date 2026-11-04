@@ -30,12 +30,43 @@ class TestRankingMetrics(unittest.TestCase):
 
     def test_values_by_hand(self):
         out = multilabel_ranking_at_k(self.y_true, self.y_prob, 2)
-        # precision over all 3 samples: hits 1, 0, 0 out of 2 each
-        self.assertAlmostEqual(out["precision"], 1 / 6)
-        # recall and NDCG over the 2 samples with a true label
+        # all three over the 2 samples with a true label (the third is skipped)
+        self.assertAlmostEqual(out["precision"], (1 / 2 + 0) / 2)
         self.assertAlmostEqual(out["recall"], (1 / 2 + 0) / 2)
         ideal = 1 + 1 / np.log2(3)
         self.assertAlmostEqual(out["ndcg"], (1 / ideal + 0) / 2)
+        self.assertEqual(
+            out, multilabel_ranking_at_k(self.y_true[:2], self.y_prob[:2], 2)
+        )
+
+    def test_no_true_labels_and_ties(self):
+        empty = multilabel_ranking_at_k(np.zeros((2, 3)), np.ones((2, 3)), 2)
+        self.assertEqual(empty, {"precision": 0.0, "recall": 0.0, "ndcg": 0.0})
+        # tied scores keep label order: labels 0 and 1 make the top 2
+        out = multilabel_ranking_at_k(np.array([[0, 1, 1]]), np.ones((1, 3)), 2)
+        self.assertAlmostEqual(out["precision"], 0.5)
+
+    def test_matches_ranking_metrics_fn_without_ties(self):
+        try:
+            import pytrec_eval  # noqa: F401
+        except ImportError:
+            self.skipTest("pytrec_eval is not installed")
+        from pyhealth.metrics import ranking_metrics_fn
+
+        rng = np.random.default_rng(0)
+        y_true = (rng.random((40, 10)) < 0.3).astype(int)
+        y_true[:, 0] |= y_true.sum(1) == 0  # every sample has a true label
+        y_prob = rng.random((40, 10))
+        qrels = {f"q{i}": {f"d{j}": int(v) for j, v in enumerate(row)}
+                 for i, row in enumerate(y_true)}
+        runs = {f"q{i}": {f"d{j}": float(v) for j, v in enumerate(row)}
+                for i, row in enumerate(y_prob)}
+        for k in (1, 5, 10):
+            ours = multilabel_ranking_at_k(y_true, y_prob, k)
+            theirs = ranking_metrics_fn(qrels, runs, [k])
+            self.assertAlmostEqual(ours["precision"], theirs[f"P@{k}"], places=4)
+            self.assertAlmostEqual(ours["recall"], theirs[f"Recall@{k}"], places=4)
+            self.assertAlmostEqual(ours["ndcg"], theirs[f"NDCG@{k}"], places=4)
 
     def test_perfect_ranking_and_cutoff_clipping(self):
         y_true = np.array([[1, 1, 0]])
@@ -155,6 +186,24 @@ class TestLabNowcastingTask(unittest.TestCase):
             LabNowcastingMIMIC4(event_tables=["labevents", "unknown"])
         with self.assertRaises(ValueError):
             LabNowcastingMIMIC4(target="first")
+
+    def test_warns_once_for_tables_not_loaded(self):
+        frame = pl.LazyFrame(
+            {"patient_id": ["p1"], "labevents/itemid": ["1"],
+             "labevents/valuenum": ["2"]}
+        )
+        task = LabNowcastingMIMIC4(
+            event_tables=["labevents", "prescriptions", "procedureevents"]
+        )
+        logger = "pyhealth.tasks.lab_nowcasting"
+        with self.assertLogs(logger, level="WARNING") as logs:
+            self.assertIs(task.pre_filter(frame), frame)
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn("prescriptions", logs.output[0])
+        self.assertIn("procedureevents", logs.output[0])
+        self.assertNotIn("'labevents'", logs.output[0])
+        with self.assertNoLogs(logger, level="WARNING"):
+            LabNowcastingMIMIC4(event_tables=["labevents"]).pre_filter(frame)
 
     def test_mimic4_demo_fixture(self):
         from pyhealth.datasets import MIMIC4EHRDataset
