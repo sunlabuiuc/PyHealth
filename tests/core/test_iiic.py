@@ -60,18 +60,23 @@ class TestIIICDataset(unittest.TestCase):
             dtype="<U30",
         )
         X = rng.randn(len(keys), 16, 2000).astype(np.float16)
+        # Give first (idx 0) and last (idx 6) duplicate rows distinct signals
+        X[0] = (np.ones((16, 2000)) + rng.randn(16, 2000) * 0.1).astype(np.float16)
+        X[6] = (np.full((16, 2000), 5.0) + rng.randn(16, 2000) * 0.1).astype(
+            np.float16
+        )
         # Make the last segment completely flat (std == 0)
         X[-1] = 0.0
 
         Y = np.array(
             [
-                [10, 0, 0, 0, 0, 0],  # class 0 (Other)
+                [0, 4, 0, 0, 0, 0],   # first dup (idx 0, class 1, superseded)
                 [0, 12, 1, 0, 0, 0],  # class 1 (SZ)
                 [0, 0, 8, 2, 0, 0],   # class 2 (LPD)
                 [0, 0, 0, 9, 0, 0],   # class 3 (GPD)
                 [0, 0, 0, 0, 7, 1],   # class 4 (LRDA)
                 [0, 0, 0, 0, 0, 11],  # class 5 (GRDA)
-                [10, 0, 0, 0, 0, 0],  # duplicate key
+                [10, 0, 0, 0, 0, 0],  # last dup (idx 6, class 0, kept)
                 [1, 1, 1, 0, 0, 0],   # sum == 3 (not > 3, filtered out)
                 [0, 15, 0, 0, 0, 0],  # flat signal (filtered out)
             ],
@@ -148,6 +153,16 @@ class TestIIICDataset(unittest.TestCase):
             self.assertTrue((root / "test_df.csv").exists())
             for sig_file in df["signal_file"]:
                 self.assertTrue(Path(sig_file).is_file())
+
+            # Verify duplicate key kept row 6's votes, label, and signal consistently
+            dup_row = df[df["record_id"] == "abn10001_20140101_100000_001"].iloc[0]
+            self.assertEqual(int(dup_row["label"]), 0)
+            self.assertEqual(dup_row["votes"], "[10, 0, 0, 0, 0, 0]")
+            with open(dup_row["signal_file"], "rb") as f:
+                dup_pkl = pickle.load(f)
+            raw_x = np.load(root / "all_train_X.npy")
+            np.testing.assert_array_equal(dup_pkl["signal"], raw_x[6])
+            self.assertEqual(int(dup_pkl["label"]), 0)
 
             # Verify default_task property
             self.assertIsInstance(ds.default_task, EEGSeizureIIIC)

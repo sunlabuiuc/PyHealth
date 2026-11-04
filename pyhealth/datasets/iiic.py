@@ -508,7 +508,9 @@ class IIICDataset(BaseDataset):
              (intentionally including ``majority = np.argmax(votes, axis=1)`` to match
              ``Biosignal_Token``'s ``_read_label_with_thres``), and when
              ``self.subset == "10_train"``, also require ``votes.sum(axis=1) >= 10``.
-          3. Sort by ``key`` ascending and drop duplicate ``key``s (``keep='first'``).
+          3. Sort by ``key`` ascending (``kind="stable"``) and drop duplicate
+             ``key``s (``keep="last"``) so the kept row's votes, label, and
+             signal index come from the same occurrence.
           4. Filter out flat/corrupted signals where ``xi.astype(float).std() == 0``.
           5. Extract ``pid = key.split('_')[0]`` and deterministically split unique
              patients into ``train``, ``val``, ``test`` using
@@ -533,12 +535,10 @@ class IIICDataset(BaseDataset):
                     one_hot[idx_r, int(lbl)] = 10
                 votes = pd.DataFrame(one_hot, columns=[0, 1, 2, 3, 4, 5])
 
-            # Match _read_X: {k: X[i] for i, k in enumerate(key)} (last occurrence wins)
-            last_idx_map = {str(k): i for i, k in enumerate(keys)}
-
             raw_vote_sum = votes[[0, 1, 2, 3, 4, 5]].values.sum(axis=1)
             votes["key"] = keys.astype(str)
             votes["majority"] = np.argmax(votes[[0, 1, 2, 3, 4, 5]].values, axis=1)
+            votes["row_idx"] = np.arange(len(keys), dtype=np.int64)
             # Intentionally include votes["majority"] in the sum to match
             # Biosignal_Token's _read_label_with_thres (which sets
             # votes["majority"] = np.argmax(Y, 1) before votes.sum(1) > thres).
@@ -546,12 +546,15 @@ class IIICDataset(BaseDataset):
             if self.subset == "10_train":
                 mask = mask & (raw_vote_sum >= 10)
 
-            part_df = votes[mask].sort_values(["key"], ascending=True).copy()
-            part_df = part_df.reset_index(drop=True)
-            part_df = part_df.drop_duplicates(subset=["key"], keep="first").copy()
+            part_df = (
+                votes[mask]
+                .sort_values(["key"], ascending=True, kind="stable")
+                .drop_duplicates(subset=["key"], keep="last")
+                .reset_index(drop=True)
+                .copy()
+            )
             part_df["pid"] = part_df["key"].map(lambda s: str(s).split("_")[0])
             part_df["source_id"] = source_id
-            part_df["row_idx"] = part_df["key"].map(last_idx_map).astype(np.int64)
 
             df_parts.append(part_df)
             x_arrays.append(X_mmap)

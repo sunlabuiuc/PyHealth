@@ -13,6 +13,7 @@ import torch
 from scipy.signal import resample
 
 from pyhealth.tasks import BaseTask
+from pyhealth.tasks.eegbci import normalize_signal
 
 IIIC_CLASSES: dict[int, str] = {
     0: "Other",
@@ -172,14 +173,7 @@ class EEGSeizureIIIC(BaseTask):
         ):
             X = resample(X, target_len, axis=-1).astype(np.float32)
 
-        if self.normalization == "95th_percentile":
-            scale = np.quantile(
-                np.abs(X), q=0.95, axis=-1, method="linear", keepdims=True
-            )
-            X = X / (scale + 1e-8)
-        elif self.normalization == "div_by_100":
-            X = X / 100.0
-
+        X = normalize_signal(X, self.normalization)
         return X.astype(np.float32)
 
     def __call__(self, patient: Any) -> list[dict[str, Any]]:
