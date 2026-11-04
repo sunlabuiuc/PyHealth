@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from pyhealth.datasets.sample_dataset import SampleDataset, create_sample_dataset
+from pyhealth.datasets.utils import get_dataloader
 
 
 class TestSampleDatasetParity(unittest.TestCase):
@@ -154,6 +155,24 @@ class TestSampleDatasetParity(unittest.TestCase):
         self.assertEqual(ds_disk[0]["feature"], 0)
         self.assertEqual(ds_disk._cache_pid, os.getpid())
         self.assertIsNotNone(ds_disk.cache)
+
+    def test_dataloader_forwards_loader_kwargs(self):
+        dataset, _ = self._get_datasets()
+        try:
+            loader = get_dataloader(
+                dataset,
+                batch_size=2,
+                num_workers=1,
+                pin_memory=False,
+                persistent_workers=True,
+                prefetch_factor=2,
+            )
+            self.assertEqual(loader.num_workers, 1)
+            self.assertFalse(loader.pin_memory)
+            self.assertTrue(loader.persistent_workers)
+            self.assertEqual(loader.prefetch_factor, 2)
+        finally:
+            dataset.close()
 
     def test_close_preserves_caller_owned_directory(self):
         owner, _ = self._get_datasets()
