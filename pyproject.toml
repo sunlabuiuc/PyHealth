@@ -84,6 +84,10 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+imaging = [
+  "pydicom>=3.0",
+  "nibabel>=5.0",
+]
 graph = [
   "torch-geometric>=2.6.0",
 ]
@@ -167,6 +171,8 @@ pyhealth = { path = ".", editable = true }
 [tool.pixi.feature.test.dependencies]
 pytest = "*"
 pytest-cov = "*"
+pydicom = ">=3.0"
+nibabel = ">=5.0"
 
 [tool.pixi.feature.test.pypi-dependencies]
 pyhealth = { path = ".", editable = true, extras = ["ptbxl"] }
