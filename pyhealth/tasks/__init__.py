@@ -98,6 +98,10 @@ from .eegbci import (
     EEGBCIPatternDiscovery as EEGBCIPatternDiscovery,
     EEGMotorImageryEEGBCI as EEGMotorImageryEEGBCI,
 )
+from .iiic_seizure_classification import (
+    EEGSeizureIIIC as EEGSeizureIIIC,
+    IIICSeizureClassification as IIICSeizureClassification,
+)
 from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,
