@@ -52,6 +52,7 @@ from .imaging.stats import (
     compute_foreground_intensity_stats as compute_foreground_intensity_stats,
 )
 from .cardiology import CardiologyDataset
+from .chaos import CHAOSDataset as CHAOSDataset
 from .chestxray14 import ChestXray14Dataset
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
