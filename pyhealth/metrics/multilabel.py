@@ -52,6 +52,13 @@ def multilabel_metrics_fn(
         - hamming_loss: Hamming loss
         - cwECE: classwise ECE (with 20 equal-width bins). Check :func:`pyhealth.metrics.calibration.ece_classwise`.
         - cwECE_adapt: classwise adaptive ECE (with 20 equal-size bins). Check :func:`pyhealth.metrics.calibration.ece_classwise`.
+        - precision@K: fraction of the K highest-scored labels that are true,
+          averaged over samples (e.g. "precision@5")
+        - recall@K: fraction of a sample's true labels among its K
+          highest-scored labels, averaged over samples with a true label
+        - ndcg@K: normalized discounted cumulative gain of the K
+          highest-scored labels (binary relevance), averaged over samples
+          with a true label. See :func:`multilabel_ranking_at_k`.
 
     The following metrics related to the prediction sets are accepted as well, but will be ignored if y_predset is None:
         - fp: Number of false positives.
@@ -225,10 +232,69 @@ def multilabel_metrics_fn(
                 output[metric] = (y_true * y_predset).sum(1).mean()
             elif metric == 'fp':
                 output[metric] = ((1-y_true) * y_predset).sum(1).mean()
+        elif metric.split("@", 1)[0] in ("precision", "recall", "ndcg") and (
+            "@" in metric
+        ):
+            name, cutoff = metric.split("@", 1)
+            if not cutoff.isdigit() or int(cutoff) < 1:
+                raise ValueError(
+                    f"Invalid metric {metric!r}: expected '{name}@K' with K a "
+                    "positive integer (e.g. 'precision@5')."
+                )
+            output[metric] = multilabel_ranking_at_k(
+                y_true, y_prob, int(cutoff)
+            )[name]
         else:
             raise ValueError(f"Unknown metric for multilabel classification: {metric}")
 
     return output
+
+
+def multilabel_ranking_at_k(
+    y_true: np.ndarray, y_prob: np.ndarray, k: int
+) -> dict[str, float]:
+    """Precision, recall and NDCG of each sample's top-``k`` labels.
+
+    Each sample's labels are ranked by score (ties keep label order). With
+    ``hits`` the true labels among the top ``k`` and ``n`` the sample's true
+    labels: precision@k is ``hits / k`` (averaged over all samples),
+    recall@k is ``hits / n``, and NDCG@k is ``sum(rel_r / log2(r + 1)) /
+    sum_{r <= min(n, k)} 1 / log2(r + 1)`` for ranks ``r`` from 1 (the last
+    two averaged over samples with ``n > 0``; 0 when there are none).
+
+    Args:
+        y_true: Binary labels ``(n_samples, n_labels)``.
+        y_prob: Scores of the same shape.
+        k: Cutoff (clipped to the number of labels).
+
+    Returns:
+        ``{"precision": ..., "recall": ..., "ndcg": ...}``.
+
+    Examples:
+        >>> y_true = np.array([[1, 0, 1, 0], [0, 1, 0, 0]])
+        >>> y_prob = np.array([[0.9, 0.8, 0.1, 0.0], [0.1, 0.2, 0.3, 0.4]])
+        >>> {m: round(v, 3) for m, v in multilabel_ranking_at_k(y_true, y_prob, 2).items()}
+        {'precision': 0.25, 'recall': 0.25, 'ndcg': 0.307}
+    """
+    y_true = np.asarray(y_true) > 0
+    y_prob = np.asarray(y_prob, dtype=float)
+    k = max(1, min(int(k), y_true.shape[1]))
+    top = np.argsort(-y_prob, axis=1, kind="stable")[:, :k]
+    hits = np.take_along_axis(y_true, top, axis=1).astype(float)
+    n_true = y_true.sum(axis=1)
+    discounts = 1.0 / np.log2(np.arange(2, k + 2))
+    ideal = np.concatenate([[0.0], np.cumsum(discounts)])[np.minimum(n_true, k)]
+    has_true = n_true > 0
+    precision = float(hits.sum(axis=1).mean() / k) if len(hits) else 0.0
+    if not has_true.any():
+        return {"precision": precision, "recall": 0.0, "ndcg": 0.0}
+    recall = hits.sum(axis=1)[has_true] / n_true[has_true]
+    ndcg = (hits * discounts).sum(axis=1)[has_true] / ideal[has_true]
+    return {
+        "precision": precision,
+        "recall": float(recall.mean()),
+        "ndcg": float(ndcg.mean()),
+    }
 
 
 if __name__ == "__main__":

@@ -250,4 +250,5 @@ Available Tasks
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>
     In-Hospital Survival (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalSurvivalMIMIC4>
     Rare-Condition ICU Mortality (KnowRare, MIMIC-IV) <tasks/pyhealth.tasks.KnowRareICUMortalityMIMIC4>
+    Lab Nowcasting (MIMIC-III/IV) <tasks/pyhealth.tasks.LabNowcasting>
     Cancer Mutation Burden (TCGA) <tasks/pyhealth.tasks.CancerMutationBurden>
