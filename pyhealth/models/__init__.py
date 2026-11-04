@@ -7,6 +7,15 @@ from .apn import (
     masked_mse as masked_mse,
 )
 from .base_model import BaseModel
+from .unet import (
+    DiceLoss as DiceLoss,
+    SegmentationLoss as SegmentationLoss,
+    UNet as UNet,
+    UNet2D as UNet2D,
+    UNet3D as UNet3D,
+    evaluate_segmentation as evaluate_segmentation,
+    sliding_window_inference as sliding_window_inference,
+)
 from .transformer_deid import TransformerDeID
 from .biot import BIOT
 from .cnn import CNN, CNNLayer

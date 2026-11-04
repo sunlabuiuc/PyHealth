@@ -68,6 +68,12 @@ Install it with the optional extra:
 
    pip install "pyhealth[xgboost]"
 
+DICOM and NIfTI support is also optional:
+
+.. code-block:: bash
+
+   pip install "pyhealth[imaging]"
+
 On macOS, XGBoost needs an OpenMP runtime (``brew install libomp``). PyTorch
 bundles its own ``libomp.dylib``, and two copies in one process can crash
 multithreaded XGBoost fits. See :doc:`api/models/pyhealth.models.XGBoostModel`

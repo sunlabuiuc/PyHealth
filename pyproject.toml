@@ -87,6 +87,7 @@ classifiers = [
 imaging = [
   "pydicom>=3.0",
   "nibabel>=5.0",
+  "monai>=1.6.1,<2",
 ]
 graph = [
   "torch-geometric>=2.6.0",
@@ -175,6 +176,7 @@ pydicom = ">=3.0"
 nibabel = ">=5.0"
 
 [tool.pixi.feature.test.pypi-dependencies]
+monai = ">=1.6.1,<2"
 pyhealth = { path = ".", editable = true, extras = ["ptbxl"] }
 
 [tool.pixi.feature.nlp.pypi-dependencies]
