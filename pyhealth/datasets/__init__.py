@@ -94,7 +94,7 @@ from .splitter import (
 from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
-from .chbmit import CHBMITDataset as CHBMITDataset  # noqa: E402
+from .chbmit import CHBMITDataset as CHBMITDataset
 from .utils import (
     collate_fn_dict,
     collate_fn_dict_with_padding,

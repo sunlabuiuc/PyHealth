@@ -17,7 +17,7 @@ References:
 
 import logging
 import math
-from typing import Any, Optional
+from typing import Any, ClassVar
 
 import mne
 import numpy as np
@@ -74,7 +74,7 @@ def _normalize_subject(subject: str) -> str:
     return text
 
 
-def _channel_index(ch_names: list[str], name: str) -> Optional[int]:
+def _channel_index(ch_names: list[str], name: str) -> int | None:
     """Find ``name`` in an EDF header, including MNE's duplicate suffix.
 
     MNE renames a repeated label ``T8-P8`` to ``T8-P8-0`` and ``T8-P8-1``.
@@ -99,7 +99,7 @@ def _channel_index(ch_names: list[str], name: str) -> Optional[int]:
 
 def select_bipolar_channels(
     raw_data: np.ndarray, ch_names: list[str]
-) -> Optional[np.ndarray]:
+) -> np.ndarray | None:
     """Keep the 16 CBraMod bipolar channels, in CBraMod order.
 
     A missing channel is filled with zeros, which is what CBraMod does when
@@ -192,7 +192,7 @@ def _seizure_intervals(
     intervals = []
     for start, end in zip(starts, ends):
         intervals.append(
-            (int(round(start * sfreq)) - offset, int(round(end * sfreq)) - offset)
+            (round(start * sfreq) - offset, round(end * sfreq) - offset)
         )
     return intervals
 
@@ -227,7 +227,7 @@ def _window_is_seizure(
     return False
 
 
-def _normalize_window(window: np.ndarray, normalization: Optional[str]) -> np.ndarray:
+def _normalize_window(window: np.ndarray, normalization: str | None) -> np.ndarray:
     """Scale one window the way CBraMod or TFM-Tokenizer does.
 
     Args:
@@ -320,21 +320,21 @@ class SeizureDetectionCHBMIT(BaseTask):
     """
 
     task_name: str = "CHBMIT_seizure_detection"
-    input_schema: dict[str, str] = {"signal": "tensor", "stft": "tensor"}
-    output_schema: dict[str, str] = {"label": "multiclass"}
+    input_schema: ClassVar[dict[str, str]] = {"signal": "tensor", "stft": "tensor"}
+    output_schema: ClassVar[dict[str, str]] = {"label": "multiclass"}
 
     def __init__(
         self,
         resample_rate: float = 200,
         window_sec: float = 10,
-        normalization: Optional[str] = None,
-        bandpass_filter: Optional[tuple[float, float]] = None,
-        notch_filter: Optional[float] = None,
+        normalization: str | None = None,
+        bandpass_filter: tuple[float, float] | None = None,
+        notch_filter: float | None = None,
         compute_stft: bool = True,
         oversample_seizures: bool = True,
         oversample_stride_sec: float = 5,
         label_mode: str = "overlap",
-        subjects: Optional[list[str]] = None,
+        subjects: list[str] | None = None,
     ) -> None:
         super().__init__()
         if label_mode not in ("overlap", "cbramod"):
@@ -343,14 +343,15 @@ class SeizureDetectionCHBMIT(BaseTask):
             )
         # Validate early so a bad name fails before any EDF is read.
         _normalize_window(np.zeros((1, 2)), normalization)
-        self.resample_rate = resample_rate
-        self.window_sec = window_sec
+        # Plain floats keep round() returning an int for window lengths.
+        self.resample_rate = float(resample_rate)
+        self.window_sec = float(window_sec)
         self.normalization = normalization
         self.bandpass_filter = bandpass_filter
         self.notch_filter = notch_filter
         self.compute_stft = compute_stft
         self.oversample_seizures = oversample_seizures
-        self.oversample_stride_sec = oversample_stride_sec
+        self.oversample_stride_sec = float(oversample_stride_sec)
         self.label_mode = label_mode
         self.subjects = (
             None if subjects is None else {_normalize_subject(s) for s in subjects}
@@ -358,7 +359,7 @@ class SeizureDetectionCHBMIT(BaseTask):
         if not compute_stft:
             self.input_schema = {"signal": "tensor"}
 
-    def read_edf(self, file_name: str) -> Optional[tuple[np.ndarray, float]]:
+    def read_edf(self, file_name: str) -> tuple[np.ndarray, float] | None:
         """Load one EDF and return the 16 bipolar channels in uV.
 
         Args:
@@ -412,7 +413,7 @@ class SeizureDetectionCHBMIT(BaseTask):
             ``segment_id`` is the CBraMod-style suffix (``"0"``,
             ``"s-0-add-256"``).
         """
-        win = int(round(self.window_sec * sfreq))
+        win = round(self.window_sec * sfreq)
         if win <= 0:
             return []
         windows = []
@@ -423,8 +424,8 @@ class SeizureDetectionCHBMIT(BaseTask):
 
         if not self.oversample_seizures:
             return windows
-        pad = int(round(sfreq))
-        stride = int(round(self.oversample_stride_sec * sfreq))
+        pad = round(sfreq)
+        stride = round(self.oversample_stride_sec * sfreq)
         if stride <= 0:
             return windows
         for index, (seizure_start, seizure_end) in enumerate(intervals):
@@ -468,7 +469,7 @@ class SeizureDetectionCHBMIT(BaseTask):
         record_id = getattr(event, "record_id", None) or event.signal_file
 
         samples: list[dict[str, Any]] = []
-        target = int(round(self.resample_rate * self.window_sec))
+        target = round(self.resample_rate * self.window_sec)
         for start, end, label, augmented, segment_id in self._windows(
             signal.shape[1], sfreq, intervals
         ):

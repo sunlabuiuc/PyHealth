@@ -21,7 +21,6 @@ References:
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 
@@ -32,7 +31,7 @@ from .base_dataset import BaseDataset
 logger = logging.getLogger(__name__)
 
 
-def _seconds_before_unit(line: str) -> Optional[int]:
+def _seconds_before_unit(line: str) -> int | None:
     """Read the integer that precedes ``seconds`` on a summary line.
 
     CHB-MIT writes ``Seizure Start Time: 2996 seconds`` and
@@ -72,7 +71,7 @@ def _parse_summary(summary_path: Path) -> list[dict]:
         the caller drops it.
     """
     records: list[dict] = []
-    current: Optional[dict] = None
+    current: dict | None = None
     text = summary_path.read_text(errors="replace").splitlines()
     for raw_line in text:
         line = raw_line.strip()
@@ -264,8 +263,8 @@ class CHBMITDataset(BaseDataset):
     def __init__(
         self,
         root: str,
-        dataset_name: Optional[str] = None,
-        config_path: Optional[str] = None,
+        dataset_name: str | None = None,
+        config_path: str | None = None,
         **kwargs,
     ) -> None:
         if config_path is None:
