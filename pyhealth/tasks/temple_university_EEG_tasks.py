@@ -6,6 +6,46 @@ import numpy as np
 from pyhealth.tasks import BaseTask
 
 
+def read_edf_uv(
+    file_name: str,
+    bandpass_filter: tuple[float, float] | None = None,
+    notch_filter: float | None = None,
+    resample_rate: float | None = None,
+) -> tuple[np.ndarray, list[str], float]:
+    """Read an EDF in microvolts, with optional filtering and resampling.
+
+    Args:
+        file_name: Path to an EDF recording.
+        bandpass_filter: ``(low, high)`` in Hz, or None to skip it.
+        notch_filter: Notch frequency in Hz, or None to skip it.
+        resample_rate: Target rate in Hz, or None to keep the native rate.
+
+    Returns:
+        ``(data, ch_names, sfreq)``: data shaped ``(n_channels, n_samples)``
+        in uV, the channel names, and the rate of ``data`` in Hz.
+
+    Examples:
+        >>> from pyhealth.tasks.temple_university_EEG_tasks import read_edf_uv
+        >>> data, ch_names, sfreq = read_edf_uv(
+        ...     "chb01_03.edf", bandpass_filter=(0.1, 75.0), notch_filter=60.0
+        ... )
+    """
+    raw = mne.io.read_raw_edf(file_name, preload=True, verbose="error")
+    if bandpass_filter is not None:
+        raw.filter(
+            l_freq=bandpass_filter[0], h_freq=bandpass_filter[1], verbose="error"
+        )
+    if notch_filter is not None:
+        raw.notch_filter(notch_filter, verbose="error")
+    if resample_rate is not None:
+        raw.resample(resample_rate, n_jobs=1, verbose="error")
+    data = raw.get_data(units="uV")
+    ch_names = list(raw.ch_names)
+    sfreq = float(raw.info["sfreq"])
+    raw.close()
+    return data, ch_names, sfreq
+
+
 class EEGEventsTUEV(BaseTask):
     """Multi-class classification task for EEG event detection on TUEV.
 
@@ -261,14 +301,9 @@ class EEGAbnormalTUAB(BaseTask):
                              bandpass_filter: Tuple[float, float] = (0.1, 75.0),
                              notch_filter: float = 50.0,
                              ) -> Tuple[np.ndarray, List[str]]:
-        Rawdata = mne.io.read_raw_edf(fileName, preload=True, verbose="error")
-
-        Rawdata.filter(l_freq=bandpass_filter[0], h_freq=bandpass_filter[1], verbose="error")
-        Rawdata.notch_filter(notch_filter, verbose="error")
-        Rawdata.resample(resample_rate, n_jobs=1, verbose="error")
-
-        raw_data = Rawdata.get_data(units="uV")
-        ch_name = Rawdata.ch_names
+        raw_data, ch_name, _ = read_edf_uv(
+            fileName, bandpass_filter, notch_filter, resample_rate
+        )
         return raw_data, ch_name
 
     @staticmethod

@@ -76,6 +76,7 @@ from .tcga_prad import TCGAPRADDataset
 from .splitter import (
     PatientSplit as PatientSplit,
     Split as Split,
+    SubjectSplit as SubjectSplit,
     sample_balanced,
     split_by_patient,
     split_by_patient_conformal,
@@ -86,6 +87,7 @@ from .splitter import (
     split_by_sample_conformal_tuh,
     split_by_sample_tuh,
     split_by_strat_fold as split_by_strat_fold,
+    split_by_subject as split_by_subject,
     split_by_visit,
     split_by_visit_conformal,
 )
@@ -93,6 +95,7 @@ from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
 from .iiic import IIICDataset as IIICDataset
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
+from .chbmit import CHBMITDataset as CHBMITDataset
 from .utils import (
     collate_fn_dict,
     collate_fn_dict_with_padding,
