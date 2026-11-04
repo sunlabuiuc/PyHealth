@@ -92,6 +92,7 @@ from .splitter import (
     split_by_visit_conformal,
 )
 from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
+from .iiic import IIICDataset as IIICDataset
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
 from .chbmit import CHBMITDataset as CHBMITDataset
