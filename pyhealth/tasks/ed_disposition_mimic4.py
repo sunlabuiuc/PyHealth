@@ -37,11 +37,16 @@ which is distributed under the MIT License:
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 from typing import Any, ClassVar
 
+import polars as pl
+
 from .base_task import BaseTask
+
+logger = logging.getLogger(__name__)
 
 #: The pseudo-note domains, in the paper's order. ``codes`` is optional.
 ED_NOTE_DOMAINS = ("arrival", "triage", "medrecon", "vitals", "pyxis", "codes")
@@ -97,7 +102,8 @@ def arrival_note(
         'A 52 year old white female, arrived via ambulance at 2180-05-06 19:17:00.'
     """
     sex = {"F": "female", "M": "male"}.get(str(gender).upper(), "patient")
-    who = f"{_value(race)} {sex}" if race else sex
+    race = _value(race)
+    who = sex if race == "not recorded" else f"{race} {sex}"
     head = f"A {age} year old {who}," if age is not None else f"A {who},"
     return f"{head} arrived via {_value(arrival_transport)} at {_time(intime)}."
 
@@ -431,6 +437,34 @@ class EDOutcomesMIMIC4(EDDispositionMIMIC4):
 
     task_name: str = "EDOutcomesMIMIC4"
     output_schema: ClassVar[dict[str, str]] = {"outcomes": "multilabel"}
+
+    def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        """Warns when the dataset has no ``admissions``: no stay gets a label.
+
+        Args:
+            df: The dataset's global event dataframe.
+
+        Returns:
+            ``df``, unchanged.
+
+        Examples:
+            >>> import polars as pl
+            >>> df = pl.LazyFrame({"event_type": ["edstays"]})
+            >>> EDOutcomesMIMIC4().pre_filter(df) is df  # logs a warning
+            True
+        """
+        admissions = (
+            df.filter(pl.col("event_type") == "admissions")
+            .select(pl.len())
+            .collect()
+            .item()
+        )
+        if admissions == 0:
+            logger.warning(
+                "EDOutcomesMIMIC4 found no 'admissions' events, so it yields no "
+                "samples: load MIMIC4Dataset with an ehr_root as well as ed_root"
+            )
+        return df
 
     def _label(self, patient: Any, stay: Any) -> Any:
         hadm_id = getattr(stay, "hadm_id", None)

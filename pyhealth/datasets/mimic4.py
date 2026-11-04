@@ -370,7 +370,9 @@ class MIMIC4Dataset(BaseDataset):
         ehr_tables = ehr_tables or []
         note_tables = note_tables or []
         cxr_tables = cxr_tables or []
-        ed_tables = list(ed_tables or [])
+        # without ed_root the ED arguments are ignored, so the tables (and the
+        # cache key) are the same as before ED support
+        ed_tables = list(ed_tables or []) if ed_root else []
         if ed_root and "edstays" not in ed_tables:
             ed_tables.append("edstays")
 

@@ -8,16 +8,19 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+import pandas as pd
 import torch
+import yaml
 from transformers import BertConfig, BertModel, BertTokenizerFast
 
+import pyhealth.datasets
 from pyhealth.datasets import (
     MIMIC4Dataset,
     MIMIC4EDDataset,
     create_sample_dataset,
     get_dataloader,
 )
-from pyhealth.models import MEME, DomainSelfAttention
+from pyhealth.models import MEME, DomainSelfAttention, LLMEHREncoder
 from pyhealth.tasks import EDDispositionMIMIC4, EDOutcomesMIMIC4
 from pyhealth.tasks.ed_disposition_mimic4 import (
     arrival_note,
@@ -94,6 +97,12 @@ EHR_TABLES = {
         "2,200,9000,MICU,MICU,2160-04-01 21:00:00,2160-04-03 12:00:00,1.6",
     ],
 }
+NOTE_TABLES = {
+    "note/discharge.csv": [
+        "note_id,subject_id,hadm_id,note_type,note_seq,charttime,storetime,text",
+        "1-DS-1,1,100,DS,1,2150-01-05 00:00:00,2150-01-05 12:00:00,Discharged home.",
+    ],
+}
 
 
 def _write(root, tables):
@@ -113,6 +122,9 @@ class TestNotes(unittest.TestCase):
             arrival_note("F", None, "AMBULANCE", "t"),
             "A female, arrived via ambulance at t.",
         )
+        for missing in (float("nan"), "nan", ""):
+            self.assertEqual(arrival_note("F", missing, "AMBULANCE", "t", 30),
+                             "A 30 year old female, arrived via ambulance at t.")
 
     def test_triage_and_missing_values(self):
         self.assertEqual(triage_note(None), "Triage measurements were not taken.")
@@ -223,6 +235,17 @@ class TestEDTasks(unittest.TestCase):
                          {"11": [], "22": ["discharge_not_home", "mortality", "icu"]})
         self.assertEqual(task.output_schema, {"outcomes": "multilabel"})
 
+    def test_outcomes_warn_without_ehr_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset = MIMIC4Dataset(ed_root=os.path.join(self._tmp.name, "ed"),
+                                    cache_dir=tmp)
+            with self.assertLogs("pyhealth.tasks.ed_disposition_mimic4",
+                                 "WARNING") as logs:
+                EDOutcomesMIMIC4().pre_filter(dataset.global_event_df)
+            self.assertIn("ehr_root", logs.output[0])
+        with self.assertNoLogs("pyhealth.tasks.ed_disposition_mimic4", "WARNING"):
+            EDOutcomesMIMIC4().pre_filter(self.dataset.global_event_df)
+
     def test_ed_dataset_alone(self):
         with tempfile.TemporaryDirectory() as tmp:
             dataset = MIMIC4EDDataset(root=os.path.join(self._tmp.name, "ed"),
@@ -250,6 +273,101 @@ class TestEDTasks(unittest.TestCase):
             trainer.train(train_dataloader=loader, epochs=1)
             scores = trainer.evaluate(get_dataloader(samples, batch_size=4))
             self.assertIn("roc_auc", scores)
+
+
+class TestMIMIC4DatasetEDRoot(unittest.TestCase):
+    """The ``ed_root``, ``ed_tables`` and ``ed_config_path`` of MIMIC4Dataset."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        tmp = cls._tmp.name
+        cls.ed = os.path.join(tmp, "ed")
+        cls.ehr = os.path.join(tmp, "ehr")
+        cls.note = os.path.join(tmp, "note")
+        _write(cls.ed, ED_TABLES)
+        _write(cls.ehr, EHR_TABLES)
+        _write(cls.note, NOTE_TABLES)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def _cache(self):
+        return tempfile.mkdtemp(dir=self._tmp.name)
+
+    def test_root_and_cache_key_unchanged_without_ed_root(self):
+        cache = self._cache()
+        plain = MIMIC4Dataset(ehr_root=self.ehr, cache_dir=cache)
+        self.assertEqual(plain.root, f"{self.ehr}|None|None")
+        self.assertEqual(plain.tables, [])
+        self.assertNotIn("ed", plain.sub_datasets)
+        # ED arguments without ed_root are ignored, so the key is the same
+        ignored = MIMIC4Dataset(ehr_root=self.ehr, ed_tables=["triage"],
+                                ed_config_path="unused.yaml", cache_dir=cache)
+        self.assertEqual(ignored.root, plain.root)
+        self.assertEqual(ignored.tables, plain.tables)
+        self.assertEqual(ignored.cache_dir, plain.cache_dir)
+        with_ed = MIMIC4Dataset(ehr_root=self.ehr, ed_root=self.ed, cache_dir=cache)
+        self.assertEqual(with_ed.root, f"{self.ehr}|None|None|{self.ed}")
+        self.assertNotEqual(with_ed.cache_dir, plain.cache_dir)
+
+    def test_ed_root_alone(self):
+        dataset = MIMIC4Dataset(ed_root=self.ed, ed_tables=["triage"],
+                                cache_dir=self._cache())
+        self.assertEqual(list(dataset.sub_datasets), ["ed"])
+        self.assertIsInstance(dataset.sub_datasets["ed"], MIMIC4EDDataset)
+        self.assertEqual(sorted(dataset.tables), ["edstays", "triage"])
+        self.assertEqual(sorted(dataset.unique_patient_ids), ["1", "2", "3"])
+        triage = dataset.get_patient("1").get_events(event_type="triage")
+        self.assertEqual(len(triage), 2)
+
+    def test_ed_config_path(self):
+        default = os.path.join(os.path.dirname(pyhealth.datasets.__file__),
+                               "configs", "mimic4_ed.yaml")
+        with open(default) as f:
+            config = yaml.safe_load(f)
+        config["tables"] = {k: v for k, v in config["tables"].items()
+                            if k in ("edstays", "triage")}
+        path = os.path.join(self._tmp.name, "custom_ed.yaml")
+        with open(path, "w") as f:
+            yaml.safe_dump(config, f)
+        dataset = MIMIC4Dataset(ed_root=self.ed, ed_tables=["triage"],
+                                ed_config_path=path, cache_dir=self._cache())
+        self.assertEqual(set(dataset.sub_datasets["ed"].config.tables),
+                         {"edstays", "triage"})
+        self.assertEqual(len(dataset.get_patient("1").get_events("triage")), 2)
+
+    def test_ed_with_notes_and_no_root(self):
+        with self.assertRaises(ValueError):
+            MIMIC4Dataset()
+        with self.assertWarns(UserWarning):  # discharge notes are date-only
+            dataset = MIMIC4Dataset(note_root=self.note, note_tables=["discharge"],
+                                    ed_root=self.ed, cache_dir=self._cache())
+        self.assertEqual(list(dataset.sub_datasets), ["note", "ed"])
+        patient = dataset.get_patient("1")
+        self.assertEqual(len(patient.get_events("discharge")), 1)
+        self.assertEqual(len(patient.get_events("edstays")), 2)
+
+    def test_ed_with_cxr(self):
+        cxr = os.path.join(self._tmp.name, "cxr")
+        os.makedirs(cxr, exist_ok=True)
+        pd.DataFrame({
+            "dicom_id": ["d1"], "subject_id": ["1"], "study_id": ["50"],
+            "PerformedProcedureStepDescription": ["CHEST (PA AND LAT)"],
+            "ViewPosition": ["PA"], "Rows": ["3056"], "Columns": ["2544"],
+            "StudyDate": ["21500101"], "StudyTime": ["123.002"],
+            "ProcedureCodeSequence_CodeMeaning": ["CHEST (PA AND LAT)"],
+            "ViewCodeSequence_CodeMeaning": ["postero-anterior"],
+            "PatientOrientationCodeSequence_CodeMeaning": ["Erect"],
+        }).to_csv(os.path.join(cxr, "mimic-cxr-2.0.0-metadata.csv.gz"), index=False)
+        dataset = MIMIC4Dataset(cxr_root=cxr, cxr_tables=["metadata"],
+                                ed_root=self.ed, cache_dir=self._cache())
+        self.assertEqual(list(dataset.sub_datasets), ["cxr", "ed"])
+        (image,) = dataset.get_patient("1").get_events("metadata")
+        self.assertTrue(image.image_path.endswith(
+            os.path.join("files", "p1", "p1", "s50", "d1.jpg")))
+        self.assertEqual(str(image.timestamp), "2150-01-01 00:01:23")
 
 
 def _tiny_encoder(tmp):
@@ -300,6 +418,17 @@ class TestMEME(unittest.TestCase):
         with torch.no_grad():
             expected = self.encoder(**batch).last_hidden_state[:, 0]
         torch.testing.assert_close(model.embed(texts), expected)
+
+    def test_reuses_llm_ehr_encoder(self):
+        model = self._model(_toy_dataset(), max_length=16)
+        encoder = model.text_encoder
+        self.assertIsInstance(encoder, LLMEHREncoder)
+        self.assertEqual((encoder.pooling, encoder.normalize, encoder.max_length),
+                         ("cls", False, 16))
+        self.assertEqual(model.embedding_dim, encoder.embedding_dim)
+        self.assertNotIn(encoder, list(model.modules()))
+        texts = ["arrived via ambulance."]
+        torch.testing.assert_close(model.embed(texts), encoder.embed(texts))
 
     def test_forward_with_and_without_labels(self):
         dataset = _toy_dataset()

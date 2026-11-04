@@ -41,18 +41,15 @@ distributed under the MIT License:
 
 from __future__ import annotations
 
-import hashlib
-import os
 from collections.abc import Callable, Sequence
 from typing import Any
 
-import numpy as np
 import torch
 from torch import nn
 
 from ..datasets import SampleDataset
 from .base_model import BaseModel
-from .llm_ehr_encoder import _save_atomically
+from .llm_ehr_encoder import LLMEHREncoder
 
 READOUTS = ("first", "mean")
 
@@ -118,9 +115,12 @@ class MEME(BaseModel):
     attends over one ``[CLS]`` vector per note, as the paper describes,
     which lets the embeddings be computed once and cached.
 
-    Embeddings are memoized in memory and, with ``cache_dir``, saved on
-    disk, so later epochs and reruns skip the encoder. The encoder is not
-    registered as a submodule: checkpoints hold the head only.
+    The notes are embedded by an :class:`~pyhealth.models.LLMEHREncoder`
+    with ``pooling="cls"`` and ``normalize=False`` (see
+    :attr:`text_encoder`), so embeddings are memoized in memory and, with
+    ``cache_dir``, saved on disk, and later epochs and reruns skip the
+    encoder. That encoder is not registered as a submodule: checkpoints hold
+    the MEME head only.
 
     Args:
         dataset: The dataset; its ``"text"`` inputs are the domains.
@@ -202,68 +202,42 @@ class MEME(BaseModel):
         self.model_name = model_name
         self.max_length = max_length
         self.readout = readout
-        self.batch_size = batch_size
-        if cache_dir and cache_name is None and (
-            encoder is not None or embed_fn is not None
-        ):
-            raise ValueError(
-                "pass cache_name with cache_dir when encoder or embed_fn is "
-                "given, so two encoders sharing a cache_dir cannot read each "
-                "other's vectors"
+        # The frozen encoder, its [CLS] pooling and the embedding caches are
+        # LLMEHREncoder's. It is held in a list so it stays out of the module
+        # tree: not trained, not saved in checkpoints, not moved by .to().
+        self._text_encoder = [
+            LLMEHREncoder(
+                dataset,
+                model_name=model_name,
+                max_length=max_length,
+                pooling="cls",
+                normalize=False,
+                batch_size=batch_size,
+                cache_dir=cache_dir,
+                cache_name=cache_name,
+                memoize=memoize,
+                torch_dtype=torch_dtype,
+                encoder=encoder,
+                tokenizer=tokenizer,
+                embed_fn=embed_fn,
+                text_key=feature_keys[0],
             )
-        self.cache_dir = cache_dir
-        self.cache_name = model_name if cache_name is None else cache_name
-        self.memoize = memoize
-        self._memo: dict[str, torch.Tensor] = {}
-        # kept out of the module tree: not trained, not saved, not moved by .to()
-        self._embed_fn = embed_fn
-        self._encoder: list[nn.Module] = []
-        self._tokenizer = tokenizer
-        if embed_fn is None:
-            if encoder is None:
-                from transformers import AutoModel, AutoTokenizer
-
-                self._tokenizer = AutoTokenizer.from_pretrained(model_name)
-                encoder = AutoModel.from_pretrained(model_name, torch_dtype=torch_dtype)
-            encoder.eval()
-            for p in encoder.parameters():
-                p.requires_grad_(False)
-            self._encoder = [encoder]
-            self._dtype_name = str(next(encoder.parameters()).dtype)
-            dim = encoder.config.hidden_size
-        else:
-            self._dtype_name = ""
-            dim = int(embed_fn(["probe"]).shape[-1])
-        self.embedding_dim = dim
-        self.attention = DomainSelfAttention(dim, dropout)
-        self.fc = nn.Linear(dim, self.get_output_size())
+        ]
+        self.embedding_dim = self.text_encoder.embedding_dim
+        self.attention = DomainSelfAttention(self.embedding_dim, dropout)
+        self.fc = nn.Linear(self.embedding_dim, self.get_output_size())
 
     # ------------------------------------------------------------ embedding
-    def _cache_key(self, text: str) -> str:
-        settings = f"{self.cache_name}|{self.max_length}|cls|{self._dtype_name}|"
-        return hashlib.sha256((settings + text).encode()).hexdigest()
+    @property
+    def text_encoder(self) -> LLMEHREncoder:
+        """The frozen note encoder: an :class:`LLMEHREncoder` with CLS pooling.
 
-    def _cache_path(self, key: str) -> str | None:
-        if not self.cache_dir:
-            return None
-        return os.path.join(self.cache_dir, key[:2], f"{key}.npy")
+        Examples:
+            >>> model.text_encoder.pooling  # doctest: +SKIP
+            'cls'
+        """
+        return self._text_encoder[0]
 
-    def _encode(self, texts: list[str]) -> torch.Tensor:
-        if self._embed_fn is not None:
-            return torch.as_tensor(self._embed_fn(texts), dtype=torch.float32)
-        encoder = self._encoder[0]
-        device = self.device
-        if next(encoder.parameters()).device != device:
-            encoder.to(device)
-        batch = self._tokenizer(texts, padding=True, truncation=True,
-                                max_length=self.max_length, return_tensors="pt")
-        batch = {k: v.to(device) for k, v in batch.items()}
-        hidden = encoder(**batch).last_hidden_state
-        # the [CLS] token: the first non-padding position
-        first = batch["attention_mask"].argmax(dim=1)
-        return hidden[torch.arange(hidden.shape[0], device=device), first].float()
-
-    @torch.no_grad()
     def embed(self, texts: Sequence[str]) -> torch.Tensor:
         """Embeds notes with the frozen encoder, using the caches.
 
@@ -278,32 +252,10 @@ class MEME(BaseModel):
             >>> model.embed(["At triage: acuity score was 2."]).shape  # doctest: +SKIP
             torch.Size([1, 768])
         """
-        keys = [self._cache_key(t) for t in texts]
-        found: dict[str, torch.Tensor] = {}
-        todo: dict[str, str] = {}  # key -> text, first-seen order
-        for key, text in zip(keys, texts):
-            if key in found or key in todo:
-                continue
-            if key in self._memo:
-                found[key] = self._memo[key]
-                continue
-            path = self._cache_path(key)
-            if path and os.path.exists(path):
-                found[key] = torch.from_numpy(np.load(path))
-            else:
-                todo[key] = text
-        items = list(todo.items())
-        for start in range(0, len(items), self.batch_size):
-            chunk = items[start : start + self.batch_size]
-            vectors = self._encode([t for _, t in chunk]).cpu()
-            for (key, _), vector in zip(chunk, vectors):
-                found[key] = vector
-                path = self._cache_path(key)
-                if path:
-                    _save_atomically(path, vector.numpy())
-        if self.memoize:
-            self._memo.update(found)
-        return torch.stack([found[k] for k in keys]).to(self.device)
+        text_encoder = self.text_encoder
+        if text_encoder.device != self.device:
+            text_encoder.to(self.device)
+        return text_encoder.embed(texts)
 
     # -------------------------------------------------------------- forward
     def forward(self, **kwargs) -> dict[str, torch.Tensor]:
