@@ -37,18 +37,23 @@ class MultiHotProcessor(FeatureProcessor):
         - Binary encoding: 1.0 at indices where categories are present, 0.0 elsewhere
         - The size() method returns num_categories (vocabulary size)
 
-    Example:
-        Given samples with ethnicity field:
-            - Sample 1: ["asian", "non_hispanic"]
-            - Sample 2: ["white", "hispanic"]
-            - Sample 3: ["black"]
-
-        After fit():
-            vocabulary = {"asian": 0, "black": 1, "hispanic": 2, "non_hispanic": 3, "white": 4}
-            size() returns 5
-
-        Processing Sample 1 produces:
-            tensor([1.0, 0.0, 0.0, 1.0, 0.0])  # asian and non_hispanic are present
+    Examples:
+        >>> from pyhealth.processors import MultiHotProcessor
+        >>> p = MultiHotProcessor()
+        >>> p.fit(
+        ...     [
+        ...         {"ethnicity": ["asian", "non_hispanic"]},
+        ...         {"ethnicity": ["white", "hispanic"]},
+        ...         {"ethnicity": ["black"]},
+        ...     ],
+        ...     "ethnicity",
+        ... )
+        >>> p.label_vocab
+        {'asian': 0, 'black': 1, 'hispanic': 2, 'non_hispanic': 3, 'white': 4}
+        >>> p.size()
+        5
+        >>> p.process(["asian", "non_hispanic"])
+        tensor([1., 0., 0., 1., 0.])
 
     Note:
         The processor sorts categories alphabetically during vocabulary construction
