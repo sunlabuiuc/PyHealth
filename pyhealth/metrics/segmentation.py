@@ -152,6 +152,18 @@ def remap_class_mask(
     Raises:
         ValueError: If the mask length does not match the probabilities, is
             all false, or does not include background.
+
+    Examples:
+        >>> import numpy as np
+        >>> target = np.array([[0, 1]])
+        >>> probability = np.zeros((3, 1, 2))
+        >>> remapped, selected = remap_class_mask(
+        ...     target, probability, [1, 0, 1]
+        ... )
+        >>> remapped.tolist()
+        [[0, 255]]
+        >>> selected.shape
+        (2, 1, 2)
     """
     target = _spatial_target(y_true)
     probability = _to_numpy(y_prob)
