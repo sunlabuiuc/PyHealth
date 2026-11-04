@@ -294,6 +294,10 @@ Available Datasets
     datasets/pyhealth.datasets.BaseDataset
     datasets/pyhealth.datasets.SampleDataset
     datasets/pyhealth.datasets.PatchDataset
+    MSD Base Loader <datasets/pyhealth.datasets.MSDSegmentationDataset>
+    datasets/pyhealth.datasets.MSDHippocampusDataset
+    datasets/pyhealth.datasets.MSDProstateDataset
+    datasets/pyhealth.datasets.MSDSpleenDataset
     datasets/pyhealth.datasets.MIMIC3Dataset
     datasets/pyhealth.datasets.MIMIC4Dataset
     datasets/pyhealth.datasets.MIMIC4EDDataset

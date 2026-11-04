@@ -63,6 +63,12 @@ from .ehrshot import EHRShotDataset
 from .eicu import eICUDataset
 from .isruc import ISRUCDataset
 from .medical_transcriptions import MedicalTranscriptionsDataset
+from .msd import (
+    MSDHippocampusDataset as MSDHippocampusDataset,
+    MSDProstateDataset as MSDProstateDataset,
+    MSDSegmentationDataset as MSDSegmentationDataset,
+    MSDSpleenDataset as MSDSpleenDataset,
+)
 from .meds import MEDSDataset as MEDSDataset
 from .metabric import MetabricDataset as MetabricDataset
 from .mimic3 import MIMIC3Dataset
