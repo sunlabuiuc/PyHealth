@@ -5,6 +5,8 @@
 
 .. autofunction:: multilabel_metrics_fn
 
+.. autofunction:: multilabel_ranking_at_k
+
 
 Metric order
 ------------

@@ -19,6 +19,7 @@ from .interpretability import (
 )
 from .multiclass import multiclass_metrics_fn
 from .multilabel import multilabel_metrics_fn
+from .multilabel import multilabel_ranking_at_k as multilabel_ranking_at_k
 from .ranking import ranking_metrics_fn
 from .regression import regression_metrics_fn, timeseries_regression_metrics_fn
 from .survival import (
@@ -49,6 +50,7 @@ __all__ = [
     "ipcw_brier_score",
     "multiclass_metrics_fn",
     "multilabel_metrics_fn",
+    "multilabel_ranking_at_k",
     "paired_bootstrap_diff",
     "ranking_metrics_fn",
     "regression_metrics_fn",

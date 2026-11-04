@@ -80,6 +80,12 @@ from .generators.synthea import Synthea as Synthea
 from .generators.corgan import CorGAN as CorGAN
 from .survival_mdn import SurvivalMDN as SurvivalMDN
 from .trajsurv import TrajSurv as TrajSurv
+from .trace import (
+    TRACE as TRACE,
+    TRACEAttention as TRACEAttention,
+    TRACELayer as TRACELayer,
+    TRACETimeEmbedding as TRACETimeEmbedding,
+)
 from .heartlang import (
     HeartLang as HeartLang,
     HeartLangBackbone as HeartLangBackbone,
