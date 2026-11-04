@@ -275,6 +275,7 @@ API Reference
     models/pyhealth.models.survival_mdn
     models/pyhealth.models.TrajSurv
     models/pyhealth.models.KnowRare
+    models/pyhealth.models.APRICOTM
     models/pyhealth.models.ProtoECGNet
     models/pyhealth.models.HeartLang
     models/pyhealth.models.APN

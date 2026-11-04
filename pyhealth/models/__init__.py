@@ -81,6 +81,7 @@ from .generators.corgan import CorGAN as CorGAN
 from .survival_mdn import SurvivalMDN as SurvivalMDN
 from .trajsurv import TrajSurv as TrajSurv
 from .knowrare import KnowRare as KnowRare
+from .apricotm import APRICOTM as APRICOTM, SelectiveSSM as SelectiveSSM
 from .heartlang import (
     HeartLang as HeartLang,
     HeartLangBackbone as HeartLangBackbone,
