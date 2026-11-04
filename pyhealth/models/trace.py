@@ -27,6 +27,7 @@ from torch import nn
 
 from ..datasets import SampleDataset
 from .base_model import BaseModel
+from .transformer import PositionwiseFeedForward
 
 
 class TRACETimeEmbedding(nn.Module):
@@ -178,12 +179,9 @@ class TRACELayer(nn.Module):
         super().__init__()
         self.attention = TRACEAttention(hidden_dim, num_heads, max_len, dropout)
         self.attention_norm = nn.LayerNorm(hidden_dim)
-        self.ffn = nn.Sequential(
-            nn.Linear(hidden_dim, 4 * hidden_dim),
-            nn.GELU(approximate="tanh"),
-            nn.Dropout(dropout),
-            nn.Linear(4 * hidden_dim, hidden_dim),
-        )
+        self.ffn = PositionwiseFeedForward(hidden_dim, 4 * hidden_dim, dropout)
+        # the authors' code uses the tanh approximation of GELU
+        self.ffn.activation = nn.GELU(approximate="tanh")
         self.ffn_norm = nn.LayerNorm(hidden_dim)
         self.dropout = nn.Dropout(dropout)
 
