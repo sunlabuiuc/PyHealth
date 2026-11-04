@@ -3,8 +3,12 @@ from typing import Any, Dict, List, Optional, Tuple, Iterable
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor, ModalityType, TemporalFeatureProcessor, TokenProcessorInterface
-from .base_processor import _warn_truncated
+from .base_processor import (
+    ModalityType,
+    TemporalFeatureProcessor,
+    TokenProcessorInterface,
+    _warn_truncated,
+)
 
 
 @register_processor("stagenet")
