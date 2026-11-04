@@ -1,21 +1,20 @@
 # Author: Jathurshan Pradeepkumar
 # NetID: jp65
-# Paper Title: Development of Expert-Level Classification of Seizures and Rhythmic and Periodic Patterns During EEG Interpretation; Tokenizing Single-Channel EEG with Time-Frequency Motif Learning
-# Paper Link: https://pubmed.ncbi.nlm.nih.gov/36878708/ ; https://arxiv.org/pdf/2502.16060
-# Description: IIIC Seizure and Ictal-Interictal-Injury Continuum EEG classification task for PyHealth
+# Paper Title: Tokenizing Single-Channel EEG with Time-Frequency Motif Learning
+# Paper Link: https://arxiv.org/pdf/2502.16060
+# Description: IIIC Seizure 6-class EEG classification task for PyHealth
 
-from pathlib import Path
 import pickle
-from typing import Any, Dict, List, Optional, Union
+from pathlib import Path
+from typing import Any, ClassVar
 
 import numpy as np
-from scipy.signal import resample
 import torch
+from scipy.signal import resample
 
 from pyhealth.tasks import BaseTask
 
-
-IIIC_CLASSES: Dict[int, str] = {
+IIIC_CLASSES: dict[int, str] = {
     0: "Other",
     1: "SZ",
     2: "LPD",
@@ -51,7 +50,8 @@ class EEGSeizureIIIC(BaseTask):
         signal_len: Segment duration in seconds. Default is ``10``.
         normalization: Signal normalization strategy:
             - ``"95th_percentile"`` (default): divides each channel by its 95th
-              percentile absolute value ``np.quantile(np.abs(X), q=0.95, axis=-1) + 1e-8``
+              percentile absolute value
+              ``np.quantile(np.abs(X), q=0.95, axis=-1) + 1e-8``
               (used in TFM-Tokenizer).
             - ``"div_by_100"``: divides signal values by ``100.0``.
             - ``None`` or ``"none"``: leaves raw signal amplitudes unchanged.
@@ -60,7 +60,8 @@ class EEGSeizureIIIC(BaseTask):
             :class:`~pyhealth.models.TFMTokenizer`. Set to ``False`` when using
             time-domain models with a single feature key such as
             :class:`~pyhealth.models.SparcNet`. Default is ``True``.
-        splits: Optional subset of splits to emit (e.g., ``("train", "val", "test")``).
+        splits: Optional subset of splits to emit
+            (e.g., ``("train", "val", "test")``).
             Default is ``("train", "val", "test")``.
 
     Examples:
@@ -73,22 +74,23 @@ class EEGSeizureIIIC(BaseTask):
     """
 
     task_name: str = "EEG_seizure_IIIC"
-    input_schema: Dict[str, str] = {"signal": "tensor", "stft": "tensor"}
-    output_schema: Dict[str, str] = {"label": "multiclass"}
+    input_schema: ClassVar[dict[str, str]] = {"signal": "tensor", "stft": "tensor"}
+    output_schema: ClassVar[dict[str, str]] = {"label": "multiclass"}
     DEFAULT_SAMPLING_RATE: int = 200
 
     def __init__(
         self,
         resample_rate: int = 200,
         signal_len: int = 10,
-        normalization: Optional[str] = "95th_percentile",
+        normalization: str | None = "95th_percentile",
         compute_stft: bool = True,
-        splits: Union[tuple, List[str]] = ("train", "val", "test"),
+        splits: tuple[str, ...] | list[str] = ("train", "val", "test"),
     ) -> None:
         super().__init__()
         if normalization not in (None, "none", "95th_percentile", "div_by_100"):
             raise ValueError(
-                "normalization must be one of {'95th_percentile', 'div_by_100', None, 'none'}"
+                "normalization must be one of "
+                "{'95th_percentile', 'div_by_100', None, 'none'}"
             )
         self.resample_rate = int(resample_rate)
         self.signal_len = int(signal_len)
@@ -104,8 +106,8 @@ class EEGSeizureIIIC(BaseTask):
     @staticmethod
     def load_segment(
         signal_file: str,
-        fallback_label: Optional[Any] = None,
-    ) -> tuple[np.ndarray, Optional[int]]:
+        fallback_label: Any | None = None,
+    ) -> tuple[np.ndarray, int | None]:
         """Load a single EEG segment from a ``.pkl`` or ``.npy`` file.
 
         Supports:
@@ -122,9 +124,11 @@ class EEGSeizureIIIC(BaseTask):
             Tuple of ``(signal_array, label_int)``.
         """
         file_str = str(signal_file)
-        label: Optional[int] = (
+        label: int | None = (
             int(fallback_label)
-            if fallback_label is not None and str(fallback_label) != "" and not _is_na(fallback_label)
+            if fallback_label is not None
+            and str(fallback_label) != ""
+            and not _is_na(fallback_label)
             else None
         )
 
@@ -146,11 +150,10 @@ class EEGSeizureIIIC(BaseTask):
             else:
                 signal = np.asarray(data, dtype=np.float32)
             return signal, label
-        elif suffix == ".npy":
+        if suffix == ".npy":
             signal = np.asarray(np.load(path), dtype=np.float32)
             return signal, label
-        else:
-            raise ValueError(f"Unsupported signal file format: {signal_file}")
+        raise ValueError(f"Unsupported signal file format: {signal_file}")
 
     def preprocess_signal(self, signal: np.ndarray) -> np.ndarray:
         """Apply resampling and amplitude normalization following ``IIICloader``.
@@ -164,7 +167,7 @@ class EEGSeizureIIIC(BaseTask):
         X = np.asarray(signal, dtype=np.float32)
         target_len = self.resample_rate * self.signal_len
         if (
-            self.DEFAULT_SAMPLING_RATE != self.resample_rate
+            self.resample_rate != self.DEFAULT_SAMPLING_RATE
             or X.shape[-1] != target_len
         ):
             X = resample(X, target_len, axis=-1).astype(np.float32)
@@ -179,7 +182,7 @@ class EEGSeizureIIIC(BaseTask):
 
         return X.astype(np.float32)
 
-    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
         """Process all IIIC EEG segments for a single patient.
 
         Args:
@@ -192,7 +195,7 @@ class EEGSeizureIIIC(BaseTask):
             ``compute_stft=True``) ``stft``.
         """
         pid = patient.patient_id
-        samples: List[Dict[str, Any]] = []
+        samples: list[dict[str, Any]] = []
 
         events = patient.get_events(event_type="signal")
         if not events:
@@ -225,7 +228,7 @@ class EEGSeizureIIIC(BaseTask):
             proc_signal = self.preprocess_signal(raw_signal)
             signal_tensor = torch.FloatTensor(proc_signal)
 
-            sample: Dict[str, Any] = {
+            sample: dict[str, Any] = {
                 "patient_id": str(pid),
                 "record_id": str(record_id),
                 "signal_file": str(signal_file),

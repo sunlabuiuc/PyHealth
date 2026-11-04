@@ -1,15 +1,14 @@
 # Author: Jathurshan Pradeepkumar
 # NetID: jp65
-# Paper Title: Development of Expert-Level Classification of Seizures and Rhythmic and Periodic Patterns During EEG Interpretation; Tokenizing Single-Channel EEG with Time-Frequency Motif Learning
-# Paper Link: https://pubmed.ncbi.nlm.nih.gov/36878708/ ; https://arxiv.org/pdf/2502.16060
+# Paper Title: Tokenizing Single-Channel EEG with Time-Frequency Motif Learning
+# Paper Link: https://arxiv.org/pdf/2502.16060
 # Description: Unit tests for IIICDataset and EEGSeizureIIIC task
 
-from dataclasses import dataclass
-from pathlib import Path
 import pickle
 import tempfile
-from typing import List, Optional
 import unittest
+from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -22,16 +21,16 @@ from pyhealth.tasks import EEGSeizureIIIC, IIICSeizureClassification
 class _DummyEvent:
     record_id: str
     signal_file: str
-    label: Optional[int] = None
+    label: int | None = None
     split: str = "train"
 
 
 class _DummyPatient:
-    def __init__(self, patient_id: str, events: List[_DummyEvent]):
+    def __init__(self, patient_id: str, events: list[_DummyEvent]):
         self.patient_id = patient_id
         self._events = events
 
-    def get_events(self, event_type=None) -> List[_DummyEvent]:
+    def get_events(self, event_type=None) -> list[_DummyEvent]:
         if event_type in (None, "signal"):
             return self._events
         return []
@@ -43,7 +42,7 @@ class TestIIICDataset(unittest.TestCase):
     def _create_raw_s3_npy_layout(self, root: Path) -> None:
         """Create synthetic BDSP S3 sparcnet_data .npy files."""
         rng = np.random.RandomState(42)
-        # 8 segments across 5 patients + 1 duplicate key + 1 low-vote segment + 1 zero-std segment
+        # 8 segments across 5 patients + 1 duplicate + 1 low-vote + 1 zero-std
         keys = np.array(
             [
                 "abn10001_20140101_100000_001",
@@ -52,9 +51,9 @@ class TestIIICDataset(unittest.TestCase):
                 "abn10003_20140103_120000_001",
                 "abn10004_20140104_130000_001",
                 "abn10005_20140105_140000_001",
-                "abn10001_20140101_100000_001",  # duplicate key -> should be deduplicated
-                "abn10006_20140106_150000_001",  # low vote sum <= 3 -> filtered out
-                "abn10007_20140107_160000_001",  # flat zero signal -> filtered out
+                "abn10001_20140101_100000_001",  # duplicate -> deduplicated
+                "abn10006_20140106_150000_001",  # vote sum <= 3 -> filtered
+                "abn10007_20140107_160000_001",  # flat signal -> filtered
             ],
             dtype="<U30",
         )
@@ -132,10 +131,13 @@ class TestIIICDataset(unittest.TestCase):
             df = pd.read_csv(csv_path)
             # 6 valid unique segments across 5 unique patients (abn10001..abn10005)
             self.assertEqual(len(df), 6)
-            self.assertEqual(set(df["patient_id"]), {"abn10001", "abn10002", "abn10003", "abn10004", "abn10005"})
+            self.assertEqual(
+                set(df["patient_id"]),
+                {"abn10001", "abn10002", "abn10003", "abn10004", "abn10005"},
+            )
 
             # Check patient-level split disjointness (no patient in multiple splits)
-            for pid, group in df.groupby("patient_id"):
+            for _pid, group in df.groupby("patient_id"):
                 self.assertEqual(len(group["split"].unique()), 1)
 
             # Verify train_df.csv, val_df.csv, test_df.csv and .pkl files were created

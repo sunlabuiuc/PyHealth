@@ -1,31 +1,31 @@
 # Author: Jathurshan Pradeepkumar
 # NetID: jp65
-# Paper Title: Development of Expert-Level Classification of Seizures and Rhythmic and Periodic Patterns During EEG Interpretation; Tokenizing Single-Channel EEG with Time-Frequency Motif Learning
-# Paper Link: https://pubmed.ncbi.nlm.nih.gov/36878708/ ; https://arxiv.org/pdf/2502.16060
+# Paper Title: Tokenizing Single-Channel EEG with Time-Frequency Motif Learning
+# Paper Link: https://arxiv.org/pdf/2502.16060
 # Description: IIIC Seizure (SPaRCNet) EEG dataset integration for PyHealth
 
 import json
 import logging
-from pathlib import Path
 import pickle
-from typing import Dict, List, Optional, Tuple
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from .base_dataset import BaseDataset
 from pyhealth.tasks.iiic_seizure_classification import EEGSeizureIIIC
+
+from .base_dataset import BaseDataset
 
 logger = logging.getLogger(__name__)
 
 
 class IIICDataset(BaseDataset):
-    """Base EEG dataset for the IIIC Seizure and Rhythmic/Periodic Patterns Corpus (SPaRCNet).
+    """Base EEG dataset for the IIIC Seizure Corpus (SPaRCNet).
 
     Dataset is available via the Brain Data Science Platform (BDSP):
       - Website / Paper repo: https://github.com/bdsp-core/IIIC-SPaRCNet
       - AWS S3 Access Point:
-        ``aws s3 ls s3://arn:aws:s3:us-east-1:184438910517:accesspoint/bdsp-restricted-access-point/sparcnet_data/``
+        ``s3://arn:aws:s3:us-east-1:184438910517:accesspoint/bdsp-restricted-access-point/sparcnet_data/``
 
     References:
       - Jing, J., Ge, W., Hong, S., Fernandes, M. B., Lin, Z., Yang, C., An, S.,
@@ -63,12 +63,13 @@ class IIICDataset(BaseDataset):
          TFM-Tokenizer / SPaRCNet filtering pipeline (retaining segments with
          ``votes.sum(axis=1) > vote_threshold``, sorting and deduplicating by
          ``key``, removing flat zero-variance segments with ``std == 0``),
-         performs a deterministic patient-level split (``patient_id = key.split('_')[0]``,
-         60% train / 20% val / 20% test with ``np.random.RandomState(seed)``),
-         saves per-segment ``{split}/{key}.pkl`` files (if ``save_pkl=True``),
-         and writes ``train_df.csv``, ``val_df.csv``, ``test_df.csv``, and
-         ``iiic-processed.csv``.
-      2. **Pre-extracted ``.pkl`` + ``*_df.csv`` Layout** (e.g., ``/srv/local/data/jp65/IIIC/``):
+         performs a deterministic patient-level split
+         (``patient_id = key.split('_')[0]``, 60% train / 20% val / 20% test with
+         ``np.random.RandomState(seed)``), saves per-segment ``{split}/{key}.pkl``
+         files (if ``save_pkl=True``), and writes ``train_df.csv``, ``val_df.csv``,
+         ``test_df.csv``, and ``iiic-processed.csv``.
+      2. **Pre-extracted ``.pkl`` + ``*_df.csv`` Layout**
+         (e.g., ``/srv/local/data/jp65/IIIC/``):
          Contains ``train_df.csv``, ``val_df.csv``, ``test_df.csv`` and ``train/``,
          ``val/``, ``test/`` directories of ``{key}.pkl`` files. ``prepare_metadata()``
          reads these directly and builds ``iiic-processed.csv`` without re-extracting.
@@ -90,7 +91,8 @@ class IIICDataset(BaseDataset):
             (matching ``Biosignal_Token`` / TFM-Tokenizer).
         save_pkl: When processing raw ``.npy`` files, whether to extract each valid
             segment to ``{split}/{key}.pkl``. If ``False``, ``signal_file`` references
-            slices in the ``.npy`` file directly via ``path.npy::idx``. Default is ``True``.
+            slices in the ``.npy`` file directly via ``path.npy::idx``.
+            Default is ``True``.
         refresh_metadata: If ``True``, rebuild ``iiic-processed.csv`` even if it
             already exists. Default is ``False``.
         **kwargs: Additional keyword arguments passed to :class:`BaseDataset`
@@ -107,12 +109,12 @@ class IIICDataset(BaseDataset):
     def __init__(
         self,
         root: str,
-        tables: Optional[List[str]] = None,
-        dataset_name: Optional[str] = None,
-        config_path: Optional[str] = None,
+        tables: list[str] | None = None,
+        dataset_name: str | None = None,
+        config_path: str | None = None,
         subset: str = "all",
         vote_threshold: int = 3,
-        split_ratios: Tuple[float, float, float] = (0.6, 0.2, 0.2),
+        split_ratios: tuple[float, float, float] = (0.6, 0.2, 0.2),
         seed: int = 5,
         save_pkl: bool = True,
         refresh_metadata: bool = False,
@@ -183,7 +185,8 @@ class IIICDataset(BaseDataset):
             "val": root / "val_df.csv",
             "test": root / "test_df.csv",
         }
-        if any(p.exists() for p in split_csvs.values()) and not self._has_only_raw_npy(root):
+        has_csvs = any(p.exists() for p in split_csvs.values())
+        if has_csvs and not self._has_only_raw_npy(root):
             df = self._build_metadata_from_split_csvs(root, split_csvs)
             if not df.empty:
                 self._save_metadata_csv(df, shared_csv, cache_csv)
@@ -209,10 +212,10 @@ class IIICDataset(BaseDataset):
 
     @staticmethod
     def _build_metadata_from_split_csvs(
-        root: Path, split_csvs: Dict[str, Path]
+        root: Path, split_csvs: dict[str, Path]
     ) -> pd.DataFrame:
-        """Construct unified metadata dataframe from ``train_df.csv``, ``val_df.csv``, ``test_df.csv``."""
-        rows: List[Dict[str, object]] = []
+        """Construct unified metadata dataframe from split ``*_df.csv`` files."""
+        rows: list[dict[str, object]] = []
         vote_cols = ["0", "1", "2", "3", "4", "5"]
 
         for split, csv_path in split_csvs.items():
@@ -267,8 +270,8 @@ class IIICDataset(BaseDataset):
 
     @staticmethod
     def _build_metadata_from_pkl_dirs(root: Path) -> pd.DataFrame:
-        """Fallback builder that scans ``train/``, ``val/``, ``test/`` for ``.pkl`` files."""
-        rows: List[Dict[str, object]] = []
+        """Fallback builder scanning ``train/``, ``val/``, ``test/`` for ``.pkl``."""
+        rows: list[dict[str, object]] = []
         for split in ("train", "val", "test"):
             split_dir = root / split
             if not split_dir.is_dir():
@@ -282,8 +285,13 @@ class IIICDataset(BaseDataset):
                         data = pickle.load(f)
                     if isinstance(data, dict) and "label" in data:
                         label = int(data["label"])
-                except Exception:
-                    pass
+                except (
+                    OSError,
+                    pickle.UnpicklingError,
+                    ValueError,
+                    KeyError,
+                ) as exc:
+                    logger.debug("Failed to read label from %s: %s", pkl_path, exc)
                 rows.append(
                     {
                         "patient_id": pid,
@@ -305,7 +313,7 @@ class IIICDataset(BaseDataset):
 
     def _discover_raw_npy_sources(
         self, root: Path
-    ) -> List[Tuple[Path, Path, Path]]:
+    ) -> list[tuple[Path, Path, Path]]:
         """Locate raw ``(X_path, Y_path, key_path)`` triplets in ``root``.
 
         Checks for:
@@ -314,10 +322,12 @@ class IIICDataset(BaseDataset):
           - ``training_{X,Y,key}.npy`` (local ``IIIC_data`` naming)
           - ``test_{X,Y,key}.npy`` or ``10_test_{X,Y,key}.npy`` if all three exist
         """
-        sources: List[Tuple[Path, Path, Path]] = []
+        sources: list[tuple[Path, Path, Path]] = []
 
         if self.subset == "10_train":
-            train_candidates = [("10_train_X.npy", "10_train_Y.npy", "10_train_key.npy")]
+            train_candidates = [
+                ("10_train_X.npy", "10_train_Y.npy", "10_train_key.npy")
+            ]
         else:
             train_candidates = [
                 ("all_train_X.npy", "all_train_Y.npy", "all_train_key.npy"),
@@ -333,7 +343,7 @@ class IIICDataset(BaseDataset):
                 sources.append((x_p, y_p, k_p))
                 break
 
-        # Also check if labeled test set exists (e.g., test_X.npy, test_Y.npy, test_key.npy)
+        # Also check if labeled test set exists (e.g., test_X/Y/key.npy)
         test_candidates = [
             ("test_X.npy", "test_Y.npy", "test_key.npy"),
             ("10_test_X.npy", "10_test_Y.npy", "10_test_key.npy"),
@@ -350,8 +360,8 @@ class IIICDataset(BaseDataset):
         return sources
 
     @staticmethod
-    def _find_npy_file(root: Path, filename: str) -> Optional[Path]:
-        """Find ``filename`` directly in ``root`` or one level below (e.g. ``17_data_EEG_1115/`` or ``data_1109/``)."""
+    def _find_npy_file(root: Path, filename: str) -> Path | None:
+        """Find ``filename`` in ``root`` or one directory level below."""
         direct = root / filename
         if direct.is_file():
             return direct
@@ -365,7 +375,7 @@ class IIICDataset(BaseDataset):
         self,
         root: Path,
         cache_dir: Path,
-        raw_sources: List[Tuple[Path, Path, Path]],
+        raw_sources: list[tuple[Path, Path, Path]],
     ) -> pd.DataFrame:
         """Process raw ``.npy`` files following ``Biosignal_Token`` / SPaRCNet pipeline.
 
@@ -375,13 +385,14 @@ class IIICDataset(BaseDataset):
           3. Sort by ``key`` ascending and drop duplicate ``key``s (``keep='first'``).
           4. Filter out flat/corrupted signals where ``xi.astype(float).std() == 0``.
           5. Extract ``pid = key.split('_')[0]`` and deterministically split unique
-             patients into ``train``, ``val``, ``test`` using ``np.random.RandomState(self.seed)``
-             according to ``self.split_ratios`` (60% / 20% / 20% by default).
+             patients into ``train``, ``val``, ``test`` using
+             ``np.random.RandomState(self.seed)`` according to ``self.split_ratios``
+             (60% / 20% / 20% by default).
           6. Save per-segment ``{split}/{key}.pkl`` files (if ``self.save_pkl=True``)
              and ``{split}_df.csv`` files.
         """
-        df_parts: List[pd.DataFrame] = []
-        x_arrays: List[np.ndarray] = []
+        df_parts: list[pd.DataFrame] = []
+        x_arrays: list[np.ndarray] = []
 
         for source_id, (x_path, y_path, k_path) in enumerate(raw_sources):
             X_mmap = np.load(x_path, mmap_mode="r")
@@ -422,7 +433,7 @@ class IIICDataset(BaseDataset):
         combined = pd.concat(df_parts, axis=0, ignore_index=True)
 
         # Filter out flat zero-std segments
-        valid_mask: List[bool] = []
+        valid_mask: list[bool] = []
         for rec in combined[["source_id", "row_idx"]].to_dict(orient="records"):
             xi = x_arrays[int(rec["source_id"])][int(rec["row_idx"])]
             valid_mask.append(bool(np.asarray(xi, dtype=np.float64).std() > 0))
@@ -469,7 +480,7 @@ class IIICDataset(BaseDataset):
                 target_base = cache_dir
                 target_base.mkdir(parents=True, exist_ok=True)
 
-        rows: List[Dict[str, object]] = []
+        rows: list[dict[str, object]] = []
         for split in ("train", "val", "test"):
             split_sub = combined[combined["split"] == split].copy()
             if split_sub.empty:
@@ -485,8 +496,8 @@ class IIICDataset(BaseDataset):
                 split_sub[csv_cols].to_csv(
                     target_base / f"{split}_df.csv", index=False
                 )
-            except (PermissionError, OSError):
-                pass
+            except (PermissionError, OSError) as exc:
+                logger.debug("Could not write %s_df.csv: %s", split, exc)
 
             for rec in split_sub.to_dict(orient="records"):
                 src_id = int(rec["source_id"])
