@@ -19,6 +19,7 @@ References:
       https://github.com/Jathurshan0330/TFM-Tokenizer
 """
 
+import hashlib
 import logging
 from pathlib import Path
 
@@ -29,6 +30,23 @@ from pyhealth.tasks import SeizureDetectionCHBMIT
 from .base_dataset import BaseDataset
 
 logger = logging.getLogger(__name__)
+
+
+def _metadata_cache_dir(root: str | Path) -> Path:
+    """Return the home-cache directory used when ``root`` is not writable.
+
+    The directory is keyed by a hash of the resolved root, so two dataset
+    roots never share cached metadata or each other's ``signal_file`` paths.
+
+    Args:
+        root: Dataset root directory.
+
+    Returns:
+        ``~/.cache/pyhealth/chbmit/<hash of root>``.
+    """
+    resolved = str(Path(root).expanduser().resolve())
+    digest = hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:16]
+    return Path.home() / ".cache" / "pyhealth" / "chbmit" / digest
 
 
 def _seconds_before_unit(line: str) -> int | None:
@@ -228,8 +246,8 @@ class CHBMITDataset(BaseDataset):
     ``chbXX/chbXX-summary.txt``.
 
     ``prepare_metadata`` writes ``chbmit-pyhealth.csv`` (one row per EDF)
-    next to the raw files, or under ``~/.cache/pyhealth/chbmit`` when the
-    dataset directory is not writable. The default task,
+    next to the raw files, or under ``~/.cache/pyhealth/chbmit/<hash of
+    root>`` when the dataset directory is not writable. The default task,
     :class:`~pyhealth.tasks.SeizureDetectionCHBMIT`, cuts 10-second windows.
 
     The CBraMod / TFM-Tokenizer subject split is available as
@@ -275,7 +293,7 @@ class CHBMITDataset(BaseDataset):
         self.prepare_metadata()
 
         root_path = Path(root)
-        cache_dir = Path.home() / ".cache" / "pyhealth" / "chbmit"
+        cache_dir = _metadata_cache_dir(root_path)
         shared_csv = root_path / "chbmit-pyhealth.csv"
         cache_csv = cache_dir / "chbmit-pyhealth.csv"
         if not shared_csv.exists() and cache_csv.exists():
@@ -300,10 +318,10 @@ class CHBMITDataset(BaseDataset):
 
         Returns:
             None. The CSV path is either ``<root>/chbmit-pyhealth.csv`` or
-            ``~/.cache/pyhealth/chbmit/chbmit-pyhealth.csv``.
+            ``~/.cache/pyhealth/chbmit/<hash of root>/chbmit-pyhealth.csv``.
         """
         root = Path(self.root)
-        cache_dir = Path.home() / ".cache" / "pyhealth" / "chbmit"
+        cache_dir = _metadata_cache_dir(root)
         shared_csv = root / "chbmit-pyhealth.csv"
         cache_csv = cache_dir / "chbmit-pyhealth.csv"
         if shared_csv.exists() or cache_csv.exists():

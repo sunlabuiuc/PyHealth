@@ -19,12 +19,13 @@ import logging
 import math
 from typing import Any, ClassVar
 
-import mne
 import numpy as np
 import torch
 from scipy.signal import resample
 
 from pyhealth.tasks import BaseTask
+from pyhealth.tasks.eegbci import normalize_signal
+from pyhealth.tasks.temple_university_EEG_tasks import read_edf_uv
 
 logger = logging.getLogger(__name__)
 
@@ -227,35 +228,6 @@ def _window_is_seizure(
     return False
 
 
-def _normalize_window(window: np.ndarray, normalization: str | None) -> np.ndarray:
-    """Scale one window the way CBraMod or TFM-Tokenizer does.
-
-    Args:
-        window: Array of shape ``(channels, samples)``.
-        normalization: ``None``, ``"div_by_100"`` (CBraMod) or
-            ``"95th_percentile"`` (TFM-Tokenizer).
-
-    Returns:
-        The scaled window. ``None`` returns the input unchanged.
-
-    Raises:
-        ValueError: If ``normalization`` is not one of the supported names.
-    """
-    if normalization is None:
-        return window
-    if normalization == "div_by_100":
-        return window / 100.0
-    if normalization == "95th_percentile":
-        scale = np.quantile(
-            np.abs(window), q=0.95, method="linear", axis=-1, keepdims=True
-        )
-        return window / (scale + 1e-8)
-    raise ValueError(
-        "normalization must be None, 'div_by_100' or '95th_percentile', "
-        f"got {normalization!r}"
-    )
-
-
 class SeizureDetectionCHBMIT(BaseTask):
     """Binary seizure detection on CHB-MIT, in the CBraMod windowing.
 
@@ -342,7 +314,7 @@ class SeizureDetectionCHBMIT(BaseTask):
                 "label_mode must be 'overlap' or 'cbramod', got " f"{label_mode!r}"
             )
         # Validate early so a bad name fails before any EDF is read.
-        _normalize_window(np.zeros((1, 2)), normalization)
+        normalize_signal(np.zeros((1, 2)), normalization)
         # Plain floats keep round() returning an int for window lengths.
         self.resample_rate = float(resample_rate)
         self.window_sec = float(window_sec)
@@ -353,8 +325,12 @@ class SeizureDetectionCHBMIT(BaseTask):
         self.oversample_seizures = oversample_seizures
         self.oversample_stride_sec = float(oversample_stride_sec)
         self.label_mode = label_mode
+        # A sorted tuple, not a set: vars(task) feeds the task cache key, and
+        # str(set) order changes with the per-process hash seed.
         self.subjects = (
-            None if subjects is None else {_normalize_subject(s) for s in subjects}
+            None
+            if subjects is None
+            else tuple(sorted({_normalize_subject(s) for s in subjects}))
         )
         if not compute_stft:
             self.input_schema = {"signal": "tensor"}
@@ -371,19 +347,9 @@ class SeizureDetectionCHBMIT(BaseTask):
             none of the 16 bipolar channels.
         """
         try:
-            raw = mne.io.read_raw_edf(file_name, preload=True, verbose="error")
-            if self.bandpass_filter is not None:
-                raw.filter(
-                    l_freq=self.bandpass_filter[0],
-                    h_freq=self.bandpass_filter[1],
-                    verbose="error",
-                )
-            if self.notch_filter is not None:
-                raw.notch_filter(self.notch_filter, verbose="error")
-            data = raw.get_data(units="uV")
-            ch_names = list(raw.ch_names)
-            sfreq = float(raw.info["sfreq"])
-            raw.close()
+            data, ch_names, sfreq = read_edf_uv(
+                file_name, self.bandpass_filter, self.notch_filter
+            )
         except (OSError, RuntimeError, ValueError) as exc:
             logger.warning("Failed to read %s: %s", file_name, exc)
             return None
@@ -476,7 +442,7 @@ class SeizureDetectionCHBMIT(BaseTask):
             window = signal[:, start:end]
             if window.shape[1] != target:
                 window = resample(window, target, axis=1)
-            window = _normalize_window(window, self.normalization)
+            window = normalize_signal(window, self.normalization)
             tensor = torch.FloatTensor(np.ascontiguousarray(window))
             sample: dict[str, Any] = {
                 "patient_id": patient_id,

@@ -3,10 +3,11 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
-from pyhealth.datasets.chbmit import CHBMITDataset
+from pyhealth.datasets.chbmit import CHBMITDataset, _metadata_cache_dir
 from pyhealth.tasks.seizure_detection_chbmit import SeizureDetectionCHBMIT
 
 
@@ -126,6 +127,27 @@ class TestCHBMITDataset(unittest.TestCase):
         self.assertEqual(split.subjects[2], ("chb23", "chb24"))
         self.assertIn("chb01", split.subjects[0])
         self.assertIn("chb20", split.subjects[0])
+
+    def test_home_cache_is_keyed_by_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            root_a = Path(tmp) / "a"
+            root_b = Path(tmp) / "b"
+            root_a.mkdir()
+            root_b.mkdir()
+            self._write_fixture(root_b)
+            with patch("pyhealth.datasets.chbmit.Path.home", return_value=home):
+                cache_a = _metadata_cache_dir(root_a)
+                self.assertNotEqual(cache_a, _metadata_cache_dir(root_b))
+                # Metadata cached for root A must not stop root B from
+                # writing its own.
+                cache_a.mkdir(parents=True)
+                (cache_a / "chbmit-pyhealth.csv").write_text("patient_id\nchbxx\n")
+                ds = CHBMITDataset.__new__(CHBMITDataset)
+                ds.root = str(root_b)
+                ds.prepare_metadata()
+            df = pd.read_csv(root_b / "chbmit-pyhealth.csv", dtype=str)
+            self.assertEqual(set(df["patient_id"]), {"chb01", "chb02"})
 
     def test_prepare_metadata_empty_root_writes_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:

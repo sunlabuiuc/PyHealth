@@ -104,6 +104,43 @@ class TestSeizureDetectionCHBMIT(unittest.TestCase):
         self.assertEqual(overlap[1]["segment_id"], "2560")
         self.assertTrue(all(s["is_augmented"] == 0 for s in overlap))
 
+    def _labels(self, seconds, starts, ends, label_mode):
+        task = SeizureDetectionCHBMIT(
+            compute_stft=False, oversample_seizures=False, label_mode=label_mode
+        )
+        return [s["label"] for s in self._run(_signal(seconds), starts, ends, task)]
+
+    def test_window_inside_seizure_is_positive_only_for_overlap(self):
+        # Windows [0,10) [10,20) [20,30) s; the seizure (5-25 s) covers the
+        # middle one, but neither its start nor its end falls inside it.
+        self.assertEqual(self._labels(30, "5", "25", "overlap"), [1, 1, 1])
+        self.assertEqual(self._labels(30, "5", "25", "cbramod"), [1, 0, 1])
+
+    def test_cbramod_uses_the_minus_one_sample_offset(self):
+        # A seizure starting at exactly 10 s: cbramod places it at sample
+        # 10 * 256 - 1 = 2559, inside window 0; overlap starts at 2560.
+        self.assertEqual(self._labels(20, "10", "15", "cbramod"), [1, 1])
+        self.assertEqual(self._labels(20, "10", "15", "overlap"), [0, 1])
+
+    def test_subjects_are_stored_as_a_sorted_tuple(self):
+        task = SeizureDetectionCHBMIT(subjects=["chb3", "1", "CHB02", "chb01"])
+        self.assertEqual(task.subjects, ("chb01", "chb02", "chb03"))
+
+    def test_read_edf_selects_bipolar_channels(self):
+        raw = np.arange(12, dtype=float).reshape(3, 4)
+        loaded = (raw, ["FP1-F7", "FZ-CZ", "P4-O2"], SFREQ)
+        with patch(
+            "pyhealth.tasks.seizure_detection_chbmit.read_edf_uv",
+            return_value=loaded,
+        ) as reader:
+            signal, sfreq = SeizureDetectionCHBMIT(notch_filter=60.0).read_edf(
+                "x.edf"
+            )
+        reader.assert_called_once_with("x.edf", None, 60.0)
+        self.assertEqual(sfreq, SFREQ)
+        np.testing.assert_allclose(signal[0], raw[0])
+        np.testing.assert_allclose(signal[15], raw[2])
+
     def test_short_recording_is_dropped(self):
         samples = self._run(_signal(5), "1", "2")
         self.assertEqual(samples, [])
