@@ -361,7 +361,9 @@ class Trainer:
                 For the per-step ``timeseries_*`` modes, both are lists with
                 one array per sample, over its labeled time steps. Categorical
                 sequence reconstruction models likewise return one variable-length
-                token array per sample and a matching array of token probabilities.
+                token array per sample and a matching ``[tokens, vocabulary]``
+                probability array. Those dense arrays can use substantial memory
+                for large vocabularies and datasets.
             loss_mean: Mean loss over batches.
             additional_outputs (only if requested): Dict of additional results.
             patient_ids (only if requested): List of patient ids in the same order as y_true_all/y_prob_all.
@@ -373,6 +375,10 @@ class Trainer:
         if additional_outputs is not None:
             additional_outputs = {k: [] for k in additional_outputs}
         per_step = self.model.mode in ("timeseries_binary", "timeseries_regression")
+        sequence_reconstruction = (
+            getattr(self.model, "inference_output_mode", None)
+            == "categorical_sequence_reconstruction"
+        )
         variable_length_sequences = False
         self.model.eval()
         for data in tqdm(dataloader, desc="Evaluation"):
@@ -380,7 +386,7 @@ class Trainer:
                 output = self.model(**data)
                 loss = output["loss"]
                 loss_all.append(loss.item())
-                if "mask" in output and "reconstruction_logits" in output:
+                if sequence_reconstruction:
                     # Sequence reconstruction is not a classification task, but
                     # inference can still return each sample's unpadded tokens
                     # and token probabilities without forcing equal lengths.
