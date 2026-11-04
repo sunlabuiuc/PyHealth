@@ -27,6 +27,8 @@ class VAE(BaseModel):
     than predicting the dataset's output label. ``Trainer.evaluate()`` reports
     the loss for sequence VAEs; ``Trainer.inference()`` returns each reconstructed
     sequence and its token probabilities as variable-length per-sample arrays.
+    Each token probability is a dense vector over the fitted code vocabulary, so
+    inference memory grows with the number of tokens times the vocabulary size.
 
     Args:
         dataset: A fitted ``SampleDataset`` with one supported input feature.
@@ -132,6 +134,11 @@ class VAE(BaseModel):
         # This is an input-reconstruction model; dataset labels are optional
         # conditions and are not predictions for Trainer's task metrics.
         self._mode = "regression" if self.modality == "image" else None
+        self.inference_output_mode = (
+            "categorical_sequence_reconstruction"
+            if self.modality == "sequence"
+            else None
+        )
 
     def _init_image(
         self, dataset: SampleDataset, condition_key: str | None
@@ -306,7 +313,10 @@ class VAE(BaseModel):
         """Reconstruct an image batch and calculate its VAE objective."""
         if self.feature_key not in kwargs:
             raise KeyError(f"Missing image input {self.feature_key!r}.")
-        image = kwargs[self.feature_key].to(self.device, dtype=torch.float32)
+        image = kwargs[self.feature_key]
+        if isinstance(image, (list, tuple)):
+            image = torch.stack(image, dim=0)
+        image = image.to(self.device, dtype=torch.float32)
         if image.ndim != 4 or image.shape[1] != self.channels:
             raise ValueError(
                 "Image input must have shape (batch, channels, height, width) "
@@ -418,7 +428,10 @@ class VAE(BaseModel):
 
         Args:
             num_samples: Number of samples for unconditional generation.
-            device: Device for latent samples. Defaults to the model's device.
+            device: Requested device for generated sequence tokens. Sequence
+                latents are sampled on the model's device, then tokens are
+                moved here. Image latents are sampled here and decoded on the
+                model's device. Defaults to the model's device.
             sequence_length: Number of tokens to generate for a sequence VAE.
             conditions: Encoded class indices for a conditional image VAE.
 
@@ -437,9 +450,7 @@ class VAE(BaseModel):
                 raise ValueError("num_samples must be a positive integer.")
             if sequence_length is None or sequence_length < 1:
                 raise ValueError("sequence_length must be a positive integer.")
-            latent = torch.randn(
-                num_samples, self.latent_dim, device=generation_device
-            )
+            latent = torch.randn(num_samples, self.latent_dim, device=self.device)
             hidden = torch.tanh(self.latent_to_hidden(latent)).unsqueeze(0)
             previous = self.sequence_start.expand(num_samples, -1, -1)
             generated = []
@@ -454,7 +465,7 @@ class VAE(BaseModel):
                 ).squeeze(-1)
                 generated.append(token)
                 previous = self.token_embedding(token.unsqueeze(1))
-            return torch.stack(generated, dim=1)
+            return torch.stack(generated, dim=1).to(generation_device)
 
         if self.condition_key and conditions is None:
             raise ValueError("Conditional generation requires encoded conditions.")

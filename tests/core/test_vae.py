@@ -86,6 +86,20 @@ class TestVAE(unittest.TestCase):
 
         generated = model.generate(conditions=batch["label"])
         self.assertEqual(generated.shape, (2, 1, 32, 32))
+        torch.manual_seed(17)
+        class_zero = model.generate(conditions=torch.tensor([0]))
+        torch.manual_seed(17)
+        class_one = model.generate(conditions=torch.tensor([1]))
+        self.assertFalse(torch.allclose(class_zero, class_one))
+
+        invalid_condition = torch.tensor([model.num_conditions])
+        with self.assertRaisesRegex(ValueError, "outside the fitted label"):
+            model.generate(conditions=invalid_condition)
+        with self.assertRaisesRegex(ValueError, "outside the fitted label"):
+            model.decode(torch.zeros(1, model.latent_dim), invalid_condition)
+        unlabeled_batch = {key: value for key, value in batch.items() if key != "label"}
+        with self.assertRaisesRegex(ValueError, "requires 'label'"):
+            model(**unlabeled_batch)
 
     def test_trainer_evaluates_reconstruction_loss(self):
         model = VAE(self.dataset, hidden_dim=8)
@@ -117,6 +131,15 @@ class TestVAE(unittest.TestCase):
         self.assertFalse(bool((generated == model.pad_token).any()))
         if model.unk_token is not None:
             self.assertFalse(bool((generated == model.unk_token).any()))
+
+        generation_device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+        model.to(generation_device)
+        generated_on_cpu = model.generate(
+            num_samples=2, sequence_length=4, device="cpu"
+        )
+        self.assertEqual(generated_on_cpu.device, torch.device("cpu"))
 
         trainer = Trainer(model=model, device="cpu")
         loader = get_dataloader(self.sequence_dataset, batch_size=2)
@@ -231,6 +254,12 @@ class TestVAE(unittest.TestCase):
         self.assertIsNotNone(next(model.encoder.parameters()).grad)
         self.assertIsNotNone(next(model.decoder.parameters()).grad)
         self.assertEqual(model.generate(2).shape, (2, 3, 32, 32))
+
+    def test_image_forward_accepts_a_list_of_tensors(self):
+        model = VAE(self.dataset, hidden_dim=8)
+        batch = next(iter(get_dataloader(self.dataset, batch_size=2)))
+        result = model(image=[batch["image"][0], batch["image"][1]])
+        self.assertEqual(result["reconstruction"].shape, (2, 1, 32, 32))
 
     def test_image_api_and_checkpoint_keys_round_trip(self):
         model = VAE(self.dataset, hidden_dim=8)
