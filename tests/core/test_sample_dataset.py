@@ -1,3 +1,4 @@
+import os
 import unittest
 from pathlib import Path
 
@@ -143,6 +144,16 @@ class TestSampleDatasetParity(unittest.TestCase):
         for i in range(20):
             self.assertEqual(items_disk_ordered[i]["feature"], i)
             self.assertEqual(items_mem_ordered[i]["feature"], i)
+
+    def test_forked_worker_reopens_cache_handles(self):
+        ds_disk, _ = self._get_datasets()
+        self.assertEqual(ds_disk[0]["feature"], 0)
+        self.assertIsNotNone(ds_disk.cache)
+        # Simulate the pid change a DataLoader worker sees after fork.
+        ds_disk._cache_pid = os.getpid() + 1
+        self.assertEqual(ds_disk[0]["feature"], 0)
+        self.assertEqual(ds_disk._cache_pid, os.getpid())
+        self.assertIsNotNone(ds_disk.cache)
 
     def test_close_preserves_caller_owned_directory(self):
         owner, _ = self._get_datasets()

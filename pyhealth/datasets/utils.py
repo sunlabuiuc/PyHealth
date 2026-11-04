@@ -381,6 +381,7 @@ def get_dataloader(
     batch_size: int,
     shuffle: bool = False,
     seed: int | None = None,
+    **loader_kwargs,
 ) -> DataLoader:
     """Creates a DataLoader for a given dataset.
 
@@ -400,6 +401,9 @@ def get_dataloader(
             random generator when the loader is created, so
             ``torch.manual_seed(...)`` before this call makes runs
             reproducible. Unshuffled loaders draw nothing.
+        **loader_kwargs: Extra keyword arguments forwarded to the PyTorch
+            ``DataLoader``, such as ``num_workers``, ``pin_memory``,
+            ``persistent_workers`` or ``prefetch_factor``.
 
     Returns:
         A DataLoader instance for the dataset.
@@ -441,6 +445,7 @@ def get_dataloader(
             batch_size=batch_size,
             generator=generator,
             collate_fn=collate_fn,
+            **loader_kwargs,
         )
     if hasattr(dataset, "set_shuffle"):  # another iterable dataset, e.g. litdata's
         dataset.set_shuffle(shuffle)
@@ -451,6 +456,7 @@ def get_dataloader(
         shuffle=shuffle or None,
         generator=generator,
         collate_fn=collate_fn_dict_with_padding,
+        **loader_kwargs,
     )
 
     return dataloader

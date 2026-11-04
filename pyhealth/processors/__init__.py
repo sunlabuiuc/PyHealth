@@ -19,6 +19,10 @@ def get_processor(name: str):
 
 # Import all processors so they register themselves
 from .image_processor import ImageProcessor
+from .dicom_processor import DicomProcessor
+from .dicom_series_processor import DicomSeriesProcessor
+from .nifti_processor import NiftiProcessor
+from .image_mask_processor import ImageMaskDirectoryProcessor
 from .label_processor import (
     BinaryLabelProcessor,
     LabelProcessor,
@@ -80,6 +84,10 @@ __all__ = [
     "ModalityType",
     "TemporalFeatureProcessor",
     "ImageProcessor",
+    "DicomProcessor",
+    "DicomSeriesProcessor",
+    "NiftiProcessor",
+    "ImageMaskDirectoryProcessor",
     "LabelProcessor",
     "MultiHotProcessor",
     "NestedFloatsProcessor",
