@@ -190,9 +190,7 @@ class BaseModel(ABC, nn.Module):
 
         # The most specific registered class whose name is a mode: a subclass
         # of a registered processor (e.g. the timeseries labels, which are
-        # SequenceProcessorV2s) resolves to its own mode before its base's,
-        # and one registered under another name (e.g. MultiHotProcessor as
-        # "multi_hot") falls back to its base's ("multilabel").
+        # SequenceProcessorV2s) resolves to its own mode before its base's.
         cls = schema_entry if inspect.isclass(schema_entry) else schema_entry.__class__
         for klass in cls.__mro__:
             for name, registered_cls in PROCESSOR_REGISTRY.items():
