@@ -129,7 +129,7 @@ class TransformersModel(BaseModel):
         self.max_chunks = max_chunks
         self.pooling = pooling
 
-        output_size = self.label_processor.size()
+        output_size = self.label_processor.output_size()
         hidden_dim = self.model.config.hidden_size
         self.dropout = nn.Dropout(dropout)
         self.fc = nn.Linear(hidden_dim, output_size)

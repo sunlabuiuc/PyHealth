@@ -429,7 +429,7 @@ class Agent(BaseModel):
             )
 
         # Output layer
-        output_size = self.label_processor.size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(len(self.seq_feature_keys) * hidden_dim, output_size)
    
     

@@ -287,7 +287,7 @@ class BIOT(BaseModel):
                  **kwargs):
         super().__init__(dataset=dataset)
         _get_linear_attention_transformer()
-        output_size = self.label_processor.size()
+        output_size = self.label_processor.output_size()
         self.biot = BIOTClassifier(emb_size=emb_size,
                                    heads=heads,
                                    depth=depth,

@@ -284,7 +284,7 @@ class TCN(BaseModel):
         # All TCNLayers have the same output dimension
         self.num_channels = next(iter(self.tcn.values())).num_channels
 
-        output_size = self.label_processor.size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(len(self.feature_keys) * self.num_channels, output_size)
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:

@@ -48,6 +48,17 @@ class TestRegistry(unittest.TestCase):
                 self.assertEqual(cls.mode, mode)
                 self.assertTrue(issubclass(cls, LabelProcessor))
 
+    def test_output_size_is_size(self):
+        processors = [
+            BinaryLabelProcessor(), MultiClassLabelProcessor(labels=3),
+            MultiLabelProcessor(labels=4), RegressionLabelProcessor(),
+            TimeseriesBinaryLabelProcessor(), TimeseriesMultiClassLabelProcessor(labels=3),
+            TimeseriesMultiLabelProcessor(labels=4), TimeseriesRegressionLabelProcessor(),
+        ]
+        for processor in processors:
+            with self.subTest(processor=type(processor).__name__):
+                self.assertEqual(processor.output_size(), processor.size())
+
     def test_only_label_processors_are_labels(self):
         self.assertNotIsInstance(MultiHotProcessor(), LabelProcessor)
 

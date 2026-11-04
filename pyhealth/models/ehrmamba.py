@@ -169,7 +169,7 @@ class EHRMamba(BaseModel):
                 ]
             )
 
-        output_size = self.label_processor.size()
+        output_size = self.label_processor.output_size()
         self.dropout = nn.Dropout(dropout)
         self.fc = nn.Linear(len(self.feature_keys) * embedding_dim, output_size)
 

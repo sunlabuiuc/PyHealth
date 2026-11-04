@@ -380,7 +380,7 @@ class GCN(BaseModel):
         self.gcn_layers.append(GraphConvolution(input_dim, nhid, init=init))
         for _ in range(num_layers - 1):
             self.gcn_layers.append(GraphConvolution(nhid, nhid, init=init))
-        self.gcn_layers.append(GraphConvolution(nhid, self.label_processor.size(), init=init))
+        self.gcn_layers.append(GraphConvolution(nhid, self.label_processor.output_size(), init=init))
 
     def _split_temporal(self, feature):
         """Splits temporal features if present.
@@ -578,7 +578,7 @@ class GAT(BaseModel):
         self.gat_layers.append(GraphAttention(input_dim, nhid, dropout=dropout, alpha=0.2, concat=True))
         for _ in range(num_layers - 1):
             self.gat_layers.append(GraphAttention(nhid, nhid, dropout=dropout, alpha=0.2, concat=True))
-        self.gat_layers.append(GraphAttention(nhid, self.label_processor.size(), dropout=dropout, alpha=0.2, concat=False))
+        self.gat_layers.append(GraphAttention(nhid, self.label_processor.output_size(), dropout=dropout, alpha=0.2, concat=False))
 
     def _split_temporal(self, feature):
         """Splits temporal features if present.

@@ -110,7 +110,7 @@ class LogisticRecalibration(PostHocCalibrator):
         self.device = model.device
         self.debug = debug
 
-        num_outputs = self.model.label_processor.size()
+        num_outputs = self.model.label_processor.output_size()
         self.intercept = torch.nn.Parameter(
             torch.zeros(num_outputs, dtype=torch.float32, device=self.device)
         )

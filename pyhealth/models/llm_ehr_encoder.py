@@ -210,7 +210,7 @@ class LLMEHREncoder(BaseModel):
             self._dtype_name = ""
             dim = int(embed_fn(["probe"]).shape[-1])
         self.embedding_dim = dim
-        self.fc = nn.Linear(dim, self.label_processor.size())
+        self.fc = nn.Linear(dim, self.label_processor.output_size())
 
     # ------------------------------------------------------------ embedding
     def _cache_key(self, text: str) -> str:

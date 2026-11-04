@@ -306,7 +306,7 @@ class SparcNet(BaseModel):
             n_channels = n_channels // 2
 
         """ prediction layer """
-        output_size = self.label_processor.size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(n_channels, output_size)
 
         # Official init from torch repo.

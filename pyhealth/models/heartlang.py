@@ -570,7 +570,7 @@ class HeartLang(BaseModel):
                     "checkpoint does not match the backbone: missing "
                     f"{missing}, unexpected {unexpected}"
                 )
-        self.mlp_head = nn.Linear(embed_dim, self.label_processor.size())
+        self.mlp_head = nn.Linear(embed_dim, self.label_processor.output_size())
         self.freeze_backbone = freeze_backbone
         if freeze_backbone:
             for param in self.backbone.parameters():

@@ -140,7 +140,7 @@ class Deepr(BaseModel):
                 hidden_size=hidden_dim,
             )
 
-        output_size = self.label_processor.size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(len(self.feature_keys) * hidden_dim, output_size)
 
     @staticmethod

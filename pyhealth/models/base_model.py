@@ -36,7 +36,7 @@ class BaseModel(ABC, nn.Module):
         :attr:`label_processor` is the one of a single-label model. A model
         takes its output size, activation and default loss from it::
 
-            self.fc = nn.Linear(hidden, self.label_processor.size())
+            self.fc = nn.Linear(hidden, self.label_processor.output_size())
             ...
             loss = self.label_processor.loss(logits, y_true)
             y_prob = self.label_processor.activation(logits)

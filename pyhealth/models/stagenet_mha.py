@@ -428,7 +428,7 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
                 **kwargs,
             )
 
-        output_size = self.label_processor.size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(
             len(self.feature_keys) * self.chunk_size * self.levels, output_size
         )

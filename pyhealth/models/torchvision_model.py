@@ -154,7 +154,7 @@ class TorchvisionModel(BaseModel):
             final_layer = getattr(final_layer, name)
         hidden_dim = final_layer.in_features
         self.hidden_dim = hidden_dim  # Store for embedding extraction
-        output_size = self.label_processor.size()
+        output_size = self.label_processor.output_size()
         layer_name = final_layer_name.split(".")[0]
         setattr(self.model, layer_name, nn.Linear(hidden_dim, output_size))
         

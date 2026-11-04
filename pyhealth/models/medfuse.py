@@ -324,7 +324,7 @@ class MedFuse(BaseModel):
         self.has_cxr_feature = cxr_feature_key in self.feature_keys
         self.ehr_input_dim = self._infer_ehr_input_dim(ehr_feature_key)
 
-        output_size = self.label_processor.size()
+        output_size = self.label_processor.output_size()
         self.layer = MedFuseLayer(
             ehr_input_dim=self.ehr_input_dim,
             ehr_hidden_dim=ehr_hidden_dim,

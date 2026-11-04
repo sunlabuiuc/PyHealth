@@ -98,7 +98,7 @@ class EHRMambaCEHR(BaseModel):
             ]
         )
         self.dropout = nn.Dropout(dropout)
-        out_dim = self.label_processor.size()
+        out_dim = self.label_processor.output_size()
         self.fc = nn.Linear(embedding_dim, out_dim)
         self._forecasting_head: Optional[nn.Module] = None
 

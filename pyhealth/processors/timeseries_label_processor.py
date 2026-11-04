@@ -144,11 +144,11 @@ class TimeseriesLabelProcessor[B: LabelProcessor](LabelProcessor):
         """The static loss over the label records of a batch.
 
         Args:
-            logits: One prediction per label record, ``[ΣN, size()]``.
+            logits: One prediction per label record, ``[ΣN, output_size()]``.
             y_true: The packed batch, ``(values, time, offsets)``.
         """
         values = y_true[0]
-        expected = (values.shape[0], self.size())
+        expected = (values.shape[0], self.output_size())
         if tuple(logits.shape) != expected:
             raise ValueError(
                 f"Expected one prediction per label record, {expected}, got "

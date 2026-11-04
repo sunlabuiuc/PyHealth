@@ -784,7 +784,7 @@ class TFMTokenizer(BaseModel):
         )
 
         if use_classifier:
-            output_size = self.label_processor.size()
+            output_size = self.label_processor.output_size()
             self.classifier = TFM_TOKEN_Classifier(
                 emb_size=emb_size,
                 code_book_size=code_book_size,

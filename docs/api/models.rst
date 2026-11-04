@@ -70,7 +70,7 @@ It also gives the label processor, ``self.label_processor`` (see
 :class:`~pyhealth.processors.LabelProcessor`), which takes care of everything
 that varies by task type:
 
-- ``self.label_processor.size()`` is the output dimension, so you don't have
+- ``self.label_processor.output_size()`` is the output dimension, so you don't have
   to hard-code it.
 - ``self.label_processor.loss(logits, y_true)`` is the right loss for the
   task: BCE for binary and multilabel tasks, cross-entropy for multiclass, MSE
@@ -190,7 +190,7 @@ an ``EmbeddingModel`` in ``__init__``, unpack processor schemas in
             self.label_key = self.label_keys[0]
             self.embedding_model = EmbeddingModel(dataset, embedding_dim)
             self.fc = nn.Linear(embedding_dim * len(self.feature_keys),
-                                self.label_processor.size())
+                                self.label_processor.output_size())
 
         def forward(self, **kwargs):
             inputs, masks = {}, {}

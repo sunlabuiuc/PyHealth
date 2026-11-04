@@ -430,7 +430,7 @@ class GradientBoostedTreeModel(BaseModel):
         if val_data is not None:
             eval_X, eval_y = self._collect(val_data, "val_data")
         if self.mode == "multiclass":
-            n_classes = self.label_processor.size()
+            n_classes = self.label_processor.output_size()
             missing = sorted(set(range(n_classes)) - set(np.unique(y).tolist()))
             if missing:
                 raise ValueError(

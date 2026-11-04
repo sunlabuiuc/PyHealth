@@ -247,7 +247,7 @@ class RNN(BaseModel):
             self.rnn[feature_key] = RNNLayer(
                 input_size=embedding_dim, hidden_size=hidden_dim, **kwargs
             )
-        output_size = self.label_processor.size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
 
     def forward(self, **kwargs) -> dict[str, torch.Tensor]:
@@ -464,7 +464,7 @@ class MultimodalRNN(BaseModel):
         # Calculate final concatenated dimension
         final_dim = (len(self.sequential_features) * hidden_dim +
                      len(self.non_sequential_features) * embedding_dim)
-        output_size = self.label_processor.size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(final_dim, output_size)
 
     def _is_sequential_processor(self, processor) -> bool:
@@ -974,7 +974,7 @@ class RNN_V2(BaseModel):
                 width += projected
         for field in fields:
             width += cast(_FieldRNN, self.encoders[field]).output_dim
-        self.fc = nn.Linear(width, self.label_processor.size())
+        self.fc = nn.Linear(width, self.label_processor.output_size())
 
     def _at_labels(
         self,

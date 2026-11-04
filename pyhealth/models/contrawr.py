@@ -171,7 +171,7 @@ class ContraWR(BaseModel):
             ]
         )
 
-        output_size = self.label_processor.size()
+        output_size = self.label_processor.output_size()
         # the fully connected layer
         self.fc = nn.Linear(emb_size, output_size)
 

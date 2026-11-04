@@ -406,7 +406,7 @@ class AdaCare(BaseModel):
                 input_dim=embedding_dim, hidden_dim=self.hidden_dim, **kwargs
             )
 
-        output_size = self.label_processor.size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
@@ -615,7 +615,7 @@ class MultimodalAdaCare(BaseModel):
             len(self.sequential_features) * hidden_dim
             + len(self.non_sequential_features) * embedding_dim
         )
-        output_size = self.label_processor.size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(final_dim, output_size)
 
     def _is_sequential_processor(self, processor) -> bool:

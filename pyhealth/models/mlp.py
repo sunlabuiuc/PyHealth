@@ -153,7 +153,7 @@ class MLP(BaseModel, Interpretable):
                 Modules.append(nn.Linear(self.hidden_dim, self.hidden_dim))
             self.mlp[feature_key] = nn.Sequential(*Modules)
 
-        output_size = self.label_processor.size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
 
     @staticmethod

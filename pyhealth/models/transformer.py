@@ -402,7 +402,7 @@ class Transformer(BaseModel, CheferInterpretable):
                 num_layers=num_layers,
             )
 
-        output_size = self.label_processor.size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(len(self.feature_keys) * embedding_dim, output_size)
 
     def _pool_embedding(self, x: torch.Tensor) -> torch.Tensor:

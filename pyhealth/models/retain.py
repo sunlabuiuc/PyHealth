@@ -218,7 +218,7 @@ class RETAIN(BaseModel):
         for feature_key in self.feature_keys:
             self.retain[feature_key] = RETAINLayer(feature_size=embedding_dim, **kwargs)
 
-        output_size = self.label_processor.size()
+        output_size = self.label_processor.output_size()
         num_features = len(self.feature_keys)
         self.fc = nn.Linear(num_features * self.embedding_dim, output_size)
 
@@ -457,7 +457,7 @@ class MultimodalRETAIN(BaseModel):
             len(self.sequential_features) * embedding_dim
             + len(self.non_sequential_features) * embedding_dim
         )
-        output_size = self.label_processor.size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(final_dim, output_size)
 
     def _is_sequential_processor(self, processor) -> bool:

@@ -27,7 +27,7 @@ class LabelProcessor(FeatureProcessor):
     everything that depends on the kind of label:
 
     - :attr:`mode`: the label kind, e.g. ``"binary"``.
-    - :meth:`size`: the number of model outputs.
+    - :meth:`output_size`: the number of model outputs.
     - :meth:`activation`: logits to predictions (``y_prob``).
     - :meth:`loss`: the training loss of logits against processed labels.
     - :meth:`to_numpy` and :meth:`gather`: model outputs to the arrays that
@@ -58,7 +58,17 @@ class LabelProcessor(FeatureProcessor):
 
     @abstractmethod
     def size(self) -> int:
-        """The number of model outputs."""
+        """The width of the processed label: 1 for binary and regression, the
+        number of classes or labels otherwise."""
+
+    def output_size(self) -> int:
+        """The number of model outputs (logits) for this label.
+
+        Models size their output layer with it. It is :meth:`size` for every
+        label processor so far; a label whose logits differ from its width
+        overrides it.
+        """
+        return self.size()
 
     @abstractmethod
     def activation(self, logits: torch.Tensor) -> torch.Tensor:
