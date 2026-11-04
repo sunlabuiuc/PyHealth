@@ -1,5 +1,6 @@
 import logging
-from typing import Any, Dict, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 import torch
 
@@ -62,9 +63,9 @@ class MultiHotProcessor(FeatureProcessor):
 
     def __init__(self):
         super().__init__()
-        self.label_vocab: Dict[Any, int] = {}
+        self.label_vocab: dict[Any, int] = {}
 
-    def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
+    def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
         all_tokens = set()
         for sample in samples:
             for token in sample[field]:
@@ -79,7 +80,10 @@ class MultiHotProcessor(FeatureProcessor):
 
     def process(self, value: Any) -> torch.Tensor:
         if not isinstance(value, list):
-            raise ValueError("Expected a list of categorical values for multi-hot feature.")
+            # ValueError (not TypeError) to match the behaviour before the split.
+            raise ValueError(  # noqa: TRY004
+                "Expected a list of categorical values for multi-hot feature."
+            )
         encoded = torch.zeros(len(self.label_vocab), dtype=torch.float32)
         for token in value:
             encoded[self.label_vocab[token]] = 1.0
