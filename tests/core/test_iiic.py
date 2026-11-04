@@ -4,11 +4,13 @@
 # Paper Link: https://arxiv.org/pdf/2502.16060
 # Description: Unit tests for IIICDataset and EEGSeizureIIIC task
 
+import os
 import pickle
 import tempfile
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -176,6 +178,147 @@ class TestIIICDataset(unittest.TestCase):
                 IIICDataset(root=tmp, subset="invalid_subset")
             with self.assertRaises(ValueError):
                 IIICDataset(root=tmp, split_ratios=(0.5, 0.2))
+
+    def test_save_pkl_false_and_10_train_subset_and_param_rebuild(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._create_raw_s3_npy_layout(root)
+            cache_dir = root / "cache"
+
+            # 1) save_pkl=False references slices via path.npy::idx
+            ds_no_pkl = IIICDataset(
+                root=str(root),
+                cache_dir=str(cache_dir),
+                save_pkl=False,
+                vote_threshold=3,
+            )
+            df_no_pkl = pd.read_csv(root / "iiic-processed.csv")
+            self.assertEqual(len(df_no_pkl), 6)
+            for sig_ref in df_no_pkl["signal_file"]:
+                self.assertIn("::", sig_ref)
+            self.assertFalse((root / "train").exists())
+
+            # Verify EEGSeizureIIIC loads path.npy::idx slices end-to-end
+            samples_no_pkl = ds_no_pkl.set_task(
+                EEGSeizureIIIC(compute_stft=False)
+            )
+            self.assertEqual(len(samples_no_pkl), 6)
+            self.assertEqual(samples_no_pkl[0]["signal"].shape, (16, 2000))
+
+            # 2) subset="10_train" rebuilds metadata and keeps >=10 votes (4 of 6)
+            ds_10 = IIICDataset(
+                root=str(root),
+                cache_dir=str(cache_dir),
+                subset="10_train",
+                save_pkl=True,
+                vote_threshold=3,
+            )
+            self.assertIsNotNone(ds_10)
+            df_10 = pd.read_csv(root / "iiic-processed.csv")
+            self.assertEqual(len(df_10), 4)
+
+            # 3) Changing vote_threshold rebuilds metadata (no stale CSV reuse)
+            ds_strict = IIICDataset(
+                root=str(root),
+                cache_dir=str(cache_dir),
+                subset="all",
+                save_pkl=True,
+                vote_threshold=10,
+            )
+            self.assertIsNotNone(ds_strict)
+            df_strict = pd.read_csv(root / "iiic-processed.csv")
+            self.assertEqual(len(df_strict), 5)
+
+    def test_pkl_dirs_fallback_and_10_train_subdir_discovery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rng = np.random.RandomState(11)
+            # Case 3 fallback: train/ val/ test/ with .pkl files and no *_df.csv or .npy
+            for split, key, label in [
+                ("train", "abn30001_20150101_000000_01", 1),
+                ("val", "abn30002_20150102_000000_01", 2),
+                ("test", "abn30003_20150103_000000_01", 3),
+            ]:
+                sdir = root / split
+                sdir.mkdir(parents=True, exist_ok=True)
+                sig = rng.randn(16, 2000).astype(np.float16)
+                with open(sdir / f"{key}.pkl", "wb") as f:
+                    pickle.dump({"signal": sig, "label": label}, f)
+
+            ds = IIICDataset(root=str(root), cache_dir=str(root / "cache"))
+            self.assertIsNotNone(ds)
+            df = pd.read_csv(root / "iiic-processed.csv")
+            self.assertEqual(len(df), 3)
+            self.assertEqual(set(df["label"]), {1, 2, 3})
+
+        # Also test 10_train_{X,Y,key}.npy in data_1109/ subdirectory with 1D Y
+        with tempfile.TemporaryDirectory() as tmp2:
+            root2 = Path(tmp2)
+            sub = root2 / "data_1109"
+            sub.mkdir(parents=True, exist_ok=True)
+            rng = np.random.RandomState(21)
+            keys = np.array(
+                [
+                    "abn40001_20160101_001",
+                    "abn40002_20160102_001",
+                    "abn40003_20160103_001",
+                ],
+                dtype="<U30",
+            )
+            X = rng.randn(3, 16, 2000).astype(np.float16)
+            Y_1d = np.array([0, 1, 4], dtype=np.int64)
+            np.save(sub / "10_train_X.npy", X)
+            np.save(sub / "10_train_Y.npy", Y_1d)
+            np.save(sub / "10_train_key.npy", keys)
+
+            ds2 = IIICDataset(
+                root=str(root2),
+                cache_dir=str(root2 / "cache"),
+                subset="10_train",
+                save_pkl=False,
+            )
+            self.assertIsNotNone(ds2)
+            df2 = pd.read_csv(root2 / "iiic-processed.csv")
+            self.assertEqual(len(df2), 3)
+            self.assertEqual(set(df2["label"]), {0, 1, 4})
+
+    def test_readonly_root_uses_cache_dir_and_keys_by_params(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            ro_root = base / "ro_root"
+            cache_base = base / "custom_cache"
+            ro_root.mkdir()
+            self._create_raw_s3_npy_layout(ro_root)
+
+            os.chmod(ro_root, 0o555)
+            try:
+                ds1 = IIICDataset(
+                    root=str(ro_root),
+                    cache_dir=str(cache_base),
+                    vote_threshold=3,
+                    seed=5,
+                )
+                self.assertFalse((ro_root / "iiic-processed.csv").exists())
+                df1 = pd.read_csv(Path(ds1.root) / "iiic-processed.csv")
+                self.assertEqual(len(df1), 6)
+
+                ds2 = IIICDataset(
+                    root=str(ro_root),
+                    cache_dir=str(cache_base),
+                    vote_threshold=10,
+                    seed=5,
+                )
+                self.assertNotEqual(ds1.root, ds2.root)
+                df2 = pd.read_csv(Path(ds2.root) / "iiic-processed.csv")
+                self.assertEqual(len(df2), 5)
+            finally:
+                os.chmod(ro_root, 0o755)
+
+            with (
+                patch.dict(os.environ, {"PYHEALTH_REQUIRE_CACHE_DIR": "1"}),
+                self.assertRaises(ValueError),
+            ):
+                IIICDataset(root=str(ro_root))
 
 
 class TestEEGSeizureIIICTask(unittest.TestCase):

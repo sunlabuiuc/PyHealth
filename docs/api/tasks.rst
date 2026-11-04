@@ -233,11 +233,8 @@ Available Tasks
     Sleep Staging <tasks/pyhealth.tasks.sleep_staging>
     Sleep Staging (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSleepEDF>
     Temple University EEG Tasks <tasks/pyhealth.tasks.temple_university_EEG_tasks>
-<<<<<<< HEAD
-    IIIC Seizure Classification <tasks/pyhealth.tasks.iiic_seizure_classification>
-=======
     CHB-MIT Seizure Detection <tasks/pyhealth.tasks.SeizureDetectionCHBMIT>
->>>>>>> origin/master
+    IIIC Seizure Classification <tasks/pyhealth.tasks.iiic_seizure_classification>
     EEGBCI Tasks <tasks/pyhealth.tasks.eegbci>
     PTB-XL Tasks <tasks/pyhealth.tasks.ptbxl>
     Sleep Staging v2 <tasks/pyhealth.tasks.sleep_staging_v2>

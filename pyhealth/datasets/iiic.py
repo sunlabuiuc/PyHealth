@@ -4,8 +4,11 @@
 # Paper Link: https://arxiv.org/pdf/2502.16060
 # Description: IIIC Seizure (SPaRCNet) EEG dataset integration for PyHealth
 
+import contextlib
+import hashlib
 import json
 import logging
+import os
 import pickle
 from pathlib import Path
 
@@ -14,7 +17,7 @@ import pandas as pd
 
 from pyhealth.tasks.iiic_seizure_classification import EEGSeizureIIIC
 
-from .base_dataset import BaseDataset
+from .base_dataset import BaseDataset, _default_cache_dir
 
 logger = logging.getLogger(__name__)
 
@@ -60,14 +63,19 @@ class IIICDataset(BaseDataset):
          ``all_train_key.npy`` (or ``training_key.npy`` / ``10_train_key.npy``),
          plus optional ``test_X.npy``, ``test_Y.npy``, and ``test_key.npy``.
          When initialized on raw ``.npy`` files, ``prepare_metadata()`` applies the
-         TFM-Tokenizer / SPaRCNet filtering pipeline (retaining segments with
-         ``votes.sum(axis=1) > vote_threshold``, sorting and deduplicating by
-         ``key``, removing flat zero-variance segments with ``std == 0``),
-         performs a deterministic patient-level split
-         (``patient_id = key.split('_')[0]``, 60% train / 20% val / 20% test with
-         ``np.random.RandomState(seed)``), saves per-segment ``{split}/{key}.pkl``
-         files (if ``save_pkl=True``), and writes ``train_df.csv``, ``val_df.csv``,
-         ``test_df.csv``, and ``iiic-processed.csv``.
+         TFM-Tokenizer (``Biosignal_Token``) / SPaRCNet filtering pipeline:
+         retaining segments where ``votes.sum(axis=1) + majority > vote_threshold``
+         (intentionally adding ``majority = np.argmax(votes, axis=1)`` to the vote
+         sum to match ``Biosignal_Token``'s ``_read_label_with_thres``, which assigns
+         ``votes["majority"] = np.argmax(Y, 1)`` to the ``votes`` DataFrame before
+         evaluating ``votes.sum(1) > thres``), enforcing ``votes.sum(axis=1) >= 10``
+         when ``subset="10_train"``, sorting and deduplicating by ``key``, removing
+         flat zero-variance segments with ``std == 0``, performing a deterministic
+         patient-level split (``patient_id = key.split('_')[0]``, 60% train /
+         20% val / 20% test with ``np.random.RandomState(seed)``), saving
+         per-segment ``{split}/{key}.pkl`` files (if ``save_pkl=True``), and
+         writing ``train_df.csv``, ``val_df.csv``, ``test_df.csv``,
+         ``iiic-processed.csv``, and ``iiic-processed.meta.json``.
       2. **Pre-extracted ``.pkl`` + ``*_df.csv`` Layout**
          (e.g., ``/srv/local/data/jp65/IIIC/``):
          Contains ``train_df.csv``, ``val_df.csv``, ``test_df.csv`` and ``train/``,
@@ -81,10 +89,15 @@ class IIICDataset(BaseDataset):
         config_path: Optional path to YAML config file. Defaults to ``"iiic.yaml"``.
         subset: Which raw data subset to load when processing raw ``.npy`` files:
             ``"all"`` (uses ``all_train_*`` / ``training_*``) or ``"10_train"``
-            (uses ``10_train_*`` with >= 10 annotator votes). Default is ``"all"``.
-        vote_threshold: Minimum total votes required to keep a segment
-            (``votes.sum(axis=1) > vote_threshold``). Default is ``3`` (following
-            TFM-Tokenizer).
+            (prefers ``10_train_*`` if present, and filters to segments with at
+            least 10 annotator votes, ``votes.sum(axis=1) >= 10``).
+            Default is ``"all"``.
+        vote_threshold: Minimum threshold ``thres`` for the reference
+            ``Biosignal_Token`` vote filter
+            ``votes.sum(axis=1) + majority > vote_threshold`` (where
+            ``majority = np.argmax(votes, axis=1)`` is intentionally included in
+            the sum to match the reference ``_read_label_with_thres`` pipeline).
+            Default is ``3``.
         split_ratios: Patient-level ``(train, val, test)`` split ratios when
             splitting from raw ``.npy`` files. Default is ``(0.6, 0.2, 0.2)``.
         seed: Random seed for deterministic patient-level splitting. Default is ``5``
@@ -93,8 +106,11 @@ class IIICDataset(BaseDataset):
             segment to ``{split}/{key}.pkl``. If ``False``, ``signal_file`` references
             slices in the ``.npy`` file directly via ``path.npy::idx``.
             Default is ``True``.
-        refresh_metadata: If ``True``, rebuild ``iiic-processed.csv`` even if it
-            already exists. Default is ``False``.
+        refresh_metadata: If ``True``, rebuild ``iiic-processed.csv`` even if a
+            cached file with matching build parameters already exists. Note that
+            changing ``subset``, ``vote_threshold``, ``split_ratios``, ``seed``,
+            or ``save_pkl`` automatically triggers a rebuild via the sidecar
+            ``iiic-processed.meta.json`` file. Default is ``False``.
         **kwargs: Additional keyword arguments passed to :class:`BaseDataset`
             (such as ``dev``, ``cache_dir``, etc.).
 
@@ -105,6 +121,9 @@ class IIICDataset(BaseDataset):
         >>> dataset.stats()  # doctest: +SKIP
         >>> sample_dataset = dataset.set_task(EEGSeizureIIIC())  # doctest: +SKIP
     """
+
+    METADATA_CSV_FILENAME: str = "iiic-processed.csv"
+    METADATA_META_FILENAME: str = "iiic-processed.meta.json"
 
     def __init__(
         self,
@@ -118,6 +137,7 @@ class IIICDataset(BaseDataset):
         seed: int = 5,
         save_pkl: bool = True,
         refresh_metadata: bool = False,
+        cache_dir: str | Path | None = None,
         **kwargs,
     ) -> None:
         if config_path is None:
@@ -139,47 +159,124 @@ class IIICDataset(BaseDataset):
         self.seed = int(seed)
         self.save_pkl = bool(save_pkl)
         self.refresh_metadata = bool(refresh_metadata)
+        self._user_cache_dir: str | Path | None = cache_dir
 
         if tables is None:
             tables = ["signal"]
 
         self.prepare_metadata()
 
-        # Check if iiic-processed.csv was written to fallback cache directory
+        # Use root if its metadata CSV is valid for current parameters;
+        # otherwise use the parameter-keyed metadata cache directory.
         root_path = Path(self.root)
-        cache_dir = Path.home() / ".cache" / "pyhealth" / "iiic"
-        shared_csv = root_path / "iiic-processed.csv"
-        cache_csv = cache_dir / "iiic-processed.csv"
+        meta_cache_dir = self._metadata_cache_dir()
+        shared_csv = root_path / self.METADATA_CSV_FILENAME
+        cache_csv = meta_cache_dir / self.METADATA_CSV_FILENAME
         effective_root = self.root
-        if not shared_csv.exists() and cache_csv.exists():
-            logger.info(f"Using cached metadata from {cache_dir}")
-            effective_root = str(cache_dir)
+        if self._is_metadata_valid(shared_csv):
+            effective_root = self.root
+        elif self._is_metadata_valid(cache_csv):
+            logger.info(f"Using cached metadata from {meta_cache_dir}")
+            effective_root = str(meta_cache_dir)
 
         super().__init__(
             root=effective_root,
             tables=tables,
             dataset_name=dataset_name or "iiic",
             config_path=config_path,
+            cache_dir=cache_dir,
             **kwargs,
         )
+
+    def _build_params(self) -> dict[str, object]:
+        """Return the canonical dictionary of metadata build parameters."""
+        root_path = Path(self.root).expanduser().resolve()
+        raw_sources = [
+            [str(p.resolve()) for p in triplet]
+            for triplet in self._discover_raw_npy_sources(root_path)
+        ]
+        return {
+            "root": str(root_path),
+            "subset": self.subset,
+            "vote_threshold": self.vote_threshold,
+            "split_ratios": list(self.split_ratios),
+            "seed": self.seed,
+            "save_pkl": self.save_pkl,
+            "raw_sources": raw_sources,
+        }
+
+    def _build_params_digest(self) -> str:
+        """Return a 16-char SHA-256 hex digest of ``_build_params()``."""
+        payload = json.dumps(self._build_params(), sort_keys=True)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+    def _metadata_cache_dir(self) -> Path:
+        """Return the parameter-keyed cache directory for derived IIIC files.
+
+        Uses the ``cache_dir`` argument passed to :class:`IIICDataset` when
+        provided, or :func:`~pyhealth.datasets.base_dataset._default_cache_dir`
+        otherwise (which respects ``PYHEALTH_REQUIRE_CACHE_DIR``).
+        """
+        cache_id = f"iiic_{self._build_params_digest()}"
+        if self._user_cache_dir is not None:
+            return Path(self._user_cache_dir).expanduser().resolve() / cache_id
+        return _default_cache_dir(cache_id)
+
+    def _is_metadata_valid(self, csv_path: Path) -> bool:
+        """Return True if ``csv_path`` exists and its sidecar matches build params."""
+        if not csv_path.is_file():
+            return False
+        meta_path = csv_path.with_name(self.METADATA_META_FILENAME)
+        if not meta_path.is_file():
+            return False
+        try:
+            saved = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        return saved == self._build_params()
+
+    @staticmethod
+    def _select_writable_base(root: Path, cache_dir: Path) -> Path:
+        """Return ``root`` if writable, otherwise create and return ``cache_dir``."""
+        if root.is_dir() and os.access(root, os.W_OK):
+            try:
+                probe = root / ".iiic_write_probe"
+                probe.touch()
+                probe.unlink()
+                return root
+            except (PermissionError, OSError):
+                pass
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        return cache_dir
 
     def prepare_metadata(self) -> None:
         """Build and save ``iiic-processed.csv`` metadata for IIICDataset.
 
         Supports both:
-          1. Pre-extracted layout with ``train_df.csv``, ``val_df.csv``, ``test_df.csv``
+          1. Raw ``.npy`` files from BDSP S3 ``sparcnet_data/`` or ``IIIC_data/``.
+          2. Pre-extracted layout with ``train_df.csv``, ``val_df.csv``, ``test_df.csv``
              and ``train/``, ``val/``, ``test/`` ``.pkl`` directories.
-          2. Raw ``.npy`` files from BDSP S3 ``sparcnet_data/`` or ``IIIC_data/``.
         """
         root = Path(self.root)
-        cache_dir = Path.home() / ".cache" / "pyhealth" / "iiic"
-        shared_csv = root / "iiic-processed.csv"
-        cache_csv = cache_dir / "iiic-processed.csv"
+        cache_dir = self._metadata_cache_dir()
+        shared_csv = root / self.METADATA_CSV_FILENAME
+        cache_csv = cache_dir / self.METADATA_CSV_FILENAME
 
-        if not self.refresh_metadata and (shared_csv.exists() or cache_csv.exists()):
+        if not self.refresh_metadata and (
+            self._is_metadata_valid(shared_csv)
+            or self._is_metadata_valid(cache_csv)
+        ):
             return
 
-        # Case 1: Pre-extracted train_df.csv / val_df.csv / test_df.csv layout
+        # Case 1: Raw .npy files (BDSP S3 sparcnet_data/ or IIIC_data/)
+        raw_sources = self._discover_raw_npy_sources(root)
+        if raw_sources:
+            df = self._build_metadata_from_raw_npy(root, cache_dir, raw_sources)
+            if not df.empty:
+                self._save_metadata_csv(df, shared_csv, cache_csv)
+                return
+
+        # Case 2: Pre-extracted train_df.csv / val_df.csv / test_df.csv layout
         split_csvs = {
             "train": root / "train_df.csv",
             "val": root / "val_df.csv",
@@ -188,14 +285,6 @@ class IIICDataset(BaseDataset):
         has_csvs = any(p.exists() for p in split_csvs.values())
         if has_csvs and not self._has_only_raw_npy(root):
             df = self._build_metadata_from_split_csvs(root, split_csvs)
-            if not df.empty:
-                self._save_metadata_csv(df, shared_csv, cache_csv)
-                return
-
-        # Case 2: Raw .npy files (BDSP S3 sparcnet_data/ or IIIC_data/)
-        raw_sources = self._discover_raw_npy_sources(root)
-        if raw_sources:
-            df = self._build_metadata_from_raw_npy(root, cache_dir, raw_sources)
             if not df.empty:
                 self._save_metadata_csv(df, shared_csv, cache_csv)
                 return
@@ -326,7 +415,9 @@ class IIICDataset(BaseDataset):
 
         if self.subset == "10_train":
             train_candidates = [
-                ("10_train_X.npy", "10_train_Y.npy", "10_train_key.npy")
+                ("10_train_X.npy", "10_train_Y.npy", "10_train_key.npy"),
+                ("all_train_X.npy", "all_train_Y.npy", "all_train_key.npy"),
+                ("training_X.npy", "training_Y.npy", "training_key.npy"),
             ]
         else:
             train_candidates = [
@@ -371,6 +462,38 @@ class IIICDataset(BaseDataset):
                 return candidate
         return None
 
+    def _cleanup_generated_files(self, target_base: Path) -> None:
+        """Remove only ``.pkl`` and ``*_df.csv`` files generated by IIICDataset."""
+        meta_path = target_base / self.METADATA_META_FILENAME
+        csv_path = target_base / self.METADATA_CSV_FILENAME
+        if not meta_path.is_file():
+            return
+        try:
+            saved_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        if not saved_meta.get("raw_sources"):
+            return
+
+        for split in ("train", "val", "test"):
+            old_csv = target_base / f"{split}_df.csv"
+            with contextlib.suppress(OSError):
+                old_csv.unlink(missing_ok=True)
+
+        if saved_meta.get("save_pkl") and csv_path.is_file():
+            try:
+                prev_df = pd.read_csv(csv_path, usecols=["signal_file"])
+            except (OSError, ValueError, KeyError):
+                return
+            resolved_base = target_base.resolve()
+            for sig_str in prev_df["signal_file"].dropna().astype(str):
+                if "::" in sig_str:
+                    continue
+                sig_path = Path(sig_str)
+                with contextlib.suppress(OSError):
+                    if sig_path.resolve().is_relative_to(resolved_base):
+                        sig_path.unlink(missing_ok=True)
+
     def _build_metadata_from_raw_npy(
         self,
         root: Path,
@@ -381,7 +504,10 @@ class IIICDataset(BaseDataset):
 
         Steps:
           1. Load ``(X, Y, key)`` from each discovered source.
-          2. Filter rows where ``Y.sum(axis=1) > self.vote_threshold``.
+          2. Filter rows where ``votes.sum(axis=1) + majority > self.vote_threshold``
+             (intentionally including ``majority = np.argmax(votes, axis=1)`` to match
+             ``Biosignal_Token``'s ``_read_label_with_thres``), and when
+             ``self.subset == "10_train"``, also require ``votes.sum(axis=1) >= 10``.
           3. Sort by ``key`` ascending and drop duplicate ``key``s (``keep='first'``).
           4. Filter out flat/corrupted signals where ``xi.astype(float).std() == 0``.
           5. Extract ``pid = key.split('_')[0]`` and deterministically split unique
@@ -410,12 +536,15 @@ class IIICDataset(BaseDataset):
             # Match _read_X: {k: X[i] for i, k in enumerate(key)} (last occurrence wins)
             last_idx_map = {str(k): i for i, k in enumerate(keys)}
 
+            raw_vote_sum = votes[[0, 1, 2, 3, 4, 5]].values.sum(axis=1)
             votes["key"] = keys.astype(str)
             votes["majority"] = np.argmax(votes[[0, 1, 2, 3, 4, 5]].values, axis=1)
-            mask = (
-                votes[[0, 1, 2, 3, 4, 5]].values.sum(axis=1)
-                + votes["majority"].values
-            ) > self.vote_threshold
+            # Intentionally include votes["majority"] in the sum to match
+            # Biosignal_Token's _read_label_with_thres (which sets
+            # votes["majority"] = np.argmax(Y, 1) before votes.sum(1) > thres).
+            mask = (raw_vote_sum + votes["majority"].values) > self.vote_threshold
+            if self.subset == "10_train":
+                mask = mask & (raw_vote_sum >= 10)
 
             part_df = votes[mask].sort_values(["key"], ascending=True).copy()
             part_df = part_df.reset_index(drop=True)
@@ -472,13 +601,8 @@ class IIICDataset(BaseDataset):
         combined["split"] = combined["pid"].map(_assign_split)
 
         # Determine writable target base directory (root or cache_dir)
-        target_base = root
-        if self.save_pkl:
-            try:
-                (root / "train").mkdir(parents=True, exist_ok=True)
-            except (PermissionError, OSError):
-                target_base = cache_dir
-                target_base.mkdir(parents=True, exist_ok=True)
+        target_base = self._select_writable_base(root, cache_dir)
+        self._cleanup_generated_files(target_base)
 
         rows: list[dict[str, object]] = []
         for split in ("train", "val", "test"):
@@ -537,21 +661,31 @@ class IIICDataset(BaseDataset):
             df.reset_index(drop=True, inplace=True)
         return df
 
-    @staticmethod
     def _save_metadata_csv(
-        df: pd.DataFrame, shared_csv: Path, cache_csv: Path
+        self, df: pd.DataFrame, shared_csv: Path, cache_csv: Path
     ) -> None:
-        """Write ``iiic-processed.csv`` to ``shared_csv`` or fallback ``cache_csv``."""
-        try:
-            shared_csv.parent.mkdir(parents=True, exist_ok=True)
-            df.to_csv(shared_csv, index=False)
-            logger.info(f"Wrote IIIC metadata ({len(df)} records) to {shared_csv}")
-        except (PermissionError, OSError):
-            cache_csv.parent.mkdir(parents=True, exist_ok=True)
-            df.to_csv(cache_csv, index=False)
-            logger.info(
-                f"Wrote IIIC metadata ({len(df)} records) to cache: {cache_csv}"
-            )
+        """Write ``iiic-processed.csv`` and ``.meta.json`` to ``root`` or cache."""
+        params_text = json.dumps(self._build_params(), indent=2, sort_keys=True)
+        root = shared_csv.parent
+        if root.is_dir() and os.access(root, os.W_OK):
+            try:
+                df.to_csv(shared_csv, index=False)
+                meta_path = shared_csv.with_name(self.METADATA_META_FILENAME)
+                meta_path.write_text(params_text, encoding="utf-8")
+                logger.info(
+                    f"Wrote IIIC metadata ({len(df)} records) to {shared_csv}"
+                )
+                return
+            except (PermissionError, OSError):
+                pass
+
+        cache_csv.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(cache_csv, index=False)
+        meta_path = cache_csv.with_name(self.METADATA_META_FILENAME)
+        meta_path.write_text(params_text, encoding="utf-8")
+        logger.info(
+            f"Wrote IIIC metadata ({len(df)} records) to cache: {cache_csv}"
+        )
 
     @property
     def default_task(self) -> EEGSeizureIIIC:
