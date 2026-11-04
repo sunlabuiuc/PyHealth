@@ -297,6 +297,50 @@ class TestIIICDataset(unittest.TestCase):
             self.assertEqual(len(df2), 3)
             self.assertEqual(set(df2["label"]), {0, 1, 4})
 
+        # Test cross-source duplicate key (appearing in both train and test .npy)
+        with tempfile.TemporaryDirectory() as tmp3:
+            root3 = Path(tmp3)
+            rng = np.random.RandomState(31)
+            shared_key = "abn50001_20160101_001"
+            train_keys = np.array(
+                [shared_key, "abn50002_20160102_001", "abn50003_20160103_001"],
+                dtype="<U30",
+            )
+            train_x = rng.randn(3, 16, 2000).astype(np.float16)
+            train_y = np.array(
+                [
+                    [10, 0, 0, 0, 0, 0],  # class 0 in train source
+                    [0, 10, 0, 0, 0, 0],
+                    [0, 0, 10, 0, 0, 0],
+                ],
+                dtype=np.uint8,
+            )
+            test_keys = np.array([shared_key], dtype="<U30")
+            test_x = (
+                np.full((1, 16, 2000), 9.0) + rng.randn(1, 16, 2000) * 0.1
+            ).astype(np.float16)
+            test_y = np.array([[0, 0, 0, 0, 0, 12]], dtype=np.uint8)  # class 5
+
+            np.save(root3 / "all_train_X.npy", train_x)
+            np.save(root3 / "all_train_Y.npy", train_y)
+            np.save(root3 / "all_train_key.npy", train_keys)
+            np.save(root3 / "test_X.npy", test_x)
+            np.save(root3 / "test_Y.npy", test_y)
+            np.save(root3 / "test_key.npy", test_keys)
+
+            ds3 = IIICDataset(root=str(root3), cache_dir=str(root3 / "cache"))
+            self.assertIsNotNone(ds3)
+            df3 = pd.read_csv(root3 / "iiic-processed.csv")
+            # shared_key must appear only once across the combined dataframe
+            self.assertEqual(len(df3), 3)
+            shared_rows = df3[df3["record_id"] == shared_key]
+            self.assertEqual(len(shared_rows), 1)
+            self.assertEqual(int(shared_rows.iloc[0]["label"]), 5)
+            with open(shared_rows.iloc[0]["signal_file"], "rb") as f:
+                saved_pkl = pickle.load(f)
+            np.testing.assert_array_equal(saved_pkl["signal"], test_x[0])
+            self.assertEqual(int(saved_pkl["label"]), 5)
+
     def test_readonly_root_uses_cache_dir_and_keys_by_params(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)

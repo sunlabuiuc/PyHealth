@@ -563,6 +563,11 @@ class IIICDataset(BaseDataset):
             return pd.DataFrame()
 
         combined = pd.concat(df_parts, axis=0, ignore_index=True)
+        combined = (
+            combined.drop_duplicates(subset=["key"], keep="last")
+            .reset_index(drop=True)
+            .copy()
+        )
 
         # Filter out flat zero-std segments
         valid_mask: list[bool] = []
