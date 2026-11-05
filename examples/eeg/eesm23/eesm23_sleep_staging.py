@@ -16,6 +16,10 @@ References:
       Time-Frequency Motif Learning. ICLR 2026.
       https://github.com/Jathurshan0330/TFM-Tokenizer
 
+Download ds005178 from OpenNeuro first, then run::
+
+    python examples/eeg/eesm23/eesm23_sleep_staging.py --root /path/to/ds005178
+
 The full corpus is large. Pass ``--subjects`` to try a few cases first,
 for example ``--subjects 1 2 3``. Only ``ses-001`` and ``ses-002`` nights
 carry manual scoring.
@@ -48,8 +52,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--root",
-        default="/srv/local/data/jp65/earEEG/ds005178-download",
-        help="BIDS root for OpenNeuro ds005178.",
+        required=True,
+        help="BIDS root of OpenNeuro ds005178 (the folder that contains "
+        "sub-001, sub-002, ...).",
     )
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=16)

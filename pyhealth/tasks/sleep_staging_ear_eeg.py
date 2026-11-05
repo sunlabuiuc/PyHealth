@@ -126,7 +126,7 @@ class SleepStagingEarEEG(BaseTask):
         >>> from pyhealth.datasets import EESM23Dataset
         >>> from pyhealth.tasks import SleepStagingEarEEG
         >>> dataset = EESM23Dataset(
-        ...     root="/srv/local/data/jp65/earEEG/ds005178-download",
+        ...     root="/path/to/ds005178",
         ... )
         >>> task = SleepStagingEarEEG(
         ...     normalization="95th_percentile",

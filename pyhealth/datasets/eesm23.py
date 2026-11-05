@@ -152,7 +152,7 @@ class EESM23Dataset(BaseDataset):
     Examples:
         >>> from pyhealth.datasets import EESM23Dataset
         >>> dataset = EESM23Dataset(
-        ...     root="/srv/local/data/jp65/earEEG/ds005178-download",
+        ...     root="/path/to/ds005178",
         ... )
         >>> dataset.stats()
         >>> train, val, test = dataset.set_task(
