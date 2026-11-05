@@ -116,6 +116,8 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
 
         Raises:
             FileNotFoundError: If the directory or any mask file is missing.
+            ValueError: If the optional reference DICOM series cannot be read
+                or has a different number of slices than the mask directory.
         """
         if isinstance(value, ImageRef):
             return self.materialize(value)

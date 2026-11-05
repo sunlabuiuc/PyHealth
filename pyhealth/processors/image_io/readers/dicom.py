@@ -244,6 +244,21 @@ def _canonical_layout(
     )
 
 
+def _require_grayscale(dataset: Any) -> None:
+    """Reject colour DICOM images, which are not supported yet."""
+    samples = int(getattr(dataset, "SamplesPerPixel", 1) or 1)
+    photometric = str(getattr(dataset, "PhotometricInterpretation", "") or "")
+    if samples > 1 or photometric.upper().startswith(
+        ("RGB", "YBR", "PALETTE")
+    ):
+        raise NotImplementedError(
+            "Colour DICOM images are not supported yet; expected a "
+            "single-channel image, found "
+            f"SamplesPerPixel={samples}, "
+            f"PhotometricInterpretation={photometric!r}."
+        )
+
+
 def _dicom_dtype(dataset: Any) -> str:
     """Return a NumPy dtype name for a DICOM pixel representation."""
     bits = int(getattr(dataset, "BitsAllocated", 16) or 16)
@@ -292,10 +307,11 @@ def _to_lps_affine(dataset: Any) -> np.ndarray:
 
 
 class DicomReader(BaseImageReader):
-    """Reader for a single-frame 2D DICOM image.
+    """Reader for a single-frame, single-channel DICOM image.
 
-    The reader returns a 2D float array (or an ``(H, W, C)`` array for colour
-    images). Resizing and model-specific transforms belong to the processor.
+    The reader returns a 2D float array. Colour DICOM images are not supported
+    yet and raise :class:`NotImplementedError`. Resizing and model-specific
+    transforms belong to the processor.
 
     Examples:
         >>> from pyhealth.processors.image_io.readers.dicom import DicomReader
@@ -312,7 +328,10 @@ class DicomReader(BaseImageReader):
             path: Path to one DICOM file.
 
         Returns:
-            Metadata with ``(1, H, W)`` shape for grayscale images.
+            Metadata with ``(1, H, W)`` shape.
+
+        Raises:
+            NotImplementedError: If the image is colour.
         """
         entries = _read_headers(path, stop_before_pixels=True)
         if len(entries) != 1:
@@ -321,16 +340,16 @@ class DicomReader(BaseImageReader):
                 "for a series."
             )
         file, dataset = entries[0]
+        _require_grayscale(dataset)
         rows = int(dataset.Rows)
         columns = int(dataset.Columns)
         row_spacing, column_spacing = _pixel_spacing(dataset)
         affine = _to_lps_affine(dataset)
         nib = _require_nibabel()
         photometric = str(getattr(dataset, "PhotometricInterpretation", "") or "")
-        channels = 3 if photometric.startswith("RGB") else 1
         return ImageMetadata(
             format="dicom",
-            shape=(channels, rows, columns),
+            shape=(1, rows, columns),
             spacing=(row_spacing, column_spacing),
             affine=tuple(tuple(float(value) for value in row) for row in affine),
             orientation="".join(nib.aff2axcodes(affine)),
@@ -380,11 +399,11 @@ class DicomReader(BaseImageReader):
             **kwargs: Ignored extra options for interface compatibility.
 
         Returns:
-            A 2D array for grayscale images or an ``(H, W, C)`` array for
-            colour images.
+            A 2D array.
 
         Raises:
-            ValueError: If the file is not a single-frame DICOM image.
+            ValueError: If the path is not a single-file DICOM image.
+            NotImplementedError: If the image is multi-frame or colour.
         """
         del kwargs
         pydicom = _require_pydicom()
@@ -394,9 +413,12 @@ class DicomReader(BaseImageReader):
                 "Multi-frame DICOM is not supported yet; use one file per "
                 "slice or extend DicomSeriesReader."
             )
+        _require_grayscale(dataset)
         array = np.asarray(dataset.pixel_array)
-        if array.ndim == 3:
-            return np.ascontiguousarray(array)
+        if array.ndim != 2:
+            raise NotImplementedError(
+                "Only single-channel, single-frame DICOM images are supported."
+            )
 
         array = array.astype(np.float32)
         if apply_rescale:
@@ -438,8 +460,9 @@ class DicomSeriesReader(BaseImageReader):
 
     Slices are grouped by ``SeriesInstanceUID`` and sorted by their position
     along the slice normal. If position tags are missing, ``InstanceNumber``
-    is used instead. The output volume is ``(C, D, H, W)`` in canonical RAS
-    orientation, with ``D`` superior-inferior.
+    is used instead. The output volume is ``(1, D, H, W)`` in canonical RAS
+    orientation, with ``D`` superior-inferior. Colour series are not supported
+    yet and raise :class:`NotImplementedError`.
 
     Examples:
         >>> from pyhealth.processors.image_io.readers.dicom import DicomSeriesReader
@@ -467,12 +490,16 @@ class DicomSeriesReader(BaseImageReader):
 
         Returns:
             Metadata for the reconstructed volume.
+
+        Raises:
+            NotImplementedError: If the series contains colour images.
         """
         del kwargs
         entries = _series_entries(
             path, series_uid=series_uid, stop_before_pixels=True
         )
         _, first = entries[0]
+        _require_grayscale(first)
         affine, shape_xyz, spacing_xyz = _affine_from_geometry(entries)
         if canonical:
             shape_dhw, spacing_dhw, orientation = _canonical_layout(
@@ -566,7 +593,7 @@ class DicomSeriesReader(BaseImageReader):
 
         Raises:
             ValueError: If slice dimensions are inconsistent.
-            NotImplementedError: If a multi-frame file is present.
+            NotImplementedError: If a multi-frame or colour file is present.
         """
         del kwargs
         pydicom = _require_pydicom()
@@ -585,6 +612,7 @@ class DicomSeriesReader(BaseImageReader):
         first_rows = None
         first_columns = None
         for _, dataset in entries:
+            _require_grayscale(dataset)
             rows = int(dataset.Rows)
             columns = int(dataset.Columns)
             if first_rows is None:

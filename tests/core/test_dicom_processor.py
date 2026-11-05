@@ -75,6 +75,39 @@ def _write_slice(
     dataset.save_as(str(path), enforce_file_format=True)
 
 
+def _write_rgb_slice(path: Path) -> None:
+    """Write one small RGB DICOM slice."""
+    file_meta = FileMetaDataset()
+    file_meta.MediaStorageSOPClassUID = CTImageStorage
+    file_meta.MediaStorageSOPInstanceUID = generate_uid()
+    file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
+    dataset = FileDataset(
+        str(path),
+        {},
+        file_meta=file_meta,
+        preamble=b"\0" * 128,
+    )
+    dataset.PatientID = "p1"
+    dataset.StudyInstanceUID = generate_uid()
+    dataset.SeriesInstanceUID = generate_uid()
+    dataset.SOPClassUID = CTImageStorage
+    dataset.SOPInstanceUID = file_meta.MediaStorageSOPInstanceUID
+    dataset.Modality = "OT"
+    dataset.Rows = 6
+    dataset.Columns = 8
+    dataset.BitsAllocated = 8
+    dataset.BitsStored = 8
+    dataset.HighBit = 7
+    dataset.PixelRepresentation = 0
+    dataset.SamplesPerPixel = 3
+    dataset.PhotometricInterpretation = "RGB"
+    dataset.PlanarConfiguration = 0
+    array = np.zeros((6, 8, 3), dtype=np.uint8)
+    array[..., 0] = 255
+    dataset.PixelData = array.tobytes()
+    dataset.save_as(str(path), enforce_file_format=True)
+
+
 @unittest.skipUnless(pydicom is not None, "pydicom is not installed")
 class TestDicomReaderAndProcessor(unittest.TestCase):
     def setUp(self):
@@ -178,6 +211,52 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         tensor = processor.process((mask_dir, self.root))
         # DICOM positions are z=(4, 0, 2), so the mask order is IMG-1, IMG-2,
         # IMG-0 and the marker values are (2, 3, 1).
+        self.assertEqual(tensor[0, :, 0, 0].tolist(), [2, 3, 1])
+
+    def test_colour_dicom_is_rejected(self):
+        path = self.root / "colour.dcm"
+        _write_rgb_slice(path)
+        with self.assertRaisesRegex(NotImplementedError, "Colour DICOM"):
+            DicomReader().read_metadata(str(path))
+        with self.assertRaisesRegex(NotImplementedError, "Colour DICOM"):
+            DicomReader().load(str(path))
+
+    def test_mask_alignment_requires_readable_series(self):
+        mask_dir = self.root / "masks"
+        mask_dir.mkdir()
+        for index in range(3):
+            array = np.zeros((6, 8), dtype=np.uint8)
+            array[0, 0] = index + 1
+            Image.fromarray(array).save(mask_dir / f"mask_{index}.png")
+
+        processor = ImageMaskDirectoryProcessor(lazy=False)
+        with self.assertRaisesRegex(ValueError, "Could not read"):
+            processor.process((mask_dir, self.root / "missing.dcm"))
+
+    def test_mask_alignment_rejects_slice_count_mismatch(self):
+        self._write_series()
+        mask_dir = self.root / "masks"
+        mask_dir.mkdir()
+        for index in range(2):
+            array = np.zeros((6, 8), dtype=np.uint8)
+            array[0, 0] = index + 1
+            Image.fromarray(array).save(mask_dir / f"mask_{index}.png")
+
+        processor = ImageMaskDirectoryProcessor(lazy=False)
+        with self.assertRaisesRegex(ValueError, "2 slices"):
+            processor.process((mask_dir, self.root))
+
+    def test_mask_alignment_falls_back_to_positional_order(self):
+        self._write_series()
+        mask_dir = self.root / "masks"
+        mask_dir.mkdir()
+        for index in range(3):
+            array = np.zeros((6, 8), dtype=np.uint8)
+            array[0, 0] = index + 1
+            Image.fromarray(array).save(mask_dir / f"mask_{index}.png")
+
+        processor = ImageMaskDirectoryProcessor(lazy=False, canonical=False)
+        tensor = processor.process((mask_dir, self.root))
         self.assertEqual(tensor[0, :, 0, 0].tolist(), [2, 3, 1])
 
     def test_series_falls_back_to_instance_number(self):
