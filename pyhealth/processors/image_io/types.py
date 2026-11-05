@@ -118,6 +118,7 @@ class ImageRef:
 
     Args:
         path: File path, directory, or ordered tuple of file paths.
+            Processors resolve these to absolute paths before caching.
         reader: Reader name registered in ``pyhealth.processors.image_io.readers``.
         metadata: Metadata collected when the sample was built.
         read_kwargs: Reader-specific options, such as a series UID.
