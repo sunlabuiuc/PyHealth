@@ -41,6 +41,9 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
         target_spacing: Target spacing in ``(D, H, W)`` order. Requires a
             reference DICOM series for the affine.
         target_shape: Target shape in ``(D, H, W)`` order.
+        strict_mask_names: Require mask filenames to match the DICOM stems
+            when a reference series is given. Defaults to False, which falls
+            back to natural-order positional pairing with a warning.
 
     Examples:
         >>> from pyhealth.processors import ImageMaskDirectoryProcessor
@@ -61,6 +64,7 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
         num_classes: int | None = None,
         target_spacing: Sequence[float] | None = None,
         target_shape: Sequence[int] | None = None,
+        strict_mask_names: bool = False,
     ) -> None:
         """Initialize the image mask directory processor.
 
@@ -74,6 +78,7 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
             target_spacing: Target spacing in ``(D, H, W)`` order. Requires a
                 reference DICOM series for the affine.
             target_shape: Target shape in ``(D, H, W)`` order.
+            strict_mask_names: Require mask names to match the DICOM stems.
         """
         super().__init__(
             image_size=None,
@@ -92,6 +97,7 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
             None if target_spacing is None else tuple(target_spacing)
         )
         self.target_shape = None if target_shape is None else tuple(target_shape)
+        self.strict_mask_names = bool(strict_mask_names)
 
     @property
     def stores_tensor(self) -> bool:
@@ -129,7 +135,11 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
         else:
             mask_dir = Path(value)
         files = _mask_files(mask_dir, self.pattern)
-        files, metadata = _prepare_mask_files(files, series_path)
+        files, metadata = _prepare_mask_files(
+            files,
+            series_path,
+            require_name_match=getattr(self, "strict_mask_names", False),
+        )
         reader = ImageMaskReader()
         if metadata is None:
             metadata = reader.read_metadata(tuple(files))

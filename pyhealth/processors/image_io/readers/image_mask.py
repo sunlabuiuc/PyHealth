@@ -23,6 +23,7 @@ from .base import BaseImageReader
 from .dicom import DicomSeriesReader
 
 logger = logging.getLogger(__name__)
+_WARNED_POSITIONAL: set[str] = set()
 
 
 def _natural_key(path: Path) -> list[Any]:
@@ -49,14 +50,23 @@ def _mask_files(path: PathLike, pattern: str = "*.png") -> list[Path]:
 
 
 def _prepare_mask_files(
-    mask_files: list[Path], series_path: str | Path | None
+    mask_files: list[Path],
+    series_path: str | Path | None,
+    require_name_match: bool = False,
 ) -> tuple[list[Path], ImageMetadata | None]:
     """Order mask slices like the DICOM series and return its metadata.
 
+    Args:
+        mask_files: Mask slice paths in filename order.
+        series_path: Optional reference DICOM series.
+        require_name_match: Reject positional pairing when mask and DICOM
+            filenames differ. Defaults to False because datasets such as
+            CHAOS name masks ``mask_*.png`` and slices ``slice_*.dcm``.
+
     Raises:
-        ValueError: If the reference series cannot be read or has a different
-            number of slices than the mask directory. Returning filename order
-            silently would misalign masks with images without any warning.
+        ValueError: If the reference series cannot be read, has a different
+            number of slices, or positional pairing is used while
+            ``require_name_match`` is set.
     """
     if series_path is None:
         return mask_files, None
@@ -87,16 +97,29 @@ def _prepare_mask_files(
     if all(path is not None for path in ordered):
         return [path for path in ordered if path is not None], metadata
 
+    if require_name_match:
+        raise ValueError(
+            f"Mask filenames do not match DICOM filenames for "
+            f"{str(series_path)!r}. Rename the masks to match the DICOM "
+            "stems, or disable strict_mask_names."
+        )
+
     # Mask filenames often differ from the DICOM names (for example
     # ``mask_0.png`` next to ``slice_0.dcm``). With equal slice counts, pair
     # both lists in natural filename order and map that position to the
-    # DICOM acquisition order.
-    logger.debug(
-        "Mask filenames do not match DICOM filenames; pairing %d masks with "
-        "%d slices in natural filename order.",
-        len(mask_files),
-        len(ordered_dicom),
-    )
+    # DICOM acquisition order. Warn once per series so a wrong pairing is
+    # visible without flooding the log for every sample.
+    key = str(series_path)
+    if key not in _WARNED_POSITIONAL:
+        logger.warning(
+            "Mask filenames do not match DICOM filenames for %s; pairing %d "
+            "masks with %d slices in natural filename order. Set "
+            "strict_mask_names=True to reject this.",
+            key,
+            len(mask_files),
+            len(ordered_dicom),
+        )
+        _WARNED_POSITIONAL.add(key)
     ordered = [None] * len(mask_files)
     dicom_by_name = sorted(ordered_dicom, key=_natural_key)
     for mask_file, dicom_file in zip(mask_files, dicom_by_name):

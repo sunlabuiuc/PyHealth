@@ -243,8 +243,21 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         mask_dir = self.root / "masks"
         _write_masks(mask_dir, 3)
         processor = ImageMaskDirectoryProcessor(lazy=False, canonical=False)
-        tensor = processor.process((mask_dir, self.root))
+        with self.assertLogs(
+            "pyhealth.processors.image_io.readers.image_mask", level="WARNING"
+        ):
+            tensor = processor.process((mask_dir, self.root))
         self.assertEqual(tensor[0, :, 0, 0].tolist(), [2, 3, 1])
+
+    def test_mask_alignment_can_require_matching_names(self):
+        self._write_series()
+        mask_dir = self.root / "masks"
+        _write_masks(mask_dir, 3)
+        processor = ImageMaskDirectoryProcessor(
+            lazy=False, strict_mask_names=True
+        )
+        with self.assertRaisesRegex(ValueError, "filenames do not match"):
+            processor.process((mask_dir, self.root))
 
     def test_series_prefers_measured_slice_spacing(self):
         for index in range(3):

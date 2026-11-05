@@ -174,6 +174,13 @@ class TestSampleDatasetParity(unittest.TestCase):
         self.assertEqual(ds_disk._cache_pid, os.getpid())
         self.assertIsNotNone(ds_disk.cache)
 
+    def test_in_memory_slice_returns_copies(self):
+        _, dataset = self._get_datasets()
+        items = dataset[0:2]
+        self.assertEqual([item["feature"] for item in items], [0, 1])
+        items[0]["feature"] = 99
+        self.assertEqual(dataset[0]["feature"], 0)
+
     def test_dataloader_forwards_loader_kwargs(self):
         dataset, _ = self._get_datasets()
         try:
