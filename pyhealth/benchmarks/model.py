@@ -118,8 +118,10 @@ class ModelBenchmark(Benchmark):
     ``metrics``, ``best_epoch`` (0-based) and ``runtime``.
 
     Args:
-        env: ``{"compute": {"device"}, "paths": {"cache_dir", "output_dir"},
-            "dev"}``.
+        env: ``{"compute": {"device"}, "paths": {"input_dir", "cache_dir",
+            "output_dir"}, "dev"}``. A relative dataset ``root`` in a task is
+            resolved against ``input_dir``; absolute roots and URLs are used
+            as given.
         tasks: Task dicts with ``task`` (``id``, ``target``, ``params``,
             ``dataset``), ``split`` (``target``, ``params`` with ``seeds``),
             ``training`` (``batch_size``, ``epochs``, ``metrics``,
@@ -246,6 +248,10 @@ class ModelBenchmark(Benchmark):
     def _load_dataset(self, task: Mapping[str, Any], cache_dir: Path | None) -> Any:
         """Builds the task's dataset, with ``cache_dir`` and the env's dev mode."""
         cfg = dict(task["task"]["dataset"])
+        input_dir = self.env.get("paths", {}).get("input_dir")
+        root = cfg.get("root")
+        if input_dir and root and "://" not in root and not Path(root).is_absolute():
+            cfg["root"] = str(Path(input_dir) / root)
         return _resolve(cfg.pop("target"))(
             **cfg, dev=self.dev, cache_dir=str(cache_dir) if cache_dir else None
         )
