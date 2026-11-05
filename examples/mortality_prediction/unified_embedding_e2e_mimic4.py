@@ -78,8 +78,12 @@ class WandbLogger:
         run_name: str,
         tags: list[str],
         config: Dict[str, Any],
+        group: Optional[str] = None,
+        job_type: Optional[str] = None,
     ) -> None:
         self.enabled = enabled
+        self.group = group
+        self.job_type = job_type
         self._run = None
         if self.enabled:
             import wandb
@@ -90,6 +94,8 @@ class WandbLogger:
                 name=run_name,
                 tags=tags,
                 config=config,
+                group=group,
+                job_type=job_type,
             )
 
     def log(self, data: Dict[str, Any], step: Optional[int] = None) -> None:
@@ -153,6 +159,16 @@ def _split_dataset(dataset: Any, seed: int) -> Tuple[Any, Any, Any, str]:
         train_ds, val_ds, test_ds = split_by_sample(dataset, [0.8, 0.1, 0.1], seed=seed)
         return train_ds, val_ds, test_ds, "by_sample_fallback_leaky"
     return train_ds, val_ds, test_ds, "by_patient"
+
+
+def _window_suffix(observation_window_hours: float) -> str:
+    """Directory/name suffix for the observation-window arm.
+
+    An observation-window arm is a different experiment from the full-stay
+    run at the same task/model/seed; without the suffix the two share an
+    output directory and a W&B run name.
+    """
+    return f"_w{observation_window_hours:g}" if observation_window_hours else ""
 
 
 def _select_inference_loader(test_loader, val_loader, train_loader):
@@ -399,9 +415,14 @@ def run(args: argparse.Namespace, sample_dataset: Any = None) -> Path:
     # The task MUST be in the name. Without it, two arms of the same comparison
     # at the same seed, for example --task labs and --task notes_labs, resolve
     # to one directory and the second run overwrites the first. Same for a
-    # --dev smoke check: without the suffix it would overwrite the full run.
+    # --dev smoke check and an observation-window arm: without their
+    # suffixes they would collide with the full run.
     dev_suffix = f"_dev{args.dev}" if args.dev else ""
-    exp_name = f"{args.task}_{args.model}_seed{args.seed}{dev_suffix}"
+    window_suffix = _window_suffix(args.observation_window_hours)
+    exp_name = (
+        f"{args.task}_{args.model}_seed{args.seed}"
+        f"{dev_suffix}{window_suffix}"
+    )
     output_dir = Path(args.output_dir)
 
     wandb_logger = WandbLogger(
@@ -411,6 +432,10 @@ def run(args: argparse.Namespace, sample_dataset: Any = None) -> Path:
         run_name=args.wandb_run_name or exp_name,
         tags=args.wandb_tags.split(",") if args.wandb_tags else [args.task, args.model],
         config=vars(args),
+        # Group by arm and split by backbone so a many-cell sweep is
+        # navigable instead of one flat list of runs.
+        group=f"{args.task}{window_suffix}",
+        job_type=args.model,
     )
 
     trainer = Trainer(
