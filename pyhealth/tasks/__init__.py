@@ -35,6 +35,10 @@ from .drug_recommendation import (
     drug_recommendation_mimic4_fn,
     drug_recommendation_omop_fn,
 )
+from .ehr_cxr_mimic4 import (
+    EHRCXRMortalityMIMIC4 as EHRCXRMortalityMIMIC4,
+    EHRCXRPhenotypingMIMIC4 as EHRCXRPhenotypingMIMIC4,
+)
 from .ehr_text_serialization import (
     CodeDescriber as CodeDescriber,
     EHRTextSerializationTask as EHRTextSerializationTask,

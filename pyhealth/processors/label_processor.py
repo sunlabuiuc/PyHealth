@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Sequence
 from typing import Any, Dict, Iterable
 
 import torch
@@ -128,7 +129,10 @@ class MultiLabelProcessor(FeatureProcessor):
     Processor for multi-label classification labels.
 
     Args:
-        num_classes (int): Number of classes.
+        classes: Optional fixed label set, in output order. By default the
+            labels are the ones seen in ``fit()``, so a task with a defined
+            label set should pass it: the output keeps its size and order
+            whichever labels the training samples happen to contain.
 
     Examples:
         >>> from pyhealth.processors import MultiLabelProcessor
@@ -136,15 +140,25 @@ class MultiLabelProcessor(FeatureProcessor):
         >>> p.fit([{"y": ["a"]}, {"y": ["a", "b"]}], "y")
         >>> p.process(["b"])
         tensor([0., 1.])
+        >>> p = MultiLabelProcessor(classes=["c", "a", "b"])
+        >>> p.fit([{"y": ["a"]}], "y")
+        >>> p.process(["b"])
+        tensor([0., 0., 1.])
     """
 
     stores_tensor = True
+    # Default for processors pickled before this option existed.
+    classes: list[Any] | None = None
 
-    def __init__(self):
+    def __init__(self, classes: Sequence[Any] | None = None):
         super().__init__()
         self.label_vocab: Dict[Any, int] = {}
+        self.classes = None if classes is None else list(classes)
 
     def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
+        if self.classes is not None:
+            self.label_vocab = {label: i for i, label in enumerate(self.classes)}
+            return
         all_labels = set()
         for sample in samples:
             for label in sample[field]:
