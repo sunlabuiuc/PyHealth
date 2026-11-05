@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import torch
 
 from . import register_processor
 from .base_processor import FeatureProcessor
@@ -13,7 +14,7 @@ from .image_io.readers.image_mask import (
     _mask_files,
     _prepare_mask_files,
 )
-from .image_io.tensor_utils import _to_torch
+from .image_io.tensor_utils import _pad_volumes, _to_torch
 from .image_io.types import ImageRef, _apply_resampling_to_metadata
 
 
@@ -24,7 +25,8 @@ class ImageMaskDirectoryProcessor(FeatureProcessor):
     The processor opens each mask image, stacks the slices into
     ``(1, D, H, W)``, and preserves integer label values. The format is not
     fixed: ``pattern`` defaults to ``"*.png"`` but can be any PIL-readable
-    image glob such as ``"*.jpg"`` or ``"*.tif"``.
+    image glob such as ``"*.tif"``. Use a lossless format: JPEG compression
+    is lossy and corrupts integer mask labels.
 
     Args:
         mode: Optional PIL mode conversion. Usually left as None.
@@ -141,6 +143,13 @@ class ImageMaskDirectoryProcessor(FeatureProcessor):
         reader = ImageMaskReader()
         if metadata is None:
             metadata = reader.read_metadata(tuple(files))
+        if (
+            self.target_shape is not None or self.target_spacing is not None
+        ) and (metadata is None or metadata.affine is None):
+            raise ValueError(
+                "Mask resampling requires a reference affine; pass the "
+                "DICOM series path as the second mask value."
+            )
         metadata = _apply_resampling_to_metadata(
             metadata, self.target_shape, self.target_spacing
         )
@@ -186,6 +195,14 @@ class ImageMaskDirectoryProcessor(FeatureProcessor):
         )
         array = self._apply_label_map(array)
         return _to_torch(array, dtype="int64")
+
+    def collate(self, values: list[Any]) -> Any:
+        """Pad variable-shape mask volumes to a common shape and stack them."""
+        if not values or not isinstance(values[0], torch.Tensor):
+            return values
+        if all(value.shape == values[0].shape for value in values):
+            return torch.stack(values)
+        return _pad_volumes(values)
 
     def _apply_label_map(self, array: "np.ndarray") -> "np.ndarray":
         """Map raw mask values to class indices, rejecting unknown values."""

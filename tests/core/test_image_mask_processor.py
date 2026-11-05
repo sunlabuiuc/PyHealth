@@ -9,6 +9,7 @@ import numpy as np
 import torch
 from PIL import Image
 
+from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.processors import ImageMaskDirectoryProcessor, ImageProcessor
 from pyhealth.processors.image_io.readers.image_mask import ImageMaskReader
 from pyhealth.processors.image_io.types import ImageMetadata, ImageRef
@@ -83,6 +84,37 @@ class TestImageMaskDirectoryProcessor(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "single-channel"):
             ImageMaskDirectoryProcessor(lazy=False).process(mask_dir)
+
+    def test_dataloader_pads_variable_mask_volumes(self):
+        second = Path(self.temp_dir) / "small"
+        second.mkdir()
+        for index in range(2):
+            array = np.zeros((2, 3), dtype=np.uint8)
+            array[0, 0] = index + 1
+            Image.fromarray(array).save(second / f"mask_{index}.png")
+        dataset = create_sample_dataset(
+            [
+                {"patient_id": "p0", "mask": str(self.mask_dir), "label": 0},
+                {"patient_id": "p1", "mask": str(second), "label": 1},
+            ],
+            {"mask": ("image_mask_dir", {"lazy": False})},
+            {"label": "binary"},
+            in_memory=False,
+        )
+        try:
+            shapes = [tuple(dataset[index]["mask"].shape) for index in range(2)]
+            batch = next(iter(get_dataloader(dataset, batch_size=2)))
+            expected = (2,) + tuple(
+                max(shape[axis] for shape in shapes) for axis in range(4)
+            )
+            self.assertEqual(tuple(batch["mask"].shape), expected)
+        finally:
+            dataset.close()
+
+    def test_target_without_reference_series_fails_fast(self):
+        processor = ImageMaskDirectoryProcessor(target_shape=(2, 3, 4))
+        with self.assertRaisesRegex(ValueError, "reference affine"):
+            processor.process(self.mask_dir)
 
     def test_natural_filename_order(self):
         mask_dir = Path(self.temp_dir) / "natural_order"
