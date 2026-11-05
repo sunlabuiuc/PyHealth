@@ -177,6 +177,17 @@ class TestSampleDatasetParity(unittest.TestCase):
         self.assertEqual(ds_disk._cache_pid, os.getpid())
         self.assertIsNot(ds_disk.cache, inherited)
 
+    def test_fork_reset_before_first_read(self):
+        dataset, _ = self._get_datasets()
+        try:
+            dataset._cache_pid = os.getpid() + 1
+            dataset._reset_streaming_cache()
+            self.assertIsNone(dataset.cache)
+            self.assertIsNone(dataset.shuffler)
+            self.assertEqual(dataset[0]["feature"], 0)
+        finally:
+            dataset.close()
+
     def test_in_memory_slice_returns_copies(self):
         _, dataset = self._get_datasets()
         items = dataset[0:2]
