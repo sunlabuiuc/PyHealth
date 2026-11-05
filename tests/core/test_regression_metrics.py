@@ -81,6 +81,14 @@ class TestRegressionMetrics(unittest.TestCase):
         with self.assertRaises(ValueError):
             regression_metrics_fn(x, x_rec)
 
+    def test_size_one_dimensions_are_accepted(self):
+        """(N,) and (N, 1) hold the same values, so they compare as before."""
+        x_column = self.x.reshape(-1, 1)
+        x_rec_column = self.x_rec.reshape(-1, 1)
+        for x, x_rec in ((self.x, x_rec_column), (x_column, self.x_rec)):
+            result = regression_metrics_fn(x, x_rec, metrics=["mse"])
+            self.assertAlmostEqual(result["mse"], 0.00125)
+
     def test_different_sizes_raise(self):
         with self.assertRaises(ValueError):
             regression_metrics_fn(np.zeros(3), np.zeros(4))
@@ -92,7 +100,7 @@ class TestRegressionMetrics(unittest.TestCase):
 
 class TestTrainerRegressionShapes(unittest.TestCase):
     """Trainer.evaluate passes y_true and y_prob straight to
-    regression_metrics_fn, so both must have the same shape. Regression
+    regression_metrics_fn, so their shapes must match. Regression
     labels are processed to shape (1,) and models return y_prob of shape
     (batch_size, 1), so the stricter shape check does not affect this path."""
 
