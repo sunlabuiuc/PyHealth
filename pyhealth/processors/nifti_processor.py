@@ -140,7 +140,7 @@ class NiftiProcessor(FeatureProcessor):
                 metadata, self.target_shape, self.target_spacing
             )
             return ImageRef(
-                path=str(path),
+                path=str(path.resolve()),
                 reader="nifti",
                 metadata=metadata,
             )

@@ -1,5 +1,6 @@
 """Tests for the NIfTI reader and processor using synthetic volumes."""
 
+import os
 import shutil
 import tempfile
 import unittest
@@ -97,6 +98,12 @@ class TestNiftiReaderAndProcessor(unittest.TestCase):
         nib.save(nib.Nifti1Image(data, self.affine), str(path))
         tensor = NiftiProcessor(lazy=False, is_mask=True).process(str(path))
         self.assertEqual(str(tensor.dtype), "torch.int64")
+
+    def test_lazy_ref_path_is_absolute(self):
+        relative = os.path.relpath(self.path, Path.cwd())
+        ref = NiftiProcessor().process(relative)
+        self.assertTrue(Path(ref.path).is_absolute())
+        self.assertEqual(Path(ref.path), self.path.resolve())
 
     def test_lazy_processor(self):
         processor = NiftiProcessor()

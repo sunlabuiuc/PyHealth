@@ -155,7 +155,7 @@ class ImageMaskDirectoryProcessor(FeatureProcessor):
 
         if self.lazy:
             return ImageRef(
-                path=tuple(str(path) for path in files),
+                path=tuple(str(path.resolve()) for path in files),
                 reader=reader.name,
                 metadata=metadata,
                 read_kwargs={

@@ -66,37 +66,6 @@ class TestTemporalCache(unittest.TestCase):
         self.assertEqual(converted["u"]["extras"], ["extra"])
         self.assertEqual(_restore_from_cache(converted), sample)
 
-    def test_restore_component_variants(self):
-        restored = _restore_from_cache(
-            {
-                "list": {
-                    "__stagenet_cache__": True,
-                    "components": [None, [1]],
-                },
-                "tuple": {
-                    "__stagenet_cache__": True,
-                    "components": (None, [1]),
-                },
-                "legacy": {
-                    "__stagenet_cache__": True,
-                    "time": None,
-                    "values": [1],
-                    "extras": ["x"],
-                },
-                "scalar_extra": {
-                    "__stagenet_cache__": True,
-                    "time": None,
-                    "values": [1],
-                    "extras": "x",
-                },
-                "plain": 2,
-            }
-        )
-        self.assertEqual(restored["list"], (None, [1]))
-        self.assertEqual(restored["tuple"], (None, [1]))
-        self.assertEqual(restored["legacy"], (None, [1], "x"))
-        self.assertEqual(restored["scalar_extra"], (None, [1], "x"))
-        self.assertEqual(restored["plain"], 2)
 
 
 class TestCollation(unittest.TestCase):

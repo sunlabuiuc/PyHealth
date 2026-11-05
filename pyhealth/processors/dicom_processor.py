@@ -141,7 +141,9 @@ class DicomProcessor(ImageProcessor):
             raise FileNotFoundError(f"DICOM file not found: {path}")
         if self.lazy:
             metadata = DicomReader().read_metadata(str(path))
-            return ImageRef(path=str(path), reader="dicom", metadata=metadata)
+            return ImageRef(
+                path=str(path.resolve()), reader="dicom", metadata=metadata
+            )
         return self._array_to_output(self._load_array(str(path)))
 
     def materialize(self, ref: ImageRef) -> Any:

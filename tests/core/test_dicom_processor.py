@@ -422,6 +422,21 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "only some slices"):
             DicomSeriesReader().load(self.root, window=True)
 
+    def test_series_rejects_different_window_values(self):
+        for index in range(3):
+            _write_slice(
+                self.root / f"IMG-{index}.dcm",
+                1024,
+                float(index),
+                index + 1,
+                self.series_uid,
+                self.study_uid,
+                window_center=-1000.0 + index * 100.0,
+                window_width=100.0,
+            )
+        with self.assertRaisesRegex(ValueError, "different window"):
+            DicomSeriesReader().load(self.root, window=True)
+
     def test_series_monochrome1_window_is_applied_before_inversion(self):
         for index, value in enumerate((10, 20, 30)):
             _write_slice(

@@ -675,6 +675,11 @@ class DicomSeriesReader(BaseImageReader):
                 intensity = _intensity(dataset)
                 center = intensity.get("window_center")
                 width = intensity.get("window_width")
+                if (center is None) != (width is None):
+                    raise ValueError(
+                        "DICOM window requires both WindowCenter and "
+                        "WindowWidth."
+                    )
                 if center is not None and width is not None:
                     window_params = (center, width)
             slices.append(array)
@@ -689,9 +694,14 @@ class DicomSeriesReader(BaseImageReader):
                     "cannot apply a consistent window to the volume."
                 )
             if all(tagged):
+                first_window = windows[0]
+                if any(params != first_window for params in windows[1:]):
+                    raise ValueError(
+                        "DICOM series has different window center/width "
+                        "values per slice; cannot apply a consistent window."
+                    )
                 slices = [
-                    apply_window(item, *params)
-                    for item, params in zip(slices, windows)
+                    apply_window(item, *first_window) for item in slices
                 ]
                 applied_window = True
         if monochrome1:
