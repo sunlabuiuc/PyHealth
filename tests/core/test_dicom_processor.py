@@ -16,6 +16,7 @@ except ImportError:  # pragma: no cover - test env installs the extra
 
 from PIL import Image
 
+from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.processors import (
     DicomProcessor,
     DicomSeriesProcessor,
@@ -362,6 +363,41 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         )
         values = sorted(float(value) for value in np.unique(volume))
         np.testing.assert_allclose(values, [0.44, 0.54, 0.64], atol=1e-6)
+
+    def test_dataloader_pads_variable_dicom_series(self):
+        series_paths = []
+        for name, count in (("a", 3), ("b", 2)):
+            series_dir = self.root / name
+            series_dir.mkdir()
+            uid = generate_uid()
+            for index in range(count):
+                _write_slice(
+                    series_dir / f"IMG-{index}.dcm",
+                    1024,
+                    float(index),
+                    index + 1,
+                    uid,
+                    self.study_uid,
+                )
+            series_paths.append(series_dir)
+        dataset = create_sample_dataset(
+            [
+                {"patient_id": "p0", "image": str(series_paths[0]), "label": 0},
+                {"patient_id": "p1", "image": str(series_paths[1]), "label": 1},
+            ],
+            {"image": ("dicom_series", {"lazy": False, "canonical": False})},
+            {"label": "binary"},
+            in_memory=False,
+        )
+        try:
+            shapes = [tuple(dataset[index]["image"].shape) for index in range(2)]
+            batch = next(iter(get_dataloader(dataset, batch_size=2)))
+            expected = (2,) + tuple(
+                max(shape[axis] for shape in shapes) for axis in range(4)
+            )
+            self.assertEqual(tuple(batch["image"].shape), expected)
+        finally:
+            dataset.close()
 
     def test_series_falls_back_to_instance_number(self):
         self._write_series(include_position=False)
