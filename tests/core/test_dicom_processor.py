@@ -87,12 +87,8 @@ def _write_rgb_slice(path: Path) -> None:
         file_meta=file_meta,
         preamble=b"\0" * 128,
     )
-    dataset.PatientID = "p1"
-    dataset.StudyInstanceUID = generate_uid()
-    dataset.SeriesInstanceUID = generate_uid()
     dataset.SOPClassUID = CTImageStorage
     dataset.SOPInstanceUID = file_meta.MediaStorageSOPInstanceUID
-    dataset.Modality = "OT"
     dataset.Rows = 6
     dataset.Columns = 8
     dataset.BitsAllocated = 8
@@ -102,10 +98,17 @@ def _write_rgb_slice(path: Path) -> None:
     dataset.SamplesPerPixel = 3
     dataset.PhotometricInterpretation = "RGB"
     dataset.PlanarConfiguration = 0
-    array = np.zeros((6, 8, 3), dtype=np.uint8)
-    array[..., 0] = 255
-    dataset.PixelData = array.tobytes()
+    dataset.PixelData = np.zeros((6, 8, 3), dtype=np.uint8).tobytes()
     dataset.save_as(str(path), enforce_file_format=True)
+
+
+def _write_masks(mask_dir: Path, count: int, prefix: str = "mask") -> None:
+    """Write small single-pixel marker masks."""
+    mask_dir.mkdir()
+    for index in range(count):
+        array = np.zeros((6, 8), dtype=np.uint8)
+        array[0, 0] = index + 1
+        Image.fromarray(array).save(mask_dir / f"{prefix}_{index}.png")
 
 
 @unittest.skipUnless(pydicom is not None, "pydicom is not installed")
@@ -202,11 +205,7 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
     def test_dicom_aligned_mask_order(self):
         self._write_series()
         mask_dir = self.root / "masks"
-        mask_dir.mkdir()
-        for index in range(3):
-            array = np.zeros((6, 8), dtype=np.uint8)
-            array[0, 0] = index + 1
-            Image.fromarray(array).save(mask_dir / f"IMG-{index}.png")
+        _write_masks(mask_dir, 3, "IMG")
         processor = ImageMaskDirectoryProcessor(lazy=False, canonical=False)
         tensor = processor.process((mask_dir, self.root))
         # DICOM positions are z=(4, 0, 2), so the mask order is IMG-1, IMG-2,
@@ -223,12 +222,7 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
 
     def test_mask_alignment_requires_readable_series(self):
         mask_dir = self.root / "masks"
-        mask_dir.mkdir()
-        for index in range(3):
-            array = np.zeros((6, 8), dtype=np.uint8)
-            array[0, 0] = index + 1
-            Image.fromarray(array).save(mask_dir / f"mask_{index}.png")
-
+        _write_masks(mask_dir, 3)
         processor = ImageMaskDirectoryProcessor(lazy=False)
         with self.assertRaisesRegex(ValueError, "Could not read"):
             processor.process((mask_dir, self.root / "missing.dcm"))
@@ -236,12 +230,7 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
     def test_mask_alignment_rejects_slice_count_mismatch(self):
         self._write_series()
         mask_dir = self.root / "masks"
-        mask_dir.mkdir()
-        for index in range(2):
-            array = np.zeros((6, 8), dtype=np.uint8)
-            array[0, 0] = index + 1
-            Image.fromarray(array).save(mask_dir / f"mask_{index}.png")
-
+        _write_masks(mask_dir, 2)
         processor = ImageMaskDirectoryProcessor(lazy=False)
         with self.assertRaisesRegex(ValueError, "2 slices"):
             processor.process((mask_dir, self.root))
@@ -249,12 +238,7 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
     def test_mask_alignment_falls_back_to_positional_order(self):
         self._write_series()
         mask_dir = self.root / "masks"
-        mask_dir.mkdir()
-        for index in range(3):
-            array = np.zeros((6, 8), dtype=np.uint8)
-            array[0, 0] = index + 1
-            Image.fromarray(array).save(mask_dir / f"mask_{index}.png")
-
+        _write_masks(mask_dir, 3)
         processor = ImageMaskDirectoryProcessor(lazy=False, canonical=False)
         tensor = processor.process((mask_dir, self.root))
         self.assertEqual(tensor[0, :, 0, 0].tolist(), [2, 3, 1])

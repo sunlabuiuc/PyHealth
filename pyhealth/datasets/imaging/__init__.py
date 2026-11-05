@@ -1,8 +1,7 @@
 """Dataset-level helpers for medical imaging.
 
 This package holds imaging utilities that are not tied to one dataset loader:
-file download/archive helpers, the patch-based dataset view, and foreground
-intensity statistics.
+the patch-based dataset view and foreground intensity statistics.
 """
 
 from .patches import PatchDataset as PatchDataset
