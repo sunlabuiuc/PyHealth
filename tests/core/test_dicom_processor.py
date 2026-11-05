@@ -110,13 +110,17 @@ def _write_rgb_slice(path: Path) -> None:
     dataset.save_as(str(path), enforce_file_format=True)
 
 
-def _write_masks(mask_dir: Path, count: int, prefix: str = "mask") -> None:
+def _write_masks(
+    mask_dir: Path, count: int, prefix: str = "mask", separator: str = "_"
+) -> None:
     """Write small single-pixel marker masks."""
     mask_dir.mkdir()
     for index in range(count):
         array = np.zeros((6, 8), dtype=np.uint8)
         array[0, 0] = index + 1
-        Image.fromarray(array).save(mask_dir / f"{prefix}_{index}.png")
+        Image.fromarray(array).save(
+            mask_dir / f"{prefix}{separator}{index}.png"
+        )
 
 
 @unittest.skipUnless(pydicom is not None, "pydicom is not installed")
@@ -218,7 +222,7 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         self._write_series()
         mask_dir = self.root / "masks"
         # IMG-N.png matches IMG-N.dcm, so this uses the name-matching path.
-        _write_masks(mask_dir, 3, "IMG")
+        _write_masks(mask_dir, 3, "IMG", "-")
         processor = ImageMaskDirectoryProcessor(lazy=False, canonical=False)
         tensor = processor.process((mask_dir, self.root))
         # DICOM positions are z=(4, 0, 2), so the mask order is IMG-1, IMG-2,
@@ -288,20 +292,20 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         self._write_series()
         mask_dir = self.root / "masks"
         _write_masks(mask_dir, 3)
-        processor = ImageMaskDirectoryProcessor(lazy=False, canonical=False)
+        processor = ImageMaskDirectoryProcessor(
+            lazy=False, canonical=False, strict_mask_names=False
+        )
         with self.assertLogs(
             "pyhealth.processors.image_io.readers.image_mask", level="WARNING"
         ):
             tensor = processor.process((mask_dir, self.root))
         self.assertEqual(tensor[0, :, 0, 0].tolist(), [2, 3, 1])
 
-    def test_mask_alignment_can_require_matching_names(self):
+    def test_mask_alignment_rejects_mismatched_names_by_default(self):
         self._write_series()
         mask_dir = self.root / "masks"
         _write_masks(mask_dir, 3)
-        processor = ImageMaskDirectoryProcessor(
-            lazy=False, strict_mask_names=True
-        )
+        processor = ImageMaskDirectoryProcessor(lazy=False)
         with self.assertRaisesRegex(ValueError, "filenames do not match"):
             processor.process((mask_dir, self.root))
 
@@ -377,7 +381,7 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
     def test_lazy_mask_metadata_reflects_target_shape(self):
         self._write_series()
         mask_dir = self.root / "masks"
-        _write_masks(mask_dir, 3, "IMG")
+        _write_masks(mask_dir, 3, "IMG", "-")
         processor = ImageMaskDirectoryProcessor(
             canonical=False, target_shape=(2, 3, 4)
         )

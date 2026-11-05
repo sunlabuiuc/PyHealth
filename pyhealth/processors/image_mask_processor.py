@@ -43,8 +43,8 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
             reference DICOM series for the affine.
         target_shape: Target shape in ``(D, H, W)`` order.
         strict_mask_names: Require mask filenames to match the DICOM stems
-            when a reference series is given. Defaults to False, which falls
-            back to natural-order positional pairing with a warning.
+            when a reference series is given. Defaults to True. Set it to
+            False to allow natural-order positional pairing with a warning.
 
     Examples:
         >>> from pyhealth.processors import ImageMaskDirectoryProcessor
@@ -65,7 +65,7 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
         num_classes: int | None = None,
         target_spacing: Sequence[float] | None = None,
         target_shape: Sequence[int] | None = None,
-        strict_mask_names: bool = False,
+        strict_mask_names: bool = True,
     ) -> None:
         """Initialize the image mask directory processor.
 
@@ -80,6 +80,7 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
                 reference DICOM series for the affine.
             target_shape: Target shape in ``(D, H, W)`` order.
             strict_mask_names: Require mask names to match the DICOM stems.
+                Defaults to True; set False for positional pairing.
         """
         super().__init__(
             image_size=None,
