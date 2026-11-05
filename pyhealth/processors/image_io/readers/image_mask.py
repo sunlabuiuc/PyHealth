@@ -193,6 +193,7 @@ class ImageMaskReader(BaseImageReader):
 
         Raises:
             FileNotFoundError: If no image files are found.
+            ValueError: If the masks have more than one colour channel.
         """
         files = _mask_files(path)
 
@@ -209,6 +210,11 @@ class ImageMaskReader(BaseImageReader):
             )
 
         slices = [np.asarray(image_processor.process(file)) for file in files]
+        if slices and slices[0].ndim == 3:
+            raise ValueError(
+                "Image masks must be single-channel; convert the colour mask "
+                f"{str(files[0])!r} to grayscale first."
+            )
         # Nibabel does not accept bool or int64 data when reorienting, so use
         # int32 for the intermediate volume and widen after canonicalisation.
         volume = np.stack(slices, axis=0).astype(np.int32, copy=False)

@@ -70,6 +70,15 @@ class TestImageMaskDirectoryProcessor(unittest.TestCase):
         )
         self.assertEqual(tuple(volume.shape), (1, 2, 3, 4))
 
+    def test_colour_mask_is_rejected(self):
+        mask_dir = Path(self.temp_dir) / "colour"
+        mask_dir.mkdir()
+        Image.fromarray(np.zeros((4, 5, 3), dtype=np.uint8)).save(
+            mask_dir / "mask.png"
+        )
+        with self.assertRaisesRegex(ValueError, "single-channel"):
+            ImageMaskDirectoryProcessor(lazy=False).process(mask_dir)
+
     def test_natural_filename_order(self):
         mask_dir = Path(self.temp_dir) / "natural_order"
         mask_dir.mkdir()
