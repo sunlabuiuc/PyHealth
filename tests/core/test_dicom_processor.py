@@ -309,6 +309,27 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "filenames do not match"):
             processor.process((mask_dir, self.root))
 
+    def test_mask_metadata_uses_processor_canonical_flag(self):
+        iop = [0, 1, 0, 0, 0, 1]
+        for index in range(3):
+            _write_slice(
+                self.root / f"IMG-{index}.dcm",
+                1024,
+                float(index),
+                index + 1,
+                self.series_uid,
+                self.study_uid,
+                iop=iop,
+                position=[float(index) * 3.0, 0.0, 0.0],
+            )
+        mask_dir = self.root / "masks"
+        _write_masks(mask_dir, 3, "IMG", "-")
+        processor = ImageMaskDirectoryProcessor(canonical=False)
+        reference = processor.process((mask_dir, self.root))
+        tensor = processor.materialize(reference)
+        self.assertEqual(reference.metadata.shape, tuple(tensor.shape))
+        self.assertEqual(tuple(tensor.shape), (1, 3, 6, 8))
+
     def test_series_prefers_measured_slice_spacing(self):
         for index in range(3):
             _write_slice(

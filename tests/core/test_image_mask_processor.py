@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-from pyhealth.processors import ImageMaskDirectoryProcessor
+from pyhealth.processors import ImageMaskDirectoryProcessor, ImageProcessor
 from pyhealth.processors.image_io.readers.image_mask import ImageMaskReader
 from pyhealth.processors.image_io.types import ImageMetadata, ImageRef
 
@@ -26,6 +26,11 @@ class TestImageMaskDirectoryProcessor(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_is_not_a_2d_image_processor(self):
+        self.assertNotIsInstance(
+            ImageMaskDirectoryProcessor(), ImageProcessor
+        )
 
     def test_lazy_process(self):
         processor = ImageMaskDirectoryProcessor()

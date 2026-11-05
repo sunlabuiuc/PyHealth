@@ -53,6 +53,7 @@ def _prepare_mask_files(
     mask_files: list[Path],
     series_path: str | Path | None,
     require_name_match: bool = False,
+    canonical: bool = True,
 ) -> tuple[list[Path], ImageMetadata | None]:
     """Order mask slices like the DICOM series and return its metadata.
 
@@ -62,6 +63,7 @@ def _prepare_mask_files(
         require_name_match: Reject positional pairing when mask and DICOM
             filenames differ. Defaults to False because datasets such as
             CHAOS name masks ``mask_*.png`` and slices ``slice_*.dcm``.
+        canonical: Report reference metadata in canonical RAS orientation.
 
     Raises:
         ValueError: If the reference series cannot be read, has a different
@@ -71,7 +73,9 @@ def _prepare_mask_files(
     if series_path is None:
         return mask_files, None
     try:
-        metadata = DicomSeriesReader().read_metadata(series_path)
+        metadata = DicomSeriesReader().read_metadata(
+            series_path, canonical=canonical
+        )
     except ImportError:
         raise
     except (FileNotFoundError, OSError, ValueError) as exc:
