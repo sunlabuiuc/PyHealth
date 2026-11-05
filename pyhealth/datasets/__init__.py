@@ -47,6 +47,12 @@ class SampleSignalDataset:
 
 
 from .base_dataset import BaseDataset
+<<<<<<< HEAD
+=======
+from .imaging.stats import (
+    compute_foreground_intensity_stats as compute_foreground_intensity_stats,
+)
+>>>>>>> a870501 (refactor(imaging): add foreground intensity statistics used by segmentation datasets)
 from .cardiology import CardiologyDataset
 from .chestxray14 import ChestXray14Dataset
 from .clinvar import ClinVarDataset
