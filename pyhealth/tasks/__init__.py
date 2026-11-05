@@ -26,6 +26,9 @@ from .deid_ner import DeIDNERTask
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
 # New exports must use the redundant `X as X` form: this module has no
 # __all__, and the PR lint gate flags F401 on newly added import lines.
+from .disease_progression_mimic4 import (
+    DiseaseProgressionMIMIC4 as DiseaseProgressionMIMIC4,
+)
 from .drug_recommendation import (
     DrugRecommendationEICU,
     DrugRecommendationMIMIC3,
@@ -34,6 +37,10 @@ from .drug_recommendation import (
     drug_recommendation_mimic3_fn,
     drug_recommendation_mimic4_fn,
     drug_recommendation_omop_fn,
+)
+from .ehr_cxr_mimic4 import (
+    EHRCXRMortalityMIMIC4 as EHRCXRMortalityMIMIC4,
+    EHRCXRPhenotypingMIMIC4 as EHRCXRPhenotypingMIMIC4,
 )
 from .ehr_text_serialization import (
     CodeDescriber as CodeDescriber,

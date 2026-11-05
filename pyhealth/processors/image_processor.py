@@ -2,11 +2,15 @@ from functools import partial
 from pathlib import Path
 from typing import Any, List, Optional, Union
 
+import torch
 import torchvision.transforms as transforms
 from PIL import Image
 
 from . import register_processor
 from .base_processor import FeatureProcessor
+
+# Channels of a zero image, per PIL mode.
+_MODE_CHANNELS = {"L": 1, "RGB": 3, "RGBA": 4}
 
 
 @register_processor("image")
@@ -23,9 +27,15 @@ class ImageProcessor(FeatureProcessor):
         mode: PIL image mode to convert the image to before processing.
             Common modes: 'RGB', 'RGBA', 'L' (grayscale), 'P' (palette).
             If None, keeps the original mode. Defaults to None.
+        allow_missing: Whether ``process(None)`` returns a zero image instead
+            of failing, for samples without an image whose absence a separate
+            mask records. Needs ``to_tensor=True``, an ``image_size`` and a
+            ``mode`` of 'L', 'RGB' or 'RGBA', which fix the zero image's
+            shape. Defaults to False.
 
     Raises:
-        ValueError: If normalization parameters are inconsistent.
+        ValueError: If normalization parameters are inconsistent, or
+            ``allow_missing`` cannot determine the shape of a zero image.
 
     Examples:
         >>> from pyhealth.processors import ImageProcessor
@@ -34,7 +44,13 @@ class ImageProcessor(FeatureProcessor):
         True
         >>> p.process("chest_xray.png").shape  # doctest: +SKIP
         torch.Size([3, 224, 224])
+        >>> p = ImageProcessor(image_size=8, mode="L", allow_missing=True)
+        >>> p.process(None).shape
+        torch.Size([1, 8, 8])
     """
+
+    # Default for processors pickled before this option existed.
+    allow_missing: bool = False
 
     @property
     def stores_tensor(self) -> bool:
@@ -49,6 +65,7 @@ class ImageProcessor(FeatureProcessor):
         mean: Optional[List[float]] = None,
         std: Optional[List[float]] = None,
         mode: Optional[str] = None,
+        allow_missing: bool = False,
     ) -> None:
         self.image_size = image_size
         self.to_tensor = to_tensor
@@ -57,7 +74,15 @@ class ImageProcessor(FeatureProcessor):
         self.mean = mean
         self.std = std
         self.mode = mode
+        self.allow_missing = allow_missing
 
+        if allow_missing and (
+            not to_tensor or image_size is None or mode not in _MODE_CHANNELS
+        ):
+            raise ValueError(
+                "allow_missing requires to_tensor=True, an image_size and a "
+                f"mode in {list(_MODE_CHANNELS)}."
+            )
         if self.normalize and (self.mean is None or self.std is None):
             raise ValueError(
                 "Normalization requires both mean and std to be provided."
@@ -92,14 +117,19 @@ class ImageProcessor(FeatureProcessor):
         """Process a single image path into a transformed tensor image.
 
         Args:
-            value: Path to image file as string or Path object.
+            value: Path to image file as string or Path object, or None for a
+                missing image when ``allow_missing`` is set.
 
         Returns:
-            Transformed image tensor.
+            Transformed image tensor, or a zero image for a missing image.
 
         Raises:
             FileNotFoundError: If the image file does not exist.
         """
+        if value is None and self.allow_missing:
+            return torch.zeros(
+                _MODE_CHANNELS[self.mode], self.image_size, self.image_size
+            )
         image_path = Path(value)
         if not image_path.exists():
             raise FileNotFoundError(f"Image file not found: {image_path}")

@@ -14,6 +14,7 @@ except ImportError:
     HAS_PSUTIL = False
 
 from .base_dataset import BaseDataset
+from .chest_imagenome import ChestImaGenomeDataset
 
 logger = logging.getLogger(__name__)
 
@@ -236,9 +237,13 @@ class MIMIC4Dataset(BaseDataset):
         ehr_root: Root directory for MIMIC-IV EHR data
         note_root: Root directory for MIMIC-IV notes data
         cxr_root: Root directory for MIMIC-CXR data
+        imagenome_root: Root directory for Chest ImaGenome data, which shares
+            MIMIC-CXR's subject IDs. See
+            :class:`~pyhealth.datasets.ChestImaGenomeDataset`.
         ehr_tables: List of EHR tables to include
         note_tables: List of clinical note tables to include
         cxr_tables: List of X-ray tables to include
+        imagenome_tables: List of Chest ImaGenome tables to include
         ehr_config_path: Path to the EHR config file
         note_config_path: Path to the note config file
         cxr_config_path: Path to the CXR config file
@@ -283,6 +288,8 @@ class MIMIC4Dataset(BaseDataset):
         dev: bool = False,
         cache_dir: Optional[str] = None,
         num_workers: int = 1,
+        imagenome_root: str | None = None,
+        imagenome_tables: list[str] | None = None,
     ):
         log_memory_usage("Starting MIMIC4Dataset init")
 
@@ -294,10 +301,16 @@ class MIMIC4Dataset(BaseDataset):
         ehr_tables = ehr_tables or []
         note_tables = note_tables or []
         cxr_tables = cxr_tables or []
+        imagenome_tables = imagenome_tables or []
+
+        # Without Chest ImaGenome the root stays as it was, so caches stay valid.
+        root = f"{ehr_root}|{note_root}|{cxr_root}"
+        if imagenome_root is not None:
+            root = f"{root}|{imagenome_root}"
 
         super().__init__(
-            root=f"{ehr_root}|{note_root}|{cxr_root}",
-            tables=ehr_tables + note_tables + cxr_tables,
+            root=root,
+            tables=ehr_tables + note_tables + cxr_tables + imagenome_tables,
             dataset_name=dataset_name,
             config_path=None,
             dev=dev,
@@ -352,6 +365,20 @@ class MIMIC4Dataset(BaseDataset):
                 num_workers=num_workers,
             )
             log_memory_usage("After CXR dataset initialization")
+
+        # Initialize Chest ImaGenome dataset if root is provided
+        if imagenome_root is not None:
+            logger.info(
+                f"Initializing ChestImaGenomeDataset with tables: {imagenome_tables} (dev mode: {dev})"
+            )
+            self.sub_datasets["imagenome"] = ChestImaGenomeDataset(
+                root=imagenome_root,
+                tables=imagenome_tables,
+                cache_dir=str(self.cache_dir),
+                dev=dev,
+                num_workers=num_workers,
+            )
+            log_memory_usage("After Chest ImaGenome dataset initialization")
 
         log_memory_usage("Completed MIMIC4Dataset init")
 
