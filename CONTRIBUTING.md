@@ -77,8 +77,23 @@ which runs `tools/check_pr_rules.py`. You can run the same check locally:
 python tools/check_pr_rules.py --base <base_sha> --head HEAD
 ```
 
-## Community
+## Porting a Dataset's Official Splits
 
-Join our
-[Slack workspace](https://join.slack.com/t/pyhealthworkspace/shared_invite/zt-1j8h4da47-ZZWENUYax7SlgCRHNyL2DQ)
-to ask questions, discuss ideas, and share your work.
+Many datasets ship with pre-defined splits, for example the train/eval partitions
+of the TUH EEG corpora (TUEV, TUAB). To keep `pyhealth/datasets/splitter.py` from
+growing one near-identical function per dataset, port official splits as follows.
+
+1. **Tag every sample in the task.** In the task's `__call__`, set a `"split"`
+   field on each sample to the dataset's own partition label. `EEGEventsTUEV` and
+   `EEGAbnormalTUAB` in `pyhealth/tasks/temple_university_EEG_tasks.py` are the
+   reference: they iterate over the `"train"` and `"eval"` partitions and write
+   the partition name into `sample["split"]`. Document the field in the task's
+   docstring.
+2. **Do not add a new splitter to `splitter.py`.** Call
+   `pyhealth.datasets.split_by_predefined`, which holds the logic for all
+   pre-defined splits:
+    - `ratios` has 2 values (train / val) or 3 values (train / val / cal) and is
+      applied to the train pool only. Samples whose `split_key` value is not
+      `train_value` form the held-out test set.
+    - `by_patient=True` keeps all of a patient's samples in the same split
+      (the dataset must have `patient_to_index`). Patients are sorted by ID before
