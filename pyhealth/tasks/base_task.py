@@ -3,11 +3,46 @@ from typing import Dict, List, Optional, Tuple, Union, Type
 
 import polars as pl
 
+from .fingerprint import record_init_args
+
 
 class BaseTask(ABC):
+    """Base class for PyHealth predictive tasks.
+
+    Init arguments, class-level configuration, and ``version`` are part of
+    the ``set_task`` cache key. Bump ``version`` when ``__call__`` or
+    ``pre_filter`` changes in a way that alters generated samples.
+
+    Example:
+        >>> from pyhealth.tasks.base_task import BaseTask
+        >>> class ToyTask(BaseTask):
+        ...     task_name = "toy"
+        ...     input_schema = {"x": "sequence"}
+        ...     output_schema = {"y": "binary"}
+        ...     def __call__(self, patient):
+        ...         return []
+        >>> ToyTask().task_name
+        'toy'
+    """
+
     task_name: str
     input_schema: Dict[str, Union[str, Type]]
     output_schema: Dict[str, Union[str, Type]]
+
+    #: Bump when ``__call__`` or ``pre_filter`` logic changes in a way that
+    #: alters the generated samples. Init args alone cannot detect this.
+    version: str = "1"
+
+    #: Attribute names that do not affect the generated samples and must not
+    #: invalidate the cache (e.g. ``num_workers``, ``verbose``). Denylist, not
+    #: allowlist: forgetting an entry here costs a spurious rebuild, whereas
+    #: forgetting to allowlist a semantic arg silently reuses a stale cache.
+    fingerprint_exclude: frozenset[str] = frozenset()
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        """Record the effective ``__init__`` arguments of every task instance."""
+        super().__init_subclass__(**kwargs)
+        record_init_args(cls)
 
     def __init__(
         self,
