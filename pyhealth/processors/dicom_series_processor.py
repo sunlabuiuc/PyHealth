@@ -82,7 +82,10 @@ class DicomSeriesProcessor(FeatureProcessor):
                 voxels. Defaults to True.
             mri_background_threshold: For ``normalize="mri"``, fraction of the
                 99th percentile below which voxels are treated as air/noise
-                and set to zero. Defaults to 0.05 for DICOM MRI.
+                and set to zero. Defaults to 0.05 for DICOM MRI because raw
+                DICOM series usually include an air background.
+                ``NiftiProcessor`` defaults to None because NIfTI volumes are
+                often already skull-stripped.
             dtype: Output dtype.
             is_mask: Treat the input as a mask.
             order: Interpolation order.

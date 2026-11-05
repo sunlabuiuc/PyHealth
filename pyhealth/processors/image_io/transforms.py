@@ -249,7 +249,7 @@ def normalize_intensity(
         mode: One of ``None``, ``"minmax"``, ``"zscore"``, ``"percentile"``,
             ``"hu"``, ``"ct"`` or ``"mri"``.
         clip: Optional ``(low, high)`` clipping range applied before
-            normalisation.
+            normalisation. It also applies when ``mode`` is None.
         percentile_range: Lower and upper percentiles for ``"percentile"``.
         intensity_stats: Foreground intensity statistics for ``"ct"``, as
             returned by
@@ -278,8 +278,6 @@ def normalize_intensity(
         array([ 0., -1.,  1.], dtype=float32)
     """
     array = np.asarray(data, dtype=np.float32)
-    if mode is None:
-        return array
 
     if mode == "auto":
         raise ValueError(
@@ -287,8 +285,13 @@ def normalize_intensity(
             "'mri' when the modality is known."
         )
 
+    # Clipping is independent of the normalisation mode, so it also applies
+    # when normalize is None.
     if clip is not None:
         array = np.clip(array, float(clip[0]), float(clip[1]))
+
+    if mode is None:
+        return array
 
     if mode == "ct":
         return _normalize_ct(array, intensity_stats, eps)

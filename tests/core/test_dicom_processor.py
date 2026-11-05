@@ -200,12 +200,14 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         metadata = DicomSeriesReader().read_metadata(self.root)
         volume = DicomSeriesReader().load(self.root, metadata=metadata)
         self.assertEqual(metadata.shape, volume.shape)
-        self.assertEqual(metadata.spacing, (1.0, 2.0, 2.0))
+        # The position gap is 3 mm, so it wins over SliceThickness=2 mm.
+        self.assertEqual(metadata.spacing, (1.0, 2.0, 3.0))
         self.assertEqual(metadata.orientation, "RAS")
 
-    def test_dicom_aligned_mask_order(self):
+    def test_mask_names_matching_dicom_order(self):
         self._write_series()
         mask_dir = self.root / "masks"
+        # IMG-N.png matches IMG-N.dcm, so this uses the name-matching path.
         _write_masks(mask_dir, 3, "IMG")
         processor = ImageMaskDirectoryProcessor(lazy=False, canonical=False)
         tensor = processor.process((mask_dir, self.root))
@@ -243,6 +245,19 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         processor = ImageMaskDirectoryProcessor(lazy=False, canonical=False)
         tensor = processor.process((mask_dir, self.root))
         self.assertEqual(tensor[0, :, 0, 0].tolist(), [2, 3, 1])
+
+    def test_series_prefers_measured_slice_spacing(self):
+        for index in range(3):
+            _write_slice(
+                self.root / f"IMG-{index}.dcm",
+                1024,
+                float(index) * 3.0,
+                index + 1,
+                self.series_uid,
+                self.study_uid,
+            )
+        metadata = DicomSeriesReader().read_metadata(self.root)
+        self.assertEqual(metadata.spacing[0], 3.0)
 
     def test_series_monochrome1_uses_one_inversion_offset(self):
         for index, value in enumerate((10, 20, 30)):

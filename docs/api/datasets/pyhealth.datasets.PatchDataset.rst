@@ -9,5 +9,3 @@ patches. Patch locations and foreground oversampling are handled by
     :members:
     :undoc-members:
     :show-inheritance:
-
-.. autofunction:: pyhealth.datasets.compute_foreground_intensity_stats

@@ -48,9 +48,6 @@ class SampleSignalDataset:
 
 from .base_dataset import BaseDataset
 from .imaging.patches import PatchDataset as PatchDataset
-from .imaging.stats import (
-    compute_foreground_intensity_stats as compute_foreground_intensity_stats,
-)
 from .cardiology import CardiologyDataset
 from .chestxray14 import ChestXray14Dataset
 from .clinvar import ClinVarDataset

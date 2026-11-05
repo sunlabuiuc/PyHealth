@@ -55,6 +55,10 @@ class TestImageTransforms(unittest.TestCase):
     def test_modes(self):
         data = np.array([0.0, 5.0, 10.0])
         np.testing.assert_allclose(normalize_intensity(data), data)
+        np.testing.assert_allclose(
+            normalize_intensity(np.array([-10.0, 0, 10.0]), clip=(0, 10)),
+            [0, 0, 10],
+        )
         np.testing.assert_allclose(normalize_intensity(data, "minmax"), [0, 0.5, 1])
         np.testing.assert_allclose(
             normalize_intensity(np.array([-2000.0, 0, 2000.0]), "hu"), [0, 0.5, 1]
