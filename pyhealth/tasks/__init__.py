@@ -97,6 +97,9 @@ from .temple_university_EEG_tasks import (
 from .seizure_detection_chbmit import (
     SeizureDetectionCHBMIT as SeizureDetectionCHBMIT,
 )
+from .sleep_staging_ear_eeg import (
+    SleepStagingEarEEG as SleepStagingEarEEG,
+)
 from .eegbci import (
     EEGBCIPatternDiscovery as EEGBCIPatternDiscovery,
     EEGMotorImageryEEGBCI as EEGMotorImageryEEGBCI,

@@ -96,6 +96,7 @@ from .iiic import IIICDataset as IIICDataset
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
 from .chbmit import CHBMITDataset as CHBMITDataset
+from .eesm23 import EESM23Dataset as EESM23Dataset
 from .utils import (
     collate_fn_dict,
     collate_fn_dict_with_padding,

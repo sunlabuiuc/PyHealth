@@ -25,6 +25,7 @@ from scipy.signal import resample
 
 from pyhealth.tasks import BaseTask
 from pyhealth.tasks.eegbci import normalize_signal
+from pyhealth.tasks.subject_ids import normalize_prefixed_subject
 from pyhealth.tasks.temple_university_EEG_tasks import read_edf_uv
 
 logger = logging.getLogger(__name__)
@@ -69,15 +70,7 @@ def normalize_subject(subject: str) -> str:
         >>> [normalize_subject(s) for s in ("1", "CHB2", "chb10")]
         ['chb01', 'chb02', 'chb10']
     """
-    text = str(subject).strip().lower()
-    if text.startswith("chb"):
-        rest = text[3:]
-        if rest.isdigit():
-            return f"chb{int(rest):02d}"
-        return text
-    if text.isdigit():
-        return f"chb{int(text):02d}"
-    return text
+    return normalize_prefixed_subject(subject, "chb", 2)
 
 
 def _channel_index(ch_names: list[str], name: str) -> int | None:
