@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
@@ -264,6 +265,22 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         )
         # Rescaled 25 -> windowed 0.75 -> inverted 0.25.
         self.assertAlmostEqual(float(array[0, 0]), 0.25)
+
+    def test_unreadable_dicom_is_not_skipped(self):
+        self._write_single()
+        (self.root / "broken.dcm").write_bytes(b"not a dicom")
+        original = pydicom.dcmread
+
+        def fake_dcmread(path, *args, **kwargs):
+            if Path(path).name == "broken.dcm":
+                raise OSError("truncated")
+            return original(path, *args, **kwargs)
+
+        with (
+            mock.patch("pydicom.dcmread", side_effect=fake_dcmread),
+            self.assertRaisesRegex(ValueError, "Failed to read DICOM"),
+        ):
+            DicomSeriesReader().read_metadata(self.root)
 
     def test_colour_dicom_is_rejected(self):
         path = self.root / "colour.dcm"

@@ -82,14 +82,15 @@ def _read_headers(
             dataset = pydicom.dcmread(
                 str(file), stop_before_pixels=stop_before_pixels
             )
-        except (
-            pydicom.errors.InvalidDicomError,
-            EOFError,
-            OSError,
-            ValueError,
-        ):
-            logger.debug("Skipping non-DICOM file %s", file, exc_info=True)
+        except pydicom.errors.InvalidDicomError:
+            logger.debug("Skipping non-DICOM file %s", file)
             continue
+        except (EOFError, OSError, ValueError) as exc:
+            # The file looks like DICOM but could not be decoded. Fail
+            # instead of silently dropping a slice from the series.
+            raise ValueError(
+                f"Failed to read DICOM file {str(file)!r}: {exc}"
+            ) from exc
         if getattr(dataset, "Rows", None) is None:
             continue
         entries.append((file, dataset))
