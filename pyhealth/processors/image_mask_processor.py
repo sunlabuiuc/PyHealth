@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import torch
 
 from . import register_processor
 from .base_processor import FeatureProcessor

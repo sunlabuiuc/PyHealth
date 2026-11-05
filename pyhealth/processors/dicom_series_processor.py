@@ -4,8 +4,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-import torch
-
 from . import register_processor
 from .base_processor import FeatureProcessor
 from .image_io.readers.dicom import DicomSeriesReader
