@@ -150,7 +150,10 @@ class ImageRef:
 
         Examples:
             >>> from pyhealth.processors.image_io.types import ImageRef
-            >>> ref = ImageRef(path="scan.nii.gz", reader="nifti")  # doctest: +SKIP
+            >>> metadata = ImageMetadata(format="nifti", shape=(1, 2, 3, 4))
+            >>> ref = ImageRef(
+            ...     path="scan.nii.gz", reader="nifti", metadata=metadata
+            ... )  # doctest: +SKIP
             >>> ref.load()  # doctest: +SKIP
         """
         # Import here so importing the dataclass does not require imaging

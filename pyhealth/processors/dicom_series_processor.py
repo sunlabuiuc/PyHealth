@@ -159,7 +159,10 @@ class DicomSeriesProcessor(FeatureProcessor):
                 metadata, self.target_shape, self.target_spacing
             )
             path: str | tuple[str, ...]
-            path = str(source) if isinstance(source, (str, Path)) else source
+            if isinstance(source, (str, Path)):
+                path = str(Path(source).resolve())
+            else:
+                path = tuple(str(Path(item).resolve()) for item in source)
             return ImageRef(
                 path=path,
                 reader="dicom_series",

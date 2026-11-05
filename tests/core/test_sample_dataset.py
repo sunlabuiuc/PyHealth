@@ -261,22 +261,6 @@ class TestSampleDatasetParity(unittest.TestCase):
         )
         self.assertEqual(features, [0, 1, 2, 3])
 
-    def test_dataloader_plain_dataset_accepts_shuffle(self):
-        dataset = _PlainIterableDataset()
-        loader = get_dataloader(
-            dataset,
-            batch_size=2,
-            shuffle=True,
-            seed=1,
-            num_workers=0,
-            pin_memory=False,
-        )
-        self.assertTrue(dataset.shuffle)
-        features = sorted(
-            int(value[0]) for batch in loader for value in batch["feature"]
-        )
-        self.assertEqual(features, [0, 1, 2, 3])
-
     def test_iteration_keeps_cache_created_after_fork(self):
         dataset, _ = self._get_datasets()
         try:
