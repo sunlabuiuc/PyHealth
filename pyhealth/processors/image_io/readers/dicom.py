@@ -437,11 +437,7 @@ class DicomReader(BaseImageReader):
             slope = float(getattr(dataset, "RescaleSlope", 1.0) or 1.0)
             intercept = float(getattr(dataset, "RescaleIntercept", 0.0) or 0.0)
             array = array * slope + intercept
-        photometric = str(
-            getattr(dataset, "PhotometricInterpretation", "") or ""
-        )
-        if invert_monochrome1 and photometric == "MONOCHROME1":
-            array = float(np.max(array)) - array
+        applied_window = False
         if window:
             intensity = _intensity(dataset)
             center = (
@@ -455,7 +451,19 @@ class DicomReader(BaseImageReader):
                 else intensity.get("window_width")
             )
             if center is not None and width is not None:
+                # Window tags describe the stored intensities, so apply the
+                # window before any MONOCHROME1 inversion.
                 array = apply_window(array, center, width)
+                applied_window = True
+        photometric = str(
+            getattr(dataset, "PhotometricInterpretation", "") or ""
+        )
+        if invert_monochrome1 and photometric == "MONOCHROME1":
+            array = (
+                1.0 - array
+                if applied_window
+                else float(np.max(array)) - array
+            )
         array = normalize_intensity(
             array,
             mode=normalize,
@@ -671,17 +679,24 @@ class DicomSeriesReader(BaseImageReader):
             slices.append(array)
             windows.append(window_params)
 
-        if monochrome1:
-            # Use one offset for the whole volume so slices keep their
-            # relative intensities; a per-slice max would shift each slice
-            # by a different amount.
-            series_max = max(float(np.max(item)) for item in slices)
-            slices = [series_max - item for item in slices]
+        applied_window = False
         if window:
             slices = [
                 item if params is None else apply_window(item, *params)
                 for item, params in zip(slices, windows)
             ]
+            applied_window = any(params is not None for params in windows)
+        if monochrome1:
+            if applied_window:
+                # Window tags describe stored intensities, so invert the
+                # already-windowed [0, 1] values.
+                slices = [1.0 - item for item in slices]
+            else:
+                # Use one offset for the whole volume so slices keep their
+                # relative intensities; a per-slice max would shift each
+                # slice by a different amount.
+                series_max = max(float(np.max(item)) for item in slices)
+                slices = [series_max - item for item in slices]
 
         volume_hwd = np.stack(slices, axis=0)
         volume_xyz = np.transpose(volume_hwd, (2, 1, 0))
