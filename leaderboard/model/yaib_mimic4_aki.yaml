@@ -23,7 +23,7 @@ task:
       - "procedureevents"
       - "microbiologyevents"
       - "transfers"
-    num_workers: 16
+    num_workers: 4
 
 split:
   target: "pyhealth.datasets.PatientSplit"
