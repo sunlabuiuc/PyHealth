@@ -13,9 +13,8 @@ from pyhealth.processors import (
     SequenceProcessor, StageNetProcessor, StageNetTensorProcessor, TimeseriesProcessor, TensorProcessor, MultiHotProcessor
 )
 from pyhealth.processors.base_processor import FeatureProcessor
-from pyhealth.models.utils import get_last_visit
+from pyhealth.models.utils import ddi_adjacency, get_last_visit
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
-from pyhealth.medcode import ATC
 
 class MICRONLayer(nn.Module):
     """MICRON layer.
@@ -77,6 +76,8 @@ class MICRONLayer(nn.Module):
         Returns:
             torch.tensor: Mean squared reconstruction loss value.
         """
+        if logits.size(1) < 2:
+            return logits.new_zeros(())
         rec_loss = torch.mean(
             torch.square(
                 torch.sigmoid(logits[:, 1:, :])
@@ -245,21 +246,20 @@ class MICRON(BaseModel):
             return torch.tensor(value, dtype=torch.long)
         return torch.tensor(value, dtype=torch.float)
 
-    def _pool_embedding(self, x: torch.Tensor) -> torch.Tensor:
-        if x.dim() == 4:
+    def _pool_embedding(self, feature_key: str, x: torch.Tensor) -> torch.Tensor:
+        if isinstance(self.feature_processors[feature_key], SequenceProcessor):
+            # Flat code lists describe one visit, not successive visits.
+            x = x.sum(dim=1, keepdim=True)
+        elif x.dim() == 4:
             x = x.sum(dim=2)
         if x.dim() == 2:
             x = x.unsqueeze(1)
-        # Make sure temporal dimension (dim=1) matches the longest sequence
-        if x.size(1) == 1:
-            # Repeat to handle shorter sequences
-            x = x.repeat(1, 2, 1)
         return x
 
     def _create_mask(self, feature_key: str, value: torch.Tensor) -> torch.Tensor:
         processor = self.feature_processors[feature_key]
         if isinstance(processor, SequenceProcessor):
-            mask = value != 0
+            mask = (value != 0).any(dim=1, keepdim=True)
         elif isinstance(processor, StageNetProcessor):
             if value.dim() >= 3:
                 mask = torch.any(value != 0, dim=-1)
@@ -331,7 +331,7 @@ class MICRON(BaseModel):
         for feature_key in self.feature_keys:
             x = embedded[feature_key]
             mask = masks[feature_key]
-            x = self._pool_embedding(x)
+            x = self._pool_embedding(feature_key, x)
             patient_emb.append(x)
 
         # Concatenate along last dim: [batch, seq_len, embedding_dim * n_features]
@@ -351,19 +351,7 @@ class MICRON(BaseModel):
 
     def generate_ddi_adj(self) -> torch.Tensor:
         """Generates the drug-drug interaction (DDI) graph adjacency matrix using PyHealth 2.0 label processor."""
-        atc = ATC()
-        ddi = atc.get_ddi(gamenet_ddi=True)
-        label_processor = self.dataset.output_processors[self.label_key]
-        label_size = label_processor.size()
-        vocab_to_index = label_processor.label_vocab
-        ddi_adj = np.zeros((label_size, label_size))
-        ddi_atc3 = [
-            [ATC.convert(l[0], level=3), ATC.convert(l[1], level=3)] for l in ddi
-        ]
-        for atc_i, atc_j in ddi_atc3:
-            if atc_i in vocab_to_index and atc_j in vocab_to_index:
-                ddi_adj[vocab_to_index[atc_i], vocab_to_index[atc_j]] = 1
-                ddi_adj[vocab_to_index[atc_j], vocab_to_index[atc_i]] = 1
-        return torch.tensor(ddi_adj, dtype=torch.float)
+        label_vocab = self.dataset.output_processors[self.label_key].label_vocab
+        return ddi_adjacency(label_vocab)
 
 

@@ -1,6 +1,7 @@
 import logging
 import os
 import pickle
+import posixpath
 from abc import ABC
 from pathlib import Path
 from typing import Dict, Iterator, Iterable, List, Optional, Any, Callable
@@ -14,7 +15,9 @@ import uuid
 import platformdirs
 import multiprocessing
 import multiprocessing.queues
+from queue import Empty
 import shutil
+import time
 
 from filelock import FileLock
 import litdata
@@ -104,10 +107,21 @@ def is_url(path: str) -> bool:
 
 
 def clean_path(path: str) -> str:
-    """Clean a path string."""
+    """Clean a path string.
+
+    URL paths are normalised as POSIX paths on every OS; local paths are
+    expanded and resolved.
+
+    Examples:
+        >>> from pyhealth.datasets.base_dataset import clean_path
+        >>> clean_path("https://example.org/a/b/../c.csv")
+        'https://example.org/a/c.csv'
+    """
     if is_url(path):
         parsed = urlparse(path)
-        cleaned_path = os.path.normpath(parsed.path)
+        # A URL path is POSIX whatever the host OS: os.path.normpath would
+        # rewrite the separators as backslashes on Windows.
+        cleaned_path = posixpath.normpath(parsed.path)
         # Rebuild the full URL
         return urlunparse(parsed._replace(path=cleaned_path))
     else:
@@ -235,6 +249,28 @@ def _litdata_merge(cache_dir: Path) -> None:
     BinaryWriter(cache_dir=str(cache_dir), chunk_bytes="64MB").merge(
         num_workers=len(index_files)
     )
+
+
+# Seconds between the progress updates dask's scheduler sends (dask's default).
+_DASK_PROGRESS_INTERVAL = 0.1
+
+
+def _dask_progress_notebook() -> bool | None:
+    """
+    Chooses the ``notebook`` argument for dask's ``progress()``.
+
+    In a Jupyter kernel dask draws an ipywidgets progress bar, but ipywidgets is
+    not a PyHealth dependency. Without it, fall back to dask's text bar.
+
+    Returns:
+        bool | None: None to let dask detect the environment, or False to force
+            the text progress bar when ipywidgets is not installed.
+    """
+    try:
+        import ipywidgets  # noqa: F401
+    except ImportError:
+        return False
+    return None
 
 
 class _ProgressContext:
@@ -466,6 +502,7 @@ class BaseDataset(ABC):
 
         # Cached attributes
         self.cache_dir = self._init_cache_dir(cache_dir)
+        self._tmp_dirs: list[Path] = []  # created by create_tmpdir()
         self._global_event_df = None
         self._unique_patient_ids = None
 
@@ -540,13 +577,25 @@ class BaseDataset(ABC):
         """
         tmp_dir = self.cache_dir / "tmp" / str(uuid.uuid4())
         tmp_dir.mkdir(parents=True, exist_ok=True)
+        self._tmp_dirs.append(tmp_dir)
         return tmp_dir
 
     def clean_tmpdir(self) -> None:
-        """Cleans up the temporary directory within the cache."""
-        tmp_dir = self.cache_dir / "tmp"
-        if tmp_dir.exists():
-            shutil.rmtree(tmp_dir)
+        """Removes the temporary directories this dataset created.
+
+        Other jobs may share the same cache directory and still be using their
+        own directories under ``tmp/``, so those are left alone. ``tmp/`` itself
+        is removed once it is empty.
+        """
+        for tmp_dir in self._tmp_dirs:
+            # Called from ``finally`` blocks: a failed cleanup must not hide the
+            # error that ended the build.
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        self._tmp_dirs.clear()
+        try:
+            (self.cache_dir / "tmp").rmdir()
+        except OSError:
+            pass  # missing, or still holds another job's directories
 
     def _scan_table(self, source_path: str) -> dd.DataFrame:
         """Routes a table source to the appropriate scanner based on its format.
@@ -709,9 +758,22 @@ class BaseDataset(ABC):
                         compute=False,
                     )
                     handle = client.compute(collection)
-                    dask_progress(handle)
+                    dask_progress(
+                        handle,
+                        notebook=_dask_progress_notebook(),
+                        interval=_DASK_PROGRESS_INTERVAL,
+                    )
                     handle.result()  # type: ignore
                     compute_ok = True  # Data is fully written to disk
+                    if in_notebook():
+                        # The scheduler's progress feed (Scheduler.feed in
+                        # distributed 2026.8) sleeps one interval between updates
+                        # and stops only when its next update finds the bar's
+                        # connection closed. Closing the threaded cluster during
+                        # that sleep cancels it, and distributed logs the
+                        # CancelledError as an error. distributed has no public
+                        # way to wait for the feed, so wait a few intervals.
+                        time.sleep(3 * _DASK_PROGRESS_INTERVAL)
         except TimeoutError:
             if compute_ok:
                 # Cluster shutdown timed out after successful compute — data is intact
@@ -1039,7 +1101,7 @@ class BaseDataset(ABC):
                         while not result.ready():
                             try:
                                 progress.update(queue.get(timeout=1))
-                            except:
+                            except Empty:
                                 pass
 
                         # remaining items
@@ -1104,7 +1166,7 @@ class BaseDataset(ABC):
                         while not result.ready():
                             try:
                                 progress.update(queue.get(timeout=1))
-                            except:
+                            except Empty:
                                 pass
 
                         # remaining items

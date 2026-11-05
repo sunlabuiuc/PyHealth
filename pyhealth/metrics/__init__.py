@@ -1,4 +1,4 @@
-from .binary import binary_metrics_fn
+from .binary import binary_metrics_fn, timeseries_binary_metrics_fn
 from .bootstrap import bootstrap_ci, paired_bootstrap_diff
 from .drug_recommendation import ddi_rate_score
 from .fairness import fairness_metrics_fn
@@ -20,7 +20,13 @@ from .interpretability import (
 from .multiclass import multiclass_metrics_fn
 from .multilabel import multilabel_metrics_fn
 from .ranking import ranking_metrics_fn
-from .regression import regression_metrics_fn
+from .regression import regression_metrics_fn, timeseries_regression_metrics_fn
+from .survival import (
+    concordance_index,
+    cumulative_dynamic_auc,
+    ipcw_brier_score,
+    survival_metrics_fn,
+)
 
 __all__ = [
     "ComprehensivenessMetric",
@@ -34,13 +40,19 @@ __all__ = [
     "compute_discriminator_privacy",
     "compute_mle",
     "compute_prevalence_metrics",
+    "concordance_index",
+    "cumulative_dynamic_auc",
     "ddi_rate_score",
     "evaluate_attribution",
     "evaluate_synthetic_ehr",
     "fairness_metrics_fn",
+    "ipcw_brier_score",
     "multiclass_metrics_fn",
     "multilabel_metrics_fn",
     "paired_bootstrap_diff",
     "ranking_metrics_fn",
     "regression_metrics_fn",
+    "survival_metrics_fn",
+    "timeseries_binary_metrics_fn",
+    "timeseries_regression_metrics_fn",
 ]

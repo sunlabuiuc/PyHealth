@@ -1,6 +1,7 @@
 from abc import ABC
 from collections.abc import Iterable, Sequence
 from typing import Callable, Any, Optional
+import functools
 import inspect
 import logging
 
@@ -14,7 +15,44 @@ from ..processors import PROCESSOR_REGISTRY
 logger = logging.getLogger(__name__)
 
 # Label kinds understood by the loss helpers, Trainer and the calibration methods.
-VALID_MODES = ("binary", "multiclass", "multilabel", "regression")
+# The timeseries modes are per-step labels: a TimeseriesLabelProcessor packs
+# them as (values, time, batch offsets), one record per label.
+VALID_MODES = (
+    "binary",
+    "multiclass",
+    "multilabel",
+    "regression",
+    "timeseries_binary",
+    "timeseries_regression",
+)
+
+
+def _label_record_loss(
+    loss_fn: Callable,
+    logits: torch.Tensor,
+    target: tuple[torch.Tensor, ...],
+) -> torch.Tensor:
+    """Averages a loss over the label records of a batch.
+
+    Args:
+        loss_fn: The loss, e.g. ``F.binary_cross_entropy_with_logits``.
+        logits: One prediction per label record, ``[ΣN, 1]``.
+        target: The packed batch of a
+            :class:`~pyhealth.processors.TimeseriesLabelProcessor`:
+            ``(values [ΣN, 1], time [ΣN], batch offsets [B + 1])``.
+    """
+    values = target[0]
+    if logits.shape != values.shape:
+        raise ValueError(
+            f"Expected one prediction per label record, {tuple(values.shape)}, "
+            f"got {tuple(logits.shape)}. Per-step labels need a model that "
+            "predicts at each label's time, such as RNN_V2."
+        )
+    if values.numel() == 0:
+        # A batch without label records: a zero loss that keeps the graph,
+        # instead of the NaN mean of an empty tensor.
+        return logits.sum() * 0.0
+    return loss_fn(logits, values)
 
 
 class BaseModel(ABC, nn.Module):
@@ -38,7 +76,8 @@ class BaseModel(ABC, nn.Module):
     Mode
     --------
         ``mode`` is always one of ``"binary"``, ``"multiclass"``, ``"multilabel"``,
-        ``"regression"`` or ``None``. It is resolved from the single label's
+        ``"regression"``, ``"timeseries_binary"``, ``"timeseries_regression"``
+        or ``None``. It is resolved from the single label's
         ``output_schema`` entry, which may be a string, a processor class, a
         processor instance or a ``(name, kwargs)`` tuple. Assigning ``self.mode``
         in a subclass resolves the value the same way.
@@ -149,13 +188,14 @@ class BaseModel(ABC, nn.Module):
         if isinstance(schema_entry, str):
             return schema_entry.lower()
 
-        # Get class reference
+        # The most specific registered class whose name is a mode: a subclass
+        # of a registered processor (e.g. the timeseries labels, which are
+        # SequenceProcessorV2s) resolves to its own mode before its base's.
         cls = schema_entry if inspect.isclass(schema_entry) else schema_entry.__class__
-        for name, registered_cls in PROCESSOR_REGISTRY.items():
-            if cls is registered_cls or issubclass(
-                cls, registered_cls
-            ):  # allow subclassing
-                return name.lower()
+        for klass in cls.__mro__:
+            for name, registered_cls in PROCESSOR_REGISTRY.items():
+                if klass is registered_cls and name.lower() in VALID_MODES:
+                    return name.lower()
         raise ValueError(
             f"Cannot resolve mode from output_schema entry {schema_entry}. Use a supported string"
         )
@@ -269,6 +309,14 @@ class BaseModel(ABC, nn.Module):
             - multiclass: `F.cross_entropy`
             - multilabel: `F.binary_cross_entropy_with_logits`
             - regression: `F.mse_loss`
+            - timeseries_binary: `F.binary_cross_entropy_with_logits` over
+              the label records
+            - timeseries_regression: `F.mse_loss` over the label records
+
+        The timeseries losses take one logit per label record, ``[ΣN, 1]``,
+        and the packed batch of a
+        :class:`~pyhealth.processors.TimeseriesLabelProcessor`, ``(values
+        [ΣN, 1], time [ΣN], batch offsets [B + 1])``.
 
         For binary and multilabel labels, a weight set with
         :meth:`set_pos_weight` is passed as ``pos_weight``.
@@ -298,6 +346,12 @@ class BaseModel(ABC, nn.Module):
             return F.binary_cross_entropy_with_logits
         elif mode == "regression":
             return F.mse_loss
+        elif mode == "timeseries_binary":
+            return functools.partial(
+                _label_record_loss, F.binary_cross_entropy_with_logits
+            )
+        elif mode == "timeseries_regression":
+            return functools.partial(_label_record_loss, F.mse_loss)
         else:
             raise ValueError(f"Invalid mode: {mode}")
 
@@ -315,6 +369,10 @@ class BaseModel(ABC, nn.Module):
             - multilabel: a tensor of shape (batch_size, num_labels) with values
                 in [0, 1], which is obtained with `torch.sigmoid()`
             - regression: a tensor of shape (batch_size, 1) with raw logits
+            - timeseries_binary: a tensor of shape (label records, 1) with
+                values in [0, 1], from `torch.sigmoid()`
+            - timeseries_regression: a tensor of shape (label records, 1)
+                with raw logits
 
         Args:
             logits (torch.Tensor): The predicted logit tensor.
@@ -334,6 +392,10 @@ class BaseModel(ABC, nn.Module):
         elif mode in ["multilabel"]:
             y_prob = torch.sigmoid(logits)
         elif mode in ["regression"]:
+            y_prob = logits
+        elif mode in ["timeseries_binary"]:
+            y_prob = torch.sigmoid(logits)
+        elif mode in ["timeseries_regression"]:
             y_prob = logits
         else:
             raise NotImplementedError

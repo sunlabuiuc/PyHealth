@@ -52,6 +52,8 @@ from .chestxray14 import ChestXray14Dataset
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
 from .covid19_cxr import COVID19CXRDataset
+from .ptbxl import PTBXLDataset as PTBXLDataset
+from .physionet2012 import PhysioNet2012Dataset as PhysioNet2012Dataset
 from .dreamt import DREAMTDataset
 from .ehrshot import EHRShotDataset
 from .eicu import eICUDataset
@@ -74,6 +76,7 @@ from .tcga_prad import TCGAPRADDataset
 from .splitter import (
     PatientSplit as PatientSplit,
     Split as Split,
+    SubjectSplit as SubjectSplit,
     sample_balanced,
     split_by_patient,
     split_by_patient_conformal,
@@ -83,12 +86,17 @@ from .splitter import (
     split_by_sample_conformal,
     split_by_sample_conformal_tuh,
     split_by_sample_tuh,
+    split_by_strat_fold as split_by_strat_fold,
+    split_by_subject as split_by_subject,
     split_by_visit,
     split_by_visit_conformal,
 )
 from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
+from .iiic import IIICDataset as IIICDataset
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
+from .chbmit import CHBMITDataset as CHBMITDataset
+from .eesm23 import EESM23Dataset as EESM23Dataset
 from .utils import (
     collate_fn_dict,
     collate_fn_dict_with_padding,

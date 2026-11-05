@@ -1,140 +1,109 @@
-Welcome to PyHealth!
-====================================
+PyHealth
+========
 
-.. note::
+**Deep learning for healthcare: from raw EHR data to a trained, evaluated model in about 15 lines.**
 
-   **This README may be out of date.** For the most up-to-date documentation, tutorials, and API reference, please visit our official documentation site at `pyhealth.readthedocs.io <https://pyhealth.readthedocs.io/en/latest/>`_.
-
-.. important::
-
-   * **Join our PyHealth Discord Community!** We are actively looking for contributors and want to get to know our users better! `Click here to join Discord <https://discord.gg/mpb835EHaX>`_
-   * **Signup for our mailing list!** We will email any significant PyHealth changes that are soon to come! `Click here to subscribe <https://docs.google.com/forms/d/e/1FAIpQLSfpJB5tdkI7BccTCReoszV9cyyX2rF99SgznzwlOepi5v-xLw/viewform?usp=header>`_
-
-.. image:: https://img.shields.io/readthedocs/pyhealth?logo=readthedocs&label=docs&version=latest
-   :target: https://pyhealth.readthedocs.io/en/latest/
-   :alt: Docs
-
-.. image:: https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white
-   :target: https://discord.gg/mpb835EHaX
-   :alt: Discord
-
-.. image:: https://img.shields.io/badge/Mailing%20List-Subscribe-blue?logo=gmail&logoColor=white
-   :target: https://docs.google.com/forms/d/e/1FAIpQLSfpJB5tdkI7BccTCReoszV9cyyX2rF99SgznzwlOepi5v-xLw/viewform?usp=header
-   :alt: Mailing list
+PyHealth is an open-source PyTorch toolkit for building, benchmarking and reproducing clinical AI models. It works with electronic health records (MIMIC-III, MIMIC-IV, eICU, OMOP), clinical text, biosignals (EEG, ECG) and medical images.
 
 .. image:: https://img.shields.io/pypi/v/pyhealth.svg?color=brightgreen
    :target: https://pypi.org/project/pyhealth/
    :alt: PyPI version
 
+.. image:: https://static.pepy.tech/badge/pyhealth
+   :target: https://pepy.tech/project/pyhealth
+   :alt: Downloads
 
 .. image:: https://img.shields.io/github/stars/sunlabuiuc/pyhealth.svg
    :target: https://github.com/sunlabuiuc/pyhealth/stargazers
    :alt: GitHub stars
 
-
-.. image:: https://img.shields.io/github/forks/sunlabuiuc/pyhealth.svg?color=blue
-   :target: https://github.com/sunlabuiuc/pyhealth/network
-   :alt: GitHub forks
-
-
-.. image:: https://static.pepy.tech/badge/pyhealth
-   :target: https://pepy.tech/project/pyhealth
-   :alt: Downloads
-
-
-.. image:: https://img.shields.io/badge/Tutorials-Google%20Colab-red
-   :target: https://pyhealth.readthedocs.io/en/latest/tutorials.html
-   :alt: Tutorials
-
-
-.. image:: https://img.shields.io/badge/YouTube-16%20Videos-red
-   :target: https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV
-   :alt: YouTube
+.. image:: https://img.shields.io/readthedocs/pyhealth?logo=readthedocs&label=docs&version=latest
+   :target: https://pyhealth.readthedocs.io/en/latest/
+   :alt: Docs
 
 .. image:: https://github.com/sunlabuiuc/PyHealth/workflows/CI/badge.svg
    :target: https://github.com/sunlabuiuc/PyHealth/actions
    :alt: CI status
 
+.. image:: https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white
+   :target: https://discord.gg/mpb835EHaX
+   :alt: Discord
 
-Citing PyHealth :handshake:
-----------------------------------
+.. image:: https://img.shields.io/badge/Tutorials-Google%20Colab-orange?logo=googlecolab
+   :target: https://pyhealth.readthedocs.io/en/latest/tutorials.html
+   :alt: Tutorials
 
-**PyHealth 2.0 (2026):**
+.. image:: https://img.shields.io/badge/YouTube-16%20Videos-red?logo=youtube
+   :target: https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV
+   :alt: YouTube
 
-Wu, John, Yongda Fan, Zhenbang Wu, Paul Landes, Eric Schrock, Sayeed Sajjad Razin, Arjun Chatterjee, Naveen Baskaran, Joshua Steier, Andrea Fitzpatrick, Bilal Arif, Rian Atri, Jathurshan Pradeepkumar, Siddhartha Laghuvarapu, Junyi Gao, Adam R. Cross, and Jimeng Sun. 2026. "PyHealth 2.0: A Comprehensive Open-Source Toolkit for Accessible and Reproducible Clinical Deep Learning." In Proceedings of the 43rd International Conference on Machine Learning (ICML 2026).
-
-.. code-block:: bibtex
-
-    @inproceedings{wu2026pyhealth,
-        title={PyHealth 2.0: A Comprehensive Open-Source Toolkit for Accessible and Reproducible Clinical Deep Learning},
-        author={John Wu and Yongda Fan and Zhenbang Wu and Paul Landes and Eric Schrock and Sayeed Sajjad Razin and Arjun Chatterjee and Naveen Baskaran and Joshua Steier and Andrea Fitzpatrick and Bilal Arif and Rian Atri and Jathurshan Pradeepkumar and Siddhartha Laghuvarapu and Junyi Gao and Adam Richard Cross and Jimeng Sun},
-        booktitle={Forty-third International Conference on Machine Learning},
-        year={2026},
-        url={https://openreview.net/forum?id=gMLVFN9hl8}
-    }
-
-**PyHealth 1.0 (2023):**
-
-Yang, Chaoqi, Zhenbang Wu, Patrick Jiang, Zhen Lin, Junyi Gao, Benjamin P. Danek, and Jimeng Sun. 2023. "PyHealth: A Deep Learning Toolkit for Healthcare Applications." In Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining, 5788–89. KDD '23. New York, NY, USA: Association for Computing Machinery.
-
-.. code-block:: bibtex
-
-    @inproceedings{pyhealth2023yang,
-        author = {Yang, Chaoqi and Wu, Zhenbang and Jiang, Patrick and Lin, Zhen and Gao, Junyi and Danek, Benjamin and Sun, Jimeng},
-        title = {{PyHealth}: A Deep Learning Toolkit for Healthcare Predictive Modeling},
-        url = {https://github.com/sunlabuiuc/PyHealth},
-        booktitle = {Proceedings of the 27th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD) 2023},
-        year = {2023}
-    }
-
------------------------------------------------------------------
-
-
-PyHealth is a comprehensive deep learning toolkit for supporting clinical predictive modeling, which is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to develop, test, and deploy—more flexible and more customizable. `[Tutorials] <https://pyhealth.readthedocs.io/>`_
-
-**Key Features**
-
-- Modular 5-stage pipeline for healthcare ML
-- Healthcare-first: medical codes and clinical datasets (MIMIC, eICU, OMOP)
-- 33+ pre-built models and production-ready trainer/metrics
-- 10+ supported healthcare tasks and datasets
-- Fast (~3x faster than pandas) data processing for quick experimentation
-
- **[News!]** We are continuously implementing good papers and benchmarks into PyHealth, checkout the `[Planned List] <https://docs.google.com/spreadsheets/d/1PNMgDe-llOm1SM5ZyGLkmPysjC4wwaVblPLAHLxejTw/edit#gid=159213380>`_. Welcome to pick one from the list and send us a PR or add more influential and new papers into the plan list.
+`Documentation <https://pyhealth.readthedocs.io/en/latest/>`_ ·
+`Tutorials <https://pyhealth.readthedocs.io/en/latest/tutorials.html>`_ ·
+`Paper (ICML 2026) <https://openreview.net/forum?id=gMLVFN9hl8>`_ ·
+`Discord <https://discord.gg/mpb835EHaX>`_ ·
+`Mailing list <https://docs.google.com/forms/d/e/1FAIpQLSfpJB5tdkI7BccTCReoszV9cyyX2rF99SgznzwlOepi5v-xLw/viewform?usp=header>`_
 
 .. image:: figure/poster.png
    :width: 810
 
-..
+Why PyHealth
+------------
 
-1. Installation :rocket:
-----------------------------
+- **Healthcare-first data layer.** Loaders for MIMIC-III, MIMIC-IV, eICU, OMOP-CDM, EHRShot, sleep and EEG datasets, chest X-rays and clinical notes. Includes medical code lookup and mapping across ICD, CCS, ATC, NDC and RxNorm.
+- **Ready-made clinical tasks.** Mortality, readmission, length of stay, drug recommendation, medical coding, sleep staging and more. A custom task is a plain Python function.
+- **33+ models, one interface.** RNN, Transformer and Hugging Face models through RETAIN, SafeDrug, GAMENet, StageNet, ConCare and EHRMamba. Swap a model by changing one line.
+- **Reproducible evaluation.** Patient-level splits, a trainer that keeps the best checkpoint, calibration metrics and bootstrap confidence intervals.
+- **Fast on large datasets.** Polars and Dask processing with an on-disk cache, about 3x faster than pandas.
 
-**Python Version Requirement**
-
-PyHealth 2.0 requires **Python 3.12 or 3.13** (``>=3.12,<3.14``). This version requirement enables optimal parallel processing, memory management, and compatibility with our modern dependencies.
-
-**Recommended Installation (Latest Release)**
-
-Install the latest PyHealth 2.0 release from PyPI:
+Quickstart
+----------
 
 .. code-block:: sh
 
     pip install pyhealth
 
-This version includes significant performance improvements, dynamic memory support, parallelized processing, multimodal dataloaders, and many new features.
+This example trains and evaluates an in-hospital mortality model on synthetic MIMIC-III data. You don't need credentials to run it.
 
-**Legacy Version**
+.. code-block:: python
 
-The older stable version (1.16) is still available for backward compatibility and supports Python 3.9+:
+    from pyhealth.datasets import MIMIC3Dataset, get_dataloader, split_by_patient
+    from pyhealth.models import RNN
+    from pyhealth.tasks import MortalityPredictionMIMIC3
+    from pyhealth.trainer import Trainer
+
+    if __name__ == "__main__":  # needed in scripts; set_task uses worker processes
+        dataset = MIMIC3Dataset(
+            root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III/",
+            tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
+        )
+        samples = dataset.set_task(MortalityPredictionMIMIC3())
+        train, val, test = split_by_patient(samples, [0.8, 0.1, 0.1])
+
+        model = RNN(dataset=samples)
+        trainer = Trainer(model=model, metrics=["roc_auc", "pr_auc"])
+        trainer.train(
+            train_dataloader=get_dataloader(train, batch_size=32, shuffle=True),
+            val_dataloader=get_dataloader(val, batch_size=32),
+            epochs=3,
+        )
+        print(trainer.evaluate(get_dataloader(test, batch_size=32)))
+
+Pointing ``root`` at your own MIMIC copy uses real data. You can also swap in ``MIMIC4Dataset``, another task from ``pyhealth.tasks`` or another model from ``pyhealth.models``, and the rest of the code stays the same. The `tutorials <https://pyhealth.readthedocs.io/en/latest/tutorials.html>`_ walk through each stage.
+
+**If PyHealth helps your work, please star the repo and** `cite the paper <#citing-pyhealth>`_. **Stars and citations help us keep the project funded and maintained.**
+
+1. Installation :rocket:
+----------------------------
+
+**Python version:** PyHealth 2.x requires **Python 3.12 or 3.13** (``>=3.12,<3.14``).
+
+Install the latest release from PyPI. This also installs PyTorch and the other deep learning dependencies:
 
 .. code-block:: sh
 
-    pip install pyhealth==1.16
+    pip install pyhealth
 
-**For Contributors and Developers**
-
-If you are contributing to PyHealth or need the latest development features, install from GitHub source:
+For the latest development version, or to contribute, install from source:
 
 .. code-block:: sh
 
@@ -142,7 +111,13 @@ If you are contributing to PyHealth or need the latest development features, ins
     cd PyHealth
     pip install -e .
 
-**Note:** PyHealth 2.0 automatically installs PyTorch and other deep learning dependencies. The alpha version includes all required libraries for neural network-based models.
+**Legacy version:** PyHealth 1.1.6 supports Python 3.9+ but lacks the 2.x features:
+
+.. code-block:: sh
+
+    pip install pyhealth==1.1.6
+
+**News:** We keep adding influential papers and benchmarks to PyHealth. See the `planned list <https://docs.google.com/spreadsheets/d/1PNMgDe-llOm1SM5ZyGLkmPysjC4wwaVblPLAHLxejTw/edit#gid=159213380>`_. You're welcome to pick one and send a PR, or to suggest a paper.
 
 
 2. Introduction :book:
@@ -489,3 +464,36 @@ We are the `SunLab <http://sunlab.org/>`_ healthcare research team at UIUC.
 - `GitHub Issues <https://github.com/sunlabuiuc/PyHealth/issues>`_
 - `Mailing List <https://docs.google.com/forms/d/e/1FAIpQLSfpJB5tdkI7BccTCReoszV9cyyX2rF99SgznzwlOepi5v-xLw/viewform?usp=header>`_
 
+
+.. _citing-pyhealth:
+
+11. Citing PyHealth :handshake:
+-------------------------------
+
+**PyHealth 2.0 (2026):**
+
+Wu, John, Yongda Fan, Zhenbang Wu, Paul Landes, Eric Schrock, Sayeed Sajjad Razin, Arjun Chatterjee, Naveen Baskaran, Joshua Steier, Andrea Fitzpatrick, Bilal Arif, Rian Atri, Jathurshan Pradeepkumar, Siddhartha Laghuvarapu, Junyi Gao, Adam R. Cross, and Jimeng Sun. 2026. "PyHealth 2.0: A Comprehensive Open-Source Toolkit for Accessible and Reproducible Clinical Deep Learning." In Proceedings of the 43rd International Conference on Machine Learning (ICML 2026).
+
+.. code-block:: bibtex
+
+    @inproceedings{wu2026pyhealth,
+        title={PyHealth 2.0: A Comprehensive Open-Source Toolkit for Accessible and Reproducible Clinical Deep Learning},
+        author={John Wu and Yongda Fan and Zhenbang Wu and Paul Landes and Eric Schrock and Sayeed Sajjad Razin and Arjun Chatterjee and Naveen Baskaran and Joshua Steier and Andrea Fitzpatrick and Bilal Arif and Rian Atri and Jathurshan Pradeepkumar and Siddhartha Laghuvarapu and Junyi Gao and Adam Richard Cross and Jimeng Sun},
+        booktitle={Forty-third International Conference on Machine Learning},
+        year={2026},
+        url={https://openreview.net/forum?id=gMLVFN9hl8}
+    }
+
+**PyHealth 1.0 (2023):**
+
+Yang, Chaoqi, Zhenbang Wu, Patrick Jiang, Zhen Lin, Junyi Gao, Benjamin P. Danek, and Jimeng Sun. 2023. "PyHealth: A Deep Learning Toolkit for Healthcare Applications." In Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining, 5788–89. KDD '23. New York, NY, USA: Association for Computing Machinery.
+
+.. code-block:: bibtex
+
+    @inproceedings{pyhealth2023yang,
+        author = {Yang, Chaoqi and Wu, Zhenbang and Jiang, Patrick and Lin, Zhen and Gao, Junyi and Danek, Benjamin and Sun, Jimeng},
+        title = {{PyHealth}: A Deep Learning Toolkit for Healthcare Predictive Modeling},
+        url = {https://github.com/sunlabuiuc/PyHealth},
+        booktitle = {Proceedings of the 27th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD) 2023},
+        year = {2023}
+    }
