@@ -10,6 +10,7 @@ from pathlib import Path
 from pyhealth.datasets.imaging.io import (
     _download_archives,
     _extract_zip,
+    _resolve_metadata_dir,
 )
 
 
@@ -57,6 +58,12 @@ class TestImagingDownload(unittest.TestCase):
         )
         self.assertTrue(
             (destination / "Test_Sets/CT/2/DICOM_anon/a.dcm").exists()
+        )
+
+    def test_resolve_metadata_dir(self):
+        self.assertEqual(
+            _resolve_metadata_dir(self.root, "demo"),
+            self.root / "metadata" / "demo",
         )
 
     def test_unsupported_archive_type_is_rejected(self):
