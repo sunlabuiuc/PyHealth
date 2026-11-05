@@ -13,7 +13,7 @@ from .image_io.readers.image_mask import (
     _prepare_mask_files,
 )
 from .image_io.tensor_utils import _to_torch
-from .image_io.types import ImageRef
+from .image_io.types import ImageRef, _apply_resampling_to_metadata
 from .image_processor import ImageProcessor
 
 
@@ -145,6 +145,9 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
         reader = ImageMaskReader()
         if metadata is None:
             metadata = reader.read_metadata(tuple(files))
+        metadata = _apply_resampling_to_metadata(
+            metadata, self.target_shape, self.target_spacing
+        )
 
         if self.lazy:
             return ImageRef(

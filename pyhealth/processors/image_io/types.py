@@ -10,8 +10,8 @@ Examples:
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 PathLike = str | tuple[str, ...]
@@ -64,6 +64,48 @@ class ImageMetadata:
     series_id: str | None = None
     source: tuple[str, ...] = ()
     n_frames: int | None = None
+
+
+def _apply_resampling_to_metadata(
+    metadata: ImageMetadata,
+    target_shape: Sequence[int] | None = None,
+    target_spacing: Sequence[float] | None = None,
+) -> ImageMetadata:
+    """Return metadata whose shape/spacing reflect the resampling targets.
+
+    ``affine`` is left as the source affine, matching
+    :class:`ImageMetadata`'s documented meaning.
+    """
+    if target_shape is None and target_spacing is None:
+        return metadata
+    source_shape = tuple(int(value) for value in metadata.shape[1:])
+    source_spacing = tuple(float(value) for value in metadata.spacing)
+    if len(source_shape) != 3 or len(source_spacing) != 3:
+        return metadata
+    if target_shape is not None:
+        new_shape = tuple(int(value) for value in target_shape)
+        new_spacing = tuple(
+            source_spacing[index] * source_shape[index] / new_shape[index]
+            for index in range(3)
+        )
+    else:
+        new_spacing = tuple(float(value) for value in target_spacing)
+        new_shape = tuple(
+            max(
+                1,
+                round(
+                    source_shape[index]
+                    * source_spacing[index]
+                    / new_spacing[index]
+                ),
+            )
+            for index in range(3)
+        )
+    return replace(
+        metadata,
+        shape=(metadata.shape[0],) + new_shape,
+        spacing=new_spacing,
+    )
 
 
 @dataclass(frozen=True)

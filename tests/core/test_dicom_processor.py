@@ -364,6 +364,30 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         values = sorted(float(value) for value in np.unique(volume))
         np.testing.assert_allclose(values, [0.44, 0.54, 0.64], atol=1e-6)
 
+    def test_lazy_series_metadata_reflects_target_shape(self):
+        self._write_series()
+        processor = DicomSeriesProcessor(target_shape=(2, 3, 4))
+        reference = processor.process(self.root)
+        self.assertIsInstance(reference, ImageRef)
+        self.assertEqual(reference.metadata.shape, (1, 2, 3, 4))
+        self.assertEqual(
+            tuple(processor.materialize(reference).shape), (1, 2, 3, 4)
+        )
+
+    def test_lazy_mask_metadata_reflects_target_shape(self):
+        self._write_series()
+        mask_dir = self.root / "masks"
+        _write_masks(mask_dir, 3, "IMG")
+        processor = ImageMaskDirectoryProcessor(
+            canonical=False, target_shape=(2, 3, 4)
+        )
+        reference = processor.process((mask_dir, self.root))
+        self.assertIsInstance(reference, ImageRef)
+        self.assertEqual(reference.metadata.shape, (1, 2, 3, 4))
+        self.assertEqual(
+            tuple(processor.materialize(reference).shape), (1, 2, 3, 4)
+        )
+
     def test_dataloader_pads_variable_dicom_series(self):
         series_paths = []
         for name, count in (("a", 3), ("b", 2)):

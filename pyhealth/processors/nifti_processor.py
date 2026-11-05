@@ -10,7 +10,7 @@ from . import register_processor
 from .base_processor import FeatureProcessor
 from .image_io.readers.nifti import NiftiReader
 from .image_io.tensor_utils import _pad_volumes, _to_torch
-from .image_io.types import ImageRef
+from .image_io.types import ImageRef, _apply_resampling_to_metadata
 
 
 @register_processor("nifti")
@@ -134,6 +134,9 @@ class NiftiProcessor(FeatureProcessor):
                 str(path),
                 canonical=self.canonical,
                 channel_axis=self.channel_axis,
+            )
+            metadata = _apply_resampling_to_metadata(
+                metadata, self.target_shape, self.target_spacing
             )
             return ImageRef(
                 path=str(path),

@@ -115,6 +115,19 @@ class TestNiftiReaderAndProcessor(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             NiftiProcessor().process(str(self.root / "missing.nii.gz"))
 
+    def test_lazy_metadata_reflects_target_shape(self):
+        processor = NiftiProcessor(target_shape=(3, 4, 5))
+        ref = processor.process(str(self.path))
+        self.assertEqual(ref.metadata.shape, (1, 3, 4, 5))
+        self.assertEqual(tuple(processor.materialize(ref).shape), (1, 3, 4, 5))
+
+    def test_lazy_metadata_reflects_target_spacing(self):
+        processor = NiftiProcessor(target_spacing=(1, 1, 1))
+        ref = processor.process(str(self.path))
+        tensor = processor.materialize(ref)
+        self.assertEqual(ref.metadata.shape, tuple(tensor.shape))
+        self.assertEqual(tuple(ref.metadata.spacing), (1.0, 1.0, 1.0))
+
     def test_dataloader_pads_variable_volumes(self):
         from pyhealth.datasets import create_sample_dataset, get_dataloader
 
