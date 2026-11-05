@@ -62,8 +62,6 @@ class PatchSampler:
         rng: Random source with ``random()`` and ``randrange()`` methods.
             Defaults to Python's global ``random`` module, which PyTorch
             reseeds in each DataLoader worker.
-        ignore_index: Reserved for callers that pad masks; not used by the
-            sampler itself.
 
     Examples:
         >>> import numpy as np
@@ -81,7 +79,6 @@ class PatchSampler:
         patch_size: Sequence[int],
         foreground_prob: float = 1.0 / 3.0,
         rng: random.Random | None = None,
-        ignore_index: int = 255,
     ) -> None:
         if not 0.0 <= float(foreground_prob) <= 1.0:
             raise ValueError("foreground_prob must be between 0 and 1.")
@@ -95,7 +92,6 @@ class PatchSampler:
         self.patch_size = raw
         self.foreground_prob = float(foreground_prob)
         self.rng = random if rng is None else rng
-        self.ignore_index = int(ignore_index)
 
     def _spatial_mask(
         self,

@@ -2,8 +2,26 @@ import os
 import unittest
 from pathlib import Path
 
+from torch.utils.data import IterableDataset
+
 from pyhealth.datasets.sample_dataset import SampleDataset, create_sample_dataset
 from pyhealth.datasets.utils import get_dataloader
+
+
+class _PlainIterableDataset(IterableDataset):
+    """Minimal non-SampleDataset iterable with a ``set_shuffle`` hook."""
+
+    def __init__(self):
+        self.shuffle = None
+
+    def set_shuffle(self, shuffle):
+        self.shuffle = shuffle
+
+    def __iter__(self):
+        return iter(
+            {"feature": [float(index)], "label": index % 2}
+            for index in range(4)
+        )
 
 
 class TestSampleDatasetParity(unittest.TestCase):
@@ -171,6 +189,46 @@ class TestSampleDatasetParity(unittest.TestCase):
             self.assertFalse(loader.pin_memory)
             self.assertTrue(loader.persistent_workers)
             self.assertEqual(loader.prefetch_factor, 2)
+        finally:
+            dataset.close()
+
+    def test_dataloader_forwards_kwargs_to_plain_dataset(self):
+        dataset = _PlainIterableDataset()
+        loader = get_dataloader(
+            dataset, batch_size=2, num_workers=0, pin_memory=False
+        )
+        self.assertEqual(loader.num_workers, 0)
+        self.assertFalse(loader.pin_memory)
+        self.assertFalse(dataset.shuffle)
+        features = sorted(
+            int(value[0]) for batch in loader for value in batch["feature"]
+        )
+        self.assertEqual(features, [0, 1, 2, 3])
+
+    def test_iteration_keeps_cache_created_after_fork(self):
+        dataset, _ = self._get_datasets()
+        try:
+            # Simulate the pid inherited by a forked worker.
+            dataset._cache_pid = os.getpid() + 1
+            iterator = iter(dataset)
+            cache = dataset.cache
+            self.assertEqual(dataset._cache_pid, os.getpid())
+            self.assertEqual(dataset[0]["feature"], 0)
+            self.assertIs(dataset.cache, cache)
+            self.assertEqual(len(list(iterator)), 20)
+        finally:
+            dataset.close()
+
+    def test_dataloader_workers_iterate_after_fork(self):
+        dataset, _ = self._get_datasets()
+        try:
+            loader = get_dataloader(
+                dataset, batch_size=4, shuffle=False, num_workers=2
+            )
+            features = [
+                int(value) for batch in loader for value in batch["feature"]
+            ]
+            self.assertEqual(sorted(features), list(range(20)))
         finally:
             dataset.close()
 

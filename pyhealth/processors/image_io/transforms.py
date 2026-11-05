@@ -161,11 +161,14 @@ def _normalize_ct(
     intensity_stats: dict[str, float] | None,
     eps: float,
 ) -> np.ndarray:
-    """Apply nnU-Net's CT normalisation.
+    """Apply CT normalisation in the style of nnU-Net.
 
-    When ``intensity_stats`` is absent, percentiles and mean/std are estimated
-    from this volume's foreground. Dataset-level statistics are preferred
-    because they match nnU-Net's fingerprinting step.
+    With ``intensity_stats``, clip to the supplied dataset-level foreground
+    percentiles and z-score with its foreground mean/std, which is the scheme
+    nnU-Net uses after fingerprinting. Without them, this fallback estimates
+    the percentiles from this volume and treats voxels above the lower
+    percentile as foreground. That fallback is a heuristic for single-volume
+    use, not nnU-Net's dataset fingerprinting step.
     """
     if intensity_stats is not None:
         lower = float(intensity_stats["percentile_00_5"])

@@ -632,6 +632,19 @@ class SampleDataset(litdata.StreamingDataset):
             )
         return sample
 
+    def __iter__(self) -> Any:
+        """Iterate samples, claiming the streaming cache for this process.
+
+        litdata's streaming iterator creates its cache in the current process
+        and then reads every item through :meth:`__getitem__`. Updating the
+        owner pid here tells :meth:`__getitem__` that the cache was created
+        after the fork, so it does not discard and rebuild it on the first
+        item.
+        """
+        iterator = super().__iter__()
+        self._cache_pid = os.getpid()
+        return iterator
+
     def set_shuffle(self, shuffle: bool, seed: int | None = None) -> None:
         """Sets whether iterating the dataset shuffles, and the shuffle seed.
 

@@ -8,6 +8,7 @@ Examples:
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Sequence
 from pathlib import Path
@@ -20,6 +21,8 @@ from ..transforms import canonicalize_volume, resample_volume
 from ..types import ImageMetadata, PathLike
 from .base import BaseImageReader
 from .dicom import DicomSeriesReader
+
+logger = logging.getLogger(__name__)
 
 
 def _natural_key(path: Path) -> list[Any]:
@@ -48,16 +51,32 @@ def _mask_files(path: PathLike, pattern: str = "*.png") -> list[Path]:
 def _prepare_mask_files(
     mask_files: list[Path], series_path: str | Path | None
 ) -> tuple[list[Path], ImageMetadata | None]:
-    """Order mask slices like the DICOM series and return its metadata."""
+    """Order mask slices like the DICOM series and return its metadata.
+
+    Raises:
+        ValueError: If the reference series cannot be read or has a different
+            number of slices than the mask directory. Returning filename order
+            silently would misalign masks with images without any warning.
+    """
     if series_path is None:
         return mask_files, None
     try:
         metadata = DicomSeriesReader().read_metadata(series_path)
-    except (FileNotFoundError, ImportError, OSError, ValueError):
-        return mask_files, None
+    except ImportError:
+        raise
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        raise ValueError(
+            f"Could not read the reference DICOM series {str(series_path)!r} "
+            "needed to align mask slices. Pass the mask directory alone to "
+            "use filename order."
+        ) from exc
     ordered_dicom = [Path(path) for path in metadata.source]
     if len(ordered_dicom) != len(mask_files):
-        return mask_files, None
+        raise ValueError(
+            f"Mask directory has {len(mask_files)} slices but the reference "
+            f"DICOM series {str(series_path)!r} has {len(ordered_dicom)}; "
+            "cannot align masks with images."
+        )
 
     name_to_index = {path.name: index for index, path in enumerate(ordered_dicom)}
     ordered: list[Path | None] = [None] * len(mask_files)
@@ -68,6 +87,16 @@ def _prepare_mask_files(
     if all(path is not None for path in ordered):
         return [path for path in ordered if path is not None], metadata
 
+    # Mask filenames often differ from the DICOM names (for example
+    # ``mask_0.png`` next to ``slice_0.dcm``). With equal slice counts, pair
+    # both lists in natural filename order and map that position to the
+    # DICOM acquisition order.
+    logger.debug(
+        "Mask filenames do not match DICOM filenames; pairing %d masks with "
+        "%d slices in natural filename order.",
+        len(mask_files),
+        len(ordered_dicom),
+    )
     ordered = [None] * len(mask_files)
     dicom_by_name = sorted(ordered_dicom, key=_natural_key)
     for mask_file, dicom_file in zip(mask_files, dicom_by_name):
