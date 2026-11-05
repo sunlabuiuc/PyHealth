@@ -37,6 +37,8 @@ def _write_slice(
     iop: list[float] | None = None,
     position: list[float] | None = None,
     photometric: str = "MONOCHROME2",
+    window_center: float | None = None,
+    window_width: float | None = None,
 ) -> None:
     """Write one small CT DICOM slice."""
     file_meta = FileMetaDataset()
@@ -71,6 +73,10 @@ def _write_slice(
         dataset.ImagePositionPatient = position or [0.0, 0.0, z]
     dataset.RescaleSlope = 1.0
     dataset.RescaleIntercept = -1024.0
+    if window_center is not None:
+        dataset.WindowCenter = window_center
+    if window_width is not None:
+        dataset.WindowWidth = window_width
     array = np.full((6, 8), stored_value, dtype=np.int16)
     dataset.PixelData = array.tobytes()
     dataset.save_as(str(path), enforce_file_format=True)
@@ -123,7 +129,9 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    def _write_single(self, value: int = 1024) -> Path:
+    def _write_single(
+        self, value: int = 1024, photometric: str = "MONOCHROME2"
+    ) -> Path:
         path = self.root / "one.dcm"
         _write_slice(
             path,
@@ -132,6 +140,7 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
             1,
             self.series_uid,
             self.study_uid,
+            photometric=photometric,
         )
         return path
 
@@ -239,6 +248,18 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         values = sorted(int(value) for value in np.unique(volume))
         self.assertEqual(values, [1024, 1025, 1026])
 
+    def test_monochrome1_window_is_applied_before_inversion(self):
+        path = self._write_single(1024 + 25, photometric="MONOCHROME1")
+        array = DicomReader().load(
+            str(path),
+            normalize=None,
+            window=True,
+            window_center=0.0,
+            window_width=100.0,
+        )
+        # Rescaled 25 -> windowed 0.75 -> inverted 0.25.
+        self.assertAlmostEqual(float(array[0, 0]), 0.25)
+
     def test_colour_dicom_is_rejected(self):
         path = self.root / "colour.dcm"
         _write_rgb_slice(path)
@@ -319,6 +340,28 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
             sorted(int(value) for value in np.unique(mask_volume)),
             [10, 20, 30],
         )
+
+    def test_series_monochrome1_window_is_applied_before_inversion(self):
+        for index, value in enumerate((10, 20, 30)):
+            _write_slice(
+                self.root / f"IMG-{index}.dcm",
+                value,
+                float(index),
+                index + 1,
+                self.series_uid,
+                self.study_uid,
+                photometric="MONOCHROME1",
+                window_center=-1000.0,
+                window_width=100.0,
+            )
+        volume = DicomSeriesReader().load(
+            self.root,
+            canonical=False,
+            normalize=None,
+            window=True,
+        )
+        values = sorted(float(value) for value in np.unique(volume))
+        np.testing.assert_allclose(values, [0.44, 0.54, 0.64], atol=1e-6)
 
     def test_series_falls_back_to_instance_number(self):
         self._write_series(include_position=False)
