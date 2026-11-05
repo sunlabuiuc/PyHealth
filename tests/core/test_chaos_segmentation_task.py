@@ -175,6 +175,7 @@ class TestCHAOSTasks(unittest.TestCase):
                         189: 3,
                         252: 4,
                     },
+                    "strict_mask_names": False,
                 },
             ),
         )

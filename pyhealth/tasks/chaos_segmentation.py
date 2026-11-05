@@ -132,6 +132,9 @@ class _CHAOSSegmentationBase(BaseTask):
             "lazy": True,
             "num_classes": self.num_classes,
             "label_map": self.label_map,
+            # CHAOS masks are mask_N.png while DICOM slices have their own
+            # names, so pair them positionally in natural filename order.
+            "strict_mask_names": False,
         }
         if target_spacing is not None:
             spacing = tuple(target_spacing)
