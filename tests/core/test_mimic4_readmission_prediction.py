@@ -20,12 +20,19 @@ class TestReadmissionPredictionMIMIC4(unittest.TestCase):
 
         cls.samples15days = dataset.set_task(ReadmissionPredictionMIMIC4(window=timedelta(days=15)))
         cls.samples5days = dataset.set_task(ReadmissionPredictionMIMIC4(window=timedelta(days=5)))
+        cls.samples5daymingap = dataset.set_task(
+            ReadmissionPredictionMIMIC4(
+                window=timedelta(days=15),
+                min_gap=timedelta(days=5),
+            )
+        )
         cls.sampleswithminors = dataset.set_task(ReadmissionPredictionMIMIC4(exclude_minors=False))
 
     @classmethod
     def tearDownClass(cls):
         cls.samples15days.close()
         cls.samples5days.close()
+        cls.samples5daymingap.close()
         cls.sampleswithminors.close()
 
     def test_task_schema(self):
@@ -44,6 +51,14 @@ class TestReadmissionPredictionMIMIC4(unittest.TestCase):
 
         self.assertEqual(task.window, timedelta(days=15))
         self.assertTrue(task.exclude_minors)
+        self.assertIsNone(task.min_gap)
+
+    def test_positional_arguments_backward_compatible(self):
+        task = ReadmissionPredictionMIMIC4(timedelta(days=30), False)
+
+        self.assertEqual(task.window, timedelta(days=30))
+        self.assertFalse(task.exclude_minors)
+        self.assertIsNone(task.min_gap)
 
     def test_sample_schema(self):
         for sample in self.samples15days:
@@ -72,6 +87,24 @@ class TestReadmissionPredictionMIMIC4(unittest.TestCase):
 
         self.assertTrue(bool(readmitted5days[0].item()))
         self.assertTrue(bool(readmitted15days[0].item()))
+
+    def test_min_gap(self):
+        readmitted3 = [
+            s["readmission"]
+            for s in self.samples5daymingap
+            if s["visit_id"] == "3"
+        ]
+        readmitted4 = [
+            s["readmission"]
+            for s in self.samples5daymingap
+            if s["visit_id"] == "4"
+        ]
+
+        self.assertEqual(len(readmitted3), 1)
+        self.assertEqual(len(readmitted4), 1)
+
+        self.assertTrue(bool(readmitted3[0].item()))
+        self.assertFalse(bool(readmitted4[0].item()))
 
     def test_last_admission_is_excluded(self):
         self.assertNotIn("2", [ s["visit_id"] for s in self.samples15days ])

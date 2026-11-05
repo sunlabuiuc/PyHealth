@@ -1,4 +1,5 @@
 import tempfile
+from datetime import timedelta
 
 from pyhealth.datasets import MIMIC4Dataset
 from pyhealth.datasets import split_by_patient, get_dataloader
@@ -18,7 +19,9 @@ if __name__ == "__main__":
     base_dataset.stats()
 
     # STEP 2: Set task
-    task = ReadmissionPredictionMIMIC4()
+    task = ReadmissionPredictionMIMIC4(
+        min_gap=timedelta(hours=3),
+    )
     sample_dataset = base_dataset.set_task(task)
 
     # STEP 3: Split and create dataloaders
