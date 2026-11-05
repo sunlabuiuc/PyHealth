@@ -70,7 +70,6 @@ def build_leaderboards(
                 entry["results"][task_id] = None if result is None else {
                     "version": ev.params["version"],
                     "metrics": {name: result.metrics.get(name) for name in metrics},
-                    "runtime": result.metadata.get("runtime"),
                 }
         for entry in models.values():  # a model absent from a column's task file
             entry["results"] = {c["task"]: entry["results"].get(c["task"]) for c in columns}
@@ -123,8 +122,6 @@ def main() -> int:
         metrics = ", ".join(
             f"{k} {v['mean']:.4f}±{v['std']:.4f}" for k, v in result.metrics.items() if k != "loss"
         )
-        if runtime := result.metadata.get("runtime"):  # absent in results saved before it
-            metrics += f" (best epoch after {runtime['mean']:.1f}±{runtime['std']:.1f}s)"
         print(f"{name}: {metrics}")
 
     if env["dev"]:

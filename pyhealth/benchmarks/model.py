@@ -15,7 +15,6 @@ import math
 import os
 import shutil
 import tempfile
-import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, override
@@ -113,9 +112,7 @@ class ModelBenchmark(Benchmark):
     dataset and processed splits.
 
     A result's ``metrics`` hold each test metric's mean and std over the
-    seeds, ``metadata["runtime"]`` the mean and std of the seconds each seed
-    took to reach its best epoch, and ``metadata["seeds"]`` each seed's
-    ``metrics``, ``best_epoch`` (0-based) and ``runtime``.
+    seeds, and ``metadata["seeds"]`` each seed's ``metrics``.
 
     Args:
         env: ``{"compute": {"device"}, "paths": {"input_dir", "cache_dir",
@@ -276,20 +273,10 @@ class ModelBenchmark(Benchmark):
             runs[seed] = self._train_and_test(task, model, seed, (train, val, test), output_dir)
             gc.collect()
         seeds = {
-            str(seed): {
-                **run,
-                "metrics": {k: v if math.isfinite(v) else None for k, v in run["metrics"].items()},
-            }
-            for seed, run in runs.items()
+            str(seed): {"metrics": {k: v if math.isfinite(v) else None for k, v in metrics.items()}}
+            for seed, metrics in runs.items()
         }
-        return Result(
-            "success",
-            summarize([run["metrics"] for run in runs.values()]),
-            {
-                "runtime": summarize([{"s": run["runtime"]} for run in runs.values()])["s"],
-                "seeds": seeds,
-            },
-        )
+        return Result("success", summarize(list(runs.values())), {"seeds": seeds})
 
     def _train_and_test(
         self,
@@ -298,16 +285,14 @@ class ModelBenchmark(Benchmark):
         seed: int,
         parts: tuple[Any, Any, Any],
         output_dir: Path | None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, float]:
         """Trains one model on one seed's (train, val, test).
 
         Returns:
-            ``{"metrics": test metrics, "best_epoch": the epoch (0-based)
-            whose weights were tested, "runtime": seconds from the start of
-            training to the end of that epoch's validation}``.
+            The test metrics.
         """
         from pyhealth.datasets import get_dataloader
-        from pyhealth.trainer import Trainer, is_best
+        from pyhealth.trainer import Trainer
         from pyhealth.utils import set_seed
 
         train, val, test = parts
@@ -331,31 +316,14 @@ class ModelBenchmark(Benchmark):
                 output_path=str(output_dir) if output_dir else None,
                 exp_name=f"seed{seed}",
             )
-
-            # Trainer.train runs one validation per epoch; record when each ends.
-            # TODO: temporary solution until the Trainer reports its best epoch.
-            validations: list[tuple[float, dict[str, float]]] = []
-            evaluate = trainer.evaluate
-            start = time.monotonic()
-
-            def timed_evaluate(dataloader: Any) -> dict[str, float]:
-                scores = evaluate(dataloader)
-                validations.append((time.monotonic() - start, scores))
-                return scores
-
-            trainer_kwargs = training.get("trainer", {})
-            trainer.evaluate = timed_evaluate
-            try:
-                trainer.train(
-                    train_dataloader=get_dataloader(train, batch_size, shuffle=True, seed=seed),
-                    val_dataloader=get_dataloader(val, batch_size),
-                    epochs=training["epochs"],
-                    optimizer_class=_resolve(optimizer.get("target", "torch.optim.Adam")),
-                    optimizer_params=optimizer.get("params"),
-                    **trainer_kwargs,
-                )
-            finally:
-                trainer.evaluate = evaluate
+            trainer.train(
+                train_dataloader=get_dataloader(train, batch_size, shuffle=True, seed=seed),
+                val_dataloader=get_dataloader(val, batch_size),
+                epochs=training["epochs"],
+                optimizer_class=_resolve(optimizer.get("target", "torch.optim.Adam")),
+                optimizer_params=optimizer.get("params"),
+                **training.get("trainer", {}),
+            )
             scores = trainer.evaluate(get_dataloader(test, batch_size))
         finally:
             for handler in trainer_logger.handlers:
@@ -363,18 +331,4 @@ class ModelBenchmark(Benchmark):
                     trainer_logger.removeHandler(handler)
                     handler.close()
 
-        # Replay Trainer's choice: the first epoch with a strictly better
-        # monitored score, or the last epoch without a monitor.
-        best_epoch = len(validations) - 1
-        if (monitor := trainer_kwargs.get("monitor")) is not None:
-            criterion = trainer_kwargs.get("monitor_criterion", "max")
-            best_score = -math.inf if criterion == "max" else math.inf
-            for epoch, (_, val_scores) in enumerate(validations):
-                if is_best(best_score, val_scores[monitor], criterion):
-                    best_epoch, best_score = epoch, val_scores[monitor]
-
-        return {
-            "metrics": {k: float(v) for k, v in scores.items()},
-            "best_epoch": best_epoch,
-            "runtime": round(validations[best_epoch][0], 3),
-        }
+        return {k: float(v) for k, v in scores.items()}
