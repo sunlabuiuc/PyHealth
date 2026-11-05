@@ -682,11 +682,18 @@ class DicomSeriesReader(BaseImageReader):
 
         applied_window = False
         if window:
-            slices = [
-                item if params is None else apply_window(item, *params)
-                for item, params in zip(slices, windows)
-            ]
-            applied_window = any(params is not None for params in windows)
+            tagged = [params is not None for params in windows]
+            if any(tagged) and not all(tagged):
+                raise ValueError(
+                    "DICOM series has window tags on only some slices; "
+                    "cannot apply a consistent window to the volume."
+                )
+            if all(tagged):
+                slices = [
+                    apply_window(item, *params)
+                    for item, params in zip(slices, windows)
+                ]
+                applied_window = True
         if monochrome1:
             if applied_window:
                 # Window tags describe stored intensities, so invert the

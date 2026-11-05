@@ -290,6 +290,25 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         with self.assertRaisesRegex(NotImplementedError, "Colour DICOM"):
             DicomReader().load(str(path))
 
+    def test_mask_names_match_non_dcm_extension(self):
+        series_dir = self.root / "ima_series"
+        series_dir.mkdir()
+        positions = {0: 4.0, 1: 0.0, 2: 2.0}
+        for index in range(3):
+            _write_slice(
+                series_dir / f"IMG-{index}.ima",
+                1024,
+                positions[index],
+                index + 1,
+                self.series_uid,
+                self.study_uid,
+            )
+        mask_dir = self.root / "masks"
+        _write_masks(mask_dir, 3, "IMG", "-")
+        processor = ImageMaskDirectoryProcessor(lazy=False, canonical=False)
+        tensor = processor.process((mask_dir, series_dir))
+        self.assertEqual(tensor[0, :, 0, 0].tolist(), [2, 3, 1])
+
     def test_mask_alignment_requires_readable_series(self):
         mask_dir = self.root / "masks"
         _write_masks(mask_dir, 3)
@@ -383,6 +402,25 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
             sorted(int(value) for value in np.unique(mask_volume)),
             [10, 20, 30],
         )
+
+    def test_series_rejects_mixed_window_tags(self):
+        for index in range(3):
+            kwargs = (
+                {"window_center": -1000.0, "window_width": 100.0}
+                if index == 0
+                else {}
+            )
+            _write_slice(
+                self.root / f"IMG-{index}.dcm",
+                1024,
+                float(index),
+                index + 1,
+                self.series_uid,
+                self.study_uid,
+                **kwargs,
+            )
+        with self.assertRaisesRegex(ValueError, "only some slices"):
+            DicomSeriesReader().load(self.root, window=True)
 
     def test_series_monochrome1_window_is_applied_before_inversion(self):
         for index, value in enumerate((10, 20, 30)):
