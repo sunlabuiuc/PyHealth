@@ -607,7 +607,8 @@ class SampleDataset(litdata.StreamingDataset):
             # A forked DataLoader worker inherited the parent's litdata cache
             # and its open chunk file. Drop it so this process opens fresh
             # descriptors; otherwise parent and worker share one file offset
-            # and can corrupt each other's reads.
+            # and can corrupt each other's reads. Verified against litdata
+            # 0.2.x, where cache/shuffler are the streaming cache handles.
             self.cache = None
             self.shuffler = None
             self._cache_pid = pid

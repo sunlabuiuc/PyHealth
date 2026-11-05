@@ -35,13 +35,14 @@ class NiftiReader(BaseImageReader):
     name = "nifti"
 
     def read_metadata(
-        self, path: PathLike, *, canonical: bool = True
+        self, path: PathLike, *, canonical: bool = True, channel_axis: int = -1
     ) -> ImageMetadata:
         """Read NIfTI header information without loading pixel data.
 
         Args:
             path: Path to a ``.nii`` or ``.nii.gz`` file.
             canonical: Report the metadata of the canonical RAS image.
+            channel_axis: Axis holding channels for 4D inputs.
 
         Returns:
             Metadata for the image.
@@ -56,12 +57,16 @@ class NiftiReader(BaseImageReader):
         if len(shape) < 2:
             raise ValueError(f"NIfTI image must have at least 2 dimensions: {shape}")
         if len(shape) == 4:
-            spatial_shape = shape[:3]
-            spatial_spacing = tuple(
-                float(x) for x in image.header.get_zooms()[:3]
+            axis = channel_axis % 4
+            spatial_shape = tuple(
+                int(size) for index, size in enumerate(shape) if index != axis
             )
-            channels = shape[3]
-            n_frames = shape[3]
+            zooms = image.header.get_zooms()[:4]
+            spatial_spacing = tuple(
+                float(size) for index, size in enumerate(zooms) if index != axis
+            )
+            channels = shape[axis]
+            n_frames = shape[axis]
         else:
             spatial_shape = shape
             spatial_spacing = tuple(

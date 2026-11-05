@@ -68,6 +68,15 @@ class TestNiftiReaderAndProcessor(unittest.TestCase):
         self.assertAlmostEqual(float(array[0].mean()), 1.0)
         self.assertAlmostEqual(float(array[1].mean()), 2.0)
 
+    def test_channel_axis_metadata(self):
+        path = self.root / "channel_first.nii.gz"
+        data = np.zeros((2, 4, 5, 6), dtype=np.float32)
+        nib.save(nib.Nifti1Image(data, self.affine), str(path))
+        metadata = NiftiReader().read_metadata(str(path), channel_axis=0)
+        self.assertEqual(metadata.shape, (2, 6, 5, 4))
+        ref = NiftiProcessor(lazy=True, channel_axis=0).process(str(path))
+        self.assertEqual(ref.metadata.shape, (2, 6, 5, 4))
+
     def test_mask_keeps_labels(self):
         path = self.root / "mask.nii.gz"
         data = (self.data % 3).astype(np.uint8)

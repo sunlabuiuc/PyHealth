@@ -130,7 +130,11 @@ class NiftiProcessor(FeatureProcessor):
             raise FileNotFoundError(f"NIfTI file not found: {path}")
         reader = NiftiReader()
         if self.lazy:
-            metadata = reader.read_metadata(str(path), canonical=self.canonical)
+            metadata = reader.read_metadata(
+                str(path),
+                canonical=self.canonical,
+                channel_axis=self.channel_axis,
+            )
             return ImageRef(
                 path=str(path),
                 reader="nifti",
