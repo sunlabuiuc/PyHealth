@@ -35,7 +35,8 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
             Defaults to True, matching the other 3D image processors.
         label_map: Optional mapping from raw pixel values to class indices.
             Use this for datasets whose masks store scaled or sparse label
-            values, such as CHAOS MR masks.
+            values, such as CHAOS MR masks. In lazy mode, unmapped labels are
+            reported when the sample is materialized, not when it is indexed.
         num_classes: Optional number of classes, used by models to configure
             the output head.
         target_spacing: Target spacing in ``(D, H, W)`` order. Requires a
@@ -114,7 +115,8 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
             value: Directory containing image mask slices, a
                 ``(mask_dir, series_path)`` tuple, or an existing
                 :class:`ImageRef`. The series path is used to match mask
-                slices to the DICOM slice order.
+                slices to the DICOM slice order; set ``strict_mask_names`` to
+                require matching filenames instead of positional pairing.
 
         Returns:
             An :class:`ImageRef` in lazy mode, otherwise a

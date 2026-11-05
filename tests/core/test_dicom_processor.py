@@ -219,6 +219,26 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "to_tensor=True"):
             DicomProcessor(is_mask=True, to_tensor=False)
 
+    def test_mask_skips_rescale_and_window(self):
+        path = self._write_single(1024 + 7)
+        array = DicomReader().load(
+            str(path),
+            is_mask=True,
+            window=True,
+            window_center=0.0,
+            window_width=10.0,
+        )
+        self.assertEqual(int(array.min()), 1031)
+        self.assertEqual(int(array.max()), 1031)
+
+    def test_series_mask_skips_rescale(self):
+        self._write_series()
+        volume = DicomSeriesReader().load(
+            self.root, is_mask=True, canonical=False
+        )
+        values = sorted(int(value) for value in np.unique(volume))
+        self.assertEqual(values, [1024, 1025, 1026])
+
     def test_colour_dicom_is_rejected(self):
         path = self.root / "colour.dcm"
         _write_rgb_slice(path)
@@ -292,6 +312,13 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         )
         values = sorted(int(value) for value in np.unique(volume))
         self.assertEqual(values, [0, 10, 20])
+        mask_volume = DicomSeriesReader().load(
+            self.root, canonical=False, is_mask=True
+        )
+        self.assertEqual(
+            sorted(int(value) for value in np.unique(mask_volume)),
+            [10, 20, 30],
+        )
 
     def test_series_falls_back_to_instance_number(self):
         self._write_series(include_position=False)

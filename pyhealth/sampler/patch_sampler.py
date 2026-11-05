@@ -24,9 +24,7 @@ class PatchLocation:
     Args:
         slice_index: Slice index when sampling a 2D patch from a 3D volume,
             otherwise None.
-        origin: Patch origin for each spatial axis. Origins may be negative
-            only when the volume is smaller than the patch; the dataset pads
-            in that case.
+        origin: Patch origin for each spatial axis.
 
     Examples:
         >>> from pyhealth.sampler import PatchLocation

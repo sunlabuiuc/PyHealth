@@ -401,7 +401,9 @@ class DicomReader(BaseImageReader):
             clip: Optional ``(low, high)`` clipping range.
             percentile_range: Percentiles for ``normalize="percentile"``.
             dtype: Output dtype for non-mask images.
-            is_mask: Treat the input as a mask.
+            is_mask: Treat the input as a mask. Rescale, inversion,
+                windowing and normalization are skipped so labels keep their
+                stored integer values.
             **kwargs: Ignored extra options for interface compatibility.
 
         Returns:
@@ -425,6 +427,10 @@ class DicomReader(BaseImageReader):
             raise NotImplementedError(
                 "Only single-channel, single-frame DICOM images are supported."
             )
+        if is_mask:
+            # Mask labels are stored values; rescale, windowing and
+            # normalization would change the integer class indices.
+            return np.ascontiguousarray(array.astype(np.int64, copy=False))
 
         array = array.astype(np.float32)
         if apply_rescale:
@@ -450,8 +456,6 @@ class DicomReader(BaseImageReader):
             )
             if center is not None and width is not None:
                 array = apply_window(array, center, width)
-        if is_mask:
-            return np.ascontiguousarray(array.astype(np.int64, copy=False))
         array = normalize_intensity(
             array,
             mode=normalize,
@@ -586,7 +590,9 @@ class DicomSeriesReader(BaseImageReader):
             mri_background_threshold: Optional fraction of the 99th percentile
                 below which MRI voxels are treated as air/noise and zeroed.
             dtype: Output dtype for non-mask volumes.
-            is_mask: Treat the input as a mask.
+            is_mask: Treat the input as a mask. Rescale, inversion,
+                windowing and normalization are skipped so labels keep their
+                stored integer values.
             order: Interpolation order. Defaults to 0 for masks and 1
                 otherwise.
             apply_rescale: Apply per-slice rescale values.
@@ -626,7 +632,8 @@ class DicomSeriesReader(BaseImageReader):
             if first_rows is None:
                 first_rows, first_columns = rows, columns
                 monochrome1 = (
-                    invert_monochrome1
+                    not is_mask
+                    and invert_monochrome1
                     and str(
                         getattr(dataset, "PhotometricInterpretation", "") or ""
                     )
@@ -641,6 +648,12 @@ class DicomSeriesReader(BaseImageReader):
                 raise NotImplementedError(
                     "Multi-frame DICOM is not supported yet."
                 )
+            if is_mask:
+                # Keep stored integer labels; rescale, windowing and
+                # MONOCHROME1 inversion would change class indices.
+                slices.append(array)
+                windows.append(None)
+                continue
             array = array.astype(np.float32)
             if apply_rescale:
                 slope = float(getattr(dataset, "RescaleSlope", 1.0) or 1.0)
