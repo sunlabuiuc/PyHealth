@@ -14,7 +14,7 @@ from .image_io.readers.image_mask import (
     _mask_files,
     _prepare_mask_files,
 )
-from .image_io.tensor_utils import _pad_volumes, _to_torch
+from .image_io.tensor_utils import _collate_volumes, _to_torch
 from .image_io.types import ImageRef, _apply_resampling_to_metadata
 
 
@@ -198,11 +198,7 @@ class ImageMaskDirectoryProcessor(FeatureProcessor):
 
     def collate(self, values: list[Any]) -> Any:
         """Pad variable-shape mask volumes to a common shape and stack them."""
-        if not values or not isinstance(values[0], torch.Tensor):
-            return values
-        if all(value.shape == values[0].shape for value in values):
-            return torch.stack(values)
-        return _pad_volumes(values)
+        return _collate_volumes(values)
 
     def _apply_label_map(self, array: "np.ndarray") -> "np.ndarray":
         """Map raw mask values to class indices, rejecting unknown values."""

@@ -27,6 +27,15 @@ def _pad_volumes(values: Sequence[torch.Tensor]) -> torch.Tensor:
     return torch.stack(padded)
 
 
+def _collate_volumes(values: Sequence[Any]) -> Any:
+    """Stack equal-shape tensors or pad volumes to their maximum shape."""
+    if not values or not isinstance(values[0], torch.Tensor):
+        return values
+    if all(value.shape == values[0].shape for value in values):
+        return torch.stack(values)
+    return _pad_volumes(values)
+
+
 def _to_torch(array: np.ndarray, dtype: str = "float32") -> torch.Tensor:
     """Convert a NumPy array to a contiguous torch tensor."""
     tensor = torch.from_numpy(np.ascontiguousarray(array))

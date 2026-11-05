@@ -595,6 +595,16 @@ class SampleDataset(litdata.StreamingDataset):
         self.fit_split: dict | None = metadata.get("fit_split")
         self.storage_format: int = metadata.get("storage_format", 1)
 
+    def _reset_streaming_cache(self) -> None:
+        """Drop inherited litdata handles, failing loudly on API changes."""
+        if not hasattr(self, "cache") or not hasattr(self, "shuffler"):
+            raise RuntimeError(
+                "SampleDataset fork reset expects litdata's cache/shuffler "
+                "attributes; the installed litdata version changed that API."
+            )
+        self.cache = None
+        self.shuffler = None
+
     def __getitem__(self, index: Any) -> Any:
         """Returns the sample(s) at ``index`` as the original Python objects.
 
@@ -609,8 +619,7 @@ class SampleDataset(litdata.StreamingDataset):
             # descriptors; otherwise parent and worker share one file offset
             # and can corrupt each other's reads. Verified against litdata
             # 0.2.x, where cache/shuffler are the streaming cache handles.
-            self.cache = None
-            self.shuffler = None
+            self._reset_streaming_cache()
             self._cache_pid = pid
         sample = _decode_record(super().__getitem__(index))
         if self._resolve_refs:
@@ -632,8 +641,7 @@ class SampleDataset(litdata.StreamingDataset):
         if pid != self._cache_pid:
             # A forked worker may still hold the parent's chunk handles.
             # Drop them before litdata creates the iterator's cache.
-            self.cache = None
-            self.shuffler = None
+            self._reset_streaming_cache()
         iterator = super().__iter__()
         self._cache_pid = pid
         return iterator
