@@ -77,7 +77,7 @@ class TestImageTransforms(unittest.TestCase):
                 normalize_intensity(np.array([3.0, 3.0]), mode), [0, 0]
             )
         np.testing.assert_allclose(
-            _normalize_ct(np.full((2, 2), 5.0), None), np.zeros((2, 2))
+            _normalize_ct(np.full((2, 2), 5.0), None, eps=1e-8), np.zeros((2, 2))
         )
         with self.assertRaisesRegex(ValueError, "must be resolved"):
             normalize_intensity(data, "auto")
