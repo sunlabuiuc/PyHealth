@@ -821,8 +821,9 @@ class InMemorySampleDataset(SampleDataset):
     Note:
         This class is intended for testing and debugging purposes where
         dataset sizes are small enough to fit into memory. Lazy image
-        references are re-read from disk on every access, and each access
-        returns a copy so mutating a sample does not change the stored one.
+        references are re-read from disk on every access. Each access returns
+        a shallow copy of the sample dictionary; nested mutable values are
+        shared with the stored sample.
     """
 
     def __init__(

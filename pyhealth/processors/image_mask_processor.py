@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from . import register_processor
+from .base_processor import FeatureProcessor
 from .image_io.readers.image_mask import (
     ImageMaskReader,
     _mask_files,
@@ -14,16 +15,14 @@ from .image_io.readers.image_mask import (
 )
 from .image_io.tensor_utils import _to_torch
 from .image_io.types import ImageRef, _apply_resampling_to_metadata
-from .image_processor import ImageProcessor
 
 
 @register_processor("image_mask_dir")
-class ImageMaskDirectoryProcessor(ImageProcessor):
+class ImageMaskDirectoryProcessor(FeatureProcessor):
     """Read a directory of image slices as a 3D integer mask volume.
 
-    The processor reuses :class:`ImageProcessor` to open each mask image, then
-    stacks the slices into ``(1, D, H, W)``. Masks are not resized or
-    normalized, so integer label values are preserved. The format is not
+    The processor opens each mask image, stacks the slices into
+    ``(1, D, H, W)``, and preserves integer label values. The format is not
     fixed: ``pattern`` defaults to ``"*.png"`` but can be any PIL-readable
     image glob such as ``"*.jpg"`` or ``"*.tif"``.
 
@@ -82,12 +81,7 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
             strict_mask_names: Require mask names to match the DICOM stems.
                 Defaults to True; set False for positional pairing.
         """
-        super().__init__(
-            image_size=None,
-            to_tensor=False,
-            normalize=False,
-            mode=mode,
-        )
+        self.mode = mode
         self.pattern = pattern
         self.canonical = bool(canonical)
         self.lazy = bool(lazy)
@@ -142,6 +136,7 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
             files,
             series_path,
             require_name_match=getattr(self, "strict_mask_names", False),
+            canonical=self.canonical,
         )
         reader = ImageMaskReader()
         if metadata is None:
@@ -211,6 +206,14 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
         for source, target in label_map.items():
             mapped[array == source] = target
         return mapped
+
+    def is_token(self) -> bool:
+        """Mask values are integer labels, not continuous tokens."""
+        return False
+
+    def schema(self) -> tuple[str, ...]:
+        """Return the single output field name."""
+        return ("value",)
 
     def dim(self) -> tuple[int, ...]:
         """Return the output tensor rank."""
