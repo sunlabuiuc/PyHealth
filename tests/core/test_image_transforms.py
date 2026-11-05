@@ -4,6 +4,11 @@ import unittest
 
 import numpy as np
 
+try:
+    import nibabel as nib
+except ImportError:  # pragma: no cover - test env installs the extra
+    nib = None
+
 from pyhealth.processors.image_io.transforms import (
     _normalize_ct,
     _normalize_mri,
@@ -15,9 +20,8 @@ from pyhealth.processors.image_io.transforms import (
 
 
 class TestImageTransforms(unittest.TestCase):
+    @unittest.skipUnless(nib is not None, "nibabel is required")
     def test_canonicalize(self):
-        import nibabel as nib
-
         data = np.arange(24, dtype=np.float32).reshape(2, 3, 4)
         affine = np.array(
             [[0, -2, 0, 10], [3, 0, 0, -5], [0, 0, 4, 2], [0, 0, 0, 1]], float
@@ -27,6 +31,7 @@ class TestImageTransforms(unittest.TestCase):
         np.testing.assert_array_equal(out, np.asanyarray(expected.dataobj))
         np.testing.assert_allclose(out_affine, expected.affine)
 
+    @unittest.skipUnless(nib is not None, "nibabel is required")
     def test_resample(self):
         data = np.zeros((4, 5, 6), dtype=np.float32)
         affine = np.diag([2.0, 3.0, 4.0, 1.0])
