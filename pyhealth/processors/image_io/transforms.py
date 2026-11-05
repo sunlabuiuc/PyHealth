@@ -251,10 +251,10 @@ def normalize_intensity(
         clip: Optional ``(low, high)`` clipping range applied before
             normalisation. It also applies when ``mode`` is None.
         percentile_range: Lower and upper percentiles for ``"percentile"``.
-        intensity_stats: Foreground intensity statistics for ``"ct"``, as
-            returned by
-            :func:`pyhealth.datasets.compute_foreground_intensity_stats`.
-            When omitted, per-volume foreground statistics are used.
+        intensity_stats: Foreground intensity statistics for ``"ct"``: a
+            mapping with ``percentile_00_5``, ``percentile_99_5``, ``mean``
+            and ``std``. When omitted, per-volume foreground statistics are
+            used.
         use_nonzero_mask: For ``"mri"``, normalise only non-zero voxels.
             Defaults to True.
         mri_background_threshold: For ``"mri"``, optional fraction of the

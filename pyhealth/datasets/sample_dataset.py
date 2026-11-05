@@ -947,7 +947,9 @@ class InMemorySampleDataset(SampleDataset):
         """
         sample = self._data[index]
         if not self._resolve_refs:
-            return sample
+            if isinstance(sample, list):
+                return [dict(item) for item in sample]
+            return dict(sample)
         if isinstance(sample, list):
             return [
                 _resolve_image_refs(

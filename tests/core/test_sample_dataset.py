@@ -181,6 +181,13 @@ class TestSampleDatasetParity(unittest.TestCase):
         items[0]["feature"] = 99
         self.assertEqual(dataset[0]["feature"], 0)
 
+    def test_in_memory_raw_access_returns_copy(self):
+        _, dataset = self._get_datasets()
+        dataset._resolve_refs = False
+        item = dataset[0]
+        item["feature"] = 99
+        self.assertEqual(dataset[0]["feature"], 0)
+
     def test_dataloader_forwards_loader_kwargs(self):
         dataset, _ = self._get_datasets()
         try:

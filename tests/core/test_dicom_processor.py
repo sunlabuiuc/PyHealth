@@ -215,6 +215,10 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         # IMG-0 and the marker values are (2, 3, 1).
         self.assertEqual(tensor[0, :, 0, 0].tolist(), [2, 3, 1])
 
+    def test_mask_requires_tensor_output(self):
+        with self.assertRaisesRegex(ValueError, "to_tensor=True"):
+            DicomProcessor(is_mask=True, to_tensor=False)
+
     def test_colour_dicom_is_rejected(self):
         path = self.root / "colour.dcm"
         _write_rgb_slice(path)

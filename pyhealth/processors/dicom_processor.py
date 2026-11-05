@@ -110,6 +110,11 @@ class DicomProcessor(ImageProcessor):
         self.clip = clip
         self.dtype = dtype
         self.is_mask = bool(is_mask)
+        if self.is_mask and not self.to_tensor:
+            raise ValueError(
+                "DicomProcessor(is_mask=True) requires to_tensor=True; "
+                "returning a mask as a PIL image would rescale its labels."
+            )
 
     @property
     def stores_tensor(self) -> bool:
