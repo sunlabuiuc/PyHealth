@@ -102,8 +102,6 @@ from .utils import (
 )
 from .collate import collate_temporal
 from .splitter import (
-    PatientSplit as PatientSplit,
-    Split as Split,
     sample_balanced,
     split_by_patient,
     split_by_patient_conformal,
