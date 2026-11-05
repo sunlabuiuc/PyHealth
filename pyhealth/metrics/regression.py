@@ -26,7 +26,8 @@ def regression_metrics_fn(
 
     Args:
         x: True target data sample.
-        x_rec: Reconstructed data sample. Must have the same shape as x.
+        x_rec: Reconstructed data sample. Must have the same shape as x,
+            ignoring dimensions of size 1.
         metrics: List of metrics to compute. Default is
             ["kl_divergence", "mse", "mae"].
 
@@ -35,8 +36,8 @@ def regression_metrics_fn(
             the metric values as Python floats.
 
     Raises:
-        ValueError: If x and x_rec do not have the same shape, or if an
-            unknown metric name is given.
+        ValueError: If x and x_rec do not have the same shape after removing
+            dimensions of size 1, or if an unknown metric name is given.
 
     Examples:
         >>> import numpy as np
@@ -52,7 +53,8 @@ def regression_metrics_fn(
 
     # Check shapes before flattening: flattening first would let arrays of
     # different shapes but equal size, e.g. (2, 3) and (3, 2), pass silently.
-    if x.shape != x_rec.shape:
+    # Squeezing still accepts dimensions of size 1, e.g. (N,) and (N, 1).
+    if np.squeeze(x).shape != np.squeeze(x_rec).shape:
         raise ValueError(
             f"x and x_rec must have the same shape, got {x.shape} and {x_rec.shape}."
         )
