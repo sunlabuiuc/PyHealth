@@ -65,7 +65,7 @@ from pyhealth.models.ehrmamba import EHRMamba
 from pyhealth.models.jamba_ehr import JambaEHR
 from pyhealth.tasks.multimodal_mimic4 import LabsMIMIC4, NotesLabsMIMIC4
 from pyhealth.trainer import Trainer
-from pyhealth.utils import set_seed
+from pyhealth.utils import set_seed, write_run_config
 
 
 class WandbLogger:
@@ -366,6 +366,16 @@ def run(args: argparse.Namespace, sample_dataset: Any = None) -> Path:
             optimizer_params["eps"] = args.adam_eps
 
     optimizer_params["lr"] = effective_lr
+
+    write_run_config(
+        str(output_dir / exp_name),
+        {
+            **vars(args),
+            "n_train": len(train_ds),
+            "n_val": len(val_ds),
+            "n_test": len(test_ds),
+        },
+    )
 
     epoch_train_seconds: List[float] = []
     if args.epochs > 0 and len(train_ds) > 0:

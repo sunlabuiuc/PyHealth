@@ -191,6 +191,12 @@ def _assert_demo_metrics(testcase, output_csv):
     testcase.assertTrue(Path(output_csv).is_file())
     metrics_path = Path(output_csv).parent / "metrics.json"
     testcase.assertTrue(metrics_path.is_file())
+    run_config_path = Path(output_csv).parent / "run_config.json"
+    testcase.assertTrue(run_config_path.is_file())
+    run_config = json.loads(run_config_path.read_text())
+    testcase.assertEqual(
+        set(run_config), {"config", "git", "source_sha256", "torch"}
+    )
     metrics = json.loads(metrics_path.read_text())
     testcase.assertEqual(set(metrics.keys()), set(_EXPECTED_METRICS_KEYS))
     testcase.assertEqual(len(metrics["epoch_train_seconds"]), 1)
