@@ -12,7 +12,7 @@ task:
   params: {}
   dataset:
     target: "pyhealth.datasets.MIMIC4EHRDataset"
-    root: "/srv/local/data/physionet.org/files/mimiciv/2.2"
+    root: "/srv/local/data/physionet.org/files/mimiciv/3.1"
     # The same tables for every YAIB task (the sepsis task needs them all),
     # so the MIMIC-IV ingestion is cached once and shared by all five.
     tables:
