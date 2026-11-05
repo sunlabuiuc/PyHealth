@@ -113,6 +113,13 @@ def _sort_entries(entries: list[tuple[Path, Any]]) -> list[tuple[Path, Any]]:
             positions.append(float(np.dot(np.asarray(ipp, dtype=float), normal)))
         if positions:
             order = np.argsort(positions)
+            ordered_positions = np.asarray(positions, dtype=float)[order]
+            diffs = np.diff(ordered_positions)
+            if len(diffs) and np.any(np.abs(diffs) < 1e-6):
+                raise ValueError(
+                    "DICOM series contains duplicate or overlapping slice "
+                    "positions; refusing to build a volume."
+                )
             return [entries[int(index)] for index in order]
 
     instance_numbers = []
@@ -185,8 +192,14 @@ def _slice_spacing(entries: list[tuple[Path, Any]]) -> float:
                     break
                 positions.append(float(np.dot(np.asarray(ipp), normal)))
             if len(positions) == len(entries):
-                diffs = np.diff(positions)
-                diffs = np.abs(diffs[diffs != 0])
+                ordered = np.sort(np.asarray(positions, dtype=float))
+                raw_diffs = np.diff(ordered)
+                if len(raw_diffs) and np.any(np.abs(raw_diffs) < 1e-6):
+                    raise ValueError(
+                        "DICOM series contains duplicate or overlapping "
+                        "slice positions; cannot infer slice spacing."
+                    )
+                diffs = np.abs(raw_diffs[raw_diffs != 0])
                 if len(diffs) > 0:
                     return float(np.median(diffs))
     for name in ("SpacingBetweenSlices", "SliceThickness"):

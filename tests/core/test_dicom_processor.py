@@ -230,6 +230,15 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         # IMG-0 and the marker values are (2, 3, 1).
         self.assertEqual(tensor[0, :, 0, 0].tolist(), [2, 3, 1])
 
+    def test_processor_mask_keeps_integer_labels(self):
+        path = self._write_single(1024 + 1)
+        processor = DicomProcessor(
+            image_size=4, mode="L", is_mask=True, lazy=False
+        )
+        tensor = processor.process(str(path))
+        self.assertEqual(str(tensor.dtype), "torch.int64")
+        self.assertEqual(set(tensor.unique().tolist()), {1025})
+
     def test_mask_requires_tensor_output(self):
         with self.assertRaisesRegex(ValueError, "to_tensor=True"):
             DicomProcessor(is_mask=True, to_tensor=False)
@@ -365,6 +374,19 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         tensor = processor.materialize(reference)
         self.assertEqual(reference.metadata.shape, tuple(tensor.shape))
         self.assertEqual(tuple(tensor.shape), (1, 3, 6, 8))
+
+    def test_series_rejects_duplicate_positions(self):
+        for index, z in enumerate((0.0, 0.0, 2.0)):
+            _write_slice(
+                self.root / f"IMG-{index}.dcm",
+                1024,
+                z,
+                index + 1,
+                self.series_uid,
+                self.study_uid,
+            )
+        with self.assertRaisesRegex(ValueError, "duplicate or overlapping"):
+            DicomSeriesReader().read_metadata(self.root)
 
     def test_series_prefers_measured_slice_spacing(self):
         for index in range(3):

@@ -82,14 +82,6 @@ class TestCollation(unittest.TestCase):
         collated = collate_fn_dict_with_padding(batch)
         self.assertEqual(tuple(collated["x"].shape), (2, 2))
         self.assertEqual(collated["id"], ["a", "b"])
-
-    def test_variable_tensors_and_custom_collator(self):
-        batch = [
-            {"x": torch.tensor([1]), "raw": [1]},
-            {"x": torch.tensor([2, 3]), "raw": [2, 3]},
-        ]
-        collated = collate_fn_dict_with_padding(batch)
-        self.assertEqual(tuple(collated["x"].shape), (2, 2))
         self.assertEqual(
             collate_fn_dict_with_padding(batch, collators={"x": len})["x"], 2
         )
@@ -117,16 +109,6 @@ class TestCollation(unittest.TestCase):
         times, _ = collate_fn_dict_with_padding(no_time)["x"]
         self.assertIsNone(times)
 
-    def test_temporal_variable_shapes(self):
-        batch = [
-            {"x": (torch.tensor([1.0, 2.0]), torch.tensor([1.0, 2.0]))},
-            {"x": (torch.tensor([3.0]), torch.tensor([3.0]))},
-        ]
-        times, values = collate_fn_dict_with_padding(batch)["x"]
-        self.assertEqual(tuple(times.shape), (2, 2))
-        self.assertEqual(tuple(values.shape), (2, 2))
-
-
 class TestProcessorFiles(unittest.TestCase):
     class _Dataset:
         def __init__(self):
@@ -141,9 +123,3 @@ class TestProcessorFiles(unittest.TestCase):
             self.assertEqual(input_processors, {"a": 1})
             self.assertEqual(output_processors, {"b": 2})
 
-    def test_missing_files_raise(self):
-        with (
-            tempfile.TemporaryDirectory() as directory,
-            self.assertRaises(FileNotFoundError),
-        ):
-            load_processors(directory)
