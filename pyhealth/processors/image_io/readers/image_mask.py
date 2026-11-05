@@ -93,9 +93,10 @@ def _prepare_mask_files(
         )
 
     name_to_index = {path.name: index for index, path in enumerate(ordered_dicom)}
+    stem_to_index = {path.stem: index for index, path in enumerate(ordered_dicom)}
     ordered: list[Path | None] = [None] * len(mask_files)
     for mask_file in mask_files:
-        index = name_to_index.get(f"{mask_file.stem}.dcm")
+        index = stem_to_index.get(mask_file.stem)
         if index is not None:
             ordered[index] = mask_file
     if all(path is not None for path in ordered):
