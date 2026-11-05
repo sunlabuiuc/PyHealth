@@ -75,6 +75,7 @@ from .support2 import Support2Dataset
 from .synthea_csv import SyntheaCSVDataset as SyntheaCSVDataset
 from .tcga_prad import TCGAPRADDataset
 from .splitter import (
+    GoldTestSplit as GoldTestSplit,
     PatientSplit as PatientSplit,
     Split as Split,
     SubjectSplit as SubjectSplit,

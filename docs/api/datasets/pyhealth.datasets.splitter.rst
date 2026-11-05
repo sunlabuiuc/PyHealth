@@ -66,6 +66,20 @@ already been processed.
 
 ``CHBMITDataset.default_subject_split()`` returns that CHB-MIT split.
 
+Reserving gold-labeled subjects for testing
+-------------------------------------------
+
+:class:`GoldTestSplit` follows the split of DiPro: subjects with manually
+validated labels all go to the test part, which random subjects fill up to 20%
+of all subjects, and an eighth of the rest goes to validation.
+
+.. code-block:: python
+
+    from pyhealth.datasets import GoldTestSplit
+
+    split = GoldTestSplit(task.gold_subjects(dataset), seed=0)
+    train, val, test = dataset.set_task(task, split=split)
+
 Writing your own split
 ----------------------
 
