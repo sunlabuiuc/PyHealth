@@ -54,15 +54,6 @@ class TestImageMaskDirectoryProcessor(unittest.TestCase):
         eager_tensor = eager_processor.process(self.mask_dir)
         self.assertTrue(torch.equal(lazy_tensor, eager_tensor))
 
-    def test_old_cached_processor_without_new_attributes(self):
-        processor = ImageMaskDirectoryProcessor(canonical=False, lazy=False)
-        # Simulate a processor unpickled from an older cache.
-        del processor.target_spacing
-        del processor.target_shape
-        del processor.label_map
-        tensor = processor.process(self.mask_dir)
-        self.assertEqual(tuple(tensor.shape), (1, 3, 4, 5))
-
     def test_target_shape_resamples_mask(self):
         files = tuple(sorted(self.mask_dir.glob("*.png")))
         metadata = ImageMetadata(

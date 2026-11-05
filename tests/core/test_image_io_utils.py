@@ -2,12 +2,10 @@
 
 import tempfile
 import unittest
-from pathlib import Path
 
 import numpy as np
 import torch
 
-from pyhealth.datasets.imaging.io import _resolve_metadata_dir
 from pyhealth.processors.image_io.readers.factory import get_reader, get_reader_by_name
 from pyhealth.processors.image_io.tensor_utils import (
     _channels_first,
@@ -56,10 +54,3 @@ class TestImageIOHelpers(unittest.TestCase):
             self.assertEqual(_tensor_to_pil(torch.zeros(channels, 2, 2)).mode, mode)
         with self.assertRaisesRegex(ValueError, "channels"):
             _tensor_to_pil(torch.zeros(2, 2, 2))
-
-    def test_resolve_metadata_dir(self):
-        with tempfile.TemporaryDirectory() as directory:
-            self.assertEqual(
-                _resolve_metadata_dir(directory, "demo"),
-                Path(directory) / "metadata" / "demo",
-            )

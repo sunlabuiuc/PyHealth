@@ -29,30 +29,32 @@ from pyhealth.processors.image_io.types import ImageRef
 class TestLazyImageCache(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
-        self.root = Path(self.temp_dir)
-        self.image_path = self.root / "scan.nii.gz"
+        image_path = Path(self.temp_dir) / "scan.nii.gz"
         nib.save(
             nib.Nifti1Image(
                 np.arange(4 * 5 * 6, dtype=np.int16).reshape(4, 5, 6),
                 np.eye(4),
             ),
-            str(self.image_path),
+            str(image_path),
         )
         self.samples = [
-            {"patient_id": "p1", "image": str(self.image_path), "label": 1},
-            {"patient_id": "p2", "image": str(self.image_path), "label": 0},
+            {"patient_id": "p1", "image": str(image_path), "label": 1},
+            {"patient_id": "p2", "image": str(image_path), "label": 0},
         ]
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    def test_disk_cache_stores_reference(self):
-        dataset = create_sample_dataset(
+    def _dataset(self, in_memory: bool = False):
+        return create_sample_dataset(
             self.samples,
             {"image": ("nifti", {"lazy": True})},
             {"label": "binary"},
-            in_memory=False,
+            in_memory=in_memory,
         )
+
+    def test_disk_cache_stores_reference(self):
+        dataset = self._dataset()
         try:
             self.assertFalse(dataset.input_processors["image"].stores_tensor)
             record = litdata.StreamingDataset(dataset.path)[0]
@@ -62,43 +64,22 @@ class TestLazyImageCache(unittest.TestCase):
             dataset.close()
 
     def test_getitem_materializes_reference(self):
-        dataset = create_sample_dataset(
-            self.samples,
-            {"image": ("nifti", {"lazy": True})},
-            {"label": "binary"},
-            in_memory=False,
-        )
+        dataset = self._dataset()
         try:
-            sample = dataset[0]
-            self.assertEqual(tuple(sample["image"].shape), (1, 6, 5, 4))
+            self.assertEqual(tuple(dataset[0]["image"].shape), (1, 6, 5, 4))
             raw = SampleDataset(dataset.path, resolve_refs=False)
             self.assertIsInstance(raw[0]["image"], ImageRef)
         finally:
             dataset.close()
 
     def test_in_memory_iteration_materializes_reference(self):
-        dataset = create_sample_dataset(
-            self.samples,
-            {"image": ("nifti", {"lazy": True})},
-            {"label": "binary"},
-        )
-        shapes = [tuple(sample["image"].shape) for sample in dataset]
-        self.assertEqual(shapes, [(1, 6, 5, 4), (1, 6, 5, 4)])
+        shapes = [tuple(sample["image"].shape) for sample in self._dataset(True)]
+        self.assertEqual(shapes, [(1, 6, 5, 4)] * 2)
 
     def test_dataloader_collates_materialized_volumes(self):
-        dataset = create_sample_dataset(
-            self.samples,
-            {"image": ("nifti", {"lazy": True})},
-            {"label": "binary"},
-            in_memory=False,
-        )
+        dataset = self._dataset()
         try:
-            loader = get_dataloader(dataset, batch_size=2)
-            batch = next(iter(loader))
+            batch = next(iter(get_dataloader(dataset, batch_size=2)))
             self.assertEqual(tuple(batch["image"].shape), (2, 1, 6, 5, 4))
         finally:
             dataset.close()
-
-
-if __name__ == "__main__":
-    unittest.main()

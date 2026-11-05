@@ -4,7 +4,7 @@ import unittest
 
 import torch
 
-from pyhealth.datasets import PatchDataset, create_sample_dataset
+from pyhealth.datasets import PatchDataset, create_sample_dataset, get_dataloader
 from pyhealth.sampler import PatchSampler
 
 
@@ -77,6 +77,22 @@ class TestPatchDataset(unittest.TestCase):
             num_patches=3,
         )
         self.assertEqual(len(patches), 6)
+
+    def test_dataloader_collates_3d_and_2d_patches(self):
+        for patch_size, expected in (
+            ((4, 4, 4), (2, 1, 4, 4, 4)),
+            ((4, 4), (2, 1, 4, 4)),
+        ):
+            patches = PatchDataset(
+                _make_dataset(), PatchSampler(patch_size), mode="center"
+            )
+            batch = next(iter(get_dataloader(patches, batch_size=2)))
+            self.assertEqual(tuple(batch["image"].shape), expected)
+            self.assertEqual(tuple(batch["mask"].shape), expected)
+            if len(patch_size) == 3:
+                self.assertNotIn("patch_slice", batch)
+            else:
+                self.assertEqual(len(batch["patch_slice"]), 2)
 
 
 if __name__ == "__main__":

@@ -222,6 +222,9 @@ class TestSampleDatasetParity(unittest.TestCase):
     def test_dataloader_workers_iterate_after_fork(self):
         dataset, _ = self._get_datasets()
         try:
+            # Open the parent's chunk handles before the workers fork.
+            self.assertEqual(dataset[0]["feature"], 0)
+            self.assertIsNotNone(dataset.cache)
             loader = get_dataloader(
                 dataset, batch_size=4, shuffle=False, num_workers=2
             )

@@ -17,29 +17,22 @@ from pyhealth.datasets import compute_foreground_intensity_stats, create_sample_
 
 class TestForegroundStats(unittest.TestCase):
     def test_collects_only_foreground_voxels(self):
-        samples = [
-            {
-                "image": np.array([[-1000.0, 10.0], [20.0, 30.0]]),
-                "mask": np.array([[0, 1], [1, 1]]),
-            }
-        ]
-        stats = compute_foreground_intensity_stats(samples)
+        stats = compute_foreground_intensity_stats(
+            [
+                {
+                    "image": np.array([[-1000.0, 10.0], [20.0, 30.0]]),
+                    "mask": np.array([[0, 1], [1, 1]]),
+                }
+            ]
+        )
         self.assertAlmostEqual(stats["mean"], 20.0, places=5)
         self.assertAlmostEqual(stats["percentile_00_5"], 10.1, places=5)
         self.assertAlmostEqual(stats["percentile_99_5"], 29.9, places=5)
 
     def test_modality_filter(self):
         samples = [
-            {
-                "modality": "CT",
-                "image": np.array([0.0, 10.0]),
-                "mask": np.array([0, 1]),
-            },
-            {
-                "modality": "MR",
-                "image": np.array([0.0, 100.0]),
-                "mask": np.array([0, 1]),
-            },
+            {"modality": "CT", "image": np.array([0.0, 10.0]), "mask": np.array([0, 1])},
+            {"modality": "MR", "image": np.array([0.0, 100.0]), "mask": np.array([0, 1])},
         ]
         stats = compute_foreground_intensity_stats(samples, modality="CT")
         self.assertAlmostEqual(stats["mean"], 10.0, places=5)
@@ -47,12 +40,7 @@ class TestForegroundStats(unittest.TestCase):
     def test_no_foreground_raises(self):
         with self.assertRaises(ValueError):
             compute_foreground_intensity_stats(
-                [
-                    {
-                        "image": np.array([1.0, 2.0]),
-                        "mask": np.array([0, 0]),
-                    }
-                ]
+                [{"image": np.array([1.0, 2.0]), "mask": np.array([0, 0])}]
             )
 
     @unittest.skipUnless(nib is not None, "nibabel is not installed")
@@ -61,20 +49,12 @@ class TestForegroundStats(unittest.TestCase):
         try:
             image_path = Path(temp_dir) / "image.nii.gz"
             mask_path = Path(temp_dir) / "mask.nii.gz"
-            image = np.array(
-                [[[0.0, 100.0], [200.0, 300.0]]], dtype=np.float32
-            )
+            image = np.array([[[0.0, 100.0], [200.0, 300.0]]], dtype=np.float32)
             mask = np.array([[[0, 1], [1, 1]]], dtype=np.int16)
             nib.save(nib.Nifti1Image(image, np.eye(4)), str(image_path))
             nib.save(nib.Nifti1Image(mask, np.eye(4)), str(mask_path))
             dataset = create_sample_dataset(
-                [
-                    {
-                        "patient_id": "p0",
-                        "image": str(image_path),
-                        "mask": str(mask_path),
-                    }
-                ],
+                [{"patient_id": "p0", "image": str(image_path), "mask": str(mask_path)}],
                 {"image": ("nifti", {"lazy": True})},
                 {"mask": ("nifti", {"lazy": True, "is_mask": True})},
             )
@@ -83,7 +63,3 @@ class TestForegroundStats(unittest.TestCase):
             self.assertTrue(dataset._resolve_refs)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
-
-
-if __name__ == "__main__":
-    unittest.main()

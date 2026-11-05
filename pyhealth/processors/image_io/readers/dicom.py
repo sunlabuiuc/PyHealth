@@ -609,14 +609,23 @@ class DicomSeriesReader(BaseImageReader):
             )
 
         slices = []
+        windows = []
         first_rows = None
         first_columns = None
+        monochrome1 = False
         for _, dataset in entries:
             _require_grayscale(dataset)
             rows = int(dataset.Rows)
             columns = int(dataset.Columns)
             if first_rows is None:
                 first_rows, first_columns = rows, columns
+                monochrome1 = (
+                    invert_monochrome1
+                    and str(
+                        getattr(dataset, "PhotometricInterpretation", "") or ""
+                    )
+                    == "MONOCHROME1"
+                )
             elif rows != first_rows or columns != first_columns:
                 raise ValueError(
                     "Inconsistent slice dimensions in DICOM series."
@@ -633,18 +642,27 @@ class DicomSeriesReader(BaseImageReader):
                     getattr(dataset, "RescaleIntercept", 0.0) or 0.0
                 )
                 array = array * slope + intercept
-            photometric = str(
-                getattr(dataset, "PhotometricInterpretation", "") or ""
-            )
-            if invert_monochrome1 and photometric == "MONOCHROME1":
-                array = float(np.max(array)) - array
+            window_params = None
             if window:
                 intensity = _intensity(dataset)
                 center = intensity.get("window_center")
                 width = intensity.get("window_width")
                 if center is not None and width is not None:
-                    array = apply_window(array, center, width)
+                    window_params = (center, width)
             slices.append(array)
+            windows.append(window_params)
+
+        if monochrome1:
+            # Use one offset for the whole volume so slices keep their
+            # relative intensities; a per-slice max would shift each slice
+            # by a different amount.
+            series_max = max(float(np.max(item)) for item in slices)
+            slices = [series_max - item for item in slices]
+        if window:
+            slices = [
+                item if params is None else apply_window(item, *params)
+                for item, params in zip(slices, windows)
+            ]
 
         volume_hwd = np.stack(slices, axis=0)
         volume_xyz = np.transpose(volume_hwd, (2, 1, 0))
