@@ -103,6 +103,38 @@ def _cpu_state_dict(model: nn.Module) -> dict:
     }
 
 
+def _cpu_seconds() -> float | None:
+    """Cumulative CPU seconds for this process and its dataloader workers.
+
+    Self-only time badly understates a run whose cost is data loading, since
+    workers are separate processes. psutil is already available via wandb; the
+    resource fallback only counts children that have been reaped, so it reads
+    low while persistent workers are still alive.
+    """
+    try:
+        import psutil
+
+        proc = psutil.Process()
+        times = proc.cpu_times()
+        total = times.user + times.system
+        for child in proc.children(recursive=True):
+            try:
+                ctimes = child.cpu_times()
+                total += ctimes.user + ctimes.system
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return total
+    except Exception:  # noqa: BLE001 - fall back to resource usage
+        try:
+            import resource
+
+            me = resource.getrusage(resource.RUSAGE_SELF)
+            kids = resource.getrusage(resource.RUSAGE_CHILDREN)
+            return me.ru_utime + me.ru_stime + kids.ru_utime + kids.ru_stime
+        except Exception:  # noqa: BLE001 - no clock anywhere; caller gets None
+            return None
+
+
 def is_best(best_score: float, score: float, monitor_criterion: str) -> bool:
     if monitor_criterion == "max":
         return score > best_score

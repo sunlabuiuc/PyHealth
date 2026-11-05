@@ -65,7 +65,7 @@ from pyhealth.models.bottleneck_transformer import BottleneckTransformer
 from pyhealth.models.ehrmamba import EHRMamba
 from pyhealth.models.jamba_ehr import JambaEHR
 from pyhealth.tasks.multimodal_mimic4 import LabsMIMIC4, NotesLabsMIMIC4
-from pyhealth.trainer import Trainer
+from pyhealth.trainer import Trainer, _cpu_seconds
 from pyhealth.utils import set_seed, write_run_config
 
 
@@ -295,7 +295,7 @@ def _write_predictions(
 
 
 class _EpochTimedLoader:
-    """Wrap a training loader to record per-epoch wall time.
+    """Wrap a training loader to record per-epoch wall and CPU time.
 
     ``Trainer.train`` returns ``None`` and its epoch loop lives inside the
     Trainer, so the runner cannot time epochs without changing the Trainer.
@@ -308,6 +308,7 @@ class _EpochTimedLoader:
     def __init__(self, loader: Any) -> None:
         self._loader = loader
         self.epoch_boundaries: List[float] = []
+        self.cpu_boundaries: List[Any] = []
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._loader, name)
@@ -317,12 +318,23 @@ class _EpochTimedLoader:
 
     def __iter__(self):
         self.epoch_boundaries.append(time.perf_counter())
+        self.cpu_boundaries.append(_cpu_seconds())
         return iter(self._loader)
 
     def epoch_seconds(self) -> List[float]:
         """Per-epoch durations; the last epoch ends when training returns."""
         ends = self.epoch_boundaries[1:] + [time.perf_counter()]
         return [end - start for start, end in zip(self.epoch_boundaries, ends)]
+
+    def epoch_cpu_seconds(self) -> List[Any]:
+        """Per-epoch CPU seconds; ``None`` where the clock is unavailable."""
+        ends = self.cpu_boundaries[1:] + [_cpu_seconds()]
+        return [
+            None
+            if start is None or end is None
+            else max(end - start, 0.0)
+            for start, end in zip(self.cpu_boundaries, ends)
+        ]
 
 
 def run(args: argparse.Namespace, sample_dataset: Any = None) -> Path:
@@ -445,6 +457,7 @@ def run(args: argparse.Namespace, sample_dataset: Any = None) -> Path:
     )
 
     epoch_train_seconds: List[float] = []
+    epoch_train_cpu_seconds: List[Any] = []
     if args.epochs > 0 and len(train_ds) > 0:
         trainer.train(
             train_dataloader=timed_train_loader,
@@ -461,6 +474,18 @@ def run(args: argparse.Namespace, sample_dataset: Any = None) -> Path:
             amp_dtype=args.amp_dtype,
         )
         epoch_train_seconds = timed_train_loader.epoch_seconds()
+        epoch_train_cpu_seconds = timed_train_loader.epoch_cpu_seconds()
+
+    train_cpu_seconds = (
+        round(sum(v for v in epoch_train_cpu_seconds if v is not None), 2)
+        if any(v is not None for v in epoch_train_cpu_seconds)
+        else None
+    )
+    train_cpu_util_pct = (
+        round(100.0 * train_cpu_seconds / max(sum(epoch_train_seconds), 1e-9), 1)
+        if train_cpu_seconds is not None and epoch_train_seconds
+        else None
+    )
 
     eval_seconds = 0.0
     test_scores: Dict[str, float] = {}
@@ -495,6 +520,9 @@ def run(args: argparse.Namespace, sample_dataset: Any = None) -> Path:
             "test": len(test_ds) if test_ds is not None else 0,
         },
         "epoch_train_seconds": epoch_train_seconds,
+        "epoch_train_cpu_seconds": epoch_train_cpu_seconds,
+        "train_cpu_seconds": train_cpu_seconds,
+        "train_cpu_util_pct": train_cpu_util_pct,
         "eval_seconds": eval_seconds,
         "inference_seconds": inference_seconds,
         "frozen_text_cache": unified.frozen_text_cache_stats,
@@ -509,6 +537,8 @@ def run(args: argparse.Namespace, sample_dataset: Any = None) -> Path:
     print(
         "epoch_train_seconds="
         f"{[round(t, 3) for t in epoch_train_seconds]} "
+        f"train_cpu_seconds={train_cpu_seconds} "
+        f"train_cpu_util_pct={train_cpu_util_pct} "
         f"eval_seconds={eval_seconds:.3f} "
         f"inference_seconds={inference_seconds:.3f} "
         f"frozen_text_cache={metrics['frozen_text_cache']}"
