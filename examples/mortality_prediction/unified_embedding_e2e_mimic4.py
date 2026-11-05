@@ -628,9 +628,12 @@ def parse_args(argv: Optional[list] = None) -> argparse.Namespace:
     parser.add_argument(
         "--amp-dtype",
         type=str,
-        default="bf16",
+        default=None,
         choices=["bf16", "fp16"],
-        help="AMP dtype when --use-amp is set. bf16 is more stable (default).",
+        help=(
+            "AMP dtype. Requires --use-amp; passing this alone is an error "
+            "rather than a silently fp32 run. Defaults to bf16 with --use-amp."
+        ),
     )
     parser.add_argument(
         "--accumulation-steps",
@@ -776,7 +779,22 @@ def parse_args(argv: Optional[list] = None) -> argparse.Namespace:
         help="Number of Mamba (SSM) layers in JambaEHR.",
     )
 
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+
+    # The spec lists --amp-dtype "bf16" and never mentions --use-amp, so
+    # following it literally used to give a silently fp32 run while the
+    # config claimed bf16.
+    if args.amp_dtype is not None and not args.use_amp:
+        parser.error(
+            f"--amp-dtype {args.amp_dtype} was passed without --use-amp, so "
+            "mixed precision would be off and the run would be fp32 while "
+            "the config claimed otherwise. Pass --use-amp, or drop "
+            "--amp-dtype."
+        )
+    if args.amp_dtype is None:
+        args.amp_dtype = "bf16"
+
+    return args
 
 
 def main(argv: Optional[list] = None) -> Path:
