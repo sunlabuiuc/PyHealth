@@ -190,7 +190,14 @@ class DicomProcessor(ImageProcessor):
         }
 
     def _array_to_output(self, array: Any) -> Any:
-        """Convert a reader array to a tensor or PIL image."""
+        """Convert a reader array to a tensor or PIL image.
+
+        This array path is deliberate: :class:`ImageProcessor` runs its PIL
+        pipeline, which converts to 8-bit and resizes masks with
+        interpolation, changing integer labels. The non-mask path also needs
+        the reader-side DICOM intensity handling before resize, so both paths
+        share this helper instead of splitting into two pipelines.
+        """
         tensor = _channels_first(array).float()
         if self.mode == "L" and tensor.shape[0] > 1:
             tensor = tensor.mean(dim=0, keepdim=True)
@@ -199,6 +206,7 @@ class DicomProcessor(ImageProcessor):
                 tensor = tensor.repeat(3, 1, 1)
             if self.mode == "RGB" and tensor.shape[0] == 4:
                 tensor = tensor[:3]
+        # Masks must use nearest-neighbour so labels stay integers.
         interpolation = "nearest" if self.is_mask else "bilinear"
         tensor = _resize_tensor(
             tensor,

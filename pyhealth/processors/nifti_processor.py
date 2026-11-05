@@ -36,7 +36,9 @@ class NiftiProcessor(FeatureProcessor):
             and set to zero. Defaults to None, which keeps all non-zero voxels.
         dtype: Output dtype. Defaults to ``"float32"``.
         is_mask: Treat the input as a segmentation mask.
-        channel_axis: Channel axis for 4D NIfTI inputs.
+        channel_axis: Channel axis for 4D NIfTI inputs. Only the last axis is
+            supported, because the NIfTI affine describes the first three
+            axes.
         order: Interpolation order. Defaults to 0 for masks and 1 otherwise.
         num_classes: Optional number of segmentation classes, used by models
             to configure the output head.
@@ -82,7 +84,8 @@ class NiftiProcessor(FeatureProcessor):
             percentile_range: Percentiles for percentile normalisation.
             dtype: Output dtype.
             is_mask: Treat the input as a mask.
-            channel_axis: Channel axis for 4D inputs.
+            channel_axis: Channel axis for 4D inputs. Only the last axis is
+                supported.
             order: Interpolation order.
         """
         self.lazy = bool(lazy)
