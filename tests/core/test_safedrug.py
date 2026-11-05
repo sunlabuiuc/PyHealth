@@ -3,6 +3,7 @@ import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import SafeDrug
+from pyhealth.models.utils import ddi_adjacency
 
 
 class TestSafeDrug(unittest.TestCase):
@@ -174,6 +175,28 @@ class TestSafeDrug(unittest.TestCase):
             self.assertEqual(
                 next(model_cuda.parameters()).device.type, "cuda"
             )
+
+    def test_generate_ddi_adj_matches_the_shared_helper(self):
+        """The DDI matrix is the shared ATC-3 one, over the drug labels."""
+        samples = [
+            {"patient_id": "p0", "visit_id": "v0",
+             "conditions": [["c1"], ["c2"]], "procedures": [["p1"], ["p2"]],
+             "drugs": ["N02B", "B01A", "C03C"]},
+            {"patient_id": "p1", "visit_id": "v1",
+             "conditions": [["c3"]], "procedures": [["p3"]],
+             "drugs": ["N02A", "M01A"]},
+        ]
+        dataset = create_sample_dataset(
+            samples=samples, input_schema=self.input_schema,
+            output_schema=self.output_schema, dataset_name="ddi",
+        )
+        model = SafeDrug(dataset=dataset)
+        adj = model.generate_ddi_adj()
+        vocab = dataset.output_processors["drugs"].label_vocab
+        self.assertEqual(tuple(adj.shape), (len(vocab), len(vocab)))
+        self.assertTrue(torch.equal(adj, ddi_adjacency(vocab)))
+        self.assertTrue(torch.equal(adj, adj.T))
+        self.assertGreater(adj.sum().item(), 0)
 
 
 if __name__ == "__main__":
