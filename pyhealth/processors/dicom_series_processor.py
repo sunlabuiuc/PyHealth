@@ -10,7 +10,7 @@ from . import register_processor
 from .base_processor import FeatureProcessor
 from .image_io.readers.dicom import DicomSeriesReader
 from .image_io.tensor_utils import _pad_volumes, _to_torch
-from .image_io.types import ImageRef
+from .image_io.types import ImageRef, _apply_resampling_to_metadata
 
 
 @register_processor("dicom_series")
@@ -156,6 +156,9 @@ class DicomSeriesProcessor(FeatureProcessor):
                 source,
                 series_uid=self.series_uid,
                 canonical=self.canonical,
+            )
+            metadata = _apply_resampling_to_metadata(
+                metadata, self.target_shape, self.target_spacing
             )
             path: str | tuple[str, ...]
             path = str(source) if isinstance(source, (str, Path)) else source
