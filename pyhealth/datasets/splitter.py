@@ -2,7 +2,7 @@ import math
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from itertools import chain
+from itertools import chain, pairwise
 from numbers import Real
 
 import numpy as np
@@ -101,11 +101,19 @@ class PatientSplit(Split):
     def __post_init__(self):
         ratios = tuple(float(r) for r in self.ratios)
         if len(ratios) < 2:
-            raise ValueError(f"PatientSplit needs at least 2 ratios, training part first; got {ratios}.")
+            raise ValueError(
+                f"PatientSplit needs at least 2 ratios, training part first; "
+                f"got {ratios}."
+            )
         if any(r < 0 for r in ratios):
-            raise ValueError(f"PatientSplit ratios must be non-negative, got {ratios}.")
+            raise ValueError(
+                f"PatientSplit ratios must be non-negative, got {ratios}."
+            )
         if not math.isclose(sum(ratios), 1.0, abs_tol=1e-6):
-            raise ValueError(f"PatientSplit ratios must sum to 1, got {ratios} (sum {sum(ratios)}).")
+            raise ValueError(
+                f"PatientSplit ratios must sum to 1, got {ratios} "
+                f"(sum {sum(ratios)})."
+            )
         object.__setattr__(self, "ratios", ratios)
 
     def to_dict(self) -> dict:
@@ -199,6 +207,16 @@ def sample_balanced(
     Returns:
         A new ``SampleDataset`` containing all positives plus sampled negatives,
         with refreshed ``patient_to_index`` and ``record_to_index`` mappings.
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> from pyhealth.datasets.splitter import sample_balanced
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": 1 if i < 2 else 0} for i in range(10)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> balanced = sample_balanced(dataset, ratio=1.0, seed=42)
+        >>> len(balanced)  # 2 positives + 2 sampled negatives
+        4
     """
 
     if ratio < 0:
@@ -312,9 +330,9 @@ def split_by_visit(
         int(len(dataset) * ratios[0]) : int(len(dataset) * (ratios[0] + ratios[1]))
     ]
     test_index = index[int(len(dataset) * (ratios[0] + ratios[1])) :]
-    train_dataset = dataset.subset(train_index) # type: ignore
-    val_dataset = dataset.subset(val_index) # type: ignore
-    test_dataset = dataset.subset(test_index) # type: ignore
+    train_dataset = dataset.subset(train_index)  # type: ignore
+    val_dataset = dataset.subset(val_index)  # type: ignore
+    test_dataset = dataset.subset(test_index)  # type: ignore
     return train_dataset, val_dataset, test_dataset
 
 
@@ -372,9 +390,9 @@ def split_by_patient(
     )
     val_index = list(chain(*[dataset.patient_to_index[i] for i in val_patient_indx]))
     test_index = list(chain(*[dataset.patient_to_index[i] for i in test_patient_indx]))
-    train_dataset = dataset.subset(train_index) # type: ignore
-    val_dataset = dataset.subset(val_index) # type: ignore
-    test_dataset = dataset.subset(test_index) # type: ignore
+    train_dataset = dataset.subset(train_index)  # type: ignore
+    val_dataset = dataset.subset(val_index)  # type: ignore
+    test_dataset = dataset.subset(test_index)  # type: ignore
     return train_dataset, val_dataset, test_dataset
 
 
@@ -553,9 +571,9 @@ def split_by_sample(
         int(len(dataset) * ratios[0]) : int(len(dataset) * (ratios[0] + ratios[1]))
     ]
     test_index = index[int(len(dataset) * (ratios[0] + ratios[1])) :]
-    train_dataset = dataset.subset(train_index) # type: ignore
-    val_dataset = dataset.subset(val_index) # type: ignore
-    test_dataset = dataset.subset(test_index) # type: ignore
+    train_dataset = dataset.subset(train_index)  # type: ignore
+    val_dataset = dataset.subset(val_index)  # type: ignore
+    test_dataset = dataset.subset(test_index)  # type: ignore
 
     if get_index:
         return (
@@ -621,10 +639,10 @@ def split_by_visit_conformal(
     cal_index = index[val_end:cal_end]
     test_index = index[cal_end:]
 
-    train_dataset = dataset.subset(train_index) # type: ignore
-    val_dataset = dataset.subset(val_index) # type: ignore
-    cal_dataset = dataset.subset(cal_index) # type: ignore
-    test_dataset = dataset.subset(test_index) # type: ignore
+    train_dataset = dataset.subset(train_index)  # type: ignore
+    val_dataset = dataset.subset(val_index)  # type: ignore
+    cal_dataset = dataset.subset(cal_index)  # type: ignore
+    test_dataset = dataset.subset(test_index)  # type: ignore
 
     return train_dataset, val_dataset, cal_dataset, test_dataset
 
@@ -692,10 +710,10 @@ def split_by_patient_conformal(
     cal_index = list(chain(*[dataset.patient_to_index[i] for i in cal_patient_indx]))
     test_index = list(chain(*[dataset.patient_to_index[i] for i in test_patient_indx]))
 
-    train_dataset = dataset.subset(train_index) # type: ignore
-    val_dataset = dataset.subset(val_index) # type: ignore
-    cal_dataset = dataset.subset(cal_index) # type: ignore
-    test_dataset = dataset.subset(test_index) # type: ignore
+    train_dataset = dataset.subset(train_index)  # type: ignore
+    val_dataset = dataset.subset(val_index)  # type: ignore
+    cal_dataset = dataset.subset(cal_index)  # type: ignore
+    test_dataset = dataset.subset(test_index)  # type: ignore
 
     return train_dataset, val_dataset, cal_dataset, test_dataset
 
@@ -784,7 +802,7 @@ def split_by_predefined(
     bounds = [0] + [int(n * c) for c in np.cumsum(ratios)[:-1]] + [n]
     parts = [
         np.array(list(chain(*[pool[k] for k in keys[a:b]])), dtype=int)
-        for a, b in zip(bounds[:-1], bounds[1:])
+        for a, b in pairwise(bounds)
     ]
     parts.append(np.array(holdout, dtype=int))
 
@@ -1074,8 +1092,8 @@ def split_by_sample_conformal(
             torch.tensor(test_index),
         )
     else:
-        train_dataset = dataset.subset(train_index) # type: ignore
-        val_dataset = dataset.subset(val_index) # type: ignore
-        cal_dataset = dataset.subset(cal_index) # type: ignore
-        test_dataset = dataset.subset(test_index) # type: ignore
+        train_dataset = dataset.subset(train_index)  # type: ignore
+        val_dataset = dataset.subset(val_index)  # type: ignore
+        cal_dataset = dataset.subset(cal_index)  # type: ignore
+        test_dataset = dataset.subset(test_index)  # type: ignore
         return train_dataset, val_dataset, cal_dataset, test_dataset
