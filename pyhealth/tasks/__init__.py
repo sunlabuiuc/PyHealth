@@ -57,6 +57,11 @@ from .meds_outcome_tasks import (
     ICUAdmissionMEDS as ICUAdmissionMEDS,
     ProlongedLengthOfStayMEDS as ProlongedLengthOfStayMEDS,
 )
+from .ethos_tasks import (
+    EthosOutcomeMEDS as EthosOutcomeMEDS,
+    EthosRolloutRule as EthosRolloutRule,
+    EthosTimelineMEDS as EthosTimelineMEDS,
+)
 from .medical_transcriptions_classification import MedicalTranscriptionsClassification
 from .mortality_prediction import (
     MortalityPredictionEICU,

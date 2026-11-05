@@ -30,6 +30,7 @@ Available Processors
 - ``NestedMultiHotProcessor``: For nested categorical sequences as per-visit multi-hot vectors (e.g., generative EHR models)
 - ``NestedFloatsProcessor``: For nested numerical sequences with optional forward-fill
 - :doc:`EthosProcessor <processors/pyhealth.processors.EthosProcessor>`: Tokenizes MEDS patient timelines the way ETHOS does, with quantile tokens for numeric values and time-interval tokens (``"ethos"``, fitted on the training split)
+- :doc:`EthosContextProcessor <processors/pyhealth.processors.EthosContextProcessor>`: Encodes a patient's demographics and birth date as the static context of an ETHOS timeline (``"ethos_context"``)
 
 **Label Processors:**
 
@@ -566,6 +567,7 @@ API Reference
     processors/pyhealth.processors.TextProcessor
     processors/pyhealth.processors.TupleTimeTextProcessor
     processors/pyhealth.processors.EthosProcessor
+    processors/pyhealth.processors.EthosContextProcessor
     processors/pyhealth.processors.AudioProcessor
     processors/pyhealth.processors.SignalProcessor
     processors/pyhealth.processors.TimeseriesProcessor

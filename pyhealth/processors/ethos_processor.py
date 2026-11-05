@@ -186,6 +186,12 @@ class EthosProcessor(FeatureProcessor):
     An unseen code becomes ``<unk>`` with no quantile token. All quantile and
     interval tokens are in the vocabulary, whether or not training saw them.
 
+    :meth:`fit` also learns ``interval_estimates``: each interval token's mean
+    duration in hours, as ETHOS's ``IntervalEstimator`` does, so that a
+    generated timeline can be converted back to elapsed time. Repeats of
+    ``=6mt`` split their gap evenly. A token that training never saw falls
+    back to its lower bound.
+
     Args:
         num_quantiles: Number of bins per code. ETHOS uses 10.
         quantize_prefixes: Quantize only codes with one of these prefixes. By
@@ -233,6 +239,7 @@ class EthosProcessor(FeatureProcessor):
         self.add_timeline_end = add_timeline_end
         self.vocab: ConceptVocab | None = None
         self.quantiles: dict[str, list[float]] = {}
+        self.interval_estimates: dict[str, float] = {}
 
     def _read(
         self, timeline: dict[str, Any] | None
@@ -291,9 +298,16 @@ class EthosProcessor(FeatureProcessor):
         """
         observed: dict[str, list[float]] = defaultdict(list)
         codes: set[str] = set()
+        spans: dict[str, float] = defaultdict(float)
+        counts: dict[str, int] = defaultdict(int)
         for sample in samples:
-            _, sample_codes, values = self._read(sample.get(field))
+            stamps, sample_codes, values = self._read(sample.get(field))
             codes.update(sample_codes)
+            for gap in np.diff(stamps).tolist():
+                labels = _interval_tokens(gap)
+                for label in labels:
+                    spans[label] += gap / len(labels)
+                    counts[label] += 1
             for code, value in zip(sample_codes, values.tolist()):
                 if math.isnan(value):
                     continue
@@ -305,6 +319,11 @@ class EthosProcessor(FeatureProcessor):
         self.quantiles = {
             code: _quantile_breaks(values, self.num_quantiles)
             for code, values in observed.items()
+        }
+        self.interval_estimates = {
+            label: (spans[label] / counts[label] if counts[label] else bound)
+            / _MICROSECONDS_PER_HOUR
+            for label, bound in zip(_INTERVAL_LABELS, _INTERVAL_BOUNDS)
         }
         self.vocab = ConceptVocab()
         for k in range(1, self.num_quantiles + 1):
@@ -393,6 +412,7 @@ class EthosProcessor(FeatureProcessor):
             "add_timeline_end": self.add_timeline_end,
             "vocab": None if self.vocab is None else self.vocab.to_json(),
             "quantiles": self.quantiles,
+            "interval_estimates": self.interval_estimates,
         }
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         Path(path).write_bytes(orjson.dumps(state, option=orjson.OPT_SORT_KEYS))
@@ -412,6 +432,7 @@ class EthosProcessor(FeatureProcessor):
         vocab = state["vocab"]
         self.vocab = None if vocab is None else ConceptVocab.from_json(vocab)
         self.quantiles = state["quantiles"]
+        self.interval_estimates = state["interval_estimates"]
 
     def size(self) -> int:
         """Returns the vocabulary size."""

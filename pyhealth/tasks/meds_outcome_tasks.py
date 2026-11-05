@@ -172,15 +172,15 @@ def _is_this_stay(hadm_id: int) -> pl.Expr:
     return (pl.col("_hadm") == hadm_id).fill_null(False)
 
 
-def _codes_at_admission(events: pl.DataFrame, stay: dict[str, Any]) -> list[str]:
-    """Returns the input of an admission-time prediction.
+def _rows_at_admission(events: pl.DataFrame, stay: dict[str, Any]) -> pl.DataFrame:
+    """Returns the input rows of an admission-time prediction.
 
     Args:
         events (pl.DataFrame): Output of :func:`_load_events`.
         stay (dict[str, Any]): A record from :func:`_completed_stays`.
 
     Returns:
-        list[str]: Static codes, history before admission, then the admission
+        pl.DataFrame: Static rows, history before admission, then the admission
         event itself. See the module docstring for the exclusions.
     """
     code = pl.col("meds/code")
@@ -196,28 +196,34 @@ def _codes_at_admission(events: pl.DataFrame, stay: dict[str, Any]) -> list[str]
     )
     history = (time < stay["admit"]) & ~this_stay_icu & ~this_stay_dated
     window = time.is_null() | history
-    return events.filter((window | admission_event) & (code != DEATH_CODE))[
-        "meds/code"
-    ].to_list()
+    return events.filter((window | admission_event) & (code != DEATH_CODE))
 
 
-def _codes_at_discharge(events: pl.DataFrame, stay: dict[str, Any]) -> list[str]:
-    """Returns the input of a discharge-time prediction.
+def _codes_at_admission(events: pl.DataFrame, stay: dict[str, Any]) -> list[str]:
+    """Returns the codes of :func:`_rows_at_admission`."""
+    return _rows_at_admission(events, stay)["meds/code"].to_list()
+
+
+def _rows_at_discharge(events: pl.DataFrame, stay: dict[str, Any]) -> pl.DataFrame:
+    """Returns the input rows of a discharge-time prediction.
 
     Args:
         events (pl.DataFrame): Output of :func:`_load_events`.
         stay (dict[str, Any]): A record from :func:`_completed_stays`.
 
     Returns:
-        list[str]: Static codes, everything before discharge, then the events
+        pl.DataFrame: Static rows, everything before discharge, then the events
         of this stay stamped at discharge.
     """
     time = pl.col("timestamp")
     at_discharge = (time == stay["discharge"]) & _is_this_stay(stay["hadm_id"])
     window = time.is_null() | (time < stay["discharge"]) | at_discharge
-    return events.filter(window & (pl.col("meds/code") != DEATH_CODE))[
-        "meds/code"
-    ].to_list()
+    return events.filter(window & (pl.col("meds/code") != DEATH_CODE))
+
+
+def _codes_at_discharge(events: pl.DataFrame, stay: dict[str, Any]) -> list[str]:
+    """Returns the codes of :func:`_rows_at_discharge`."""
+    return _rows_at_discharge(events, stay)["meds/code"].to_list()
 
 
 def _next_outcome_time(
