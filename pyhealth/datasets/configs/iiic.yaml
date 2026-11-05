@@ -1,0 +1,12 @@
+version: "1.0"
+tables:
+  signal:
+    file_path: "iiic-processed.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "record_id"
+      - "label"
+      - "votes"
+      - "split"
+      - "signal_file"

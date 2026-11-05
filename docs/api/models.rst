@@ -39,6 +39,9 @@ routes each feature type automatically.
    * - ``MultimodalRNN``
      - Features mix sequential codes with static tensors or multi-hot encodings
      - Auto-routes sequential features to RNN layers and non-sequential features to linear layers; good default for EHR
+   * - ``RNN_V2``
+     - Features are ``sequence_v2`` fields (nested codes, values and timestamps), plus static tensors
+     - Encodes each field bottom-up over packed records, without padding the hierarchy
    * - :doc:`models/pyhealth.models.StageNet`
      - You have time-stamped vital signs with irregular measurement intervals
      - Requires ``StageNetProcessor`` or ``StageNetTensorProcessor`` in the task schema
@@ -151,7 +154,7 @@ default loss with ``set_pos_weight``:
 ``"balanced"`` is computed from the dataset you pass, so pass the training split,
 not the full dataset. The weight applies to models that use the default loss
 (``BaseModel.get_loss_function``); the drug-recommendation models (GAMENet,
-SafeDrug, MoleRec, MICRON) compute their own loss and ignore it. Weighting
+SafeDrug, MoleRec, MICRON, ARMR) compute their own loss and ignore it. Weighting
 shifts the predicted probabilities upward, so check calibration before
 interpreting them as risks. See ``examples/imbalanced_outcome_pos_weight.py``.
 
@@ -215,6 +218,7 @@ API Reference
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
     models/pyhealth.models.TransformersModel
+    models/pyhealth.models.LLMEHREncoder
     models/pyhealth.models.TransformerDeID
     models/pyhealth.models.RETAIN
     models/pyhealth.models.GAMENet
@@ -222,6 +226,7 @@ API Reference
     models/pyhealth.models.MICRON
     models/pyhealth.models.SafeDrug
     models/pyhealth.models.MoleRec
+    models/pyhealth.models.ARMR
     models/pyhealth.models.Deepr
     models/pyhealth.models.EHRMamba
     models/pyhealth.models.EHRMambaCEHR
@@ -247,6 +252,7 @@ API Reference
     models/pyhealth.models.CorGAN
     models/pyhealth.models.Synthea
     models/pyhealth.models.SDOH
+    models/pyhealth.models.SequenceEmbeddingModel
     models/pyhealth.models.VisionEmbeddingModel
     models/pyhealth.models.TextEmbedding
     models/pyhealth.models.BIOT
@@ -254,3 +260,8 @@ API Reference
     models/pyhealth.models.califorest
     models/pyhealth.models.XGBoostModel
     models/pyhealth.models.survival_mdn
+    models/pyhealth.models.TrajSurv
+    models/pyhealth.models.ProtoECGNet
+    models/pyhealth.models.HeartLang
+    models/pyhealth.models.APN
+
