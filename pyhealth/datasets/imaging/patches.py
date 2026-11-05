@@ -93,6 +93,8 @@ class PatchDataset(torch.utils.data.Dataset):
         ignore_index: Value used to pad the mask. Defaults to 255.
         return_meta: Whether to include ``patch_origin``, ``patch_slice`` and
             ``volume_shape`` in each sample. Models ignore these fields.
+            ``patch_slice`` is omitted for 3D patches because it is ``None``
+            there and would break default collation.
 
     Examples:
         >>> import torch
@@ -198,6 +200,7 @@ class PatchDataset(torch.utils.data.Dataset):
             # Keep metadata as lists: the generic collator treats 2-tuples as
             # temporal (time, values) pairs, and a 2D patch origin is a 2-tuple.
             result["patch_origin"] = list(location.origin)
-            result["patch_slice"] = location.slice_index
+            if location.slice_index is not None:
+                result["patch_slice"] = location.slice_index
             result["volume_shape"] = list(volume_shape)
         return result

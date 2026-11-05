@@ -36,6 +36,7 @@ def _write_slice(
     include_position: bool = True,
     iop: list[float] | None = None,
     position: list[float] | None = None,
+    photometric: str = "MONOCHROME2",
 ) -> None:
     """Write one small CT DICOM slice."""
     file_meta = FileMetaDataset()
@@ -61,7 +62,7 @@ def _write_slice(
     dataset.HighBit = 15
     dataset.PixelRepresentation = 1
     dataset.SamplesPerPixel = 1
-    dataset.PhotometricInterpretation = "MONOCHROME2"
+    dataset.PhotometricInterpretation = photometric
     dataset.PixelSpacing = [1.0, 2.0]
     dataset.SliceThickness = 2.0
     dataset.InstanceNumber = instance
@@ -242,6 +243,23 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         processor = ImageMaskDirectoryProcessor(lazy=False, canonical=False)
         tensor = processor.process((mask_dir, self.root))
         self.assertEqual(tensor[0, :, 0, 0].tolist(), [2, 3, 1])
+
+    def test_series_monochrome1_uses_one_inversion_offset(self):
+        for index, value in enumerate((10, 20, 30)):
+            _write_slice(
+                self.root / f"IMG-{index}.dcm",
+                value,
+                float(index),
+                index + 1,
+                self.series_uid,
+                self.study_uid,
+                photometric="MONOCHROME1",
+            )
+        volume = DicomSeriesReader().load(
+            self.root, canonical=False, normalize=None
+        )
+        values = sorted(int(value) for value in np.unique(volume))
+        self.assertEqual(values, [0, 10, 20])
 
     def test_series_falls_back_to_instance_number(self):
         self._write_series(include_position=False)
