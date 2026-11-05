@@ -313,6 +313,7 @@ Available Datasets
     datasets/pyhealth.datasets.BMDHSDataset
     datasets/pyhealth.datasets.COVID19CXRDataset
     datasets/pyhealth.datasets.ChestXray14Dataset
+    datasets/pyhealth.datasets.ChestImaGenomeDataset
     datasets/pyhealth.datasets.PhysioNetDeIDDataset
     datasets/pyhealth.datasets.EEGBCIDataset
     PTB-XL Dataset <datasets/pyhealth.datasets.PTBXLDataset>
