@@ -476,6 +476,14 @@ def run(args: argparse.Namespace, sample_dataset: Any = None) -> Path:
     )
     inference_seconds = time.perf_counter() - inference_start
 
+    # metrics.json carries validation only, so without this the test numbers
+    # worth reporting live nowhere on disk: only in stdout and W&B, and
+    # recoverable afterwards only by re-scoring predictions by hand.
+    if test_scores:
+        test_path = output_dir / exp_name / "test_metrics.json"
+        with open(test_path, "w") as handle:
+            json.dump({"eval_split": eval_split, **test_scores}, handle, indent=2)
+
     output_csv = output_dir / exp_name / f"predictions_{args.model}.csv"
     _write_predictions(output_csv, patient_ids, y_true, y_prob, eval_split)
 

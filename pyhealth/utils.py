@@ -159,8 +159,18 @@ def _seeded_by(attribute: str):
 
 
 def create_directory(directory):
-    if not os.path.exists(directory):
-        os.makedirs(directory)
+    """Create ``directory``, including parents, if it does not exist.
+
+    Calling it on an existing directory is a no-op, so concurrent first
+    imports cannot lose an exists()-then-makedirs race with FileExistsError.
+
+    Examples:
+        >>> import tempfile, os
+        >>> d = tempfile.mkdtemp()
+        >>> create_directory(os.path.join(d, "a", "b")) is None
+        True
+    """
+    os.makedirs(directory, exist_ok=True)
 
 
 def load_pickle(filename):
