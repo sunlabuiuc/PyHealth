@@ -49,7 +49,7 @@ training:
     load_best_model_at_last: true
 
 models:
-  - id: "rnn_v2_gru"
+  - id: "rnn_gru"
     name: "RNN (GRU)"
     version: "ec90e675a09ac5a9ed0ed29c05b951f07892092d"   # master commit this branch is based on
     target: "pyhealth.models.RNN_V2"
@@ -63,7 +63,7 @@ models:
       bidirectional: false
       mask: "concat"
 
-  - id: "rnn_v2_lstm"
+  - id: "rnn_lstm"
     name: "RNN (LSTM)"
     version: "ec90e675a09ac5a9ed0ed29c05b951f07892092d"   # master commit this branch is based on
     target: "pyhealth.models.RNN_V2"
@@ -78,7 +78,7 @@ models:
       bidirectional: false
       mask: "concat"
 
-  - id: "rnn_v2_rnn"
+  - id: "rnn_rnn"
     name: "RNN"
     version: "ec90e675a09ac5a9ed0ed29c05b951f07892092d"   # master commit this branch is based on
     target: "pyhealth.models.RNN_V2"
