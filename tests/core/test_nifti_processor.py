@@ -106,6 +106,33 @@ class TestNiftiReaderAndProcessor(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             NiftiProcessor().process(str(self.root / "missing.nii.gz"))
 
+    def test_dataloader_pads_variable_volumes(self):
+        from pyhealth.datasets import create_sample_dataset, get_dataloader
+
+        second = self.root / "small.nii.gz"
+        nib.save(
+            nib.Nifti1Image(np.zeros((2, 3, 4), dtype=np.float32), self.affine),
+            str(second),
+        )
+        dataset = create_sample_dataset(
+            [
+                {"patient_id": "p0", "image": str(self.path), "label": 0},
+                {"patient_id": "p1", "image": str(second), "label": 1},
+            ],
+            {"image": ("nifti", {"lazy": False, "canonical": False})},
+            {"label": "binary"},
+            in_memory=False,
+        )
+        try:
+            shapes = [tuple(dataset[index]["image"].shape) for index in range(2)]
+            batch = next(iter(get_dataloader(dataset, batch_size=2)))
+            expected = (2,) + tuple(
+                max(shape[axis] for shape in shapes) for axis in range(4)
+            )
+            self.assertEqual(tuple(batch["image"].shape), expected)
+        finally:
+            dataset.close()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -10,6 +10,23 @@ from PIL import Image
 from torch.nn import functional
 
 
+def _pad_volumes(values: Sequence[torch.Tensor]) -> torch.Tensor:
+    """Pad equal-rank tensors to their maximum shape and stack them."""
+    if not values:
+        raise ValueError("Cannot collate an empty batch.")
+    max_shape = [
+        max(int(value.shape[axis]) for value in values)
+        for axis in range(values[0].dim())
+    ]
+    padded = []
+    for value in values:
+        pad = []
+        for axis in range(value.dim() - 1, -1, -1):
+            pad.extend([0, max_shape[axis] - int(value.shape[axis])])
+        padded.append(functional.pad(value, pad))
+    return torch.stack(padded)
+
+
 def _to_torch(array: np.ndarray, dtype: str = "float32") -> torch.Tensor:
     """Convert a NumPy array to a contiguous torch tensor."""
     tensor = torch.from_numpy(np.ascontiguousarray(array))

@@ -4,10 +4,12 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+import torch
+
 from . import register_processor
 from .base_processor import FeatureProcessor
 from .image_io.readers.dicom import DicomSeriesReader
-from .image_io.tensor_utils import _to_torch
+from .image_io.tensor_utils import _pad_volumes, _to_torch
 from .image_io.types import ImageRef
 
 
@@ -213,6 +215,14 @@ class DicomSeriesProcessor(FeatureProcessor):
             )
         dtype = "int64" if self.is_mask else self.dtype
         return _to_torch(array, dtype=dtype)
+
+    def collate(self, values: list[Any]) -> Any:
+        """Pad variable-shape volumes to a common shape and stack them."""
+        if not values or not isinstance(values[0], torch.Tensor):
+            return values
+        if all(value.shape == values[0].shape for value in values):
+            return torch.stack(values)
+        return _pad_volumes(values)
 
     def is_token(self) -> bool:
         """Return False because image intensities are continuous."""

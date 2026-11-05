@@ -181,6 +181,34 @@ class TestSampleDatasetParity(unittest.TestCase):
         items[0]["feature"] = 99
         self.assertEqual(dataset[0]["feature"], 0)
 
+    def test_persistent_workers_with_shuffle_is_rejected(self):
+        dataset, _ = self._get_datasets()
+        try:
+            with self.assertRaisesRegex(ValueError, "persistent_workers"):
+                get_dataloader(
+                    dataset,
+                    batch_size=2,
+                    shuffle=True,
+                    num_workers=1,
+                    persistent_workers=True,
+                )
+        finally:
+            dataset.close()
+
+    def test_dataloader_changes_order_each_epoch(self):
+        dataset, _ = self._get_datasets()
+        try:
+            loader = get_dataloader(
+                dataset, batch_size=5, shuffle=True, seed=0
+            )
+            first = [int(value) for batch in loader for value in batch["feature"]]
+            second = [int(value) for batch in loader for value in batch["feature"]]
+            self.assertEqual(sorted(first), list(range(20)))
+            self.assertEqual(sorted(second), list(range(20)))
+            self.assertNotEqual(first, second)
+        finally:
+            dataset.close()
+
     def test_in_memory_raw_access_returns_copy(self):
         _, dataset = self._get_datasets()
         dataset._resolve_refs = False

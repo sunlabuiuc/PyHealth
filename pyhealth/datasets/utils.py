@@ -426,6 +426,13 @@ def get_dataloader(
     from .sample_dataset import SampleDataset
 
     if isinstance(dataset, SampleDataset):
+        if shuffle and loader_kwargs.get("persistent_workers"):
+            raise ValueError(
+                "persistent_workers=True cannot be combined with shuffle=True: "
+                "persistent workers keep the dataset copy from the first "
+                "epoch, so later set_shuffle/set_epoch calls would not reach "
+                "them. Use persistent_workers=False or shuffle=False."
+            )
         # Fields whose processor defines collate() are batched by it.
         processors = {**dataset.input_processors, **dataset.output_processors}
         collators = {
