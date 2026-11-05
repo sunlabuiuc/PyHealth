@@ -193,10 +193,11 @@ class DicomProcessor(ImageProcessor):
         """Convert a reader array to a tensor or PIL image.
 
         This array path is deliberate: :class:`ImageProcessor` runs its PIL
-        pipeline, which converts to 8-bit and resizes masks with
-        interpolation, changing integer labels. The non-mask path also needs
-        the reader-side DICOM intensity handling before resize, so both paths
-        share this helper instead of splitting into two pipelines.
+        pipeline, which converts images to 8-bit and resizes with
+        interpolation. That would quantize masks (changing integer labels)
+        and would quantize the float32 DICOM intensities of the non-mask path
+        before resize/normalize. Both paths therefore stay on this array
+        helper instead of splitting into two diverging pipelines.
         """
         tensor = _channels_first(array).float()
         if self.mode == "L" and tensor.shape[0] > 1:

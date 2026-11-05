@@ -167,12 +167,15 @@ class TestSampleDatasetParity(unittest.TestCase):
     def test_forked_worker_reopens_cache_handles(self):
         ds_disk, _ = self._get_datasets()
         self.assertEqual(ds_disk[0]["feature"], 0)
-        self.assertIsNotNone(ds_disk.cache)
+        self.assertTrue(hasattr(ds_disk, "cache"))
+        self.assertTrue(hasattr(ds_disk, "shuffler"))
+        inherited = ds_disk.cache
+        self.assertIsNotNone(inherited)
         # Simulate the pid change a DataLoader worker sees after fork.
         ds_disk._cache_pid = os.getpid() + 1
         self.assertEqual(ds_disk[0]["feature"], 0)
         self.assertEqual(ds_disk._cache_pid, os.getpid())
-        self.assertIsNotNone(ds_disk.cache)
+        self.assertIsNot(ds_disk.cache, inherited)
 
     def test_in_memory_slice_returns_copies(self):
         _, dataset = self._get_datasets()
