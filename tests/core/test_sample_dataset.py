@@ -208,10 +208,13 @@ class TestSampleDatasetParity(unittest.TestCase):
     def test_iteration_keeps_cache_created_after_fork(self):
         dataset, _ = self._get_datasets()
         try:
+            self.assertEqual(dataset[0]["feature"], 0)
+            inherited = dataset.cache
             # Simulate the pid inherited by a forked worker.
             dataset._cache_pid = os.getpid() + 1
             iterator = iter(dataset)
             cache = dataset.cache
+            self.assertIsNot(cache, inherited)
             self.assertEqual(dataset._cache_pid, os.getpid())
             self.assertEqual(dataset[0]["feature"], 0)
             self.assertIs(dataset.cache, cache)

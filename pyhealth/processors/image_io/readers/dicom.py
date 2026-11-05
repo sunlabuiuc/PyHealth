@@ -88,6 +88,7 @@ def _read_headers(
             OSError,
             ValueError,
         ):
+            logger.debug("Skipping non-DICOM file %s", file, exc_info=True)
             continue
         if getattr(dataset, "Rows", None) is None:
             continue
@@ -166,11 +167,12 @@ def _pixel_spacing(dataset: Any) -> tuple[float, float]:
 
 
 def _slice_spacing(entries: list[tuple[Path, Any]]) -> float:
-    """Infer spacing between slices from tags or positions."""
-    for name in ("SpacingBetweenSlices", "SliceThickness"):
-        value = _float_list(entries[0][1], name)
-        if value is not None and value[0] > 0:
-            return float(value[0])
+    """Infer spacing from slice positions, falling back to header tags.
+
+    Position gaps describe the reconstructed geometry, which is what matters
+    for a volume. ``SliceThickness`` is the acquisition thickness and can
+    differ for overlapping or reconstructed series, so it is only a fallback.
+    """
     if len(entries) > 1:
         iop = _float_list(entries[0][1], "ImageOrientationPatient")
         if iop is not None and len(iop) == 6:
@@ -186,6 +188,10 @@ def _slice_spacing(entries: list[tuple[Path, Any]]) -> float:
                 diffs = np.abs(diffs[diffs != 0])
                 if len(diffs) > 0:
                     return float(np.median(diffs))
+    for name in ("SpacingBetweenSlices", "SliceThickness"):
+        value = _float_list(entries[0][1], name)
+        if value is not None and value[0] > 0:
+            return float(value[0])
     return 1.0
 
 

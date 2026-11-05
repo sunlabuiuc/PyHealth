@@ -636,13 +636,19 @@ class SampleDataset(litdata.StreamingDataset):
         """Iterate samples, claiming the streaming cache for this process.
 
         litdata's streaming iterator creates its cache in the current process
-        and then reads every item through :meth:`__getitem__`. Updating the
-        owner pid here tells :meth:`__getitem__` that the cache was created
-        after the fork, so it does not discard and rebuild it on the first
-        item.
+        and then reads every item through :meth:`__getitem__`. If the owning
+        pid changed, inherited handles are dropped first; after the iterator
+        creates its own cache, the pid is claimed so :meth:`__getitem__` does
+        not discard and rebuild that cache on the first item.
         """
+        pid = os.getpid()
+        if pid != self._cache_pid:
+            # A forked worker may still hold the parent's chunk handles.
+            # Drop them before litdata creates the iterator's cache.
+            self.cache = None
+            self.shuffler = None
         iterator = super().__iter__()
-        self._cache_pid = os.getpid()
+        self._cache_pid = pid
         return iterator
 
     def set_shuffle(self, shuffle: bool, seed: int | None = None) -> None:
