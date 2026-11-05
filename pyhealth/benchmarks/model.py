@@ -126,6 +126,22 @@ class ModelBenchmark(Benchmark):
             ``optimizer``, ``trainer``: :meth:`~pyhealth.trainer.Trainer.train`
             kwargs) and ``models`` (``id``, ``version``, ``target``,
             ``params``, optional ``training`` overrides).
+
+    Examples:
+        >>> task = {
+        ...     "task": {"id": "mortality"},
+        ...     "models": [
+        ...         {"id": "rnn", "version": "abc123"},
+        ...         {"id": "transformer", "version": "abc123"},
+        ...     ],
+        ... }
+        >>> bench = ModelBenchmark({"compute": {"device": "cpu"}}, [task])
+        >>> [ev.params["model_id"] for ev in bench.run_configs]
+        ['rnn', 'transformer']
+        >>> bench.run_output_dir(next(iter(bench.run_configs)), Path("out"))
+        PosixPath('out/mortality/rnn')
+
+        ``bench.run()`` then trains and tests each model on every split seed.
     """
 
     def __init__(
@@ -210,7 +226,7 @@ class ModelBenchmark(Benchmark):
                 if run_output_dir is not None:  # holds one run only, whatever its seeds
                     shutil.rmtree(run_output_dir, ignore_errors=True)
                 result = self._evaluate_one(task_config, model_config, dataset, run_output_dir)
-            except Exception as exc:  # noqa: BLE001 - one failed pair spares the rest
+            except Exception as exc:  # one failed pair spares the rest
                 logger.exception(f"[failed] {label}")
                 results[ev] = Result("failed", {}, {"error": str(exc), "error_type": type(exc).__name__})
                 continue
@@ -322,7 +338,7 @@ class ModelBenchmark(Benchmark):
                 return scores
 
             trainer_kwargs = training.get("trainer", {})
-            setattr(trainer, "evaluate", timed_evaluate)
+            trainer.evaluate = timed_evaluate
             try:
                 trainer.train(
                     train_dataloader=get_dataloader(train, batch_size, shuffle=True, seed=seed),
@@ -333,7 +349,7 @@ class ModelBenchmark(Benchmark):
                     **trainer_kwargs,
                 )
             finally:
-                setattr(trainer, "evaluate", evaluate)
+                trainer.evaluate = evaluate
             scores = trainer.evaluate(get_dataloader(test, batch_size))
         finally:
             for handler in trainer_logger.handlers:
