@@ -42,7 +42,9 @@ class NiftiReader(BaseImageReader):
         Args:
             path: Path to a ``.nii`` or ``.nii.gz`` file.
             canonical: Report the metadata of the canonical RAS image.
-            channel_axis: Axis holding channels for 4D inputs.
+            channel_axis: Channel axis for 4D inputs. Only the last axis is
+                supported, because the NIfTI affine describes the first
+                three axes.
 
         Returns:
             Metadata for the image.
@@ -52,18 +54,30 @@ class NiftiReader(BaseImageReader):
         """
         nib = _require_nibabel()
         source = nib.load(str(path))
-        image = nib.as_closest_canonical(source) if canonical else source
-        shape = tuple(int(x) for x in image.shape)
+        shape = tuple(int(x) for x in source.shape)
         if len(shape) < 2:
             raise ValueError(f"NIfTI image must have at least 2 dimensions: {shape}")
+
+        if len(shape) == 4 and channel_axis % 4 != 3:
+            raise ValueError(
+                "Channel-first 4D NIfTI is not supported: the NIfTI affine "
+                "describes the first three axes. Store channels on the last "
+                "axis instead."
+            )
+        image = nib.as_closest_canonical(source) if canonical else source
+        shape = tuple(int(x) for x in image.shape)
         if len(shape) == 4:
             axis = channel_axis % 4
             spatial_shape = tuple(
-                int(size) for index, size in enumerate(shape) if index != axis
+                int(size)
+                for index, size in enumerate(shape)
+                if index != axis
             )
             zooms = image.header.get_zooms()[:4]
             spatial_spacing = tuple(
-                float(size) for index, size in enumerate(zooms) if index != axis
+                float(size)
+                for index, size in enumerate(zooms)
+                if index != axis
             )
             channels = shape[axis]
             n_frames = shape[axis]
@@ -74,10 +88,12 @@ class NiftiReader(BaseImageReader):
             )
             channels = 1
             n_frames = None
-
         output_shape = (channels,) + tuple(reversed(spatial_shape))
         output_spacing = tuple(reversed(spatial_spacing))
         orientation = "".join(nib.aff2axcodes(image.affine))
+        metadata_affine = image.affine
+        data_dtype = str(image.get_data_dtype())
+
         slope, intercept = source.header.get_slope_inter()
         intensity = {}
         if slope is not None:
@@ -91,10 +107,10 @@ class NiftiReader(BaseImageReader):
             spacing=output_spacing,
             affine=tuple(
                 tuple(float(value) for value in row)
-                for row in image.affine
+                for row in metadata_affine
             ),
             orientation=orientation,
-            dtype=str(image.get_data_dtype()),
+            dtype=data_dtype,
             intensity=intensity,
             source=(str(path),),
             n_frames=n_frames,
@@ -143,7 +159,9 @@ class NiftiReader(BaseImageReader):
             dtype: Output dtype. Masks default to ``int64`` when possible.
             is_mask: Treat the input as a segmentation mask. This disables
                 intensity normalisation and uses nearest-neighbour resampling.
-            channel_axis: Axis holding channels for 4D inputs.
+            channel_axis: Channel axis for 4D inputs. Only the last axis is
+                supported, because the NIfTI affine describes the first
+                three axes.
             order: Interpolation order. Defaults to 0 for masks and 1
                 otherwise.
             **kwargs: Ignored extra options for interface compatibility.
@@ -158,6 +176,12 @@ class NiftiReader(BaseImageReader):
         del metadata, kwargs
         nib = _require_nibabel()
         image = nib.load(str(path))
+        if image.ndim == 4 and channel_axis % 4 != 3:
+            raise ValueError(
+                "Channel-first 4D NIfTI is not supported: the NIfTI affine "
+                "describes the first three axes. Store channels on the last "
+                "axis instead."
+            )
         if canonical:
             image = nib.as_closest_canonical(image)
 
