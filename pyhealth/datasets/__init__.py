@@ -1,5 +1,3 @@
-
-
 class BaseEHRDataset:
     """This class is deprecated and should not be used."""
 
@@ -76,18 +74,19 @@ from .tcga_prad import TCGAPRADDataset
 from .splitter import (
     PatientSplit as PatientSplit,
     Split as Split,
-    sample_balanced,
-    split_by_patient,
-    split_by_patient_conformal,
-    split_by_patient_conformal_tuh,
-    split_by_patient_tuh,
-    split_by_sample,
-    split_by_sample_conformal,
-    split_by_sample_conformal_tuh,
-    split_by_sample_tuh,
+    sample_balanced as sample_balanced,
+    split_by_patient as split_by_patient,
+    split_by_patient_conformal as split_by_patient_conformal,
+    split_by_patient_conformal_tuh as split_by_patient_conformal_tuh,
+    split_by_patient_tuh as split_by_patient_tuh,
+    split_by_predefined as split_by_predefined,
+    split_by_sample as split_by_sample,
+    split_by_sample_conformal as split_by_sample_conformal,
+    split_by_sample_conformal_tuh as split_by_sample_conformal_tuh,
+    split_by_sample_tuh as split_by_sample_tuh,
     split_by_strat_fold as split_by_strat_fold,
-    split_by_visit,
-    split_by_visit_conformal,
+    split_by_visit as split_by_visit,
+    split_by_visit_conformal as split_by_visit_conformal,
 )
 from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
 from .ptbxl import PTBXLDataset as PTBXLDataset
@@ -101,17 +100,3 @@ from .utils import (
     save_processors,
 )
 from .collate import collate_temporal
-from .splitter import (
-    sample_balanced,
-    split_by_patient,
-    split_by_patient_conformal,
-    split_by_patient_conformal_tuh,
-    split_by_patient_tuh,
-    split_by_predefined,
-    split_by_sample,
-    split_by_sample_conformal,
-    split_by_sample_conformal_tuh,
-    split_by_sample_tuh,
-    split_by_visit,
-    split_by_visit_conformal,
-)
