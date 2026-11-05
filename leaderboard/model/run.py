@@ -104,18 +104,12 @@ def main() -> int:
     leaderboards = load_yaml(LEADERBOARD_YAML)["leaderboards"]
     check_leaderboards(leaderboards, all_tasks)
 
-    # Bound every thread pool; Polars reads this when imported, so before PyHealth.
-    threads = env.get("compute", {}).get("cpu_threads")
-    if threads:
-        for var in ("POLARS_MAX_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
-            os.environ[var] = str(threads)
+    # Before PyHealth: Polars and torch read their thread counts when imported.
+    for name, value in (env.get("env") or {}).items():
+        os.environ[name] = str(value)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-    import torch
     from pyhealth.benchmarks import ModelBenchmark
-
-    if threads:
-        torch.set_num_threads(threads)
 
     results = ModelBenchmark(env, tasks).run()
 
