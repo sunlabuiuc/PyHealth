@@ -144,6 +144,18 @@ _MEASUREMENT_SCHEMA = {
 
 _TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
+# MIMIC-IV MetaVision therapy item IDs, shared with ICUAcuityMIMIC4.
+_VASOPRESSOR_ITEMIDS = {  # inputevents
+    "dopa": 221662,
+    "norepi": 221906,
+    "dobu": 221653,
+    "epi": 221289,
+}
+_VENTILATION_ITEMIDS = {  # procedureevents
+    "invasive": 225792,
+    "noninvasive": 225794,
+}
+
 
 def _item_lookup(
     features: dict[str, tuple[float | None, float | None, list[_Item]]],
@@ -362,9 +374,17 @@ class _YAIBMIMIC4Task(BaseTask):
         )
 
     def _measurements(
-        self, patient: Any, stays: pl.DataFrame, items: pl.DataFrame
+        self,
+        patient: Any,
+        stays: pl.DataFrame,
+        items: pl.DataFrame,
+        exact_hours: bool = False,
     ) -> pl.DataFrame:
-        """Returns valid measurements as (stay_id, hour, feature, value, is_sum)."""
+        """Returns valid measurements as (stay_id, hour, feature, value, is_sum).
+
+        With ``exact_hours``, a last column ``hours`` holds the fractional
+        hours since ICU admission (``hour`` is its floor).
+        """
         frames = []
         for table, value_column in _VALUE_COLUMNS.items():
             table_items = items.filter(pl.col("table") == table)
@@ -392,8 +412,11 @@ class _YAIBMIMIC4Task(BaseTask):
                 events = self._assign_stays(events, stays)
             frames.append(events.drop("hadm_id"))
 
+        schema = dict(_MEASUREMENT_SCHEMA)
+        if exact_hours:
+            schema["hours"] = pl.Float64
         if not frames:
-            return pl.DataFrame(schema=_MEASUREMENT_SCHEMA)
+            return pl.DataFrame(schema=schema)
 
         converted = pl.col("unit").str.contains(pl.col("unit_regex")).fill_null(False)
         return (
@@ -405,6 +428,10 @@ class _YAIBMIMIC4Task(BaseTask):
                 .otherwise(pl.col("value"))
                 .alias("value"),
                 _hours_since("intime").alias("hour"),
+                (
+                    (pl.col("timestamp") - pl.col("intime")).dt.total_seconds()
+                    / 3600
+                ).alias("hours"),
             )
             .filter(
                 pl.col("value").is_not_null()
@@ -412,7 +439,7 @@ class _YAIBMIMIC4Task(BaseTask):
                 & (pl.col("lower").is_null() | (pl.col("value") >= pl.col("lower")))
                 & (pl.col("upper").is_null() | (pl.col("value") <= pl.col("upper")))
             )
-            .select(list(_MEASUREMENT_SCHEMA))
+            .select(list(schema))
         )
 
     @staticmethod
@@ -1081,10 +1108,10 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
     _SOFA_ITEMS: ClassVar[pl.DataFrame] = _item_lookup(_SOFA_INPUTS)
     # Vasopressor: (inputevents item ID, minimum rate, maximum rate).
     _VASOPRESSORS: ClassVar[dict[str, tuple[int, float, float]]] = {
-        "dopa": (221662, 0, 50),
-        "norepi": (221906, 0, 3),
-        "dobu": (221653, 0, 50),
-        "epi": (221289, 0, 1.5),
+        "dopa": (_VASOPRESSOR_ITEMIDS["dopa"], 0, 50),
+        "norepi": (_VASOPRESSOR_ITEMIDS["norepi"], 0, 3),
+        "dobu": (_VASOPRESSOR_ITEMIDS["dobu"], 0, 50),
+        "epi": (_VASOPRESSOR_ITEMIDS["epi"], 0, 1.5),
     }
     _ANTIBIOTICS: ClassVar[tuple[int, ...]] = (
         225798, 225837, 225838, 225840, 225842, 225843, 225844, 225845, 225847,
@@ -1095,12 +1122,12 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
         225900, 225902, 225903, 225905, 227691, 228003,
     )
     # Invasive and non-invasive ventilation (procedureevents).
-    _VENTILATION: ClassVar[tuple[int, ...]] = (225792, 225794)
+    _VENTILATION: ClassVar[tuple[int, ...]] = tuple(_VENTILATION_ITEMIDS.values())
     _INTUBATED_GCS: ClassVar[str] = "No Response-ETT"
 
     _EXTRA_ITEMIDS: ClassVar[dict[str, tuple[int, ...]]] = {
         "chartevents": (220739, 223901, 223900),
-        "inputevents": (221662, 221906, 221653, 221289, *_ANTIBIOTICS),
+        "inputevents": (*_VASOPRESSOR_ITEMIDS.values(), *_ANTIBIOTICS),
         "procedureevents": _VENTILATION,
     }
     _EXTRA_TABLES: ClassVar[tuple[str, ...]] = (
