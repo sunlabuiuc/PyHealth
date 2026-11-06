@@ -1,3 +1,4 @@
+import logging
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
@@ -10,6 +11,8 @@ import numpy as np
 import torch
 
 from .sample_dataset import SampleDataset
+
+logger = logging.getLogger(__name__)
 
 # TODO: train_dataset.dataset still access the whole dataset which may leak information
 # TODO: add more splitting methods
@@ -137,6 +140,113 @@ class PatientSplit(Split):
         for part in np.split(order, cuts):
             indices = np.fromiter(
                 chain.from_iterable(patient_to_index[patients[p]] for p in part),
+                dtype=np.int64,
+            )
+            indices.sort()
+            parts.append(indices)
+        return parts
+
+
+@dataclass(frozen=True)
+class SubjectSplit(Split):
+    """A split that assigns subjects to parts by explicit id lists.
+
+    Use this with ``BaseDataset.set_task(task, split=...)`` so processors
+    are fitted on the training subjects only. Subjects are never shuffled:
+    each list is one part, training part first. A subject that appears in
+    no list is left out. A subject that is listed but missing from the
+    dataset is skipped with a warning, and the rest of its part is kept.
+
+    Ids are compared as strings. Within a part the order does not matter;
+    each part is sorted so the same subjects always give the same cache key.
+
+    Args:
+        subjects: Two or more non-empty, disjoint lists of subject ids.
+            The first list is the training part.
+
+    Raises:
+        TypeError: If a part is a string rather than a list of ids.
+        ValueError: If there are fewer than two parts, a part is empty,
+            or a subject is listed more than once.
+
+    Examples:
+        >>> from pyhealth.datasets import SubjectSplit
+        >>> split = SubjectSplit((["chb02", "chb01"], ["chb03"]))
+        >>> parts = split.split_indices(
+        ...     {"chb01": [0, 1], "chb02": [2], "chb03": [3], "chb04": [4]}
+        ... )
+        >>> [part.tolist() for part in parts]
+        [[0, 1, 2], [3]]
+    """
+
+    subjects: Sequence[Sequence[str]]
+
+    def __post_init__(self) -> None:
+        """Validate the subject lists and store them sorted.
+
+        Raises:
+            TypeError: If a part is a bare string.
+            ValueError: If the parts are too few, empty, or overlapping.
+        """
+        parts: list[tuple[str, ...]] = []
+        for index, part in enumerate(self.subjects):
+            if isinstance(part, (str, bytes)):
+                raise TypeError(
+                    "SubjectSplit parts must be sequences of subject ids, "
+                    f"not a string (part {index})."
+                )
+            parts.append(tuple(sorted(str(subject) for subject in part)))
+        if len(parts) < 2:
+            raise ValueError(
+                "SubjectSplit needs at least 2 parts, training part first; "
+                f"got {len(parts)}."
+            )
+        seen: dict[str, int] = {}
+        for index, part in enumerate(parts):
+            if len(part) == 0:
+                raise ValueError(f"SubjectSplit part {index} is empty.")
+            for subject in part:
+                if subject in seen:
+                    raise ValueError(
+                        f"Subject {subject!r} is listed in part {seen[subject]} "
+                        f"and part {index}."
+                    )
+                seen[subject] = index
+        object.__setattr__(self, "subjects", tuple(parts))
+
+    def to_dict(self) -> dict:
+        """JSON description used in the processed-sample cache key.
+
+        Returns:
+            ``{"kind": "subject", "subjects": [...]}`` with each part sorted.
+        """
+        return {"kind": "subject", "subjects": [list(part) for part in self.subjects]}
+
+    def split_indices(
+        self, patient_to_index: Mapping[str, Sequence[int]]
+    ) -> list[np.ndarray]:
+        """Return one sorted index array per subject list.
+
+        Args:
+            patient_to_index: Subject id to the indices of its samples.
+
+        Returns:
+            One ``int64`` array per part, training part first. Listed
+            subjects that are absent from ``patient_to_index`` are omitted
+            and reported with a warning.
+        """
+        lookup = {str(subject): subject for subject in patient_to_index}
+        parts: list[np.ndarray] = []
+        for part in self.subjects:
+            missing = [subject for subject in part if subject not in lookup]
+            if missing:
+                logger.warning(
+                    "SubjectSplit subjects not in the dataset (skipped): %s",
+                    missing,
+                )
+            present = [subject for subject in part if subject in lookup]
+            indices = np.fromiter(
+                chain.from_iterable(patient_to_index[lookup[subject]] for subject in present),
                 dtype=np.int64,
             )
             indices.sort()
@@ -377,6 +487,52 @@ def split_by_patient(
     val_dataset = dataset.subset(val_index) # type: ignore
     test_dataset = dataset.subset(test_index) # type: ignore
     return train_dataset, val_dataset, test_dataset
+
+
+def split_by_subject(
+    dataset: SampleDataset,
+    subjects: Sequence[Sequence[str]],
+) -> tuple:
+    """Split an already-processed dataset by explicit subject lists.
+
+    Every sample of a subject stays in that subject's part. Subjects in no
+    list are left out. This splits a ``SampleDataset`` whose processors were
+    already fitted on every sample. To fit processors on the training
+    subjects only, pass :class:`SubjectSplit` to ``set_task`` instead.
+
+    Args:
+        dataset: A ``SampleDataset`` with ``patient_to_index``.
+        subjects: Two or more disjoint subject-id lists, training part first.
+            Same rules as :class:`SubjectSplit`.
+
+    Returns:
+        One ``dataset.subset`` view per list, in the same order.
+
+    Raises:
+        TypeError: If a part is a string rather than a list of ids.
+        ValueError: If the lists are too few, empty, or overlapping.
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset, split_by_subject
+        >>> samples = [
+        ...     {"patient_id": f"chb0{i}", "record_id": f"r{i}", "feature": i,
+        ...      "label": i % 2}
+        ...     for i in range(1, 5)
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples, {"feature": "raw"}, {"label": "raw"}
+        ... )
+        >>> train, test = split_by_subject(dataset, (["chb01", "chb02"], ["chb04"]))
+        >>> sorted(train[i]["patient_id"] for i in range(len(train)))
+        ['chb01', 'chb02']
+
+    Note:
+        The processors of ``dataset`` were fitted on all of its samples. To
+        fit them on the training subjects only, use
+        ``base_dataset.set_task(task, split=SubjectSplit(subjects))``.
+    """
+    parts = SubjectSplit(subjects).split_indices(dataset.patient_to_index)
+    return tuple(dataset.subset(index) for index in parts)  # type: ignore
 
 
 def split_by_strat_fold(
