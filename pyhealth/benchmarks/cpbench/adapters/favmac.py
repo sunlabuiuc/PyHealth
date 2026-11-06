@@ -6,11 +6,14 @@ from pathlib import Path
 import numpy as np
 
 from pyhealth.benchmarks import Evaluation, Result
-from pyhealth.benchmarks.cpbench.prediction import (
-    predict_test_set,
+from pyhealth.benchmarks.cpbench.helpers.classification import (
+    predict_classification_sets,
     validate_label_encodings,
 )
-from pyhealth.benchmarks.cpbench.preparation import prepare_evaluation, require_protocol
+from pyhealth.benchmarks.cpbench.helpers.preparation import (
+    prepare_evaluation,
+    require_protocol,
+)
 from pyhealth.metrics import multilabel_metrics_fn
 
 
@@ -39,7 +42,7 @@ def execute(evaluation, *, calibration_kwargs=None) -> Result:
     predictor = params["method"]["class"](model, **arguments)
     predictor.calibrate(splits["calibration"], **(calibration_kwargs or {}))
     predictor.eval()
-    predictions = predict_test_set(
+    predictions = predict_classification_sets(
         predictor, model, splits["test"], params["protocol"].get("batch_size", 32)
     )
     validate_multilabel_predictions(predictions, len(vocabulary))

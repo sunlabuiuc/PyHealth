@@ -1,9 +1,9 @@
-"""Prediction-set collection, with task validation called separately by adapters."""
+"""Shared PyTorch classification-set calls and class/label validation for adapters."""
 
 import numpy as np
 import torch
 
-from pyhealth.datasets import get_dataloader
+from .prediction import collect_predictions
 
 
 def validate_multiclass(model, splits):
@@ -30,45 +30,34 @@ def validate_label_encodings(model, splits):
     return vocabulary
 
 
-def predict_test_set(predictor, model, test_dataset, batch_size):
-    """Collect predictions in dataset order; the adapter validates task semantics."""
-    label_key = model.label_keys[0]
-    predictions = concatenate_predictions(
-        predict_batch(predictor, batch, model.feature_keys, label_key)
-        for batch in get_dataloader(test_dataset, batch_size, shuffle=False)
+def predict_classification_sets(predictor, model, dataset, batch_size):
+    """Collect classification sets through the format-independent collector."""
+    return collect_predictions(
+        dataset,
+        batch_size,
+        predict_batch=lambda batch: predict_classification_set_batch(
+            predictor, batch, model.feature_keys, model.label_keys[0]
+        ),
     )
-    if len(predictions["y_true"]) != len(test_dataset):
-        raise ValueError("prediction count does not match the test dataset")
-    return predictions
 
 
-def predict_batch(predictor, batch, feature_keys, label_key):
-    """Predict from features only; snapshot outputs before any method updates.
+def predict_classification_set_batch(predictor, batch, feature_keys, label_key):
+    """Call a PyTorch set predictor with features only, returning NumPy views.
 
-    predictor is a callable accepting model features and returning torch tensors
-    named y_prob and y_predset. Labels are attached only after prediction.
+    The collector copies these views. An online adapter recording them before
+    feedback must use copy_predictions before calling the method's update.
     """
     features = {key: batch[key] for key in feature_keys}
     with torch.no_grad():
         output = predictor(**features)
     if not {"y_prob", "y_predset"} <= output.keys():
-        raise ValueError("predictor must return y_prob and y_predset")
-    truth = torch.as_tensor(batch[label_key]).detach().cpu().numpy().copy()
-    probabilities = output["y_prob"].detach().cpu().numpy().copy()
-    sets = output["y_predset"].detach().cpu().numpy().copy()
-    predictions = {"y_true": truth, "y_prob": probabilities, "y_predset": sets}
-    if truth.ndim == 0 or any(
-        values.ndim == 0 or len(values) != len(truth) for values in predictions.values()
-    ):
-        raise ValueError("batch predictions must have one row per input sample")
-    return predictions
-
-
-def concatenate_predictions(batches):
-    """Join recorded batches in the order supplied by the adapter."""
-    batches = list(batches)
+        raise ValueError(
+            "classification set predictor must return y_prob and y_predset"
+        )
     return {
-        name: np.concatenate([batch[name] for batch in batches]) for name in batches[0]
+        "y_true": torch.as_tensor(batch[label_key]).detach().cpu().numpy(),
+        "y_prob": output["y_prob"].detach().cpu().numpy(),
+        "y_predset": output["y_predset"].detach().cpu().numpy(),
     }
 
 

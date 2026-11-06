@@ -7,7 +7,7 @@ from pyhealth.benchmarks import Benchmark, Evaluation, Result
 
 from . import adapters
 from .evaluation import validate_evaluation
-from .preparation import seeded
+from .helpers.preparation import seeded
 
 
 class CPBench(Benchmark):

@@ -111,6 +111,26 @@ mean unweighted counts, even with custom cost/value weights. Results contain
 metrics and class labels. Labels are excluded from test prediction calls; shapes
 and class encodings are validated before scoring.
 
+Prediction collection
+~~~~~~~~~~~~~~~~~~~~~
+
+``collect_predictions(dataset, batch_size, predict_batch)`` calls an adapter's
+callback on each full batch. The callback selects native inputs, controls gradients
+and converts outputs to named NumPy arrays. Collection copies those arrays, checks
+row alignment and consistent output names, and retains dataset order. It imposes
+no label key, probability, prediction-set or PyTorch output format.
+
+The current adapters share explicitly classification-specific PyTorch calls and
+validation in ``helpers/classification.py``. These exclude labels from native
+calls and collect ``y_true``, ``y_prob`` and ``y_predset``. An interval callback can
+instead return bounds, without changing the collector. Interval metrics are not
+implemented. Online adapters control their own loop and use ``copy_predictions``
+before feedback when storing arrays that may share a method's buffers.
+
+.. autofunction:: pyhealth.benchmarks.cpbench.helpers.prediction.collect_predictions
+
+.. autofunction:: pyhealth.benchmarks.cpbench.helpers.prediction.copy_predictions
+
 No benchmark artifacts or timing reports are written. Dataset APIs may use their
 configured caches. Run the synthetic example from the repository root with::
 

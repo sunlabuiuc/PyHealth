@@ -4,17 +4,17 @@ from copy import deepcopy
 from pathlib import Path
 
 from pyhealth.benchmarks import Evaluation, Result
-from pyhealth.benchmarks.cpbench.prediction import (
-    predict_test_set,
+from pyhealth.benchmarks.cpbench.helpers.classification import (
+    predict_classification_sets,
     validate_multiclass,
     validate_multiclass_predictions,
 )
-from pyhealth.benchmarks.cpbench.preparation import (
+from pyhealth.benchmarks.cpbench.helpers.preparation import (
     construct,
     prepare_evaluation,
     require_protocol,
 )
-from pyhealth.benchmarks.cpbench.scoring import score_multiclass_predictions
+from pyhealth.benchmarks.cpbench.helpers.scoring import score_multiclass_predictions
 
 
 def run(
@@ -36,7 +36,7 @@ def execute(evaluation, *, calibration_kwargs=None) -> Result:
     predictor = construct(params["method"], model)
     predictor.calibrate(splits["calibration"], **(calibration_kwargs or {}))
     predictor.eval()
-    predictions = predict_test_set(
+    predictions = predict_classification_sets(
         predictor, model, splits["test"], params["protocol"].get("batch_size", 32)
     )
     validate_multiclass_predictions(predictions, len(vocabulary))

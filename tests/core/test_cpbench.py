@@ -20,18 +20,22 @@ from pyhealth.benchmarks.cpbench.adapters.fixed_calibration import (
     run as run_fixed_calibration,
 )
 from pyhealth.benchmarks.cpbench.evaluation import validate_evaluation
-from pyhealth.benchmarks.cpbench.prediction import (
-    concatenate_predictions,
-    predict_batch,
+from pyhealth.benchmarks.cpbench.helpers.classification import (
+    predict_classification_set_batch,
     validate_multiclass,
     validate_multiclass_predictions,
 )
-from pyhealth.benchmarks.cpbench.preparation import (
+from pyhealth.benchmarks.cpbench.helpers.prediction import (
+    collect_predictions,
+    concatenate_predictions,
+    copy_predictions,
+)
+from pyhealth.benchmarks.cpbench.helpers.preparation import (
     construct,
     prepare_evaluation,
     require_protocol,
 )
-from pyhealth.benchmarks.cpbench.scoring import score_multiclass_predictions
+from pyhealth.benchmarks.cpbench.helpers.scoring import score_multiclass_predictions
 from pyhealth.calib.predictionset import (
     LABEL,
     RC3P,
@@ -142,7 +146,11 @@ def feedback_adapter(evaluation, cache_dir, output_dir):
     records = []
     for batch in get_dataloader(splits["stream"], batch_size=1):
         records.append(
-            predict_batch(method.predict, batch, model.feature_keys, "label")
+            copy_predictions(
+                predict_classification_set_batch(
+                    method.predict, batch, model.feature_keys, "label"
+                )
+            )
         )
         method.update(batch["label"])
     predictions = concatenate_predictions(records)
@@ -425,7 +433,7 @@ class TestModelSources(unittest.TestCase):
             ev = Evaluation(params)
             validate_evaluation(**ev.params)
             with patch(
-                "pyhealth.benchmarks.cpbench.preparation.load_splits",
+                "pyhealth.benchmarks.cpbench.helpers.preparation.load_splits",
                 side_effect=AssertionError("must not load"),
             ):
                 result = CPBench().evaluate([ev])[ev]
@@ -708,17 +716,54 @@ class TestPredictionAndScoring(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 validate_multilabel_predictions({**valid, name: value}, 3)
 
-    def test_collection_checks_each_batch_row_count(self):
-        def wrong_rows(**features):
-            return {"y_prob": torch.ones(1, 3), "y_predset": torch.ones(1, 3)}
+    def test_collection_handles_arbitrary_output_names_and_retains_gradient_context(
+        self,
+    ):
+        dataset = make_splits(n_train=18, n_calibration=24, n_test=12)["test"]
+        expected = np.concatenate(
+            [batch["label"].numpy() for batch in get_dataloader(dataset, 5)]
+        )
 
+        def intervals(batch):
+            self.assertTrue(torch.is_grad_enabled())
+            truth = batch["label"].numpy()
+            return {"target": truth, "lower": truth - 1.0, "upper": truth + 2.0}
+
+        predictions = collect_predictions(dataset, 5, intervals)
+        self.assertEqual(set(predictions), {"target", "lower", "upper"})
+        np.testing.assert_array_equal(predictions["target"], expected)
+        np.testing.assert_array_equal(predictions["lower"], expected - 1.0)
+        np.testing.assert_array_equal(predictions["upper"], expected + 2.0)
+
+    def test_collection_snapshots_reused_buffers(self):
+        dataset = make_splits(n_train=18, n_calibration=24, n_test=12)["test"]
+        buffer = np.empty((5, 2))
+        calls = []
+
+        def reuse(batch):
+            size = len(batch["label"])
+            calls.append(size)
+            buffer[:size] = len(calls)
+            return {"values": buffer[:size]}
+
+        predictions = collect_predictions(dataset, 5, reuse)
+        self.assertEqual(calls, [5, 5, 2])
+        np.testing.assert_array_equal(
+            predictions["values"][:, 0], [1] * 5 + [2] * 5 + [3] * 2
+        )
+
+    def test_collection_checks_batch_rows_and_output_names(self):
+        dataset = make_splits(n_train=18, n_calibration=24, n_test=12)["test"]
         with self.assertRaisesRegex(ValueError, "one row per input sample"):
-            predict_batch(
-                wrong_rows,
-                {"x": torch.ones(2, 3), "label": torch.tensor([0, 1])},
-                ["x"],
-                "label",
-            )
+            collect_predictions(dataset, 5, lambda batch: {"values": np.ones((1, 2))})
+        with self.assertRaisesRegex(ValueError, "matching row counts"):
+            concatenate_predictions([{"target": np.ones(2), "values": np.ones((1, 2))}])
+        with self.assertRaisesRegex(ValueError, "same output names"):
+            concatenate_predictions([{"a": np.ones(2)}, {"b": np.ones(1)}])
+        with self.assertRaisesRegex(ValueError, "sample dimension"):
+            copy_predictions({"scalar": np.array(1.0)})
+        with self.assertRaisesRegex(ValueError, "empty"):
+            concatenate_predictions([])
 
     def test_conditional_metrics_keep_zero_and_mark_absence(self):
         result = score_multiclass_predictions(
