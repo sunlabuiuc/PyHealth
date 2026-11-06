@@ -1,18 +1,22 @@
-"""
-Mortality Prediction on MIMIC-IV with MultimodalRNN
+"""Mortality prediction on MIMIC-IV with MultimodalRNN.
 
-This example demonstrates how to use the MultimodalRNN model with mixed
-input modalities for in-hospital mortality prediction on MIMIC-IV.
+MultimodalRNN runs an RNN on sequential inputs and embeds non-sequential inputs
+directly, then concatenates the two. The task here, InHospitalMortalityMIMIC4,
+gives a single sequential input: a 48-hour time series of 10 lab categories per
+adult admission. So only the RNN branch is used. To use the non-sequential
+branch, add static features with a custom task. The label is in-hospital
+death.
 
-The MultimodalRNN model can handle:
-- Sequential features (diagnoses, procedures, lab timeseries) → RNN processing
-- Non-sequential features (demographics, static measurements) → Direct embedding
+Data: MIMIC-IV v2.2 (credentialed access, https://physionet.org/content/mimiciv/2.2/).
+Set ``ehr_root`` to your copy.
+To try it without credentials, set ``ehr_root`` to the open MIMIC-IV demo
+(https://physionet.org/content/mimic-iv-demo/2.2/, 100 patients).
 
-This example shows:
-1. Loading MIMIC-IV data with mixed feature types
-2. Applying a mortality prediction task
-3. Training a MultimodalRNN model with both sequential and non-sequential inputs
-4. Evaluating the model performance
+Usage:
+    python examples/mortality_prediction/mortality_mimic4_multimodal_rnn.py
+
+With dev=True (at most 1000 patients), it runs on a CPU. ``device=None`` uses
+a GPU if one is available.
 """
 
 from pyhealth.datasets import MIMIC4Dataset
@@ -122,7 +126,7 @@ if __name__ == "__main__":
     
     trainer = Trainer(
         model=model,
-        device="cuda:0",  # Change to "cpu" if no GPU available
+        device=None,  # None: GPU if available, else CPU; or e.g. "cuda:0"
         metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
     )
 

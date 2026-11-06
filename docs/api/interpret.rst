@@ -13,7 +13,7 @@ New to interpretability in PyHealth? Check out these complete examples:
 
 **Basic Gradient Example:**
 
-- ``examples/ChestXrayClassificationWithSaliency.ipynb`` - Interactive notebook demonstrating gradient-based saliency mapping for medical image classification. Shows how to:
+- ``examples/cxr/ChestXrayClassificationWithSaliency.ipynb`` - Interactive notebook demonstrating gradient-based saliency mapping for medical image classification. Shows how to:
 
   - Load and classify chest X-ray images using PyHealth's TorchvisionModel
   - Generate gradient saliency maps to visualize model attention
@@ -21,7 +21,7 @@ New to interpretability in PyHealth? Check out these complete examples:
 
 **DeepLift Example:**
 
-- ``examples/deeplift_stagenet_mimic4.py`` - Demonstrates DeepLift attributions on StageNet for mortality prediction with MIMIC-IV data. Shows how to:
+- ``examples/interpretability/deeplift_stagenet_mimic4.py`` - Demonstrates DeepLift attributions on StageNet for mortality prediction with MIMIC-IV data. Shows how to:
 
   - Compute feature attributions for discrete (ICD codes) and continuous (lab values) features
   - Decode attributions back to human-readable medical codes and descriptions
@@ -29,13 +29,13 @@ New to interpretability in PyHealth? Check out these complete examples:
 
 **Integrated Gradients Examples:**
 
-- ``examples/integrated_gradients_mortality_mimic4_stagenet.py`` - Complete workflow showing:
+- ``examples/interpretability/integrated_gradients_mortality_mimic4_stagenet.py`` - Complete workflow showing:
 
   - How to load pre-trained models and compute attributions
   - Comparing attributions for different target classes (mortality vs. survival)
   - Interpreting results with medical context (lab categories, diagnosis codes)
 
-- ``examples/interpretability_metrics.py`` - Demonstrates evaluation of attribution methods using:
+- ``examples/interpretability/interpretability_metrics.py`` - Demonstrates evaluation of attribution methods using:
 
   - **Comprehensiveness**: Measures how much prediction drops when removing important features
   - **Sufficiency**: Measures how much prediction is retained when keeping only important features
@@ -43,7 +43,7 @@ New to interpretability in PyHealth? Check out these complete examples:
 
 **SHAP Example:**
 
-- ``examples/shap_stagenet_mimic4.py`` - Demonstrates SHAP (SHapley Additive exPlanations) for StageNet mortality prediction. Shows how to:
+- ``examples/interpretability/shap_stagenet_mimic4.py`` - Demonstrates SHAP (SHapley Additive exPlanations) for StageNet mortality prediction. Shows how to:
 
   - Compute Kernel SHAP attributions for healthcare models with discrete and continuous features
   - Interpret Shapley values to understand feature contributions based on game theory
@@ -52,7 +52,7 @@ New to interpretability in PyHealth? Check out these complete examples:
 
 **ViT/Chefer Attribution Example:**
 
-- ``examples/covid19_cxr_tutorial.py`` - Demonstrates Chefer's attention-based attribution for Vision Transformers:
+- ``examples/cxr/covid19cxr_tutorial.py`` - Demonstrates Chefer's attention-based attribution for Vision Transformers:
 
   - Train a ViT model on COVID-19 chest X-ray classification
   - Use CheferRelevance for gradient-weighted attention attribution

@@ -5,7 +5,20 @@ This example demonstrates:
 2. Computing attributions with Integrated Gradients
 3. Evaluating attribution faithfulness with Comprehensiveness & Sufficiency
 4. Using both the functional API and class-based API for evaluation
+
+Data: MIMIC-IV v2.2 hosp tables (credentialed PhysioNet access:
+https://physionet.org/content/mimiciv/2.2/).
+Run (set MIMIC4_ROOT and CHECKPOINT_PATH below):
+    python examples/interpretability/interpretability_metrics.py
+CHECKPOINT_PATH should be a StageNet ``best.ckpt`` trained on the same task and
+processors; if it does not exist, the model is trained for 5 epochs first.
+To try it without credentials, set MIMIC4_ROOT to
+``test-resources/core/mimic4demo`` (the scores are then not meaningful).
+For a self-contained synthetic version see
+``comprehensiveness_code_sequences.py``.
 """
+
+import os
 
 import torch
 
@@ -16,6 +29,10 @@ from pyhealth.models import StageNet
 from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
 from pyhealth.trainer import Trainer
 
+# Paths: edit before running.
+MIMIC4_ROOT = "/path/to/mimiciv/2.2/"
+CHECKPOINT_PATH = "/path/to/output/stagenet_mortality/best.ckpt"
+
 
 def main():
     """Main execution function."""
@@ -24,13 +41,13 @@ def main():
     print("=" * 70)
 
     # Set device
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"\nUsing device: {device}")
 
     # Load MIMIC-IV dataset
     print("\n[1/6] Loading MIMIC-IV dataset...")
     base_dataset = MIMIC4Dataset(
-        ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
+        ehr_root=MIMIC4_ROOT,
         ehr_tables=[
             "patients",
             "admissions",
@@ -48,7 +65,7 @@ def main():
     print(f"✓ Loaded {len(sample_dataset)} samples")
 
     # Split dataset and get test loader
-    _, _, test_dataset = split_by_patient(sample_dataset, [0.8, 0.1, 0.1])
+    train_dataset, _, test_dataset = split_by_patient(sample_dataset, [0.8, 0.1, 0.1])
     test_loader = get_dataloader(test_dataset, batch_size=128, shuffle=False)
     print(f"✓ Test set: {len(test_dataset)} samples")
 
@@ -62,12 +79,14 @@ def main():
         dropout=0.3,
     )
 
-    checkpoint_path = (
-        "/home/johnwu3/projects/PyHealth_Branch_Testing/PyHealth/output/"
-        "20251028-191219/best.ckpt"
-    )
-    trainer = Trainer(model=model, device=device)
-    trainer.load_ckpt(checkpoint_path)
+    checkpoint_path = CHECKPOINT_PATH
+    trainer = Trainer(model=model, device=str(device), enable_logging=False)
+    if os.path.exists(checkpoint_path):
+        trainer.load_ckpt(checkpoint_path)
+    else:
+        print(f"No checkpoint at {checkpoint_path}; training for 5 epochs.")
+        train_loader = get_dataloader(train_dataset, batch_size=128, shuffle=True)
+        trainer.train(train_dataloader=train_loader, epochs=5)
     model = model.to(device)
     model.eval()
     print(f"✓ Loaded checkpoint: {checkpoint_path}")

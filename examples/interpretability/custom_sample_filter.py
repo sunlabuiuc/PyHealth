@@ -1,11 +1,20 @@
-"""Evaluate all interpretability methods on StageNet + MIMIC-IV dataset using comprehensiveness 
-and sufficiency metrics.
+"""Custom ``sample_filter`` for attribution metrics: Transformer, MIMIC-IV mortality.
 
-This example demonstrates:
-1. Loading a pre-trained StageNet model with processors and MIMIC-IV dataset
-2. Computing attributions with various interpretability methods
-3. Evaluating class-0 and class-1 predictions with a custom sample filter
-4. Presenting results in a summary table
+``evaluate_attribution`` takes a ``sample_filter`` that labels each sample as
+POSITIVE, NEGATIVE or IGNORE (``SampleClass``) from its predicted probability.
+This example defines one with separate thresholds (``--pos_threshold``,
+``--neg_threshold``) and scores Integrated Gradients with comprehensiveness and
+sufficiency on a 1% patient-level test split. For the built-in filter see
+``threshold_sample_filter`` in ``comprehensiveness_code_sequences.py``.
+
+Data: MIMIC-IV v2.2 hosp tables (credentialed PhysioNet access:
+https://physionet.org/content/mimiciv/2.2/). ``WORK_DIR/ckpts/mp_transformer_mimic4/``
+must hold ``input_processors.pkl``, ``output_processors.pkl`` and ``best.ckpt``
+from ``examples/mortality_prediction/mortality_mimic4_transformer.py``.
+
+Run (set MIMIC4_ROOT and WORK_DIR below first):
+    python examples/interpretability/custom_sample_filter.py \\
+        --pos_threshold 0.5 --neg_threshold 0.1 --device cuda:0
 """
 
 import datetime
@@ -23,7 +32,10 @@ from pyhealth.datasets.utils import load_processors
 from pathlib import Path
 import pandas as pd
 
-# python -u examples/interpretability/custom_sample_filter.py  --pos_threshold 0.5 --neg_threshold 0.1 --device cuda:2
+# Paths: edit before running.
+MIMIC4_ROOT = "/path/to/mimiciv/2.2/"
+WORK_DIR = Path("/path/to/pyhealth_dka")  # holds cache/, ckpts/, output/
+
 def main():
     parser = argparse.ArgumentParser(
         description="Comma separated list of interpretability methods to evaluate"
@@ -43,8 +55,8 @@ def main():
     parser.add_argument(
         "--device",
         type=str,
-        default="cuda:0",
-        help="Device to use for evaluation (default: cuda:0)",
+        default="cuda:0" if torch.cuda.is_available() else "cpu",
+        help="Device to use for evaluation (default: cuda:0 if available, else cpu)",
     )
     args = parser.parse_args()
     """Main execution function."""
@@ -56,9 +68,9 @@ def main():
     print(f"Start Time: {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
     # Set path
-    CACHE_DIR = Path("/home/yongdaf2/interpret/cache/mp_mimic4")
-    CKPTS_DIR = Path("/shared/eng/pyhealth_dka/ckpts/mp_transformer_mimic4")
-    OUTPUT_DIR = Path("/home/yongdaf2/interpret/output/mp_transformer_mimic4")
+    CACHE_DIR = WORK_DIR / "cache" / "mp_mimic4"
+    CKPTS_DIR = WORK_DIR / "ckpts" / "mp_transformer_mimic4"
+    OUTPUT_DIR = WORK_DIR / "output" / "mp_transformer_mimic4"
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     CKPTS_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -73,7 +85,7 @@ def main():
     # Load MIMIC-IV dataset
     print("\n Loading MIMIC-IV dataset...")
     base_dataset = MIMIC4Dataset(
-        ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
+        ehr_root=MIMIC4_ROOT,
         ehr_tables=[
             "patients",
             "admissions",

@@ -19,6 +19,14 @@ Multi-seed usage (recommended for papers):
 Notes:
 - CovariateLabel requires access to test embeddings to estimate density ratios.
 - Test embeddings are recomputed each seed since the model changes.
+
+Data: TUAB v3.0.0 (TUH Abnormal EEG) from the Temple University EEG Corpus,
+https://isip.piconepress.com/projects/nedc/html/tuh_eeg/ (free, registration
+required). Pass its edf/ folder (with train/ and eval/) as --root. The full
+run trains on CPU or GPU (--device); --quick-test caps the data at 2000
+samples and 2 epochs for a check that finishes in minutes.
+--model tfm skips training and needs the released TFM-Tokenizer checkpoints
+(--tokenizer-weights and --weights-dir).
 """
 
 from __future__ import annotations
