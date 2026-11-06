@@ -77,7 +77,7 @@ from pyhealth.autoimprove import (
 )
 from pyhealth.datasets import PatientSplit, eICUDataset
 from pyhealth.metrics import bootstrap_ci, paired_bootstrap_diff
-from pyhealth.tasks import BaseTask
+from pyhealth.tasks import BaseTask, FeatureInfo, TaskCard
 
 PREDICTION_MINUTES = 48 * 60
 """Prediction time, in minutes after hospital admission."""
@@ -127,6 +127,88 @@ TABULAR_NAMES = (
     + [f"{v}_{s}" for v in VARIABLES for s in ("last", "min", "max", "n")]
     + ["n_meds", "n_prior_dx"]
 )
+
+# name: (words, unit, group, expected effect of a higher value on mortality):
+# "+" higher is worse, "-" lower is worse, "u" both extremes are worse.
+MEANINGS = {
+    "sodium": ("sodium", "mmol/L", "labs: electrolytes", "u"),
+    "potassium": ("potassium", "mmol/L", "labs: electrolytes", "u"),
+    "chloride": ("chloride", "mmol/L", "labs: electrolytes", "u"),
+    "bicarbonate": ("bicarbonate", "mmol/L", "labs: acid-base", "u"),
+    "glucose": ("glucose", "mg/dL", "labs: metabolic", "u"),
+    "calcium": ("calcium", "mg/dL", "labs: electrolytes", "u"),
+    "magnesium": ("magnesium", "mg/dL", "labs: electrolytes", "u"),
+    "anion_gap": ("anion gap", "mmol/L", "labs: acid-base", "+"),
+    "phosphate": ("phosphate", "mg/dL", "labs: electrolytes", "u"),
+    "creatinine": ("creatinine", "mg/dL", "labs: kidney", "+"),
+    "bun": ("urea nitrogen", "mg/dL", "labs: kidney", "+"),
+    "hemoglobin": ("hemoglobin", "g/dL", "labs: blood count", "-"),
+    "platelets": ("platelets", "10^3/uL", "labs: blood count", "-"),
+    "wbc": ("white cell count", "10^3/uL", "labs: blood count", "u"),
+    "lactate": ("lactate", "mmol/L", "labs: perfusion", "+"),
+    "heart_rate": ("heart rate", "/min", "vital signs", "u"),
+    "resp_rate": ("respiratory rate", "/min", "vital signs", "u"),
+    "spo2": ("oxygen saturation", "%", "vital signs", "-"),
+    "temperature": ("temperature", "C", "vital signs", "u"),
+    "sbp": ("systolic blood pressure", "mmHg", "vital signs", "-"),
+    "dbp": ("diastolic blood pressure", "mmHg", "vital signs", "-"),
+}
+# A two-sided ("u") variable's lowest value matters when low, its highest when high.
+STAT_DIRECTION = {"u": {"last": "u", "min": "-", "max": "+"}}
+
+
+def task_card(view: str) -> TaskCard:
+    """The task card of ``ihm48_eicu@v1``: design rationale and feature dictionary."""
+    features = {
+        "age": FeatureInfo("age in years, as (age - 65) / 15", "demographics", "+",
+                           rationale="mortality rises with age"),
+        "female": FeatureInfo("1 if the patient is female", "demographics", ""),
+    }
+    for name, (words, unit, group, kind) in MEANINGS.items():
+        _, normal, scale, _, _ = VARIABLES[name]
+        units = f"in steps of {scale:g} {unit} from {normal:g} {unit}"
+        if view == "tabular":
+            for stat, label in (("last", "last"), ("min", "lowest"), ("max", "highest")):
+                direction = STAT_DIRECTION.get(kind, {}).get(stat, kind)
+                features[f"{name}_{stat}"] = FeatureInfo(
+                    f"{label} {words} in the first 48 h, {units} (0 if unmeasured)",
+                    group, direction, unit)
+            features[f"{name}_n"] = FeatureInfo(
+                f"number of {words} measurements in the first 48 h (log scale)",
+                "monitoring intensity", "+",
+                rationale="sicker patients are measured more often")
+        else:
+            features[name] = FeatureInfo(
+                f"hourly {words} over the first 48 h, {units}, carried forward",
+                group, kind, unit)
+    features["n_meds"] = FeatureInfo(
+        "number of distinct medications started before 48 h (log scale)",
+        "treatment", "+", rationale="more treatment marks a sicker patient")
+    features["n_prior_dx"] = FeatureInfo(
+        "number of diagnoses from earlier hospital stays (log scale)", "history", "+")
+    columns = ({"tabular": TABULAR_NAMES} if view == "tabular" else
+               {"vitals_labs": list(VARIABLES), "demographics": ["age", "female"]})
+    return TaskCard(
+        population=(("Adults (18+) still in hospital 48 h after admission, with "
+                     "at least one lab before 48 h"),
+                    ("the benchmark's T1 cohort: a prediction at 48 h is only "
+                     "useful for patients who are still in hospital")),
+        prediction_time=("48 h after hospital admission",
+                         "enough data to judge severity, early enough to act"),
+        outcome=("death before hospital discharge",
+                 "in-hospital mortality, as recorded at discharge"),
+        horizon=("until hospital discharge", "the benchmark's T1 definition"),
+        exclusions=[
+            ("hospital stays shorter than 48 h",
+             "the prediction time must fall inside the stay"),
+            ("unknown discharge status", "the outcome cannot be labelled"),
+        ],
+        features=features, columns=columns,
+        notes=("Unmeasured labs and vitals count as normal (0), with a count of 0 "
+               "telling the model they are missing; GCS is not used because the "
+               "demo holds it only in nurse charting; temperature is charted in "
+               "few stays. Open eICU-CRD demo data: 186 hospitals, 2014-2015."),
+    )
 
 VITAL_TABLES = {
     "vitalperiodic": (
@@ -201,6 +283,9 @@ class InHospitalMortality48hEICU(BaseTask):
         self.view = view
         self.task_name = f"ihm48_eicu_v1_{view}"
         self.input_schema = dict(self.SCHEMAS[view])
+
+    def task_card(self) -> TaskCard:
+        return task_card(self.view)
 
     def __call__(self, patient):
         units = patient.get_events("patient", return_df=True)
@@ -369,8 +454,10 @@ def _hourly(obs):
 # ---------------------------------------------------------------- search
 TRAIN_SPACE = {
     **TRAIN_PARAMS,
-    "epochs": Param("int", 5, 60, default=30),
-    "patience": Param("int", 1, 10, default=5),
+    "epochs": Param("int", 5, 60, default=30,
+                    meaning=TRAIN_PARAMS["epochs"].meaning),
+    "patience": Param("int", 1, 10, default=5,
+                      meaning=TRAIN_PARAMS["patience"].meaning),
 }
 SPACES = {
     "tabular": with_xgboost(
@@ -406,6 +493,18 @@ BASELINES = {
         dict(BENCHMARK_TRAIN),
     ),
 }
+
+
+def test_subgroups(test, view):
+    """Age band and sex of every test sample, for subgroup results."""
+    key = "tabular" if view == "tabular" else "demographics"
+    bands, sex = [], []
+    for i in range(len(test)):
+        age_z, female = test[i][key][0].item(), test[i][key][1].item()
+        age = age_z * 15 + 65
+        bands.append("18-64" if age < 65 else "65-79" if age < 80 else "80+")
+        sex.append("female" if female > 0.5 else "male")
+    return {"age band": bands, "sex": sex}
 
 
 def apache_reference(root, test, y_true, p_best, groups, n_boot):
@@ -478,6 +577,7 @@ def main():
         n_cycles=args.cycles, patience=args.patience, time_budget=args.time_budget,
         seed=0, device="cpu", run_dir=str(run_dir),
         lessons_path=str(run_dir / "lessons_shared.json"), cv_folds=args.cv_folds,
+        task_card=task_card(args.view),
     )
     start = time.time()
     result = improver.run()
@@ -485,7 +585,11 @@ def main():
     print(result.summary(k=12))
     print("lessons:", *result.lessons, sep="\n- ")
 
-    scores = improver.evaluate_on_test(test, n_boot=1000, return_predictions=True)
+    improver.attribute()   # what each changed setting contributed
+    improver.explain()     # how the selected model decides
+    scores = improver.evaluate_on_test(test, n_boot=1000,
+                                       subgroups=test_subgroups(test, args.view),
+                                       return_predictions=True)
     predictions = scores.pop("predictions")
     y_true, p_best = np.ravel(predictions["y_true"]), np.ravel(predictions["best"])
     groups = np.asarray(predictions["patient_ids"])
@@ -502,7 +606,10 @@ def main():
     }
     os.makedirs(run_dir, exist_ok=True)
     (run_dir / "test_eval.json").write_text(json.dumps(out, indent=1, default=str))
-    print(json.dumps(scores, indent=1, default=str))
+    improver.report()
+    print(f"report: {run_dir / 'report.html'}")
+    for flag in improver.flags():
+        print(f"flag for review: {flag['id']}: {flag['detail']}")
 
 
 if __name__ == "__main__":
