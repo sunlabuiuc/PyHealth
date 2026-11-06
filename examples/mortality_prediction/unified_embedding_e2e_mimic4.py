@@ -171,6 +171,18 @@ def _window_suffix(observation_window_hours: float) -> str:
     return f"_w{observation_window_hours:g}" if observation_window_hours else ""
 
 
+def _optimizer_settings(args: argparse.Namespace):
+    """Resolve optimizer settings from the CLI only.
+
+    There used to be a per-model branch here that gave
+    bottleneck_transformer max_grad_norm=0.5 and Adam eps=1e-6 while every
+    other backbone got 1.0 and 1e-8, so a six-backbone table that read as
+    compute-matched was not. If a model needs different optimizer settings,
+    the launcher has to say so.
+    """
+    return args.lr, args.max_grad_norm, {"lr": args.lr, "eps": args.adam_eps}
+
+
 def _select_inference_loader(test_loader, val_loader, train_loader):
     """Name the split predictions come from, warning when it is not test.
 
@@ -447,27 +459,9 @@ def run(args: argparse.Namespace, sample_dataset: Any = None) -> Path:
         exp_name=exp_name,
     )
 
-    # BottleneckTransformer is more fragile on full MIMIC-IV with no warmup.
-    # Use safer defaults unless explicitly overridden from CLI.
-    effective_lr = args.lr
-    effective_max_grad_norm = args.max_grad_norm
-    optimizer_params = {}
-
-    if args.model == "bottleneck_transformer":
-        if effective_lr is None:
-            effective_lr = 1e-4
-        if effective_max_grad_norm is None:
-            effective_max_grad_norm = 0.5
-        optimizer_params["eps"] = args.adam_eps if args.adam_eps is not None else 1e-6
-    else:
-        if effective_lr is None:
-            effective_lr = 1e-4
-        if effective_max_grad_norm is None:
-            effective_max_grad_norm = 1.0
-        if args.adam_eps is not None:
-            optimizer_params["eps"] = args.adam_eps
-
-    optimizer_params["lr"] = effective_lr
+    effective_lr, effective_max_grad_norm, optimizer_params = _optimizer_settings(
+        args
+    )
 
     write_run_config(
         str(output_dir / exp_name),
@@ -615,17 +609,14 @@ def parse_args(argv: Optional[list] = None) -> argparse.Namespace:
     parser.add_argument(
         "--lr",
         type=float,
-        default=None,
-        help="Learning rate. Default is 1e-4 for all models.",
+        default=1e-4,
+        help="Learning rate, same for every model.",
     )
     parser.add_argument(
         "--adam-eps",
         type=float,
-        default=None,
-        help=(
-            "Adam epsilon. Default is model-specific: 1e-8 for non-BT models, "
-            "1e-6 for bottleneck_transformer."
-        ),
+        default=1e-8,
+        help="Adam epsilon, same for every model (torch default).",
     )
     parser.add_argument("--weight-decay", type=float, default=0.0)
     parser.add_argument("--device", type=str, default=None)
@@ -735,11 +726,8 @@ def parse_args(argv: Optional[list] = None) -> argparse.Namespace:
     parser.add_argument(
         "--max-grad-norm",
         type=float,
-        default=None,
-        help=(
-            "Gradient clipping max norm. Default is model-specific: None for "
-            "non-BT models, 0.5 for bottleneck_transformer."
-        ),
+        default=1.0,
+        help="Gradient clipping max norm, same for every model.",
     )
 
     parser.add_argument(
