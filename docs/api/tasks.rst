@@ -241,6 +241,7 @@ Available Tasks
     Sleep Staging v2 <tasks/pyhealth.tasks.sleep_staging_v2>
     Benchmark EHRShot <tasks/pyhealth.tasks.benchmark_ehrshot>
     EHR Text Serialization (LLM encoders) <tasks/pyhealth.tasks.ehr_text_serialization>
+    ED Disposition and Outcomes (MIMIC-IV-ED) <tasks/pyhealth.tasks.ed_disposition_mimic4>
     ChestX-ray14 Binary Classification <tasks/pyhealth.tasks.ChestXray14BinaryClassification>
     De-Identification NER <tasks/pyhealth.tasks.DeIDNERTask>
     ChestX-ray14 Multilabel Classification <tasks/pyhealth.tasks.ChestXray14MultilabelClassification>
