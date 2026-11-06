@@ -26,17 +26,26 @@ from typing import Any, ClassVar
 
 import polars as pl
 
-from .yaib_mimic4 import _parse_time, _YAIBMIMIC4Task
+from .yaib_mimic4 import (
+    _VASOPRESSOR_ITEMIDS,
+    _VENTILATION_ITEMIDS,
+    _parse_time,
+    _YAIBMIMIC4Task,
+)
 
 # MIMIC-IV item IDs of the life-sustaining therapies (MetaVision items).
-MECHANICAL_VENTILATION_ITEMIDS = (225792,)  # procedureevents: Invasive Ventilation
+# Invasive ventilation and the vasopressors shared with the YAIB sepsis task
+# come from yaib_mimic4; the rest are only used here.
+MECHANICAL_VENTILATION_ITEMIDS = (  # procedureevents: Invasive Ventilation
+    _VENTILATION_ITEMIDS["invasive"],
+)
 CRRT_ITEMIDS = (225802, 225803, 225809)  # procedureevents: CRRT, CVVHD, CVVHDF
 MASSIVE_TRANSFUSION_ITEMIDS = (229620,)  # procedureevents: Massive Transfusion
 VASOPRESSOR_ITEMIDS = (  # inputevents
-    221906,  # norepinephrine
-    221289,  # epinephrine
+    _VASOPRESSOR_ITEMIDS["norepi"],  # norepinephrine
+    _VASOPRESSOR_ITEMIDS["epi"],  # epinephrine
     229617,  # epinephrine (second item)
-    221662,  # dopamine
+    _VASOPRESSOR_ITEMIDS["dopa"],  # dopamine
     222315,  # vasopressin
     221749,  # phenylephrine
 )

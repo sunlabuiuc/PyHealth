@@ -22,9 +22,10 @@ probability.
 
 This is a clean reimplementation from the paper. The authors' code
 (https://github.com/iheallab/apricotM) is GPL-3.0, so none of it was
-copied; it was only read to confirm details. The Mamba blocks are written in
-pure PyTorch (a chunked parallel selective scan), so the CUDA ``mamba_ssm``
-package is not needed and the model runs on CPU.
+copied; it was only read to confirm details. The Mamba blocks are
+:class:`~pyhealth.models.SelectiveSSM`, the pure PyTorch block shared with
+:class:`~pyhealth.models.ARMR`, run with its chunked parallel selective scan,
+so the CUDA ``mamba_ssm`` package is not needed and the model runs on CPU.
 
 Inputs and outputs
 ------------------
@@ -50,4 +51,4 @@ API
    :members:
    :show-inheritance:
 
-.. autofunction:: pyhealth.models.apricotm.selective_scan
+.. autofunction:: pyhealth.models.selective_ssm.selective_scan

@@ -6,8 +6,7 @@ import torch
 
 from pyhealth.data import Patient
 from pyhealth.datasets import create_sample_dataset, get_dataloader
-from pyhealth.models import APRICOTM, SelectiveSSM
-from pyhealth.models.apricotm import selective_scan
+from pyhealth.models import APRICOTM
 from pyhealth.tasks import ICUAcuityMIMIC4
 
 T0 = datetime(2150, 1, 1, 8, 0, 0)  # noqa: DTZ001 - MIMIC times are naive
@@ -327,6 +326,9 @@ class TestAPRICOTM(unittest.TestCase):
         batch = self._batch(range(6))
         plain = self.model(**batch)["loss"]
         self.model.set_pos_weight("balanced", [self.dataset[i] for i in range(6)])
+        # BaseModel.set_pos_weight("balanced") gives negatives / positives, so
+        # the last label, positive in every sample, gets weight 0 (only labels
+        # with no positive at all fall back to 1).
         torch.testing.assert_close(self.model.pos_weight,
                                    torch.tensor([1.0, 2.0, 1.0, 0.0]))
         self.assertFalse(torch.allclose(plain, self.model(**batch)["loss"]))
@@ -338,41 +340,6 @@ class TestAPRICOTM(unittest.TestCase):
             APRICOTM(self.dataset, feature_key="static")
         with self.assertRaises(ValueError):
             APRICOTM(self.dataset, top_k=0)
-
-
-class TestSelectiveScan(unittest.TestCase):
-    def test_matches_the_recurrence(self):
-        torch.manual_seed(0)
-        log_decay = -torch.rand(2, 50, 3, 4) * 3
-        drive = torch.randn(2, 50, 3, 4)
-        state = torch.zeros(2, 3, 4)
-        expected = []
-        for t in range(50):
-            state = torch.exp(log_decay[:, t]) * state + drive[:, t]
-            expected.append(state)
-        for chunk_size in (1, 7, 32, 64):
-            torch.testing.assert_close(
-                selective_scan(log_decay, drive, chunk_size),
-                torch.stack(expected, 1), atol=1e-4, rtol=1e-4,
-            )
-
-    def test_strong_decay_stays_finite(self):
-        log_decay = torch.full((1, 400, 2), -20.0, requires_grad=True)
-        drive = torch.randn(1, 400, 2, requires_grad=True)
-        states = selective_scan(log_decay, drive)
-        torch.testing.assert_close(states, drive.detach(), atol=1e-4, rtol=1e-3)
-        states.sum().backward()
-        self.assertTrue(torch.isfinite(log_decay.grad).all())
-        self.assertTrue(torch.isfinite(drive.grad).all())
-
-    def test_mixer_is_causal(self):
-        torch.manual_seed(0)
-        mixer = SelectiveSSM(d_model=8, d_state=4)
-        x = torch.randn(1, 10, 8)
-        changed = x.clone()
-        changed[:, 6:] = torch.randn(1, 4, 8)
-        with torch.no_grad():
-            torch.testing.assert_close(mixer(x)[:, :6], mixer(changed)[:, :6])
 
 
 if __name__ == "__main__":

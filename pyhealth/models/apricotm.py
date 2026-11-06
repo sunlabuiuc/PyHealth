@@ -21,10 +21,11 @@ Clean reimplementation from the paper. The authors' code
 here; it was only read to confirm details (the default sizes below are the
 ones it trains with). Differences:
 
-- The Mamba blocks are written in pure PyTorch (the selective scan of Gu
-  and Dao, 2023, computed in parallel in log space), so the CUDA
-  ``mamba_ssm`` package is not needed and the model runs on CPU. It uses
-  more memory than the fused kernel on long sequences.
+- The Mamba blocks are :class:`~pyhealth.models.SelectiveSSM`, the pure
+  PyTorch block shared with ARMR, with its parallel log-space scan (Gu and
+  Dao, 2023), so the CUDA ``mamba_ssm`` package is not needed and the
+  model runs on CPU. It uses more memory than the fused kernel on long
+  sequences.
 - Padding is masked: padded positions do not update the state and are
   excluded from top-k pooling, so a sample's prediction does not depend on
   the other samples in its batch.
@@ -47,173 +48,9 @@ from torch import Tensor, nn
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models.base_model import BaseModel
+from pyhealth.models.selective_ssm import SelectiveSSM
 
-__all__ = ["APRICOTM", "SelectiveSSM", "selective_scan"]
-
-
-def selective_scan(log_decay: Tensor, drive: Tensor, chunk_size: int = 32) -> Tensor:
-    """Parallel scan of ``h_t = exp(log_decay_t) * h_{t-1} + drive_t``, ``h_0 = 0``.
-
-    Computed along dimension 1 in log space: within a chunk, with ``S_t``
-    the cumulative sum of ``log_decay`` since the chunk start,
-    ``h_t = exp(S_t) h_start + sum_{s <= t} exp(S_t - S_s) drive_s``. The
-    positive and negative parts of ``drive`` are summed separately with
-    ``logcumsumexp``, so no ``exp(-S)`` can overflow; chunking keeps ``S``
-    small enough for float32 precision.
-
-    Args:
-        log_decay: Non-positive log decay factors, shape ``[B, L, ...]``.
-        drive: Inputs, same shape.
-        chunk_size: Steps per chunk.
-
-    Returns:
-        The states ``h``, same shape.
-
-    Examples:
-        >>> import torch
-        >>> log_decay = torch.log(torch.tensor([[0.5, 0.5, 0.5]]))
-        >>> drive = torch.tensor([[1.0, -2.0, 4.0]])
-        >>> selective_scan(log_decay, drive)  # h = 1, 0.5 - 2, -0.75 + 4
-        tensor([[ 1.0000, -1.5000,  3.2500]])
-    """
-    very_negative = -1e30
-
-    def part(values: Tensor, cumulative: Tensor) -> Tensor:
-        positive = values > 0
-        log_values = torch.where(
-            positive, torch.log(torch.where(positive, values, 1.0)), very_negative
-        )
-        return torch.exp(
-            torch.logcumsumexp(log_values - cumulative, dim=1) + cumulative
-        )
-
-    chunks = []
-    carry = None
-    for begin in range(0, log_decay.shape[1], chunk_size):
-        decay = log_decay[:, begin : begin + chunk_size]
-        inputs = drive[:, begin : begin + chunk_size]
-        cumulative = torch.cumsum(decay, dim=1)
-        states = part(inputs, cumulative) - part(-inputs, cumulative)
-        if carry is not None:
-            states = states + torch.exp(cumulative) * carry.unsqueeze(1)
-        carry = states[:, -1]
-        chunks.append(states)
-    if not chunks:
-        return drive.clone()
-    return torch.cat(chunks, dim=1)
-
-
-class SelectiveSSM(nn.Module):
-    """A Mamba (selective state-space) mixer, in pure PyTorch.
-
-    Follows Gu and Dao, "Mamba: Linear-Time Sequence Modeling with Selective
-    State Spaces" (2023): an input projection into a gated branch and an SSM
-    branch, a causal depthwise convolution, input-dependent step size
-    ``dt`` and matrices ``B`` and ``C``, a diagonal state matrix ``A``, and
-    the scan ``h_t = exp(dt_t A) h_{t-1} + dt_t B_t x_t``,
-    ``y_t = C_t h_t + D x_t``, computed in parallel by
-    :func:`selective_scan`.
-
-    Args:
-        d_model: Input and output width.
-        d_state: State size ``N`` per channel.
-        d_conv: Kernel size of the causal depthwise convolution.
-        expand: Inner width is ``expand * d_model``.
-        dt_rank: Rank of the ``dt`` projection; ``ceil(d_model / 16)`` when
-            None.
-
-    Examples:
-        >>> import torch
-        >>> mixer = SelectiveSSM(d_model=8, d_state=4)
-        >>> x = torch.randn(2, 5, 8)
-        >>> mixer(x).shape
-        torch.Size([2, 5, 8])
-        >>> mask = torch.tensor([[1, 1, 1, 0, 0], [1, 1, 1, 1, 1]]).bool()
-        >>> y = mixer(x, mask)
-        >>> torch.allclose(y[0, :3], mixer(x[:1, :3])[0], atol=1e-6)
-        True
-    """
-
-    def __init__(
-        self,
-        d_model: int,
-        d_state: int = 16,
-        d_conv: int = 4,
-        expand: int = 2,
-        dt_rank: int | None = None,
-    ) -> None:
-        super().__init__()
-        self.d_model = d_model
-        self.d_state = d_state
-        self.d_inner = expand * d_model
-        self.dt_rank = dt_rank or math.ceil(d_model / 16)
-        self.in_proj = nn.Linear(d_model, 2 * self.d_inner, bias=False)
-        # Causal depthwise convolution, weight [D, d_conv] (last tap = now).
-        bound = 1.0 / math.sqrt(d_conv)
-        self.conv_weight = nn.Parameter(
-            torch.empty(self.d_inner, d_conv).uniform_(-bound, bound)
-        )
-        self.conv_bias = nn.Parameter(
-            torch.empty(self.d_inner).uniform_(-bound, bound)
-        )
-        self.x_proj = nn.Linear(self.d_inner, self.dt_rank + 2 * d_state, bias=False)
-        self.dt_proj = nn.Linear(self.dt_rank, self.d_inner)
-        # dt initialized log-uniformly in [1e-3, 1e-1] (Mamba's default).
-        dt = torch.exp(
-            torch.rand(self.d_inner) * (math.log(0.1) - math.log(1e-3))
-            + math.log(1e-3)
-        )
-        with torch.no_grad():
-            self.dt_proj.bias.copy_(dt + torch.log(-torch.expm1(-dt)))
-        a = torch.arange(1, d_state + 1, dtype=torch.float32)
-        self.A_log = nn.Parameter(torch.log(a).repeat(self.d_inner, 1))
-        self.D = nn.Parameter(torch.ones(self.d_inner))
-        self.out_proj = nn.Linear(self.d_inner, d_model, bias=False)
-
-    def _causal_conv(self, u: Tensor) -> Tensor:
-        """Depthwise causal convolution over time of ``u`` ``[B, L, D]``.
-
-        Written as shifted sums: on CPU this is much faster to train than a
-        grouped ``nn.Conv1d``.
-        """
-        taps = self.conv_weight.shape[1]
-        padded = F.pad(u, (0, 0, taps - 1, 0))
-        length = u.shape[1]
-        out = self.conv_bias.expand_as(u)
-        for k in range(taps):
-            out = out + padded[:, k : k + length] * self.conv_weight[:, k]
-        return out
-
-    def forward(self, x: Tensor, mask: Tensor | None = None) -> Tensor:
-        """Mixes a sequence.
-
-        Args:
-            x: Shape ``[B, L, d_model]``.
-            mask: Optional bool ``[B, L]``, True for real positions. Padded
-                positions do not change the state; use right padding.
-
-        Returns:
-            Shape ``[B, L, d_model]``; padded positions are zero.
-        """
-        u, gate = self.in_proj(x).chunk(2, dim=-1)
-        if mask is not None:
-            u = u * mask.unsqueeze(-1)
-        u = F.silu(self._causal_conv(u))
-        dt, b, c = self.x_proj(u).split(
-            [self.dt_rank, self.d_state, self.d_state], dim=-1
-        )
-        dt = F.softplus(self.dt_proj(dt))  # [B, L, D]
-        if mask is not None:
-            dt = dt * mask.unsqueeze(-1)
-        a = -torch.exp(self.A_log.float())  # [D, N]
-        log_decay = dt.unsqueeze(-1) * a  # [B, L, D, N]
-        drive = (dt * u).unsqueeze(-1) * b.unsqueeze(2)  # [B, L, D, N]
-        states = selective_scan(log_decay, drive)
-        y = torch.einsum("bldn,bln->bld", states, c) + u * self.D
-        y = self.out_proj(y * F.silu(gate))
-        if mask is not None:
-            y = y * mask.unsqueeze(-1)
-        return y
+__all__ = ["APRICOTM"]
 
 
 class _MambaStack(nn.Module):
@@ -223,8 +60,18 @@ class _MambaStack(nn.Module):
         super().__init__()
         self.norms = nn.ModuleList(nn.LayerNorm(d_model) for _ in range(n_layers))
         self.mixers = nn.ModuleList(
-            SelectiveSSM(d_model, **ssm_kwargs) for _ in range(n_layers)
+            SelectiveSSM(d_model, scan="parallel", **ssm_kwargs)
+            for _ in range(n_layers)
         )
+        for mixer in self.mixers:
+            # dt initialized log-uniformly in [1e-3, 1e-1], as mamba_ssm does.
+            dt = torch.exp(
+                torch.rand(mixer.dt_proj.bias.shape)
+                * (math.log(0.1) - math.log(1e-3))
+                + math.log(1e-3)
+            )
+            with torch.no_grad():
+                mixer.dt_proj.bias.copy_(dt + torch.log(-torch.expm1(-dt)))
         self.final_norm = nn.LayerNorm(d_model)
 
     def forward(self, x: Tensor, mask: Tensor) -> Tensor:
@@ -350,8 +197,8 @@ class APRICOTM(BaseModel):
         self.encoder = _MambaStack(
             embedding_dim,
             num_layers,
-            d_state=state_size,
-            d_conv=conv_kernel,
+            state_size=state_size,
+            conv_size=conv_kernel,
             expand=expand,
         )
         self.pool_mlp = nn.Sequential(
@@ -417,6 +264,8 @@ class APRICOTM(BaseModel):
         index = (starts[:, None] + position[None, :]).clamp(max=tokens.shape[0] - 1)
         dense_tokens = torch.where(mask, tokens[index], 0)
         dense_values = torch.where(mask, torch.nan_to_num(values[index]), 0.0)
+        # Times stay absolute (hours since ICU admission), as in the authors'
+        # code, which min-max scales them over the training stays (<= 30 days).
         dense_times = torch.where(mask, times[index] / self.time_scale, 0.0)
         return dense_tokens, dense_values, dense_times, mask
 
