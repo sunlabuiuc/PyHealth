@@ -53,11 +53,12 @@ class CaliForest(BaseModel):
         random_state: random seed for reproducibility. Default is 42.
         **kwargs: additional compatibility arguments.
 
-    Example:
-        model = CaliForest(dataset=dataset, n_estimators=10)
-        model.fit(train_loader)
-        ret = model(**batch)
-        print(ret["y_prob"].shape)
+    Examples:
+        >>> model = CaliForest(dataset=dataset, n_estimators=10)  # doctest: +SKIP
+        >>> model.fit(train_loader)  # doctest: +SKIP
+        >>> ret = model(**batch)  # doctest: +SKIP
+        >>> ret["y_prob"].shape  # doctest: +SKIP
+        torch.Size([32, 1])
     """
 
     def __init__(
@@ -223,7 +224,7 @@ class CaliForest(BaseModel):
         )
 
         y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
+        loss = self.label_processor.loss(logits, y_true)
 
         return {
             "loss": loss,

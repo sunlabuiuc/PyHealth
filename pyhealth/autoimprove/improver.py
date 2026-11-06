@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import inspect
 import json
 import logging
 import math
@@ -17,7 +16,7 @@ import numpy as np
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.metrics import bootstrap_ci, paired_bootstrap_diff
-from pyhealth.processors import PROCESSOR_REGISTRY
+from pyhealth.processors import LabelProcessor
 from pyhealth.trainer import get_metrics_fn
 
 from .evaluate import (
@@ -227,8 +226,6 @@ class AutoImprover:
         baseline: The current pipeline, tried first so later trials are
             compared with it.
         space: Allowed models and ranges. Defaults to ``SearchSpace()``.
-            ``pos_weight`` is dropped from it unless the label is binary or
-            multilabel, the label types it applies to.
         metric: Validation metric to optimise. Defaults by label type
             (:data:`DEFAULT_METRIC`).
         report_metrics: Extra validation metrics to record.
@@ -321,11 +318,6 @@ class AutoImprover:
         self.baseline = baseline
         self.space = space or SearchSpace()
         self.mode = _label_mode(train_dataset)
-        if self.mode not in ("binary", "multilabel") and "pos_weight" in self.space.train_params:
-            self.space = SearchSpace(
-                self.space.models,
-                {k: v for k, v in self.space.train_params.items() if k != "pos_weight"},
-            )
         self.metric = metric or DEFAULT_METRIC.get(self.mode, "loss")
         self.maximize = greater_is_better(self.metric)
         self.report_metrics = list(report_metrics)
@@ -1218,17 +1210,9 @@ def describe_task(train_dataset: SampleDataset, val_dataset: SampleDataset) -> s
 
 
 def _label_mode(dataset: SampleDataset) -> str:
-    """The label type, resolved from the output schema as models resolve it."""
-    entry = next(iter(dataset.output_schema.values()))
-    if isinstance(entry, tuple):  # (processor, kwargs)
-        entry = entry[0]
-    if isinstance(entry, str):
-        return entry.lower()
-    cls = entry if inspect.isclass(entry) else type(entry)
-    for name, registered in PROCESSOR_REGISTRY.items():
-        if issubclass(cls, registered):
-            return name.lower()
-    return "unknown"
+    """The label type: the ``mode`` of the dataset's label processor."""
+    processor = next(iter(dataset.output_processors.values()), None)
+    return processor.mode if isinstance(processor, LabelProcessor) else "unknown"
 
 
 def _schema_names(schema: dict) -> str:
