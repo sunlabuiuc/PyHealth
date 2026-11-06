@@ -46,7 +46,39 @@ class TestRankingMetrics(unittest.TestCase):
         out = multilabel_ranking_at_k(np.array([[0, 1, 1]]), np.ones((1, 3)), 2)
         self.assertAlmostEqual(out["precision"], 0.5)
 
+    def test_hand_computed_ranking_metrics_fn_case(self):
+        # The case where multilabel_ranking_at_k and ranking_metrics_fn agree
+        # (no tied scores, every sample has a true label, k <= n_labels),
+        # computed by hand so CI checks it without pytrec_eval.
+        y_true = np.array([[1, 0, 0, 1, 0], [0, 1, 1, 0, 1]])
+        y_prob = np.array([[0.9, 0.8, 0.7, 0.6, 0.5], [0.1, 0.2, 0.9, 0.4, 0.3]])
+        # Ranked labels: sample A 0,1,2,3,4 (true: 0, 3; n = 2);
+        #                sample B 2,3,4,1,0 (true: 1, 2, 4; n = 3).
+        # k = 3: A's top 3 = 0,1,2 -> relevance [1, 0, 0], hits = 1;
+        #        B's top 3 = 2,3,4 -> relevance [1, 0, 1], hits = 2.
+        #   precision = mean(1/3, 2/3) = 1/2
+        #   recall    = mean(1/2, 2/3) = 7/12
+        #   A: DCG = 1/log2(2) = 1; IDCG (min(n, k) = 2) = 1 + 1/log2(3)
+        #   B: DCG = 1 + 1/log2(4) = 1.5; IDCG (3) = 1 + 1/log2(3) + 1/2
+        out = multilabel_ranking_at_k(y_true, y_prob, 3)
+        self.assertAlmostEqual(out["precision"], 1 / 2)
+        self.assertAlmostEqual(out["recall"], 7 / 12)
+        ndcg_a = 1 / (1 + 1 / np.log2(3))
+        ndcg_b = 1.5 / (1.5 + 1 / np.log2(3))
+        self.assertAlmostEqual(out["ndcg"], (ndcg_a + ndcg_b) / 2)
+        # = (0.61315 + 0.70392) / 2
+        self.assertAlmostEqual(out["ndcg"], 0.65853, places=5)
+        # k = 1: both top labels (A: 0, B: 2) are true.
+        #   precision = mean(1, 1) = 1; recall = mean(1/2, 1/3) = 5/12;
+        #   NDCG = mean(1/1, 1/1) = 1
+        out = multilabel_ranking_at_k(y_true, y_prob, 1)
+        self.assertAlmostEqual(out["precision"], 1.0)
+        self.assertAlmostEqual(out["recall"], 5 / 12)
+        self.assertAlmostEqual(out["ndcg"], 1.0)
+
     def test_matches_ranking_metrics_fn_without_ties(self):
+        # Extra cross-check against pytrec_eval on random data; the
+        # hand-computed case above runs without it.
         try:
             import pytrec_eval  # noqa: F401
         except ImportError:

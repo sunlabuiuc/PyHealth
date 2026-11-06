@@ -219,7 +219,10 @@ class TRACE(BaseModel):
       (0-padded on the right);
     - ``time_key``: the hours from each event to the prediction time, a
       ``"tensor"`` field ``[B, L]``; the mask token gets time 0;
-    - one ``"multilabel"`` label (optional at inference).
+    - one ``"multilabel"`` label (optional when calling the model
+      directly: ``forward`` then returns ``logit`` and ``y_prob`` without
+      ``loss``; :meth:`~pyhealth.trainer.Trainer.inference` reads
+      ``output["loss"]``, so it still needs the label).
 
     :class:`~pyhealth.tasks.LabNowcastingMIMIC4` and
     :class:`~pyhealth.tasks.LabNowcastingMIMIC3` produce these fields.
@@ -406,8 +409,10 @@ class TRACE(BaseModel):
         Returns:
             A dict with ``logit`` and ``y_prob`` (``[B, num_labels]``) and,
             when the label is given, ``loss`` (BCE plus the weighted mask
-            penalty) and ``y_true``. With ``embed=True``, also ``embed``, the
-            mask token's hidden state.
+            penalty) and ``y_true``. With ``embed=True``, also ``embed``,
+            the mask token's hidden state. A direct call runs without the
+            label; ``Trainer.inference`` needs it, as it reads
+            ``output["loss"]``.
         """
         codes = kwargs[self.feature_key].to(self.device).long()
         times = kwargs[self.time_key].to(self.device).float()

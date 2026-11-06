@@ -5,7 +5,8 @@
 
 .. autofunction:: multilabel_metrics_fn
 
-.. autofunction:: multilabel_ranking_at_k
+The ``precision@K``, ``recall@K`` and ``ndcg@K`` metrics are computed by
+:func:`pyhealth.metrics.ranking.multilabel_ranking_at_k`.
 
 
 Metric order

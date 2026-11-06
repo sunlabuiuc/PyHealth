@@ -6,6 +6,7 @@ import sklearn.metrics as sklearn_metrics
 from pyhealth.medcode import ATC
 import pyhealth.metrics.calibration as calib
 from pyhealth.metrics import ddi_rate_score
+from pyhealth.metrics.ranking import multilabel_ranking_at_k
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
 
 def multilabel_metrics_fn(
@@ -59,7 +60,7 @@ def multilabel_metrics_fn(
         - ndcg@K: normalized discounted cumulative gain of the K
           highest-scored labels (binary relevance). All three are averaged
           over the samples with at least one true label; see
-          :func:`multilabel_ranking_at_k`.
+          :func:`pyhealth.metrics.ranking.multilabel_ranking_at_k`.
 
     The following metrics related to the prediction sets are accepted as well, but will be ignored if y_predset is None:
         - fp: Number of false positives.
@@ -249,73 +250,6 @@ def multilabel_metrics_fn(
             raise ValueError(f"Unknown metric for multilabel classification: {metric}")
 
     return output
-
-
-def multilabel_ranking_at_k(
-    y_true: np.ndarray, y_prob: np.ndarray, k: int
-) -> dict[str, float]:
-    """Precision, recall and NDCG of each sample's top-``k`` labels.
-
-    Each sample's labels are ranked by score, ties keeping label order. With
-    ``hits`` the true labels among the top ``k`` and ``n`` the sample's true
-    labels, precision@k is ``hits / k``, recall@k is ``hits / n``, and NDCG@k
-    is ``sum(rel_r / log2(r + 1)) / sum_{r <= min(n, k)} 1 / log2(r + 1)``
-    for ranks ``r`` from 1. All three are averaged over the samples with
-    ``n > 0`` (recall and NDCG are undefined without a true label, and the
-    three are kept on the same samples); they are 0 when no sample has one.
-    These are the definitions of TRACE's released code (precision@k,
-    recall@k and NDCG@k, every sample there having a true label).
-
-    The definitions are also those of
-    :func:`pyhealth.metrics.ranking_metrics_fn` (``P@k``, ``Recall@k``,
-    ``NDCG@k``), and the values agree when scores have no ties, every sample
-    has a true label and ``k`` is at most the number of labels. This
-    function does not call it because that one:
-
-    - needs the optional C extension ``pytrec_eval``, which is not a
-      PyHealth dependency, while these metrics run in
-      :func:`multilabel_metrics_fn` and the ``Trainer``;
-    - breaks score ties by document id in descending string order (label
-      ``"9"`` before ``"10"``), where tied scores are common here (e.g. a
-      label-frequency baseline, or saturated probabilities);
-    - counts samples without a true label as 0 in all three averages;
-    - divides precision by ``k`` even when ``k`` exceeds the number of labels
-      (here ``k`` is clipped to it), and rounds to 5 decimals.
-
-    Args:
-        y_true: Binary labels ``(n_samples, n_labels)``.
-        y_prob: Scores of the same shape.
-        k: Cutoff (clipped to the number of labels).
-
-    Returns:
-        ``{"precision": ..., "recall": ..., "ndcg": ...}``.
-
-    Examples:
-        >>> y_true = np.array([[1, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 0]])
-        >>> y_prob = np.array(
-        ...     [[0.9, 0.8, 0.1, 0.0], [0.1, 0.2, 0.3, 0.4], [0.5, 0.4, 0.3, 0.2]]
-        ... )
-        >>> out = multilabel_ranking_at_k(y_true, y_prob, 2)
-        >>> {m: round(v, 3) for m, v in out.items()}
-        {'precision': 0.25, 'recall': 0.25, 'ndcg': 0.307}
-    """
-    y_true = np.asarray(y_true) > 0
-    y_prob = np.asarray(y_prob, dtype=float)
-    k = max(1, min(int(k), y_true.shape[1]))
-    n_true = y_true.sum(axis=1)
-    has_true = n_true > 0
-    if not has_true.any():
-        return {"precision": 0.0, "recall": 0.0, "ndcg": 0.0}
-    y_true, y_prob, n_true = y_true[has_true], y_prob[has_true], n_true[has_true]
-    top = np.argsort(-y_prob, axis=1, kind="stable")[:, :k]
-    hits = np.take_along_axis(y_true, top, axis=1).astype(float)
-    discounts = 1.0 / np.log2(np.arange(2, k + 2))
-    ideal = np.cumsum(discounts)[np.minimum(n_true, k) - 1]
-    return {
-        "precision": float(hits.sum(axis=1).mean() / k),
-        "recall": float((hits.sum(axis=1) / n_true).mean()),
-        "ndcg": float(((hits * discounts).sum(axis=1) / ideal).mean()),
-    }
 
 
 if __name__ == "__main__":
