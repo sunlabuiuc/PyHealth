@@ -64,6 +64,22 @@ _VITALS = (
     ("pain", "pain"),
 )
 
+#: The ED table behind each optional note domain.
+_DOMAIN_TABLES = {
+    "triage": "triage",
+    "medrecon": "medrecon",
+    "vitals": "vitalsign",
+    "pyxis": "pyxis",
+    "codes": "diagnosis",
+}
+
+
+def _event_types(df: pl.LazyFrame) -> set[str]:
+    """Returns the event types present in a global event dataframe."""
+    return set(
+        df.select(pl.col("event_type").unique()).collect()["event_type"].to_list()
+    )
+
 
 def _value(value: Any) -> str:
     """A recorded value as lower-case text, or ``"not recorded"``."""
@@ -311,6 +327,44 @@ class EDDispositionMIMIC4(BaseTask):
         domains = [d for d in ED_NOTE_DOMAINS if include_codes or d != "codes"]
         self.input_schema = {d: "text" for d in domains}
 
+    def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        """Warns about ED tables the notes need but the dataset did not load.
+
+        A missing table would make the matching note the "not recorded" text
+        (e.g. "The patient had no vitals recorded.") for every stay, which
+        reads like a clinical fact. One warning names every such table.
+
+        Args:
+            df: The dataset's global event dataframe.
+
+        Returns:
+            ``df``, unchanged.
+
+        Examples:
+            >>> import polars as pl
+            >>> df = pl.LazyFrame({"event_type": ["edstays", "triage"]})
+            >>> EDDispositionMIMIC4().pre_filter(df) is df  # logs a warning
+            True
+        """
+        self._warn_missing_tables(_event_types(df))
+        return df
+
+    def _warn_missing_tables(self, present: set[str]) -> None:
+        missing = [
+            (domain, table)
+            for domain, table in _DOMAIN_TABLES.items()
+            if domain in self.input_schema and table not in present
+        ]
+        if missing:
+            logger.warning(
+                "%s found no events for ED table(s) %s, so the %s note(s) will "
+                "be the 'not recorded' text for every stay: load them with "
+                "ed_tables=[...] in MIMIC4Dataset",
+                self.task_name,
+                ", ".join(repr(t) for _, t in missing),
+                ", ".join(repr(d) for d, _ in missing),
+            )
+
     def _age(self, patient: Any, intime: datetime | None) -> int | None:
         people = patient.get_events(event_type="patients")
         if not people:
@@ -441,6 +495,9 @@ class EDOutcomesMIMIC4(EDDispositionMIMIC4):
     def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
         """Warns when the dataset has no ``admissions``: no stay gets a label.
 
+        Also warns about missing ED tables, as
+        :meth:`EDDispositionMIMIC4.pre_filter` does.
+
         Args:
             df: The dataset's global event dataframe.
 
@@ -453,17 +510,13 @@ class EDOutcomesMIMIC4(EDDispositionMIMIC4):
             >>> EDOutcomesMIMIC4().pre_filter(df) is df  # logs a warning
             True
         """
-        admissions = (
-            df.filter(pl.col("event_type") == "admissions")
-            .select(pl.len())
-            .collect()
-            .item()
-        )
-        if admissions == 0:
+        present = _event_types(df)
+        if "admissions" not in present:
             logger.warning(
                 "EDOutcomesMIMIC4 found no 'admissions' events, so it yields no "
                 "samples: load MIMIC4Dataset with an ehr_root as well as ed_root"
             )
+        self._warn_missing_tables(present)
         return df
 
     def _label(self, patient: Any, stay: Any) -> Any:

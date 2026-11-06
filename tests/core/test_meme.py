@@ -246,6 +246,29 @@ class TestEDTasks(unittest.TestCase):
         with self.assertNoLogs("pyhealth.tasks.ed_disposition_mimic4", "WARNING"):
             EDOutcomesMIMIC4().pre_filter(self.dataset.global_event_df)
 
+    def test_warn_about_unloaded_ed_tables(self):
+        logger = "pyhealth.tasks.ed_disposition_mimic4"
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset = MIMIC4Dataset(ed_root=os.path.join(self._tmp.name, "ed"),
+                                    ed_tables=["triage"], cache_dir=tmp)
+            df = dataset.global_event_df
+            with self.assertLogs(logger, "WARNING") as logs:
+                EDDispositionMIMIC4(include_codes=True).pre_filter(df)
+            self.assertEqual(len(logs.output), 1)
+            message = logs.output[0]
+            for table in ("vitalsign", "medrecon", "pyxis", "diagnosis"):
+                self.assertIn(f"'{table}'", message)
+            self.assertNotIn("'triage'", message)
+            self.assertIn("not recorded", message)
+            # diagnosis is only needed with include_codes=True
+            with self.assertLogs(logger, "WARNING") as logs:
+                EDDispositionMIMIC4().pre_filter(df)
+            self.assertNotIn("diagnosis", logs.output[0])
+        for task in (EDDispositionMIMIC4(include_codes=True),
+                     EDOutcomesMIMIC4(include_codes=True)):
+            with self.assertNoLogs(logger, "WARNING"):
+                task.pre_filter(self.dataset.global_event_df)
+
     def test_ed_dataset_alone(self):
         with tempfile.TemporaryDirectory() as tmp:
             dataset = MIMIC4EDDataset(root=os.path.join(self._tmp.name, "ed"),
