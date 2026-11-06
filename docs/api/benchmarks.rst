@@ -2,8 +2,8 @@ Benchmarks
 ==========
 
 :mod:`pyhealth.benchmarks` provides the base abstractions for benchmarks. A
-benchmark defines and executes evaluations. It knows nothing about runners,
-storage or leaderboards.
+benchmark validates and executes evaluations, then optionally saves the batch
+results. Runners and leaderboards remain separate concerns.
 
 An :class:`~pyhealth.benchmarks.Evaluation` is one unit of work, identified by
 a hash of its parameters. A :class:`~pyhealth.benchmarks.Benchmark` runs a
@@ -15,6 +15,8 @@ evaluation.
 
 .. autoclass:: pyhealth.benchmarks.Result
     :members:
+
+.. autofunction:: pyhealth.benchmarks.save_results
 
 .. autoclass:: pyhealth.benchmarks.Benchmark
     :members:
@@ -220,10 +222,10 @@ before feedback when storing arrays that may share a method's buffers.
 
 .. autofunction:: pyhealth.benchmarks.cpbench.shared.prediction.copy_predictions
 
-Cache and outputs
-~~~~~~~~~~~~~~~~~
+Cache and result files
+~~~~~~~~~~~~~~~~~~~~~~
 
-The directory arguments are optional. Continuing the complete example::
+The directory arguments are independent. Continuing the complete example::
 
     from pathlib import Path
 
@@ -233,33 +235,87 @@ The directory arguments are optional. Continuing the complete example::
         output_dir=Path("run"),
     )
 
-``cache_dir`` stores fitted base-model checkpoints under
-``cpbench/models/<model-input-hash>/``. The key includes dataset, task, model,
-split, run seed, batch size and device, excluding CP methods and requested metrics.
-Changing alpha, selecting another supported CP method or changing metrics can
-therefore reuse the same model. Calibration still runs for each evaluation.
-Cache hits load saved fitted processors and fresh model instances, and skip
-training. An existing checkpoint input is loaded directly without duplicating it
-in the cache. Dataset APIs retain their own configured cache locations.
+``cache_dir`` holds reusable model checkpoints and prediction arrays. Adapters
+manage these caches, using shared preparation and public writing functions.
+``output_dir`` holds one ``results.json`` containing every evaluation in the
+batch, including failures. The base Benchmark writes it after result validation.
+Results are always returned; neither directory is required.
 
-Cache entries are protected by a file lock and published by atomic directory
-rename. Preparation preserves global RNG state so cache hits and misses do not advance
-those streams differently before method execution. Entries assume the declared dataset,
-code and model inputs are unchanged; clear the cache when changing referenced
-files or implementations without changing the evaluation specification.
+The layout is::
 
-``output_dir`` stores one ``<evaluation.id>.npz`` containing the successful
-calibrated test prediction arrays. ``Result.artifact`` points to it. Current
-adapters save ``y_true``, ``y_prob`` and ``y_predset``, in dataset order; class
-ordering is in Result metadata. Writes use a temporary file and atomic replace.
-Metrics remain in the returned Result. These scored outputs support later
-analysis; they do not enable the unsupported ``model.predictions`` input mode.
+    cache/
+      cpbench/
+        models/<model-key>/
+          model.ckpt
+          schema.pkl
+        predictions/<prediction-key>.npz
+    run/
+      results.json
 
-With neither directory supplied, no CPBench cache/output artifacts are written
-and Result.artifact remains None. No timing reports or cross-run aggregation are
-added. Run the synthetic example from the repository root with::
+Each JSON record is keyed by evaluation ID and contains ``evaluation`` (serialized
+parameters), ``status``, ``metrics``, ``metadata`` and ``artifact``. NumPy values
+become ordinary JSON values, paths become strings, and non-finite numbers become
+null during serialization. Returned results are not modified. Reusing an output
+directory atomically replaces the complete batch file; it does not append records.
+Write failures propagate to the caller.
+
+Model cache keys include dataset, task, model, split, seed, batch size and device;
+they exclude the CP method and requested metrics. Different CP methods can reuse
+the same fitted base model. Cache hits load fresh model instances and saved
+processors, skipping training. Existing checkpoint inputs are loaded directly.
+Model-cache access is protected by a file lock. Preparation preserves global RNG
+state so cache hits and misses do not advance method randomness differently.
+
+Prediction keys include dataset, task, model, method and protocol, excluding only
+requested metrics. Adapters write ``y_true``, ``y_prob`` and ``y_predset`` in test
+order and set ``Result.artifact`` to the cache file. Class ordering is retained in
+result metadata. These arrays support manual analysis; automatic prediction-cache
+replay and the ``model.predictions`` input mode remain unsupported.
+
+Cache entries assume that referenced data/code have not changed in place; clear
+the cache when changing them without updating evaluation parameters. Native dataset
+caches retain their own configured locations. With no cache_dir, no CPBench model
+or prediction files are written. With no output_dir, no results.json is written.
+
+Manual persistence
+~~~~~~~~~~~~~~~~~~
+
+The automatic workflow uses the same public writers available to user code::
+
+    from pyhealth.benchmarks import save_results
+    from pyhealth.benchmarks.cpbench import save_checkpoint, save_predictions
+
+``save_results(results, path)`` writes one mapping of Evaluation keys to Result
+values. It accepts an explicit file path, so results from multiple calls can be
+combined before saving. Continuing the complete evaluation example::
+
+    from copy import deepcopy
+    from pathlib import Path
+    from pyhealth.benchmarks import Evaluation, save_results
+
+    first = CPBench().evaluate([evaluation])  # No automatic persistence.
+    params = deepcopy(evaluation.params)
+    params["protocol"]["seed"] = 18
+    second_evaluation = Evaluation(params)
+    second = CPBench().evaluate([second_evaluation])
+    save_results({**first, **second}, Path("manual/results.json"))
+
+``save_predictions(predictions, path)`` writes only the supplied named arrays to
+an NPZ file. It does not take an Evaluation or Result. ``save_checkpoint(model,
+dataset, destination)`` writes native model weights and the dataset's fitted
+preprocessing to a new directory. The dataset must carry the model's fitted
+processors; an existing destination is rejected with FileExistsError.
+
+All three writers return None and publish complete files/directories atomically.
+They do not choose cache keys, acquire cache locks, decide reuse, or construct
+Results. Cache policy belongs to adapters; automatic result persistence belongs
+to Benchmark.evaluate. Run the synthetic example from the repository root with::
 
     python -m examples.cpbench.synthetic
+
+.. autofunction:: pyhealth.benchmarks.cpbench.save_predictions
+
+.. autofunction:: pyhealth.benchmarks.cpbench.save_checkpoint
 
 .. autoclass:: pyhealth.benchmarks.cpbench.CPBench
     :members:

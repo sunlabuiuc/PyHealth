@@ -2,12 +2,12 @@
 
 import os
 from collections.abc import Mapping
-from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import numpy as np
 
+from pyhealth.benchmarks import Evaluation
 from pyhealth.datasets import get_dataloader
 
 # --- Batch collection ---
@@ -79,21 +79,28 @@ def _row_count(predictions):
     return count
 
 
-# --- Output files ---
+# --- Prediction cache and files ---
 
 
-def save_predictions(evaluation, result, predictions, output_dir):
-    """Write successful prediction arrays and point Result.artifact to the NPZ."""
-    if output_dir is None or result.status != "success":
-        return result
+def prediction_cache_path(params, cache_dir):
+    """Key prediction arrays by their producing inputs, excluding scored metrics."""
+    key = Evaluation(
+        {name: value for name, value in params.items() if name != "metrics"}
+    ).id
 
-    directory = Path(output_dir)
-    directory.mkdir(parents=True, exist_ok=True)
-    artifact = directory / f"{evaluation.id}.npz"
+    return Path(cache_dir) / "cpbench" / "predictions" / f"{key}.npz"
 
-    with TemporaryDirectory(dir=directory, prefix=f".{evaluation.id}.") as temporary:
-        path = Path(temporary) / "predictions.npz"
-        np.savez_compressed(path, **predictions)
-        os.replace(path, artifact)
 
-    return replace(result, artifact=artifact)
+def save_predictions(predictions: Mapping[str, np.ndarray], path: Path) -> None:
+    """Atomically write named arrays to an explicit NPZ path, replacing that file.
+
+    No Result or Evaluation is read or returned. The caller owns cache naming,
+    cache reuse and result construction. Parent directories are created as needed.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with TemporaryDirectory(dir=path.parent, prefix=f".{path.name}.") as temporary:
+        pending = Path(temporary) / "predictions.npz"
+        np.savez_compressed(pending, **predictions)
+        os.replace(pending, path)

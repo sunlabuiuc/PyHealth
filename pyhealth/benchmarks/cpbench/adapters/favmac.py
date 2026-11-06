@@ -1,6 +1,7 @@
 """Held-out multilabel cost-control evaluation through FavMac's native API."""
 
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -10,7 +11,10 @@ from pyhealth.benchmarks.cpbench.shared.classification import (
     predict_classification_sets,
     validate_label_encodings,
 )
-from pyhealth.benchmarks.cpbench.shared.prediction import save_predictions
+from pyhealth.benchmarks.cpbench.shared.prediction import (
+    prediction_cache_path,
+    save_predictions,
+)
 from pyhealth.benchmarks.cpbench.shared.preparation import (
     prepare_evaluation,
     require_protocol,
@@ -18,9 +22,7 @@ from pyhealth.benchmarks.cpbench.shared.preparation import (
 from pyhealth.metrics import multilabel_metrics_fn
 
 
-def run(
-    evaluation: Evaluation, cache_dir: Path | None, output_dir: Path | None
-) -> Result:
+def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
     """Calibrate FavMac once and evaluate multilabel prediction sets.
 
     Complete example (run from the repository root)::
@@ -123,7 +125,12 @@ def run(
         {"class_labels": sorted(vocabulary, key=vocabulary.get)},
     )
 
-    return save_predictions(evaluation, result, predictions, output_dir)
+    if cache_dir is not None:
+        path = prediction_cache_path(params, cache_dir)
+        save_predictions(predictions, path)
+        result = replace(result, artifact=path)
+
+    return result
 
 
 def validate_multilabel_predictions(predictions, class_count) -> None:

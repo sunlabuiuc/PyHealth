@@ -30,6 +30,7 @@ from pyhealth.benchmarks.cpbench.shared.prediction import (
     collect_predictions,
     concatenate_predictions,
     copy_predictions,
+    prediction_cache_path,
 )
 from pyhealth.benchmarks.cpbench.shared.preparation import (
     model_cache_path,
@@ -137,7 +138,7 @@ class FeedbackMethod:
         self.pending = None
 
 
-def feedback_adapter(evaluation, cache_dir, output_dir):
+def feedback_adapter(evaluation, cache_dir):
     require_protocol(
         evaluation.params["protocol"], order="dataset", feedback="immediate"
     )
@@ -161,17 +162,15 @@ def feedback_adapter(evaluation, cache_dir, output_dir):
     return score_multiclass_predictions(predictions, params["metrics"], vocabulary)
 
 
-def directory_adapter(evaluation, cache_dir, output_dir):
-    return Result(
-        "success", {}, {"id": evaluation.id, "cache": cache_dir, "output": output_dir}
-    )
+def directory_adapter(evaluation, cache_dir):
+    return Result("success", {}, {"id": evaluation.id, "cache": cache_dir})
 
 
-def broken_adapter(evaluation, cache_dir, output_dir):
+def broken_adapter(evaluation, cache_dir):
     raise RuntimeError("adapter failed")
 
 
-def invalid_adapter(evaluation, cache_dir, output_dir):
+def invalid_adapter(evaluation, cache_dir):
     return {"not": "a Result"}
 
 
@@ -346,16 +345,18 @@ class TestEvaluationContract(unittest.TestCase):
             CPBench().evaluate([evaluation(), ev])
         run.assert_not_called()
 
-    def test_full_evaluation_and_directories_are_forwarded(self):
+    def test_adapter_receives_evaluation_and_cache_while_results_save_centrally(self):
         ev = evaluation(FeedbackMethod, method_params={})
-        with patch.dict(ADAPTERS, {FeedbackMethod: directory_adapter}):
-            result = CPBench().evaluate(
-                [ev], cache_dir=Path("cache"), output_dir=Path("output")
-            )[ev]
-        self.assertEqual(
-            result.metadata,
-            {"id": ev.id, "cache": Path("cache"), "output": Path("output")},
-        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.dict(ADAPTERS, {FeedbackMethod: directory_adapter}):
+                result = CPBench().evaluate(
+                    [ev], cache_dir=root / "cache", output_dir=root / "output"
+                )[ev]
+
+            self.assertEqual(result.metadata, {"id": ev.id, "cache": root / "cache"})
+            saved = json.loads((root / "output" / "results.json").read_text())
+            self.assertEqual(saved[ev.id]["metadata"]["cache"], str(root / "cache"))
 
     def test_runtime_failures_do_not_discard_other_results(self):
         good = evaluation()
@@ -632,7 +633,7 @@ class TestNativeMethods(unittest.TestCase):
             self.assertEqual(cold.status, "success", cold.metadata)
             self.assertEqual(warm.status, "success", warm.metadata)
             self.assertEqual(cold.metrics, warm.metrics)
-            self.assertEqual(warm.artifact, output / f"{ev.id}.npz")
+            self.assertEqual(warm.artifact, prediction_cache_path(ev.params, cache))
 
             with np.load(warm.artifact) as predictions:
                 self.assertEqual(
@@ -862,7 +863,9 @@ class TestCacheAndOutput(unittest.TestCase):
             self.assertEqual(train.call_count, 2)
             for ev, result in results.items():
                 self.assertEqual(result.status, "success", result.metadata)
-                self.assertEqual(result.artifact, root / "output" / f"{ev.id}.npz")
+                self.assertEqual(
+                    result.artifact, prediction_cache_path(ev.params, root / "cache")
+                )
                 with np.load(result.artifact, allow_pickle=False) as artifact:
                     self.assertEqual(
                         set(artifact.files), {"y_true", "y_prob", "y_predset"}
@@ -877,7 +880,14 @@ class TestCacheAndOutput(unittest.TestCase):
                 expected = scorer(**predictions, metrics=ev.params["metrics"])
                 for name, value in expected.items():
                     self.assertAlmostEqual(result.metrics[name], value)
-            self.assertEqual(len(list((root / "output").iterdir())), 3)
+            self.assertEqual(
+                list((root / "output").iterdir()), [root / "output" / "results.json"]
+            )
+            saved = json.loads((root / "output" / "results.json").read_text())
+            self.assertEqual(set(saved), {ev.id for ev in evaluations})
+            for ev, result in results.items():
+                self.assertEqual(saved[ev.id]["metrics"], result.metrics)
+                self.assertEqual(saved[ev.id]["artifact"], str(result.artifact))
 
     def test_cache_reuse_invalidation_and_numerical_parity(self):
         first = self.trained_evaluation()
@@ -910,7 +920,10 @@ class TestCacheAndOutput(unittest.TestCase):
             self.assertEqual(
                 rest[other_metrics].metrics["accuracy"], cold.metrics["accuracy"]
             )
-            self.assertIsNone(cold.artifact)  # Cache files are not run outputs.
+            self.assertEqual(cold.artifact, prediction_cache_path(first.params, cache))
+            self.assertEqual(rest[other_metrics].artifact, cold.artifact)
+            self.assertNotEqual(rest[other_alpha].artifact, cold.artifact)
+            self.assertNotEqual(rest[other_seed].artifact, cold.artifact)
 
     def test_preparation_rng_and_cached_model_ownership(self):
         ev = self.trained_evaluation()
@@ -960,21 +973,43 @@ class TestCacheAndOutput(unittest.TestCase):
             self.assertTrue((target / "model.ckpt").is_file())
             self.assertTrue((target / "schema.pkl").is_file())
 
-    def test_output_publication_failure_preserves_existing_artifact(self):
+    def test_prediction_publication_failure_preserves_existing_cache_file(self):
         ev = evaluation()
         with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory)
-            first = CPBench().evaluate([ev], output_dir=output)[ev]
+            root = Path(directory)
+            first = CPBench().evaluate([ev], cache_dir=root / "cache")[ev]
             self.assertEqual(first.status, "success", first.metadata)
             contents = first.artifact.read_bytes()
+
             with patch(
                 "pyhealth.benchmarks.cpbench.shared.prediction.np.savez_compressed",
                 side_effect=OSError("interrupted write"),
             ):
-                failed = CPBench().evaluate([ev], output_dir=output)[ev]
+                failed = CPBench().evaluate(
+                    [ev], cache_dir=root / "cache", output_dir=root / "output"
+                )[ev]
+
             self.assertEqual(failed.status, "failed")
             self.assertEqual(first.artifact.read_bytes(), contents)
-            self.assertEqual(list(output.iterdir()), [first.artifact])
+            self.assertEqual(list(first.artifact.parent.iterdir()), [first.artifact])
+            saved = json.loads((root / "output" / "results.json").read_text())
+            self.assertEqual(saved[ev.id]["status"], "failed")
+
+    def test_output_without_cache_saves_results_only(self):
+        good = evaluation()
+        bad = evaluation(FeedbackMethod, method_params={})
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            with patch.dict(ADAPTERS, {FeedbackMethod: broken_adapter}):
+                results = CPBench().evaluate([good, bad], output_dir=output)
+
+            self.assertTrue(all(result.artifact is None for result in results.values()))
+            self.assertEqual(list(output.iterdir()), [output / "results.json"])
+            saved = json.loads((output / "results.json").read_text())
+            self.assertEqual(set(saved), {good.id, bad.id})
+            self.assertEqual(saved[good.id]["status"], "success")
+            self.assertEqual(saved[bad.id]["status"], "failed")
+            self.assertEqual(saved[bad.id]["metadata"]["error_type"], "RuntimeError")
 
 
 class TestPredictionAndScoring(unittest.TestCase):

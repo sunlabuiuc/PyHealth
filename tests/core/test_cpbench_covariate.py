@@ -14,7 +14,10 @@ from pyhealth.benchmarks import Evaluation
 from pyhealth.benchmarks.cpbench import CPBench
 from pyhealth.benchmarks.cpbench.adapters import ADAPTERS
 from pyhealth.benchmarks.cpbench.benchmark import _seeded
-from pyhealth.benchmarks.cpbench.shared.prediction import concatenate_predictions
+from pyhealth.benchmarks.cpbench.shared.prediction import (
+    concatenate_predictions,
+    prediction_cache_path,
+)
 from pyhealth.benchmarks.cpbench.shared.preparation import prepare_evaluation
 from pyhealth.calib import predictionset
 from pyhealth.calib.predictionset import CovariateLabel
@@ -235,7 +238,9 @@ class TestCovariateAdapter(unittest.TestCase):
             changed = Evaluation(params)
 
             results = CPBench().evaluate(
-                [original, changed], output_dir=root / "outputs"
+                [original, changed],
+                cache_dir=root / "cache",
+                output_dir=root / "outputs",
             )
             for result in results.values():
                 self.assertEqual(result.status, "success", result.metadata)
@@ -265,7 +270,9 @@ class TestCovariateAdapter(unittest.TestCase):
             self.assertEqual(first.status, "success", first.metadata)
             self.assertEqual(second.status, "success", second.metadata)
             self.assertEqual(first.metrics, second.metrics)
-            self.assertEqual(second.artifact, root / "output" / f"{ev.id}.npz")
+            self.assertEqual(
+                second.artifact, prediction_cache_path(ev.params, root / "cache")
+            )
             with np.load(second.artifact) as saved:
                 self.assertEqual(set(saved.files), {"y_true", "y_prob", "y_predset"})
                 self.assertEqual(saved["y_predset"].shape, (12, 3))

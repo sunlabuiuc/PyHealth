@@ -1,6 +1,7 @@
 """Covariate-shift correction using native density estimation or supplied weights."""
 
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 
 import torch
@@ -14,6 +15,7 @@ from pyhealth.benchmarks.cpbench.shared.classification import (
 )
 from pyhealth.benchmarks.cpbench.shared.prediction import (
     collect_predictions,
+    prediction_cache_path,
     save_predictions,
 )
 from pyhealth.benchmarks.cpbench.shared.preparation import (
@@ -22,9 +24,7 @@ from pyhealth.benchmarks.cpbench.shared.preparation import (
 )
 
 
-def run(
-    evaluation: Evaluation, cache_dir: Path | None, output_dir: Path | None
-) -> Result:
+def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
     """Calibrate CovariateLabel and evaluate multiclass prediction sets.
 
     Complete example (run from the repository root)::
@@ -143,7 +143,12 @@ def run(
     validate_multiclass_predictions(predictions, len(vocabulary))
     result = score_multiclass_predictions(predictions, params["metrics"], vocabulary)
 
-    return save_predictions(evaluation, result, predictions, output_dir)
+    if cache_dir is not None:
+        path = prediction_cache_path(params, cache_dir)
+        save_predictions(predictions, path)
+        result = replace(result, artifact=path)
+
+    return result
 
 
 def _extract_embeddings(model, dataset, batch_size):

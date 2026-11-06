@@ -30,9 +30,7 @@ ADAPTERS = {
 }
 
 
-def run(
-    evaluation: Evaluation, cache_dir: Path | None, output_dir: Path | None
-) -> Result:
+def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
     """Dispatch by exact method identity, without guessing from its base classes."""
     method = evaluation.params["method"]["class"]
 
@@ -42,4 +40,4 @@ def run(
     except KeyError:
         raise ValueError(f"No CPBench adapter for {method!r}") from None
 
-    return adapter(evaluation, cache_dir, output_dir)
+    return adapter(evaluation, cache_dir)

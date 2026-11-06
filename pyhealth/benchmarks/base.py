@@ -1,12 +1,14 @@
 import hashlib
 import json
+import os
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Literal, final
 
-from ._serialization import _check_keys, _decode, _dumps
+from ._serialization import _check_keys, _decode, _dumps, _result_value
 
 
 @dataclass(frozen=True, eq=False)
@@ -126,10 +128,9 @@ class Result:
 
     ``artifact`` points to the evaluation's reusable output, such as a
     trained model checkpoint, so other benchmarks can load it instead of
-    retraining. It may be a file or a directory, and is typically written
-    under ``output_dir``. Like ``metadata["error"]``, it may contain patient
-    data (models can memorize training records) and must never be
-    published.
+    retraining. It may be a file or a directory, typically under ``cache_dir``.
+    Like ``metadata["error"]``, it may contain patient data (models can memorize
+    training records) and must never be published.
 
     Attributes:
         status: ``"success"`` or ``"failed"``.
@@ -157,12 +158,44 @@ class Result:
     artifact: Path | None = None
 
 
+def save_results(results: Mapping[Evaluation, Result], path: Path) -> None:
+    """Atomically write an evaluation-to-result mapping to one JSON file.
+
+    Records are keyed by evaluation ID. Each includes the serialized evaluation,
+    status, metrics, metadata and artifact path. This replaces the complete file;
+    combine mappings before calling to save results from multiple evaluate calls.
+
+    NumPy arrays/scalars become ordinary JSON values, Paths become strings, and
+    non-finite numbers become null. The supplied evaluations/results are unchanged.
+    Mappings must have string keys; unsupported values raise TypeError before an
+    existing destination is replaced. No files are loaded or merged implicitly.
+    """
+    records = {
+        evaluation.id: {
+            "evaluation": evaluation.to_dict(),
+            "status": result.status,
+            "metrics": _result_value(result.metrics),
+            "metadata": _result_value(result.metadata),
+            "artifact": _result_value(result.artifact),
+        }
+        for evaluation, result in results.items()
+    }
+    content = json.dumps(records, allow_nan=False, indent=2, sort_keys=True) + "\n"
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with TemporaryDirectory(dir=path.parent, prefix=f".{path.name}.") as temporary:
+        pending = Path(temporary) / "results.json"
+        pending.write_text(content, encoding="utf-8")
+        os.replace(pending, path)
+
+
 class Benchmark(ABC):
     """A benchmark defines and executes evaluations.
 
     Subclasses implement :attr:`name` and :meth:`_evaluate`. Callers use
     :meth:`evaluate`, which validates the evaluations, runs them and
-    validates the results.
+    validates the results, and optionally saves the batch to results.json.
 
     The ``_evaluate`` contract:
         - Any order, grouping, or internal parallelism is allowed.
@@ -170,8 +203,9 @@ class Benchmark(ABC):
           per-evaluation failures as failed Results.
         - ``cache_dir`` may be shared by concurrent jobs, so writes are
           atomic (temporary file, then ``os.replace``).
-        - ``output_dir`` holds per-run artifacts. Results are always
-          returned, never only written to disk.
+        - ``output_dir`` holds results.json, written by evaluate after validation.
+          Reusable model/prediction artifacts belong under ``cache_dir``.
+        - Results are always returned, even when no directory is supplied.
 
     Examples:
         >>> class Squares(Benchmark):
@@ -256,13 +290,15 @@ class Benchmark(ABC):
     ) -> dict[Evaluation, Result]:
         """Validates, runs and returns the results of the evaluations.
 
-        Exceptions escaping :meth:`_evaluate` propagate unchanged.
+        If output_dir is supplied, all validated results are written atomically
+        to output_dir/results.json. Reusing the directory replaces that file.
+        Exceptions from evaluation, validation or persistence propagate unchanged.
 
         Args:
             evaluations: The evaluations to run.
             cache_dir: Directory for reusable intermediate data, possibly
                 shared by concurrent jobs.
-            output_dir: Directory for per-run artifacts.
+            output_dir: Directory for the complete batch results.json file.
 
         Returns:
             One ``Result`` per evaluation.
@@ -273,6 +309,10 @@ class Benchmark(ABC):
         self.validate_evaluations(evaluations)
         results = self._evaluate(evaluations, cache_dir, output_dir)
         self.validate_results(evaluations, results)
+
+        if output_dir is not None:
+            save_results(results, Path(output_dir) / "results.json")
+
         return results
 
     @abstractmethod

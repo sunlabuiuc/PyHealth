@@ -199,13 +199,21 @@ def model_cache_path(params, cache_dir):
     return Path(cache_dir) / "cpbench" / "models" / key
 
 
-def save_checkpoint(model, train_dataset, destination):
-    """Publish a complete native checkpoint directory with one atomic rename.
+def save_checkpoint(model, dataset, destination: Path) -> None:
+    """Atomically save weights and fitted preprocessing to a new directory.
 
-    The caller holds the model-cache lock. The destination is a new immutable
-    cache entry, never an existing checkpoint supplied by the user.
+    dataset must carry the model's fitted input/output processors. Provided
+    processors are saved without refitting. The directory contains model.ckpt
+    and schema.pkl, loadable via CPBench's model.checkpoint input.
+
+    The destination must not exist; an existing path raises FileExistsError.
+    Cache keys, cache lookup and cache locks are the caller's responsibility.
     """
     destination = Path(destination)
+    if destination.exists():
+        raise FileExistsError(f"checkpoint destination already exists: {destination}")
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
 
     with TemporaryDirectory(
         dir=destination.parent, prefix=f".{destination.name}."
@@ -216,12 +224,12 @@ def save_checkpoint(model, train_dataset, destination):
         )
 
         builder = SampleBuilder(
-            train_dataset.input_schema,
-            train_dataset.output_schema,
-            input_processors=train_dataset.input_processors,
-            output_processors=train_dataset.output_processors,
+            dataset.input_schema,
+            dataset.output_schema,
+            input_processors=dataset.input_processors,
+            output_processors=dataset.output_processors,
         )
-        builder.fit(train_dataset)  # Provided processors are not refitted.
+        builder.fit(dataset)  # Provided processors are not refitted.
         builder.save(str(path / "schema.pkl"))
 
         os.replace(path, destination)

@@ -1,6 +1,7 @@
 """Fixed calibration for multiclass prediction-set methods."""
 
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 
 from pyhealth.benchmarks import Evaluation, Result
@@ -10,16 +11,17 @@ from pyhealth.benchmarks.cpbench.shared.classification import (
     validate_label_encodings,
     validate_multiclass_predictions,
 )
-from pyhealth.benchmarks.cpbench.shared.prediction import save_predictions
+from pyhealth.benchmarks.cpbench.shared.prediction import (
+    prediction_cache_path,
+    save_predictions,
+)
 from pyhealth.benchmarks.cpbench.shared.preparation import (
     prepare_evaluation,
     require_protocol,
 )
 
 
-def run(
-    evaluation: Evaluation, cache_dir: Path | None, output_dir: Path | None
-) -> Result:
+def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
     """Calibrate once and evaluate multiclass prediction sets.
 
     Complete example (run from the repository root)::
@@ -116,4 +118,9 @@ def run(
     validate_multiclass_predictions(predictions, len(vocabulary))
     result = score_multiclass_predictions(predictions, params["metrics"], vocabulary)
 
-    return save_predictions(evaluation, result, predictions, output_dir)
+    if cache_dir is not None:
+        path = prediction_cache_path(params, cache_dir)
+        save_predictions(predictions, path)
+        result = replace(result, artifact=path)
+
+    return result

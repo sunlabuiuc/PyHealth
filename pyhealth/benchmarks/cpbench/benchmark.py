@@ -66,7 +66,7 @@ class CPBench(Benchmark):
         for evaluation in evaluations:
             try:
                 with _seeded(evaluation.params["protocol"].get("seed", 0)):
-                    result = adapters.run(evaluation, cache_dir, output_dir)
+                    result = adapters.run(evaluation, cache_dir)
 
                 results[evaluation] = result
 

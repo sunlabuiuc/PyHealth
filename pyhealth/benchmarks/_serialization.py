@@ -1,4 +1,4 @@
-"""Canonical JSON serialization of Evaluation params.
+"""Serialize Evaluation parameters and prepare result values for JSON.
 
 Classes and functions are encoded by import path as
 ``{"__type__": "<module>.<qualname>"}`` and resolved back on decode.
@@ -6,9 +6,13 @@ Classes and functions are encoded by import path as
 
 import importlib
 import json
+import math
 from collections.abc import Mapping
+from pathlib import Path
 from types import BuiltinFunctionType, FunctionType
 from typing import Any
+
+import numpy as np
 
 
 def _encode(obj: Any) -> Any:
@@ -176,3 +180,35 @@ def _dumps(params: Mapping[str, Any]) -> str:
         allow_nan=False,
         default=_encode,
     )
+
+
+# --- JSON-compatible result values ---
+
+
+def _result_value(value):
+    """Prepare result values for strict JSON without changing numerical results."""
+    if isinstance(value, Mapping):
+        if any(not isinstance(key, str) for key in value):
+            raise TypeError("result mapping keys must be strings")
+
+        return {key: _result_value(item) for key, item in value.items()}
+
+    if isinstance(value, (list, tuple)):
+        return [_result_value(item) for item in value]
+
+    if isinstance(value, np.ndarray):
+        return _result_value(value.tolist())
+
+    if isinstance(value, Path):
+        return str(value)
+
+    if isinstance(value, np.bool_):
+        return bool(value)
+
+    if isinstance(value, np.integer):
+        return int(value)
+
+    if isinstance(value, (float, np.floating)):
+        return float(value) if math.isfinite(value) else None
+
+    return value
