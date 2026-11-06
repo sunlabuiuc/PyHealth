@@ -70,6 +70,32 @@ def get_step_mask(x: torch.Tensor) -> torch.Tensor:
     return (x != 0).any(dim=-1).float()
 
 
+def masked_mean_pooling(x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """Mean over the middle dimension, leaving out steps where ``mask`` is 0.
+
+    A row with no valid step (e.g. an all-zero series) is averaged over all
+    its steps, as without a mask, so the result is never NaN.
+
+    Args:
+        x: ``[batch, seq_len, embedding_dim]`` tensor.
+        mask: ``[batch, seq_len]`` tensor, nonzero for a valid step.
+
+    Returns:
+        ``[batch, embedding_dim]`` tensor.
+
+    Examples:
+        >>> x = torch.tensor([[[1.0], [3.0], [8.0]], [[2.0], [4.0], [6.0]]])
+        >>> mask = torch.tensor([[1.0, 1.0, 0.0], [0.0, 0.0, 0.0]])
+        >>> masked_mean_pooling(x, mask)
+        tensor([[2.],
+                [4.]])
+    """
+    mask = mask.to(x.dtype).unsqueeze(-1)
+    has_step = mask.sum(dim=1, keepdim=True) > 0
+    mask = torch.where(has_step, mask, torch.ones_like(mask))
+    return (x * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
+
+
 def get_rightmost_masked_timestep(hidden_states, mask):
     """Gather hidden state at the last True position in ``mask`` per row.
 

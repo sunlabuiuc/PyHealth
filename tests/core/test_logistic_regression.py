@@ -1,80 +1,17 @@
 import unittest
 from datetime import datetime, timedelta
+from unittest import mock
 
 import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import LogisticRegression
-
-
-def _padded_series():
-    """Series of 2, 5 and 3 hourly steps; the last one is all zeros."""
-    t0 = datetime(2020, 1, 1)
-    samples = []
-    for i, n in enumerate([2, 5, 3]):
-        steps = [[float(h + 1), 2.0 * i + 1, -1.0] for h in range(n)]
-        samples.append({
-            "patient_id": f"patient-{i}",
-            "vitals": (
-                [t0 + timedelta(hours=h) for h in range(n)],
-                steps if i < 2 else [[0.0, 0.0, 0.0]] * n,
-            ),
-            "label": i % 2,
-        })
-    return create_sample_dataset(
-        samples=samples,
-        input_schema={"vitals": "timeseries"},
-        output_schema={"label": "binary"},
-        dataset_name="test_padding",
-    )
-
-
-def _nested_multihot():
-    """Two visits per patient as per-visit multi-hot rows."""
-    samples = [
-        {
-            "patient_id": f"patient-{i}",
-            "visits": [["a", "b"], ["c"] if i % 2 else ["a"]],
-            "label": i % 2,
-        }
-        for i in range(4)
-    ]
-    return create_sample_dataset(
-        samples=samples,
-        input_schema={"visits": "nested_multihot"},
-        output_schema={"label": "binary"},
-        dataset_name="test_multihot",
-    )
-
-
-# Other 3D numeric inputs embedded by an nn.Linear over their last dimension;
-# no step is all zeros, so every step counts in the mean.
-NUMERIC_INPUTS = {
-    "nested_sequence_floats": lambda i: [[1.0 + i, 2.0], [3.0, 4.0 - i]],
-    "stagenet_tensor": lambda i: (
-        [0.0, 1.5, 3.0],
-        [[1.0, 2.0 + i, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0 - i]],
-    ),
-    "tensor": lambda i: [[1.0, 2.0 + i], [3.0, 4.0], [5.0 - i, 6.0]],
-}
-
-
-def _numeric_input(input_type):
-    """Four samples of one field of the given input type."""
-    samples = [
-        {
-            "patient_id": f"patient-{i}",
-            "x": NUMERIC_INPUTS[input_type](i),
-            "label": i % 2,
-        }
-        for i in range(4)
-    ]
-    return create_sample_dataset(
-        samples=samples,
-        input_schema={"x": input_type},
-        output_schema={"label": "binary"},
-        dataset_name=f"test_{input_type}",
-    )
+from tests.core.timeseries_test_utils import (
+    NUMERIC_INPUTS,
+    nested_multihot,
+    numeric_input,
+    padded_series,
+)
 
 
 class TestLogisticRegression(unittest.TestCase):
@@ -289,7 +226,7 @@ class TestLogisticRegression(unittest.TestCase):
         embedded per step too, each pooling to the mean of its steps."""
         for input_type in NUMERIC_INPUTS:
             with self.subTest(input_type):
-                dataset = _numeric_input(input_type)
+                dataset = numeric_input(input_type)
                 model = LogisticRegression(dataset=dataset, embedding_dim=8)
                 batch = next(iter(get_dataloader(dataset, batch_size=4)))
                 ret = model(**batch)
@@ -310,7 +247,7 @@ class TestLogisticRegression(unittest.TestCase):
 
     def test_padded_steps_are_left_out_of_the_mean(self):
         """A short series pools the same in a padded batch as on its own."""
-        dataset = _padded_series()
+        dataset = padded_series()
         model = LogisticRegression(dataset=dataset, embedding_dim=8)
         model.eval()
         linear = model.embedding_model.embedding_layers["vitals"]
@@ -339,8 +276,9 @@ class TestLogisticRegression(unittest.TestCase):
     def test_nested_multihot_passes_through_flattened(self):
         """Documents a limitation: EmbeddingModel has no layer for
         nested_multihot, so the raw multi-hot rows pass through and are
-        flattened into one vector."""
-        dataset = _nested_multihot()
+        flattened into one vector. The model only runs because embedding_dim
+        is set to that flattened width (visits x vocabulary size)."""
+        dataset = nested_multihot()
         width = 2 * dataset.input_processors["visits"].size()  # two visits
         model = LogisticRegression(dataset=dataset, embedding_dim=width)
         batch = next(iter(get_dataloader(dataset, batch_size=4)))
@@ -348,9 +286,51 @@ class TestLogisticRegression(unittest.TestCase):
             embed = model(**batch, embed=True)["embed"]
         torch.testing.assert_close(embed, batch["visits"].reshape(4, -1))
 
+    def test_a_processor_mask_is_used_in_pooling(self):
+        """A processor's mask (e.g. tuple_time_text's attention mask) is used
+        in pooling: changing the tokens it masks out leaves the output
+        unchanged. Codes given in 3D are flattened with their mask."""
+        cases = {
+            "sequence": lambda i: ["a", "b", "c"][: 1 + i % 3],
+            "nested_sequence": lambda i: [["a", "b"], ["c", "d"] if i % 2 else ["c"]],
+        }
+        for input_type, make in cases.items():
+            with self.subTest(input_type):
+                dataset = create_sample_dataset(
+                    samples=[
+                        {"patient_id": f"patient-{i}", "x": make(i), "label": i % 2}
+                        for i in range(4)
+                    ],
+                    input_schema={"x": input_type},
+                    output_schema={"label": "binary"},
+                    dataset_name=f"test_mask_{input_type}",
+                )
+                model = LogisticRegression(dataset=dataset, embedding_dim=8)
+                model.eval()
+                batch = next(iter(get_dataloader(dataset, batch_size=4)))
+                codes = batch["x"]
+                mask = codes != 0
+                self.assertFalse(mask.all())  # the batch has padding
+                # fill the padded positions with a real token
+                filled = codes.masked_fill(~mask, 1)
+                processor = dataset.input_processors["x"]
+                with torch.no_grad():
+                    unmasked = model(**batch)["logit"]
+                    # without a mask the filled tokens count, so the output moves
+                    self.assertFalse(
+                        torch.allclose(model(x=filled, label=batch["label"])["logit"],
+                                       unmasked)
+                    )
+                    with mock.patch.object(
+                        processor, "schema", return_value=("value", "mask")
+                    ):
+                        for x in (codes, filled):
+                            out = model(x=(x, mask), label=batch["label"])
+                            torch.testing.assert_close(out["logit"], unmasked)
+
     def test_list_inputs_and_unsupported_ranks(self):
         """Inputs given as lists are converted; other ranks are rejected."""
-        dataset = _padded_series()
+        dataset = padded_series()
         model = LogisticRegression(dataset=dataset, embedding_dim=8)
         batch = next(iter(get_dataloader(dataset, batch_size=3)))
         with torch.no_grad():

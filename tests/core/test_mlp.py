@@ -7,76 +7,12 @@ import torch
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.interpret.methods import IntegratedGradients
 from pyhealth.models import MLP
-
-
-def _padded_series():
-    """Series of 2, 5 and 3 hourly steps; the last one is all zeros."""
-    t0 = datetime(2020, 1, 1)
-    samples = []
-    for i, n in enumerate([2, 5, 3]):
-        steps = [[float(h + 1), 2.0 * i + 1, -1.0] for h in range(n)]
-        samples.append({
-            "patient_id": f"patient-{i}",
-            "vitals": (
-                [t0 + timedelta(hours=h) for h in range(n)],
-                steps if i < 2 else [[0.0, 0.0, 0.0]] * n,
-            ),
-            "label": i % 2,
-        })
-    return create_sample_dataset(
-        samples=samples,
-        input_schema={"vitals": "timeseries"},
-        output_schema={"label": "binary"},
-        dataset_name="test_padding",
-    )
-
-
-def _nested_multihot():
-    """Two visits per patient as per-visit multi-hot rows."""
-    samples = [
-        {
-            "patient_id": f"patient-{i}",
-            "visits": [["a", "b"], ["c"] if i % 2 else ["a"]],
-            "label": i % 2,
-        }
-        for i in range(4)
-    ]
-    return create_sample_dataset(
-        samples=samples,
-        input_schema={"visits": "nested_multihot"},
-        output_schema={"label": "binary"},
-        dataset_name="test_multihot",
-    )
-
-
-# Other 3D numeric inputs embedded by an nn.Linear over their last dimension;
-# no step is all zeros, so every step counts in the mean.
-NUMERIC_INPUTS = {
-    "nested_sequence_floats": lambda i: [[1.0 + i, 2.0], [3.0, 4.0 - i]],
-    "stagenet_tensor": lambda i: (
-        [0.0, 1.5, 3.0],
-        [[1.0, 2.0 + i, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0 - i]],
-    ),
-    "tensor": lambda i: [[1.0, 2.0 + i], [3.0, 4.0], [5.0 - i, 6.0]],
-}
-
-
-def _numeric_input(input_type):
-    """Four samples of one field of the given input type."""
-    samples = [
-        {
-            "patient_id": f"patient-{i}",
-            "x": NUMERIC_INPUTS[input_type](i),
-            "label": i % 2,
-        }
-        for i in range(4)
-    ]
-    return create_sample_dataset(
-        samples=samples,
-        input_schema={"x": input_type},
-        output_schema={"label": "binary"},
-        dataset_name=f"test_{input_type}",
-    )
+from tests.core.timeseries_test_utils import (
+    NUMERIC_INPUTS,
+    nested_multihot,
+    numeric_input,
+    padded_series,
+)
 
 
 class TestMLP(unittest.TestCase):
@@ -250,7 +186,7 @@ class TestMLP(unittest.TestCase):
         embedded per step too, each pooling to the mean of its steps."""
         for input_type in NUMERIC_INPUTS:
             with self.subTest(input_type):
-                dataset = _numeric_input(input_type)
+                dataset = numeric_input(input_type)
                 model = MLP(dataset=dataset, embedding_dim=8, hidden_dim=8)
                 batch = next(iter(get_dataloader(dataset, batch_size=4)))
                 ret = model(**batch)
@@ -271,7 +207,7 @@ class TestMLP(unittest.TestCase):
 
     def test_padded_steps_are_left_out_of_the_mean(self):
         """A short series pools the same in a padded batch as on its own."""
-        dataset = _padded_series()
+        dataset = padded_series()
         model = MLP(dataset=dataset, embedding_dim=8)
         model.eval()
         linear = model.embedding_model.embedding_layers["vitals"]
@@ -292,7 +228,7 @@ class TestMLP(unittest.TestCase):
     def test_all_zero_series_with_an_external_mask(self):
         """A mask built from the raw values, as the interpretability methods
         build it, is all zero for an all-zero series; pooling stays finite."""
-        dataset = _padded_series()
+        dataset = padded_series()
         model = MLP(dataset=dataset, embedding_dim=8, hidden_dim=8)
         model.eval()
         batch = next(iter(get_dataloader(dataset, batch_size=3)))
@@ -310,8 +246,9 @@ class TestMLP(unittest.TestCase):
     def test_nested_multihot_passes_through_flattened(self):
         """Documents a limitation: EmbeddingModel has no layer for
         nested_multihot, so the raw multi-hot rows pass through and are
-        flattened into one vector."""
-        dataset = _nested_multihot()
+        flattened into one vector. The model only runs because embedding_dim
+        is set to that flattened width (visits x vocabulary size)."""
+        dataset = nested_multihot()
         width = 2 * dataset.input_processors["visits"].size()  # two visits
         model = MLP(dataset=dataset, embedding_dim=width, hidden_dim=8)
         model.eval()
@@ -324,7 +261,7 @@ class TestMLP(unittest.TestCase):
     def test_forward_from_embedding_inputs(self):
         """A bare tensor and a mask with a feature dimension are accepted;
         other ranks are rejected."""
-        dataset = _padded_series()
+        dataset = padded_series()
         model = MLP(dataset=dataset, embedding_dim=8, hidden_dim=8)
         model.eval()
         batch = next(iter(get_dataloader(dataset, batch_size=3)))

@@ -8,7 +8,7 @@ from pyhealth.models import BaseModel
 from pyhealth.interpret.api import Interpretable
 
 from .embedding import EmbeddingModel
-from .utils import get_step_mask
+from .utils import get_step_mask, masked_mean_pooling
 
 
 class MLP(BaseModel, Interpretable):
@@ -168,9 +168,9 @@ class MLP(BaseModel, Interpretable):
     def mean_pooling(x, mask):
         """Mean pooling over the middle dimension of the tensor.
 
-        Steps where ``mask`` is 0 are left out of the mean. A row with no
-        valid step (e.g. an all-zero series) is averaged over all its steps,
-        as without a mask, so the result is never NaN.
+        Thin wrapper around :func:`pyhealth.models.utils.masked_mean_pooling`:
+        steps where ``mask`` is 0 are left out of the mean, and a row with no
+        valid step is averaged over all its steps.
 
         Args:
             x: tensor of shape (batch_size, seq_len, embedding_dim)
@@ -180,14 +180,12 @@ class MLP(BaseModel, Interpretable):
             x: tensor of shape (batch_size, embedding_dim)
 
         Examples:
-            >>> x.shape
-            [128, 5, 32]
-            >>> mean_pooling(x, mask).shape
-            [128, 32]
+            >>> x = torch.ones(128, 5, 32)
+            >>> mask = torch.ones(128, 5)
+            >>> MLP.mean_pooling(x, mask).shape
+            torch.Size([128, 32])
         """
-        mask = mask.unsqueeze(-1)
-        mask = torch.where(mask.sum(dim=1, keepdim=True) > 0, mask, torch.ones_like(mask))
-        return (x * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
+        return masked_mean_pooling(x, mask)
 
     @staticmethod
     def sum_pooling(x):
