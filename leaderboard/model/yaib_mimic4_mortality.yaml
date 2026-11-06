@@ -1,0 +1,102 @@
+# ==============================================================================
+# Benchmark: YAIB MIMIC-IV ICU Mortality
+# ==============================================================================
+version: "1.0"
+
+task:
+  id: "yaib_mimic4_mortality"
+  name: "YAIB MIMIC-IV ICU Mortality"
+  description: "Predict ICU death from the first 24 hours of the ICU stay."
+  tags: ["yaib", "mimic4", "icu", "mortality", "binary"]
+  target: "pyhealth.tasks.YAIBMortalityMIMIC4"
+  params: {}
+  dataset:
+    target: "pyhealth.datasets.MIMIC4EHRDataset"
+    root: "physionet.org/files/mimiciv/3.1"   # relative to env.yaml paths.input_dir
+    # The same tables for every YAIB task (the sepsis task needs them all),
+    # so the MIMIC-IV ingestion is cached once and shared by all five.
+    tables:
+      - "labevents"
+      - "chartevents"
+      - "outputevents"
+      - "inputevents"
+      - "procedureevents"
+      - "microbiologyevents"
+      - "transfers"
+    num_workers: 4
+
+split:
+  target: "pyhealth.datasets.PatientSplit"
+  params:
+    ratios: [0.8, 0.1, 0.1]   # train, val, test
+    seeds: [42, 1337, 2024]   # one evaluation per seed; mean/std reported
+
+training:
+  batch_size: 64
+  epochs: 10
+  metrics: ["roc_auc", "pr_auc", "accuracy", "f1"]
+  optimizer:
+    target: "torch.optim.AdamW"
+    params:
+      lr: 0.001
+  # Keyword arguments of pyhealth.trainer.Trainer.train, passed unchanged.
+  # Set weight decay here: Trainer.train applies it per parameter group.
+  trainer:
+    weight_decay: 0.0
+    max_grad_norm: 5.0
+    monitor: "loss"
+    monitor_criterion: "min"
+    load_best_model_at_last: true
+
+models:
+  - id: "rnn_gru"
+    name: "RNN (GRU)"
+    version: "ec90e675a09ac5a9ed0ed29c05b951f07892092d"   # master commit this branch is based on
+    target: "pyhealth.models.RNN_V2"
+    params:
+      embedding_dim:
+        dynamic:
+          - values: 64
+      hidden_dim: 128
+      rnn_type: "GRU"
+      dropout: 0.3
+      bidirectional: false
+      mask: "concat"
+
+  - id: "rnn_lstm"
+    name: "RNN (LSTM)"
+    version: "ec90e675a09ac5a9ed0ed29c05b951f07892092d"   # master commit this branch is based on
+    target: "pyhealth.models.RNN_V2"
+    # Same as the GRU but the cell, so the two compare like for like.
+    params:
+      embedding_dim:
+        dynamic:
+          - values: 64
+      hidden_dim: 128
+      rnn_type: "LSTM"
+      dropout: 0.3
+      bidirectional: false
+      mask: "concat"
+
+  - id: "rnn_rnn"
+    name: "RNN"
+    version: "ec90e675a09ac5a9ed0ed29c05b951f07892092d"   # master commit this branch is based on
+    target: "pyhealth.models.RNN_V2"
+    params:
+      embedding_dim:
+        dynamic:
+          - values: 64
+      hidden_dim: 128
+      rnn_type: "RNN"
+      dropout: 0.3
+      bidirectional: false
+      mask: "concat"
+    # A tanh RNN over long hourly sequences is prone to exploding gradients:
+    # a smaller step and tighter clipping than the gated cells (merged over
+    # the task's training).
+    training:
+      optimizer:
+        params:
+          lr: 0.0005
+      trainer:
+        max_grad_norm: 1.0
