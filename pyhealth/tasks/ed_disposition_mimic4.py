@@ -45,6 +45,7 @@ from typing import Any, ClassVar
 import polars as pl
 
 from .base_task import BaseTask
+from .ehr_text_serialization import mimic4_age_at
 
 logger = logging.getLogger(__name__)
 
@@ -367,19 +368,7 @@ class EDDispositionMIMIC4(BaseTask):
 
     def _age(self, patient: Any, intime: datetime | None) -> int | None:
         people = patient.get_events(event_type="patients")
-        if not people:
-            return None
-        person = people[0]
-        try:
-            age = int(float(person.anchor_age))
-        except (TypeError, ValueError, AttributeError):
-            return None
-        try:
-            if intime is not None:
-                age += intime.year - int(float(person.anchor_year))
-        except (TypeError, ValueError, AttributeError):
-            pass
-        return age
+        return mimic4_age_at(people[0], intime) if people else None
 
     def _stay_events(self, patient: Any, table: str, stay_id: str, intime: Any):
         events = [
