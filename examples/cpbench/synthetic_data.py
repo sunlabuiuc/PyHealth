@@ -7,6 +7,13 @@ from pyhealth.tasks import BaseTask
 
 
 class SyntheticTask(BaseTask):
+    """Preserve raw samples and choose the label processor through output_schema.
+
+    mode="multiclass" expects one class label per sample. mode="multilabel"
+    expects a list of labels and encodes it as a binary class-membership vector.
+    This task does not convert an incorrectly labelled dataset into another task.
+    """
+
     task_name = "synthetic_classification"
     input_schema = {"x": "tensor"}
 
@@ -21,8 +28,14 @@ class SyntheticTask(BaseTask):
 class SyntheticDataset:
     """In-memory source exposing the same set_task interface as BaseDataset.
 
+    mode="multiclass" generates integer labels, e.g. 2; mode="multilabel"
+    generates label lists, e.g. [0, 2]. This changes the actual generated samples.
+    mode is this constructor's argument, not a general CPBench dataset setting.
+    seed controls feature noise, independently of the split and evaluation seeds.
+
     Role prefixes make explicit SubjectSplit examples convenient. PatientSplit
-    can instead assign any patients to parts using ratios and its own seed.
+    can instead assign any patients to parts using ratios and its own seed;
+    it ignores those prefixes and the original generated group boundaries.
     """
 
     def __init__(

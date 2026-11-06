@@ -10,6 +10,7 @@ from pyhealth.calib.predictionset import (
     BaseConformal,
     ClusterLabel,
     FavMac,
+    LabelShift,
     NeighborhoodLabel,
 )
 
@@ -21,6 +22,7 @@ ADAPTERS = {
     RC3P: fixed_calibration.run,
     SCRIB: fixed_calibration.run,
     NeighborhoodLabel: fixed_calibration.run,
+    LabelShift: fixed_calibration.run,
     FavMac: favmac.run,
     ClusterLabel: cluster_label.run,
 }
@@ -31,8 +33,11 @@ def run(
 ) -> Result:
     """Dispatch by exact method identity, without guessing from its base classes."""
     method = evaluation.params["method"]["class"]
+
     try:
         adapter = ADAPTERS[method]
+
     except KeyError:
         raise ValueError(f"No CPBench adapter for {method!r}") from None
+
     return adapter(evaluation, cache_dir, output_dir)

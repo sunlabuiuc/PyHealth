@@ -19,28 +19,29 @@ from pyhealth.benchmarks.cpbench.adapters.favmac import validate_multilabel_pred
 from pyhealth.benchmarks.cpbench.adapters.fixed_calibration import (
     run as run_fixed_calibration,
 )
-from pyhealth.benchmarks.cpbench.evaluation import validate_evaluation
-from pyhealth.benchmarks.cpbench.helpers.classification import (
+from pyhealth.benchmarks.cpbench.benchmark import _seeded, validate_evaluation
+from pyhealth.benchmarks.cpbench.shared.classification import (
     predict_classification_set_batch,
-    validate_multiclass,
+    score_multiclass_predictions,
+    validate_label_encodings,
     validate_multiclass_predictions,
 )
-from pyhealth.benchmarks.cpbench.helpers.prediction import (
+from pyhealth.benchmarks.cpbench.shared.prediction import (
     collect_predictions,
     concatenate_predictions,
     copy_predictions,
 )
-from pyhealth.benchmarks.cpbench.helpers.preparation import (
-    construct,
+from pyhealth.benchmarks.cpbench.shared.preparation import (
+    model_cache_path,
     prepare_evaluation,
     require_protocol,
 )
-from pyhealth.benchmarks.cpbench.helpers.scoring import score_multiclass_predictions
 from pyhealth.calib.predictionset import (
     LABEL,
     RC3P,
     SCRIB,
     BaseConformal,
+    ClusterLabel,
     FavMac,
     LabelShift,
     NeighborhoodLabel,
@@ -141,8 +142,10 @@ def feedback_adapter(evaluation, cache_dir, output_dir):
         evaluation.params["protocol"], order="dataset", feedback="immediate"
     )
     params, splits, model = prepare_evaluation(evaluation, required=("stream",))
-    vocabulary = validate_multiclass(model, splits)
-    method = construct(params["method"], model)
+    if model.mode != "multiclass":
+        raise ValueError("feedback test requires a multiclass model")
+    vocabulary = validate_label_encodings(model, splits)
+    method = params["method"]["class"](model, **params["method"].get("params", {}))
     records = []
     for batch in get_dataloader(splits["stream"], batch_size=1):
         records.append(
@@ -290,7 +293,7 @@ class TestEvaluationContract(unittest.TestCase):
             )
             validate_evaluation(**restored.params)
 
-    def test_invalid_schema_never_dispatches_and_does_not_lose_valid_results(self):
+    def test_invalid_schema_rejects_entire_batch_before_dispatch(self):
         good = evaluation()
         invalid = []
         for path, value in (
@@ -321,18 +324,27 @@ class TestEvaluationContract(unittest.TestCase):
         params = copy.deepcopy(good.params)
         del params["model"]["checkpoint"]
         invalid.append(Evaluation(params))
-        with patch("pyhealth.benchmarks.cpbench.benchmark.adapters.run") as run:
-            results = CPBench().evaluate(invalid)
+        for bad in invalid:
+            with (
+                self.subTest(params=bad.params),
+                patch("pyhealth.benchmarks.cpbench.benchmark.adapters.run") as run,
+                self.assertRaises((TypeError, ValueError)),
+            ):
+                # Even a valid evaluation preceding the bad one must not run.
+                CPBench().evaluate([good, bad])
             run.assert_not_called()
-        self.assertTrue(all(result.status == "failed" for result in results.values()))
-        results = CPBench().evaluate([invalid[0], good])
-        self.assertEqual(results[good].status, "success", results[good].metadata)
 
     def test_unknown_method_and_no_inheritance_guessing(self):
         ev = evaluation(LabelShift, method_params={"alpha": 0.2})
-        result = CPBench().evaluate([ev])[ev]
-        self.assertEqual(result.status, "failed")
-        self.assertIn("No CPBench adapter", result.metadata["error"])
+        with (
+            patch.dict(ADAPTERS),
+            patch("pyhealth.benchmarks.cpbench.benchmark.adapters.run") as run,
+            self.assertRaisesRegex(ValueError, "No CPBench adapter"),
+        ):
+            # Removing its explicit mapping must not select BaseConformal's adapter.
+            del ADAPTERS[LabelShift]
+            CPBench().evaluate([evaluation(), ev])
+        run.assert_not_called()
 
     def test_full_evaluation_and_directories_are_forwarded(self):
         ev = evaluation(FeedbackMethod, method_params={})
@@ -345,17 +357,55 @@ class TestEvaluationContract(unittest.TestCase):
             {"id": ev.id, "cache": Path("cache"), "output": Path("output")},
         )
 
-    def test_adapter_failures_and_invalid_results_are_isolated(self):
+    def test_runtime_failures_do_not_discard_other_results(self):
         good = evaluation()
-        for adapter, error_type in (
-            (broken_adapter, "RuntimeError"),
-            (invalid_adapter, "TypeError"),
+        bad = evaluation(FeedbackMethod, method_params={})
+        with patch.dict(ADAPTERS, {FeedbackMethod: broken_adapter}):
+            results = CPBench().evaluate([bad, good])
+        self.assertEqual(results[bad].status, "failed")
+        self.assertEqual(results[bad].metadata["error_type"], "RuntimeError")
+        self.assertEqual(results[good].status, "success", results[good].metadata)
+
+    def test_invalid_adapter_return_is_rejected_by_result_validation(self):
+        ev = evaluation(FeedbackMethod, method_params={})
+        with (
+            patch.dict(ADAPTERS, {FeedbackMethod: invalid_adapter}),
+            self.assertRaisesRegex(TypeError, "adapter must return a Result"),
         ):
-            bad = evaluation(FeedbackMethod, method_params={})
-            with patch.dict(ADAPTERS, {FeedbackMethod: adapter}):
-                results = CPBench().evaluate([bad, good])
-            self.assertEqual(results[bad].metadata["error_type"], error_type)
-            self.assertEqual(results[good].status, "success", results[good].metadata)
+            CPBench().evaluate([ev])
+
+    def test_result_status_and_metrics_are_checked(self):
+        ev = evaluation()
+        for result, error, message in (
+            (Result("pending", {}), ValueError, "invalid result status"),
+            (Result("success", []), TypeError, "metrics must be a mapping"),
+            (Result("failed", None), TypeError, "metrics must be a mapping"),
+        ):
+            with (
+                self.subTest(result=result),
+                patch(
+                    "pyhealth.benchmarks.cpbench.benchmark.adapters.run",
+                    return_value=result,
+                ),
+                self.assertRaisesRegex(error, message),
+            ):
+                CPBench().evaluate([ev])
+
+    def test_result_validation_preserves_base_correspondence_checks(self):
+        ev = evaluation()
+        other = evaluation(method_params={"alpha": 0.3})
+        for results, message in (
+            ({}, "missing result"),
+            (
+                {ev: Result("success", {}), other: Result("success", {})},
+                "unexpected result",
+            ),
+        ):
+            with (
+                self.subTest(results=results),
+                self.assertRaisesRegex(ValueError, message),
+            ):
+                CPBench().validate_results([ev], results)
 
     def test_duplicate_evaluations_are_rejected(self):
         ev = evaluation()
@@ -413,9 +463,8 @@ class TestModelSources(unittest.TestCase):
         params = copy.deepcopy(ev.params)
         params["protocol"]["split"]["roles"] = ["calibration", "train", "test"]
         bad = Evaluation(params)
-        result = CPBench().evaluate([bad])[bad]
-        self.assertEqual(result.status, "failed")
-        self.assertIn("first split role", result.metadata["error"])
+        with self.assertRaisesRegex(ValueError, "first split role"):
+            CPBench().evaluate([bad])
 
     def test_wrong_checkpoint_schema_is_rejected(self):
         params = copy.deepcopy(evaluation().params)
@@ -433,7 +482,7 @@ class TestModelSources(unittest.TestCase):
             ev = Evaluation(params)
             validate_evaluation(**ev.params)
             with patch(
-                "pyhealth.benchmarks.cpbench.helpers.preparation.load_splits",
+                "pyhealth.benchmarks.cpbench.shared.preparation.load_splits",
                 side_effect=AssertionError("must not load"),
             ):
                 result = CPBench().evaluate([ev])[ev]
@@ -512,6 +561,87 @@ class TestNativeMethods(unittest.TestCase):
                     multiclass_metrics_fn,
                 )
 
+    def test_label_shift_native_equivalence(self):
+        for score_type in ("threshold", "aps"):
+            for source in (None, [0.2, 0.3, 0.5]):
+                arguments = {
+                    "alpha": 0.2,
+                    "score_type": score_type,
+                    "random_state": 42,
+                }
+                calibration = {"target_label_dist": [0.0, 1.0, 0.0]}
+                if source is not None:
+                    calibration["source_label_dist"] = source
+
+                with self.subTest(score_type=score_type, source=source):
+                    ev = evaluation(
+                        LabelShift,
+                        method_params=arguments,
+                        options={"calibration_kwargs": calibration},
+                        dataset_params={"test_class": 1},
+                    )
+                    self._native_equivalence(
+                        ev,
+                        LabelShift,
+                        arguments,
+                        multiclass_metrics_fn,
+                        calibration_kwargs=calibration,
+                    )
+
+    def test_label_shift_requires_valid_distributions(self):
+        good = evaluation()
+        for calibration in (
+            {},
+            {"target_label_dist": [0.5, 0.5]},
+            {"target_label_dist": [0.5, -0.1, 0.6]},
+            {"target_label_dist": [0.2, 0.3, 0.5], "source_label_dist": [0, 1, 0]},
+        ):
+            with self.subTest(calibration=calibration):
+                bad = evaluation(
+                    LabelShift, options={"calibration_kwargs": calibration}
+                )
+                results = CPBench().evaluate([bad, good])
+
+                self.assertEqual(results[bad].status, "failed")
+                self.assertIn(
+                    results[bad].metadata["error_type"], ("TypeError", "ValueError")
+                )
+                self.assertEqual(
+                    results[good].status, "success", results[good].metadata
+                )
+
+    def test_label_shift_training_cache_and_outputs(self):
+        ev = evaluation(
+            LabelShift,
+            model_class=MLP,
+            model_params={"embedding_dim": 4, "hidden_dim": 4},
+            training={"epochs": 1},
+            options={"calibration_kwargs": {"target_label_dist": [0.2, 0.3, 0.5]}},
+        )
+        before = ev.to_dict()
+
+        with tempfile.TemporaryDirectory() as directory:
+            cache, output = Path(directory) / "cache", Path(directory) / "output"
+            cold = CPBench().evaluate([ev], cache_dir=cache, output_dir=output)[ev]
+
+            with patch.object(
+                Trainer, "train", side_effect=AssertionError("must reuse")
+            ):
+                warm = CPBench().evaluate([ev], cache_dir=cache, output_dir=output)[ev]
+
+            self.assertEqual(cold.status, "success", cold.metadata)
+            self.assertEqual(warm.status, "success", warm.metadata)
+            self.assertEqual(cold.metrics, warm.metrics)
+            self.assertEqual(warm.artifact, output / f"{ev.id}.npz")
+
+            with np.load(warm.artifact) as predictions:
+                self.assertEqual(
+                    set(predictions.files), {"y_true", "y_prob", "y_predset"}
+                )
+                self.assertEqual(predictions["y_predset"].shape, (12, 3))
+
+        self.assertEqual(ev.to_dict(), before)
+
     def test_favmac_native_equivalence(self):
         for arguments in (
             {"target_cost": 0.8},
@@ -526,7 +656,9 @@ class TestNativeMethods(unittest.TestCase):
                     multilabel_metrics_fn,
                 )
 
-    def _native_equivalence(self, ev, method, arguments, metric_function):
+    def _native_equivalence(
+        self, ev, method, arguments, metric_function, *, calibration_kwargs=None
+    ):
         before = ev.to_dict()
         observed = []
         original = method.forward
@@ -548,7 +680,7 @@ class TestNativeMethods(unittest.TestCase):
             for key, value in arguments.items()
         }
         native = method(FixedModel(splits["train"]).eval(), **native_arguments)
-        native.calibrate(splits["calibration"])
+        native.calibrate(splits["calibration"], **(calibration_kwargs or {}))
         records = []
         with torch.no_grad():
             for batch in get_dataloader(splits["test"], 5):
@@ -611,17 +743,32 @@ class TestNativeMethods(unittest.TestCase):
         self.assertEqual(result.status, "success", result.metadata)
 
     def test_unsupported_protocol_and_options_fail_before_preparation(self):
-        for key, value in (("feedback", "immediate"), ("order", "chronological")):
-            params = copy.deepcopy(evaluation().params)
-            params["protocol"][key] = value
-            ev = Evaluation(params)
-            result = CPBench().evaluate([ev])[ev]
-            self.assertEqual(result.status, "failed")
-        params = copy.deepcopy(evaluation().params)
-        params["method"]["options"] = {"unknown": 1}
-        ev = Evaluation(params)
-        result = CPBench().evaluate([ev])[ev]
-        self.assertEqual(result.metadata["error_type"], "TypeError")
+        for method, mode, adapter in (
+            (BaseConformal, "multiclass", "fixed_calibration"),
+            (ClusterLabel, "multiclass", "cluster_label"),
+            (FavMac, "multilabel", "favmac"),
+        ):
+            base = evaluation(method, mode=mode)
+            invalid = []
+            for key, value in (("feedback", "immediate"), ("order", "chronological")):
+                params = copy.deepcopy(base.params)
+                params["protocol"][key] = value
+                invalid.append((Evaluation(params), "ValueError"))
+            for key in ("unknown", "evaluation", "cache_dir", "output_dir"):
+                params = copy.deepcopy(base.params)
+                params["method"]["options"] = {key: "unsupported"}
+                invalid.append((Evaluation(params), "TypeError"))
+            for ev, error in invalid:
+                with (
+                    self.subTest(method=method, params=ev.params),
+                    patch(
+                        f"pyhealth.benchmarks.cpbench.adapters.{adapter}.prepare_evaluation"
+                    ) as prepare,
+                ):
+                    result = CPBench().evaluate([ev])[ev]
+                prepare.assert_not_called()
+                self.assertEqual(result.status, "failed")
+                self.assertEqual(result.metadata["error_type"], error)
 
     def test_unknown_metrics_are_not_silently_omitted(self):
         for method, mode in ((BaseConformal, "multiclass"), (FavMac, "multilabel")):
@@ -630,7 +777,7 @@ class TestNativeMethods(unittest.TestCase):
             self.assertEqual(result.status, "failed")
             self.assertIn("metric", result.metadata["error"].lower())
 
-    def test_results_only_and_rng_restoration_including_failure(self):
+    def test_default_output_and_rng_restoration_including_failure(self):
         good = evaluation()
         params = copy.deepcopy(good.params)
         params["model"]["class"] = broken_model
@@ -640,13 +787,7 @@ class TestNativeMethods(unittest.TestCase):
             np.random.get_state(),
             torch.get_rng_state(),
         )
-        with tempfile.TemporaryDirectory() as directory:
-            results = CPBench().evaluate(
-                [bad, good],
-                cache_dir=Path(directory) / "cache",
-                output_dir=Path(directory) / "output",
-            )
-            self.assertEqual(list(Path(directory).iterdir()), [])
+        results = CPBench().evaluate([bad, good])
         self.assertEqual(results[bad].status, "failed")
         self.assertEqual(results[good].status, "success", results[good].metadata)
         self.assertIsNone(results[good].artifact)
@@ -681,6 +822,159 @@ class TestNativeMethods(unittest.TestCase):
         self.assertAlmostEqual(result.metrics["set_size"], 14 / 12)
         self.assertAlmostEqual(result.metrics["miscoverage_overall_ps"], 11 / 12)
         self.assertEqual(result.metrics["error_overall_ps"], 1.0)
+
+
+class TestCacheAndOutput(unittest.TestCase):
+    def trained_evaluation(self, method=BaseConformal, mode="multiclass"):
+        arguments = {
+            BaseConformal: {"alpha": 0.2, "random_state": 42},
+            ClusterLabel: {"alpha": 0.2, "n_clusters": 2, "random_state": 42},
+            FavMac: {"target_cost": 0.8},
+        }[method]
+        return evaluation(
+            method,
+            mode=mode,
+            model_class=MLP,
+            model_params={"embedding_dim": 4, "hidden_dim": 4},
+            training={"epochs": 1},
+            method_params=arguments,
+            metrics=["tp", "fp", "roc_auc_micro"]
+            if mode == "multilabel"
+            else ["accuracy", "set_size", "miscoverage_overall_ps"],
+        )
+
+    def test_all_adapters_save_outputs_and_share_model_cache(self):
+        evaluations = [
+            self.trained_evaluation(),
+            self.trained_evaluation(ClusterLabel),
+            self.trained_evaluation(FavMac, "multilabel"),
+        ]
+        original_train = Trainer.train
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(
+                Trainer, "train", autospec=True, side_effect=original_train
+            ) as train:
+                results = CPBench().evaluate(
+                    evaluations, cache_dir=root / "cache", output_dir=root / "output"
+                )
+            # ClusterLabel and BaseConformal use the same fitted base model.
+            self.assertEqual(train.call_count, 2)
+            for ev, result in results.items():
+                self.assertEqual(result.status, "success", result.metadata)
+                self.assertEqual(result.artifact, root / "output" / f"{ev.id}.npz")
+                with np.load(result.artifact, allow_pickle=False) as artifact:
+                    self.assertEqual(
+                        set(artifact.files), {"y_true", "y_prob", "y_predset"}
+                    )
+                    predictions = {name: artifact[name] for name in artifact.files}
+                self.assertEqual(len(predictions["y_true"]), 12)
+                scorer = (
+                    multilabel_metrics_fn
+                    if ev.params["method"]["class"] is FavMac
+                    else multiclass_metrics_fn
+                )
+                expected = scorer(**predictions, metrics=ev.params["metrics"])
+                for name, value in expected.items():
+                    self.assertAlmostEqual(result.metrics[name], value)
+            self.assertEqual(len(list((root / "output").iterdir())), 3)
+
+    def test_cache_reuse_invalidation_and_numerical_parity(self):
+        first = self.trained_evaluation()
+        plain = CPBench().evaluate([first])[first]
+        alpha_params = copy.deepcopy(first.params)
+        alpha_params["method"]["params"]["alpha"] = 0.3
+        other_alpha = Evaluation(alpha_params)
+        metric_params = copy.deepcopy(first.params)
+        metric_params["metrics"] = ["accuracy"]
+        other_metrics = Evaluation(metric_params)
+        seed_params = copy.deepcopy(first.params)
+        seed_params["protocol"]["seed"] = 43
+        other_seed = Evaluation(seed_params)
+        original_train = Trainer.train
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory)
+            with patch.object(
+                Trainer, "train", autospec=True, side_effect=original_train
+            ) as train:
+                cold = CPBench().evaluate([first], cache_dir=cache)[first]
+                warm = CPBench().evaluate([first], cache_dir=cache)[first]
+                rest = CPBench().evaluate(
+                    [other_alpha, other_metrics, other_seed], cache_dir=cache
+                )
+            self.assertEqual(train.call_count, 2)
+            for result in [plain, cold, warm, *rest.values()]:
+                self.assertEqual(result.status, "success", result.metadata)
+            self.assertEqual(plain.metrics, cold.metrics)
+            self.assertEqual(cold.metrics, warm.metrics)
+            self.assertEqual(
+                rest[other_metrics].metrics["accuracy"], cold.metrics["accuracy"]
+            )
+            self.assertIsNone(cold.artifact)  # Cache files are not run outputs.
+
+    def test_preparation_rng_and_cached_model_ownership(self):
+        ev = self.trained_evaluation()
+        before = ev.to_dict()
+        with tempfile.TemporaryDirectory() as directory, _seeded(42):
+            py_state, np_state, torch_state = (
+                random.getstate(),
+                np.random.get_state(),
+                torch.get_rng_state(),
+            )
+            _, _, cold = prepare_evaluation(
+                ev, required=("train", "calibration", "test"), cache_dir=Path(directory)
+            )
+            saved = {
+                key: value.detach().clone() for key, value in cold.state_dict().items()
+            }
+            with torch.no_grad():
+                cold.fc.bias.add_(10)
+            _, _, warm = prepare_evaluation(
+                ev, required=("train", "calibration", "test"), cache_dir=Path(directory)
+            )
+            self.assertIsNot(cold, warm)
+            for key, value in saved.items():
+                self.assertTrue(torch.equal(value, warm.state_dict()[key]), key)
+            self.assertEqual(random.getstate(), py_state)
+            now = np.random.get_state()
+            self.assertEqual(now[0], np_state[0])
+            np.testing.assert_array_equal(now[1], np_state[1])
+            self.assertEqual(now[2:], np_state[2:])
+            self.assertTrue(torch.equal(torch_state, torch.get_rng_state()))
+        self.assertEqual(ev.to_dict(), before)
+
+    def test_cache_publication_failure_does_not_leave_an_entry(self):
+        ev = self.trained_evaluation()
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory)
+            target = model_cache_path(ev.params, cache)
+            with patch.object(
+                SampleBuilder, "save", side_effect=OSError("interrupted write")
+            ):
+                result = CPBench().evaluate([ev], cache_dir=cache)[ev]
+            self.assertEqual(result.status, "failed")
+            self.assertFalse(target.exists())
+            self.assertEqual(list(target.parent.glob(f".{target.name}.*")), [])
+            recovered = CPBench().evaluate([ev], cache_dir=cache)[ev]
+            self.assertEqual(recovered.status, "success", recovered.metadata)
+            self.assertTrue((target / "model.ckpt").is_file())
+            self.assertTrue((target / "schema.pkl").is_file())
+
+    def test_output_publication_failure_preserves_existing_artifact(self):
+        ev = evaluation()
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            first = CPBench().evaluate([ev], output_dir=output)[ev]
+            self.assertEqual(first.status, "success", first.metadata)
+            contents = first.artifact.read_bytes()
+            with patch(
+                "pyhealth.benchmarks.cpbench.shared.prediction.np.savez_compressed",
+                side_effect=OSError("interrupted write"),
+            ):
+                failed = CPBench().evaluate([ev], output_dir=output)[ev]
+            self.assertEqual(failed.status, "failed")
+            self.assertEqual(first.artifact.read_bytes(), contents)
+            self.assertEqual(list(output.iterdir()), [first.artifact])
 
 
 class TestPredictionAndScoring(unittest.TestCase):

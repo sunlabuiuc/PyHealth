@@ -19,6 +19,9 @@ from pyhealth.models import MLP
 
 def main():
     evaluations = []
+    # Arguments follow each native method's API. alpha is miscoverage;
+    # LABEL's alpha list uses encoded class order, SCRIB's risk controls its
+    # error criterion, and FavMac's target_cost uses native cost units.
     for method, arguments, calibration, mode in (
         (BaseConformal, {"alpha": 0.1, "random_state": 17}, {}, "multiclass"),
         (BaseConformal, {"alpha": 0.2, "random_state": 17}, {}, "multiclass"),
@@ -42,15 +45,19 @@ def main():
         evaluations.append(
             Evaluation(
                 {
+                    # Each params mapping is passed to that class's constructor.
                     "dataset": {
                         "class": SyntheticDataset,
+                        # mode changes raw labels: integer vs list of labels.
+                        # This seed controls feature noise, not patient splitting.
                         "params": {"seed": 5, "mode": mode},
                     },
+                    # The task encodes the generated labels; it does not change them.
                     "task": {"class": SyntheticTask, "params": {"mode": mode}},
                     "model": {
                         "class": MLP,
                         "params": {"embedding_dim": 8, "hidden_dim": 8},
-                        "training": {"epochs": 1},
+                        "training": {"epochs": 1},  # Train on the train split only.
                     },
                     "method": {
                         "class": method,
@@ -63,14 +70,17 @@ def main():
                     "protocol": {
                         "split": {
                             "class": PatientSplit,
+                            # Fractions of patients; independent shuffle seed.
                             "params": {"ratios": [0.4, 0.4, 0.2], "seed": 5},
+                            # Names for the three outputs in the same order as ratios.
                             "roles": ["train", "calibration", "test"],
                         },
+                        # Seeds global RNGs; does not replace native random_state.
                         "seed": 17,
                         "batch_size": 16,
                         "device": "cpu",
-                        "order": "dataset",
-                        "feedback": "none",
+                        "order": "dataset",  # Iterate the test split in dataset order.
+                        "feedback": "none",  # Do not update from test labels.
                     },
                 }
             )
