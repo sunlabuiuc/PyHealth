@@ -74,7 +74,20 @@ def _twenty_patient_samples():
 
 
 class TestPairedRunsAndEvalSplit(unittest.TestCase):
-    def test_split_warns_and_labels_leaky_fallback(self):
+    def test_empty_patient_split_is_refused_by_default(self):
+        from pyhealth.datasets import create_sample_dataset
+
+        runner = _runner()
+        dataset = create_sample_dataset(
+            samples=_single_patient_samples(),
+            input_schema={"labs": "stagenet_tensor"},
+            output_schema={"label": "binary"},
+            in_memory=True,
+        )
+        with self.assertRaises(RuntimeError):
+            runner._split_dataset(dataset, seed=1)
+
+    def test_split_warns_and_labels_allowed_leaky_fallback(self):
         from pyhealth.datasets import create_sample_dataset
 
         runner = _runner()
@@ -86,7 +99,9 @@ class TestPairedRunsAndEvalSplit(unittest.TestCase):
         )
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            train, _val, _test, mode = runner._split_dataset(dataset, seed=1)
+            train, _val, _test, mode = runner._split_dataset(
+                dataset, seed=1, allow_leaky_split=True
+            )
         self.assertEqual(mode, "by_sample_fallback_leaky")
         self.assertTrue(
             any("split_by_sample" in str(w.message) for w in caught)
@@ -196,6 +211,75 @@ class TestPairedRunsAndEvalSplit(unittest.TestCase):
             self.assertEqual(
                 {row["eval_split"] for row in rows}, {"test"}
             )
+
+    def test_run_directory_marks_allow_leaky_split(self):
+        # The suffix marks the config, not the outcome: it is present
+        # whenever --allow-leaky-split is passed, whether the patient
+        # split succeeds (no fallback) or the fallback fires.
+        import warnings
+
+        from pyhealth.datasets import create_sample_dataset
+
+        runner = _runner()
+        with TemporaryDirectory() as tmp:
+            argv = [
+                "--ehr-root",
+                "/tmp/does-not-exist",
+                "--task",
+                "labs",
+                "--model",
+                "mlp",
+                "--epochs",
+                "0",
+                "--batch-size",
+                "4",
+                "--device",
+                "cpu",
+                "--seed",
+                "42",
+                "--allow-leaky-split",
+                "--no-cache-frozen-text",
+                "--output-dir",
+                tmp,
+            ]
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                # Single patient: the patient split is empty, fallback fires.
+                dataset = create_sample_dataset(
+                    samples=_single_patient_samples(),
+                    input_schema={"labs": "stagenet_tensor"},
+                    output_schema={"label": "binary"},
+                    dataset_name="test_allow_leaky",
+                )
+                args = Namespace(
+                    **{
+                        **vars(runner.parse_args(argv)),
+                        "embedding_dim": 8,
+                        "hidden_dim": 8,
+                    }
+                )
+                output_csv = runner.run(args, sample_dataset=dataset)
+                self.assertIn(
+                    "labs_mlp_seed42_allow_leaky", str(output_csv)
+                )
+                # Twenty patients: the patient split succeeds, no fallback.
+                dataset = create_sample_dataset(
+                    samples=_twenty_patient_samples(),
+                    input_schema={"labs": "stagenet_tensor"},
+                    output_schema={"label": "binary"},
+                    dataset_name="test_allow_leaky_clean",
+                )
+                args = Namespace(
+                    **{
+                        **vars(runner.parse_args(argv)),
+                        "embedding_dim": 8,
+                        "hidden_dim": 8,
+                    }
+                )
+                output_csv = runner.run(args, sample_dataset=dataset)
+                self.assertIn(
+                    "labs_mlp_seed42_allow_leaky", str(output_csv)
+                )
 
     def test_run_directory_gains_dev_suffix(self):
         from pyhealth.datasets import create_sample_dataset

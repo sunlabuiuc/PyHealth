@@ -138,27 +138,38 @@ def _build_task(args: argparse.Namespace):
     raise ValueError(f"Unknown task: {args.task}")
 
 
-def _split_dataset(dataset: Any, seed: int) -> Tuple[Any, Any, Any, str]:
-    """Split by patient, falling back to by-sample only if that yields nothing.
+def _split_dataset(
+    dataset: Any, seed: int, allow_leaky_split: bool = False
+) -> Tuple[Any, Any, Any, str]:
+    """Split by patient. Refuse the leaky by-sample fallback unless asked.
 
-    The fallback is leaky: a patient with several admissions can then land in
-    both train and test, which inflates the metrics. It only triggers on tiny
-    cohorts, but it must not trigger silently, so the mode is returned and
-    recorded alongside the run's results.
+    The fallback puts a patient with several admissions in both train and
+    test, which inflates every metric. A run that cannot be split correctly
+    stops rather than quietly producing numbers nobody can use. The mode is
+    returned and recorded alongside the run's results.
     """
     train_ds, val_ds, test_ds = split_by_patient(dataset, [0.8, 0.1, 0.1], seed=seed)
-    if len(train_ds) == 0 or len(test_ds) == 0:
-        warnings.warn(
-            "split_by_patient produced an empty split, falling back to "
-            "split_by_sample. The same patient may now appear in train and "
-            "test, so these metrics are optimistic and not comparable to "
-            "patient-split runs.",
-            RuntimeWarning,
-            stacklevel=2,
+    if len(train_ds) > 0 and len(test_ds) > 0:
+        return train_ds, val_ds, test_ds, "by_patient"
+
+    if not allow_leaky_split:
+        raise RuntimeError(
+            f"split_by_patient produced an empty split (train={len(train_ds)}, "
+            f"test={len(test_ds)}) on {len(dataset)} samples. The by-sample "
+            "fallback would put the same patient in train and test, so this "
+            "run is refused. Widen the cohort, or pass --allow-leaky-split if "
+            "you are running a smoke test and know the metrics are garbage."
         )
-        train_ds, val_ds, test_ds = split_by_sample(dataset, [0.8, 0.1, 0.1], seed=seed)
-        return train_ds, val_ds, test_ds, "by_sample_fallback_leaky"
-    return train_ds, val_ds, test_ds, "by_patient"
+
+    warnings.warn(
+        "Falling back to split_by_sample at your request. The same patient "
+        "may now appear in train and test, so these metrics are optimistic "
+        "and not comparable to patient-split runs.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
+    train_ds, val_ds, test_ds = split_by_sample(dataset, [0.8, 0.1, 0.1], seed=seed)
+    return train_ds, val_ds, test_ds, "by_sample_fallback_leaky"
 
 
 def _window_suffix(observation_window_hours: float) -> str:
@@ -386,7 +397,7 @@ def run(args: argparse.Namespace, sample_dataset: Any = None) -> Path:
             )
 
     train_ds, val_ds, test_ds, split_mode = _split_dataset(
-        sample_dataset, seed=args.seed
+        sample_dataset, seed=args.seed, allow_leaky_split=args.allow_leaky_split
     )
 
     unified = _build_unified_embedding(args, sample_dataset)
@@ -431,9 +442,13 @@ def run(args: argparse.Namespace, sample_dataset: Any = None) -> Path:
     # suffixes they would collide with the full run.
     dev_suffix = f"_dev{args.dev}" if args.dev else ""
     window_suffix = _window_suffix(args.observation_window_hours)
+    # The flag marks the config, not the outcome: a run that splits
+    # cleanly by patient keeps the suffix, so the opt-in stays visible
+    # in the directory name.
+    leaky_suffix = "_allow_leaky" if args.allow_leaky_split else ""
     exp_name = (
         f"{args.task}_{args.model}_seed{args.seed}"
-        f"{dev_suffix}{window_suffix}"
+        f"{dev_suffix}{window_suffix}{leaky_suffix}"
     )
     output_dir = Path(args.output_dir)
 
@@ -667,6 +682,16 @@ def parse_args(argv: Optional[list] = None) -> argparse.Namespace:
         type=int,
         default=None,
         help="Batches each loader worker prefetches (needs --num-workers > 0).",
+    )
+    parser.add_argument(
+        "--allow-leaky-split",
+        action="store_true",
+        default=False,
+        help=(
+            "Permit the by-sample split fallback when the patient split is "
+            "empty. The same patient can then land in train and test. Smoke "
+            "tests only -- the metrics are not usable."
+        ),
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--patience", type=int, default=None)
