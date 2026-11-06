@@ -117,7 +117,8 @@ must already contain compatible weights and fitted preprocessing::
 A checkpoint directory contains native ``Trainer.save_ckpt`` weights in
 ``model.ckpt`` and fitted ``SampleBuilder.save`` metadata in ``schema.pkl``.
 Loading validates the task schema and reuses saved processors without fitting
-or training. Fixed calibration and FavMac need no training split in this mode;
+or training. Fixed calibration, FavMac and CovariateLabel need no training split
+in this mode;
 ClusterLabel still requires a train role for reference embeddings. Calibration/test
 subjects can be selected explicitly. The caller must use data held out from checkpoint training.
 The model class/constructor params must match the saved weights.
@@ -132,16 +133,27 @@ Adapters and metrics
 The explicit ADAPTERS mapping in ``adapters/__init__.py`` selects by
 ``method["class"]``. BaseConformal, LABEL, RC3P, SCRIB, NeighborhoodLabel and
 LabelShift use fixed calibration; FavMac uses multilabel cost control. ClusterLabel adds
-reference embedding extraction from a declared train split. There is no inference
+reference embedding extraction from a declared train split. CovariateLabel uses
+native covariate-shift weighting. There is no inference
 from inheritance. Adding method support changes the adapter mapping and,
 if needed, an adapter; the common contract stays the same.
 
-All three adapters accept ``calibration_kwargs`` in method ``options`` and
+All four adapters accept ``calibration_kwargs`` in method ``options`` and
 implement dataset order without test feedback. Calibration/test parts are required;
 ClusterLabel additionally requires the train reference part and an embedding-capable
 model.
 Unsupported protocol rules fail explicitly. A test adapter demonstrates immediate
 feedback using the same contract and shared preparation/collection functions.
+
+CovariateLabel defaults to native KDE fitting on calibration/test embeddings.
+It uses **all test inputs before prediction**, excluding their labels from every
+embedding and prediction call. It requires a multiclass model supporting
+``embed=True``. With paired importable ``kde_cal``/``kde_test`` constructor
+callables, only calibration embeddings are extracted. Alternatively, pass
+``cal_weights`` in ``method.options.calibration_kwargs``: one importance weight
+per calibration row, in dataset order. This path needs no embeddings.
+``cal_embeddings``/``test_embeddings`` are computed from declared splits and cannot
+be supplied in options. A complete runnable example is in the adapter docstring.
 
 LabelShift requires a supplied target label distribution in class-encoding order.
 Starting from the complete example above, use equal target probabilities for this
@@ -257,3 +269,7 @@ added. Run the synthetic example from the repository root with::
 .. autofunction:: pyhealth.benchmarks.cpbench.adapters.fixed_calibration.run
 
 .. autofunction:: pyhealth.benchmarks.cpbench.adapters.favmac.run
+
+.. autofunction:: pyhealth.benchmarks.cpbench.adapters.cluster_label.run
+
+.. autofunction:: pyhealth.benchmarks.cpbench.adapters.covariate_label.run

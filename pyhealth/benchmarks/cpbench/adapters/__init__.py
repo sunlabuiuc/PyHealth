@@ -9,12 +9,13 @@ from pyhealth.calib.predictionset import (
     SCRIB,
     BaseConformal,
     ClusterLabel,
+    CovariateLabel,
     FavMac,
     LabelShift,
     NeighborhoodLabel,
 )
 
-from . import cluster_label, favmac, fixed_calibration
+from . import cluster_label, covariate_label, favmac, fixed_calibration
 
 ADAPTERS = {
     BaseConformal: fixed_calibration.run,
@@ -25,6 +26,7 @@ ADAPTERS = {
     LabelShift: fixed_calibration.run,
     FavMac: favmac.run,
     ClusterLabel: cluster_label.run,
+    CovariateLabel: covariate_label.run,
 }
 
 
