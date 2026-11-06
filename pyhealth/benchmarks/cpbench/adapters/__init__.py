@@ -8,11 +8,12 @@ from pyhealth.calib.predictionset import (
     RC3P,
     SCRIB,
     BaseConformal,
+    ClusterLabel,
     FavMac,
     NeighborhoodLabel,
 )
 
-from . import favmac, fixed_calibration
+from . import cluster_label, favmac, fixed_calibration
 
 ADAPTERS = {
     BaseConformal: fixed_calibration.run,
@@ -21,6 +22,7 @@ ADAPTERS = {
     SCRIB: fixed_calibration.run,
     NeighborhoodLabel: fixed_calibration.run,
     FavMac: favmac.run,
+    ClusterLabel: cluster_label.run,
 }
 
 
