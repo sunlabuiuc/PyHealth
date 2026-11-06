@@ -9,7 +9,8 @@ Paper:
     "Multimodal Disease Progression Modeling via Spatiotemporal Disentanglement
     and Multiscale Alignment." NeurIPS 2025. https://arxiv.org/abs/2510.11112
 
-Image selection, label derivation and the EHR window are adapted from DiPro
+Image selection, label derivation, the EHR window, region boxes and
+demographics are adapted from DiPro
 (commit 64b12ec, ``mimic_data_extract/mimic3benchmark/scripts`` and
 ``dataset_module/dipro_dataset.py``, https://github.com/Chenliu-svg/DiPro),
 MIT License, Copyright (c) 2025 LIU Chen @ The Hong Kong Polytechnic University.
@@ -68,6 +69,34 @@ _DISEASE_OF_FINDING = {
 }
 _IMAGENOME_TABLES = ("silver_images", "silver_comparisons", "gold_comparisons")
 _LIST_SEPARATOR = ";"
+_NO_BOX = [0.0, 0.0, 0.0, 0.0]
+_UNKNOWN_RACE = "UNKNOWN/UNABLE TO OBTAIN/PATIENT DECLINED TO ANSWER"
+_RACE_GROUPS = {
+    "ASIAN": ("ASIAN", "ASIAN - CHINESE", "ASIAN - SOUTH EAST ASIAN",
+              "ASIAN - ASIAN INDIAN", "ASIAN - KOREAN"),
+    "BLACK/AFRICAN AMERICAN": ("BLACK/AFRICAN AMERICAN", "BLACK/CAPE VERDEAN",
+                               "BLACK/CARIBBEAN ISLAND", "BLACK/AFRICAN"),
+    "HISPANIC/LATINO": ("HISPANIC/LATINO - PUERTO RICAN", "HISPANIC OR LATINO",
+                        "HISPANIC/LATINO - DOMINICAN",
+                        "HISPANIC/LATINO - GUATEMALAN",
+                        "HISPANIC/LATINO - SALVADORAN",
+                        "HISPANIC/LATINO - MEXICAN", "HISPANIC/LATINO - CUBAN",
+                        "HISPANIC/LATINO - COLUMBIAN",
+                        "HISPANIC/LATINO - HONDURAN",
+                        "HISPANIC/LATINO - CENTRAL AMERICAN"),
+    "OTHER": ("OTHER", "AMERICAN INDIAN/ALASKA NATIVE",
+              "NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER", "SOUTH AMERICAN",
+              "MULTIPLE RACE/ETHNICITY"),
+    _UNKNOWN_RACE: ("UNKNOWN", "UNABLE TO OBTAIN", "PATIENT DECLINED TO ANSWER"),
+    "WHITE": ("WHITE", "WHITE - OTHER EUROPEAN", "WHITE - RUSSIAN",
+              "WHITE - EASTERN EUROPEAN", "WHITE - BRAZILIAN"),
+}
+_RACE_GROUP_OF = {
+    race: group for group, races in _RACE_GROUPS.items() for race in races
+}
+_GENDERS = ("F", "M")
+_LANGUAGES = ("?", "ENGLISH")
+_MARITAL_STATUSES = ("DIVORCED", "MARRIED", "SINGLE", "WIDOWED")
 
 
 def _los_outlier_stays(df: pl.LazyFrame, min_los_hours: float) -> list[int]:
@@ -250,6 +279,78 @@ def _pair_labels(
     return labels, {**_agreed(silver_regions), **_agreed(gold_regions)}
 
 
+def _region_boxes(patient: Any) -> dict[str, dict[str, list[float]]]:
+    """Returns the box ``[x1, y1, x2, y2]`` per image and region."""
+    rows = patient.get_events(event_type="silver_objects", return_df=True)
+    boxes = defaultdict(dict)
+    if rows.height == 0:
+        return boxes
+    names = ["dicom_id", "bbox_name"]
+    names += [f"original_{side}" for side in ("x1", "y1", "x2", "y2")]
+    for dicom_id, region, *box in rows.select(
+        [f"silver_objects/{name}" for name in names]
+    ).iter_rows():
+        if region in _REGIONS and None not in box:
+            boxes[dicom_id][region] = [float(side) for side in box]
+    return boxes
+
+
+def _first_value(
+    measurements: pl.DataFrame, stay_id: int, name: str, before: datetime
+) -> float:
+    """Returns the stay's first chart value of a feature, or NaN without one."""
+    values = (
+        measurements.filter(
+            (pl.col("stay_id") == stay_id)
+            & (pl.col("feature") == _MEASURED_NAMES.index(name))
+            & (pl.col("timestamp") < before)
+        )
+        .sort("timestamp")["value"]
+    )
+    return values[0] if len(values) else float("nan")
+
+
+def _one_hot(value: str | None, categories: Sequence[str]) -> list[float]:
+    """Encodes a category; a missing or unknown value is all zeros."""
+    return [float(value == category) for category in categories]
+
+
+def _demographics(
+    patient: Any,
+    hadm_id: int,
+    measurements: pl.DataFrame,
+    stay_id: int,
+    before: datetime,
+) -> list[float]:
+    """Builds the 17 demographic values, in DiPro's column order.
+
+    Age, height and weight come first. Height and weight are NaN if they were
+    not charted before ``before``, so a later value can't enter the sample.
+    """
+    person = patient.get_events(event_type="patients")[0]
+    admissions = patient.get_events(event_type="admissions", return_df=True)
+    if admissions.height:
+        admissions = admissions.filter(
+            pl.col("admissions/hadm_id").cast(pl.Int64, strict=False) == hadm_id
+        )
+    race, language, marital_status = (
+        admissions.select(
+            [f"admissions/{name}" for name in ("race", "language", "marital_status")]
+        ).row(0)
+        if admissions.height
+        else (None, None, None)
+    )
+    return [
+        float(person.anchor_age),
+        _first_value(measurements, stay_id, "height", before),
+        _first_value(measurements, stay_id, "weight", before),
+        *_one_hot(person.gender, _GENDERS),
+        *_one_hot(_RACE_GROUP_OF.get(race), sorted(_RACE_GROUPS)),
+        *_one_hot(language, _LANGUAGES),
+        *_one_hot(marital_status, _MARITAL_STATUSES),
+    ]
+
+
 class DiseaseProgressionMIMIC4(BaseTask):
     """Disease progression between two consecutive chest X-rays of an ICU stay.
 
@@ -299,6 +400,15 @@ class DiseaseProgressionMIMIC4(BaseTask):
     the index in :attr:`STATUSES` and 3 for not mentioned. It is a label, so
     it must not be fed to a model as an input feature.
 
+    Two options add what :class:`~pyhealth.models.DiPro` uses and change no
+    field otherwise. ``region_crops`` makes ``cxr`` a ``time_region_image``
+    input, ``([first_path, second_path], [first_hour, second_hour],
+    [first_boxes, second_boxes])``, which the processor turns into crops
+    ``[2, 10, 3, H, W]`` of the :attr:`REGIONS` of each image, and needs the
+    ``silver_objects`` table. ``include_demographics`` adds ``demographics``:
+    the 17 values of :attr:`DEMOGRAPHICS`, standardized on the training split,
+    with a value still missing becoming the training mean.
+
     To reserve the gold subjects for the test set as DiPro does, use
     :class:`~pyhealth.datasets.GoldTestSplit` with :meth:`gold_subjects`.
 
@@ -315,6 +425,9 @@ class DiseaseProgressionMIMIC4(BaseTask):
         exclude_los_outliers: Whether to apply the IQR length-of-stay limits.
             They are strict, as in DiPro, so if every stay has the same length
             all of them are removed.
+        region_crops: Whether ``cxr`` holds crops of the 10 regions instead of
+            whole images. Each sample then takes 10 times the disk space.
+        include_demographics: Whether to add ``demographics``.
 
     Examples:
         >>> from pyhealth.tasks import DiseaseProgressionMIMIC4
@@ -323,6 +436,11 @@ class DiseaseProgressionMIMIC4(BaseTask):
         (21, 'atelectasis: worsened')
         >>> sorted(task.input_schema)
         ['cxr', 'ehr']
+        >>> task = DiseaseProgressionMIMIC4(
+        ...     region_crops=True, include_demographics=True
+        ... )
+        >>> task.input_schema["cxr"][0], len(task.DEMOGRAPHICS)
+        ('time_region_image', 17)
         >>> from pyhealth.datasets import GoldTestSplit, MIMIC4Dataset
         >>> dataset = MIMIC4Dataset(  # doctest: +SKIP
         ...     ehr_root="/path/to/mimic-iv/2.2",
@@ -348,6 +466,15 @@ class DiseaseProgressionMIMIC4(BaseTask):
         f"{disease}: {status}" for disease in _DISEASES for status in _STATUSES
     ]
     FEATURES: ClassVar[list[str]] = [*_MEASURED_NAMES, "gcs_total"]
+    DEMOGRAPHICS: ClassVar[list[str]] = [
+        "age",
+        "height",
+        "weight",
+        *(f"gender_{value}" for value in _GENDERS),
+        *(f"race_group_{value}" for value in sorted(_RACE_GROUPS)),
+        *(f"language_{value}" for value in _LANGUAGES),
+        *(f"marital_status_{value}" for value in _MARITAL_STATUSES),
+    ]
     output_schema: ClassVar[dict[str, Any]] = {
         "progression": ("multilabel", {"classes": LABELS})
     }
@@ -363,18 +490,27 @@ class DiseaseProgressionMIMIC4(BaseTask):
         view_positions: Sequence[str] = ("AP",),
         include_bin_after_cxr2: bool = False,
         exclude_los_outliers: bool = True,
+        region_crops: bool = False,
+        include_demographics: bool = False,
     ) -> None:
+        standardized = {"normalization": "zscore", "impute_strategy": "zero"}
         self.input_schema = {
-            "ehr": (
-                "tensor",
-                {"normalization": "zscore", "impute_strategy": "zero"},
-            ),
+            "ehr": ("tensor", standardized),
             "cxr": ("time_image", {"image_size": image_size, "mode": "RGB"}),
         }
+        if region_crops:
+            self.input_schema["cxr"] = (
+                "time_region_image",
+                {"num_regions": len(_REGIONS), "image_size": image_size},
+            )
+        if include_demographics:
+            self.input_schema["demographics"] = ("tensor", standardized)
         super().__init__()
         self.view_positions = list(view_positions)
         self.include_bin_after_cxr2 = include_bin_after_cxr2
         self.exclude_los_outliers = exclude_los_outliers
+        self.region_crops = region_crops
+        self.include_demographics = include_demographics
 
     @staticmethod
     def gold_subjects(dataset: Any) -> list[str]:
@@ -400,9 +536,10 @@ class DiseaseProgressionMIMIC4(BaseTask):
 
     def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
         """Drops unused measurements and stays with an outlying length of stay."""
-        df = _pre_filter(
-            df, self.task_name, [*_EVENT_TABLES, "metadata", *_IMAGENOME_TABLES]
-        )
+        tables = [*_EVENT_TABLES, "metadata", *_IMAGENOME_TABLES]
+        if self.region_crops:
+            tables.append("silver_objects")
+        df = _pre_filter(df, self.task_name, tables)
         if not self.exclude_los_outliers:
             return df
         outliers = _los_outlier_stays(df, self.MIN_LOS_HOURS)
@@ -448,7 +585,8 @@ class DiseaseProgressionMIMIC4(BaseTask):
         Returns:
             One sample per labeled pair of images, with ``patient_id``,
             ``visit_id``, ``stay_id``, ``ehr``, ``first_ehr_hour``, ``cxr``,
-            ``progression``, ``region_progression`` and ``from_gold``.
+            ``progression``, ``region_progression`` and ``from_gold``, and
+            ``demographics`` if requested.
         """
         stays = _eligible_stays(patient)
         if stays.height == 0:
@@ -468,6 +606,7 @@ class DiseaseProgressionMIMIC4(BaseTask):
             patient, "gold_comparisons", ("bbox_name", "finding", "comparison")
         )
         measurements = _measurements(patient)
+        boxes = _region_boxes(patient) if self.region_crops else {}
 
         min_los = timedelta(hours=self.MIN_LOS_HOURS)
         samples = []
@@ -502,28 +641,42 @@ class DiseaseProgressionMIMIC4(BaseTask):
                     (time - intime).total_seconds() / 3600
                     for time in (first_time, second_time)
                 ]
-                samples.append(
-                    {
-                        "patient_id": patient.patient_id,
-                        "visit_id": str(hadm_id),
-                        "stay_id": stay_id,
-                        "ehr": ehr,
-                        "first_ehr_hour": first_bin,
-                        "cxr": ([first_path, second_path], hours),
-                        "progression": [
-                            f"{disease}: {status}"
-                            for disease, status in labels.items()
+                cxr = ([first_path, second_path], hours)
+                if self.region_crops:
+                    cxr = (
+                        *cxr,
+                        [
+                            [boxes[image].get(r, _NO_BOX) for r in _REGIONS]
+                            if image in boxes
+                            else [_NO_BOX] * len(_REGIONS)
+                            for image in pair
                         ],
-                        "region_progression": [
-                            [
-                                _STATUSES.index(regions[(region, disease)])
-                                if (region, disease) in regions
-                                else _NOT_MENTIONED
-                                for disease in _DISEASES
-                            ]
-                            for region in _REGIONS
-                        ],
-                        "from_gold": int(pair in gold),
-                    }
-                )
+                    )
+                sample = {
+                    "patient_id": patient.patient_id,
+                    "visit_id": str(hadm_id),
+                    "stay_id": stay_id,
+                    "ehr": ehr,
+                    "first_ehr_hour": first_bin,
+                    "cxr": cxr,
+                    "progression": [
+                        f"{disease}: {status}"
+                        for disease, status in labels.items()
+                    ],
+                    "region_progression": [
+                        [
+                            _STATUSES.index(regions[(region, disease)])
+                            if (region, disease) in regions
+                            else _NOT_MENTIONED
+                            for disease in _DISEASES
+                        ]
+                        for region in _REGIONS
+                    ],
+                    "from_gold": int(pair in gold),
+                }
+                if self.include_demographics:
+                    sample["demographics"] = _demographics(
+                        patient, hadm_id, measurements, stay_id, second_time
+                    )
+                samples.append(sample)
         return samples

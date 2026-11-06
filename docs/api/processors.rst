@@ -48,6 +48,7 @@ Available Processors
 - ``SignalProcessor``: For general signal data (e.g., EEG, ECG)
 - ``TimeseriesProcessor``: For time-series data; optional ``normalization`` (``"zscore"`` or ``"minmax"``, fitted on the training split) and ``missing_indicators``
 - ``TimeImageProcessor``: For time-stamped image sequences (e.g., serial X-rays)
+- ``TimeRegionImageProcessor``: For the same regions cropped from time-stamped images
 - ``TensorProcessor``: For pre-processed tensor data; optional ``normalization``, ``missing_indicators`` and ``impute_strategy="zero"``
 - ``RawProcessor``: Pass-through processor for raw data
 
@@ -369,6 +370,7 @@ Common string keys for automatic processor selection:
 - ``"signal"``: For signal data
 - ``"timeseries"``: For time-series data
 - ``"time_image"``: For time-stamped image sequences
+- ``"time_region_image"``: For regions cropped from time-stamped images
 - ``"tensor"``: For pre-processed tensors
 - ``"raw"``: For raw/unprocessed data
 - ``"graph"``: For knowledge graph subgraphs
@@ -569,6 +571,7 @@ API Reference
     processors/pyhealth.processors.TimeseriesProcessor
     processors/pyhealth.processors.TemporalTimeseriesProcessor
     processors/pyhealth.processors.TimeImageProcessor
+    processors/pyhealth.processors.TimeRegionImageProcessor
     processors/pyhealth.processors.TensorProcessor
     processors/pyhealth.processors.RawProcessor
     processors/pyhealth.processors.IgnoreProcessor

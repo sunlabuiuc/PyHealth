@@ -88,7 +88,7 @@ def _rows(*events, stays=None, patient_id="p1", age=60):
         flat.extend(event if isinstance(event, list) else [event])
     # Every table exists in every patient, as in the global event frame.
     return [
-        _event("patients", None, anchor_age=age, anchor_year=2150),
+        _event("patients", None, gender="M", anchor_age=age, anchor_year=2150),
         _event("metadata", None, dicom_id=None, study_id=None, viewposition=None,
                image_path=None),
         _event("silver_images", None, dicom_id=None),
@@ -566,6 +566,114 @@ class TestProcessors(unittest.TestCase):
         self.assertEqual(images.shape, (2, 3, 8, 8))
         self.assertEqual(hours.tolist(), [10.5, 20.25])
         self.assertFalse(torch.isnan(batch["ehr"]).any())
+
+
+class TestModelOptions(unittest.TestCase):
+    PAIR = (_hr(1), _image(10, "a"), _image(20, "b"), _silver("a", "b"))
+
+    @staticmethod
+    def _box(dicom_id, region=LUNG, box=(1, 2, 30, 40)):
+        return _event(
+            "silver_objects", T0, dicom_id=dicom_id, bbox_name=region,
+            original_x1=box[0], original_y1=box[1],
+            original_x2=box[2], original_y2=box[3],
+        )
+
+    @staticmethod
+    def _admission(race="WHITE - RUSSIAN", language="ENGLISH", marital="MARRIED"):
+        return _event(
+            "admissions", T0, hadm_id=10, race=race, language=language,
+            marital_status=marital,
+        )
+
+    @staticmethod
+    def _chart(hours, itemid, value):
+        return _event(
+            "chartevents", T0 + timedelta(hours=hours), stay_id=1, hadm_id=10,
+            itemid=itemid, value=value, valuenum=value, valueuom="kg",
+        )
+
+    def test_defaults_are_unchanged(self):
+        task = TASK()
+        self.assertEqual(sorted(task.input_schema), ["cxr", "ehr"])
+        self.assertEqual(task.input_schema["cxr"][0], "time_image")
+        sample = task(_patient(*self.PAIR))[0]
+        self.assertEqual(len(sample["cxr"]), 2)
+        self.assertNotIn("demographics", sample)
+
+    def test_region_boxes_in_region_order(self):
+        task = TASK(region_crops=True)
+        events = (*self.PAIR, self._box("a"), self._box("b", "mediastinum"))
+        _, _, boxes = task(_patient(*events))[0]["cxr"]
+        self.assertEqual(np.array(boxes).shape, (2, 10, 4))
+        self.assertEqual(boxes[0][0], [1.0, 2.0, 30.0, 40.0])
+        self.assertEqual(boxes[0][1], [0.0] * 4)
+        self.assertEqual(boxes[1][0], [0.0] * 4)
+        self.assertEqual(boxes[1][TASK.REGIONS.index("mediastinum")][3], 40.0)
+
+    def test_image_without_boxes(self):
+        task = TASK(region_crops=True)
+        _, _, boxes = task(_patient(*self.PAIR, self._box("a")))[0]["cxr"]
+        self.assertEqual(boxes[1], [[0.0] * 4] * 10)
+
+    def test_other_boxes_are_ignored(self):
+        task = TASK(region_crops=True)
+        events = (*self.PAIR, self._box("a", "aortic arch"))
+        _, _, boxes = task(_patient(*events))[0]["cxr"]
+        self.assertEqual(boxes[0], [[0.0] * 4] * 10)
+
+    def test_pre_filter_requires_boxes_only_with_crops(self):
+        frame = _frame(_rows(*self.PAIR)).lazy()
+        TASK(exclude_los_outliers=False).pre_filter(frame)
+        with self.assertRaisesRegex(ValueError, "silver_objects"):
+            TASK(region_crops=True, exclude_los_outliers=False).pre_filter(frame)
+
+    def _demographics(self, *events):
+        task = TASK(include_demographics=True)
+        sample = task(_patient(*self.PAIR, *events))[0]["demographics"]
+        self.assertEqual(len(sample), len(TASK.DEMOGRAPHICS))
+        return dict(zip(TASK.DEMOGRAPHICS, sample))
+
+    def test_demographics_names_match_dipro(self):
+        self.assertEqual(len(TASK.DEMOGRAPHICS), 17)
+        self.assertEqual(
+            TASK.DEMOGRAPHICS[:6],
+            ["age", "height", "weight", "gender_F", "gender_M",
+             "race_group_ASIAN"],
+        )
+        self.assertEqual(TASK.DEMOGRAPHICS[-1], "marital_status_WIDOWED")
+
+    def test_demographics_values(self):
+        values = self._demographics(self._admission(), self._chart(2, 226512, 70))
+        self.assertEqual(values["age"], 60.0)
+        self.assertEqual(values["weight"], 70.0)
+        self.assertTrue(np.isnan(values["height"]))
+        self.assertEqual(values["gender_M"], 1.0)
+        self.assertEqual(values["gender_F"], 0.0)
+        self.assertEqual(values["race_group_WHITE"], 1.0)
+        self.assertEqual(values["language_ENGLISH"], 1.0)
+        self.assertEqual(values["marital_status_MARRIED"], 1.0)
+
+    def test_weight_after_the_second_image_stays_out(self):
+        values = self._demographics(self._admission(), self._chart(25, 226512, 70))
+        self.assertTrue(np.isnan(values["weight"]))
+
+    def test_first_weight_wins(self):
+        values = self._demographics(
+            self._admission(), self._chart(5, 226512, 70), self._chart(2, 226512, 80)
+        )
+        self.assertEqual(values["weight"], 80.0)
+
+    def test_unknown_categories_are_all_zero(self):
+        values = self._demographics(self._admission("NEW", "SPANISH", None))
+        categorical = {
+            k: v for k, v in values.items()
+            if k.startswith(("race", "language", "marital"))
+        }
+        self.assertEqual(set(categorical.values()), {0.0})
+
+    def test_no_admission_row(self):
+        self.assertEqual(self._demographics()["race_group_WHITE"], 0.0)
 
 
 class TestComposite(unittest.TestCase):
