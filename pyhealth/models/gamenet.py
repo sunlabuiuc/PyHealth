@@ -6,9 +6,14 @@ import torch
 import torch.nn as nn
 import numpy as np
 from pyhealth.datasets import SampleDataset
-from pyhealth.medcode import ATC
 from pyhealth.models import BaseModel
-from pyhealth.models.utils import get_last_visit, batch_to_multihot
+from pyhealth.models.utils import (
+    ddi_adjacency,
+    ehr_cooccurrence_adjacency,
+    gcn_normalize_adjacency,
+    get_last_visit,
+    history_to_label_index,
+)
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
 from pyhealth.models.embedding import EmbeddingModel
 
@@ -72,6 +77,16 @@ class GCN(nn.Module):
         hidden_size: hidden feature size.
         adj: adjacency tensor of shape [num_nodes, num_nodes].
         dropout: dropout rate. Default is 0.5.
+
+    Examples:
+        >>> from pyhealth.models.gamenet import GCN
+        >>> gcn = GCN(adj=torch.tensor([[0.0, 1.0], [1.0, 0.0]]), hidden_size=4)
+        >>> gcn.adj
+        Parameter containing:
+        tensor([[0.5000, 0.5000],
+                [0.5000, 0.5000]])
+        >>> gcn().shape
+        torch.Size([2, 4])
     """
 
     def __init__(self, adj: torch.tensor, hidden_size: int, dropout: float = 0.5):
@@ -80,8 +95,7 @@ class GCN(nn.Module):
         self.dropout = dropout
 
         voc_size = adj.shape[0]
-        adj = adj + torch.eye(adj.shape[0])
-        adj = self.normalize(adj)
+        adj = gcn_normalize_adjacency(adj)
         self.adj = torch.nn.Parameter(adj, requires_grad=False)
         self.x = torch.nn.Parameter(torch.eye(voc_size), requires_grad=False)
 
@@ -91,12 +105,7 @@ class GCN(nn.Module):
 
     def normalize(self, mx: torch.tensor) -> torch.tensor:
         """Normalizes the matrix row-wise."""
-        rowsum = mx.sum(1)
-        r_inv = torch.pow(rowsum, -1).flatten()
-        r_inv[torch.isinf(r_inv)] = 0.0
-        r_mat_inv = torch.diagflat(r_inv)
-        mx = torch.mm(r_mat_inv, mx)
-        return mx
+        return gcn_normalize_adjacency(mx, self_loops=False)
 
     def forward(self) -> torch.tensor:
         """Forward propagation.
@@ -425,39 +434,19 @@ class GAMENet(BaseModel):
     def generate_ehr_adj(self) -> torch.tensor:
         """Generates the EHR graph adjacency matrix."""
         label_vocab = self.dataset.output_processors[self.label_key].label_vocab
-        label_size = len(label_vocab)
-        ehr_adj = torch.zeros((label_size, label_size))
-        for sample in self.dataset:
-            curr_drugs = sample["drugs"]
-            if isinstance(curr_drugs, torch.Tensor):
-                continue
-            encoded_drugs = []
-            for drug in curr_drugs:
-                if drug in label_vocab:
-                    encoded_drugs.append(label_vocab[drug])
-            for idx1, med1 in enumerate(encoded_drugs):
-                for idx2, med2 in enumerate(encoded_drugs):
-                    if idx1 >= idx2:
-                        continue
-                    ehr_adj[med1, med2] = 1
-                    ehr_adj[med2, med1] = 1
-        return ehr_adj
+        # only unprocessed samples (lists of codes) are used, as before;
+        # processed multi-hot labels were always skipped here
+        drug_sets = (
+            sample["drugs"]
+            for sample in self.dataset
+            if not isinstance(sample["drugs"], torch.Tensor)
+        )
+        return ehr_cooccurrence_adjacency(drug_sets, label_vocab)
 
     def generate_ddi_adj(self) -> torch.tensor:
         """Generates the DDI graph adjacency matrix."""
-        atc = ATC()
-        ddi = atc.get_ddi(gamenet_ddi=True)
         label_vocab = self.dataset.output_processors[self.label_key].label_vocab
-        label_size = len(label_vocab)
-        ddi_adj = torch.zeros((label_size, label_size))
-        ddi_atc3 = [
-            [ATC.convert(l[0], level=3), ATC.convert(l[1], level=3)] for l in ddi
-        ]
-        for atc_i, atc_j in ddi_atc3:
-            if atc_i in label_vocab and atc_j in label_vocab:
-                ddi_adj[label_vocab[atc_i], label_vocab[atc_j]] = 1
-                ddi_adj[label_vocab[atc_j], label_vocab[atc_i]] = 1
-        return ddi_adj
+        return ddi_adjacency(label_vocab)
 
     def _build_drug_hist_vocab_map(self) -> torch.Tensor:
         """Maps drugs_hist input-vocabulary indices to drugs label_vocab
@@ -474,12 +463,7 @@ class GAMENet(BaseModel):
         """
         hist_vocab = self.dataset.input_processors["drugs_hist"].code_vocab
         label_vocab = self.dataset.output_processors[self.label_key].label_vocab
-
-        mapping = torch.full((len(hist_vocab),), self.label_size, dtype=torch.long)
-        for code, hist_idx in hist_vocab.items():
-            if code in label_vocab:
-                mapping[hist_idx] = label_vocab[code]
-        return mapping
+        return history_to_label_index(hist_vocab, label_vocab)
 
     def _build_prev_drugs(self, drugs_hist: torch.Tensor) -> torch.Tensor:
         """Converts the raw drugs_hist tensor into the multi-hot Dynamic
