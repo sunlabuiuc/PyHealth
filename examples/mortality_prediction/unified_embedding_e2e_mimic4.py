@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import logging
 import time
 import warnings
 from pathlib import Path
@@ -67,6 +68,8 @@ from pyhealth.models.jamba_ehr import JambaEHR
 from pyhealth.tasks.multimodal_mimic4 import LabsMIMIC4, NotesLabsMIMIC4
 from pyhealth.trainer import Trainer, _cpu_seconds
 from pyhealth.utils import set_seed, write_run_config
+
+logger = logging.getLogger(__name__)
 
 
 class WandbLogger:
@@ -126,6 +129,76 @@ def _build_base_dataset(args: argparse.Namespace) -> MIMIC4Dataset:
         num_workers=args.num_workers,
         use_dask_distributed=args.use_dask_distributed,
     )
+
+
+# Architecture flags each backbone actually consumes. Anything else the parser
+# accepts is inert for that model and is warned about at startup, so a launcher
+# can never appear to set something that never reached the model. --dropout is
+# absent for mlp on purpose: pyhealth.models.mlp.MLP has no dropout parameter,
+# and it takes **kwargs, so passing one is swallowed rather than rejected.
+_ARCH_FLAGS_USED: Dict[str, Tuple[str, ...]] = {
+    "mlp": ("embedding_dim", "hidden_dim"),
+    "rnn": (
+        "embedding_dim",
+        "hidden_dim",
+        "dropout",
+        "rnn_type",
+        "rnn_layers",
+        "bidirectional",
+    ),
+    "transformer": ("embedding_dim", "dropout", "heads", "num_layers"),
+    "bottleneck_transformer": (
+        "embedding_dim",
+        "dropout",
+        "heads",
+        "num_layers",
+        "bottlenecks_n",
+        "fusion_startidx",
+    ),
+    "ehrmamba": (
+        "embedding_dim",
+        "dropout",
+        "num_layers",
+        "mamba_state_size",
+        "mamba_conv_kernel",
+    ),
+    "jambaehr": (
+        "embedding_dim",
+        "dropout",
+        "heads",
+        "mamba_state_size",
+        "mamba_conv_kernel",
+        "jamba_transformer_layers",
+        "jamba_mamba_layers",
+    ),
+}
+
+_ARCH_FLAGS_ALL: Tuple[str, ...] = tuple(
+    sorted({flag for flags in _ARCH_FLAGS_USED.values() for flag in flags})
+)
+
+
+def _inert_arch_flags(model: str) -> List[str]:
+    """Architecture flags this backbone ignores, as CLI spellings."""
+    used = set(_ARCH_FLAGS_USED[model])
+    return ["--" + f.replace("_", "-") for f in _ARCH_FLAGS_ALL if f not in used]
+
+
+def _nondefault_inert_flags(args: argparse.Namespace) -> List[str]:
+    """Inert flags the user set to a non-default value, as CLI spellings.
+
+    Compared against a fresh defaults namespace from the same parser, so
+    only an explicitly (or programmatically) changed value warns. The
+    full inert list is still recorded in ``run_config.json``.
+    """
+    defaults = vars(parse_args(["--ehr-root", "probe"]))
+    current = vars(args)
+    set_flags = []
+    for flag in _inert_arch_flags(args.model):
+        dest = flag[2:].replace("-", "_")
+        if current.get(dest) != defaults.get(dest):
+            set_flags.append(flag)
+    return set_flags
 
 
 def _build_task(args: argparse.Namespace):
@@ -234,6 +307,15 @@ def _build_unified_embedding(
 
 
 def _build_model(args: argparse.Namespace, sample_dataset: Any, unified):
+    set_inert = _nondefault_inert_flags(args)
+    if set_inert:
+        logger.warning(
+            "%s ignores these flags: %s. Do not read them as settings that "
+            "took effect.",
+            args.model,
+            " ".join(set_inert),
+        )
+
     if args.model == "mlp":
         return MLP(
             dataset=sample_dataset,
@@ -484,6 +566,7 @@ def run(args: argparse.Namespace, sample_dataset: Any = None) -> Path:
             **vars(args),
             "split_mode": split_mode,
             "eval_split": eval_split,
+            "inert_flags": _inert_arch_flags(args.model),
             "n_train": len(train_ds),
             "n_val": len(val_ds),
             "n_test": len(test_ds),
