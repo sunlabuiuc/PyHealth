@@ -86,6 +86,39 @@ def get_metrics_fn(mode: str) -> Callable:
         raise ValueError(f"Mode {mode} is not supported")
 
 
+def model_metrics_kwargs(model: nn.Module, metrics_fn: Callable) -> dict:
+    """Extra keyword arguments that ``metrics_fn`` should get for ``model``.
+
+    Drug recommendation models (ARMR, GAMENet, MICRON, MoleRec, SafeDrug) keep their
+    drug-drug interaction matrix in ``ddi_adj_matrix``. The ``"ddi"`` metric is
+    scored against it rather than the shared ``ddi_adj.npy`` cache file, which
+    another model or process may have overwritten. Other models and metrics
+    functions get no extra arguments.
+
+    Args:
+        model: The model being evaluated.
+        metrics_fn: The metrics function from :func:`get_metrics_fn`.
+
+    Returns:
+        Keyword arguments to pass to ``metrics_fn``, possibly empty.
+
+    Examples:
+        >>> import numpy as np
+        >>> import torch
+        >>> from pyhealth.trainer import get_metrics_fn, model_metrics_kwargs
+        >>> model = torch.nn.Linear(2, 2)
+        >>> model.ddi_adj_matrix = np.eye(2)
+        >>> list(model_metrics_kwargs(model, get_metrics_fn("multilabel")))
+        ['ddi_adj']
+        >>> model_metrics_kwargs(model, get_metrics_fn("binary"))
+        {}
+    """
+    ddi_adj = getattr(model, "ddi_adj_matrix", None)
+    if metrics_fn is multilabel_metrics_fn and ddi_adj is not None:
+        return {"ddi_adj": ddi_adj}
+    return {}
+
+
 class Trainer:
     """Trainer for PyTorch models.
 
@@ -419,7 +452,12 @@ class Trainer:
             y_true_all, y_prob_all, loss_mean = self.inference(dataloader)
             mode = self.model.mode
             metrics_fn = get_metrics_fn(mode)
-            scores = metrics_fn(y_true_all, y_prob_all, metrics=self.metrics)
+            scores = metrics_fn(
+                y_true_all,
+                y_prob_all,
+                metrics=self.metrics,
+                **model_metrics_kwargs(self.model, metrics_fn),
+            )
             scores["loss"] = loss_mean
         else:
             loss_all = []
