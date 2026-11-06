@@ -277,4 +277,5 @@ API Reference
     models/pyhealth.models.ProtoECGNet
     models/pyhealth.models.HeartLang
     models/pyhealth.models.APN
+    models/pyhealth.models.MIRA
 

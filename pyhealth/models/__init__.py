@@ -87,3 +87,9 @@ from .heartlang import (
 )
 from .meme import MEME as MEME
 from .meme import DomainSelfAttention as DomainSelfAttention
+from .mira import (
+    MIRA as MIRA,
+    MIRABackbone as MIRABackbone,
+    MIRAConfig as MIRAConfig,
+    load_mira_checkpoint as load_mira_checkpoint,
+)
