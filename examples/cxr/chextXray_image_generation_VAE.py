@@ -1,65 +1,78 @@
-"""Train a VAE on chest X-rays and generate new ones.
+"""Train a conditional VAE on the COVID-19 Radiography Database.
 
-Uses the COVID-19 Radiography Database. Set ``root`` to the folder that holds
-its four class folders and their metadata spreadsheets.
+Download and extract the dataset from
+https://www.kaggle.com/datasets/tawsifurrahman/covid19-radiography-database,
+then pass its directory to :func:`main` or set ``DATA_ROOT`` below.
 """
 
 import matplotlib.pyplot as plt
+import torch
 
-from pyhealth.datasets import COVID19CXRDataset, get_dataloader, split_by_sample
+from pyhealth.datasets import (
+    COVID19CXRDataset,
+    get_dataloader,
+    split_by_sample,
+)
 from pyhealth.models import VAE
-from pyhealth.tasks import COVID19CXRImageGeneration
+from pyhealth.tasks import COVID19CXRClassification
 from pyhealth.trainer import Trainer
 
 
-def main(root: str = "/srv/local/data/COVID-19_Radiography_Dataset") -> None:
-    # step 1: load the dataset
-    base_dataset = COVID19CXRDataset(root)
+DATA_ROOT = "/path/to/COVID-19_Radiography_Dataset"
+BATCH_SIZE = 32
+EPOCHS = 10
 
-    # step 2: one grayscale 128 x 128 image per sample, with no label
-    sample_dataset = base_dataset.set_task(COVID19CXRImageGeneration())
+
+def main(root: str = DATA_ROOT) -> None:
+    """Train, evaluate, and sample from the conditional image VAE."""
+    base_dataset = COVID19CXRDataset(root=root)
+    dataset = base_dataset.set_task(COVID19CXRClassification())
     train_dataset, val_dataset, test_dataset = split_by_sample(
-        sample_dataset, [0.8, 0.1, 0.1], seed=0
+        dataset, [0.8, 0.1, 0.1], seed=0
     )
-    train_dataloader = get_dataloader(train_dataset, batch_size=64, shuffle=True)
-    val_dataloader = get_dataloader(val_dataset, batch_size=64, shuffle=False)
-    test_dataloader = get_dataloader(test_dataset, batch_size=64, shuffle=False)
+    train_loader = get_dataloader(
+        train_dataset, batch_size=BATCH_SIZE, shuffle=True
+    )
+    val_loader = get_dataloader(val_dataset, batch_size=BATCH_SIZE)
+    test_loader = get_dataloader(test_dataset, batch_size=BATCH_SIZE)
 
-    # step 3: the model reads the image shape from the task
-    model = VAE(dataset=sample_dataset, hidden_dim=128)
-
-    # step 4: train, keeping the epoch with the lowest validation reconstruction
-    # error
-    trainer = Trainer(model=model, metrics=["mse", "mae"])
+    model = VAE(
+        dataset=train_dataset,
+        feature_key="image",
+        condition_key="disease",
+        hidden_dim=128,
+    )
+    trainer = Trainer(
+        model=model,
+        device="cuda" if torch.cuda.is_available() else "cpu",
+        metrics=["mse", "mae"],
+    )
     trainer.train(
-        train_dataloader=train_dataloader,
-        val_dataloader=val_dataloader,
-        epochs=10,
+        train_dataloader=train_loader,
+        val_dataloader=val_loader,
+        epochs=EPOCHS,
         monitor="mse",
         monitor_criterion="min",
-        optimizer_params={"lr": 1e-3},
     )
-    print(trainer.evaluate(test_dataloader))
 
-    # step 5: a real X-ray next to its reconstruction
-    y_true, y_prob, _ = trainer.inference(test_dataloader)
-    plt.figure()
-    plt.subplot(1, 2, 1)
-    plt.imshow(y_true[0, 0], cmap="gray")
-    plt.title("real")
-    plt.subplot(1, 2, 2)
-    plt.imshow(y_prob[0, 0], cmap="gray")
-    plt.title("reconstructed")
-    plt.savefig("chestxray_vae_comparison.png")
+    print("Test reconstruction metrics:", trainer.evaluate(test_loader))
+    y_true, y_prob, _ = trainer.inference(test_loader)
+    figure, axes = plt.subplots(1, 2, figsize=(8, 4))
+    axes[0].imshow(y_true[0, 0], cmap="gray")
+    axes[0].set_title("Input image")
+    axes[1].imshow(y_prob[0, 0], cmap="gray")
+    axes[1].set_title("Reconstruction")
+    for axis in axes:
+        axis.axis("off")
+    figure.tight_layout()
+    plt.show()
 
-    # step 6: new X-rays decoded from random points of the latent space
-    images = model.generate(num_samples=4).cpu()
-    plt.figure()
-    for i, image in enumerate(images):
-        plt.subplot(1, 4, i + 1)
-        plt.imshow(image[0], cmap="gray")
-        plt.axis("off")
-    plt.savefig("chestxray_vae_synthetic.png")
+    # Sample one image for each class in the fitted disease vocabulary.
+    label_vocab = dataset.output_processors["disease"].label_vocab
+    conditions = torch.arange(len(label_vocab))
+    generated_images = trainer.model.generate(conditions=conditions).cpu()
+    print("Label indices:", label_vocab)
+    print("Generated images:", generated_images.shape)
 
 
 if __name__ == "__main__":
