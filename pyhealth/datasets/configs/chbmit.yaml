@@ -1,0 +1,14 @@
+version: "1.0.0"
+tables:
+  recordings:
+    file_path: "chbmit-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "record_id"
+    - "signal_file"
+    - "num_seizures"
+    - "seizure_starts"
+    - "seizure_ends"
+    - "gender"
+    - "age"
