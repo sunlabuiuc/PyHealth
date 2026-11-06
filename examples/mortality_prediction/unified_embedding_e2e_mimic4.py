@@ -43,6 +43,7 @@ import argparse
 import csv
 import json
 import time
+import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -131,11 +132,54 @@ def _build_task(args: argparse.Namespace):
     raise ValueError(f"Unknown task: {args.task}")
 
 
-def _split_dataset(dataset: Any, seed: int) -> Tuple[Any, Any, Any]:
+def _split_dataset(dataset: Any, seed: int) -> Tuple[Any, Any, Any, str]:
+    """Split by patient, falling back to by-sample only if that yields nothing.
+
+    The fallback is leaky: a patient with several admissions can then land in
+    both train and test, which inflates the metrics. It only triggers on tiny
+    cohorts, but it must not trigger silently, so the mode is returned and
+    recorded alongside the run's results.
+    """
     train_ds, val_ds, test_ds = split_by_patient(dataset, [0.8, 0.1, 0.1], seed=seed)
     if len(train_ds) == 0 or len(test_ds) == 0:
+        warnings.warn(
+            "split_by_patient produced an empty split, falling back to "
+            "split_by_sample. The same patient may now appear in train and "
+            "test, so these metrics are optimistic and not comparable to "
+            "patient-split runs.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         train_ds, val_ds, test_ds = split_by_sample(dataset, [0.8, 0.1, 0.1], seed=seed)
-    return train_ds, val_ds, test_ds
+        return train_ds, val_ds, test_ds, "by_sample_fallback_leaky"
+    return train_ds, val_ds, test_ds, "by_patient"
+
+
+def _select_inference_loader(test_loader, val_loader, train_loader):
+    """Name the split predictions come from, warning when it is not test.
+
+    The old ``test_loader or val_loader or train_loader`` chain could report
+    training metrics as test with nothing saying so. The split is now named,
+    warned about, and recorded.
+    """
+    if test_loader is not None:
+        return test_loader, "test"
+    if val_loader is not None:
+        warnings.warn(
+            "No test split available; reporting predictions from the VALIDATION "
+            "split. These are not test metrics.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return val_loader, "val"
+    warnings.warn(
+        "No test or validation split available; reporting predictions from "
+        "the TRAINING split. These metrics are held-in and meaningless as a "
+        "generalisation estimate.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
+    return train_loader, "train"
 
 
 def _build_unified_embedding(
@@ -219,6 +263,7 @@ def _write_predictions(
     patient_ids: list[str],
     y_true: np.ndarray,
     y_prob: np.ndarray,
+    eval_split: str,
 ) -> None:
     output_csv.parent.mkdir(parents=True, exist_ok=True)
 
@@ -228,7 +273,13 @@ def _write_predictions(
     with output_csv.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["patient_id", "y_true", "y_prob", "y_pred_threshold_0_5"],
+            fieldnames=[
+                "patient_id",
+                "y_true",
+                "y_prob",
+                "y_pred_threshold_0_5",
+                "eval_split",
+            ],
         )
         writer.writeheader()
         for idx, prob in enumerate(y_prob_flat):
@@ -238,6 +289,7 @@ def _write_predictions(
                     "y_true": int(y_true_flat[idx]),
                     "y_prob": float(prob),
                     "y_pred_threshold_0_5": int(float(prob) >= 0.5),
+                    "eval_split": eval_split,
                 }
             )
 
@@ -293,7 +345,9 @@ def run(args: argparse.Namespace, sample_dataset: Any = None) -> Path:
                 "Task produced zero samples. Check roots/tables or adjust settings."
             )
 
-    train_ds, val_ds, test_ds = _split_dataset(sample_dataset, seed=args.seed)
+    train_ds, val_ds, test_ds, split_mode = _split_dataset(
+        sample_dataset, seed=args.seed
+    )
 
     unified = _build_unified_embedding(args, sample_dataset)
     model = _build_model(args, sample_dataset, unified)
@@ -324,7 +378,18 @@ def run(args: argparse.Namespace, sample_dataset: Any = None) -> Path:
         else None
     )
 
-    exp_name = f"{args.model}_seed{args.seed}"
+    # Name the split predictions come from up front: it is recorded in
+    # run_config.json alongside split_mode and the split sizes.
+    inference_loader, eval_split = _select_inference_loader(
+        test_loader, val_loader, timed_train_loader
+    )
+
+    # The task MUST be in the name. Without it, two arms of the same comparison
+    # at the same seed, for example --task labs and --task notes_labs, resolve
+    # to one directory and the second run overwrites the first. Same for a
+    # --dev smoke check: without the suffix it would overwrite the full run.
+    dev_suffix = f"_dev{args.dev}" if args.dev else ""
+    exp_name = f"{args.task}_{args.model}_seed{args.seed}{dev_suffix}"
     output_dir = Path(args.output_dir)
 
     wandb_logger = WandbLogger(
@@ -371,6 +436,8 @@ def run(args: argparse.Namespace, sample_dataset: Any = None) -> Path:
         str(output_dir / exp_name),
         {
             **vars(args),
+            "split_mode": split_mode,
+            "eval_split": eval_split,
             "n_train": len(train_ds),
             "n_val": len(val_ds),
             "n_test": len(test_ds),
@@ -403,7 +470,6 @@ def run(args: argparse.Namespace, sample_dataset: Any = None) -> Path:
         eval_seconds = time.perf_counter() - eval_start
         wandb_logger.log({f"test_{k}": v for k, v in test_scores.items()})
 
-    inference_loader = test_loader or val_loader or timed_train_loader
     inference_start = time.perf_counter()
     y_true, y_prob, _, patient_ids = trainer.inference(
         inference_loader, return_patient_ids=True
@@ -411,7 +477,7 @@ def run(args: argparse.Namespace, sample_dataset: Any = None) -> Path:
     inference_seconds = time.perf_counter() - inference_start
 
     output_csv = output_dir / exp_name / f"predictions_{args.model}.csv"
-    _write_predictions(output_csv, patient_ids, y_true, y_prob)
+    _write_predictions(output_csv, patient_ids, y_true, y_prob, eval_split)
 
     metrics = {
         "config": vars(args),
@@ -625,7 +691,7 @@ def parse_args(argv: Optional[list] = None) -> argparse.Namespace:
         "--wandb-run-name",
         type=str,
         default=None,
-        help="Defaults to '{model}_seed{seed}' if unset.",
+        help="Defaults to '{task}_{model}_seed{seed}' if unset.",
     )
     parser.add_argument(
         "--wandb-tags",
