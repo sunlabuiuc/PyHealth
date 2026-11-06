@@ -1,5 +1,11 @@
 from .adacare import AdaCare, AdaCareLayer, MultimodalAdaCare
 from .agent import Agent, AgentLayer
+from .apn import (
+    APN as APN,
+    LearnableTimeEncoding as LearnableTimeEncoding,
+    TimeAwarePatchAggregation as TimeAwarePatchAggregation,
+    masked_mse as masked_mse,
+)
 from .base_model import BaseModel
 from .transformer_deid import TransformerDeID
 from .biot import BIOT
@@ -13,6 +19,7 @@ from .sequence_embedding import (
     PretrainedEmbedding as PretrainedEmbedding,
     SequenceEmbeddingModel as SequenceEmbeddingModel,
 )
+from .armr import ARMR as ARMR
 from .gamenet import GAMENet, GAMENetLayer
 from .jamba_ehr import JambaEHR, JambaLayer
 from .logistic_regression import LogisticRegression
@@ -45,6 +52,7 @@ from .tfm_tokenizer import (
 from .torchvision_model import TorchvisionModel
 from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
+from .llm_ehr_encoder import LLMEHREncoder as LLMEHREncoder
 from .ehrmamba import EHRMamba, MambaBlock
 from .ehrmamba_cehr import EHRMambaCEHR
 from .vae import VAE
@@ -71,3 +79,9 @@ from .generators.medgan import MedGAN
 from .generators.synthea import Synthea as Synthea
 from .generators.corgan import CorGAN as CorGAN
 from .survival_mdn import SurvivalMDN as SurvivalMDN
+from .trajsurv import TrajSurv as TrajSurv
+from .heartlang import (
+    HeartLang as HeartLang,
+    HeartLangBackbone as HeartLangBackbone,
+    ecg_to_heartbeat_sentence as ecg_to_heartbeat_sentence,
+)
