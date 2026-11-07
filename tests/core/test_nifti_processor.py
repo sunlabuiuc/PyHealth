@@ -101,12 +101,12 @@ class TestNiftiReaderAndProcessor(unittest.TestCase):
 
     def test_lazy_ref_path_is_absolute(self):
         relative = os.path.relpath(self.path, Path.cwd())
-        ref = NiftiProcessor().process(relative)
+        ref = NiftiProcessor(lazy=True).process(relative)
         self.assertTrue(Path(ref.path).is_absolute())
         self.assertEqual(Path(ref.path), self.path.resolve())
 
     def test_lazy_processor(self):
-        processor = NiftiProcessor()
+        processor = NiftiProcessor(lazy=True)
         ref = processor.process(str(self.path))
         self.assertIsInstance(ref, ImageRef)
         self.assertFalse(processor.stores_tensor)
@@ -125,13 +125,13 @@ class TestNiftiReaderAndProcessor(unittest.TestCase):
             NiftiProcessor().process(str(self.root / "missing.nii.gz"))
 
     def test_lazy_metadata_reflects_target_shape(self):
-        processor = NiftiProcessor(target_shape=(3, 4, 5))
+        processor = NiftiProcessor(lazy=True, target_shape=(3, 4, 5))
         ref = processor.process(str(self.path))
         self.assertEqual(ref.metadata.shape, (1, 3, 4, 5))
         self.assertEqual(tuple(processor.materialize(ref).shape), (1, 3, 4, 5))
 
     def test_lazy_metadata_reflects_target_spacing(self):
-        processor = NiftiProcessor(target_spacing=(1, 1, 1))
+        processor = NiftiProcessor(lazy=True, target_spacing=(1, 1, 1))
         ref = processor.process(str(self.path))
         tensor = processor.materialize(ref)
         self.assertEqual(ref.metadata.shape, tuple(tensor.shape))

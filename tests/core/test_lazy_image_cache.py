@@ -18,7 +18,7 @@ try:
 except ImportError:  # pragma: no cover
     litdata = None
 
-from pyhealth.datasets import SampleDataset, create_sample_dataset, get_dataloader
+from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.processors.image_io.types import ImageRef
 
 
@@ -63,23 +63,25 @@ class TestLazyImageCache(unittest.TestCase):
         finally:
             dataset.close()
 
-    def test_getitem_materializes_reference(self):
+    def test_direct_getitem_returns_reference(self):
         dataset = self._dataset()
         try:
-            self.assertEqual(tuple(dataset[0]["image"].shape), (1, 6, 5, 4))
-            raw = SampleDataset(dataset.path, resolve_refs=False)
-            self.assertIsInstance(raw[0]["image"], ImageRef)
+            reference = dataset[0]["image"]
+            self.assertIsInstance(reference, ImageRef)
+            tensor = dataset.input_processors["image"].materialize(reference)
+            self.assertEqual(tuple(tensor.shape), (1, 6, 5, 4))
         finally:
             dataset.close()
 
-    def test_in_memory_iteration_materializes_reference(self):
-        shapes = [tuple(sample["image"].shape) for sample in self._dataset(True)]
-        self.assertEqual(shapes, [(1, 6, 5, 4)] * 2)
-
-    def test_dataloader_collates_materialized_volumes(self):
+    def test_dataloader_materializes_reference(self):
         dataset = self._dataset()
         try:
             batch = next(iter(get_dataloader(dataset, batch_size=2)))
             self.assertEqual(tuple(batch["image"].shape), (2, 1, 6, 5, 4))
         finally:
             dataset.close()
+
+    def test_in_memory_dataloader_materializes_reference(self):
+        dataset = self._dataset(True)
+        batch = next(iter(get_dataloader(dataset, batch_size=2)))
+        self.assertEqual(tuple(batch["image"].shape), (2, 1, 6, 5, 4))

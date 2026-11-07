@@ -37,6 +37,20 @@ def _collate_volumes(values: Sequence[Any]) -> Any:
     return _pad_volumes(values)
 
 
+def _materialize_and_collate(processor: Any, values: Sequence[Any]) -> Any:
+    """Materialise lazy image refs, then stack or pad the values."""
+    from .types import ImageRef
+
+    if values and isinstance(values[0], ImageRef):
+        values = [
+            processor.materialize(value)
+            if isinstance(value, ImageRef)
+            else value
+            for value in values
+        ]
+    return _collate_volumes(values)
+
+
 def _to_torch(array: np.ndarray, dtype: str = "float32") -> torch.Tensor:
     """Convert a NumPy array to a contiguous torch tensor."""
     tensor = torch.from_numpy(np.ascontiguousarray(array))

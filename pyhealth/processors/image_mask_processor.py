@@ -13,7 +13,7 @@ from .image_io.readers.image_mask import (
     _mask_files,
     _prepare_mask_files,
 )
-from .image_io.tensor_utils import _collate_volumes, _to_torch
+from .image_io.tensor_utils import _materialize_and_collate, _to_torch
 from .image_io.types import ImageRef, _apply_resampling_to_metadata
 
 
@@ -32,7 +32,7 @@ class ImageMaskDirectoryProcessor(FeatureProcessor):
         pattern: Glob pattern for mask files. Defaults to ``"*.png"``.
         canonical: Reorient the mask like the reference DICOM volume.
         lazy: Store an :class:`ImageRef` instead of the stacked mask volume.
-            Defaults to True, matching the other 3D image processors.
+            Defaults to False; set True for lazy loading.
         label_map: Optional mapping from raw pixel values to class indices.
             Use this for datasets whose masks store scaled or sparse label
             values, such as CHAOS MR masks. In lazy mode, unmapped labels are
@@ -60,7 +60,7 @@ class ImageMaskDirectoryProcessor(FeatureProcessor):
         mode: str | None = None,
         pattern: str = "*.png",
         canonical: bool = True,
-        lazy: bool = True,
+        lazy: bool = False,
         label_map: dict[int, int] | None = None,
         num_classes: int | None = None,
         target_spacing: Sequence[float] | None = None,
@@ -196,8 +196,8 @@ class ImageMaskDirectoryProcessor(FeatureProcessor):
         return _to_torch(array, dtype="int64")
 
     def collate(self, values: list[Any]) -> Any:
-        """Pad variable-shape mask volumes to a common shape and stack them."""
-        return _collate_volumes(values)
+        """Materialise lazy refs, then pad and stack mask volumes."""
+        return _materialize_and_collate(self, values)
 
     def _apply_label_map(self, array: "np.ndarray") -> "np.ndarray":
         """Map raw mask values to class indices, rejecting unknown values."""
