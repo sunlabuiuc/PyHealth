@@ -18,7 +18,7 @@ LABELS = ["A", "B", "C", "D", "E", "F"]
 TINY = {"proto_dim": 8, "base_width": 4, "layers": (1, 1, 1, 1)}
 
 
-def make_dataset(num_samples: int = 12, length: int = 192):
+def make_dataset(num_samples: int = 12, length: int = 192, label_spec="multilabel"):
     """Creates a small multilabel ECG dataset with random 12-lead signals."""
     torch.manual_seed(0)
     samples = []
@@ -36,7 +36,7 @@ def make_dataset(num_samples: int = 12, length: int = 192):
     return create_sample_dataset(
         samples=samples,
         input_schema={"signal": "tensor"},
-        output_schema={"labels": "multilabel"},
+        output_schema={"labels": label_spec},
     )
 
 
@@ -541,46 +541,35 @@ class TestProtoECGNet(unittest.TestCase):
         torch.testing.assert_close(total, expected, atol=1e-4, rtol=1e-4)
 
 
-    def test_set_pos_weight_routes_to_class_weights(self):
-        """ProtoECGNet.set_pos_weight must mirror the parsed weight into
-        ``class_weights`` with a stable ``(num_labels,)`` shape (regression:
-        previously a silent no-op, then a scalar left a ``(1,)`` buffer that
-        broke strict ``load_state_dict``)."""
-        model = ProtoECGNet(self.dataset, prototypes_per_label=1, **TINY)
-        n = model.num_labels
-
-        # Scalar: broadcast to (num_labels,) filled with the scalar.
-        model.set_pos_weight(4.0)
+    def test_task_pos_weight_seeds_class_weights(self):
+        """The label processor's ``pos_weight`` becomes ``class_weights`` with a
+        stable ``(num_labels,)`` shape (a scalar is broadcast, so strict
+        ``load_state_dict`` works)."""
+        n = 6
+        scalar = make_dataset(label_spec=("multilabel", {"pos_weight": 4.0}))
+        model = ProtoECGNet(scalar, prototypes_per_label=1, **TINY)
         self.assertEqual(model.class_weights.shape, (n,))
         torch.testing.assert_close(
             model.class_weights.detach().cpu(), torch.full((n,), 4.0)
         )
-
-        # Per-label sequence: length-num_labels vector.
-        weights = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
-        model.set_pos_weight(weights)
-        torch.testing.assert_close(
-            model.class_weights.detach().cpu(), torch.tensor(weights)
-        )
-        self.assertEqual(model.class_weights.shape, (n,))
-
-        # Wrong length (not 1, not num_labels): clear error.
-        with self.assertRaises(ValueError):
-            model.set_pos_weight([1.0, 2.0])
-
-        # None resets to the ones default (identity for BCE pos_weight).
-        model.set_pos_weight(None)
-        torch.testing.assert_close(
-            model.class_weights.detach().cpu(), torch.ones(n)
-        )
-        self.assertEqual(model.class_weights.shape, (n,))
-
-        # state_dict round-trip after a scalar set_pos_weight must work with
-        # strict loading — the (num_labels,) shape must survive the save/load.
-        model.set_pos_weight(2.5)
         clone = ProtoECGNet(self.dataset, prototypes_per_label=1, **TINY)
         clone.load_state_dict(model.state_dict())
         torch.testing.assert_close(clone.class_weights, model.class_weights)
+
+        weights = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        per_label = make_dataset(label_spec=("multilabel", {"pos_weight": weights}))
+        model = ProtoECGNet(per_label, prototypes_per_label=1, **TINY)
+        torch.testing.assert_close(
+            model.class_weights.detach().cpu(), torch.tensor(weights)
+        )
+
+        wrong = make_dataset(label_spec=("multilabel", {"pos_weight": [1.0, 2.0]}))
+        with self.assertRaises(ValueError):
+            ProtoECGNet(wrong, prototypes_per_label=1, **TINY)
+
+        # No pos_weight: the ones default (identity for BCE pos_weight).
+        model = ProtoECGNet(self.dataset, prototypes_per_label=1, **TINY)
+        torch.testing.assert_close(model.class_weights.detach().cpu(), torch.ones(n))
 
     def test_state_dict_round_trip_preserves_fusion_stage(self):
         """A learned-fusion model saved in the ``fusion`` stage must reload in
@@ -625,18 +614,13 @@ class TestProtoECGNet(unittest.TestCase):
                 got_contribs[name], expected_contribs[name], atol=1e-6, rtol=1e-6
             )
 
-    def test_set_pos_weight_balanced_uses_dataset(self):
-        """``set_pos_weight('balanced', dataset)`` fills class_weights from the
-        dataset's label distribution; checks the string / dataset path end-to-end.
-        """
-        model = ProtoECGNet(self.dataset, prototypes_per_label=1, **TINY)
-        model.set_pos_weight("balanced", self.dataset)
+    def test_balanced_pos_weight_seeds_class_weights(self):
+        """``pos_weight='balanced'`` is learned from the labels by the processor."""
+        dataset = make_dataset(label_spec=("multilabel", {"pos_weight": "balanced"}))
+        model = ProtoECGNet(dataset, prototypes_per_label=1, **TINY)
         self.assertEqual(model.class_weights.shape, (model.num_labels,))
         self.assertTrue(torch.isfinite(model.class_weights).all())
         self.assertTrue((model.class_weights > 0).all())
-        # 'balanced' needs a dataset; otherwise the base class raises.
-        with self.assertRaises(ValueError):
-            model.set_pos_weight("balanced")
 
     def test_project_prototypes_raises_on_shuffled_loader(self):
         model = ProtoECGNet(self.dataset, prototypes_per_label=1, **TINY)

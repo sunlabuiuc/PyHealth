@@ -18,6 +18,7 @@ from pyhealth.processors import (
     StageNetProcessor,
     StageNetTensorProcessor,
     TensorProcessor,
+    TimeseriesLabelProcessor,
     TimeseriesProcessor,
 )
 
@@ -28,10 +29,6 @@ from .sequence_embedding import (
     PretrainedEmbedding,
     SequenceEmbeddingModel,
 )
-
-# Label modes with one prediction per label record (TimeseriesLabelProcessor).
-_PER_STEP_MODES = ("timeseries_binary", "timeseries_regression")
-
 
 class RNNLayer(nn.Module):
     """Recurrent neural network layer.
@@ -236,7 +233,8 @@ class RNN(BaseModel):
             raise ValueError("hidden_size is determined by hidden_dim")
         assert len(self.label_keys) == 1, "Only one label key is supported if RNN is initialized"
         self.label_key = self.label_keys[0]
-        if self.mode in _PER_STEP_MODES:
+        per_step = isinstance(self.label_processor, TimeseriesLabelProcessor)
+        if per_step:
             raise ValueError(
                 "RNN does not support per-step (timeseries_*) labels; use "
                 "RNN_V2 with sequence_v2 inputs."
@@ -249,7 +247,7 @@ class RNN(BaseModel):
             self.rnn[feature_key] = RNNLayer(
                 input_size=embedding_dim, hidden_size=hidden_dim, **kwargs
             )
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
 
     def forward(self, **kwargs) -> dict[str, torch.Tensor]:
@@ -326,8 +324,8 @@ class RNN(BaseModel):
         logits = self.fc(patient_emb)
         # obtain y_true, loss, y_prob
         y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
+        loss = self.label_processor.loss(logits, y_true)
+        y_prob = self.label_processor.activation(logits)
         results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
@@ -436,7 +434,8 @@ class MultimodalRNN(BaseModel):
 
         assert len(self.label_keys) == 1, "Only one label key is supported"
         self.label_key = self.label_keys[0]
-        if self.mode in _PER_STEP_MODES:
+        per_step = isinstance(self.label_processor, TimeseriesLabelProcessor)
+        if per_step:
             raise ValueError(
                 "MultimodalRNN does not support per-step (timeseries_*) labels; "
                 "use RNN_V2 with sequence_v2 inputs."
@@ -465,7 +464,7 @@ class MultimodalRNN(BaseModel):
         # Calculate final concatenated dimension
         final_dim = (len(self.sequential_features) * hidden_dim +
                      len(self.non_sequential_features) * embedding_dim)
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(final_dim, output_size)
 
     def _is_sequential_processor(self, processor) -> bool:
@@ -577,8 +576,8 @@ class MultimodalRNN(BaseModel):
 
         # Calculate loss and predictions
         y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
+        loss = self.label_processor.loss(logits, y_true)
+        y_prob = self.label_processor.activation(logits)
 
         results = {
             "loss": loss,
@@ -869,7 +868,7 @@ class RNN_V2(BaseModel):
         if len(self.label_keys) != 1:
             raise ValueError("RNN_V2 supports exactly one label.")
         self.label_key = self.label_keys[0]
-        self.per_step = self.mode in _PER_STEP_MODES
+        self.per_step = isinstance(self.label_processor, TimeseriesLabelProcessor)
 
         self.sequence_fields: list[str] = []
         self.static_fields: list[str] = []
@@ -975,7 +974,7 @@ class RNN_V2(BaseModel):
                 width += projected
         for field in fields:
             width += cast(_FieldRNN, self.encoders[field]).output_dim
-        self.fc = nn.Linear(width, self.get_output_size())
+        self.fc = nn.Linear(width, self.label_processor.output_size())
 
     def _at_labels(
         self,
@@ -1052,8 +1051,8 @@ class RNN_V2(BaseModel):
         logits = self.fc(embed)
         y_true = label if self.per_step else batch[self.label_key].to(self.device)
         results = {
-            "loss": self.get_loss_function()(logits, y_true),
-            "y_prob": self.prepare_y_prob(logits),
+            "loss": self.label_processor.loss(logits, y_true),
+            "y_prob": self.label_processor.activation(logits),
             "y_true": y_true,
             "logit": logits,
         }

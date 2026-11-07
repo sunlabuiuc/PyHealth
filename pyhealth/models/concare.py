@@ -965,7 +965,7 @@ class ConCare(BaseModel):
                 **kwargs,
             )
 
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(
             len(self.dynamic_feature_keys) * self.hidden_dim, output_size
         )
@@ -1025,9 +1025,9 @@ class ConCare(BaseModel):
 
         # Compute loss and predictions
         y_true = kwargs[self.label_key].to(self.device)
-        loss_task = self.get_loss_function()(logits, y_true)
+        loss_task = self.label_processor.loss(logits, y_true)
         loss = decov_loss + loss_task
-        y_prob = self.prepare_y_prob(logits)
+        y_prob = self.label_processor.activation(logits)
 
         results = {
             "loss": loss,

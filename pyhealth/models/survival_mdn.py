@@ -22,6 +22,7 @@ from torch import Tensor, nn
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models.base_model import BaseModel
+from pyhealth.processors import LabelProcessor
 
 __all__ = ["SurvivalMDN"]
 
@@ -401,6 +402,12 @@ class SurvivalMDN(BaseModel):
         Networks. Proceedings of Machine Learning for Healthcare, 2022.
     """
 
+    @property
+    def label_processors(self) -> dict[str, LabelProcessor]:
+        """None: the survival outputs are scored by the model, not as a label,
+        so the Trainer reports only the loss."""
+        return {}
+
     def __init__(
         self,
         dataset: SampleDataset,
@@ -424,7 +431,6 @@ class SurvivalMDN(BaseModel):
         self.include_jacobian = bool(include_jacobian)
         self.num_components = int(num_components)
         self.time_transform = time_transform
-        self.mode = None
 
         if feature_key not in dataset.input_schema:
             raise ValueError(
