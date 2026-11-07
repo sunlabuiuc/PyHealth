@@ -6,7 +6,6 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -20,7 +19,6 @@ from pyhealth.benchmarks.cpbench import (
     save_model_predictions,
     save_predictions,
 )
-from pyhealth.benchmarks.cpbench.adapters import ADAPTERS
 from pyhealth.benchmarks.cpbench.shared.evaluation_preparation import prepare_evaluation
 from pyhealth.calib.predictionset import (
     LABEL,
@@ -40,32 +38,7 @@ from tests.core.test_cpbench_covariate import source_density, target_density
 
 
 class TestSharedModelPredictions(unittest.TestCase):
-    def test_adapter_can_supply_its_own_output_collection(self):
-        ev = evaluation(dict)
-        expected = ({"custom": {"values": np.array([1.0])}}, {"format": "custom"})
-        calls = []
-
-        def produce(evaluation, *, outputs, cache_dir):
-            calls.append((evaluation, outputs))
-            return expected
-
-        adapter = SimpleNamespace(
-            required_model_outputs=lambda evaluation: {"custom": ("values",)},
-            predict_model_outputs=produce,
-        )
-        with (
-            patch.dict(ADAPTERS, {dict: adapter}),
-            patch(
-                "pyhealth.benchmarks.cpbench.shared.evaluation_preparation.prepare_evaluation",
-                side_effect=AssertionError("must use the adapter's producer"),
-            ),
-        ):
-            actual = CPBench().predict_model(ev)
-
-        self.assertIs(actual, expected)
-        self.assertEqual(calls, [(ev, {"custom": ("values",)})])
-
-    def test_one_artifact_supplies_all_multiclass_methods(self):
+    def test_evaluate_reuses_base_outputs_across_all_multiclass_methods(self):
         methods = (
             (BaseConformal, {"alpha": 0.2, "random_state": 42}),
             (BaseConformal, {"alpha": 0.9, "random_state": 42}),
@@ -90,29 +63,32 @@ class TestSharedModelPredictions(unittest.TestCase):
             )
             for method, params in methods
         ]
-        requirements = {}
-        for ev in evaluations:
-            for role, fields in required_model_outputs(ev).items():
-                requirements.setdefault(role, set()).update(fields)
-        requirements = {
-            role: tuple(sorted(fields)) for role, fields in requirements.items()
-        }
         before = [ev.to_dict() for ev in evaluations]
         bench = CPBench()
+        original_train = Trainer.train
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "base.npz"
             cache = Path(directory) / "cache"
-            values, metadata = bench.predict_model(
-                evaluations[0], outputs=requirements, cache_dir=cache
-            )
+            with patch.object(
+                Trainer, "train", autospec=True, side_effect=original_train
+            ) as train:
+                cold = bench.evaluate(evaluations, cache_dir=cache)
+            self.assertEqual(train.call_count, 1)
+            for ev in evaluations:
+                self.assertEqual(cold[ev].status, "success", cold[ev].metadata)
+
+            base_dir = Path(cold[evaluations[0]].metadata["model_predictions"])
+            values, _ = load_model_predictions(base_dir / "train.npz")
             self.assertEqual(
                 set(values["train"]), {"y_true", "embed", "__cpbench_sample_hash__"}
             )
-            self.assertTrue(all("y_predset" not in part for part in values.values()))
-            save_model_predictions(values, path, **metadata)
-            contents = path.read_bytes()
+            contents = {path: path.read_bytes() for path in base_dir.glob("*.npz")}
+            for path in contents:
+                values, _ = load_model_predictions(path)
+                self.assertTrue(
+                    all("y_predset" not in part for part in values.values())
+                )
+
             expected = bench.evaluate(evaluations)
-            cached = evaluations
             with (
                 patch(
                     "pyhealth.benchmarks.cpbench.shared.evaluation_preparation.load_splits",
@@ -126,18 +102,23 @@ class TestSharedModelPredictions(unittest.TestCase):
                 ),
             ):
                 actual = bench.evaluate(
-                    cached, cache_dir=cache, output_dir=Path(directory) / "results"
+                    evaluations, cache_dir=cache, output_dir=Path(directory) / "results"
                 )
-            self.assertEqual(contents, path.read_bytes())
-        for live, stored in zip(evaluations, cached):
-            self.assertEqual(expected[live].status, "success", expected[live].metadata)
-            self.assertEqual(actual[stored].status, "success", actual[stored].metadata)
-            np.testing.assert_equal(actual[stored].metrics, expected[live].metrics)
-            self.assertIn("model_predictions", actual[stored].metadata)
-            self.assertIsNotNone(actual[stored].artifact)
+            self.assertEqual(
+                contents, {path: path.read_bytes() for path in base_dir.glob("*.npz")}
+            )
+
+        for ev in evaluations:
+            self.assertEqual(expected[ev].status, "success", expected[ev].metadata)
+            self.assertEqual(actual[ev].status, "success", actual[ev].metadata)
+            np.testing.assert_equal(cold[ev].metrics, expected[ev].metrics)
+            np.testing.assert_equal(actual[ev].metrics, expected[ev].metrics)
+            self.assertIn("model_predictions", actual[ev].metadata)
+            self.assertIsNotNone(actual[ev].artifact)
         self.assertEqual(before, [ev.to_dict() for ev in evaluations])
         self.assertNotEqual(
-            actual[cached[0]].metrics["set_size"], actual[cached[1]].metrics["set_size"]
+            actual[evaluations[0]].metrics["set_size"],
+            actual[evaluations[1]].metrics["set_size"],
         )
 
     def test_saved_logits_reuse_favmac_with_different_cost_settings(self):
@@ -168,24 +149,34 @@ class TestSharedModelPredictions(unittest.TestCase):
             )
         ]
         bench = CPBench()
+        expected = bench.evaluate(evaluations)
         with tempfile.TemporaryDirectory() as directory:
             cache = Path(directory) / "cache"
-            values, _ = bench.predict_model(evaluations[0], cache_dir=cache)
-            self.assertEqual(set(values), {"calibration", "test"})
+            first = bench.evaluate([evaluations[0]], cache_dir=cache)[evaluations[0]]
+            self.assertEqual(first.status, "success", first.metadata)
+            base_dir = Path(first.metadata["model_predictions"])
+            self.assertEqual(
+                {path.name for path in base_dir.glob("*.npz")},
+                {"calibration.npz", "test.npz"},
+            )
+            values, _ = load_model_predictions(base_dir / "calibration.npz")
             self.assertEqual(
                 set(values["calibration"]),
                 {"y_true", "logit", "__cpbench_sample_hash__"},
             )
-            expected = bench.evaluate(evaluations)
-            cached = evaluations
-            with patch.object(
-                MLP, "forward", side_effect=AssertionError("no inference")
+            with (
+                patch.object(
+                    MLP, "forward", side_effect=AssertionError("must not infer")
+                ),
+                patch.object(
+                    Trainer, "train", side_effect=AssertionError("must not train")
+                ),
             ):
-                actual = bench.evaluate(cached, cache_dir=cache)
-        for live, stored in zip(evaluations, cached):
-            self.assertEqual(actual[stored].status, "success", actual[stored].metadata)
-            self.assertEqual(expected[live].status, "success", expected[live].metadata)
-            np.testing.assert_equal(actual[stored].metrics, expected[live].metrics)
+                actual = bench.evaluate(evaluations, cache_dir=cache)
+        for ev in evaluations:
+            self.assertEqual(actual[ev].status, "success", actual[ev].metadata)
+            self.assertEqual(expected[ev].status, "success", expected[ev].metadata)
+            np.testing.assert_equal(actual[ev].metrics, expected[ev].metrics)
 
     def test_missing_embeddings_and_train_split_are_added_without_retraining(self):
         basic = evaluation(

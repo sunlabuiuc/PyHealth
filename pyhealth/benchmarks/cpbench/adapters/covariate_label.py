@@ -15,14 +15,11 @@ from pyhealth.benchmarks.cpbench.shared.classification import (
 )
 from pyhealth.benchmarks.cpbench.shared.collection import collect_predictions
 from pyhealth.benchmarks.cpbench.shared.evaluation_preparation import (
-    predict_model_outputs,
     prediction_cache_path,
     prepare_evaluation,
     require_protocol,
 )
 from pyhealth.benchmarks.cpbench.shared.model_outputs import save_predictions
-
-__all__ = ["predict_model_outputs", "required_model_outputs", "run"]
 
 
 def required_model_outputs(evaluation):

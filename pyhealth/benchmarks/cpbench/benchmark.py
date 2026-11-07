@@ -33,25 +33,6 @@ class CPBench(Benchmark):
     def name(self) -> str:
         return "cpbench"
 
-    def predict_model(self, evaluation, *, outputs=None, cache_dir=None):
-        """Collect base outputs, optionally reusing CPBench's managed cache.
-
-        outputs maps split names to fields; the adapter supplies it when omitted.
-        Returns arrays by split and their label metadata. Evaluations always keep
-        their model/training configuration, regardless of cache hits or misses.
-        """
-        self.validate_evaluations([evaluation])
-        if outputs is None:
-            outputs = adapters.required_model_outputs(evaluation)
-
-        adapter = adapters.ADAPTERS[evaluation.params["method"]["class"]]
-        producer = getattr(adapter, "predict_model_outputs", None)
-        if producer is None:
-            raise NotImplementedError("adapter does not expose base-output collection")
-
-        with _seeded(evaluation.params["protocol"].get("seed", 0)):
-            return producer(evaluation, outputs=outputs, cache_dir=cache_dir)
-
     def validate_evaluations(self, evaluations: Sequence[Evaluation]) -> None:
         """Reject malformed specifications and unsupported methods before running."""
         super().validate_evaluations(evaluations)

@@ -12,15 +12,12 @@ from pyhealth.benchmarks.cpbench.shared.classification import (
     validate_label_encodings,
 )
 from pyhealth.benchmarks.cpbench.shared.evaluation_preparation import (
-    predict_model_outputs,
     prediction_cache_path,
     prepare_evaluation,
     require_protocol,
 )
 from pyhealth.benchmarks.cpbench.shared.model_outputs import save_predictions
 from pyhealth.metrics import multilabel_metrics_fn
-
-__all__ = ["predict_model_outputs", "required_model_outputs", "run"]
 
 
 def required_model_outputs(evaluation):

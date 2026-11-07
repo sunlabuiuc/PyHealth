@@ -238,36 +238,6 @@ def _prediction_metadata(model, splits):
     }
 
 
-def predict_model_outputs(evaluation, *, outputs, cache_dir=None):
-    """Collect requested base outputs, reusing managed artifacts when enabled.
-
-    Examples:
-        >>> from examples.cpbench.synthetic_data import SyntheticDataset, SyntheticTask
-        >>> from pyhealth.datasets import PatientSplit
-        >>> from pyhealth.models import MLP
-        >>> ev = Evaluation({
-        ...     "dataset": {"class": SyntheticDataset}, "task": {"class": SyntheticTask},
-        ...     "model": {"class": MLP, "training": {"epochs": 0}},
-        ...     "protocol": {"split": {"class": PatientSplit,
-        ...                   "params": {"ratios": [0.4, 0.4, 0.2], "seed": 0}}},
-        ... })
-        >>> values, metadata = predict_model_outputs(ev, outputs={"test": ("y_prob",)})
-        >>> sorted(values["test"])[-1]
-        'y_true'
-    """
-    params, splits, model = prepare_evaluation(
-        evaluation, required=tuple(outputs), outputs=outputs, cache_dir=cache_dir
-    )
-    if isinstance(model, _CachedModel):
-        return model.predictions, _prediction_metadata(model, splits)
-
-    predictions = collect_model_predictions(
-        model, splits, outputs, params["protocol"].get("batch_size", 32)
-    )
-
-    return predictions, _prediction_metadata(model, splits)
-
-
 def require_protocol(protocol, *, order, feedback):
     """Reject execution rules an adapter does not implement.
 
