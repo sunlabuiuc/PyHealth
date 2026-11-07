@@ -36,7 +36,7 @@ class DicomSeriesProcessor(FeatureProcessor):
 
     Examples:
         >>> from pyhealth.processors import DicomSeriesProcessor
-        >>> processor = DicomSeriesProcessor(target_shape=(64, 64, 64))
+        >>> processor = DicomSeriesProcessor(lazy=True, target_shape=(64, 64, 64))
         >>> processor.stores_tensor
         False
         >>> processor.is_token()
