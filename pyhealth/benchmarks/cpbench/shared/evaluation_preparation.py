@@ -35,31 +35,16 @@ from .model_outputs import (
 def prepare_evaluation(
     evaluation: Evaluation, *, required, outputs=None, cache_dir=None
 ):
-    """Prepare native inputs, loading or producing managed artifacts as needed.
+    """Return owned params, named splits and a model for the adapter's requirements.
 
-    Training arguments describe how to produce a missing model. With cache_dir,
-    checkpoints and base outputs are reused across CP methods. Without it, a new
-    model is trained. The evaluation is never changed by cache resolution.
+    ``required`` names needed splits; ``outputs`` maps splits to model fields.
+    With ``cache_dir``, reuse or produce artifacts as needed. The returned model
+    may serve saved outputs. Without caching, train a fresh model. Cache resolution
+    preserves RNG state and never changes the supplied evaluation.
+    See :ref:`cpbench-guide` for configuration and cache behaviour.
 
     Examples:
-        >>> from examples.cpbench.synthetic_data import SyntheticDataset, SyntheticTask
-        >>> from pyhealth.datasets import PatientSplit
-        >>> from pyhealth.models import MLP
-        >>> ev = Evaluation({
-        ...     "dataset": {"class": SyntheticDataset},
-        ...     "task": {"class": SyntheticTask},
-        ...     "model": {"class": MLP, "params": {"embedding_dim": 4, "hidden_dim": 4},
-        ...               "training": {"epochs": 0}},
-        ...     "protocol": {"split": {"class": PatientSplit,
-        ...                   "params": {"ratios": [0.4, 0.4, 0.2], "seed": 0}}},
-        ... })
-        >>> with TemporaryDirectory() as directory:
-        ...     _, splits, model = prepare_evaluation(
-        ...         ev, required=("test",), outputs={"test": ("y_prob",)},
-        ...         cache_dir=Path(directory),
-        ...     )
-        ...     print(model.mode, sorted(splits))
-        multiclass ['test']
+        >>> prepared = prepare_evaluation(evaluation, required=("test",))  # doctest: +SKIP
     """
     params = deepcopy(dict(evaluation.params))
     if outputs is not None and not outputs:

@@ -43,78 +43,16 @@ def required_model_outputs(evaluation):
 
 
 def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
-    """Calibrate CovariateLabel and evaluate multiclass prediction sets.
+    """Calibrate and score CovariateLabel using native density weighting.
 
-    Complete example (run from the repository root)::
+    Requires a multiclass model. Default density fitting uses all test inputs
+    before prediction, without their labels, and requires ``embed=True``.
+    Supplied ``cal_weights`` bypass embedding extraction. Omit calibration/test
+    embeddings from options; CPBench computes them. Execution uses dataset order
+    without feedback. See :ref:`cpbench-covariate-label` for options and examples.
 
-        from examples.cpbench.synthetic_data import SyntheticDataset, SyntheticTask
-        from pyhealth.benchmarks import Evaluation
-        from pyhealth.benchmarks.cpbench import CPBench
-        from pyhealth.calib.predictionset import CovariateLabel
-        from pyhealth.datasets import PatientSplit
-        from pyhealth.models import MLP
-
-        # params are constructor arguments, not compatibility declarations.
-        evaluation = Evaluation({
-            "dataset": {
-                "class": SyntheticDataset,
-                "params": {"mode": "multiclass"},  # Generates integer labels.
-            },
-            # Selects label processing; does not change the raw labels.
-            "task": {"class": SyntheticTask, "params": {"mode": "multiclass"}},
-            "model": {
-                "class": MLP,  # Supports embed=True for density estimation.
-                "params": {"embedding_dim": 8, "hidden_dim": 8},
-                "training": {"epochs": 1},
-            },
-            "method": {
-                "class": CovariateLabel,
-                "params": {"alpha": 0.1, "random_state": 0},
-            },
-            "metrics": ["accuracy", "set_size", "miscoverage_overall_ps"],
-            "protocol": {
-                "split": {
-                    "class": PatientSplit,
-                    "params": {"ratios": [0.4, 0.4, 0.2], "seed": 0},  # train, calibration, test
-                },
-                "seed": 0,  # Split/method seeds are independent of this seed.
-            },
-        })
-
-        result = CPBench().evaluate([evaluation])[evaluation]
-        assert result.status == "success", result.metadata
-
-    The synthetic example demonstrates execution, without simulating a shift.
-    Real dataset/task constructors must produce one multiclass label and share
-    the model's fitted class encoding. model supplies its training configuration;
-    partitions use the fixed train/calibration/test order, with optional validation
-    second. Metrics name native multiclass metrics. The only
-    supported protocol.order/feedback values are their defaults: dataset/none.
-
-    By default this procedure uses ALL test inputs for density estimation before
-    prediction, following native CovariateLabel. No test labels enter embedding
-    extraction, calibration or prediction calls. The model must support embed=True.
-    Embeddings follow dataset order, using protocol.batch_size (default 32).
-
-    method.params are native constructor arguments. Optional kde_cal/kde_test
-    must be supplied together as importable callable references; with this pair,
-    only calibration embeddings are extracted. Otherwise native calibrate fits
-    the density estimators from calibration/test embeddings.
-
-    method.options may contain only calibration_kwargs. To supply known
-    importance weights instead of fitting densities, pass cal_weights as a list
-    in calibration-dataset row order. These are calibration-example likelihood
-    ratios, not class costs. This path needs no embedding-capable model.
-    cal_embeddings/test_embeddings must be omitted: the adapter derives them
-    from the declared splits when needed. Other arguments go to native calibrate.
-
-    With cache_dir, shared preparation reuses checkpoints and base outputs or
-    produces missing artifacts. CP calibration runs for each evaluation. Without
-    cache_dir, the model is trained afresh. output_dir is handled by CPBench.
-
-    With the evaluation defined above:
-
-    >>> result = run(evaluation, cache_dir=None)  # doctest: +SKIP
+    Examples:
+        >>> result = run(evaluation, cache_dir=None)  # doctest: +SKIP
     """
     options = deepcopy(evaluation.params["method"].get("options", {}))
     unknown = options.keys() - {"calibration_kwargs"}

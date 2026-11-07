@@ -43,78 +43,15 @@ def required_model_outputs(evaluation):
 
 
 def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
-    """Calibrate once and evaluate multiclass prediction sets.
+    """Calibrate and score multiclass prediction sets using native method arguments.
 
-    Complete example (run from the repository root)::
+    Requires a multiclass model and consistent label encodings. ``method.options``
+    accepts only ``calibration_kwargs``; LabelShift requires ``target_label_dist``
+    in encoded class order. Execution uses dataset order without test feedback.
+    See :ref:`cpbench-fixed-calibration` for complete evaluation examples.
 
-        from examples.cpbench.synthetic_data import SyntheticDataset, SyntheticTask
-        from pyhealth.benchmarks import Evaluation
-        from pyhealth.benchmarks.cpbench import CPBench
-        from pyhealth.calib.predictionset import BaseConformal
-        from pyhealth.datasets import PatientSplit
-        from pyhealth.models import MLP
-
-        # params are arguments to each class, not compatibility declarations.
-        evaluation = Evaluation({
-            "dataset": {
-                "class": SyntheticDataset,
-                # Generates one integer label per sample.
-                "params": {"mode": "multiclass"},
-            },
-            # Encodes each integer label as a class index.
-            "task": {"class": SyntheticTask, "params": {"mode": "multiclass"}},
-            "model": {
-                "class": MLP,
-                "params": {"embedding_dim": 8, "hidden_dim": 8},
-                "training": {"epochs": 1},  # Train MLP on the train split only.
-            },
-            # alpha is target miscoverage: 0.1 requests 90% coverage.
-            "method": {
-                "class": BaseConformal,
-                "params": {"alpha": 0.1, "random_state": 0},
-            },
-            "metrics": ["accuracy", "set_size", "miscoverage_overall_ps"],
-            "protocol": {
-                "split": {
-                    "class": PatientSplit,
-                    # Split patients into 40% train, 40% calibration, 20% test.
-                    "params": {"ratios": [0.4, 0.4, 0.2], "seed": 0},  # train, calibration, test
-                },
-                "seed": 0,  # Global RNGs; split/method seeds are independent.
-            },
-        })
-
-        result = CPBench().evaluate([evaluation])[evaluation]
-        assert result.status == "success", result.metadata
-
-    SyntheticDataset.mode changes the generated labels. SyntheticTask.mode
-    chooses their processor through its output schema; it does not change the
-    raw labels. Real datasets/tasks take their own constructor arguments.
-
-    dataset/task must produce SampleDataset splits with one multiclass label
-    and the same fitted class encoding as the model. model must construct a
-    BaseModel and supply training arguments.
-
-    method.class must be explicitly mapped to this adapter: BaseConformal,
-    LABEL, RC3P, SCRIB, NeighborhoodLabel or LabelShift. params are passed to
-    that method's constructor; alpha and other arguments follow its native API.
-    options may contain only calibration_kwargs and defaults to an empty mapping.
-    LabelShift requires target_label_dist in calibration_kwargs, for example
-    [0.2, 0.3, 0.5] for three encoded classes. source_label_dist is optional;
-    both distributions use the dataset's class order.
-
-    metrics must name native multiclass metrics. protocol.order must be
-    "dataset" and protocol.feedback must be "none"; both default to those values.
-    Other protocol fields follow benchmark.validate_evaluation. The
-    example sets protocol.seed explicitly; omitting it uses the default of 0.
-
-    With cache_dir, shared preparation reuses checkpoints and base outputs or
-    produces missing artifacts. CP calibration runs for each evaluation. Without
-    cache_dir, the model is trained afresh. output_dir is handled by CPBench.
-
-    With the evaluation defined above:
-
-    >>> result = run(evaluation, cache_dir=None)  # doctest: +SKIP
+    Examples:
+        >>> result = run(evaluation, cache_dir=None)  # doctest: +SKIP
     """
     options = deepcopy(evaluation.params["method"].get("options", {}))
     unknown = options.keys() - {"calibration_kwargs"}

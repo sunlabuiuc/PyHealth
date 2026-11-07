@@ -15,17 +15,14 @@ from . import adapters
 
 
 class CPBench(Benchmark):
-    """Run each evaluation's method and return one Result per evaluation.
+    """Run evaluations and return one Result per evaluation.
 
-    cache_dir enables managed reuse under cpbench/checkpoints,
-    cpbench/predictions/base and cpbench/datasets. Final CP arrays are saved
-    under cpbench/predictions/conformal. Training settings describe how to
-    produce a missing model; evaluations contain no generated artifact paths.
-    output_dir receives results.json through Benchmark.evaluate.
+    ``cache_dir`` enables reusable datasets, checkpoints and model outputs;
+    ``output_dir`` saves validated batch results. See :ref:`cpbench-guide` for
+    configuration, supported adapters and complete examples.
 
     Examples:
-        >>> benchmark = CPBench()
-        >>> benchmark.evaluate([])
+        >>> CPBench().evaluate([])
         {}
     """
 
@@ -96,30 +93,15 @@ class CPBench(Benchmark):
 
 
 def validate_evaluation(*, dataset, task, model, method, metrics, protocol):
-    """Validate every evaluation before adapter dispatch or any model/data work.
+    """Validate configuration before adapter dispatch or model/data preparation.
 
-    dataset/task/model/method name importable constructors with optional params.
-    model supplies its constructor and training configuration. method
-    options are interpreted by its adapter. Split outputs use the fixed order
-    train/calibration/test, or train/validation/calibration/test. protocol also
-    declares one run seed, batching/device and ordering/feedback rules.
+    Requires dataset, task, model, method, metrics and protocol blocks. The model
+    supplies training settings; generated artifact paths are not accepted. Split
+    outputs use train/calibration/test, with optional validation second.
+    See :ref:`cpbench-guide` for a complete evaluation.
 
     Examples:
-        >>> from examples.cpbench.synthetic_data import SyntheticDataset, SyntheticTask
-        >>> from pyhealth.calib.predictionset import BaseConformal
-        >>> from pyhealth.datasets import PatientSplit
-        >>> from pyhealth.models import MLP
-        >>> validate_evaluation(
-        ...     dataset={"class": SyntheticDataset},
-        ...     task={"class": SyntheticTask},
-        ...     model={"class": MLP, "training": {"epochs": 1}},
-        ...     method={"class": BaseConformal},
-        ...     metrics=["miscoverage_overall_ps"],
-        ...     protocol={"split": {
-        ...         "class": PatientSplit,
-        ...         "params": {"ratios": [0.4, 0.4, 0.2]},
-        ...     }},
-        ... )
+        >>> validate_evaluation(**evaluation.params)  # doctest: +SKIP
     """
     _component(dataset, "dataset")
     _component(task, "task")

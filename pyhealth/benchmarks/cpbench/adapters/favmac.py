@@ -33,75 +33,14 @@ def required_model_outputs(evaluation):
 
 
 def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
-    """Calibrate FavMac once and evaluate multilabel prediction sets.
+    """Calibrate and score FavMac prediction sets for a multilabel model.
 
-    Complete example (run from the repository root)::
+    Requires consistent class encodings. Constructor weights use encoded class
+    order; ``method.options`` accepts only ``calibration_kwargs``. Weighted metrics
+    receive the native weights and cost limit; ordinary tp/fp stay unweighted.
+    Execution uses dataset order without feedback. See :ref:`cpbench-favmac`.
 
-        from examples.cpbench.synthetic_data import SyntheticDataset, SyntheticTask
-        from pyhealth.benchmarks import Evaluation
-        from pyhealth.benchmarks.cpbench import CPBench
-        from pyhealth.calib.predictionset import FavMac
-        from pyhealth.datasets import PatientSplit
-        from pyhealth.models import MLP
-
-        # params are arguments to each class, not compatibility declarations.
-        evaluation = Evaluation({
-            "dataset": {
-                "class": SyntheticDataset,
-                # Generates lists of labels, e.g. [0, 2], per sample.
-                "params": {"mode": "multilabel"},
-            },
-            # Encodes each label list as a binary class-membership vector.
-            "task": {"class": SyntheticTask, "params": {"mode": "multilabel"}},
-            "model": {
-                "class": MLP,
-                "params": {"embedding_dim": 8, "hidden_dim": 8},
-                "training": {"epochs": 1},
-            },
-            "method": {
-                "class": FavMac,
-                "params": {"target_cost": 0.8},
-            },
-            "metrics": ["tp", "fp", "fp_cost", "tp_value", "set_size",
-                        "miscoverage_overall_ps", "fp_cost_violation_rate"],
-            "protocol": {
-                "split": {
-                    "class": PatientSplit,
-                    "params": {"ratios": [0.4, 0.4, 0.2], "seed": 0},  # train, calibration, test
-                },
-                "seed": 0,  # Global RNGs; split/method seeds are independent.
-            },
-        })
-
-        result = CPBench().evaluate([evaluation])[evaluation]
-        assert result.status == "success", result.metadata
-
-    SyntheticDataset.mode changes the generated labels. SyntheticTask.mode
-    chooses their processor through its output schema; it does not change the
-    raw labels. Real datasets/tasks take their own constructor arguments.
-
-    dataset/task must produce SampleDataset splits with one multilabel label
-    field and the same fitted class encoding as the model. model must construct
-    a multilabel BaseModel and supply training arguments.
-
-    params are native FavMac constructor arguments. cost_weights/value_weights
-    may be lists in encoded class order; this adapter converts them to arrays.
-    options may contain only calibration_kwargs and defaults to an empty mapping;
-    those arguments are passed directly to calibrate.
-
-    metrics must name native multilabel metrics. tp/fp report unweighted counts
-    even when custom cost/value weights are supplied. Weighted measurements use
-    those native weights and target_cost. Arrays and NaNs remain in Result.metrics;
-    JSON conversion belongs to the result writer. protocol.order must be
-    "dataset" and protocol.feedback must be "none"; both default to those values.
-    Other protocol fields follow benchmark.validate_evaluation. The
-    example sets protocol.seed explicitly; omitting it uses the default of 0.
-
-    With cache_dir, shared preparation reuses checkpoints and base outputs or
-    produces missing artifacts. CP calibration runs for each evaluation. Without
-    cache_dir, the model is trained afresh. output_dir is handled by CPBench.
-
-    With the evaluation defined above:
+    Examples:
         >>> result = run(evaluation, cache_dir=None)  # doctest: +SKIP
     """
     options = deepcopy(evaluation.params["method"].get("options", {}))
