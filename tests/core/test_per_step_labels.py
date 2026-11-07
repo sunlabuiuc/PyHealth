@@ -10,6 +10,7 @@ from pyhealth.datasets import SampleDataset, create_sample_dataset, get_dataload
 from pyhealth.models import BaseModel, RNN_V2
 from pyhealth.processors import (
     LevelConfig,
+    LabelProcessor,
     SequenceProcessorV2,
     TimeseriesBinaryLabelProcessor,
     TimeseriesLabelProcessor,
@@ -51,14 +52,17 @@ def _dataset(output="timeseries_binary", label_fn=lambda i, h: float((i + h) % 2
 
 
 class TestTimeseriesLabelProcessors(unittest.TestCase):
-    def test_are_restricted_sequence_v2_fields(self):
+    def test_are_label_processors(self):
         processor = TimeseriesBinaryLabelProcessor()
-        self.assertIsInstance(processor, SequenceProcessorV2)
+        self.assertIsInstance(processor, LabelProcessor)
         self.assertIsInstance(processor, TimeseriesLabelProcessor)
-        self.assertEqual(processor.schema(), ((0, "values"), (0, "time")))
+        self.assertNotIsInstance(processor, SequenceProcessorV2)
+        self.assertEqual(processor.schema(), ("value", "time"))
         self.assertEqual(processor.size(), 1)
         self.assertFalse(processor.learns_statistics)
-        self.assertEqual(repr(processor), "TimeseriesBinaryLabelProcessor()")
+        self.assertEqual(
+            repr(processor), "TimeseriesBinaryLabelProcessor(label_vocab_size=2)"
+        )
 
     def test_values_and_time(self):
         values, time = TimeseriesRegressionLabelProcessor().process(

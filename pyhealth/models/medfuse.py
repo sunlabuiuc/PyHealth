@@ -320,12 +320,11 @@ class MedFuse(BaseModel):
         self.cxr_feature_key = cxr_feature_key
         self.cxr_mask_key = cxr_mask_key
         self.label_key = self.label_keys[0]
-        self.mode = self._resolve_mode(self.dataset.output_schema[self.label_key])
 
         self.has_cxr_feature = cxr_feature_key in self.feature_keys
         self.ehr_input_dim = self._infer_ehr_input_dim(ehr_feature_key)
 
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.layer = MedFuseLayer(
             ehr_input_dim=self.ehr_input_dim,
             ehr_hidden_dim=ehr_hidden_dim,
@@ -440,7 +439,7 @@ class MedFuse(BaseModel):
             cxr_input=cxr_input,
             cxr_mask=cxr_mask,
         )
-        y_prob = self.prepare_y_prob(logits)
+        y_prob = self.label_processor.activation(logits)
 
         results: Dict[str, torch.Tensor] = {
             "logit": logits,
@@ -449,7 +448,7 @@ class MedFuse(BaseModel):
 
         if self.label_key in kwargs:
             y_true = cast(torch.Tensor, kwargs[self.label_key]).to(self.device)
-            loss = self.get_loss_function()(logits, y_true)
+            loss = self.label_processor.loss(logits, y_true)
             results["loss"] = loss
             results["y_true"] = y_true
 

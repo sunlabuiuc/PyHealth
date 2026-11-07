@@ -234,12 +234,14 @@ Available Tasks
     Sleep Staging (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSleepEDF>
     Temple University EEG Tasks <tasks/pyhealth.tasks.temple_university_EEG_tasks>
     CHB-MIT Seizure Detection <tasks/pyhealth.tasks.SeizureDetectionCHBMIT>
+    Ear-EEG Sleep Staging (EESM23) <tasks/pyhealth.tasks.SleepStagingEarEEG>
     IIIC Seizure Classification <tasks/pyhealth.tasks.iiic_seizure_classification>
     EEGBCI Tasks <tasks/pyhealth.tasks.eegbci>
     PTB-XL Tasks <tasks/pyhealth.tasks.ptbxl>
     Sleep Staging v2 <tasks/pyhealth.tasks.sleep_staging_v2>
     Benchmark EHRShot <tasks/pyhealth.tasks.benchmark_ehrshot>
     EHR Text Serialization (LLM encoders) <tasks/pyhealth.tasks.ehr_text_serialization>
+    ED Disposition and Outcomes (MIMIC-IV-ED) <tasks/pyhealth.tasks.ed_disposition_mimic4>
     ChestX-ray14 Binary Classification <tasks/pyhealth.tasks.ChestXray14BinaryClassification>
     De-Identification NER <tasks/pyhealth.tasks.DeIDNERTask>
     ChestX-ray14 Multilabel Classification <tasks/pyhealth.tasks.ChestXray14MultilabelClassification>

@@ -30,13 +30,15 @@ Available Processors
 - ``NestedMultiHotProcessor``: For nested categorical sequences as per-visit multi-hot vectors (e.g., generative EHR models)
 - ``NestedFloatsProcessor``: For nested numerical sequences with optional forward-fill
 
-**Label Processors:**
+**Label Processors** (subclasses of ``LabelProcessor``, which also define the loss, activation, output size and metrics of the label):
 
 - ``BinaryLabelProcessor``: Binary classification labels (e.g., mortality prediction)
 - ``MultiClassLabelProcessor``: Multi-class classification labels
 - ``MultiLabelProcessor``: Multi-label classification (e.g., drug recommendation)
 - ``RegressionLabelProcessor``: Continuous regression targets
 - ``TimeseriesBinaryLabelProcessor``: Binary labels at given times (``"timeseries_binary"``): each sample is ``{"time": [...], "values": [...]}``, packed per batch as ``(values [ΣN, 1], time [ΣN], batch offsets [B + 1])``, one record per label, with no grid or mask
+- ``TimeseriesMultiClassLabelProcessor``: One class per given time (``"timeseries_multiclass"``), values ``[ΣN]``, in the same packed format
+- ``TimeseriesMultiLabelProcessor``: A set of labels per given time (``"timeseries_multilabel"``), values ``[ΣN, K]``, in the same packed format
 - ``TimeseriesRegressionLabelProcessor``: Real-valued labels at given times (``"timeseries_regression"``), in the same packed format
 
 **Data Type Processors:**
@@ -362,6 +364,7 @@ Common string keys for automatic processor selection:
 - ``"multiclass"``: For multi-class labels  
 - ``"multilabel"``: For multi-label classification
 - ``"regression"``: For regression targets
+- ``"timeseries_binary"``, ``"timeseries_multiclass"``, ``"timeseries_multilabel"``, ``"timeseries_regression"``: For labels given at time points
 - ``"text"``: For text data
 - ``"tuple_time_text"``: For text paired with temporal information
 - ``"image"``: For image data
@@ -554,12 +557,15 @@ API Reference
     processors/pyhealth.processors.NestedSequenceProcessor
     processors/pyhealth.processors.NestedMultiHotProcessor
     processors/pyhealth.processors.NestedFloatsProcessor
+    processors/pyhealth.processors.LabelProcessor
     processors/pyhealth.processors.BinaryLabelProcessor
     processors/pyhealth.processors.MultiClassLabelProcessor
     processors/pyhealth.processors.MultiLabelProcessor
     processors/pyhealth.processors.RegressionLabelProcessor
     processors/pyhealth.processors.TimeseriesLabelProcessor
     processors/pyhealth.processors.TimeseriesBinaryLabelProcessor
+    processors/pyhealth.processors.TimeseriesMultiClassLabelProcessor
+    processors/pyhealth.processors.TimeseriesMultiLabelProcessor
     processors/pyhealth.processors.TimeseriesRegressionLabelProcessor
     processors/pyhealth.processors.ImageProcessor
     processors/pyhealth.processors.TextProcessor

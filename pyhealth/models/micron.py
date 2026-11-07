@@ -217,7 +217,7 @@ class MICRON(BaseModel):
                 "The processor type is: " + type(label_processor).__name__
             )
         
-        num_drugs = label_processor.size()
+        num_drugs = label_processor.output_size()
         if num_drugs == 0:
             raise ValueError("Label processor returned 0 size")
         
