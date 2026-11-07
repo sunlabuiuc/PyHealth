@@ -632,7 +632,7 @@ class TestNativeMethods(unittest.TestCase):
 
             self.assertEqual(cold.status, "success", cold.metadata)
             self.assertEqual(warm.status, "success", warm.metadata)
-            self.assertEqual(cold.metrics, warm.metrics)
+            np.testing.assert_equal(cold.metrics, warm.metrics)
             self.assertEqual(warm.artifact, prediction_cache_path(ev.params, cache))
 
             with np.load(warm.artifact) as predictions:
@@ -644,14 +644,33 @@ class TestNativeMethods(unittest.TestCase):
         self.assertEqual(ev.to_dict(), before)
 
     def test_favmac_native_equivalence(self):
+        names = [
+            "tp",
+            "fp",
+            "roc_auc_micro",
+            "fp_cost",
+            "tp_value",
+            "fp_cost_violation_rate",
+            "set_size",
+            "miscoverage_ps",
+            "miscoverage_mean_ps",
+            "miscoverage_overall_ps",
+        ]
         for arguments in (
+            {},  # Use FavMac's own default limit and unit weights.
             {"target_cost": 0.8},
+            {"target_cost": 1.5, "cost_weights": 2.0, "value_weights": 3.0},
             {"target_cost": 0.8, "delta": 0.2},
             {"target_cost": 0.8, "cost_weights": [1, 2, 1], "value_weights": [2, 1, 3]},
         ):
             with self.subTest(arguments=arguments):
                 self._native_equivalence(
-                    evaluation(FavMac, mode="multilabel", method_params=arguments),
+                    evaluation(
+                        FavMac,
+                        mode="multilabel",
+                        method_params=arguments,
+                        metrics=names,
+                    ),
                     FavMac,
                     arguments,
                     multilabel_metrics_fn,
@@ -697,14 +716,19 @@ class TestNativeMethods(unittest.TestCase):
         np.testing.assert_array_equal(
             np.concatenate(observed), predictions["y_predset"]
         )
-        names = (
-            ["tp", "fp", "roc_auc_micro"]
-            if method is FavMac
-            else ["accuracy", "set_size", "miscoverage_overall_ps"]
+        metric_arguments = {}
+        if method is FavMac:
+            metric_arguments = {
+                "cost_weights": native_arguments.get("cost_weights", 1.0),
+                "value_weights": native_arguments.get("value_weights", 1.0),
+                "target_cost": native.target_cost,
+            }
+        expected = metric_function(
+            **predictions, metrics=ev.params["metrics"], **metric_arguments
         )
-        expected = metric_function(**predictions, metrics=names)
+        self.assertEqual(result.metrics.keys(), expected.keys())
         for name, value in expected.items():
-            self.assertAlmostEqual(result.metrics[name], value)
+            np.testing.assert_allclose(result.metrics[name], value, equal_nan=True)
         self.assertEqual(ev.to_dict(), before)
         self.assertEqual(result.metadata, {"class_labels": [0, 1, 2]})
 
@@ -915,8 +939,8 @@ class TestCacheAndOutput(unittest.TestCase):
             self.assertEqual(train.call_count, 2)
             for result in [plain, cold, warm, *rest.values()]:
                 self.assertEqual(result.status, "success", result.metadata)
-            self.assertEqual(plain.metrics, cold.metrics)
-            self.assertEqual(cold.metrics, warm.metrics)
+            np.testing.assert_equal(plain.metrics, cold.metrics)
+            np.testing.assert_equal(cold.metrics, warm.metrics)
             self.assertEqual(
                 rest[other_metrics].metrics["accuracy"], cold.metrics["accuracy"]
             )
@@ -1104,25 +1128,136 @@ class TestPredictionAndScoring(unittest.TestCase):
             ["miscoverage_ps", "error_ps", "error_overall_ps"],
             {0: 0, 1: 1, 2: 2},
         )
-        self.assertEqual(
-            result.metrics,
-            {
-                "miscoverage_ps": [0.0, 0.0, None],
-                "error_ps": [0.0, None, None],
-                "error_overall_ps": 0.0,
-            },
+        self.assertIsInstance(result.metrics["miscoverage_ps"], np.ndarray)
+        np.testing.assert_allclose(
+            result.metrics["miscoverage_ps"], [0.0, 0.0, np.nan], equal_nan=True
         )
+        np.testing.assert_allclose(
+            result.metrics["error_ps"], [0.0, np.nan, np.nan], equal_nan=True
+        )
+        self.assertEqual(result.metrics["error_overall_ps"], 0.0)
 
     def test_absent_classes_and_no_singletons_are_undefined(self):
         ev = evaluation(
             method_params={"alpha": [0.1, 0.1, 0.1]},
             dataset_params={"uniform": True, "test_class": 0},
+            metrics=[
+                "miscoverage_ps",
+                "miscoverage_mean_ps",
+                "error_ps",
+                "error_mean_ps",
+                "error_overall_ps",
+            ],
         )
-        result = CPBench().evaluate([ev])[ev]
+        with tempfile.TemporaryDirectory() as directory:
+            result = CPBench().evaluate([ev], output_dir=Path(directory))[ev]
+            saved = json.loads((Path(directory) / "results.json").read_text())[ev.id]
+
         self.assertEqual(result.status, "success", result.metadata)
-        self.assertEqual(result.metrics["miscoverage_ps"], [0.0, None, None])
-        self.assertEqual(result.metrics["error_ps"], [None, None, None])
-        self.assertIsNone(result.metrics["error_overall_ps"])
+        self.assertIsInstance(result.metrics["miscoverage_ps"], np.ndarray)
+        np.testing.assert_allclose(
+            result.metrics["miscoverage_ps"], [0.0, np.nan, np.nan], equal_nan=True
+        )
+        np.testing.assert_allclose(
+            result.metrics["error_ps"], [np.nan, np.nan, np.nan], equal_nan=True
+        )
+        self.assertEqual(result.metrics["miscoverage_mean_ps"], 0.0)
+        self.assertTrue(np.isnan(result.metrics["error_mean_ps"]))
+        self.assertTrue(np.isnan(result.metrics["error_overall_ps"]))
+        self.assertEqual(
+            saved["metrics"],
+            {
+                "miscoverage_ps": [0.0, None, None],
+                "miscoverage_mean_ps": 0.0,
+                "error_ps": [None, None, None],
+                "error_mean_ps": None,
+                "error_overall_ps": None,
+            },
+        )
+
+    def test_favmac_scores_weighted_cost_value_and_strict_limit(self):
+        predictions = {
+            "y_true": np.array([[1, 0, 1], [0, 1, 0]]),
+            "y_prob": np.full((2, 3), 0.5),
+            "y_predset": np.array([[1, 1, 1], [1, 1, 0]]),
+        }
+        ev = evaluation(
+            FavMac,
+            mode="multilabel",
+            dataset_params={"n_test": 2},
+            method_params={
+                "cost_weights": [2, 3, 5],
+                "value_weights": [7, 11, 13],
+                "target_cost": 2.0,
+            },
+            metrics=["tp", "fp", "tp_value", "fp_cost", "fp_cost_violation_rate"],
+        )
+        before = ev.to_dict()
+        # Fix the held-out masks so both weighted counts and the boundary matter.
+        with patch(
+            "pyhealth.benchmarks.cpbench.adapters.favmac.predict_classification_sets",
+            return_value=predictions,
+        ):
+            result = CPBench().evaluate([ev])[ev]
+        self.assertEqual(result.status, "success", result.metadata)
+        self.assertEqual(
+            result.metrics,
+            {
+                "tp": 1.5,
+                "fp": 1.0,
+                "tp_value": 15.5,
+                "fp_cost": 2.5,
+                "fp_cost_violation_rate": 0.5,
+            },
+        )
+        self.assertEqual(ev.to_dict(), before)
+
+    def test_favmac_metric_arrays_and_nan_are_converted_only_on_disk(self):
+        ev = evaluation(
+            FavMac,
+            mode="multilabel",
+            dataset_params={"n_test": 1},
+            method_params={
+                "cost_weights": [2, 3, 5],
+                "value_weights": [7, 11, 13],
+                "target_cost": 2.0,
+            },
+            metrics=[
+                "tp",
+                "fp",
+                "fp_cost",
+                "tp_value",
+                "fp_cost_violation_rate",
+                "miscoverage_ps",
+                "miscoverage_mean_ps",
+                "miscoverage_overall_ps",
+                "set_size",
+            ],
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = CPBench().evaluate(
+                [ev], cache_dir=root / "cache", output_dir=root / "output"
+            )[ev]
+            self.assertEqual(result.status, "success", result.metadata)
+            with np.load(result.artifact, allow_pickle=False) as cached:
+                predictions = {name: cached[name] for name in cached.files}
+            saved = json.loads((root / "output" / "results.json").read_text())[ev.id]
+        expected = multilabel_metrics_fn(
+            **predictions,
+            metrics=ev.params["metrics"],
+            cost_weights=[2, 3, 5],
+            value_weights=[7, 11, 13],
+            target_cost=2.0,
+        )
+        self.assertIsInstance(result.metrics["miscoverage_ps"], np.ndarray)
+        self.assertTrue(np.isnan(result.metrics["miscoverage_ps"][1:]).all())
+        for name, value in expected.items():
+            np.testing.assert_allclose(result.metrics[name], value, equal_nan=True)
+            if name == "miscoverage_ps":
+                self.assertEqual(saved["metrics"][name], [float(value[0]), None, None])
+            else:
+                self.assertEqual(saved["metrics"][name], float(value))
 
     def test_existing_metrics_with_multiple_output_keys(self):
         ev = evaluation(metrics=["hits@1", "mean_rank"])

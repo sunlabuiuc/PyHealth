@@ -52,7 +52,8 @@ def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
                 "class": FavMac,
                 "params": {"target_cost": 0.8},
             },
-            "metrics": ["tp", "fp", "roc_auc_micro"],
+            "metrics": ["tp", "fp", "fp_cost", "tp_value", "set_size",
+                        "miscoverage_overall_ps", "fp_cost_violation_rate"],
             "protocol": {
                 "split": {
                     "class": PatientSplit,
@@ -81,10 +82,15 @@ def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
     those arguments are passed directly to calibrate.
 
     metrics must name native multilabel metrics. tp/fp report unweighted counts
-    even when custom cost/value weights are supplied. protocol.order must be
+    even when custom cost/value weights are supplied. Weighted measurements use
+    those native weights and target_cost. Arrays and NaNs remain in Result.metrics;
+    JSON conversion belongs to the result writer. protocol.order must be
     "dataset" and protocol.feedback must be "none"; both default to those values.
     Other protocol fields follow benchmark.validate_evaluation. The
     example sets protocol.seed explicitly; omitting it uses the default of 0.
+
+    With the evaluation defined above:
+        >>> result = run(evaluation, cache_dir=None)  # doctest: +SKIP
     """
     options = deepcopy(evaluation.params["method"].get("options", {}))
     unknown = options.keys() - {"calibration_kwargs"}
@@ -118,10 +124,16 @@ def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
     )
 
     validate_multilabel_predictions(predictions, len(vocabulary))
-    metrics = multilabel_metrics_fn(**predictions, metrics=list(params["metrics"]))
+    metrics = multilabel_metrics_fn(
+        **predictions,
+        metrics=list(params["metrics"]),
+        cost_weights=arguments.get("cost_weights", 1.0),
+        value_weights=arguments.get("value_weights", 1.0),
+        target_cost=predictor.target_cost,
+    )
     result = Result(
         "success",
-        {name: float(value) for name, value in metrics.items()},
+        metrics,
         {"class_labels": sorted(vocabulary, key=vocabulary.get)},
     )
 
