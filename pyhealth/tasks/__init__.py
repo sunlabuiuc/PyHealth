@@ -58,6 +58,16 @@ from .length_of_stay_prediction import (
 )
 from .length_of_stay_stagenet_mimic4 import LengthOfStayStageNetMIMIC4
 from .medical_coding import MIMIC3ICD9Coding
+from .meds_outcome_tasks import (
+    HospitalReadmissionMEDS as HospitalReadmissionMEDS,
+    ICUAdmissionMEDS as ICUAdmissionMEDS,
+    ProlongedLengthOfStayMEDS as ProlongedLengthOfStayMEDS,
+)
+from .ethos_tasks import (
+    EthosOutcomeMEDS as EthosOutcomeMEDS,
+    EthosRolloutRule as EthosRolloutRule,
+    EthosTimelineMEDS as EthosTimelineMEDS,
+)
 from .medical_transcriptions_classification import MedicalTranscriptionsClassification
 from .mortality_prediction import (
     MortalityPredictionEICU,

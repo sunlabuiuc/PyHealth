@@ -242,6 +242,7 @@ API Reference
     models/pyhealth.models.Deepr
     models/pyhealth.models.EHRMamba
     models/pyhealth.models.EHRMambaCEHR
+    models/pyhealth.models.ETHOS
     models/pyhealth.models.JambaEHR
     models/pyhealth.models.ContraWR
     models/pyhealth.models.SparcNet

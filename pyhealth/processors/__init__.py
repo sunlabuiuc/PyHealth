@@ -68,6 +68,8 @@ from .ignore_processor import IgnoreProcessor
 from .temporal_timeseries_processor import TemporalTimeseriesProcessor
 from .tuple_time_text_processor import TupleTimeTextProcessor
 from .cehr_processor import CehrProcessor, ConceptVocab
+from .ethos_processor import EthosProcessor
+from .ethos_context_processor import EthosContextProcessor
 
 # Expose public API
 from .base_processor import (
@@ -111,4 +113,6 @@ __all__ = [
     "TupleTimeTextProcessor",
     "CehrProcessor",
     "ConceptVocab",
+    "EthosProcessor",
+    "EthosContextProcessor",
 ]
