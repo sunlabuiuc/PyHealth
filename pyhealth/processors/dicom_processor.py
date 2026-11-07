@@ -116,6 +116,11 @@ class DicomProcessor(ImageProcessor):
                 "DicomProcessor(is_mask=True) requires to_tensor=True; "
                 "returning a mask as a PIL image would rescale its labels."
             )
+        if self.is_mask and self.normalize:
+            raise ValueError(
+                "DicomProcessor(is_mask=True) cannot use normalize=True; "
+                "mean/std normalization would corrupt integer labels."
+            )
 
     @property
     def stores_tensor(self) -> bool:
@@ -206,10 +211,14 @@ class DicomProcessor(ImageProcessor):
         if self.mode == "L" and tensor.shape[0] > 1:
             tensor = tensor.mean(dim=0, keepdim=True)
         elif self.mode in {"RGB", "RGBA"}:
+            target_channels = 4 if self.mode == "RGBA" else 3
             if tensor.shape[0] == 1:
-                tensor = tensor.repeat(3, 1, 1)
-            if self.mode == "RGB" and tensor.shape[0] == 4:
+                tensor = tensor.repeat(target_channels, 1, 1)
+            elif self.mode == "RGB" and tensor.shape[0] == 4:
                 tensor = tensor[:3]
+            elif self.mode == "RGBA" and tensor.shape[0] == 3:
+                alpha = torch.ones_like(tensor[:1])
+                tensor = torch.cat([tensor, alpha], dim=0)
         # Masks must use nearest-neighbour so labels stay integers.
         interpolation = "nearest" if self.is_mask else "bilinear"
         tensor = _resize_tensor(

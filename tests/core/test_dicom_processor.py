@@ -271,6 +271,20 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
     def test_mask_requires_tensor_output(self):
         with self.assertRaisesRegex(ValueError, "to_tensor=True"):
             DicomProcessor(is_mask=True, to_tensor=False)
+        with self.assertRaisesRegex(ValueError, "normalize=True"):
+            DicomProcessor(
+                is_mask=True,
+                normalize=True,
+                mean=[0.0],
+                std=[1.0],
+            )
+
+    def test_rgba_from_grayscale(self):
+        path = self._write_single(1024 + 1)
+        tensor = DicomProcessor(
+            image_size=4, mode="RGBA", lazy=False
+        ).process(str(path))
+        self.assertEqual(tuple(tensor.shape), (4, 4, 4))
 
     def test_mask_skips_rescale_and_window(self):
         path = self._write_single(1024 + 7)
