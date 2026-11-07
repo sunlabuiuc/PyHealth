@@ -1,6 +1,7 @@
 """Output processors: what a label is, and how to train on and score it."""
 
 import logging
+import math
 from abc import abstractmethod
 from collections.abc import Hashable, Iterable, Sequence
 from typing import Any, ClassVar
@@ -11,7 +12,7 @@ import torch.nn.functional as F
 
 from . import register_processor
 from .base_processor import FeatureProcessor
-from .utils import fit_normalization
+from .utils import NORMALIZATIONS, Normalization, fit_normalization
 
 logger = logging.getLogger(__name__)
 
@@ -440,29 +441,36 @@ class MultiLabelProcessor(_WeightedBCE, LabelProcessor):
 class RegressionLabelProcessor(LabelProcessor):
     """Real-valued labels. The model has one output; the loss is MSE.
 
-    Labels in large units (e.g. hours) can stall training, so ``scale`` maps
-    them to 0..1. :meth:`process` is the only place that does: like the index
-    of a class, the processed label is what the model sees, so ``y_true``,
-    logits, ``y_prob`` and the loss, including a model's own loss, are all in
-    scaled units. :meth:`to_numpy`, which turns model outputs into metric
+    Labels in large units (e.g. hours) can stall training, so
+    ``normalization`` rescales them to ``(label - center) / scale``, as
+    :class:`~pyhealth.processors.TensorProcessor` does for inputs.
+    :meth:`process` is the only place that does: like the index of a class,
+    the processed label is what the model sees, so ``y_true``, logits,
+    ``y_prob`` and the loss, including a model's own loss, are all in
+    normalized units. :meth:`to_numpy`, which turns model outputs into metric
     inputs, maps ``y_true`` and ``y_prob`` back together, so
     :meth:`~pyhealth.trainer.Trainer.inference` and metrics are in the
     original units.
 
     Args:
-        scale: ``"minmax"`` (the lowest and highest label of the fitted
-            samples, so fit on a training split), a fixed ``(low, high)``
-            range, or None for no scaling. The range only sets the mapping:
-            labels outside it are not clipped.
+        normalization: ``"minmax"`` (to 0..1 on the fitted range) or
+            ``"zscore"`` (zero mean, unit variance), learned in ``fit`` (so
+            fit on a training split); a fixed ``(low, high)`` range, mapped to
+            0..1; or None. Labels are never clipped.
+
+    Attributes:
+        center: The label that maps to 0, or None without normalization.
+        scale: The label distance that maps to 1, or None without
+            normalization.
 
     Examples:
         >>> from pyhealth.processors import RegressionLabelProcessor
         >>> RegressionLabelProcessor().process(2.5)
         tensor([2.5000])
-        >>> p = RegressionLabelProcessor(scale="minmax")
+        >>> p = RegressionLabelProcessor(normalization="minmax")
         >>> p.fit([{"y": 10.0}, {"y": 30.0}], "y")
-        >>> p.label_range
-        (10.0, 30.0)
+        >>> p.center, p.scale
+        (10.0, 20.0)
         >>> y_true = p.process(20.0)
         >>> y_true
         tensor([0.5000])
@@ -471,52 +479,56 @@ class RegressionLabelProcessor(LabelProcessor):
     """
 
     mode = "regression"
-    scale: str | Sequence[float] | None = None
-    _label_range: tuple[float, float] | None = None
+    normalization: Normalization | Sequence[float] = None
+    center: float | None = None
+    scale: float | None = None
 
-    def __init__(self, scale: str | Sequence[float] | None = None):
+    def __init__(self, normalization: Normalization | Sequence[float] = None):
         super().__init__()
-        if isinstance(scale, str):
-            if scale != "minmax":
+        if normalization is None or isinstance(normalization, str):
+            if normalization not in NORMALIZATIONS:
                 raise ValueError(
-                    f"scale must be 'minmax', (low, high) or None, not {scale!r}."
+                    f"normalization must be one of {NORMALIZATIONS} or "
+                    f"(low, high), not {normalization!r}."
                 )
-        elif scale is not None:
-            low, high = (float(end) for end in scale)
-            if not low < high:
-                raise ValueError(f"scale needs low < high, got {scale!r}.")
-            self._label_range = (low, high)
-        self.scale = scale
-        self.learns_statistics = scale == "minmax"
+        else:
+            low, high = (float(end) for end in normalization)
+            if not (math.isfinite(low) and math.isfinite(high) and low < high):
+                raise ValueError(
+                    f"A fixed range needs finite low < high, got {normalization!r}."
+                )
+            self.center, self.scale = low, high - low
+        self.normalization = normalization
+        self.learns_statistics = isinstance(normalization, str)
 
     def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
-        if self.scale != "minmax":
+        if not isinstance(self.normalization, str):
             return
-        values = np.array([float(sample[field]) for sample in samples])
+        values = np.array([float(sample[field]) for sample in samples]).reshape(-1, 1)
         if values.size == 0:
-            raise ValueError("scale='minmax' got no samples to fit on.")
-        if not np.isfinite(values).all():
-            raise ValueError("scale='minmax' needs finite labels.")
-        if values.min() == values.max():
-            logger.warning(
-                "scale='minmax': label %s is constant; its range is set to 1.", field
+            raise ValueError(
+                f"normalization={self.normalization!r} got no samples to fit on."
             )
-        (low,), (width,) = fit_normalization([values.reshape(-1, 1)], "minmax")
-        self._label_range = (low, low + width)
-        logger.info(f"Label {field} range: {self._label_range}")
+        (self.center,), (self.scale,) = fit_normalization([values], self.normalization)
+        if np.nanmin(values) == np.nanmax(values):
+            logger.warning("Label %s is constant; its scale is set to 1.", field)
+        logger.info(f"Label {field} center {self.center}, scale {self.scale}")
 
-    @property
-    def label_range(self) -> tuple[float, float] | None:
-        """The ``(low, high)`` that map to 0 and 1, or None without scaling."""
-        if self.scale == "minmax" and self._label_range is None:
-            raise ValueError("scale='minmax' is learned in fit(); fit first.")
-        return self._label_range
+    def _center_scale(self) -> tuple[float, float] | None:
+        if self.normalization is None:
+            return None
+        if self.center is None or self.scale is None:
+            raise ValueError(
+                f"normalization={self.normalization!r} is learned in fit(); "
+                "fit first."
+            )
+        return self.center, self.scale
 
     def process(self, value: Any) -> torch.Tensor:
         value = float(value)
-        if self.label_range is not None:
-            low, high = self.label_range
-            value = (value - low) / (high - low)
+        if (center_scale := self._center_scale()) is not None:
+            center, scale = center_scale
+            value = (value - center) / scale
         return torch.tensor([value], dtype=torch.float32)
 
     def size(self) -> int:
@@ -544,10 +556,10 @@ class RegressionLabelProcessor(LabelProcessor):
     ) -> tuple[list[np.ndarray], list[np.ndarray]]:
         """Labels and predictions in the original units."""
         (true,), (prob,) = super().to_numpy(y_true, y_prob)
-        if self.label_range is None:
+        if (center_scale := self._center_scale()) is None:
             return [true], [prob]
-        low, high = self.label_range
-        return [true * (high - low) + low], [prob * (high - low) + low]
+        center, scale = center_scale
+        return [true * scale + center], [prob * scale + center]
 
     @classmethod
     def metrics_fn(cls, y_true, y_prob, metrics=None):

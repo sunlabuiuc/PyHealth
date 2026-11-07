@@ -35,11 +35,11 @@ Available Processors
 - ``BinaryLabelProcessor``: Binary classification labels (e.g., mortality prediction)
 - ``MultiClassLabelProcessor``: Multi-class classification labels
 - ``MultiLabelProcessor``: Multi-label classification (e.g., drug recommendation)
-- ``RegressionLabelProcessor``: Continuous regression targets, optionally scaled to 0..1 for training (``("regression", {"scale": "minmax"})``, or a fixed ``(low, high)`` range); ``Trainer.inference`` and metrics are in the original units
+- ``RegressionLabelProcessor``: Continuous regression targets, optionally normalized for training, as ``TensorProcessor`` does for inputs (``("regression", {"normalization": "minmax"})``, ``"zscore"``, or a fixed ``(low, high)`` range); ``Trainer.inference`` and metrics are in the original units
 - ``TimeseriesBinaryLabelProcessor``: Binary labels at given times (``"timeseries_binary"``): each sample is ``{"time": [...], "values": [...]}``, packed per batch as ``(values [ΣN, 1], time [ΣN], batch offsets [B + 1])``, one record per label, with no grid or mask
 - ``TimeseriesMultiClassLabelProcessor``: One class per given time (``"timeseries_multiclass"``), values ``[ΣN]``, in the same packed format
 - ``TimeseriesMultiLabelProcessor``: A set of labels per given time (``"timeseries_multilabel"``), values ``[ΣN, K]``, in the same packed format
-- ``TimeseriesRegressionLabelProcessor``: Real-valued labels at given times (``"timeseries_regression"``), in the same packed format, with the same ``scale`` option
+- ``TimeseriesRegressionLabelProcessor``: Real-valued labels at given times (``"timeseries_regression"``), in the same packed format, with the same ``normalization`` option
 
 **Data Type Processors:**
 

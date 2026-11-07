@@ -151,7 +151,7 @@ class TestScaledRegression(unittest.TestCase):
         for sample in samples:
             sample["label"] = 100.0 + sample["labs"][0] * 50.0  # 100 .. 400
         ds = create_sample_dataset(
-            samples, MIXED, {"label": ("regression", {"scale": (100, 400)})}
+            samples, MIXED, {"label": ("regression", {"normalization": (100, 400)})}
         )
         loader = get_dataloader(ds, batch_size=32)
         model = LinearBackend(ds, bag_of_codes=True).fit(loader)

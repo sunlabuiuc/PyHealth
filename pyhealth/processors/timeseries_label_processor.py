@@ -16,6 +16,7 @@ from .label_processor import (
     PosWeight,
     RegressionLabelProcessor,
 )
+from .utils import Normalization
 
 
 class TimeseriesLabelProcessor[B: LabelProcessor](LabelProcessor):
@@ -298,24 +299,25 @@ class TimeseriesRegressionLabelProcessor(
     """Real-valued labels at time points, see :class:`TimeseriesLabelProcessor`.
 
     Args:
-        scale: As in :class:`RegressionLabelProcessor`; ``"minmax"`` is
-            learned over the label records of all fitted samples.
+        normalization: As in :class:`RegressionLabelProcessor`; a learned
+            one is fitted on the label records of all fitted samples.
 
     Examples:
         >>> from pyhealth.processors import TimeseriesRegressionLabelProcessor
         >>> TimeseriesRegressionLabelProcessor().process({"time": [0.0, 2.0], "values": [2.5, 0.5]})
         (tensor([[2.5000],
                 [0.5000]]), tensor([0., 2.]))
-        >>> TimeseriesRegressionLabelProcessor(scale=(0, 10)).base.label_range
+        >>> p = TimeseriesRegressionLabelProcessor(normalization=(0, 10))
+        >>> p.base.center, p.base.scale
         (0.0, 10.0)
     """
 
     mode = "timeseries_regression"
     base_cls = RegressionLabelProcessor
 
-    def __init__(self, scale: str | Sequence[float] | None = None) -> None:
-        super().__init__(RegressionLabelProcessor(scale=scale))
+    def __init__(self, normalization: Normalization | Sequence[float] = None) -> None:
+        super().__init__(RegressionLabelProcessor(normalization=normalization))
 
     def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
-        if self.base.scale == "minmax":  # otherwise, no need to read the samples
+        if self.base.learns_statistics:  # otherwise, no need to read the samples
             super().fit(samples, field)
