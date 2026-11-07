@@ -106,7 +106,8 @@ class TestRSNAPneumoniaTask(unittest.TestCase):
         }
         self.assertEqual(labels, {"study_1": 1, "study_2": 0})
         sample = samples[0]
-        self.assertEqual(tuple(sample["image"].shape), (1, 224, 224))
+        image = samples.input_processors["image"].materialize(sample["image"])
+        self.assertEqual(tuple(image.shape), (1, 224, 224))
         self.assertIsInstance(sample["pneumonia"], torch.Tensor)
         self.assertEqual(set(samples.input_schema), {"image"})
         self.assertEqual(set(samples.output_schema), {"pneumonia"})
