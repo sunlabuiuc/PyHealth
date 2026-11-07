@@ -148,7 +148,8 @@ class RC3P(SetPredictor):
         :mod:`pyhealth.calib.predictionset.scores` for the exact formulas.
     :type score_type: str
     :param random_state: Optional int seed for the RNG used for the
-        internal calibration split and by score_type="aps".
+        internal calibration split and by score_type="aps" and
+        score_type="saps".
     :type random_state: int | None
     :param rank_fraction: Fraction of each class's calibration samples
         used for rank calibration when no separate rank dataset is
@@ -182,6 +183,7 @@ class RC3P(SetPredictor):
         random_state: int | None = None,
         rank_fraction: float = 0.5,
         debug=False,
+        saps_lambda: float = 0.1,
         **kwargs,
     ) -> None:
         super().__init__(model, **kwargs)
@@ -206,6 +208,7 @@ class RC3P(SetPredictor):
         self.device = model.device
         self.debug = debug
         self.score_type = score_type
+        self.saps_lambda = saps_lambda
         self.rng = np.random.default_rng(random_state)
         self.alpha = alpha
         self.rank_fraction = rank_fraction
@@ -282,6 +285,7 @@ class RC3P(SetPredictor):
             score_y_true,
             score_type=self.score_type,
             rng=self.rng,
+            saps_lambda=self.saps_lambda,
         )
         thresholds = np.full(num_classes, np.inf, dtype=np.float64)
         for y in range(num_classes):
@@ -323,7 +327,10 @@ class RC3P(SetPredictor):
         pred = self.model(**kwargs)
         y_prob = pred["y_prob"].detach().cpu().numpy()
         nc_scores = all_class_nc_scores(
-            y_prob, score_type=self.score_type, rng=self.rng
+            y_prob,
+            score_type=self.score_type,
+            rng=self.rng,
+            saps_lambda=self.saps_lambda,
         )
         nc_scores = torch.as_tensor(
             nc_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype
