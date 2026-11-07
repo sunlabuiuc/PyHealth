@@ -145,6 +145,78 @@ def path_exists(path: str) -> bool:
         return Path(path).exists()
 
 
+# Column holding each event's row number in its source table (see load_table),
+# stored as delta-encoded int32 to keep the cache small.
+SOURCE_ROW = "_source_row"
+# Layout of the cached event table; part of the dataset cache key, so caches
+# written with an older layout are rebuilt. 2: adds SOURCE_ROW.
+EVENT_FORMAT = 2
+_INT32_MAX = int(np.iinfo(np.int32).max)
+
+
+def _with_row_number(df: dd.DataFrame, column: str) -> dd.DataFrame:
+    """Adds ``column``: 0, 1, 2, ... in the frame's current row order.
+
+    A cumulative sum runs across partitions in order, unlike a per-partition
+    ``reset_index``, which restarts at 0 in every partition.
+    """
+    df = df.assign(**{column: 1})
+    return df.assign(**{column: df[column].cumsum() - 1})
+
+
+def _with_source_row(df: dd.DataFrame) -> dd.DataFrame:
+    """Adds ``SOURCE_ROW``: each row's position in the frame's current order."""
+    return _with_row_number(df, SOURCE_ROW)
+
+
+def _source_row_as_int32(df: dd.DataFrame) -> dd.DataFrame:
+    """Stores ``SOURCE_ROW`` as int32, which the cache writes delta-encoded.
+
+    The cast is the last step of loading a table, as an explicit partition map:
+    dask can change the column's declared type to float64 when other columns
+    are assigned, and the parquet writer follows the declared type.
+
+    Rows that a right or outer join adds without a match have no source row
+    and get -1.
+
+    Raises:
+        OverflowError: When the frame is computed (for example when the
+            cache is written), if a table has more than 2**31 - 1 rows,
+            rather than letting the numbers wrap around.
+    """
+
+    def cast(part: pd.DataFrame) -> pd.DataFrame:
+        rows = part[SOURCE_ROW].fillna(-1)
+        if len(part) and rows.max() > _INT32_MAX:
+            raise OverflowError(
+                f"A table has more than {_INT32_MAX:,} rows, more than the int32 "
+                f"{SOURCE_ROW} column can number."
+            )
+        return part.assign(**{SOURCE_ROW: rows.astype("int32")})
+
+    meta = {**df.dtypes.to_dict(), SOURCE_ROW: "int32"}
+    return df.map_partitions(cast, meta=meta)
+
+
+def _event_parquet_options(dtypes: pd.Series) -> dict[str, Any]:
+    """Parquet writer options for the cached event table, from its dtypes.
+
+    ``SOURCE_ROW`` has about one distinct value per row, so the default
+    dictionary encoding does not shrink it and int32 alone saves nothing.
+    Delta encoding stores the small differences between neighbouring rows
+    (a patient's rows of one table are close together in the source) and
+    takes about 1.8 bytes per event instead of about 4.5. It applies to
+    integer columns only, so a frame whose column is not an integer (e.g. a
+    subclass's own ``load_table`` without it) is written with the defaults.
+    """
+    if SOURCE_ROW not in dtypes or not pd.api.types.is_integer_dtype(dtypes[SOURCE_ROW]):
+        return {}
+    return {
+        "use_dictionary": [c for c in dtypes.index if c != SOURCE_ROW],
+        "column_encoding": {SOURCE_ROW: "DELTA_BINARY_PACKED"},
+    }
+
+
 def _source_fingerprint(path: str) -> list:
     """Identifies the current version of a table source for the cache key.
 
@@ -541,6 +613,7 @@ class BaseDataset(ABC):
             "tables": sorted(self.tables),
             "dataset_name": self.dataset_name,
             "dev": self.dev,
+            "event_format": EVENT_FORMAT,
         }
         if self.config is not None:
             # Editing the YAML or rewriting a source file must not reuse a stale
@@ -756,6 +829,7 @@ class BaseDataset(ABC):
                         output_dir,
                         write_index=False,
                         compute=False,
+                        **_event_parquet_options(df.dtypes),
                     )
                     handle = client.compute(collection)
                     dask_progress(
@@ -863,6 +937,10 @@ class BaseDataset(ABC):
 
         # Convert column names to lowercase before calling preprocess_func
         df = df.rename(columns=str.lower)
+        # Number rows in source-file order. Patient uses this to order events
+        # that share a timestamp, so the order is the same on every cache build
+        # (the parallel build below does not preserve row order).
+        df = _with_source_row(df)
 
         # Check if there is a preprocessing function for this table
         preprocess_func: Optional[Callable[[nw.LazyFrame], nw.LazyFrame]]
@@ -872,6 +950,13 @@ class BaseDataset(ABC):
                 f"Preprocessing table: {table_name} with {preprocess_func.__name__}"
             )
             df = preprocess_func(nw.from_native(df)).to_native()  # type: ignore
+            # A hook should keep SOURCE_ROW. If it drops the column, rows are
+            # numbered again in the hook's output order, which is the same on
+            # every build only if the hook keeps (or deterministically sets)
+            # the row order; a hook that reorders or aggregates rows should
+            # carry SOURCE_ROW through.
+            if SOURCE_ROW not in df.columns:
+                df = _with_source_row(df)
 
         # Handle joins
         for join_cfg in table_cfg.join:
@@ -884,6 +969,10 @@ class BaseDataset(ABC):
             columns = join_cfg.columns
             how = join_cfg.how
 
+            # A one-to-many join copies a row's SOURCE_ROW to every match;
+            # Patient orders the copies by their other columns. Rows a right
+            # or outer join adds without a match get -1 when the column is
+            # cast.
             df: dd.DataFrame = df.merge(
                 join_df[[join_key] + columns], on=join_key, how=how
             )
@@ -931,10 +1020,9 @@ class BaseDataset(ABC):
 
             # Dask applies reset_index independently across frames,
             # meaning partitions share indexes, and therefore merge patients.
-            # The trick is to use a cumsum which acts globally across partitions.
-            df: dd.DataFrame = df.assign(_one=1)
-            df: dd.DataFrame = df.assign(patient_id=(df["_one"].cumsum() - 1).astype("string"))
-            df: dd.DataFrame = df.drop(columns="_one")
+            # Number rows with a cumsum instead, which runs across partitions.
+            df: dd.DataFrame = _with_row_number(df, "patient_id")
+            df: dd.DataFrame = df.assign(patient_id=df["patient_id"].astype("string"))
 
         df: dd.DataFrame = df.assign(event_type=table_name)
 
@@ -942,8 +1030,8 @@ class BaseDataset(ABC):
         df: dd.DataFrame = df.rename(columns=rename_attr)
 
         attr_cols = [rename_attr[attr.lower()] for attr in attribute_cols]
-        final_cols = ["patient_id", "event_type", "timestamp"] + attr_cols
-        event_frame = df[final_cols]
+        final_cols = ["patient_id", "event_type", "timestamp", SOURCE_ROW] + attr_cols
+        event_frame = _source_row_as_int32(df[final_cols])
 
         return event_frame
 

@@ -1,6 +1,7 @@
 """Output processors: what a label is, and how to train on and score it."""
 
 import logging
+import math
 from abc import abstractmethod
 from collections.abc import Hashable, Iterable, Sequence
 from typing import Any, ClassVar
@@ -11,6 +12,7 @@ import torch.nn.functional as F
 
 from . import register_processor
 from .base_processor import FeatureProcessor
+from .utils import NORMALIZATIONS, Normalization, fit_normalization
 
 logger = logging.getLogger(__name__)
 
@@ -439,16 +441,95 @@ class MultiLabelProcessor(_WeightedBCE, LabelProcessor):
 class RegressionLabelProcessor(LabelProcessor):
     """Real-valued labels. The model has one output; the loss is MSE.
 
+    Labels in large units (e.g. hours) can stall training, so
+    ``normalization`` rescales them to ``(label - center) / scale``, as
+    :class:`~pyhealth.processors.TensorProcessor` does for inputs.
+    :meth:`process` is the only place that does: like the index of a class,
+    the processed label is what the model sees, so ``y_true``, logits,
+    ``y_prob`` and the loss, including a model's own loss, are all in
+    normalized units. :meth:`to_numpy`, which turns model outputs into metric
+    inputs, maps ``y_true`` and ``y_prob`` back together, so
+    :meth:`~pyhealth.trainer.Trainer.inference` and metrics are in the
+    original units.
+
+    Args:
+        normalization: ``"minmax"`` (to 0..1 on the fitted range) or
+            ``"zscore"`` (zero mean, unit variance), learned in ``fit`` (so
+            fit on a training split); a fixed ``(low, high)`` range, mapped to
+            0..1; or None. Labels are never clipped.
+
+    Attributes:
+        center: The label that maps to 0, or None without normalization.
+        scale: The label distance that maps to 1, or None without
+            normalization.
+
     Examples:
         >>> from pyhealth.processors import RegressionLabelProcessor
         >>> RegressionLabelProcessor().process(2.5)
         tensor([2.5000])
+        >>> p = RegressionLabelProcessor(normalization="minmax")
+        >>> p.fit([{"y": 10.0}, {"y": 30.0}], "y")
+        >>> p.center, p.scale
+        (10.0, 20.0)
+        >>> y_true = p.process(20.0)
+        >>> y_true
+        tensor([0.5000])
+        >>> p.to_numpy(y_true, y_true + 0.25)
+        ([array([20.], dtype=float32)], [array([25.], dtype=float32)])
     """
 
     mode = "regression"
+    normalization: Normalization | Sequence[float] = None
+    center: float | None = None
+    scale: float | None = None
+
+    def __init__(self, normalization: Normalization | Sequence[float] = None):
+        super().__init__()
+        if normalization is None or isinstance(normalization, str):
+            if normalization not in NORMALIZATIONS:
+                raise ValueError(
+                    f"normalization must be one of {NORMALIZATIONS} or "
+                    f"(low, high), not {normalization!r}."
+                )
+        else:
+            low, high = (float(end) for end in normalization)
+            if not (math.isfinite(low) and math.isfinite(high) and low < high):
+                raise ValueError(
+                    f"A fixed range needs finite low < high, got {normalization!r}."
+                )
+            self.center, self.scale = low, high - low
+        self.normalization = normalization
+        self.learns_statistics = isinstance(normalization, str)
+
+    def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
+        if not isinstance(self.normalization, str):
+            return
+        values = np.array([float(sample[field]) for sample in samples]).reshape(-1, 1)
+        if values.size == 0:
+            raise ValueError(
+                f"normalization={self.normalization!r} got no samples to fit on."
+            )
+        (self.center,), (self.scale,) = fit_normalization([values], self.normalization)
+        if np.nanmin(values) == np.nanmax(values):
+            logger.warning("Label %s is constant; its scale is set to 1.", field)
+        logger.info(f"Label {field} center {self.center}, scale {self.scale}")
+
+    def _center_scale(self) -> tuple[float, float] | None:
+        if self.normalization is None:
+            return None
+        if self.center is None or self.scale is None:
+            raise ValueError(
+                f"normalization={self.normalization!r} is learned in fit(); "
+                "fit first."
+            )
+        return self.center, self.scale
 
     def process(self, value: Any) -> torch.Tensor:
-        return torch.tensor([float(value)], dtype=torch.float32)
+        value = float(value)
+        if (center_scale := self._center_scale()) is not None:
+            center, scale = center_scale
+            value = (value - center) / scale
+        return torch.tensor([value], dtype=torch.float32)
 
     def size(self) -> int:
         return 1
@@ -469,6 +550,16 @@ class RegressionLabelProcessor(LabelProcessor):
 
     def loss(self, logits: torch.Tensor, y_true: Any, **kwargs: Any) -> torch.Tensor:
         return F.mse_loss(logits, y_true, **kwargs)
+
+    def to_numpy(
+        self, y_true: Any, y_prob: torch.Tensor
+    ) -> tuple[list[np.ndarray], list[np.ndarray]]:
+        """Labels and predictions in the original units."""
+        (true,), (prob,) = super().to_numpy(y_true, y_prob)
+        if (center_scale := self._center_scale()) is None:
+            return [true], [prob]
+        center, scale = center_scale
+        return [true * scale + center], [prob * scale + center]
 
     @classmethod
     def metrics_fn(cls, y_true, y_prob, metrics=None):
