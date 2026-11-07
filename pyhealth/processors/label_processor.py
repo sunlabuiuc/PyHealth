@@ -72,8 +72,9 @@ class LabelProcessor(FeatureProcessor):
         Call it after :meth:`fit`: :meth:`fit` learns from the training
         samples, then this adds the labels of all samples to the vocabulary.
         :class:`~pyhealth.datasets.sample_dataset.SampleBuilder` does this for
-        every processor with :attr:`need_fit_test`. Calling it again, or
-        without a split (on the samples ``fit`` saw), changes nothing.
+        every processor with :attr:`need_fit_test` when it is given a split;
+        without one, ``fit`` already saw every label. Calling it again, or on
+        the samples ``fit`` saw, changes nothing.
 
         .. warning::
 

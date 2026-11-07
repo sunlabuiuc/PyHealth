@@ -9,6 +9,7 @@ import logging
 import tempfile
 import tracemalloc
 import unittest
+from unittest import mock
 import uuid
 from pathlib import Path
 
@@ -17,7 +18,7 @@ import torch
 
 from pyhealth.datasets import BaseDataset, PatientSplit, Split
 from pyhealth.datasets.sample_dataset import STORAGE_FORMAT, SampleBuilder
-from pyhealth.processors import SequenceProcessor
+from pyhealth.processors import MultiClassLabelProcessor, SequenceProcessor
 from pyhealth.processors.base_processor import FeatureProcessor
 from pyhealth.tasks import BaseTask
 
@@ -367,7 +368,10 @@ class TestSplitBuilder(unittest.TestCase):
             input_schema={"codes": "sequence"},
             output_schema={"label": "multiclass"},
         )
-        builder.fit(self._samples())
+        # fit already sees every label, so the extra pass is skipped.
+        with mock.patch.object(MultiClassLabelProcessor, "fit_test") as fit_test:
+            builder.fit(self._samples())
+        fit_test.assert_not_called()
         self.assertEqual(builder.output_processors["label"].label_vocab, {0: 0, 1: 1})
 
     def test_invalid_ratios(self):

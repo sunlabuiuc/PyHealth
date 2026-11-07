@@ -304,9 +304,14 @@ class SampleBuilder:
                 if key not in processors:
                     processor = self._get_processor_instance(spec)
                     processor.fit(fit_samples, key)
-                    if isinstance(processor, LabelProcessor) and processor.need_fit_test:
+                    if (
+                        split is not None
+                        and isinstance(processor, LabelProcessor)
+                        and processor.need_fit_test
+                    ):
                         # The label vocabulary covers every split, test
                         # included; fit_test learns nothing else from them.
+                        # Without a split, fit already saw every label.
                         processor.fit_test(samples, key)
                     processors[key] = processor
                     if split is None and getattr(processor, "learns_statistics", False):
