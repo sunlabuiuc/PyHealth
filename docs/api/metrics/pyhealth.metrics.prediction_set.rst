@@ -19,21 +19,6 @@ Undefined measurements return NaN. Class averages exclude undefined classes and
 retain genuine zeros; if no defined classes remain, the average is NaN. Empty
 batches return NaN without RuntimeWarning.
 
-Behaviour change
-----------------
-
-Undefined prediction-set rates now return NaN. This changes:
-
-- ``miscoverage_ps`` and ``error_ps`` return NaN, rather than ``0.0``, for classes
-  with no applicable true labels.
-- ``error_overall_ps`` returns NaN, rather than ``0.0``, when there are no
-  singleton predictions.
-- ``miscoverage_overall_ps`` returns NaN, rather than ``0.0``, for an empty
-  multiclass batch.
-- Scorer values for ``miscoverage_mean_ps`` and ``error_mean_ps`` exclude
-  unobserved classes instead of counting them as zeros. If every class is
-  undefined, the average is NaN.
-
 Request ``miscoverage_mean_ps`` or ``error_mean_ps`` for class averages, or use
 ``np.nanmean`` on a class array after checking that at least one rate is defined.
 A zero for an unobserved class looks like perfect coverage and can make a class
