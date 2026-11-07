@@ -11,22 +11,20 @@ from pyhealth.benchmarks.cpbench.shared.classification import (
     predict_classification_sets,
     validate_label_encodings,
 )
-from pyhealth.benchmarks.cpbench.shared.prediction import (
-    prediction_cache_path,
-    save_predictions,
-)
-from pyhealth.benchmarks.cpbench.shared.preparation import (
+from pyhealth.benchmarks.cpbench.shared.evaluation_preparation import (
     predict_model_outputs,
+    prediction_cache_path,
     prepare_evaluation,
     require_protocol,
 )
+from pyhealth.benchmarks.cpbench.shared.model_outputs import save_predictions
 from pyhealth.metrics import multilabel_metrics_fn
 
 __all__ = ["predict_model_outputs", "required_model_outputs", "run"]
 
 
 def required_model_outputs(evaluation):
-    """Declare split/field requirements for runners producing base-output files.
+    """Declare the base outputs required by this adapter.
 
     Examples:
         >>> from types import SimpleNamespace
@@ -72,8 +70,7 @@ def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
             "protocol": {
                 "split": {
                     "class": PatientSplit,
-                    "params": {"ratios": [0.4, 0.4, 0.2], "seed": 0},
-                    "roles": ["train", "calibration", "test"],  # Same order as ratios.
+                    "params": {"ratios": [0.4, 0.4, 0.2], "seed": 0},  # train, calibration, test
                 },
                 "seed": 0,  # Global RNGs; split/method seeds are independent.
             },
@@ -88,8 +85,7 @@ def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
 
     dataset/task must produce SampleDataset splits with one multilabel label
     field and the same fitted class encoding as the model. model must construct
-    a multilabel BaseModel and select training arguments, a base-output artifact or a checkpoint
-    directory. Training additionally requires "train" as the first split role.
+    a multilabel BaseModel and supply training arguments.
 
     params are native FavMac constructor arguments. cost_weights/value_weights
     may be lists in encoded class order; this adapter converts them to arrays.
@@ -104,10 +100,9 @@ def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
     Other protocol fields follow benchmark.validate_evaluation. The
     example sets protocol.seed explicitly; omitting it uses the default of 0.
 
-    model.predictions may name a saved base-output artifact instead. Its splits
-    must provide required_model_outputs(evaluation); no model/dataset is loaded.
-    Runners own collection and persistence through CPBench.predict_model and
-    save_model_predictions. cache_dir only writes final CP predictions.
+    With cache_dir, shared preparation reuses checkpoints and base outputs or
+    produces missing artifacts. CP calibration runs for each evaluation. Without
+    cache_dir, the model is trained afresh. output_dir is handled by CPBench.
 
     With the evaluation defined above:
         >>> result = run(evaluation, cache_dir=None)  # doctest: +SKIP
@@ -125,6 +120,7 @@ def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
         evaluation,
         required=("calibration", "test"),
         outputs=required_model_outputs(evaluation),
+        cache_dir=cache_dir,
     )
 
     if model.mode != "multilabel":

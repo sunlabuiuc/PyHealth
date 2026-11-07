@@ -67,7 +67,6 @@ Complete example, run from the repository root::
             "split": {
                 "class": PatientSplit,
                 "params": {"ratios": [0.4, 0.4, 0.2], "seed": 5},
-                "roles": ["train", "calibration", "test"],
             },
             "seed": 17,
             "batch_size": 16,
@@ -89,45 +88,26 @@ formats and model compatibility; the caller chooses the task appropriate to the 
 
 The data seed controls feature noise, the split seed controls patient assignment,
 and ``protocol.seed`` scopes global Python/NumPy/PyTorch randomness. Native
-``random_state`` arguments control the method's own generators. ``roles`` names
-split outputs in order; it does not select samples by patient-ID prefixes.
+``random_state`` arguments control the method's own generators.
 ``alpha=0.1`` requests a miscoverage level of 0.1, corresponding to 90% coverage;
 it does not assert that this coverage was achieved on the test data.
 
 ``dataset.class(**params)`` provides the BaseDataset ``set_task`` interface;
 ``task.class(**params)`` supplies a task and its schemas. Existing PyHealth Split
-classes determine the parts, and ``roles`` names them in order. Training requires
-``train`` first so preprocessing is fitted only on training. Constructor params
-and method options default to empty mappings. Protocol defaults are seed 0,
+classes determine the parts. Three outputs mean train/calibration/test; four
+mean train/validation/calibration/test. Preprocessing is fitted only on training.
+Constructor params and method options default to empty mappings. Protocol
+defaults are seed 0,
 batch size 32, CPU, dataset order and no feedback. One seed is one evaluation;
 cross-evaluation aggregation belongs to the caller.
 
-Model sources
-~~~~~~~~~~~~~
+Model preparation
+~~~~~~~~~~~~~~~~~
 
-The model block must contain exactly one of ``training``, ``checkpoint`` or
-``predictions``. ``training`` holds native Trainer arguments. To use a checkpoint,
-replace the model block with the following. The path is a placeholder: the directory
-must already contain compatible weights and fitted preprocessing::
-
-    "model": {
-        "class": MLP,
-        "params": {"embedding_dim": 8, "hidden_dim": 8},
-        "checkpoint": "/path/to/checkpoint-directory",
-    }
-
-A checkpoint directory contains native ``Trainer.save_ckpt`` weights in
-``model.ckpt`` and fitted ``SampleBuilder.save`` metadata in ``schema.pkl``.
-Loading validates the task schema and reuses saved processors without fitting
-or training. Fixed calibration, FavMac and CovariateLabel need no training split
-in this mode;
-ClusterLabel still requires a train role for reference embeddings. Calibration/test
-subjects can be selected explicitly. The caller must use data held out from checkpoint training.
-The model class/constructor params must match the saved weights.
-
-``predictions`` is recognized as a path-string source, but the current adapters
-reject cached predictions before data loading because their native calibration
-APIs require a model. No replay-model workaround is supplied.
+The model block supplies its constructor arguments and native Trainer settings
+in ``training``. These settings describe how to produce a missing model. With
+``cache_dir``, CPBench reuses matching checkpoints and base-model outputs; without
+it, a fresh model is trained. Generated artifact paths are not evaluation inputs.
 
 Adapters and metrics
 ~~~~~~~~~~~~~~~~~~~~
@@ -186,21 +166,22 @@ The adapter passes these distributions to native calibration; it does not estima
 the target distribution from test labels.
 
 Metrics must be requested explicitly using native metric names. Unknown names
-fail instead of disappearing. Multiclass scoring returns None for conditional
-metrics without observations. FavMac uses existing multilabel metrics; tp/fp are
-mean unweighted counts, even with custom cost/value weights. Results contain
-metrics and class labels. Labels are excluded from test prediction calls; shapes
+fail instead of disappearing. Undefined prediction-set rates return NaN.
+FavMac forwards its configured weights and target cost to weighted metrics;
+ordinary tp/fp retain their unweighted meaning. Results contain metrics and
+class labels. Labels are excluded from test prediction calls; shapes
 and class encodings are validated before scoring.
 
 Shared adapter code
 ~~~~~~~~~~~~~~~~~~~
 
-``shared/preparation.py`` prepares datasets and splits, trains or loads models,
-and manages model checkpoints and caching. ``shared/prediction.py`` collects,
-copies, joins and saves prediction arrays. ``shared/classification.py`` contains
-classification calls, label/output checks and multiclass scoring. Adapters can
-reuse these functions or supply their own procedure. Evaluation validation and
-per-evaluation random seeding live with CPBench in ``benchmark.py``.
+``shared/evaluation_preparation.py`` prepares datasets, models and required
+outputs, and manages cache locations and reuse. ``shared/model_outputs.py``
+collects base-model outputs, handles saved-output model calls and writes output
+files. ``shared/collection.py`` collects, copies and joins batches of arrays.
+``shared/classification.py`` contains classification calls, label/output checks
+and multiclass scoring. Evaluation validation and per-evaluation random seeding
+live with CPBench in ``benchmark.py``.
 
 Prediction collection
 ~~~~~~~~~~~~~~~~~~~~~
@@ -218,9 +199,9 @@ instead return bounds, without changing the collector. Interval metrics are not
 implemented. Online adapters control their own loop and use ``copy_predictions``
 before feedback when storing arrays that may share a method's buffers.
 
-.. autofunction:: pyhealth.benchmarks.cpbench.shared.prediction.collect_predictions
+.. autofunction:: pyhealth.benchmarks.cpbench.shared.collection.collect_predictions
 
-.. autofunction:: pyhealth.benchmarks.cpbench.shared.prediction.copy_predictions
+.. autofunction:: pyhealth.benchmarks.cpbench.shared.collection.copy_predictions
 
 Cache and result files
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -235,8 +216,8 @@ The directory arguments are independent. Continuing the complete example::
         output_dir=Path("run"),
     )
 
-``cache_dir`` holds reusable model checkpoints and prediction arrays. Adapters
-manage these caches, using shared preparation and public writing functions.
+``cache_dir`` holds reusable datasets, model checkpoints and prediction arrays.
+Adapters declare the outputs they need; shared evaluation preparation manages reuse.
 ``output_dir`` holds one ``results.json`` containing every evaluation in the
 batch, including failures. The base Benchmark writes it after result validation.
 Results are always returned; neither directory is required.
@@ -245,10 +226,13 @@ The layout is::
 
     cache/
       cpbench/
-        models/<model-key>/
+        checkpoints/<model-key>/
           model.ckpt
           schema.pkl
-        predictions/<prediction-key>.npz
+        predictions/
+          base/<model-key>/<split>.npz
+          conformal/<prediction-key>.npz
+        datasets/
     run/
       results.json
 
@@ -261,21 +245,24 @@ Write failures propagate to the caller.
 
 Model cache keys include dataset, task, model, split, seed, batch size and device;
 they exclude the CP method and requested metrics. Different CP methods can reuse
-the same fitted base model. Cache hits load fresh model instances and saved
-processors, skipping training. Existing checkpoint inputs are loaded directly.
-Model-cache access is protected by a file lock. Preparation preserves global RNG
-state so cache hits and misses do not advance method randomness differently.
+the same fitted base model. Complete base-output caches skip dataset loading,
+model construction and inference. Missing outputs are collected from the saved
+checkpoint. Sample and class ordering are checked before combining outputs.
+Checkpoint creation and output-cache extension are protected by a file lock.
+Preparation preserves global RNG state across cache hits and misses.
 
 Prediction keys include dataset, task, model, method and protocol, excluding only
 requested metrics. Adapters write ``y_true``, ``y_prob`` and ``y_predset`` in test
 order and set ``Result.artifact`` to the cache file. Class ordering is retained in
-result metadata. These arrays support manual analysis; automatic prediction-cache
-replay and the ``model.predictions`` input mode remain unsupported.
+result metadata. Base outputs contain encoded labels and the probabilities,
+logits or embeddings required by each adapter. Each CP method runs its own
+calibration using those outputs.
 
 Cache entries assume that referenced data/code have not changed in place; clear
 the cache when changing them without updating evaluation parameters. Native dataset
-caches retain their own configured locations. With no cache_dir, no CPBench model
-or prediction files are written. With no output_dir, no results.json is written.
+caches use the managed datasets directory for BaseDataset subclasses. With no
+cache_dir, no CPBench model or prediction files are written. With no output_dir,
+no results.json is written.
 
 Manual persistence
 ~~~~~~~~~~~~~~~~~~
@@ -306,10 +293,11 @@ dataset, destination)`` writes native model weights and the dataset's fitted
 preprocessing to a new directory. The dataset must carry the model's fitted
 processors; an existing destination is rejected with FileExistsError.
 
-All three writers return None and publish complete files/directories atomically.
+All three writers return None and write complete files/directories atomically.
 They do not choose cache keys, acquire cache locks, decide reuse, or construct
-Results. Cache policy belongs to adapters; automatic result persistence belongs
-to Benchmark.evaluate. Run the synthetic example from the repository root with::
+Results. Shared evaluation preparation manages caches; automatic result
+persistence belongs to Benchmark.evaluate. Run the synthetic example from the
+repository root with::
 
     python -m examples.cpbench.synthetic
 

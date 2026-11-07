@@ -6,7 +6,7 @@ import torch
 from pyhealth.benchmarks import Result
 from pyhealth.metrics import multiclass_metrics_fn
 
-from .prediction import collect_predictions
+from .collection import collect_predictions
 
 # --- Label and output validation ---
 

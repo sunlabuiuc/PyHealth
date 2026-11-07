@@ -70,10 +70,9 @@ def main():
                     "protocol": {
                         "split": {
                             "class": PatientSplit,
-                            # Fractions of patients; independent shuffle seed.
+                            # Fractions in train/calibration/test order.
+                            # The shuffle seed is independent of the evaluation seed.
                             "params": {"ratios": [0.4, 0.4, 0.2], "seed": 5},
-                            # Names for the three outputs in the same order as ratios.
-                            "roles": ["train", "calibration", "test"],
                         },
                         # Seeds global RNGs; does not replace native random_state.
                         "seed": 17,

@@ -53,7 +53,7 @@ def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
 def required_model_outputs(evaluation):
     """Return an adapter's split-to-field requirements for base-model inference.
 
-    Runners can union these requirements across methods before collecting once.
+    Requirements can be combined to collect outputs for several methods once.
 
     Examples:
         >>> ev = Evaluation({"method": {"class": FavMac}})

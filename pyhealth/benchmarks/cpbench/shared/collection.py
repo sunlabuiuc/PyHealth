@@ -1,16 +1,10 @@
-"""Collect, copy, join and save arrays without assuming a prediction format."""
+"""Collect and combine batches of named arrays in sample order."""
 
-import os
 from collections.abc import Mapping
-from pathlib import Path
-from tempfile import TemporaryDirectory
 
 import numpy as np
 
-from pyhealth.benchmarks import Evaluation
 from pyhealth.datasets import get_dataloader
-
-# --- Batch collection ---
 
 
 def collect_predictions(dataset, batch_size, predict_batch):
@@ -100,46 +94,3 @@ def _row_count(predictions):
         raise ValueError("prediction arrays must have matching row counts")
 
     return count
-
-
-# --- Prediction cache and files ---
-
-
-def prediction_cache_path(params, cache_dir):
-    """Key prediction arrays by their producing inputs, excluding scored metrics.
-
-    Examples:
-        >>> params = {"method": "example", "metrics": ["accuracy"]}
-        >>> first = prediction_cache_path(params, Path("cache"))
-        >>> params["metrics"] = ["set_size"]
-        >>> prediction_cache_path(params, Path("cache")) == first
-        True
-    """
-    key = Evaluation(
-        {name: value for name, value in params.items() if name != "metrics"}
-    ).id
-
-    return Path(cache_dir) / "cpbench" / "predictions" / f"{key}.npz"
-
-
-def save_predictions(predictions: Mapping[str, np.ndarray], path: Path) -> None:
-    """Atomically write named arrays to an explicit NPZ path, replacing that file.
-
-    No Result or Evaluation is read or returned. The caller owns cache naming,
-    cache reuse and result construction. Parent directories are created as needed.
-
-    Examples:
-        >>> with TemporaryDirectory() as directory:
-        ...     path = Path(directory) / "predictions.npz"
-        ...     save_predictions({"y_true": np.array([0, 1])}, path)
-        ...     with np.load(path) as saved:
-        ...         print(saved["y_true"].tolist())
-        [0, 1]
-    """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    with TemporaryDirectory(dir=path.parent, prefix=f".{path.name}.") as temporary:
-        pending = Path(temporary) / "predictions.npz"
-        np.savez_compressed(pending, **predictions)
-        os.replace(pending, path)

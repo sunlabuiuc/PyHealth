@@ -1,19 +1,47 @@
-"""Store base-model outputs by split and serve them through the native model API."""
+"""Persist output arrays and serve saved base-model outputs through the model API."""
 
+import hashlib
 import json
+import os
+from collections.abc import Mapping
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from .prediction import _row_count, collect_predictions, save_predictions
+from .collection import _row_count, collect_predictions
 
 _ROW = "__cpbench_row__"
 _ROLE = "__cpbench_role__"
+_SAMPLE_HASH = "__cpbench_sample_hash__"
 
 # --- Artifact files ---
+
+
+def save_predictions(predictions: Mapping[str, np.ndarray], path: Path) -> None:
+    """Atomically write named arrays to an explicit NPZ path, replacing that file.
+
+    No Result or Evaluation is read or returned. The caller owns cache naming,
+    cache reuse and result construction. Parent directories are created as needed.
+
+    Examples:
+        >>> with TemporaryDirectory() as directory:
+        ...     path = Path(directory) / "predictions.npz"
+        ...     save_predictions({"y_true": np.array([0, 1])}, path)
+        ...     with np.load(path) as saved:
+        ...         print(saved["y_true"].tolist())
+        [0, 1]
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with TemporaryDirectory(dir=path.parent, prefix=f".{path.name}.") as temporary:
+        pending = Path(temporary) / "predictions.npz"
+        np.savez_compressed(pending, **predictions)
+        os.replace(pending, path)
 
 
 def save_model_predictions(
@@ -100,7 +128,11 @@ def _validate_predictions(predictions, metadata):
     if not isinstance(metadata.get("mode"), str) or not metadata["mode"]:
         raise ValueError("model prediction metadata must name the model mode")
     label_key = metadata.get("label_key")
-    if not isinstance(label_key, str) or not label_key or label_key in {_ROW, _ROLE}:
+    if (
+        not isinstance(label_key, str)
+        or not label_key
+        or label_key in {_ROW, _ROLE, _SAMPLE_HASH}
+    ):
         raise ValueError("model prediction metadata must name a valid label key")
     labels = metadata.get("class_labels")
     if labels is not None and (
@@ -205,25 +237,84 @@ def collect_model_predictions(model, splits, outputs, batch_size):
 
         def predict_batch(batch, fields=fields):
             features = {key: batch[key] for key in model.feature_keys}
-            if "embed" in fields:
-                features["embed"] = True
+            arguments = {"embed": True} if "embed" in fields else {}
+            sample_hashes = _sample_hashes(features, len(batch[label_key]))
             with torch.no_grad():
-                result = model(**features)
+                result = model(**features, **arguments)
             missing = fields - result.keys()
             if missing:
                 raise ValueError(
                     f"base model does not return outputs: {sorted(missing)}"
                 )
-            selected = fields
 
             return {
                 "y_true": torch.as_tensor(batch[label_key]).detach().cpu().numpy(),
-                **{name: result[name].detach().cpu().numpy() for name in selected},
+                _SAMPLE_HASH: sample_hashes,
+                **{name: result[name].detach().cpu().numpy() for name in fields},
             }
 
         predictions[role] = collect_predictions(dataset, batch_size, predict_batch)
 
     return predictions
+
+
+def _sample_hashes(features, count):
+    # Identify input rows independently of the requested outputs and batch size.
+    hashes = []
+    for index in range(count):
+        digest = hashlib.sha256()
+        for key, values in sorted(features.items()):
+            digest.update(key.encode())
+            _hash_value(digest, _sample_value(values, index))
+        hashes.append(np.frombuffer(digest.digest(), dtype=np.uint8))
+
+    return np.stack(hashes)
+
+
+def _sample_value(values, index):
+    if values is None:
+        return None
+    if isinstance(values, tuple):
+        return tuple(_sample_value(part, index) for part in values)
+    if isinstance(values, dict):
+        return {key: _sample_value(part, index) for key, part in values.items()}
+
+    return values[index]
+
+
+def _hash_value(digest, value):
+    if isinstance(value, torch.Tensor):
+        digest.update(str((value.dtype, tuple(value.shape))).encode())
+        raw = value.detach().cpu().contiguous().reshape(-1).view(torch.uint8)
+        digest.update(raw.numpy().tobytes())
+    elif isinstance(value, np.ndarray):
+        digest.update(str((value.dtype.str, value.shape)).encode())
+        digest.update(value.tobytes())
+    elif isinstance(value, dict):
+        for key, item in sorted(value.items()):
+            digest.update(str(key).encode())
+            _hash_value(digest, item)
+    elif isinstance(value, (list, tuple)):
+        digest.update(str(len(value)).encode())
+        for item in value:
+            _hash_value(digest, item)
+    else:
+        digest.update(repr(value).encode())
+
+
+def _merge_model_predictions(existing, produced):
+    if existing is None:
+        return produced
+
+    for field in ("y_true", _SAMPLE_HASH):
+        if field not in existing or not np.array_equal(
+            existing[field], produced[field]
+        ):
+            raise ValueError(
+                "cached predictions and new outputs have different sample ordering or labels"
+            )
+
+    return {**existing, **produced}
 
 
 # --- Native calls backed by saved rows ---

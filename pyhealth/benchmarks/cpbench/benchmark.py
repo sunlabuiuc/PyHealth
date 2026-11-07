@@ -17,6 +17,12 @@ from . import adapters
 class CPBench(Benchmark):
     """Run each evaluation's method and return one Result per evaluation.
 
+    cache_dir enables managed reuse under cpbench/checkpoints,
+    cpbench/predictions/base and cpbench/datasets. Final CP arrays are saved
+    under cpbench/predictions/conformal. Training settings describe how to
+    produce a missing model; evaluations contain no generated artifact paths.
+    output_dir receives results.json through Benchmark.evaluate.
+
     Examples:
         >>> benchmark = CPBench()
         >>> benchmark.evaluate([])
@@ -27,28 +33,12 @@ class CPBench(Benchmark):
     def name(self) -> str:
         return "cpbench"
 
-    def predict_model(self, evaluation, *, outputs=None):
-        """Compute base outputs for a runner to save or reuse across CP methods.
+    def predict_model(self, evaluation, *, outputs=None, cache_dir=None):
+        """Collect base outputs, optionally reusing CPBench's managed cache.
 
-        Does not search caches, save outputs or calibrate a CP method. outputs
-        maps split names to required fields; by default the method adapter supplies
-        it. Runners comparing methods can pass the union of their requirements.
-        Returns (split-to-array mappings, metadata for save_model_predictions).
-
-        Given an evaluation from an adapter's complete example::
-
-            from copy import deepcopy
-            from pyhealth.benchmarks.cpbench import save_model_predictions
-
-            predictions, metadata = CPBench().predict_model(evaluation)
-            save_model_predictions(predictions, path, **metadata)
-            params = deepcopy(evaluation.params)
-            params["model"] = {"predictions": str(path)}
-            # Choose another CP method/parameters in params["method"].
-            result = CPBench().evaluate([Evaluation(params)])
-
-        Point another evaluation's model.predictions at that file to run its own
-        CP calibration and prediction using the same saved base outputs.
+        outputs maps split names to fields; the adapter supplies it when omitted.
+        Returns arrays by split and their label metadata. Evaluations always keep
+        their model/training configuration, regardless of cache hits or misses.
         """
         self.validate_evaluations([evaluation])
         if outputs is None:
@@ -60,7 +50,7 @@ class CPBench(Benchmark):
             raise NotImplementedError("adapter does not expose base-output collection")
 
         with _seeded(evaluation.params["protocol"].get("seed", 0)):
-            return producer(evaluation, outputs=outputs)
+            return producer(evaluation, outputs=outputs, cache_dir=cache_dir)
 
     def validate_evaluations(self, evaluations: Sequence[Evaluation]) -> None:
         """Reject malformed specifications and unsupported methods before running."""
@@ -128,9 +118,10 @@ def validate_evaluation(*, dataset, task, model, method, metrics, protocol):
     """Validate every evaluation before adapter dispatch or any model/data work.
 
     dataset/task/model/method name importable constructors with optional params.
-    model selects exactly one of training, checkpoint or predictions. method
-    options are interpreted by its adapter. protocol declares named split parts,
-    one run seed, batching/device and ordering/feedback rules. Metrics are explicit.
+    model supplies its constructor and training configuration. method
+    options are interpreted by its adapter. Split outputs use the fixed order
+    train/calibration/test, or train/validation/calibration/test. protocol also
+    declares one run seed, batching/device and ordering/feedback rules.
 
     Examples:
         >>> from examples.cpbench.synthetic_data import SyntheticDataset, SyntheticTask
@@ -146,33 +137,16 @@ def validate_evaluation(*, dataset, task, model, method, metrics, protocol):
         ...     protocol={"split": {
         ...         "class": PatientSplit,
         ...         "params": {"ratios": [0.4, 0.4, 0.2]},
-        ...         "roles": ["train", "calibration", "test"],
         ...     }},
         ... )
     """
     _component(dataset, "dataset")
     _component(task, "task")
-    if isinstance(model, Mapping) and "predictions" in model and "class" not in model:
-        unknown = model.keys() - {"predictions"}
-        if unknown:
-            raise ValueError(f"unknown model keys: {sorted(unknown)}")
-    else:
-        _component(model, "model", {"training", "checkpoint", "predictions"})
+    _component(model, "model", {"training"})
+    _mapping(model.get("training"), "model.training")
     _component(method, "method", {"options"})
-
-    sources = {"training", "checkpoint", "predictions"} & model.keys()
-    if len(sources) != 1:
-        raise ValueError(
-            "model must select exactly one of training, checkpoint, predictions"
-        )
-
-    if "training" in model:
-        _mapping(model["training"], "model.training")
-
-    else:
-        source = next(iter(sources))
-        if not isinstance(model[source], str) or not model[source]:
-            raise TypeError(f"model.{source} must be a nonempty path string")
+    if "cache_dir" in dataset.get("params", {}):
+        raise ValueError("dataset cache_dir is managed by CPBench; pass it to evaluate")
 
     _mapping(method.get("options", {}), "method.options")
 
@@ -185,11 +159,6 @@ def validate_evaluation(*, dataset, task, model, method, metrics, protocol):
 
     _mapping(protocol, "protocol")
     _validate_protocol(**protocol)
-
-    if "training" in model and protocol["split"]["roles"][0] != "train":
-        raise ValueError(
-            "training requires train as the first split role for processor fitting"
-        )
 
 
 def _mapping(value, name):
@@ -213,16 +182,7 @@ def _component(value, name, extra_keys=()):
 def _validate_protocol(
     *, split, seed=0, batch_size=32, device="cpu", order="dataset", feedback="none"
 ):
-    _component(split, "protocol.split", {"roles"})
-
-    roles = split.get("roles")
-    if (
-        not isinstance(roles, (list, tuple))
-        or not roles
-        or any(not isinstance(role, str) or not role for role in roles)
-        or len(set(roles)) != len(roles)
-    ):
-        raise ValueError("split.roles must be a nonempty list of distinct role names")
+    _component(split, "protocol.split")
 
     if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed < 2**32:
         raise ValueError("protocol.seed must be an integer in [0, 2**32)")

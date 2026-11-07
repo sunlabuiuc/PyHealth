@@ -13,7 +13,10 @@ import torch
 from examples.cpbench.synthetic_data import make_splits
 from pyhealth.benchmarks import Evaluation, Result, save_results
 from pyhealth.benchmarks.cpbench import save_checkpoint, save_predictions
-from pyhealth.benchmarks.cpbench.shared.preparation import prepare_evaluation
+from pyhealth.benchmarks.cpbench.shared.evaluation_preparation import (
+    load_splits,
+    prepare_model,
+)
 from pyhealth.datasets import SampleBuilder
 from pyhealth.models import MLP
 from tests.core.test_benchmark_base import _CountingBenchmark
@@ -163,7 +166,7 @@ class TestArtifactStorage(unittest.TestCase):
             save_predictions({"target": np.array([1])}, path)
             original = path.read_bytes()
             with patch(
-                "pyhealth.benchmarks.cpbench.shared.prediction.np.savez_compressed",
+                "pyhealth.benchmarks.cpbench.shared.model_outputs.np.savez_compressed",
                 side_effect=OSError("interrupted write"),
             ):
                 with self.assertRaisesRegex(OSError, "interrupted write"):
@@ -185,9 +188,17 @@ class TestArtifactStorage(unittest.TestCase):
             spec = evaluation(
                 model_class=MLP,
                 model_params={"embedding_dim": 4, "hidden_dim": 4},
-                checkpoint=str(path),
             )
-            _, _, loaded = prepare_evaluation(spec, required=("calibration", "test"))
+            params = spec.params
+            splits = load_splits(
+                params["dataset"],
+                params["task"],
+                params["protocol"]["split"],
+                schema=SampleBuilder.load(str(path / "schema.pkl")),
+            )
+            loaded = prepare_model(
+                params["model"], splits, params["protocol"], checkpoint=path
+            )
             for name, value in model.state_dict().items():
                 self.assertTrue(torch.equal(value, loaded.state_dict()[name]), name)
             self.assertEqual(

@@ -14,7 +14,7 @@ import torch
 
 from examples.cpbench.synthetic_data import SyntheticDataset, SyntheticTask, make_splits
 from pyhealth.benchmarks import Evaluation, Result
-from pyhealth.benchmarks.cpbench import CPBench, save_model_predictions
+from pyhealth.benchmarks.cpbench import CPBench
 from pyhealth.benchmarks.cpbench.adapters import ADAPTERS
 from pyhealth.benchmarks.cpbench.adapters.favmac import validate_multilabel_predictions
 from pyhealth.benchmarks.cpbench.adapters.fixed_calibration import (
@@ -27,13 +27,13 @@ from pyhealth.benchmarks.cpbench.shared.classification import (
     validate_label_encodings,
     validate_multiclass_predictions,
 )
-from pyhealth.benchmarks.cpbench.shared.prediction import (
+from pyhealth.benchmarks.cpbench.shared.collection import (
     collect_predictions,
     concatenate_predictions,
     copy_predictions,
-    prediction_cache_path,
 )
-from pyhealth.benchmarks.cpbench.shared.preparation import (
+from pyhealth.benchmarks.cpbench.shared.evaluation_preparation import (
+    prediction_cache_path,
     prepare_evaluation,
     require_protocol,
 )
@@ -50,7 +50,6 @@ from pyhealth.calib.predictionset import (
 from pyhealth.datasets import (
     BaseDataset,
     PatientSplit,
-    SampleBuilder,
     SubjectSplit,
     get_dataloader,
 )
@@ -142,13 +141,13 @@ def feedback_adapter(evaluation, cache_dir):
     require_protocol(
         evaluation.params["protocol"], order="dataset", feedback="immediate"
     )
-    params, splits, model = prepare_evaluation(evaluation, required=("stream",))
+    params, splits, model = prepare_evaluation(evaluation, required=("test",))
     if model.mode != "multiclass":
         raise ValueError("feedback test requires a multiclass model")
     vocabulary = validate_label_encodings(model, splits)
     method = params["method"]["class"](model, **params["method"].get("params", {}))
     records = []
-    for batch in get_dataloader(splits["stream"], batch_size=1):
+    for batch in get_dataloader(splits["test"], batch_size=1):
         records.append(
             copy_predictions(
                 predict_classification_set_batch(
@@ -174,33 +173,6 @@ def invalid_adapter(evaluation, cache_dir):
     return {"not": "a Result"}
 
 
-# Real native checkpoint files, shared by immutable test specifications.
-_CHECKPOINT_DIRECTORY = tempfile.TemporaryDirectory(prefix="cpbench-checkpoints-")
-_CHECKPOINTS = {}
-
-
-def write_checkpoint(path, model, train_data):
-    path.mkdir(parents=True, exist_ok=True)
-    Trainer(model, enable_logging=False).save_ckpt(str(path / "model.ckpt"))
-    builder = SampleBuilder(
-        train_data.input_schema,
-        train_data.output_schema,
-        input_processors=train_data.input_processors,
-        output_processors=train_data.output_processors,
-    )
-    builder.fit(train_data)
-    builder.save(str(path / "schema.pkl"))
-
-
-def checkpoint_for(mode):
-    if mode not in _CHECKPOINTS:
-        train = make_splits(mode=mode)["train"]
-        path = Path(_CHECKPOINT_DIRECTORY.name) / mode
-        write_checkpoint(path, FixedModel(train), train)
-        _CHECKPOINTS[mode] = str(path)
-    return _CHECKPOINTS[mode]
-
-
 def evaluation(
     method=BaseConformal,
     *,
@@ -211,7 +183,6 @@ def evaluation(
     model_class=None,
     model_params=None,
     training=None,
-    checkpoint=None,
     metrics=None,
 ):
     data = {
@@ -222,12 +193,8 @@ def evaluation(
         **(dataset_params or {}),
     }
     model = {"class": model_class or FixedModel, "params": model_params or {}}
-    if training is None:
-        model["checkpoint"] = checkpoint or checkpoint_for(mode)
-        roles = ["calibration", "test"]
-    else:
-        model["training"] = training
-        roles = ["train", "calibration", "test"]
+    model["training"] = {"epochs": 0} if training is None else training
+    split_names = ("train", "calibration", "test")
     if method_params is None:
         method_params = (
             {"target_cost": 0.8}
@@ -263,10 +230,9 @@ def evaluation(
                     "params": {
                         "subjects": [
                             [f"{role}-{i}" for i in range(data[f"n_{role}"])]
-                            for role in roles
+                            for role in split_names
                         ]
                     },
-                    "roles": roles,
                 },
                 "seed": 42,
                 "batch_size": 5,
@@ -301,7 +267,7 @@ class TestEvaluationContract(unittest.TestCase):
             (("method", "params"), []),
             (("method", "options"), None),
             (("model", "params"), None),
-            (("model", "training"), {}),  # Both checkpoint and training.
+            (("model", "training"), None),
             (("model", "checkpoint"), None),
             (("metrics",), []),
             (("metrics",), [42]),
@@ -321,7 +287,7 @@ class TestEvaluationContract(unittest.TestCase):
             del params[key]
             invalid.append(Evaluation(params))
         params = copy.deepcopy(good.params)
-        del params["model"]["checkpoint"]
+        del params["model"]["training"]
         invalid.append(Evaluation(params))
         for bad in invalid:
             with (
@@ -421,79 +387,132 @@ class TestEvaluationContract(unittest.TestCase):
 
 
 class TestModelSources(unittest.TestCase):
-    def test_checkpoint_needs_no_training_split_or_processor_fitting(self):
-        ev = evaluation()
-        self.assertNotIn("train", ev.params["protocol"]["split"]["roles"])
-        schema = SampleBuilder.load(
-            str(Path(ev.params["model"]["checkpoint"]) / "schema.pkl")
-        )
-        with (
-            patch.object(
-                Trainer, "train", side_effect=AssertionError("must not train")
-            ),
-            patch.object(
-                type(schema.input_processors["x"]),
-                "fit",
-                side_effect=AssertionError("must not fit"),
-            ),
-            patch.object(
-                type(schema.output_processors["label"]),
-                "fit",
-                side_effect=AssertionError("must not fit"),
-            ),
-        ):
-            result = CPBench().evaluate([ev])[ev]
-        self.assertEqual(result.status, "success", result.metadata)
+    def test_checkpoint_reuse_does_not_refit_processors_or_train(self):
+        ev = evaluation(model_class=MLP, training={"epochs": 1})
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory)
+            _, splits, _ = prepare_evaluation(ev, required=("test",), cache_dir=cache)
+            schema = splits["train"]
+            with (
+                patch.object(
+                    Trainer, "train", side_effect=AssertionError("must not train")
+                ),
+                patch.object(
+                    type(schema.input_processors["x"]),
+                    "fit",
+                    side_effect=AssertionError("must not fit"),
+                ),
+                patch.object(
+                    type(schema.output_processors["label"]),
+                    "fit",
+                    side_effect=AssertionError("must not fit"),
+                ),
+            ):
+                _, _, loaded = prepare_evaluation(
+                    ev, required=("test",), cache_dir=cache
+                )
+            self.assertFalse(loaded.training)
 
     def test_checkpoint_restores_actual_weights(self):
-        train = make_splits(n_train=18, n_calibration=24, n_test=12)["train"]
-        model = MLP(train, embedding_dim=4, hidden_dim=4).eval()
-        with torch.no_grad():
-            model.fc.bias.copy_(torch.tensor([3.0, -2.0, 1.0]))
+        ev = evaluation(
+            model_class=MLP, model_params={"embedding_dim": 4, "hidden_dim": 4}
+        )
         with tempfile.TemporaryDirectory() as directory:
-            write_checkpoint(Path(directory), model, train)
-            ev = evaluation(
-                model_class=MLP,
-                model_params={"embedding_dim": 4, "hidden_dim": 4},
-                checkpoint=directory,
+            cache = Path(directory)
+            _, _, model = prepare_evaluation(ev, required=("test",), cache_dir=cache)
+            expected = {
+                name: value.clone() for name, value in model.state_dict().items()
+            }
+            with torch.no_grad():
+                model.fc.bias.add_(10)
+            params, _, loaded = prepare_evaluation(
+                ev, required=("test",), cache_dir=cache
             )
-            params, splits, loaded = prepare_evaluation(
-                ev, required=("calibration", "test")
-            )
-            self.assertNotIn("train", splits)
-            for key, value in model.state_dict().items():
-                self.assertTrue(torch.equal(value, loaded.state_dict()[key]), key)
+            for key, value in expected.items():
+                torch.testing.assert_close(value, loaded.state_dict()[key])
             self.assertEqual(params, ev.params)
 
-    def test_training_requires_train_first(self):
-        ev = evaluation(model_class=MLP, training={"epochs": 1})
+    def test_split_names_are_assigned_from_partition_count(self):
+        ev = evaluation()
+        _, splits, _ = prepare_evaluation(ev, required=("train", "calibration", "test"))
+        self.assertEqual(list(splits), ["train", "calibration", "test"])
+        self.assertEqual([len(part) for part in splits.values()], [18, 24, 12])
+
         params = copy.deepcopy(ev.params)
-        params["protocol"]["split"]["roles"] = ["calibration", "train", "test"]
-        bad = Evaluation(params)
-        with self.assertRaisesRegex(ValueError, "first split role"):
-            CPBench().evaluate([bad])
+        groups = params["protocol"]["split"]["params"]["subjects"]
+        params["protocol"]["split"]["params"]["subjects"] = [
+            groups[0][:12],
+            groups[0][12:],
+            groups[1],
+            groups[2],
+        ]
+        _, splits, _ = prepare_evaluation(
+            Evaluation(params), required=("validation", "test")
+        )
+        self.assertEqual(list(splits), ["train", "validation", "calibration", "test"])
+        self.assertEqual([len(part) for part in splits.values()], [12, 6, 24, 12])
 
-    def test_wrong_checkpoint_schema_is_rejected(self):
-        params = copy.deepcopy(evaluation().params)
-        params["task"]["params"]["mode"] = "multilabel"
-        bad = Evaluation(params)
-        result = CPBench().evaluate([bad])[bad]
-        self.assertEqual(result.status, "failed")
-        self.assertIn("schema differs", result.metadata["error"])
+    def test_validation_partition_is_passed_to_training(self):
+        params = copy.deepcopy(
+            evaluation(
+                model_class=MLP,
+                model_params={"embedding_dim": 4, "hidden_dim": 4},
+                training={"epochs": 1, "monitor": "accuracy"},
+            ).params
+        )
+        groups = params["protocol"]["split"]["params"]["subjects"]
+        params["protocol"]["split"]["params"]["subjects"] = [
+            groups[0][:12],
+            groups[0][12:],
+            groups[1],
+            groups[2],
+        ]
+        ev = Evaluation(params)
+        original_train = Trainer.train
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(
+                Trainer, "train", autospec=True, side_effect=original_train
+            ) as train,
+        ):
+            result = CPBench().evaluate([ev], cache_dir=Path(directory))[ev]
+            warm = CPBench().evaluate([ev], cache_dir=Path(directory))[ev]
+        self.assertEqual(result.status, "success", result.metadata)
+        self.assertEqual(warm.status, "success", warm.metadata)
+        np.testing.assert_equal(result.metrics, warm.metrics)
+        self.assertEqual(train.call_count, 1)
+        self.assertEqual(len(train.call_args.args[1].dataset), 12)
+        self.assertEqual(len(train.call_args.kwargs["val_dataloader"].dataset), 6)
 
-    def test_missing_prediction_inputs_fail_without_loading_a_model(self):
-        for method, mode in ((BaseConformal, "multiclass"), (FavMac, "multilabel")):
-            params = copy.deepcopy(evaluation(method, mode=mode).params)
-            del params["model"]["checkpoint"]
-            params["model"]["predictions"] = "/not-read/predictions.npz"
+    def test_other_partition_counts_are_rejected_before_training(self):
+        for count in (1, 2, 5):
+            params = copy.deepcopy(evaluation().params)
+            params["protocol"]["split"]["params"]["subjects"] = [
+                [f"train-{i}" for i in range(start, start + 3)]
+                for start in range(0, count * 3, 3)
+            ]
             ev = Evaluation(params)
-            validate_evaluation(**ev.params)
-            with patch(
-                "pyhealth.benchmarks.cpbench.shared.preparation.load_splits",
-                side_effect=AssertionError("must not load"),
-            ):
+            with self.subTest(count=count), patch.object(Trainer, "train") as train:
                 result = CPBench().evaluate([ev])[ev]
-            self.assertEqual(result.metadata["error_type"], "FileNotFoundError")
+            train.assert_not_called()
+            self.assertEqual(result.status, "failed")
+            self.assertEqual(result.metadata["error_type"], "ValueError")
+            if count != 1:  # SubjectSplit itself rejects a single part.
+                self.assertIn("three or four partitions", result.metadata["error"])
+
+    def test_generated_artifact_paths_are_not_evaluation_inputs(self):
+        for key in ("checkpoint", "predictions"):
+            params = copy.deepcopy(evaluation().params)
+            params["model"][key] = "/not-read/artifact"
+            with (
+                self.subTest(key=key),
+                self.assertRaisesRegex(ValueError, "unknown model keys"),
+            ):
+                CPBench().evaluate([Evaluation(params)])
+        params = copy.deepcopy(evaluation().params)
+        params["dataset"]["params"]["cache_dir"] = "/not-read/cache"
+        with self.assertRaisesRegex(ValueError, "managed by CPBench"):
+            CPBench().evaluate([Evaluation(params)])
 
     def test_patient_split_is_executable(self):
         params = copy.deepcopy(
@@ -506,13 +525,12 @@ class TestModelSources(unittest.TestCase):
         params["protocol"]["split"] = {
             "class": PatientSplit,
             "params": {"ratios": [0.5, 0.25, 0.25], "seed": 7},
-            "roles": ["train", "calibration", "test"],
         }
         ev = Evaluation(params)
         result = CPBench().evaluate([ev])[ev]
         self.assertEqual(result.status, "success", result.metadata)
 
-    def test_real_base_dataset_and_task_with_checkpoint(self):
+    def test_real_dataset_uses_managed_cache(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "events.csv").write_text(
@@ -535,20 +553,40 @@ class TestModelSources(unittest.TestCase):
                     "root": directory,
                     "tables": ["events"],
                     "config_path": str(root / "config.yaml"),
-                    "cache_dir": str(root / "cache"),
                     "num_workers": 1,
                 },
             }
             params["task"] = {"class": EventTask}
             params["protocol"]["split"]["params"] = {
                 "subjects": [
-                    [f"p{i:02d}" for i in range(12)],
-                    [f"p{i:02d}" for i in range(12, 24)],
+                    [f"p{i:02d}" for i in range(8)],
+                    [f"p{i:02d}" for i in range(8, 16)],
+                    [f"p{i:02d}" for i in range(16, 24)],
                 ]
             }
             ev = Evaluation(params)
-            result = CPBench().evaluate([ev])[ev]
+            cache = root / "managed"
+            result = CPBench().evaluate([ev], cache_dir=cache)[ev]
             self.assertEqual(result.status, "success", result.metadata)
+            samples = list((cache / "cpbench" / "datasets").rglob("schema.pkl"))
+            self.assertTrue(samples)
+            # Recreating native dataset objects must reuse processed samples.
+            with (
+                patch.object(
+                    BaseDataset,
+                    "_task_transform",
+                    side_effect=AssertionError("must not process tasks"),
+                ),
+                patch.object(
+                    BaseDataset,
+                    "_proc_transform",
+                    side_effect=AssertionError("must not process samples"),
+                ),
+            ):
+                _, _, model = prepare_evaluation(
+                    ev, required=("test",), cache_dir=cache
+                )
+            self.assertEqual(model.mode, "multiclass")
 
 
 class TestNativeMethods(unittest.TestCase):
@@ -616,7 +654,7 @@ class TestNativeMethods(unittest.TestCase):
                     results[good].status, "success", results[good].metadata
                 )
 
-    def test_label_shift_runner_supplies_saved_model_outputs(self):
+    def test_label_shift_reuses_managed_model_outputs(self):
         ev = evaluation(
             LabelShift,
             model_class=MLP,
@@ -628,29 +666,16 @@ class TestNativeMethods(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             cache, output = Path(directory) / "cache", Path(directory) / "output"
-            values, metadata = CPBench().predict_model(ev)
-            path = Path(directory) / "base.npz"
-            save_model_predictions(values, path, **metadata)
-            params = copy.deepcopy(ev.params)
-            params["model"] = {"predictions": str(path)}
-            supplied = Evaluation(params)
-            cold = CPBench().evaluate([supplied], cache_dir=cache, output_dir=output)[
-                supplied
-            ]
-
+            cold = CPBench().evaluate([ev], cache_dir=cache, output_dir=output)[ev]
             with patch.object(
                 Trainer, "train", side_effect=AssertionError("must reuse")
             ):
-                warm = CPBench().evaluate(
-                    [supplied], cache_dir=cache, output_dir=output
-                )[supplied]
+                warm = CPBench().evaluate([ev], cache_dir=cache, output_dir=output)[ev]
 
             self.assertEqual(cold.status, "success", cold.metadata)
             self.assertEqual(warm.status, "success", warm.metadata)
             np.testing.assert_equal(cold.metrics, warm.metrics)
-            self.assertEqual(
-                warm.artifact, prediction_cache_path(supplied.params, cache)
-            )
+            self.assertEqual(warm.artifact, prediction_cache_path(ev.params, cache))
 
             with np.load(warm.artifact) as predictions:
                 self.assertEqual(
@@ -858,7 +883,6 @@ class TestNativeMethods(unittest.TestCase):
             ).params
         )
         params["protocol"]["feedback"] = "immediate"
-        params["protocol"]["split"]["roles"] = ["calibration", "stream"]
         ev = Evaluation(params)
         with patch.dict(
             ADAPTERS, {FeedbackMethod: SimpleNamespace(run=feedback_adapter)}
@@ -889,7 +913,7 @@ class TestCacheAndOutput(unittest.TestCase):
             else ["accuracy", "set_size", "miscoverage_overall_ps"],
         )
 
-    def test_adapters_save_explicit_outputs_without_automatic_model_reuse(self):
+    def test_adapters_share_models_and_save_outputs_separately_from_results(self):
         evaluations = [
             self.trained_evaluation(),
             self.trained_evaluation(ClusterLabel),
@@ -904,8 +928,8 @@ class TestCacheAndOutput(unittest.TestCase):
                 results = CPBench().evaluate(
                     evaluations, cache_dir=root / "cache", output_dir=root / "output"
                 )
-            # Each training source is explicit; the runner decides whether to reuse.
-            self.assertEqual(train.call_count, 3)
+            # Multiclass methods share one model; multilabel needs another.
+            self.assertEqual(train.call_count, 2)
             for ev, result in results.items():
                 self.assertEqual(result.status, "success", result.metadata)
                 self.assertEqual(
@@ -934,7 +958,7 @@ class TestCacheAndOutput(unittest.TestCase):
                 self.assertEqual(saved[ev.id]["metrics"], result.metrics)
                 self.assertEqual(saved[ev.id]["artifact"], str(result.artifact))
 
-    def test_cache_dir_does_not_implicitly_reuse_training(self):
+    def test_cache_reuses_training_across_cp_parameters_and_metrics(self):
         first = self.trained_evaluation()
         plain = CPBench().evaluate([first])[first]
         alpha_params = copy.deepcopy(first.params)
@@ -957,7 +981,7 @@ class TestCacheAndOutput(unittest.TestCase):
                 rest = CPBench().evaluate(
                     [other_alpha, other_metrics, other_seed], cache_dir=cache
                 )
-            self.assertEqual(train.call_count, 5)
+            self.assertEqual(train.call_count, 2)
             for result in [plain, cold, warm, *rest.values()]:
                 self.assertEqual(result.status, "success", result.metadata)
             np.testing.assert_equal(plain.metrics, cold.metrics)
@@ -980,7 +1004,7 @@ class TestCacheAndOutput(unittest.TestCase):
                 torch.get_rng_state(),
             )
             _, _, cold = prepare_evaluation(
-                ev, required=("train", "calibration", "test")
+                ev, required=("train", "calibration", "test"), cache_dir=Path(directory)
             )
             saved = {
                 key: value.detach().clone() for key, value in cold.state_dict().items()
@@ -988,7 +1012,7 @@ class TestCacheAndOutput(unittest.TestCase):
             with torch.no_grad():
                 cold.fc.bias.add_(10)
             _, _, warm = prepare_evaluation(
-                ev, required=("train", "calibration", "test")
+                ev, required=("train", "calibration", "test"), cache_dir=Path(directory)
             )
             self.assertIsNot(cold, warm)
             for key, value in saved.items():
@@ -1010,7 +1034,7 @@ class TestCacheAndOutput(unittest.TestCase):
             contents = first.artifact.read_bytes()
 
             with patch(
-                "pyhealth.benchmarks.cpbench.shared.prediction.np.savez_compressed",
+                "pyhealth.benchmarks.cpbench.shared.model_outputs.np.savez_compressed",
                 side_effect=OSError("interrupted write"),
             ):
                 failed = CPBench().evaluate(
