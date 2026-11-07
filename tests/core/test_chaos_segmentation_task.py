@@ -132,30 +132,34 @@ class TestCHAOSTasks(unittest.TestCase):
         task = CHAOSAbdominalSegmentationCTMRI(target_shape=(1, 4, 4))
         samples = self.dataset.set_task(task, num_workers=1)
         sample = samples[0]
-        self.assertEqual(tuple(sample["image"].shape), (1, 1, 4, 4))
-        self.assertEqual(tuple(sample["mask"].shape), (1, 1, 4, 4))
+        image = samples.input_processors["image"].materialize(sample["image"])
+        mask = samples.output_processors["mask"].materialize(sample["mask"])
+        self.assertEqual(tuple(image.shape), (1, 1, 4, 4))
+        self.assertEqual(tuple(mask.shape), (1, 1, 4, 4))
 
     def test_set_task(self):
         samples = self.dataset.set_task(num_workers=1)
         self.assertEqual(len(samples), 1)
         sample = samples[0]
-        self.assertEqual(tuple(sample["image"].shape), (1, 2, 8, 8))
-        self.assertEqual(tuple(sample["mask"].shape), (1, 2, 8, 8))
-        self.assertEqual(str(sample["mask"].dtype), "torch.int64")
-        self.assertEqual(set(sample["mask"].unique().tolist()), {0, 1})
+        image = samples.input_processors["image"].materialize(sample["image"])
+        mask = samples.output_processors["mask"].materialize(sample["mask"])
+        self.assertEqual(tuple(image.shape), (1, 2, 8, 8))
+        self.assertEqual(tuple(mask.shape), (1, 2, 8, 8))
+        self.assertEqual(str(mask.dtype), "torch.int64")
+        self.assertEqual(set(mask.unique().tolist()), {0, 1})
         # The default task is CT+MRI multi-organ; CT supervises background and
         # liver only, not the unannotated spleen/kidney classes.
         self.assertEqual(sample["class_mask"], [1, 1, 0, 0, 0])
         # DICOM position order reverses filename order; mask order must follow
         # the image order, so mask_1 (ones) comes before mask_0 (zeros).
-        self.assertEqual(int(sample["mask"][0, 0].sum()), 1)
-        self.assertEqual(int(sample["mask"][0, 1].sum()), 0)
+        self.assertEqual(int(mask[0, 0].sum()), 1)
+        self.assertEqual(int(mask[0, 1].sum()), 0)
         image_marker = np.unravel_index(
-            int(np.argmax(sample["image"][0, 0].numpy())),
-            sample["image"][0, 0].shape,
+            int(np.argmax(image[0, 0].numpy())),
+            image[0, 0].shape,
         )
         mask_marker = tuple(
-            np.argwhere(sample["mask"][0, 0].numpy() > 0)[0].tolist()
+            np.argwhere(mask[0, 0].numpy() > 0)[0].tolist()
         )
         self.assertEqual(image_marker, mask_marker)
         self.assertEqual(set(samples.input_schema), {"image"})
