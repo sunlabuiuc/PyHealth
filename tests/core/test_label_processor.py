@@ -111,7 +111,7 @@ class TestStaticActivationAndLoss(unittest.TestCase):
 
     def test_per_label_pos_weight(self):
         logits, y = torch.randn(3, 2), torch.tensor([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
-        processor = MultiLabelProcessor(pos_weight=[2.0, 0.5])
+        processor = MultiLabelProcessor(labels=["a", "b"], pos_weight=[2.0, 0.5])
         expected = F.binary_cross_entropy_with_logits(
             logits, y, pos_weight=torch.tensor([2.0, 0.5])
         )
@@ -271,6 +271,21 @@ class TestFitTest(unittest.TestCase):
         self.assertEqual(processor.size(), 2)
         self.assertEqual(processor.weight.tolist(), [2.0])
         self.assertIsNone(MultiLabelProcessor().weight)
+
+    def test_per_label_weight_needs_given_labels(self):
+        # Without labels, the order the weights are matched to is unknown.
+        for cls in (MultiLabelProcessor, TimeseriesMultiLabelProcessor):
+            for weight in ([2.0, 0.5], (2.0,), torch.tensor([2.0, 0.5])):
+                with self.subTest(cls=cls.__name__, weight=weight):
+                    with self.assertRaisesRegex(ValueError, "needs labels"):
+                        cls(pos_weight=weight)
+        with self.assertRaisesRegex(ValueError, "2 weights for 3 labels"):
+            MultiLabelProcessor(labels=["a", "b", "c"], pos_weight=[2.0, 0.5])
+        # One number, or a weight per given label, is fine.
+        for weight in (2.0, 3, torch.tensor(2.0)):
+            MultiLabelProcessor(pos_weight=weight)
+        processor = TimeseriesMultiLabelProcessor(labels=["a", "b"], pos_weight=[2.0, 0.5])
+        self.assertEqual(processor.base.weight.tolist(), [2.0, 0.5])
 
     def test_timeseries_labels(self):
         multilabel = TimeseriesMultiLabelProcessor(pos_weight="balanced")

@@ -1,6 +1,7 @@
 """Output processors: what a label is, and how to train on and score it."""
 
 import logging
+from numbers import Real
 from abc import abstractmethod
 from collections.abc import Hashable, Iterable, Sequence
 from typing import Any, ClassVar
@@ -451,8 +452,9 @@ class MultiLabelProcessor(_WeightedBCE, LabelProcessor):
             When omitted, they are learned in ``fit``: ``0..K-1`` as is, any
             other set in sorted order.
         pos_weight: Weight of positive examples in the loss: a number for all
-            labels, one number per label, ``"balanced"`` (negatives /
-            positives of each label in the fitted samples) or None.
+            labels, one number per label (in the order of ``labels``, which
+            must then be given), ``"balanced"`` (negatives / positives of
+            each label in the fitted samples) or None.
 
     Examples:
         >>> from pyhealth.processors import MultiLabelProcessor
@@ -475,6 +477,35 @@ class MultiLabelProcessor(_WeightedBCE, LabelProcessor):
         self.label_vocab: dict[Any, int] = {} if labels is None else _fixed_vocab(labels)
         self.need_fit_test = labels is None
         self._init_pos_weight(pos_weight)
+        self._check_per_label_weight()
+
+    def _check_per_label_weight(self) -> None:
+        """A per-label ``pos_weight`` needs given ``labels``, one weight each.
+
+        Weights are matched to labels by position, and a learned vocabulary's
+        order is only known after fitting, so without ``labels`` a user
+        cannot know which weight goes to which label.
+        """
+        pos_weight = self.pos_weight
+        if pos_weight is None or isinstance(pos_weight, str):
+            return
+        if isinstance(pos_weight, Real) or (
+            isinstance(pos_weight, torch.Tensor) and pos_weight.dim() == 0
+        ):
+            return  # one number for every label
+        if self.labels is None:
+            raise ValueError(
+                "A per-label pos_weight needs labels=[...], which fixes the "
+                "label order the weights are matched to; without labels, the "
+                "order is learned from the data. Pass labels, or use one "
+                "number or 'balanced' for every label."
+            )
+        weight = self._weight
+        if weight is not None and len(weight) != len(self.label_vocab):
+            raise ValueError(
+                f"pos_weight has {len(weight)} weights for "
+                f"{len(self.label_vocab)} labels; give one weight per label."
+            )
 
     def fit_test(self, samples: Iterable[dict[str, Any]], field: str) -> None:
         """Adds the labels of all samples, see :meth:`LabelProcessor.fit_test`.
