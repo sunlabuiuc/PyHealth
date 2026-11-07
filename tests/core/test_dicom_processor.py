@@ -239,6 +239,35 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         self.assertEqual(str(tensor.dtype), "torch.int64")
         self.assertEqual(set(tensor.unique().tolist()), {1025})
 
+    def test_lazy_dicom_dataloader_materializes(self):
+        paths = []
+        for index in range(2):
+            path = self.root / f"single_{index}.dcm"
+            _write_slice(
+                path,
+                1024 + index,
+                0.0,
+                1,
+                generate_uid(),
+                self.study_uid,
+            )
+            paths.append(path)
+        dataset = create_sample_dataset(
+            [
+                {"patient_id": "p0", "image": str(paths[0]), "label": 0},
+                {"patient_id": "p1", "image": str(paths[1]), "label": 1},
+            ],
+            {"image": ("dicom", {"lazy": True, "image_size": 4, "mode": "L"})},
+            {"label": "binary"},
+            in_memory=False,
+        )
+        try:
+            self.assertIsInstance(dataset[0]["image"], ImageRef)
+            batch = next(iter(get_dataloader(dataset, batch_size=2)))
+            self.assertEqual(tuple(batch["image"].shape), (2, 1, 4, 4))
+        finally:
+            dataset.close()
+
     def test_mask_requires_tensor_output(self):
         with self.assertRaisesRegex(ValueError, "to_tensor=True"):
             DicomProcessor(is_mask=True, to_tensor=False)
@@ -369,7 +398,7 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
             )
         mask_dir = self.root / "masks"
         _write_masks(mask_dir, 3, "IMG", "-")
-        processor = ImageMaskDirectoryProcessor(canonical=False)
+        processor = ImageMaskDirectoryProcessor(lazy=True, canonical=False)
         reference = processor.process((mask_dir, self.root))
         tensor = processor.materialize(reference)
         self.assertEqual(reference.metadata.shape, tuple(tensor.shape))
@@ -483,7 +512,7 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
 
     def test_lazy_series_metadata_reflects_target_shape(self):
         self._write_series()
-        processor = DicomSeriesProcessor(target_shape=(2, 3, 4))
+        processor = DicomSeriesProcessor(lazy=True, target_shape=(2, 3, 4))
         reference = processor.process(self.root)
         self.assertIsInstance(reference, ImageRef)
         self.assertEqual(reference.metadata.shape, (1, 2, 3, 4))
@@ -496,7 +525,7 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         mask_dir = self.root / "masks"
         _write_masks(mask_dir, 3, "IMG", "-")
         processor = ImageMaskDirectoryProcessor(
-            canonical=False, target_shape=(2, 3, 4)
+            lazy=True, canonical=False, target_shape=(2, 3, 4)
         )
         reference = processor.process((mask_dir, self.root))
         self.assertIsInstance(reference, ImageRef)
@@ -566,7 +595,7 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
 
     def test_series_processor(self):
         self._write_series()
-        processor = DicomSeriesProcessor()
+        processor = DicomSeriesProcessor(lazy=True)
         ref = processor.process(self.root)
         self.assertIsInstance(ref, ImageRef)
         self.assertFalse(processor.stores_tensor)

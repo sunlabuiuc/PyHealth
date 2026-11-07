@@ -34,7 +34,7 @@ class TestImageMaskDirectoryProcessor(unittest.TestCase):
         )
 
     def test_lazy_process(self):
-        processor = ImageMaskDirectoryProcessor()
+        processor = ImageMaskDirectoryProcessor(lazy=True)
         self.assertFalse(processor.stores_tensor)
         reference = processor.process(self.mask_dir)
         self.assertIsInstance(reference, ImageRef)
@@ -53,8 +53,8 @@ class TestImageMaskDirectoryProcessor(unittest.TestCase):
         self.assertEqual(str(raw.dtype), "int64")
 
     def test_eager_process_matches_lazy(self):
-        lazy_tensor = ImageMaskDirectoryProcessor().process(self.mask_dir)
-        lazy_tensor = ImageMaskDirectoryProcessor().materialize(lazy_tensor)
+        lazy_tensor = ImageMaskDirectoryProcessor(lazy=True).process(self.mask_dir)
+        lazy_tensor = ImageMaskDirectoryProcessor(lazy=True).materialize(lazy_tensor)
         eager_processor = ImageMaskDirectoryProcessor(lazy=False)
         self.assertTrue(eager_processor.stores_tensor)
         eager_tensor = eager_processor.process(self.mask_dir)

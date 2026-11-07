@@ -9,6 +9,7 @@ from . import register_processor
 from .image_io.readers.dicom import DicomReader
 from .image_io.tensor_utils import (
     _channels_first,
+    _materialize_and_collate,
     _normalize_tensor,
     _resize_tensor,
     _tensor_to_pil,
@@ -222,6 +223,10 @@ class DicomProcessor(ImageProcessor):
             dtype = "int64" if self.is_mask else self.dtype
             return tensor.to(getattr(torch, dtype))
         return _tensor_to_pil(tensor)
+
+    def collate(self, values: list[Any]) -> Any:
+        """Materialise lazy refs, then pad and stack images."""
+        return _materialize_and_collate(self, values)
 
     def __repr__(self) -> str:
         return (

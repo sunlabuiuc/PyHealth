@@ -1,6 +1,5 @@
 from collections.abc import Sequence
 from pathlib import Path
-import os
 import pickle
 import shutil
 import tempfile
@@ -49,40 +48,6 @@ def _decode_record(item: Any) -> Any:
     payload = pickle.loads(item[_OBJECTS_KEY])
     values = payload["values"]
     return {k: values[k] if k in values else item[k] for k in payload["order"]}
-
-
-def _materialize_image_value(value: Any, processor: Any) -> Any:
-    """Replace a lazy image reference, or a list of references, in place."""
-    from ..processors.image_io.types import ImageRef
-
-    if isinstance(value, ImageRef):
-        return processor.materialize(value)
-    if isinstance(value, list):
-        return [_materialize_image_value(item, processor) for item in value]
-    if isinstance(value, tuple):
-        return tuple(_materialize_image_value(item, processor) for item in value)
-    return value
-
-
-def _resolve_image_refs(
-    sample: Any,
-    input_processors: dict[str, FeatureProcessor],
-    output_processors: dict[str, FeatureProcessor],
-) -> Any:
-    """Materialise lazy image references in one decoded sample or batch."""
-    if isinstance(sample, list):
-        return [
-            _resolve_image_refs(item, input_processors, output_processors)
-            for item in sample
-        ]
-    if not isinstance(sample, dict):
-        return sample
-    processors = {**input_processors, **output_processors}
-    for key, value in sample.items():
-        processor = processors.get(key)
-        if processor is not None and hasattr(processor, "materialize"):
-            sample[key] = _materialize_image_value(value, processor)
-    return sample
 
 
 def _draw_seed() -> int:
@@ -561,7 +526,6 @@ class SampleDataset(litdata.StreamingDataset):
         dataset_name: Optional[str] = None,
         task_name: Optional[str] = None,
         delete_on_close: bool = False,
-        resolve_refs: bool = True,
         **kwargs,
     ) -> None:
         """Initialize a SampleDataset pointing at a directory created by SampleBuilder.
@@ -573,9 +537,6 @@ class SampleDataset(litdata.StreamingDataset):
             task_name: Optional human-friendly task name.
             delete_on_close: Whether ``close()`` should delete ``path``. This is
                 reserved for temporary datasets owned by PyHealth.
-            resolve_refs: Materialise lazy ``ImageRef`` fields when a sample is
-                read. Defaults to True. Set to False to receive raw references
-                for custom loading or augmentation.
             **kwargs: Extra keyword arguments forwarded to
                 `litdata.StreamingDataset` (such as streaming options).
         """
@@ -585,13 +546,6 @@ class SampleDataset(litdata.StreamingDataset):
         self.dataset_name = "" if dataset_name is None else dataset_name
         self.task_name = "" if task_name is None else task_name
         self._delete_on_close = delete_on_close
-        self._resolve_refs = bool(resolve_refs)
-        # litdata opens and caches chunk files lazily. After a fork, a child
-        # inherits those file descriptors, and the parent and child then share
-        # one file offset. Concurrent seek/read calls can read bytes from the
-        # wrong sample, which surfaces as a random UnpicklingError. Remember
-        # the owning process so every worker opens its own chunk handles.
-        self._cache_pid = os.getpid()
 
         with open(f"{path}/schema.pkl", "rb") as f:
             metadata = pickle.load(f)
@@ -609,56 +563,13 @@ class SampleDataset(litdata.StreamingDataset):
         self.fit_split: dict | None = metadata.get("fit_split")
         self.storage_format: int = metadata.get("storage_format", 1)
 
-    def _reset_streaming_cache(self) -> None:
-        """Drop inherited litdata handles, failing loudly on API changes."""
-        if not hasattr(self, "cache") or not hasattr(self, "shuffler"):
-            raise RuntimeError(
-                "SampleDataset fork reset expects litdata's cache/shuffler "
-                "attributes; the installed litdata version changed that API."
-            )
-        self.cache = None
-        self.shuffler = None
-
     def __getitem__(self, index: Any) -> Any:
         """Returns the sample(s) at ``index`` as the original Python objects.
 
         Index access, iteration, ``subset()`` views and ``set_task`` split parts
-        all read through here, so every path decodes the stored payload and,
-        unless ``resolve_refs=False``, materialises lazy image references.
+        all read through here, so every path decodes the stored payload.
         """
-        pid = os.getpid()
-        if pid != self._cache_pid:
-            # A forked DataLoader worker inherited the parent's litdata cache
-            # and its open chunk file. Drop it so this process opens fresh
-            # descriptors; otherwise parent and worker share one file offset
-            # and can corrupt each other's reads. Verified against litdata
-            # 0.2.x, where cache/shuffler are the streaming cache handles.
-            self._reset_streaming_cache()
-            self._cache_pid = pid
-        sample = _decode_record(super().__getitem__(index))
-        if self._resolve_refs:
-            return _resolve_image_refs(
-                sample, self.input_processors, self.output_processors
-            )
-        return sample
-
-    def __iter__(self) -> Any:
-        """Iterate samples, claiming the streaming cache for this process.
-
-        litdata's streaming iterator creates its cache in the current process
-        and then reads every item through :meth:`__getitem__`. If the owning
-        pid changed, inherited handles are dropped first; after the iterator
-        creates its own cache, the pid is claimed so :meth:`__getitem__` does
-        not discard and rebuild that cache on the first item.
-        """
-        pid = os.getpid()
-        if pid != self._cache_pid:
-            # A forked worker may still hold the parent's chunk handles.
-            # Drop them before litdata creates the iterator's cache.
-            self._reset_streaming_cache()
-        iterator = super().__iter__()
-        self._cache_pid = pid
-        return iterator
+        return _decode_record(super().__getitem__(index))
 
     def set_shuffle(self, shuffle: bool, seed: int | None = None) -> None:
         """Sets whether iterating the dataset shuffles, and the shuffle seed.
@@ -788,7 +699,6 @@ class SampleDataset(litdata.StreamingDataset):
             self.record_to_index, indices
         )
         new_dataset._delete_on_close = False
-        new_dataset._resolve_refs = self._resolve_refs
         new_dataset.reset()
 
         # The subset lists one (file, region) entry per run of consecutive
@@ -842,10 +752,7 @@ class InMemorySampleDataset(SampleDataset):
 
     Note:
         This class is intended for testing and debugging purposes where
-        dataset sizes are small enough to fit into memory. Lazy image
-        references are re-read from disk on every access. Each access returns
-        a shallow copy of the sample dictionary; nested mutable values are
-        shared with the stored sample.
+        dataset sizes are small enough to fit into memory.
     """
 
     def __init__(
@@ -857,7 +764,6 @@ class InMemorySampleDataset(SampleDataset):
         task_name: Optional[str] = None,
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
-        resolve_refs: bool = True,
     ) -> None:
         """Initialize an InMemorySampleDataset from in-memory samples.
 
@@ -874,8 +780,6 @@ class InMemorySampleDataset(SampleDataset):
                 of creating new ones from the input_schema.
             output_processors: Optional pre-fitted output processors to use
                 instead of creating new ones from the output_schema.
-            resolve_refs: Materialise lazy ``ImageRef`` fields when a sample is
-                read. Defaults to True.
         """
         builder = SampleBuilder(
             input_schema=input_schema,
@@ -898,7 +802,6 @@ class InMemorySampleDataset(SampleDataset):
         self.record_to_index = builder.record_to_index
 
         self._data = [builder.transform({"sample": pickle.dumps(s)}) for s in samples]
-        self._resolve_refs = bool(resolve_refs)
 
         self._shuffle = False
         self._shuffle_seed = 0
@@ -957,21 +860,7 @@ class InMemorySampleDataset(SampleDataset):
         Returns:
             A dictionary containing processed input and output features.
         """
-        sample = self._data[index]
-        if not self._resolve_refs:
-            if isinstance(sample, list):
-                return [dict(item) for item in sample]
-            return dict(sample)
-        if isinstance(sample, list):
-            return [
-                _resolve_image_refs(
-                    dict(item), self.input_processors, self.output_processors
-                )
-                for item in sample
-            ]
-        return _resolve_image_refs(
-            dict(sample), self.input_processors, self.output_processors
-        )
+        return self._data[index]
 
     def __iter__(self) -> Iterable[Dict[str, Any]]:  # type: ignore
         """Returns an iterator over all samples in the dataset.
@@ -992,7 +881,7 @@ class InMemorySampleDataset(SampleDataset):
             order = order[worker.id :: worker.num_workers]
         # The order is fixed here, not lazily, so later changes to the
         # dataset's settings don't affect a pass already started.
-        return (self[i] for i in order)
+        return (self._data[i] for i in order)
 
     def subset(self, indices: Union[Sequence[int], slice]) -> SampleDataset:
         if isinstance(indices, slice):

@@ -7,7 +7,7 @@ from typing import Any
 from . import register_processor
 from .base_processor import FeatureProcessor
 from .image_io.readers.nifti import NiftiReader
-from .image_io.tensor_utils import _collate_volumes, _to_torch
+from .image_io.tensor_utils import _materialize_and_collate, _to_torch
 from .image_io.types import ImageRef, _apply_resampling_to_metadata
 
 
@@ -17,7 +17,7 @@ class NiftiProcessor(FeatureProcessor):
 
     Args:
         lazy: Store an :class:`ImageRef` in the sample cache instead of the
-            volume. Defaults to True.
+            volume. Defaults to False; set True for lazy loading.
         channels: Expected channel count. If None, the reader infers it.
         canonical: Reorient to canonical RAS. Defaults to True.
         target_spacing: Target spacing in ``(D, H, W)`` order.
@@ -52,7 +52,7 @@ class NiftiProcessor(FeatureProcessor):
 
     def __init__(
         self,
-        lazy: bool = True,
+        lazy: bool = False,
         channels: int | None = None,
         canonical: bool = True,
         target_spacing: Sequence[float] | None = None,
@@ -189,8 +189,8 @@ class NiftiProcessor(FeatureProcessor):
         }
 
     def collate(self, values: list[Any]) -> Any:
-        """Pad variable-shape volumes to a common shape and stack them."""
-        return _collate_volumes(values)
+        """Materialise lazy refs, then pad and stack volumes."""
+        return _materialize_and_collate(self, values)
 
     def is_token(self) -> bool:
         """Return False because image intensities are continuous."""
