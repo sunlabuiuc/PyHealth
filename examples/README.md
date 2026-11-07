@@ -41,7 +41,7 @@ Older examples that no longer run, or that duplicated a maintained one, are in
 | [`clinical_tasks/`](clinical_tasks/) | Diabetic ketoacidosis prediction on MIMIC-IV (all diabetes and type 1 only) |
 | [`interpretability/`](interpretability/) | Integrated Gradients, DeepLift, GIM, SHAP, LIME, attention methods, and faithfulness metrics (comprehensiveness and sufficiency) |
 | [`cxr/`](cxr/) | Chest X-ray classification (ChestX-ray14, COVID-19), saliency maps, conformal prediction, ViT, VAE and GAN image generation. The COVID-19 ViT tutorial runs except for its Chefer step, which currently fails (see its header) |
-| [`eeg/`](eeg/) | EEG events and abnormality (TUEV, TUAB), sleep staging (Sleep-EDF), EEGBCI pattern discovery; SparcNet, ContraWR, BIOT, TFM-Tokenizer |
+| [`eeg/`](eeg/) | EEG events and abnormality (TUEV, TUAB), sleep staging (Sleep-EDF, ISRUC), EEGBCI pattern discovery; SparcNet, ContraWR, BIOT, TFM-Tokenizer |
 | [`conformal_eeg/`](conformal_eeg/) | Conformal prediction on TUEV/TUAB: conventional, k-means cluster, neighbourhood (NCP), covariate shift |
 | [`ecg/`](ecg/) | PTB-XL multi-label ECG classification, including ProtoECGNet |
 | [`benchmark_perf/`](benchmark_perf/README.md) | Speed and memory benchmarks against PyHealth 1.x, pandas and meds_reader |
