@@ -1,1 +1,3 @@
-from .link_prediction import link_prediction_fn
+from .kg_link_prediction import KGLinkPrediction
+
+__all__ = ["KGLinkPrediction"]
