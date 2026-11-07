@@ -45,7 +45,7 @@ Available Processors
 
 - ``ImageProcessor``: For image data (e.g., chest X-rays)
 - ``NiftiProcessor``: For NIfTI images and 3D volumes, with optional lazy loading
-- ``DicomProcessor``: For single-frame DICOM images
+- ``DicomProcessor``: For single-frame DICOM images, with optional lazy loading
 - ``DicomSeriesProcessor``: For DICOM series reconstructed as 3D volumes
 - ``ImageMaskDirectoryProcessor``: For directories of 2D image mask slices (PNG by default), with optional lazy loading
 - ``TextProcessor``: For text/clinical notes data
