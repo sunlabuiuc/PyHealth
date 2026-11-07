@@ -48,7 +48,7 @@ class ImageMaskDirectoryProcessor(FeatureProcessor):
 
     Examples:
         >>> from pyhealth.processors import ImageMaskDirectoryProcessor
-        >>> processor = ImageMaskDirectoryProcessor()
+        >>> processor = ImageMaskDirectoryProcessor(lazy=True)
         >>> processor.stores_tensor
         False
         >>> processor.dim()

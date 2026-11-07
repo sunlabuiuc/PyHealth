@@ -43,7 +43,7 @@ class NiftiProcessor(FeatureProcessor):
 
     Examples:
         >>> from pyhealth.processors import NiftiProcessor
-        >>> processor = NiftiProcessor(target_shape=(32, 32, 32))
+        >>> processor = NiftiProcessor(lazy=True, target_shape=(32, 32, 32))
         >>> processor.stores_tensor
         False
         >>> processor.is_token()
