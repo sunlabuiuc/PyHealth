@@ -261,17 +261,13 @@ def _run_one_ncp(
             test_loader, additional_outputs=["y_predset"]
         )
         ncp_metrics = get_metrics_fn("multiclass")(
-            y_true, y_prob, metrics=["accuracy", "miscoverage_ps"], y_predset=extra["y_predset"]
+            y_true, y_prob, metrics=["accuracy", "miscoverage_mean_ps"], y_predset=extra["y_predset"]
         )
         predset = extra["y_predset"]
         predset_t = torch.tensor(predset) if isinstance(predset, np.ndarray) else predset
         avg_set_size = predset_t.float().sum(dim=1).mean().item()
 
-        miscoverage = ncp_metrics["miscoverage_ps"]
-        if isinstance(miscoverage, np.ndarray):
-            miscoverage = float(miscoverage.item() if miscoverage.size == 1 else miscoverage.mean())
-        else:
-            miscoverage = float(miscoverage)
+        miscoverage = float(ncp_metrics["miscoverage_mean_ps"])
 
         results[alpha] = {
             "accuracy":    float(base_metrics["accuracy"]),
