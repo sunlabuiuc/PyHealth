@@ -79,6 +79,5 @@ class TestForegroundStats(unittest.TestCase):
             )
             stats = compute_foreground_intensity_stats(dataset)
             self.assertAlmostEqual(stats["mean"], 200.0, places=4)
-            self.assertTrue(dataset._resolve_refs)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)

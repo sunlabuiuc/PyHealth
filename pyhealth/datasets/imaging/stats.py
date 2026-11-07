@@ -81,7 +81,6 @@ def compute_foreground_intensity_stats(
     max_cases: int | None = None,
     max_voxels: int = 1_000_000,
     seed: int = 0,
-    raw: bool = True,
 ) -> dict[str, float]:
     """Collect foreground intensity statistics for CT normalisation.
 
@@ -100,10 +99,6 @@ def compute_foreground_intensity_stats(
         max_voxels: Maximum number of foreground voxels kept in memory.
             Larger inputs are reservoir-sampled while iterating.
         seed: Seed for reservoir sampling.
-        raw: Read raw image values through lazy ``ImageRef`` objects instead of
-            using the processed samples. This is important because CT
-            normalisation must be estimated from raw Hounsfield units, not
-            from already-normalised tensors. Defaults to True.
 
     Returns:
         A dictionary with ``percentile_00_5``, ``percentile_99_5``, ``mean``
@@ -128,52 +123,41 @@ def compute_foreground_intensity_stats(
     seen_voxels = 0
     rng = np.random.default_rng(seed)
     seen = 0
-    restore_refs = False
-    if raw and hasattr(dataset, "_resolve_refs") and dataset._resolve_refs:
-        # Lazy datasets expose raw ImageRef objects when resolve_refs is off.
-        # CT statistics must come from raw Hounsfield units, not from tensors
-        # that the task has already normalised.
-        dataset._resolve_refs = False
-        restore_refs = True
-    try:
-        for sample in dataset:
-            if max_cases is not None and seen >= max_cases:
-                break
-            sample_modality = sample.get("modality")
-            if (
-                modality is not None
-                and sample_modality is not None
-                and str(sample_modality).upper() != str(modality).upper()
-            ):
-                continue
-            image = _load_value(sample[input_key])
-            mask = _load_value(sample[label_key])
-            if mask.ndim == image.ndim:
-                # Both have a channel axis: keep the mask channel dimension
-                # for broadcasting against the image channels.
-                mask = mask.astype(bool, copy=False)
-            elif mask.ndim + 1 == image.ndim:
-                mask = mask[None].astype(bool, copy=False)
-            elif mask.ndim == image.ndim + 1 and mask.shape[0] == 1:
-                mask = mask[0].astype(bool, copy=False)
-            else:
-                raise ValueError(
-                    f"Mask shape {mask.shape} does not match image shape "
-                    f"{image.shape}."
-                )
-            foreground = np.broadcast_to(mask, image.shape)
-            sample_values = image[foreground]
-            reservoir, seen_voxels = _update_reservoir(
-                reservoir,
-                sample_values.astype(np.float32, copy=False),
-                seen_voxels,
-                max_voxels,
-                rng,
+    for sample in dataset:
+        if max_cases is not None and seen >= max_cases:
+            break
+        sample_modality = sample.get("modality")
+        if (
+            modality is not None
+            and sample_modality is not None
+            and str(sample_modality).upper() != str(modality).upper()
+        ):
+            continue
+        image = _load_value(sample[input_key])
+        mask = _load_value(sample[label_key])
+        if mask.ndim == image.ndim:
+            # Both have a channel axis: keep the mask channel dimension
+            # for broadcasting against the image channels.
+            mask = mask.astype(bool, copy=False)
+        elif mask.ndim + 1 == image.ndim:
+            mask = mask[None].astype(bool, copy=False)
+        elif mask.ndim == image.ndim + 1 and mask.shape[0] == 1:
+            mask = mask[0].astype(bool, copy=False)
+        else:
+            raise ValueError(
+                f"Mask shape {mask.shape} does not match image shape "
+                f"{image.shape}."
             )
-            seen += 1
-    finally:
-        if restore_refs:
-            dataset._resolve_refs = True
+        foreground = np.broadcast_to(mask, image.shape)
+        sample_values = image[foreground]
+        reservoir, seen_voxels = _update_reservoir(
+            reservoir,
+            sample_values.astype(np.float32, copy=False),
+            seen_voxels,
+            max_voxels,
+            rng,
+        )
+        seen += 1
 
     if reservoir.size == 0:
         raise ValueError(

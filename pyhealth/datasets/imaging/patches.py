@@ -32,6 +32,7 @@ from typing import Any
 import torch
 from torch.nn import functional as F
 
+from pyhealth.processors.image_io.types import ImageRef
 from pyhealth.sampler.patch_sampler import PatchLocation, PatchSampler
 
 
@@ -150,6 +151,20 @@ class PatchDataset(torch.utils.data.Dataset):
             return self.sampler.center_location(spatial_shape)
         return self.sampler.sample_location(spatial_shape, mask)
 
+    def _materialize(self, sample: dict[str, Any], key: str) -> Any:
+        """Materialise one lazy field using the wrapped dataset's processor."""
+        value = sample[key]
+        if not isinstance(value, ImageRef):
+            return value
+        processors = {
+            **getattr(self.dataset, "input_processors", {}),
+            **getattr(self.dataset, "output_processors", {}),
+        }
+        processor = processors.get(key)
+        if processor is not None and hasattr(processor, "materialize"):
+            return processor.materialize(value)
+        return value.load()
+
     def __getitem__(self, index: int) -> dict[str, Any]:
         """Return one fixed-size patch sample."""
         sample_index = int(index) // self.num_patches
@@ -158,8 +173,12 @@ class PatchDataset(torch.utils.data.Dataset):
             raise TypeError(
                 "PatchDataset expects the wrapped dataset to return dictionaries."
             )
-        image = _as_tensor(sample[self.input_key], torch.float32)
-        mask = _as_tensor(sample[self.label_key], torch.long)
+        image = _as_tensor(
+            self._materialize(sample, self.input_key), torch.float32
+        )
+        mask = _as_tensor(
+            self._materialize(sample, self.label_key), torch.long
+        )
         if image.ndim < 3:
             raise ValueError(
                 f"Expected an image with a channel axis and spatial axes, got "
