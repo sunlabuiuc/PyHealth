@@ -44,6 +44,10 @@ Available Processors
 **Data Type Processors:**
 
 - ``ImageProcessor``: For image data (e.g., chest X-rays)
+- ``NiftiProcessor``: For NIfTI images and 3D volumes, with optional lazy loading
+- ``DicomProcessor``: For single-frame DICOM images, with optional lazy loading
+- ``DicomSeriesProcessor``: For DICOM series reconstructed as 3D volumes
+- ``ImageMaskDirectoryProcessor``: For directories of 2D image mask slices (PNG by default), with optional lazy loading
 - ``TextProcessor``: For text/clinical notes data
 - ``TupleTimeTextProcessor``: For text paired with temporal information (time-aware text)
 - ``AudioProcessor``: For audio signal data
@@ -52,6 +56,13 @@ Available Processors
 - ``TimeImageProcessor``: For time-stamped image sequences (e.g., serial X-rays)
 - ``TensorProcessor``: For pre-processed tensor data; optional ``normalization``, ``missing_indicators`` and ``impute_strategy="zero"``
 - ``RawProcessor``: Pass-through processor for raw data
+
+Medical imaging processors require the optional dependencies:
+``pip install "pyhealth[imaging]"``. ``NiftiProcessor``,
+``DicomSeriesProcessor`` and ``ImageMaskDirectoryProcessor`` support opt-in
+lazy loading (``lazy=True``). Eager loading is the default. In lazy mode a
+small ``ImageRef`` is stored in the processed cache, and a DataLoader reads
+the pixels through the processor's ``collate`` method.
 
 **Specialized Processors:**
 
@@ -568,6 +579,10 @@ API Reference
     processors/pyhealth.processors.TimeseriesMultiLabelProcessor
     processors/pyhealth.processors.TimeseriesRegressionLabelProcessor
     processors/pyhealth.processors.ImageProcessor
+    processors/pyhealth.processors.NiftiProcessor
+    processors/pyhealth.processors.DicomProcessor
+    processors/pyhealth.processors.DicomSeriesProcessor
+    processors/pyhealth.processors.ImageMaskDirectoryProcessor
     processors/pyhealth.processors.TextProcessor
     processors/pyhealth.processors.TupleTimeTextProcessor
     processors/pyhealth.processors.AudioProcessor
