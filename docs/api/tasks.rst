@@ -211,6 +211,9 @@ Available Tasks
     Base Task <tasks/pyhealth.tasks.BaseTask>
     In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
     In-Hospital Mortality (MEDS) <tasks/pyhealth.tasks.InHospitalMortalityMEDS>
+    ICU Admission (MEDS) <tasks/pyhealth.tasks.ICUAdmissionMEDS>
+    Hospital Readmission (MEDS) <tasks/pyhealth.tasks.HospitalReadmissionMEDS>
+    Prolonged Length of Stay (MEDS) <tasks/pyhealth.tasks.ProlongedLengthOfStayMEDS>
     MIMIC-III ICD-9 Coding <tasks/pyhealth.tasks.MIMIC3ICD9Coding>
     Cardiology Detection <tasks/pyhealth.tasks.cardiology_detect>
     COVID-19 CXR Classification <tasks/pyhealth.tasks.COVID19CXRClassification>
