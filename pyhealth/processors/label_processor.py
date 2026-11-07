@@ -11,6 +11,7 @@ import torch.nn.functional as F
 
 from . import register_processor
 from .base_processor import FeatureProcessor
+from .utils import fit_normalization
 
 logger = logging.getLogger(__name__)
 
@@ -496,13 +497,12 @@ class RegressionLabelProcessor(LabelProcessor):
             raise ValueError("scale='minmax' got no samples to fit on.")
         if not np.isfinite(values).all():
             raise ValueError("scale='minmax' needs finite labels.")
-        low, high = float(values.min()), float(values.max())
-        if low == high:
+        if values.min() == values.max():
             logger.warning(
                 "scale='minmax': label %s is constant; its range is set to 1.", field
             )
-            high = low + 1.0
-        self._label_range = (low, high)
+        (low,), (width,) = fit_normalization([values.reshape(-1, 1)], "minmax")
+        self._label_range = (low, low + width)
         logger.info(f"Label {field} range: {self._label_range}")
 
     @property
