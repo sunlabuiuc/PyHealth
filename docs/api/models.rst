@@ -267,6 +267,7 @@ API Reference
     models/pyhealth.models.SequenceEmbeddingModel
     models/pyhealth.models.VisionEmbeddingModel
     models/pyhealth.models.TextEmbedding
+    models/pyhealth.models.CBraMod
     models/pyhealth.models.BIOT
     models/pyhealth.models.unified_multimodal_embedding_docs
     models/pyhealth.models.califorest
