@@ -71,10 +71,12 @@ class TestMSDSegmentationTask(unittest.TestCase):
         self.assertEqual(len(samples), 1)
         sample = samples[0]
         self.assertEqual(sample["patient_id"], "case_001")
-        self.assertEqual(tuple(sample["image"].shape), (1, 6, 5, 4))
-        self.assertEqual(tuple(sample["mask"].shape), (1, 6, 5, 4))
-        self.assertEqual(str(sample["mask"].dtype), "torch.int64")
-        self.assertEqual(set(sample["mask"].unique().tolist()), {0, 1})
+        image = samples.input_processors["image"].materialize(sample["image"])
+        mask = samples.output_processors["mask"].materialize(sample["mask"])
+        self.assertEqual(tuple(image.shape), (1, 6, 5, 4))
+        self.assertEqual(tuple(mask.shape), (1, 6, 5, 4))
+        self.assertEqual(str(mask.dtype), "torch.int64")
+        self.assertEqual(set(mask.unique().tolist()), {0, 1})
         self.assertEqual(set(samples.input_schema), {"image"})
         self.assertEqual(set(samples.output_schema), {"mask"})
 
