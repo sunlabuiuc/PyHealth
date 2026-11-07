@@ -1,4 +1,5 @@
 from .base_task import BaseTask
+from .survival_time_support2 import SurvivalTimeSupport2 as SurvivalTimeSupport2
 from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification

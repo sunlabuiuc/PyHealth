@@ -84,6 +84,11 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+graft = [
+  "torchsort>=0.1.10",
+  "lifelines>=0.30.0",
+  "scikit-survival>=0.26.0",
+]
 graph = [
   "torch-geometric>=2.6.0",
 ]

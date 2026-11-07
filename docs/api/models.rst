@@ -1,6 +1,11 @@
 Models
 ===============
 
+.. toctree::
+   :maxdepth: 1
+
+   models/pyhealth.models.graft
+
 PyHealth models sit between the :doc:`processors` (which turn raw patient data
 into tensors) and the :doc:`trainer` (which runs the training loop). Each
 model takes a ``SampleDataset`` — the result of ``dataset.set_task()`` — as
