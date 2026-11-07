@@ -8,7 +8,6 @@ import numpy as np
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor
 from .label_processor import (
     BinaryLabelProcessor,
     LabelProcessor,
@@ -68,8 +67,6 @@ class TimeseriesLabelProcessor[B: LabelProcessor](LabelProcessor):
     # ------------------------------------------------------------------
     def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
         """Fits :attr:`base` on the values of every label record."""
-        if type(self.base).fit is FeatureProcessor.fit:
-            return  # nothing to learn: no need to read the samples
         records = [
             {field: self._value(value)}
             for sample in samples
@@ -165,8 +162,8 @@ class TimeseriesLabelProcessor[B: LabelProcessor](LabelProcessor):
         self, y_true: Any, y_prob: torch.Tensor
     ) -> tuple[list[np.ndarray], list[np.ndarray]]:
         """One array of labels and one of predictions per sample."""
-        values, _, offsets = (t.detach().cpu().numpy() for t in y_true)
-        prob = y_prob.detach().cpu().numpy()
+        (values,), (prob,) = self.base.to_numpy(y_true[0], y_prob)
+        offsets = y_true[2].detach().cpu().numpy()
         if self._scalar_values and values.ndim == 2:
             values, prob = values[:, 0], prob[:, 0]
         true_parts, prob_parts = [], []
@@ -300,15 +297,25 @@ class TimeseriesRegressionLabelProcessor(
 ):
     """Real-valued labels at time points, see :class:`TimeseriesLabelProcessor`.
 
+    Args:
+        scale: As in :class:`RegressionLabelProcessor`; ``"minmax"`` is
+            learned over the label records of all fitted samples.
+
     Examples:
         >>> from pyhealth.processors import TimeseriesRegressionLabelProcessor
         >>> TimeseriesRegressionLabelProcessor().process({"time": [0.0, 2.0], "values": [2.5, 0.5]})
         (tensor([[2.5000],
                 [0.5000]]), tensor([0., 2.]))
+        >>> TimeseriesRegressionLabelProcessor(scale=(0, 10)).base.label_range
+        (0.0, 10.0)
     """
 
     mode = "timeseries_regression"
     base_cls = RegressionLabelProcessor
 
-    def __init__(self) -> None:
-        super().__init__(RegressionLabelProcessor())
+    def __init__(self, scale: str | Sequence[float] | None = None) -> None:
+        super().__init__(RegressionLabelProcessor(scale=scale))
+
+    def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
+        if self.base.scale == "minmax":  # otherwise, no need to read the samples
+            super().fit(samples, field)

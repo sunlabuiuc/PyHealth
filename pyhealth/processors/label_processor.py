@@ -439,16 +439,85 @@ class MultiLabelProcessor(_WeightedBCE, LabelProcessor):
 class RegressionLabelProcessor(LabelProcessor):
     """Real-valued labels. The model has one output; the loss is MSE.
 
+    Labels in large units (e.g. hours) can stall training, so ``scale`` maps
+    them to 0..1. :meth:`process` is the only place that does: like the index
+    of a class, the processed label is what the model sees, so ``y_true``,
+    logits, ``y_prob`` and the loss, including a model's own loss, are all in
+    scaled units. :meth:`to_numpy`, which turns model outputs into metric
+    inputs, maps ``y_true`` and ``y_prob`` back together, so
+    :meth:`~pyhealth.trainer.Trainer.inference` and metrics are in the
+    original units.
+
+    Args:
+        scale: ``"minmax"`` (the lowest and highest label of the fitted
+            samples, so fit on a training split), a fixed ``(low, high)``
+            range, or None for no scaling. The range only sets the mapping:
+            labels outside it are not clipped.
+
     Examples:
         >>> from pyhealth.processors import RegressionLabelProcessor
         >>> RegressionLabelProcessor().process(2.5)
         tensor([2.5000])
+        >>> p = RegressionLabelProcessor(scale="minmax")
+        >>> p.fit([{"y": 10.0}, {"y": 30.0}], "y")
+        >>> p.label_range
+        (10.0, 30.0)
+        >>> y_true = p.process(20.0)
+        >>> y_true
+        tensor([0.5000])
+        >>> p.to_numpy(y_true, y_true + 0.25)
+        ([array([20.], dtype=float32)], [array([25.], dtype=float32)])
     """
 
     mode = "regression"
+    scale: str | Sequence[float] | None = None
+    _label_range: tuple[float, float] | None = None
+
+    def __init__(self, scale: str | Sequence[float] | None = None):
+        super().__init__()
+        if isinstance(scale, str):
+            if scale != "minmax":
+                raise ValueError(
+                    f"scale must be 'minmax', (low, high) or None, not {scale!r}."
+                )
+        elif scale is not None:
+            low, high = (float(end) for end in scale)
+            if not low < high:
+                raise ValueError(f"scale needs low < high, got {scale!r}.")
+            self._label_range = (low, high)
+        self.scale = scale
+        self.learns_statistics = scale == "minmax"
+
+    def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
+        if self.scale != "minmax":
+            return
+        values = np.array([float(sample[field]) for sample in samples])
+        if values.size == 0:
+            raise ValueError("scale='minmax' got no samples to fit on.")
+        if not np.isfinite(values).all():
+            raise ValueError("scale='minmax' needs finite labels.")
+        low, high = float(values.min()), float(values.max())
+        if low == high:
+            logger.warning(
+                "scale='minmax': label %s is constant; its range is set to 1.", field
+            )
+            high = low + 1.0
+        self._label_range = (low, high)
+        logger.info(f"Label {field} range: {self._label_range}")
+
+    @property
+    def label_range(self) -> tuple[float, float] | None:
+        """The ``(low, high)`` that map to 0 and 1, or None without scaling."""
+        if self.scale == "minmax" and self._label_range is None:
+            raise ValueError("scale='minmax' is learned in fit(); fit first.")
+        return self._label_range
 
     def process(self, value: Any) -> torch.Tensor:
-        return torch.tensor([float(value)], dtype=torch.float32)
+        value = float(value)
+        if self.label_range is not None:
+            low, high = self.label_range
+            value = (value - low) / (high - low)
+        return torch.tensor([value], dtype=torch.float32)
 
     def size(self) -> int:
         return 1
@@ -469,6 +538,16 @@ class RegressionLabelProcessor(LabelProcessor):
 
     def loss(self, logits: torch.Tensor, y_true: Any, **kwargs: Any) -> torch.Tensor:
         return F.mse_loss(logits, y_true, **kwargs)
+
+    def to_numpy(
+        self, y_true: Any, y_prob: torch.Tensor
+    ) -> tuple[list[np.ndarray], list[np.ndarray]]:
+        """Labels and predictions in the original units."""
+        (true,), (prob,) = super().to_numpy(y_true, y_prob)
+        if self.label_range is None:
+            return [true], [prob]
+        low, high = self.label_range
+        return [true * (high - low) + low], [prob * (high - low) + low]
 
     @classmethod
     def metrics_fn(cls, y_true, y_prob, metrics=None):
