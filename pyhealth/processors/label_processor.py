@@ -1,6 +1,7 @@
 """Output processors: what a label is, and how to train on and score it."""
 
 import logging
+from numbers import Real
 from abc import abstractmethod
 from collections.abc import Hashable, Iterable, Sequence
 from typing import Any, ClassVar
@@ -55,6 +56,50 @@ class LabelProcessor(FeatureProcessor):
 
     mode: ClassVar[str]
     stores_tensor = True
+    need_fit_test: bool = False
+    """Whether :meth:`fit_test` has anything to learn: True for a label
+    vocabulary learned from the data (``labels`` not given)."""
+
+    def fit_test(self, samples: Iterable[dict[str, Any]], field: str) -> None:
+        """Adds the labels that only occur outside the training samples.
+
+        This is the only fitting step that sees validation and test samples.
+        It exists because a label vocabulary (the classes, and so
+        :meth:`size` and the model's output layer) has to cover the test
+        labels too: a class seen only in validation or test, common for rare
+        drugs in drug recommendation, would otherwise have no output and fail
+        in :meth:`process`.
+
+        Call it after :meth:`fit`: :meth:`fit` learns from the training
+        samples, then this adds the labels of all samples to the vocabulary.
+        :class:`~pyhealth.datasets.sample_dataset.SampleBuilder` does this for
+        every processor with :attr:`need_fit_test` when it is given a split;
+        without one, ``fit`` already saw every label. Calling it again, or on
+        the samples ``fit`` saw, changes nothing.
+
+        .. warning::
+
+           **Learn only which label values exist here, nothing else.**
+           Anything computed from the label values (label frequencies, class
+           weights such as ``pos_weight="balanced"``, means, scales, ...)
+           must be learned in :meth:`fit`, from the training samples only.
+           Learning it here leaks test labels into training.
+
+        The default learns nothing: labels without a vocabulary to learn
+        (binary, regression, given ``labels``) need none.
+
+        Args:
+            samples: Samples of every split, test included.
+            field: The label field.
+
+        Examples:
+            >>> from pyhealth.processors import MultiClassLabelProcessor
+            >>> p = MultiClassLabelProcessor()
+            >>> p.fit([{"y": "a"}, {"y": "b"}], "y")  # training split
+            >>> p.fit_test([{"y": "a"}, {"y": "b"}, {"y": "c"}], "y")  # all splits
+            >>> p.label_vocab
+            {'a': 0, 'b': 1, 'c': 2}
+        """
 
     @abstractmethod
     def size(self) -> int:
@@ -139,6 +184,24 @@ def _learned_vocab(seen: set) -> dict[Any, int]:
     return {label: i for i, label in enumerate(sorted(seen))}
 
 
+def _add_labels(processor: Any, seen: set, field: str) -> dict[Any, int] | None:
+    """Rebuilds ``label_vocab`` over its labels and ``seen``, in the order of
+    :func:`_learned_vocab`, so the indices do not depend on the split.
+
+    Returns the old vocabulary when labels were added, else None.
+    """
+    old = processor.label_vocab
+    new = seen - old.keys()
+    if not new:
+        return None
+    processor.label_vocab = _learned_vocab(set(old) | seen)
+    logger.info(
+        f"Label {field}: added {len(new)} labels that occur only outside the "
+        f"fitted samples; vocab: {processor.label_vocab}"
+    )
+    return old
+
+
 def _index(vocab: dict[Any, int], label: Any) -> int:
     try:
         return vocab[label]
@@ -185,6 +248,25 @@ class _WeightedBCE:
             )
         self._weight = torch.where(
             positives > 0, (len(stacked) - positives) / positives.clamp(min=1), 1.0
+        )
+
+    def _remap_pos_weight(self, old_vocab: dict[Any, int]) -> None:
+        """Moves a ``"balanced"`` weight to the indices of a grown vocabulary.
+
+        Labels new to the vocabulary had no positives in the fitted samples,
+        so their weight is 1, as for any label without positives.
+        """
+        if self.pos_weight != "balanced" or self._weight is None:
+            return
+        vocab = self.label_vocab  # type: ignore[attr-defined]
+        weight = torch.ones(len(vocab))
+        for label, i in old_vocab.items():
+            weight[vocab[label]] = self._weight[i]
+        self._weight = weight
+        logger.warning(
+            "pos_weight='balanced': %d labels occur only outside the fitted "
+            "(training) samples; their weight is set to 1.",
+            len(vocab) - len(old_vocab),
         )
 
     @property
@@ -310,6 +392,12 @@ class MultiClassLabelProcessor(LabelProcessor):
         super().__init__()
         self.labels = labels
         self.label_vocab: dict[Any, int] = {} if labels is None else _fixed_vocab(labels)
+        self.need_fit_test = labels is None
+
+    def fit_test(self, samples: Iterable[dict[str, Any]], field: str) -> None:
+        """Adds the classes of all samples, see :meth:`LabelProcessor.fit_test`."""
+        if self.need_fit_test:
+            _add_labels(self, {sample[field] for sample in samples}, field)
 
     def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
         seen = {sample[field] for sample in samples}
@@ -364,8 +452,9 @@ class MultiLabelProcessor(_WeightedBCE, LabelProcessor):
             When omitted, they are learned in ``fit``: ``0..K-1`` as is, any
             other set in sorted order.
         pos_weight: Weight of positive examples in the loss: a number for all
-            labels, one number per label, ``"balanced"`` (negatives /
-            positives of each label in the fitted samples) or None.
+            labels, one number per label (in the order of ``labels``, which
+            must then be given), ``"balanced"`` (negatives / positives of
+            each label in the fitted samples) or None.
 
     Examples:
         >>> from pyhealth.processors import MultiLabelProcessor
@@ -386,7 +475,49 @@ class MultiLabelProcessor(_WeightedBCE, LabelProcessor):
         super().__init__()
         self.labels = labels
         self.label_vocab: dict[Any, int] = {} if labels is None else _fixed_vocab(labels)
+        self.need_fit_test = labels is None
         self._init_pos_weight(pos_weight)
+        self._check_per_label_weight()
+
+    def _check_per_label_weight(self) -> None:
+        """A per-label ``pos_weight`` needs given ``labels``, one weight each.
+
+        Weights are matched to labels by position, and a learned vocabulary's
+        order is only known after fitting, so without ``labels`` a user
+        cannot know which weight goes to which label.
+        """
+        pos_weight = self.pos_weight
+        if pos_weight is None or isinstance(pos_weight, str):
+            return
+        if isinstance(pos_weight, Real) or (
+            isinstance(pos_weight, torch.Tensor) and pos_weight.dim() == 0
+        ):
+            return  # one number for every label
+        if self.labels is None:
+            raise ValueError(
+                "A per-label pos_weight needs labels=[...], which fixes the "
+                "label order the weights are matched to; without labels, the "
+                "order is learned from the data. Pass labels, or use one "
+                "number or 'balanced' for every label."
+            )
+        weight = self._weight
+        if weight is not None and len(weight) != len(self.label_vocab):
+            raise ValueError(
+                f"pos_weight has {len(weight)} weights for "
+                f"{len(self.label_vocab)} labels; give one weight per label."
+            )
+
+    def fit_test(self, samples: Iterable[dict[str, Any]], field: str) -> None:
+        """Adds the labels of all samples, see :meth:`LabelProcessor.fit_test`.
+
+        A ``"balanced"`` weight keeps its training values; added labels get 1.
+        """
+        if not self.need_fit_test:
+            return
+        seen = {label for sample in samples for label in sample[field]}
+        old_vocab = _add_labels(self, seen, field)
+        if old_vocab is not None:
+            self._remap_pos_weight(old_vocab)
 
     def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
         values = [sample[field] for sample in samples]

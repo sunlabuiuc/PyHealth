@@ -157,8 +157,9 @@ in the loss with the label processor's ``pos_weight``:
 .. code-block:: python
 
     output_schema = {"mortality": ("binary", {"pos_weight": "balanced"})}
-    # or a fixed weight: ("binary", {"pos_weight": 9.0}); per label for
-    # ("multilabel", {"pos_weight": [...]})
+    # or a fixed weight: ("binary", {"pos_weight": 9.0}); per label, in the
+    # order of the given labels:
+    # ("multilabel", {"labels": [...], "pos_weight": [...]})
 
 ``"balanced"`` is negatives / positives over the samples the processor is
 fitted on, so fit the processors on the training split
