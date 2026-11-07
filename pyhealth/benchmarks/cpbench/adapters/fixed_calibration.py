@@ -88,6 +88,10 @@ def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
     "dataset" and protocol.feedback must be "none"; both default to those values.
     Other protocol fields follow benchmark.validate_evaluation. The
     example sets protocol.seed explicitly; omitting it uses the default of 0.
+
+    With the evaluation defined above:
+
+    >>> result = run(evaluation, cache_dir=None)  # doctest: +SKIP
     """
     options = deepcopy(evaluation.params["method"].get("options", {}))
     unknown = options.keys() - {"calibration_kwargs"}

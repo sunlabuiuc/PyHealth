@@ -90,6 +90,10 @@ def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
     ratios, not class costs. This path needs no embedding-capable model.
     cal_embeddings/test_embeddings must be omitted: the adapter derives them
     from the declared splits when needed. Other arguments go to native calibrate.
+
+    With the evaluation defined above:
+
+    >>> result = run(evaluation, cache_dir=None)  # doctest: +SKIP
     """
     options = deepcopy(evaluation.params["method"].get("options", {}))
     unknown = options.keys() - {"calibration_kwargs"}

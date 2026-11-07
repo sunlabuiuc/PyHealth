@@ -31,7 +31,14 @@ ADAPTERS = {
 
 
 def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
-    """Dispatch by exact method identity, without guessing from its base classes."""
+    """Dispatch by exact method identity, without guessing from its base classes.
+
+    Examples:
+        >>> run(Evaluation({"method": {"class": dict}}), cache_dir=None)
+        Traceback (most recent call last):
+            ...
+        ValueError: No CPBench adapter for <class 'dict'>
+    """
     method = evaluation.params["method"]["class"]
 
     try:

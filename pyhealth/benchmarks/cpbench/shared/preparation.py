@@ -22,6 +22,15 @@ def prepare_evaluation(evaluation, *, required, cache_dir=None):
     Preparation preserves global RNG state so cache hits and misses leave the
     method's global random streams identical. Dataset APIs retain their own configured
     caches. Existing checkpoint inputs are loaded directly, never recopied.
+
+    Examples:
+        >>> evaluation = Evaluation({
+        ...     "model": {"predictions": "saved.npz"}, "protocol": {}
+        ... })
+        >>> prepare_evaluation(evaluation, required=("calibration", "test"))
+        Traceback (most recent call last):
+            ...
+        NotImplementedError: this adapter requires a model; cached predictions are unsupported
     """
     params = deepcopy(dict(evaluation.params))
     model_spec, protocol = params["model"], params["protocol"]
@@ -76,7 +85,15 @@ def _prepare_model_and_splits(params, *, cache_path=None):
 
 
 def require_protocol(protocol, *, order, feedback):
-    """Reject execution rules an adapter does not implement."""
+    """Reject execution rules an adapter does not implement.
+
+    Examples:
+        >>> require_protocol({}, order="dataset", feedback="none")
+        >>> require_protocol({"feedback": "immediate"}, order="dataset", feedback="none")
+        Traceback (most recent call last):
+            ...
+        ValueError: adapter requires order='dataset', feedback='none'
+    """
     if (
         protocol.get("order", "dataset") != order
         or protocol.get("feedback", "none") != feedback
@@ -88,7 +105,19 @@ def require_protocol(protocol, *, order, feedback):
 
 
 def load_splits(dataset_spec, task_spec, split_spec, *, schema=None):
-    """Use set_task's split API so training alone fits preprocessing."""
+    """Use set_task's split API so training alone fits preprocessing.
+
+    Examples:
+        >>> from examples.cpbench.synthetic_data import SyntheticDataset, SyntheticTask
+        >>> from pyhealth.datasets import PatientSplit
+        >>> splits = load_splits(
+        ...     {"class": SyntheticDataset}, {"class": SyntheticTask},
+        ...     {"class": PatientSplit, "params": {"ratios": [0.4, 0.4, 0.2], "seed": 0},
+        ...      "roles": ["train", "calibration", "test"]},
+        ... )
+        >>> sorted(splits)
+        ['calibration', 'test', 'train']
+    """
     task = task_spec["class"](**task_spec.get("params", {}))
     processors = {}
     if schema is not None:
@@ -130,7 +159,19 @@ def load_splits(dataset_spec, task_spec, split_spec, *, schema=None):
 
 
 def prepare_model(model_spec, splits, protocol):
-    """Build and train a model, or reconstruct it using checkpoint-fitted metadata."""
+    """Build and train a model, or reconstruct it using checkpoint-fitted metadata.
+
+    Examples:
+        >>> from examples.cpbench.synthetic_data import make_splits
+        >>> from pyhealth.models import MLP
+        >>> splits = make_splits(n_train=6, n_calibration=3, n_test=3)
+        >>> model = prepare_model(
+        ...     {"class": MLP, "params": {"embedding_dim": 4, "hidden_dim": 4},
+        ...      "training": {"epochs": 0}}, splits, {"batch_size": 3},
+        ... )
+        >>> model.training
+        False
+    """
     reference = (
         splits["train"] if "training" in model_spec else next(iter(splits.values()))
     )
@@ -165,7 +206,18 @@ def prepare_model(model_spec, splits, protocol):
 def train_model(
     model, train_dataset, validation_dataset, train_kwargs, *, batch_size, seed, device
 ) -> None:
-    """Train using only the declared training and optional validation data."""
+    """Train using only the declared training and optional validation data.
+
+    Examples:
+        >>> from examples.cpbench.synthetic_data import make_splits
+        >>> from pyhealth.models import MLP
+        >>> splits = make_splits(n_train=6, n_calibration=3, n_test=3)
+        >>> model = MLP(splits["train"], embedding_dim=4, hidden_dim=4)
+        >>> train_model(
+        ...     model, splits["train"], None, {"epochs": 1},
+        ...     batch_size=3, seed=0, device="cpu",
+        ... )
+    """
     trainer = Trainer(model, device=device, enable_logging=False)
     if train_kwargs.get("monitor") is not None and validation_dataset is None:
         raise ValueError("training monitor requires a separate validation split")
@@ -182,7 +234,24 @@ def train_model(
 
 
 def model_cache_path(params, cache_dir):
-    """Key fitted models by their inputs, excluding CP methods and scored metrics."""
+    """Key fitted models by their inputs, excluding CP methods and scored metrics.
+
+    Examples:
+        >>> from examples.cpbench.synthetic_data import SyntheticDataset, SyntheticTask
+        >>> from pyhealth.datasets import PatientSplit
+        >>> from pyhealth.models import MLP
+        >>> params = {
+        ...     "dataset": {"class": SyntheticDataset},
+        ...     "task": {"class": SyntheticTask},
+        ...     "model": {"class": MLP, "training": {"epochs": 1}},
+        ...     "protocol": {"split": {"class": PatientSplit,
+        ...         "params": {"ratios": [0.4, 0.4, 0.2]},
+        ...         "roles": ["train", "calibration", "test"]}},
+        ... }
+        >>> first = model_cache_path(params, Path("cache"))
+        >>> model_cache_path({**params, "metrics": ["accuracy"]}, Path("cache")) == first
+        True
+    """
     protocol = params["protocol"]
     key = Evaluation(
         {
@@ -208,6 +277,17 @@ def save_checkpoint(model, dataset, destination: Path) -> None:
 
     The destination must not exist; an existing path raises FileExistsError.
     Cache keys, cache lookup and cache locks are the caller's responsibility.
+
+    Examples:
+        >>> from examples.cpbench.synthetic_data import make_splits
+        >>> from pyhealth.models import MLP
+        >>> train = make_splits(n_train=6, n_calibration=3, n_test=3)["train"]
+        >>> model = MLP(train, embedding_dim=4, hidden_dim=4)
+        >>> with TemporaryDirectory() as directory:
+        ...     path = Path(directory) / "checkpoint"
+        ...     save_checkpoint(model, train, path)
+        ...     print(sorted(item.name for item in path.iterdir()))
+        ['model.ckpt', 'schema.pkl']
     """
     destination = Path(destination)
     if destination.exists():

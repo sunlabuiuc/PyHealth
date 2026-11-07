@@ -169,6 +169,15 @@ def save_results(results: Mapping[Evaluation, Result], path: Path) -> None:
     non-finite numbers become null. The supplied evaluations/results are unchanged.
     Mappings must have string keys; unsupported values raise TypeError before an
     existing destination is replaced. No files are loaded or merged implicitly.
+
+    Examples:
+        >>> ev = Evaluation({"seed": 0})
+        >>> with TemporaryDirectory() as directory:
+        ...     path = Path(directory) / "results.json"
+        ...     save_results({ev: Result("success", {"score": float("nan")})}, path)
+        ...     saved = json.loads(path.read_text())
+        ...     print(saved[ev.id]["metrics"])
+        {'score': None}
     """
     records = {
         evaluation.id: {

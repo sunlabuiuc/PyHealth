@@ -12,7 +12,18 @@ from .prediction import collect_predictions
 
 
 def validate_label_encodings(model, splits):
-    """Check feature/label separation and shared class ordering across splits."""
+    """Check feature/label separation and shared class ordering across splits.
+
+    Examples:
+        >>> from types import SimpleNamespace
+        >>> processor = SimpleNamespace(label_vocab={"a": 0, "b": 1})
+        >>> dataset = SimpleNamespace(output_processors={"label": processor})
+        >>> model = SimpleNamespace(
+        ...     feature_keys=["x"], label_keys=["label"], dataset=dataset
+        ... )
+        >>> validate_label_encodings(model, {"calibration": dataset, "test": dataset})
+        {'a': 0, 'b': 1}
+    """
     if len(model.label_keys) != 1:
         raise ValueError("prediction-set collection requires one label key")
 
@@ -33,7 +44,16 @@ def validate_label_encodings(model, splits):
 
 
 def validate_multiclass_predictions(predictions, class_count) -> None:
-    """Check alignment, class membership, probabilities and encoded labels."""
+    """Check alignment, class membership, probabilities and encoded labels.
+
+    Examples:
+        >>> predictions = {
+        ...     "y_true": np.array([0, 1]),
+        ...     "y_prob": np.array([[0.8, 0.2], [0.1, 0.9]]),
+        ...     "y_predset": np.array([[1, 0], [0, 1]]),
+        ... }
+        >>> validate_multiclass_predictions(predictions, class_count=2)
+    """
     truth, probabilities, sets = (
         predictions["y_true"],
         predictions["y_prob"],
@@ -62,7 +82,17 @@ def validate_multiclass_predictions(predictions, class_count) -> None:
 
 
 def predict_classification_sets(predictor, model, dataset, batch_size):
-    """Collect classification sets through the format-independent collector."""
+    """Collect classification sets through the format-independent collector.
+
+    Examples:
+        >>> from types import SimpleNamespace
+        >>> model = SimpleNamespace(feature_keys=["x"], label_keys=["label"])
+        >>> samples = [{"x": torch.tensor([0.8, 0.2]), "label": torch.tensor(0)}]
+        >>> predictor = lambda x: {"y_prob": x, "y_predset": x > 0.5}
+        >>> predictions = predict_classification_sets(predictor, model, samples, 1)
+        >>> predictions["y_predset"].tolist()
+        [[True, False]]
+    """
     return collect_predictions(
         dataset,
         batch_size,
@@ -77,6 +107,15 @@ def predict_classification_set_batch(predictor, batch, feature_keys, label_key):
 
     The collector copies these views. An online adapter recording them before
     feedback must use copy_predictions before calling the method's update.
+
+    Examples:
+        >>> predictor = lambda x: {"y_prob": x, "y_predset": x > 0.5}
+        >>> batch = {"x": torch.tensor([[0.8, 0.2]]), "label": torch.tensor([0])}
+        >>> predictions = predict_classification_set_batch(
+        ...     predictor, batch, feature_keys=["x"], label_key="label"
+        ... )
+        >>> predictions["y_true"].tolist()
+        [0]
     """
     features = {key: batch[key] for key in feature_keys}
 

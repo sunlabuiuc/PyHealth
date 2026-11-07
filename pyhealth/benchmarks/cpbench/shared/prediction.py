@@ -19,6 +19,15 @@ def collect_predictions(dataset, batch_size, predict_batch):
     The callback receives the full batch and returns a mapping of names to arrays.
     It owns the native call, input selection, gradient context and tensor-to-array
     conversion. Arrays are copied before the next callback can reuse buffers.
+
+    Examples:
+        >>> import torch
+        >>> samples = [{"x": torch.tensor([1.0])}, {"x": torch.tensor([2.0])}]
+        >>> predictions = collect_predictions(
+        ...     samples, 1, lambda batch: {"values": batch["x"].numpy()}
+        ... )
+        >>> predictions["values"].tolist()
+        [[1.0], [2.0]]
     """
 
     def batches():
@@ -40,14 +49,28 @@ def collect_predictions(dataset, batch_size, predict_batch):
 
 
 def copy_predictions(predictions):
-    """Validate row alignment and snapshot arrays before an online method updates."""
+    """Validate row alignment and snapshot arrays before an online method updates.
+
+    Examples:
+        >>> original = {"lower": np.array([1.0])}
+        >>> snapshot = copy_predictions(original)
+        >>> original["lower"][0] = 9.0
+        >>> snapshot["lower"].tolist()
+        [1.0]
+    """
     _row_count(predictions)
 
     return {name: np.array(values, copy=True) for name, values in predictions.items()}
 
 
 def concatenate_predictions(batches):
-    """Snapshot and join batches in order, requiring consistent output names."""
+    """Snapshot and join batches in order, requiring consistent output names.
+
+    Examples:
+        >>> batches = [{"label": np.array([0])}, {"label": np.array([1])}]
+        >>> concatenate_predictions(batches)["label"].tolist()
+        [0, 1]
+    """
     collected = {}
 
     for batch in batches:
@@ -83,7 +106,15 @@ def _row_count(predictions):
 
 
 def prediction_cache_path(params, cache_dir):
-    """Key prediction arrays by their producing inputs, excluding scored metrics."""
+    """Key prediction arrays by their producing inputs, excluding scored metrics.
+
+    Examples:
+        >>> params = {"method": "example", "metrics": ["accuracy"]}
+        >>> first = prediction_cache_path(params, Path("cache"))
+        >>> params["metrics"] = ["set_size"]
+        >>> prediction_cache_path(params, Path("cache")) == first
+        True
+    """
     key = Evaluation(
         {name: value for name, value in params.items() if name != "metrics"}
     ).id
@@ -96,6 +127,14 @@ def save_predictions(predictions: Mapping[str, np.ndarray], path: Path) -> None:
 
     No Result or Evaluation is read or returned. The caller owns cache naming,
     cache reuse and result construction. Parent directories are created as needed.
+
+    Examples:
+        >>> with TemporaryDirectory() as directory:
+        ...     path = Path(directory) / "predictions.npz"
+        ...     save_predictions({"y_true": np.array([0, 1])}, path)
+        ...     with np.load(path) as saved:
+        ...         print(saved["y_true"].tolist())
+        [0, 1]
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

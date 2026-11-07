@@ -146,7 +146,16 @@ def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
 
 
 def validate_multilabel_predictions(predictions, class_count) -> None:
-    """Require binary label/set matrices and independent probabilities in [0, 1]."""
+    """Require binary label/set matrices and independent probabilities in [0, 1].
+
+    Examples:
+        >>> predictions = {
+        ...     "y_true": np.array([[1, 0]]),
+        ...     "y_prob": np.array([[0.8, 0.3]]),
+        ...     "y_predset": np.array([[1, 1]]),
+        ... }
+        >>> validate_multilabel_predictions(predictions, class_count=2)
+    """
     truth, probabilities, sets = (
         predictions["y_true"],
         predictions["y_prob"],

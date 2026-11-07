@@ -165,7 +165,7 @@ class GAMENetLayer(nn.Module):
         num_labels = ehr_adj.shape[0]
         self.ehr_gcn = GCN(adj=ehr_adj, hidden_size=hidden_size, dropout=dropout)
         self.ddi_gcn = GCN(adj=ddi_adj, hidden_size=hidden_size, dropout=dropout)
-        self.beta = nn.Parameter(torch.FloatTensor(1))
+        self.beta = nn.Parameter(torch.zeros(1))
         self.fc = nn.Linear(3 * hidden_size, num_labels)
 
         self.bce_loss_fn = nn.BCEWithLogitsLoss()

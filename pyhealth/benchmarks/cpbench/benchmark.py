@@ -15,7 +15,13 @@ from . import adapters
 
 
 class CPBench(Benchmark):
-    """Run each evaluation's method and return one Result per evaluation."""
+    """Run each evaluation's method and return one Result per evaluation.
+
+    Examples:
+        >>> benchmark = CPBench()
+        >>> benchmark.evaluate([])
+        {}
+    """
 
     @property
     def name(self) -> str:
@@ -70,7 +76,7 @@ class CPBench(Benchmark):
 
                 results[evaluation] = result
 
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - Isolate evaluation failures.
                 results[evaluation] = Result(
                     "failed",
                     {},
@@ -90,6 +96,24 @@ def validate_evaluation(*, dataset, task, model, method, metrics, protocol):
     model selects exactly one of training, checkpoint or predictions. method
     options are interpreted by its adapter. protocol declares named split parts,
     one run seed, batching/device and ordering/feedback rules. Metrics are explicit.
+
+    Examples:
+        >>> from examples.cpbench.synthetic_data import SyntheticDataset, SyntheticTask
+        >>> from pyhealth.calib.predictionset import BaseConformal
+        >>> from pyhealth.datasets import PatientSplit
+        >>> from pyhealth.models import MLP
+        >>> validate_evaluation(
+        ...     dataset={"class": SyntheticDataset},
+        ...     task={"class": SyntheticTask},
+        ...     model={"class": MLP, "training": {"epochs": 1}},
+        ...     method={"class": BaseConformal},
+        ...     metrics=["miscoverage_overall_ps"],
+        ...     protocol={"split": {
+        ...         "class": PatientSplit,
+        ...         "params": {"ratios": [0.4, 0.4, 0.2]},
+        ...         "roles": ["train", "calibration", "test"],
+        ...     }},
+        ... )
     """
     _component(dataset, "dataset")
     _component(task, "task")
