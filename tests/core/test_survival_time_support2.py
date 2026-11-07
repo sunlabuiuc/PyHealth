@@ -1,4 +1,9 @@
-"""SUPPORT2 task tests use at most four fabricated patients and no downloads."""
+"""SUPPORT2 task tests use at most four fabricated patients and no downloads.
+
+Contributor: Taejun Oh (NetID: taejuno2).
+Paper: GRAFT: Decoupling Ranking and Calibration for Survival Analysis.
+Paper link: https://arxiv.org/abs/2602.07884v2.
+"""
 
 from types import SimpleNamespace
 import unittest

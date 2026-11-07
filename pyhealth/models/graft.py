@@ -29,6 +29,10 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Contributor: Taejun Oh (NetID: taejuno2).
+Paper: GRAFT: Decoupling Ranking and Calibration for Survival Analysis.
+Paper link: https://arxiv.org/abs/2602.07884v2.
 """
 
 from collections.abc import Mapping, Sequence
@@ -291,6 +295,16 @@ class GRAFT(BaseModel):
 
     fit_outside_trainer = True
 
+    @property
+    def mode(self) -> None:
+        """Return no classification mode for the numerical event/time outputs.
+
+        Returns:
+            None, independently of the dataset's label processors. Ranking
+            fitting and survival evaluation use this model's explicit methods.
+        """
+        return None
+
     def __init__(
         self,
         dataset: Any = None,
@@ -347,7 +361,6 @@ class GRAFT(BaseModel):
             "tail_policy": tail_policy,
         }
         self.feature_keys, self.label_keys = [feature_key], [duration_key, event_key]
-        self.mode = None
         self.n_features = n_features
         self.register_parameter(
             "eta", nn.Parameter(torch.full((n_features,), 0.5)) if use_gates else None

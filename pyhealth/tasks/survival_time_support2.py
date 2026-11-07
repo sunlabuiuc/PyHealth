@@ -1,4 +1,9 @@
-"""SUPPORT2 time-to-death samples retaining right-censored subjects."""
+"""SUPPORT2 time-to-death samples retaining right-censored subjects.
+
+Contributor: Taejun Oh (NetID: taejuno2).
+Paper: GRAFT: Decoupling Ranking and Calibration for Survival Analysis.
+Paper link: https://arxiv.org/abs/2602.07884v2.
+"""
 
 import math
 from typing import Any

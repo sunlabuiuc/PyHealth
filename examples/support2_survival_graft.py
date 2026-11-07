@@ -26,6 +26,10 @@ no data. --fold and --seed select the cell. An existing result is not replaced.
 See support2_survival_graft_results.md for installation, data provenance,
 complete study commands, measured results and interpretation limits. Fitting
 requires the optional graft dependencies. CPU fitting uses two torch threads.
+
+Contributor: Taejun Oh (NetID: taejuno2).
+Paper: GRAFT: Decoupling Ranking and Calibration for Survival Analysis.
+Paper link: https://arxiv.org/abs/2602.07884v2.
 """
 
 import argparse
