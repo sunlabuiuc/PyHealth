@@ -40,6 +40,55 @@ def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
     receive the native weights and cost limit; ordinary tp/fp stay unweighted.
     Execution uses dataset order without feedback. See :ref:`cpbench-favmac`.
 
+    Complete example (run from the repository root)::
+
+        from examples.cpbench.synthetic_data import SyntheticDataset, SyntheticTask
+        from pyhealth.benchmarks import Evaluation
+        from pyhealth.benchmarks.cpbench import CPBench
+        from pyhealth.calib.predictionset import FavMac
+        from pyhealth.datasets import PatientSplit
+        from pyhealth.models import MLP
+
+        evaluation = Evaluation({
+            # Generate multilabel samples, such as [0, 2], rather than class indices.
+            "dataset": {
+                "class": SyntheticDataset,
+                "params": {"seed": 5, "mode": "multilabel"},
+            },
+            # The task chooses the label processor, without changing the raw labels.
+            "task": {"class": SyntheticTask, "params": {"mode": "multilabel"}},
+            "model": {
+                "class": MLP,
+                "params": {"embedding_dim": 8, "hidden_dim": 8},
+                "training": {"epochs": 1},
+            },
+            "method": {
+                "class": FavMac,
+                "params": {
+                    "target_cost": 0.8,
+                    "cost_weights": [1, 2, 1],
+                    "value_weights": [2, 1, 3],
+                },
+                "options": {"calibration_kwargs": {}},
+            },
+            "metrics": ["tp", "fp", "fp_cost", "tp_value", "set_size",
+                "miscoverage_overall_ps", "fp_cost_violation_rate"],
+            "protocol": {
+                "split": {
+                    "class": PatientSplit,
+                    "params": {"ratios": [0.4, 0.4, 0.2], "seed": 5},
+                },
+                "seed": 17,
+                "batch_size": 16,
+                "device": "cpu",
+                "order": "dataset",
+                "feedback": "none",
+            },
+        })
+
+        result = CPBench().evaluate([evaluation])[evaluation]
+        assert result.status == "success", result.metadata
+
     Examples:
         >>> result = run(evaluation, cache_dir=None)  # doctest: +SKIP
     """

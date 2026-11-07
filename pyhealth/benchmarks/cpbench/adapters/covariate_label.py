@@ -51,6 +51,50 @@ def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
     embeddings from options; CPBench computes them. Execution uses dataset order
     without feedback. See :ref:`cpbench-covariate-label` for options and examples.
 
+    Complete example (run from the repository root)::
+
+        from examples.cpbench.synthetic_data import SyntheticDataset, SyntheticTask
+        from pyhealth.benchmarks import Evaluation
+        from pyhealth.benchmarks.cpbench import CPBench
+        from pyhealth.calib.predictionset import CovariateLabel
+        from pyhealth.datasets import PatientSplit
+        from pyhealth.models import MLP
+
+        evaluation = Evaluation({
+            # seed controls feature noise; mode generates one integer label per sample.
+            "dataset": {
+                "class": SyntheticDataset,
+                "params": {"seed": 5, "mode": "multiclass"},
+            },
+            # The task chooses the label processor, without changing the raw labels.
+            "task": {"class": SyntheticTask, "params": {"mode": "multiclass"}},
+            "model": {
+                "class": MLP,
+                "params": {"embedding_dim": 8, "hidden_dim": 8},
+                "training": {"epochs": 1},
+            },
+            "method": {
+                "class": CovariateLabel,
+                "params": {"alpha": 0.1, "random_state": 17},
+                "options": {"calibration_kwargs": {}},
+            },
+            "metrics": ["accuracy", "miscoverage_overall_ps", "set_size"],
+            "protocol": {
+                "split": {
+                    "class": PatientSplit,
+                    "params": {"ratios": [0.4, 0.4, 0.2], "seed": 5},
+                },
+                "seed": 17,
+                "batch_size": 16,
+                "device": "cpu",
+                "order": "dataset",
+                "feedback": "none",
+            },
+        })
+
+        result = CPBench().evaluate([evaluation])[evaluation]
+        assert result.status == "success", result.metadata
+
     Examples:
         >>> result = run(evaluation, cache_dir=None)  # doctest: +SKIP
     """

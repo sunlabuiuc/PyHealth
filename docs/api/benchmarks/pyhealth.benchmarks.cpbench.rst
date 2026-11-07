@@ -118,254 +118,16 @@ constructor arguments in ``method.params`` and only ``calibration_kwargs`` in
 ``method.options``. Unknown options fail explicitly.
 
 The current adapters require dataset order and no test feedback. They calibrate
-on the calibration partition and score the test partition. Each adapter example
-below includes its complete evaluation and imports.
+on the calibration partition and score the test partition. Each adapter page
+below contains its requirements and a complete example with all imports.
 
-.. _cpbench-fixed-calibration:
+.. toctree::
+    :maxdepth: 3
 
-Fixed Calibration
-~~~~~~~~~~~~~~~~~
-
-BaseConformal, LABEL, RC3P, SCRIB, NeighborhoodLabel and LabelShift use this
-adapter. Data, task and model must share one multiclass label encoding. The
-native method defines the meaning of ``alpha``, ``risk`` and other constructor
-arguments. NeighborhoodLabel additionally requires a model supporting
-``embed=True``; calibration embeddings can be passed through its native
-``calibration_kwargs``.
-
-LabelShift requires ``target_label_dist`` in encoded class order.
-``source_label_dist`` is optional; native calibration estimates it from the
-calibration labels when omitted. For the balanced synthetic population:
-
-.. code-block:: python
-
-    from examples.cpbench.synthetic_data import SyntheticDataset, SyntheticTask
-    from pyhealth.benchmarks import Evaluation
-    from pyhealth.benchmarks.cpbench import CPBench
-    from pyhealth.calib.predictionset import LabelShift
-    from pyhealth.datasets import PatientSplit
-    from pyhealth.models import MLP
-
-    label_shift_evaluation = Evaluation({
-        # seed controls feature noise; mode generates one integer label per sample.
-        "dataset": {
-            "class": SyntheticDataset,
-            "params": {"seed": 5, "mode": "multiclass"},
-        },
-        # The task chooses the label processor, without changing the raw labels.
-        "task": {"class": SyntheticTask, "params": {"mode": "multiclass"}},
-        "model": {
-            "class": MLP,
-            "params": {"embedding_dim": 8, "hidden_dim": 8},
-            "training": {"epochs": 1},
-        },
-        "method": {
-            "class": LabelShift,
-            "params": {"alpha": 0.1, "random_state": 17},
-            "options": {
-                "calibration_kwargs": {"target_label_dist": [1 / 3, 1 / 3, 1 / 3]},
-            },
-        },
-        "metrics": ["accuracy", "miscoverage_overall_ps", "set_size"],
-        "protocol": {
-            "split": {
-                "class": PatientSplit,
-                "params": {"ratios": [0.4, 0.4, 0.2], "seed": 5},
-            },
-            "seed": 17,
-            "batch_size": 16,
-            "device": "cpu",
-            "order": "dataset",
-            "feedback": "none",
-        },
-    })
-
-    result = CPBench().evaluate([label_shift_evaluation])[label_shift_evaluation]
-    assert result.status == "success", result.metadata
-
-For real data, supply the target population's known or separately estimated
-probabilities. The adapter does not estimate them from test labels. This example
-demonstrates execution, without simulating a label shift.
-
-.. _cpbench-cluster-label:
-
-ClusterLabel
-~~~~~~~~~~~~
-
-The model must be multiclass and support ``embed=True``. The train partition
-supplies reference embeddings. Omit ``train_embeddings`` from calibration
-arguments: CPBench computes them. Native calibration extracts calibration
-embeddings unless ``cal_embeddings`` is supplied. Calibration batch size defaults
-to ``protocol.batch_size``:
-
-.. code-block:: python
-
-    from examples.cpbench.synthetic_data import SyntheticDataset, SyntheticTask
-    from pyhealth.benchmarks import Evaluation
-    from pyhealth.benchmarks.cpbench import CPBench
-    from pyhealth.calib.predictionset import ClusterLabel
-    from pyhealth.datasets import PatientSplit
-    from pyhealth.models import MLP
-
-    cluster_evaluation = Evaluation({
-        # seed controls feature noise; mode generates one integer label per sample.
-        "dataset": {
-            "class": SyntheticDataset,
-            "params": {"seed": 5, "mode": "multiclass"},
-        },
-        # The task chooses the label processor, without changing the raw labels.
-        "task": {"class": SyntheticTask, "params": {"mode": "multiclass"}},
-        "model": {
-            "class": MLP,
-            "params": {"embedding_dim": 8, "hidden_dim": 8},
-            "training": {"epochs": 1},
-        },
-        "method": {
-            "class": ClusterLabel,
-            "params": {"alpha": 0.1, "n_clusters": 2, "random_state": 17},
-            "options": {"calibration_kwargs": {}},
-        },
-        "metrics": ["accuracy", "miscoverage_overall_ps", "set_size"],
-        "protocol": {
-            "split": {
-                "class": PatientSplit,
-                "params": {"ratios": [0.4, 0.4, 0.2], "seed": 5},
-            },
-            "seed": 17,
-            "batch_size": 16,
-            "device": "cpu",
-            "order": "dataset",
-            "feedback": "none",
-        },
-    })
-
-    result = CPBench().evaluate([cluster_evaluation])[cluster_evaluation]
-    assert result.status == "success", result.metadata
-
-.. _cpbench-covariate-label:
-
-CovariateLabel
-~~~~~~~~~~~~~~
-
-By default, native density estimation uses **all test inputs before prediction**.
-Test labels are excluded from embedding, calibration and prediction calls. The
-model must be multiclass and support ``embed=True``. Embeddings follow dataset
-order and use ``protocol.batch_size``.
-
-Paired ``kde_cal``/``kde_test`` constructor arguments may supply already-fitted,
-importable density callables; then only calibration embeddings are extracted.
-Alternatively, pass ``cal_weights`` in ``calibration_kwargs``: one importance
-weight per calibration row, in dataset order. These are likelihood ratios, not
-class costs. Supplied weights remove the need for embeddings. Omit
-``cal_embeddings`` and ``test_embeddings``: CPBench computes them when needed.
-Other calibration arguments go directly to native calibration:
-
-.. code-block:: python
-
-    from examples.cpbench.synthetic_data import SyntheticDataset, SyntheticTask
-    from pyhealth.benchmarks import Evaluation
-    from pyhealth.benchmarks.cpbench import CPBench
-    from pyhealth.calib.predictionset import CovariateLabel
-    from pyhealth.datasets import PatientSplit
-    from pyhealth.models import MLP
-
-    covariate_evaluation = Evaluation({
-        # seed controls feature noise; mode generates one integer label per sample.
-        "dataset": {
-            "class": SyntheticDataset,
-            "params": {"seed": 5, "mode": "multiclass"},
-        },
-        # The task chooses the label processor, without changing the raw labels.
-        "task": {"class": SyntheticTask, "params": {"mode": "multiclass"}},
-        "model": {
-            "class": MLP,
-            "params": {"embedding_dim": 8, "hidden_dim": 8},
-            "training": {"epochs": 1},
-        },
-        "method": {
-            "class": CovariateLabel,
-            "params": {"alpha": 0.1, "random_state": 17},
-            "options": {"calibration_kwargs": {}},
-        },
-        "metrics": ["accuracy", "miscoverage_overall_ps", "set_size"],
-        "protocol": {
-            "split": {
-                "class": PatientSplit,
-                "params": {"ratios": [0.4, 0.4, 0.2], "seed": 5},
-            },
-            "seed": 17,
-            "batch_size": 16,
-            "device": "cpu",
-            "order": "dataset",
-            "feedback": "none",
-        },
-    })
-
-    result = CPBench().evaluate([covariate_evaluation])[covariate_evaluation]
-    assert result.status == "success", result.metadata
-
-This synthetic example demonstrates execution, without simulating covariate shift.
-
-.. _cpbench-favmac:
-
-FavMac
-~~~~~~
-
-The dataset, task and model must be multilabel and share a class encoding.
-The model must return calibration/test logits and test probabilities.
-``cost_weights`` and ``value_weights`` may be lists in encoded class order;
-the adapter converts them to arrays. Calibration arguments are passed directly
-to native calibration. This example uses multilabel samples and their matching
-processor:
-
-.. code-block:: python
-
-    from examples.cpbench.synthetic_data import SyntheticDataset, SyntheticTask
-    from pyhealth.benchmarks import Evaluation
-    from pyhealth.benchmarks.cpbench import CPBench
-    from pyhealth.calib.predictionset import FavMac
-    from pyhealth.datasets import PatientSplit
-    from pyhealth.models import MLP
-
-    favmac_evaluation = Evaluation({
-        # Generate multilabel samples, such as [0, 2], rather than class indices.
-        "dataset": {
-            "class": SyntheticDataset,
-            "params": {"seed": 5, "mode": "multilabel"},
-        },
-        # The task chooses the label processor, without changing the raw labels.
-        "task": {"class": SyntheticTask, "params": {"mode": "multilabel"}},
-        "model": {
-            "class": MLP,
-            "params": {"embedding_dim": 8, "hidden_dim": 8},
-            "training": {"epochs": 1},
-        },
-        "method": {
-            "class": FavMac,
-            "params": {
-                "target_cost": 0.8,
-                "cost_weights": [1, 2, 1],
-                "value_weights": [2, 1, 3],
-            },
-            "options": {"calibration_kwargs": {}},
-        },
-        "metrics": ["tp", "fp", "fp_cost", "tp_value", "set_size",
-            "miscoverage_overall_ps", "fp_cost_violation_rate"],
-        "protocol": {
-            "split": {
-                "class": PatientSplit,
-                "params": {"ratios": [0.4, 0.4, 0.2], "seed": 5},
-            },
-            "seed": 17,
-            "batch_size": 16,
-            "device": "cpu",
-            "order": "dataset",
-            "feedback": "none",
-        },
-    })
-
-    result = CPBench().evaluate([favmac_evaluation])[favmac_evaluation]
-    assert result.status == "success", result.metadata
+    Fixed Calibration <pyhealth.benchmarks.cpbench.adapters.fixed_calibration>
+    ClusterLabel <pyhealth.benchmarks.cpbench.adapters.cluster_label>
+    CovariateLabel <pyhealth.benchmarks.cpbench.adapters.covariate_label>
+    FavMac <pyhealth.benchmarks.cpbench.adapters.favmac>
 
 Metrics
 -------
@@ -425,15 +187,19 @@ before feedback when storing arrays that may share a method's buffers.
 Cache and Result Files
 ----------------------
 
-The directory arguments are independent. Using the complete BaseConformal and
-ClusterLabel evaluations above:
+The directory arguments are independent. This batch reuses the complete
+evaluation above with a second target miscoverage:
 
 .. code-block:: python
 
+    from copy import deepcopy
     from pathlib import Path
 
+    params = deepcopy(evaluation.params)
+    params["method"]["params"]["alpha"] = 0.2
+    other_evaluation = Evaluation(params)
     results = CPBench().evaluate(
-        [evaluation, cluster_evaluation],
+        [evaluation, other_evaluation],
         cache_dir=Path("cache"),
         output_dir=Path("run"),
     )
@@ -609,14 +375,3 @@ Prediction Collection
 .. autofunction:: pyhealth.benchmarks.cpbench.shared.collection.collect_predictions
 
 .. autofunction:: pyhealth.benchmarks.cpbench.shared.collection.copy_predictions
-
-Adapters
-~~~~~~~~
-
-.. autofunction:: pyhealth.benchmarks.cpbench.adapters.fixed_calibration.run
-
-.. autofunction:: pyhealth.benchmarks.cpbench.adapters.cluster_label.run
-
-.. autofunction:: pyhealth.benchmarks.cpbench.adapters.covariate_label.run
-
-.. autofunction:: pyhealth.benchmarks.cpbench.adapters.favmac.run
