@@ -190,6 +190,99 @@ class TestFixedLabels(unittest.TestCase):
         self.assertEqual(restored.process(["b"]).tolist(), [0.0, 1.0])
 
 
+class TestFitTest(unittest.TestCase):
+    """fit on the training labels, then fit_test adds the labels of every split."""
+
+    ALL = [{"y": "c"}, {"y": "b"}, {"y": "a"}]
+    TRAIN = [{"y": "a"}, {"y": "c"}]
+
+    def test_multiclass_adds_the_labels_of_every_split(self):
+        processor = MultiClassLabelProcessor()
+        processor.fit(self.TRAIN, "y")
+        self.assertEqual(processor.label_vocab, {"a": 0, "c": 1})
+        processor.fit_test(self.ALL, "y")
+        # The order is that of all labels, whatever the split.
+        self.assertEqual(processor.label_vocab, {"a": 0, "b": 1, "c": 2})
+        self.assertEqual(processor.process("c").item(), 2)
+
+    def test_order_does_not_depend_on_the_split(self):
+        labels = ["d", "b", "a", "c"]
+        for cls, value in ((MultiClassLabelProcessor, str), (MultiLabelProcessor, list)):
+            everything = [{"y": value(label)} for label in labels]
+            expected = cls()
+            expected.fit(everything, "y")
+            # Every non-empty training subset, in every position.
+            for mask in range(1, 2 ** len(labels)):
+                train = [s for i, s in enumerate(everything) if mask >> i & 1]
+                with self.subTest(cls=cls.__name__, train=train):
+                    processor = cls()
+                    processor.fit(train, "y")
+                    processor.fit_test(everything, "y")
+                    self.assertEqual(processor.label_vocab, expected.label_vocab)
+
+    def test_range_labels_keep_their_values(self):
+        processor = MultiClassLabelProcessor()
+        processor.fit([{"y": 0}, {"y": 2}], "y")
+        processor.fit_test([{"y": 1}], "y")
+        self.assertEqual(processor.label_vocab, {0: 0, 1: 1, 2: 2})
+
+    def test_running_it_again_changes_nothing(self):
+        processor = MultiClassLabelProcessor()
+        processor.fit(self.ALL, "y")
+        for _ in range(2):
+            processor.fit_test(self.ALL, "y")
+            self.assertEqual(processor.label_vocab, {"a": 0, "b": 1, "c": 2})
+
+    def test_need_fit_test_only_for_learned_vocabularies(self):
+        self.assertTrue(MultiClassLabelProcessor().need_fit_test)
+        self.assertTrue(MultiLabelProcessor().need_fit_test)
+        self.assertTrue(TimeseriesMultiClassLabelProcessor().need_fit_test)
+        for processor in (
+            MultiClassLabelProcessor(labels=["c", "b", "a"]),
+            MultiLabelProcessor(labels=2),
+            BinaryLabelProcessor(),
+            RegressionLabelProcessor(),
+            TimeseriesBinaryLabelProcessor(),
+            TimeseriesMultiClassLabelProcessor(labels=2),
+            TimeseriesRegressionLabelProcessor(),
+        ):
+            with self.subTest(processor=processor):
+                self.assertFalse(processor.need_fit_test)
+                processor.fit_test(None, "y")  # never reads the samples
+
+    def test_given_labels_are_kept(self):
+        processor = MultiClassLabelProcessor(labels=["c", "b", "a"])
+        processor.fit_test([{"y": "d"}], "y")
+        self.assertEqual(processor.label_vocab, {"c": 0, "b": 1, "a": 2})
+
+    def test_balanced_weight_keeps_its_training_values(self):
+        processor = MultiLabelProcessor(pos_weight="balanced")
+        processor.fit([{"y": ["a"]}, {"y": ["c"]}, {"y": ["c"]}], "y")
+        self.assertEqual(processor.weight.tolist(), [2.0, 0.5])
+        with self.assertLogs("pyhealth.processors.label_processor", "WARNING"):
+            processor.fit_test([{"y": ["a", "b"]}, {"y": ["c", "d"]}], "y")
+        self.assertEqual(processor.label_vocab, {"a": 0, "b": 1, "c": 2, "d": 3})
+        self.assertEqual(processor.weight.tolist(), [2.0, 1.0, 0.5, 1.0])
+
+    def test_given_and_unweighted_multilabel_weights_are_kept(self):
+        processor = MultiLabelProcessor(pos_weight=2.0)
+        processor.fit([{"y": ["a"]}], "y")
+        processor.fit_test([{"y": ["b"]}], "y")
+        self.assertEqual(processor.size(), 2)
+        self.assertEqual(processor.weight.tolist(), [2.0])
+        self.assertIsNone(MultiLabelProcessor().weight)
+
+    def test_timeseries_labels(self):
+        multilabel = TimeseriesMultiLabelProcessor(pos_weight="balanced")
+        multilabel.fit([{"y": {"time": [0.0, 1.0], "values": [["a"], []]}}], "y")
+        with self.assertLogs("pyhealth.processors.label_processor", "WARNING"):
+            multilabel.fit_test(
+                [{"y": {"time": [0.0, 1.0], "values": [["a"], ["b"]]}}], "y"
+            )
+        self.assertEqual(multilabel.size(), 2)
+        self.assertEqual(multilabel.base.weight.tolist(), [1.0, 1.0])
+
+
 class TestTimeseriesLabels(unittest.TestCase):
     def test_multiclass_and_multilabel_values(self):
         multiclass = TimeseriesMultiClassLabelProcessor()
