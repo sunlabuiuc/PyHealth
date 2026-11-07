@@ -347,6 +347,18 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         tensor = processor.process((mask_dir, series_dir))
         self.assertEqual(tensor[0, :, 0, 0].tolist(), [2, 3, 1])
 
+    def test_mask_rejects_in_plane_size_mismatch(self):
+        self._write_series()
+        mask_dir = self.root / "masks"
+        mask_dir.mkdir()
+        for index in range(3):
+            array = np.zeros((5, 7), dtype=np.uint8)
+            array[0, 0] = index + 1
+            Image.fromarray(array).save(mask_dir / f"IMG-{index}.png")
+        processor = ImageMaskDirectoryProcessor(lazy=False, canonical=False)
+        with self.assertRaisesRegex(ValueError, "does not match the reference"):
+            processor.process((mask_dir, self.root))
+
     def test_mask_alignment_requires_readable_series(self):
         mask_dir = self.root / "masks"
         _write_masks(mask_dir, 3)
