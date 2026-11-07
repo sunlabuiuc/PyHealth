@@ -292,6 +292,7 @@ Available Datasets
     :maxdepth: 3
 
     datasets/pyhealth.datasets.BaseDataset
+    datasets/pyhealth.datasets.PBCDataset
     datasets/pyhealth.datasets.SampleDataset
     datasets/pyhealth.datasets.MIMIC3Dataset
     datasets/pyhealth.datasets.MIMIC4Dataset

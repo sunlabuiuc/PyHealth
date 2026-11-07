@@ -7,6 +7,7 @@ from .apn import (
     masked_mse as masked_mse,
 )
 from .base_model import BaseModel
+from .neural_fine_gray import NeuralFineGray as NeuralFineGray
 from .transformer_deid import TransformerDeID
 from .biot import BIOT
 from .cnn import CNN, CNNLayer

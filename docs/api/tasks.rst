@@ -209,6 +209,8 @@ Available Tasks
     :maxdepth: 3
 
     Base Task <tasks/pyhealth.tasks.BaseTask>
+    PBC Competing Risks <tasks/pyhealth.tasks.competing_risks_pbc>
+    Competing-Risk Preprocessing <tasks/pyhealth.tasks.competing_risks>
     In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
     In-Hospital Mortality (MEDS) <tasks/pyhealth.tasks.InHospitalMortalityMEDS>
     MIMIC-III ICD-9 Coding <tasks/pyhealth.tasks.MIMIC3ICD9Coding>

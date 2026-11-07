@@ -1,5 +1,11 @@
 from .binary import binary_metrics_fn, timeseries_binary_metrics_fn
 from .bootstrap import bootstrap_ci, paired_bootstrap_diff
+from .competing_risks import (
+    CensoringDistribution,
+    MetricSupportError,
+    competing_risk_brier,
+    competing_risk_concordance,
+)
 from .drug_recommendation import ddi_rate_score
 from .fairness import fairness_metrics_fn
 from .generative import (
@@ -29,6 +35,10 @@ from .survival import (
 )
 
 __all__ = [
+    "CensoringDistribution",
+    "MetricSupportError",
+    "competing_risk_brier",
+    "competing_risk_concordance",
     "ComprehensivenessMetric",
     "Evaluator",
     "RemovalBasedMetric",
