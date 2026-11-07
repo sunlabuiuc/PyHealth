@@ -137,7 +137,9 @@ def predict_classification_set_batch(predictor, batch, feature_keys, label_key):
 # --- Scoring ---
 
 
-def score_multiclass_predictions(predictions, metric_names, vocabulary):
+def score_multiclass_predictions(
+    predictions, metric_names, vocabulary, *, model_predictions=None
+):
     """Score multiclass sets, preserving native metric arrays and NaNs.
 
     Examples:
@@ -154,8 +156,8 @@ def score_multiclass_predictions(predictions, metric_names, vocabulary):
     """
     metrics = multiclass_metrics_fn(**predictions, metrics=list(metric_names))
 
-    return Result(
-        "success",
-        metrics,
-        {"class_labels": sorted(vocabulary, key=vocabulary.get)},
-    )
+    metadata = {"class_labels": sorted(vocabulary, key=vocabulary.get)}
+    if model_predictions is not None:
+        metadata["model_predictions"] = str(model_predictions)
+
+    return Result("success", metrics, metadata)

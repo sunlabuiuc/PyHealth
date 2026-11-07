@@ -6,6 +6,7 @@ import random
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -13,7 +14,7 @@ import torch
 
 from examples.cpbench.synthetic_data import SyntheticDataset, SyntheticTask, make_splits
 from pyhealth.benchmarks import Evaluation, Result
-from pyhealth.benchmarks.cpbench import CPBench
+from pyhealth.benchmarks.cpbench import CPBench, save_model_predictions
 from pyhealth.benchmarks.cpbench.adapters import ADAPTERS
 from pyhealth.benchmarks.cpbench.adapters.favmac import validate_multilabel_predictions
 from pyhealth.benchmarks.cpbench.adapters.fixed_calibration import (
@@ -33,7 +34,6 @@ from pyhealth.benchmarks.cpbench.shared.prediction import (
     prediction_cache_path,
 )
 from pyhealth.benchmarks.cpbench.shared.preparation import (
-    model_cache_path,
     prepare_evaluation,
     require_protocol,
 )
@@ -349,7 +349,9 @@ class TestEvaluationContract(unittest.TestCase):
         ev = evaluation(FeedbackMethod, method_params={})
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            with patch.dict(ADAPTERS, {FeedbackMethod: directory_adapter}):
+            with patch.dict(
+                ADAPTERS, {FeedbackMethod: SimpleNamespace(run=directory_adapter)}
+            ):
                 result = CPBench().evaluate(
                     [ev], cache_dir=root / "cache", output_dir=root / "output"
                 )[ev]
@@ -361,7 +363,9 @@ class TestEvaluationContract(unittest.TestCase):
     def test_runtime_failures_do_not_discard_other_results(self):
         good = evaluation()
         bad = evaluation(FeedbackMethod, method_params={})
-        with patch.dict(ADAPTERS, {FeedbackMethod: broken_adapter}):
+        with patch.dict(
+            ADAPTERS, {FeedbackMethod: SimpleNamespace(run=broken_adapter)}
+        ):
             results = CPBench().evaluate([bad, good])
         self.assertEqual(results[bad].status, "failed")
         self.assertEqual(results[bad].metadata["error_type"], "RuntimeError")
@@ -370,7 +374,9 @@ class TestEvaluationContract(unittest.TestCase):
     def test_invalid_adapter_return_is_rejected_by_result_validation(self):
         ev = evaluation(FeedbackMethod, method_params={})
         with (
-            patch.dict(ADAPTERS, {FeedbackMethod: invalid_adapter}),
+            patch.dict(
+                ADAPTERS, {FeedbackMethod: SimpleNamespace(run=invalid_adapter)}
+            ),
             self.assertRaisesRegex(TypeError, "adapter must return a Result"),
         ):
             CPBench().evaluate([ev])
@@ -475,7 +481,7 @@ class TestModelSources(unittest.TestCase):
         self.assertEqual(result.status, "failed")
         self.assertIn("schema differs", result.metadata["error"])
 
-    def test_cached_predictions_are_explicitly_unsupported_by_current_adapters(self):
+    def test_missing_prediction_inputs_fail_without_loading_a_model(self):
         for method, mode in ((BaseConformal, "multiclass"), (FavMac, "multilabel")):
             params = copy.deepcopy(evaluation(method, mode=mode).params)
             del params["model"]["checkpoint"]
@@ -487,8 +493,7 @@ class TestModelSources(unittest.TestCase):
                 side_effect=AssertionError("must not load"),
             ):
                 result = CPBench().evaluate([ev])[ev]
-            self.assertEqual(result.metadata["error_type"], "NotImplementedError")
-            self.assertIn("cached predictions", result.metadata["error"])
+            self.assertEqual(result.metadata["error_type"], "FileNotFoundError")
 
     def test_patient_split_is_executable(self):
         params = copy.deepcopy(
@@ -611,7 +616,7 @@ class TestNativeMethods(unittest.TestCase):
                     results[good].status, "success", results[good].metadata
                 )
 
-    def test_label_shift_training_cache_and_outputs(self):
+    def test_label_shift_runner_supplies_saved_model_outputs(self):
         ev = evaluation(
             LabelShift,
             model_class=MLP,
@@ -623,17 +628,29 @@ class TestNativeMethods(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             cache, output = Path(directory) / "cache", Path(directory) / "output"
-            cold = CPBench().evaluate([ev], cache_dir=cache, output_dir=output)[ev]
+            values, metadata = CPBench().predict_model(ev)
+            path = Path(directory) / "base.npz"
+            save_model_predictions(values, path, **metadata)
+            params = copy.deepcopy(ev.params)
+            params["model"] = {"predictions": str(path)}
+            supplied = Evaluation(params)
+            cold = CPBench().evaluate([supplied], cache_dir=cache, output_dir=output)[
+                supplied
+            ]
 
             with patch.object(
                 Trainer, "train", side_effect=AssertionError("must reuse")
             ):
-                warm = CPBench().evaluate([ev], cache_dir=cache, output_dir=output)[ev]
+                warm = CPBench().evaluate(
+                    [supplied], cache_dir=cache, output_dir=output
+                )[supplied]
 
             self.assertEqual(cold.status, "success", cold.metadata)
             self.assertEqual(warm.status, "success", warm.metadata)
             np.testing.assert_equal(cold.metrics, warm.metrics)
-            self.assertEqual(warm.artifact, prediction_cache_path(ev.params, cache))
+            self.assertEqual(
+                warm.artifact, prediction_cache_path(supplied.params, cache)
+            )
 
             with np.load(warm.artifact) as predictions:
                 self.assertEqual(
@@ -763,7 +780,9 @@ class TestNativeMethods(unittest.TestCase):
             method_params={"alpha": 0.2, "tag": "configured"},
             options={"calibration_kwargs": {"expected_tag": "configured"}},
         )
-        with patch.dict(ADAPTERS, {method_factory: run_fixed_calibration}):
+        with patch.dict(
+            ADAPTERS, {method_factory: SimpleNamespace(run=run_fixed_calibration)}
+        ):
             result = CPBench().evaluate([Evaluation.from_dict(ev.to_dict())])[ev]
         self.assertEqual(result.status, "success", result.metadata)
 
@@ -841,7 +860,9 @@ class TestNativeMethods(unittest.TestCase):
         params["protocol"]["feedback"] = "immediate"
         params["protocol"]["split"]["roles"] = ["calibration", "stream"]
         ev = Evaluation(params)
-        with patch.dict(ADAPTERS, {FeedbackMethod: feedback_adapter}):
+        with patch.dict(
+            ADAPTERS, {FeedbackMethod: SimpleNamespace(run=feedback_adapter)}
+        ):
             result = CPBench().evaluate([ev])[ev]
         self.assertEqual(result.status, "success", result.metadata)
         self.assertAlmostEqual(result.metrics["set_size"], 14 / 12)
@@ -868,7 +889,7 @@ class TestCacheAndOutput(unittest.TestCase):
             else ["accuracy", "set_size", "miscoverage_overall_ps"],
         )
 
-    def test_all_adapters_save_outputs_and_share_model_cache(self):
+    def test_adapters_save_explicit_outputs_without_automatic_model_reuse(self):
         evaluations = [
             self.trained_evaluation(),
             self.trained_evaluation(ClusterLabel),
@@ -883,8 +904,8 @@ class TestCacheAndOutput(unittest.TestCase):
                 results = CPBench().evaluate(
                     evaluations, cache_dir=root / "cache", output_dir=root / "output"
                 )
-            # ClusterLabel and BaseConformal use the same fitted base model.
-            self.assertEqual(train.call_count, 2)
+            # Each training source is explicit; the runner decides whether to reuse.
+            self.assertEqual(train.call_count, 3)
             for ev, result in results.items():
                 self.assertEqual(result.status, "success", result.metadata)
                 self.assertEqual(
@@ -913,7 +934,7 @@ class TestCacheAndOutput(unittest.TestCase):
                 self.assertEqual(saved[ev.id]["metrics"], result.metrics)
                 self.assertEqual(saved[ev.id]["artifact"], str(result.artifact))
 
-    def test_cache_reuse_invalidation_and_numerical_parity(self):
+    def test_cache_dir_does_not_implicitly_reuse_training(self):
         first = self.trained_evaluation()
         plain = CPBench().evaluate([first])[first]
         alpha_params = copy.deepcopy(first.params)
@@ -936,7 +957,7 @@ class TestCacheAndOutput(unittest.TestCase):
                 rest = CPBench().evaluate(
                     [other_alpha, other_metrics, other_seed], cache_dir=cache
                 )
-            self.assertEqual(train.call_count, 2)
+            self.assertEqual(train.call_count, 5)
             for result in [plain, cold, warm, *rest.values()]:
                 self.assertEqual(result.status, "success", result.metadata)
             np.testing.assert_equal(plain.metrics, cold.metrics)
@@ -949,7 +970,7 @@ class TestCacheAndOutput(unittest.TestCase):
             self.assertNotEqual(rest[other_alpha].artifact, cold.artifact)
             self.assertNotEqual(rest[other_seed].artifact, cold.artifact)
 
-    def test_preparation_rng_and_cached_model_ownership(self):
+    def test_preparation_rng_and_model_ownership(self):
         ev = self.trained_evaluation()
         before = ev.to_dict()
         with tempfile.TemporaryDirectory() as directory, _seeded(42):
@@ -959,7 +980,7 @@ class TestCacheAndOutput(unittest.TestCase):
                 torch.get_rng_state(),
             )
             _, _, cold = prepare_evaluation(
-                ev, required=("train", "calibration", "test"), cache_dir=Path(directory)
+                ev, required=("train", "calibration", "test")
             )
             saved = {
                 key: value.detach().clone() for key, value in cold.state_dict().items()
@@ -967,7 +988,7 @@ class TestCacheAndOutput(unittest.TestCase):
             with torch.no_grad():
                 cold.fc.bias.add_(10)
             _, _, warm = prepare_evaluation(
-                ev, required=("train", "calibration", "test"), cache_dir=Path(directory)
+                ev, required=("train", "calibration", "test")
             )
             self.assertIsNot(cold, warm)
             for key, value in saved.items():
@@ -979,23 +1000,6 @@ class TestCacheAndOutput(unittest.TestCase):
             self.assertEqual(now[2:], np_state[2:])
             self.assertTrue(torch.equal(torch_state, torch.get_rng_state()))
         self.assertEqual(ev.to_dict(), before)
-
-    def test_cache_publication_failure_does_not_leave_an_entry(self):
-        ev = self.trained_evaluation()
-        with tempfile.TemporaryDirectory() as directory:
-            cache = Path(directory)
-            target = model_cache_path(ev.params, cache)
-            with patch.object(
-                SampleBuilder, "save", side_effect=OSError("interrupted write")
-            ):
-                result = CPBench().evaluate([ev], cache_dir=cache)[ev]
-            self.assertEqual(result.status, "failed")
-            self.assertFalse(target.exists())
-            self.assertEqual(list(target.parent.glob(f".{target.name}.*")), [])
-            recovered = CPBench().evaluate([ev], cache_dir=cache)[ev]
-            self.assertEqual(recovered.status, "success", recovered.metadata)
-            self.assertTrue((target / "model.ckpt").is_file())
-            self.assertTrue((target / "schema.pkl").is_file())
 
     def test_prediction_publication_failure_preserves_existing_cache_file(self):
         ev = evaluation()
@@ -1024,7 +1028,9 @@ class TestCacheAndOutput(unittest.TestCase):
         bad = evaluation(FeedbackMethod, method_params={})
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
-            with patch.dict(ADAPTERS, {FeedbackMethod: broken_adapter}):
+            with patch.dict(
+                ADAPTERS, {FeedbackMethod: SimpleNamespace(run=broken_adapter)}
+            ):
                 results = CPBench().evaluate([good, bad], output_dir=output)
 
             self.assertTrue(all(result.artifact is None for result in results.values()))

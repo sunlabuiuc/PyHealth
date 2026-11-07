@@ -19,9 +19,32 @@ from pyhealth.benchmarks.cpbench.shared.prediction import (
     save_predictions,
 )
 from pyhealth.benchmarks.cpbench.shared.preparation import (
+    predict_model_outputs,
     prepare_evaluation,
     require_protocol,
 )
+
+__all__ = ["predict_model_outputs", "required_model_outputs", "run"]
+
+
+def required_model_outputs(evaluation):
+    """Declare split/field requirements for runners producing base-output files.
+
+    Examples:
+        >>> from types import SimpleNamespace
+        >>> ev = SimpleNamespace(params={"method": {"class": dict}})
+        >>> "calibration" in required_model_outputs(ev)
+        True
+    """
+    method = evaluation.params["method"]
+    calibration = method.get("options", {}).get("calibration_kwargs", {}) or {}
+    fields = {"calibration": ("y_prob",), "test": ("y_prob",)}
+    if calibration.get("cal_weights") is None:
+        fields["calibration"] += ("embed",)
+        if method.get("params", {}).get("kde_cal") is None:
+            fields["test"] += ("embed",)
+
+    return fields
 
 
 def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
@@ -91,6 +114,11 @@ def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
     cal_embeddings/test_embeddings must be omitted: the adapter derives them
     from the declared splits when needed. Other arguments go to native calibrate.
 
+    model.predictions may name a saved base-output artifact instead. Its splits
+    must provide required_model_outputs(evaluation); no model/dataset is loaded.
+    Runners own collection and persistence through CPBench.predict_model and
+    save_model_predictions. cache_dir only writes final CP predictions.
+
     With the evaluation defined above:
 
     >>> result = run(evaluation, cache_dir=None)  # doctest: +SKIP
@@ -116,7 +144,9 @@ def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
         raise ValueError("kde_cal and kde_test must be supplied together")
 
     params, splits, model = prepare_evaluation(
-        evaluation, required=("calibration", "test"), cache_dir=cache_dir
+        evaluation,
+        required=("calibration", "test"),
+        outputs=required_model_outputs(evaluation),
     )
 
     if model.mode != "multiclass":
@@ -145,7 +175,12 @@ def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
     )
 
     validate_multiclass_predictions(predictions, len(vocabulary))
-    result = score_multiclass_predictions(predictions, params["metrics"], vocabulary)
+    result = score_multiclass_predictions(
+        predictions,
+        params["metrics"],
+        vocabulary,
+        model_predictions=getattr(model, "predictions_path", None),
+    )
 
     if cache_dir is not None:
         path = prediction_cache_path(params, cache_dir)

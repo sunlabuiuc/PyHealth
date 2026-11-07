@@ -1,11 +1,9 @@
-"""Prepare datasets and splits, train/load models, and cache fitted checkpoints."""
+"""Prepare explicit model sources and provide checkpoint-writing utilities."""
 
 import os
 from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
-
-from filelock import FileLock
 
 from pyhealth.benchmarks import Evaluation
 from pyhealth.datasets import SampleBuilder, SampleDataset, Split, get_dataloader
@@ -13,75 +11,126 @@ from pyhealth.models import BaseModel
 from pyhealth.trainer import Trainer
 from pyhealth.utils import preserve_rng_state
 
+from .classification import validate_label_encodings
+from .model_predictions import (
+    _CachedModel,
+    collect_model_predictions,
+    load_model_predictions,
+    require_model_outputs,
+)
+
 # --- Evaluation preparation ---
 
 
-def prepare_evaluation(evaluation, *, required, cache_dir=None):
-    """Prepare an owned model/datasets, optionally reusing a fitted model cache.
+def prepare_evaluation(evaluation: Evaluation, *, required, outputs=None):
+    """Load the explicitly requested source without automatic cache lookup.
 
-    Preparation preserves global RNG state so cache hits and misses leave the
-    method's global random streams identical. Dataset APIs retain their own configured
-    caches. Existing checkpoint inputs are loaded directly, never recopied.
+    model.training trains a fresh model; model.checkpoint loads fitted weights
+    and preprocessing; model.predictions loads saved base outputs. outputs maps
+    split names to the fields needed by the adapter. No original model or raw
+    dataset is constructed when saved outputs are supplied.
+    Runners own cache policy.
 
     Examples:
-        >>> evaluation = Evaluation({
-        ...     "model": {"predictions": "saved.npz"}, "protocol": {}
-        ... })
-        >>> prepare_evaluation(evaluation, required=("calibration", "test"))
-        Traceback (most recent call last):
-            ...
-        NotImplementedError: this adapter requires a model; cached predictions are unsupported
+        >>> from .model_predictions import save_model_predictions
+        >>> import numpy as np
+        >>> values = {"test": {"y_true": np.array([0]),
+        ...                    "y_prob": np.array([[0.8, 0.2]])}}
+        >>> with TemporaryDirectory() as directory:
+        ...     path = Path(directory) / "model.npz"
+        ...     save_model_predictions(values, path, mode="multiclass",
+        ...                            label_key="label", class_labels=[0, 1])
+        ...     ev = Evaluation({"model": {"predictions": str(path)},
+        ...                      "protocol": {"split": {"roles": ["test"]}}})
+        ...     _, splits, model = prepare_evaluation(
+        ...         ev, required=("test",), outputs={"test": ("y_prob",)}
+        ...     )
+        ...     print(model.mode, len(splits["test"]))
+        multiclass 1
     """
     params = deepcopy(dict(evaluation.params))
     model_spec, protocol = params["model"], params["protocol"]
-
-    if "predictions" in model_spec:
-        raise NotImplementedError(
-            "this adapter requires a model; cached predictions are unsupported"
-        )
-
     missing = set(required) - set(protocol["split"]["roles"])
     if missing:
         raise ValueError(f"adapter requires split roles: {sorted(missing)}")
 
     with preserve_rng_state():
-        if cache_dir is None or "training" not in model_spec:
-            return _prepare_model_and_splits(params)
+        if "predictions" in model_spec:
+            predictions, metadata = load_model_predictions(model_spec["predictions"])
+            require_model_outputs(predictions, required, outputs)
+            model = _CachedModel(
+                predictions,
+                metadata,
+                model_spec["predictions"],
+                protocol.get("device", "cpu"),
+            )
 
-        cache_path = model_cache_path(params, cache_dir)
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
+            return params, model.splits, model
 
-        # Shared jobs must not read partial entries or train the same key twice.
-        with FileLock(str(cache_path) + ".lock"):
-            return _prepare_model_and_splits(params, cache_path=cache_path)
+        return _prepare_model_and_splits(params)
 
 
-def _prepare_model_and_splits(params, *, cache_path=None):
+def _prepare_model_and_splits(params):
     model_spec, protocol = params["model"], params["protocol"]
-    checkpoint = model_spec.get("checkpoint")
-
-    if cache_path is not None and cache_path.exists():
-        checkpoint = str(cache_path)
-
     schema = None
-    effective_model = model_spec
-
-    if checkpoint is not None:
-        schema = SampleBuilder.load(str(Path(checkpoint) / "schema.pkl"))
-        effective_model = {
-            key: value for key, value in model_spec.items() if key != "training"
-        }
-        effective_model["checkpoint"] = checkpoint
+    if "checkpoint" in model_spec:
+        schema = SampleBuilder.load(str(Path(model_spec["checkpoint"]) / "schema.pkl"))
 
     splits = load_splits(
         params["dataset"], params["task"], protocol["split"], schema=schema
     )
-    model = prepare_model(effective_model, splits, protocol)
-
-    if cache_path is not None and checkpoint is None:
-        save_checkpoint(model, splits["train"], cache_path)
+    model = prepare_model(model_spec, splits, protocol)
 
     return params, splits, model
+
+
+def predict_model_outputs(evaluation, *, outputs):
+    """Collect the default adapters' requested base outputs without persistence.
+
+    Adapters re-export this producer or supply their own implementation. Returns
+    arrays by split and metadata accepted by save_model_predictions.
+
+    Examples:
+        >>> from .model_predictions import save_model_predictions
+        >>> import numpy as np
+        >>> with TemporaryDirectory() as directory:
+        ...     path = Path(directory) / "base.npz"
+        ...     save_model_predictions(
+        ...         {"test": {"y_true": np.array([0]),
+        ...                   "y_prob": np.array([[0.75, 0.25]])}}, path,
+        ...         mode="multiclass", label_key="label", class_labels=[0, 1],
+        ...     )
+        ...     ev = Evaluation({"model": {"predictions": str(path)},
+        ...                      "protocol": {"split": {"roles": ["test"]}}})
+        ...     arrays, metadata = predict_model_outputs(
+        ...         ev, outputs={"test": ("y_prob",)}
+        ...     )
+        ...     print(arrays["test"]["y_prob"].tolist())
+        [[0.75, 0.25]]
+    """
+    params, splits, model = prepare_evaluation(
+        evaluation, required=tuple(outputs), outputs=outputs
+    )
+    if len(model.label_keys) != 1:
+        raise ValueError("base-output collection requires one label key")
+    label_key = model.label_keys[0]
+    vocabulary = getattr(
+        model.dataset.output_processors[label_key], "label_vocab", None
+    )
+    if vocabulary is not None:
+        vocabulary = validate_label_encodings(model, splits)
+
+    predictions = collect_model_predictions(
+        model, splits, outputs, params["protocol"].get("batch_size", 32)
+    )
+
+    return predictions, {
+        "mode": model.mode,
+        "label_key": label_key,
+        "class_labels": None
+        if vocabulary is None
+        else sorted(vocabulary, key=vocabulary.get),
+    }
 
 
 def require_protocol(protocol, *, order, feedback):
@@ -230,42 +279,7 @@ def train_model(
     trainer.train(train_loader, val_dataloader=validation_loader, **train_kwargs)
 
 
-# --- Model cache ---
-
-
-def model_cache_path(params, cache_dir):
-    """Key fitted models by their inputs, excluding CP methods and scored metrics.
-
-    Examples:
-        >>> from examples.cpbench.synthetic_data import SyntheticDataset, SyntheticTask
-        >>> from pyhealth.datasets import PatientSplit
-        >>> from pyhealth.models import MLP
-        >>> params = {
-        ...     "dataset": {"class": SyntheticDataset},
-        ...     "task": {"class": SyntheticTask},
-        ...     "model": {"class": MLP, "training": {"epochs": 1}},
-        ...     "protocol": {"split": {"class": PatientSplit,
-        ...         "params": {"ratios": [0.4, 0.4, 0.2]},
-        ...         "roles": ["train", "calibration", "test"]}},
-        ... }
-        >>> first = model_cache_path(params, Path("cache"))
-        >>> model_cache_path({**params, "metrics": ["accuracy"]}, Path("cache")) == first
-        True
-    """
-    protocol = params["protocol"]
-    key = Evaluation(
-        {
-            "dataset": params["dataset"],
-            "task": params["task"],
-            "model": params["model"],
-            "split": protocol["split"],
-            "seed": protocol.get("seed", 0),
-            "batch_size": protocol.get("batch_size", 32),
-            "device": protocol.get("device", "cpu"),
-        }
-    ).id
-
-    return Path(cache_dir) / "cpbench" / "models" / key
+# --- Explicit checkpoint files ---
 
 
 def save_checkpoint(model, dataset, destination: Path) -> None:

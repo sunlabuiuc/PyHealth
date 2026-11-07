@@ -27,6 +27,41 @@ class CPBench(Benchmark):
     def name(self) -> str:
         return "cpbench"
 
+    def predict_model(self, evaluation, *, outputs=None):
+        """Compute base outputs for a runner to save or reuse across CP methods.
+
+        Does not search caches, save outputs or calibrate a CP method. outputs
+        maps split names to required fields; by default the method adapter supplies
+        it. Runners comparing methods can pass the union of their requirements.
+        Returns (split-to-array mappings, metadata for save_model_predictions).
+
+        Given an evaluation from an adapter's complete example::
+
+            from copy import deepcopy
+            from pyhealth.benchmarks.cpbench import save_model_predictions
+
+            predictions, metadata = CPBench().predict_model(evaluation)
+            save_model_predictions(predictions, path, **metadata)
+            params = deepcopy(evaluation.params)
+            params["model"] = {"predictions": str(path)}
+            # Choose another CP method/parameters in params["method"].
+            result = CPBench().evaluate([Evaluation(params)])
+
+        Point another evaluation's model.predictions at that file to run its own
+        CP calibration and prediction using the same saved base outputs.
+        """
+        self.validate_evaluations([evaluation])
+        if outputs is None:
+            outputs = adapters.required_model_outputs(evaluation)
+
+        adapter = adapters.ADAPTERS[evaluation.params["method"]["class"]]
+        producer = getattr(adapter, "predict_model_outputs", None)
+        if producer is None:
+            raise NotImplementedError("adapter does not expose base-output collection")
+
+        with _seeded(evaluation.params["protocol"].get("seed", 0)):
+            return producer(evaluation, outputs=outputs)
+
     def validate_evaluations(self, evaluations: Sequence[Evaluation]) -> None:
         """Reject malformed specifications and unsupported methods before running."""
         super().validate_evaluations(evaluations)
@@ -117,7 +152,12 @@ def validate_evaluation(*, dataset, task, model, method, metrics, protocol):
     """
     _component(dataset, "dataset")
     _component(task, "task")
-    _component(model, "model", {"training", "checkpoint", "predictions"})
+    if isinstance(model, Mapping) and "predictions" in model and "class" not in model:
+        unknown = model.keys() - {"predictions"}
+        if unknown:
+            raise ValueError(f"unknown model keys: {sorted(unknown)}")
+    else:
+        _component(model, "model", {"training", "checkpoint", "predictions"})
     _component(method, "method", {"options"})
 
     sources = {"training", "checkpoint", "predictions"} & model.keys()

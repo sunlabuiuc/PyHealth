@@ -16,10 +16,25 @@ from pyhealth.benchmarks.cpbench.shared.prediction import (
     save_predictions,
 )
 from pyhealth.benchmarks.cpbench.shared.preparation import (
+    predict_model_outputs,
     prepare_evaluation,
     require_protocol,
 )
 from pyhealth.metrics import multilabel_metrics_fn
+
+__all__ = ["predict_model_outputs", "required_model_outputs", "run"]
+
+
+def required_model_outputs(evaluation):
+    """Declare split/field requirements for runners producing base-output files.
+
+    Examples:
+        >>> from types import SimpleNamespace
+        >>> ev = SimpleNamespace(params={"method": {"class": dict}})
+        >>> "calibration" in required_model_outputs(ev)
+        True
+    """
+    return {"calibration": ("logit",), "test": ("logit", "y_prob")}
 
 
 def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
@@ -73,7 +88,7 @@ def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
 
     dataset/task must produce SampleDataset splits with one multilabel label
     field and the same fitted class encoding as the model. model must construct
-    a multilabel BaseModel and select either training arguments or a checkpoint
+    a multilabel BaseModel and select training arguments, a base-output artifact or a checkpoint
     directory. Training additionally requires "train" as the first split role.
 
     params are native FavMac constructor arguments. cost_weights/value_weights
@@ -89,6 +104,11 @@ def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
     Other protocol fields follow benchmark.validate_evaluation. The
     example sets protocol.seed explicitly; omitting it uses the default of 0.
 
+    model.predictions may name a saved base-output artifact instead. Its splits
+    must provide required_model_outputs(evaluation); no model/dataset is loaded.
+    Runners own collection and persistence through CPBench.predict_model and
+    save_model_predictions. cache_dir only writes final CP predictions.
+
     With the evaluation defined above:
         >>> result = run(evaluation, cache_dir=None)  # doctest: +SKIP
     """
@@ -102,7 +122,9 @@ def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
     require_protocol(evaluation.params["protocol"], order="dataset", feedback="none")
 
     params, splits, model = prepare_evaluation(
-        evaluation, required=("calibration", "test"), cache_dir=cache_dir
+        evaluation,
+        required=("calibration", "test"),
+        outputs=required_model_outputs(evaluation),
     )
 
     if model.mode != "multilabel":
@@ -131,11 +153,10 @@ def run(evaluation: Evaluation, cache_dir: Path | None) -> Result:
         value_weights=arguments.get("value_weights", 1.0),
         target_cost=predictor.target_cost,
     )
-    result = Result(
-        "success",
-        metrics,
-        {"class_labels": sorted(vocabulary, key=vocabulary.get)},
-    )
+    metadata = {"class_labels": sorted(vocabulary, key=vocabulary.get)}
+    if getattr(model, "predictions_path", None) is not None:
+        metadata["model_predictions"] = str(model.predictions_path)
+    result = Result("success", metrics, metadata)
 
     if cache_dir is not None:
         path = prediction_cache_path(params, cache_dir)

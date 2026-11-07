@@ -11,7 +11,7 @@ import torch
 
 from examples.cpbench.synthetic_data import SyntheticDataset
 from pyhealth.benchmarks import Evaluation
-from pyhealth.benchmarks.cpbench import CPBench
+from pyhealth.benchmarks.cpbench import CPBench, save_model_predictions
 from pyhealth.benchmarks.cpbench.adapters import ADAPTERS
 from pyhealth.benchmarks.cpbench.benchmark import _seeded
 from pyhealth.benchmarks.cpbench.shared.prediction import (
@@ -253,10 +253,16 @@ class TestCovariateAdapter(unittest.TestCase):
                 np.testing.assert_array_equal(first["y_prob"], second["y_prob"])
                 np.testing.assert_array_equal(first["y_predset"], second["y_predset"])
 
-    def test_cache_and_outputs_are_reused_without_retraining(self):
+    def test_runner_supplies_saved_model_outputs_without_retraining(self):
         ev = covariate_evaluation(training={"epochs": 1})
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            values, metadata = CPBench().predict_model(ev)
+            path = root / "base.npz"
+            save_model_predictions(values, path, **metadata)
+            params = copy.deepcopy(ev.params)
+            params["model"] = {"predictions": str(path)}
+            ev = Evaluation(params)
             first = CPBench().evaluate(
                 [ev], cache_dir=root / "cache", output_dir=root / "output"
             )[ev]
