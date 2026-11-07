@@ -342,8 +342,52 @@ class TestPerStep(unittest.TestCase):
         batch = _batch(dataset)
         result = model(**batch, embed=True)
         _, (_, states, _) = _encode(model, batch, "x")
-        # Record i is at time i, so the label at time s sees record s.
+        # Step i is at time i, so the label at time s sees step s.
         torch.testing.assert_close(result["embed"][:3, :5], states[:3])
+
+    def test_right_aligned_resampling_is_causal(self):
+        # The record at 0.5 is after the label at 0. With right alignment it is
+        # in step 1 (time 1), so changing it leaves the label at 0 unchanged;
+        # with left alignment it is in step 0 (time 0) and leaks into it.
+        for align, leaks in (("right", False), ("left", True)):
+            levels: list[LevelConfig] = [
+                {
+                    "ordering": "series",
+                    "values": [1],
+                    "resample": {"step": 1.0, "method": "avg", "align": align},
+                }
+            ]
+            embeds = []
+            for later in (2.0, 9.0):
+                records = [{"time": [0.0, 0.5], "values": [[1.0], [later]]}] * 2
+                dataset = self.dataset(levels, records)
+                torch.manual_seed(0)
+                model = _model(
+                    dataset, embedding_dim={"x": [{"values": 2}]}, hidden_dim=5
+                )
+                embeds.append(model(**_batch(dataset), embed=True)["embed"])
+            with self.subTest(align=align):
+                # Row 0 is the label at time 0 of the first sample.
+                same = torch.equal(embeds[0][0], embeds[1][0])
+                self.assertEqual(same, not leaks)
+
+    def test_time_feature_on_a_resampled_level(self):
+        levels: list[LevelConfig] = [
+            {
+                "ordering": "series",
+                "values": [1],
+                "resample": {"step": 1.0, "method": "last"},
+            }
+        ]
+        records = [{"time": [0.0, 1.0, 2.0], "values": [[1.0], [2.0], [3.0]]}] * 2
+        dataset = self.dataset(levels, records)
+        dims: dict[str, list[LevelEmbedding]] = {"x": [{"values": 2}]}
+        plain = _model(dataset, embedding_dim=dims, hidden_dim=5)
+        timed = _model(dataset, embedding_dim=dims, hidden_dim=5, time_feature=True)
+        width = lambda m: cast(Any, m.encoders["x"]).encoders[0].input_size
+        self.assertEqual(width(timed), width(plain) + 1)
+        with torch.no_grad():
+            self.assertEqual(timed(**_batch(dataset))["logit"].shape, (6, 1))
 
 
 class TestTraining(unittest.TestCase):
