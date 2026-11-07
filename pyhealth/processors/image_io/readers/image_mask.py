@@ -230,6 +230,18 @@ class ImageMaskReader(BaseImageReader):
             volume_xyz = np.transpose(volume, (2, 1, 0))
             volume_xyz, affine = canonicalize_volume(volume_xyz, affine)
             volume = np.transpose(volume_xyz, (2, 1, 0))
+        if (
+            metadata is not None
+            and target_spacing is None
+            and target_shape is None
+            and len(metadata.shape) == 4
+            and volume.shape != tuple(int(v) for v in metadata.shape[1:])
+        ):
+            raise ValueError(
+                f"Mask volume shape {tuple(volume.shape)} does not match the "
+                f"reference image shape {tuple(metadata.shape[1:])}; check "
+                "the mask slice count and in-plane rows/columns."
+            )
         if target_spacing is not None or target_shape is not None:
             if affine is None:
                 raise ValueError(
