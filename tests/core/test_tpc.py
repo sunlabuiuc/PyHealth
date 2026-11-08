@@ -127,9 +127,28 @@ class TestTPC(unittest.TestCase):
         layer = TPCLayer(2, num_features=3, temporal_channels=4, pointwise_channels=5)
         h = torch.randn(2, 3 + 5, 5, STEPS)  # R^2 = F + Z, C = Y + 1
         x, decay = torch.randn(2, 3, STEPS), torch.rand(2, 3, STEPS)
-        h_next, point = layer(h, x, decay, None, [torch.randn(2, 5, STEPS)])
+        prev_temp = torch.randn(2, 3 * 4, STEPS)  # previous layer: R=F, Y=4
+        h_next, point, temp_out = layer(
+            h, x, decay, None, None, [torch.randn(2, 5, STEPS)], prev_temp
+        )
         self.assertEqual(h_next.shape, (2, 3 + 5 * 2, 5, STEPS))
         self.assertEqual(point.shape, (2, 5, STEPS))
+        self.assertEqual(temp_out.shape, (2, (3 + 5) * 4, STEPS))
+
+    def test_dilation_schedules(self):
+        official = _small_model(self.dataset, num_layers=3, kernel_size=4)
+        paper = _small_model(
+            self.dataset, num_layers=3, kernel_size=4, dilation_schedule="paper"
+        )
+        self.assertEqual([l.dilation for l in official.layers], [1, 3, 6])
+        self.assertEqual([l.dilation for l in paper.layers], [1, 2, 3])
+        with self.assertRaises(ValueError):
+            _small_model(self.dataset, dilation_schedule="bad")
+
+    def test_time_features(self):
+        model = _small_model(self.dataset, time_key="ts")  # reuse (time, F) input
+        out = model(**self.batch)
+        self.assertEqual(out["y_prob"].shape, (4, 1))
 
     def test_wrong_mode_raises(self):
         samples = [

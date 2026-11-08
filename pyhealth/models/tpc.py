@@ -51,9 +51,7 @@ def compute_decay_indicators(
     out = torch.zeros_like(observed)
     since = torch.full((batch, feats), float("inf"), device=observed.device)
     for t in range(steps):
-        since = torch.where(
-            observed[:, t] > 0, torch.zeros_like(since), since + 1.0
-        )
+        since = torch.where(observed[:, t] > 0, torch.zeros_like(since), since + 1.0)
         out[:, t] = torch.where(
             torch.isinf(since), torch.zeros_like(since), base**since
         )
@@ -91,14 +89,21 @@ class TPCLayer(nn.Module):
     Skip connections re-attach the raw values and the earlier pointwise
     outputs, so the feature axis grows by ``pointwise_channels`` per layer.
 
+    As in the official code, the pointwise branch reads the previous layer's
+    temporal output, the latest pointwise output, the raw values and decay
+    indicators, optional time features, and the static features.
+
     Args:
-        layer_idx: 1-indexed position of this layer. It sets the dilation
-            (``d = layer_idx``) and the input feature count.
+        layer_idx: 1-indexed position of this layer. It sets the number of
+            input features.
         num_features: Number of raw time-series features ``F``.
         num_static: Number of static features ``S`` (0 for none).
+        num_time: Number of per-hour time features (e.g. time in ICU, hour of
+            day) that only feed the pointwise branch (0 for none).
         temporal_channels: Temporal output channels per feature ``Y``.
         pointwise_channels: Pointwise output features ``Z``.
         kernel_size: Temporal kernel size ``k``.
+        dilation: Temporal dilation ``d``. Left padding is ``d * (k - 1)``.
         temporal_dropout: Dropout after the temporal branch.
         main_dropout: Dropout after the pointwise branch.
 
@@ -108,7 +113,7 @@ class TPCLayer(nn.Module):
         >>> x = torch.randn(3, 4, 10)
         >>> decay = torch.rand(3, 4, 10)
         >>> s = torch.randn(3, 2)
-        >>> h_next, z = layer(h, x, decay, s, [])
+        >>> h_next, z, t = layer(h, x, decay, s, None, [], None)
         >>> h_next.shape  # features grow from 4 to 4 + Z, channels become Y+1
         torch.Size([3, 17, 13, 10])
     """
@@ -118,21 +123,24 @@ class TPCLayer(nn.Module):
         layer_idx: int,
         num_features: int,
         num_static: int = 0,
+        num_time: int = 0,
         temporal_channels: int = 12,
         pointwise_channels: int = 13,
         kernel_size: int = 4,
+        dilation: Optional[int] = None,
         temporal_dropout: float = 0.05,
         main_dropout: float = 0.45,
     ):
         super().__init__()
         self.layer_idx = layer_idx
-        self.dilation = layer_idx
+        self.dilation = layer_idx if dilation is None else dilation
         self.kernel_size = kernel_size
         self.pad = self.dilation * (kernel_size - 1)
         self.Y = temporal_channels
         self.Z = pointwise_channels
         self.F = num_features
         self.S = num_static
+        self.n_time = num_time
 
         # R^n features, C^n channels entering this layer.
         self.R = num_features + pointwise_channels * (layer_idx - 1)
@@ -149,8 +157,11 @@ class TPCLayer(nn.Module):
         self.temporal_bn = nn.BatchNorm1d(self.R * self.Y)
         self.temporal_drop = nn.Dropout(temporal_dropout)
 
-        # Pointwise branch input: flattened h, static, decay indicators.
-        point_in = self.R * self.C + self.S + num_features
+        # Pointwise input: previous temporal output, latest pointwise output,
+        # raw values + decay (2F), time features and static features.
+        point_in = 2 * num_features + num_time + num_static
+        if layer_idx > 1:
+            point_in += (self.R - self.Z) * self.Y + self.Z
         self.pointwise = nn.Conv1d(point_in, pointwise_channels, 1)
         self.point_bn = nn.BatchNorm1d(pointwise_channels)
         self.point_drop = nn.Dropout(main_dropout)
@@ -161,8 +172,10 @@ class TPCLayer(nn.Module):
         x_values: torch.Tensor,
         x_decay: torch.Tensor,
         static: Optional[torch.Tensor],
+        time_feats: Optional[torch.Tensor],
         prev_point: List[torch.Tensor],
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        prev_temp: Optional[torch.Tensor],
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Applies one TPC layer.
 
         Args:
@@ -170,13 +183,17 @@ class TPCLayer(nn.Module):
             x_values: Raw (forward-filled) values, ``(batch, F, time)``.
             x_decay: Decay indicators, ``(batch, F, time)``.
             static: Static features ``(batch, S)`` or None.
+            time_feats: Per-hour time features ``(batch, n_time, time)`` or
+                None.
             prev_point: Pointwise outputs from earlier layers, each
                 ``(batch, Z, time)``.
+            prev_temp: Previous layer's temporal output
+                ``(batch, R_prev * Y, time)``, or None for the first layer.
 
         Returns:
-            A tuple ``(h_next, point_out)``. ``h_next`` has shape
-            ``(batch, R + Z, Y + 1, time)`` and ``point_out`` has shape
-            ``(batch, Z, time)``.
+            A tuple ``(h_next, point_out, temp_out)``. ``h_next`` has shape
+            ``(batch, R + Z, Y + 1, time)``, ``point_out`` is
+            ``(batch, Z, time)`` and ``temp_out`` is ``(batch, R * Y, time)``.
         """
         batch, _, _, steps = h.shape
 
@@ -184,23 +201,30 @@ class TPCLayer(nn.Module):
         flat = h.reshape(batch, self.R * self.C, steps)
         temp = self.temporal(F.pad(flat, (self.pad, 0)))
         temp = self.temporal_drop(self.temporal_bn(temp))
+        temp_out = temp
         temp = temp.view(batch, self.R, self.Y, steps)
 
-        # Skip connections: raw values and earlier pointwise outputs.
+        # Skip connections: raw values and earlier pointwise outputs. The skip
+        # channel goes first, as in the official code.
         skip = torch.cat([x_values] + prev_point, dim=1).unsqueeze(2)
-        r = torch.cat([temp, skip], dim=2)  # (batch, R, Y+1, time)
+        r = torch.cat([skip, temp], dim=2)  # (batch, R, Y+1, time)
 
         # Pointwise branch.
-        parts = [flat]
-        if self.S > 0 and static is not None:
+        parts = [x_values, x_decay]
+        if prev_temp is not None:
+            parts.append(prev_temp)
+        if prev_point:
+            parts.append(prev_point[-1])
+        if time_feats is not None and self.n_time > 0:
+            parts.append(time_feats)
+        if static is not None and self.S > 0:
             parts.append(static.unsqueeze(-1).expand(-1, -1, steps))
-        parts.append(x_decay)
         point = self.pointwise(torch.cat(parts, dim=1))
         point = self.point_drop(self.point_bn(point))
 
         broadcast = point.unsqueeze(2).expand(-1, -1, self.Y + 1, -1)
         h_next = F.relu(torch.cat([r, broadcast], dim=1))
-        return h_next, point
+        return h_next, point, temp_out
 
 
 class TPC(BaseModel):
@@ -224,6 +248,9 @@ class TPC(BaseModel):
             zeros are used (the paper's "no decay" ablation).
         static_key: Optional input key with static features ``(S,)``.
         diag_key: Optional input key with multi-hot diagnoses ``(D,)``.
+        time_key: Optional input key with per-hour time features
+            ``(time, n_time)`` such as time in ICU and hour of day. They only
+            feed the pointwise branch, as in the official code.
         temporal_channels: Temporal channels per feature ``Y``.
         pointwise_channels: Pointwise features per layer ``Z``.
         num_layers: Number of TPC layers ``N``.
@@ -233,10 +260,26 @@ class TPC(BaseModel):
         diag_embedding_size: Size ``D*`` of the diagnosis embedding.
         final_fc_size: Width ``X`` of the first final pointwise layer.
         loss: ``"msle"`` (paper default) or ``"mse"``.
+        dilation_schedule: ``"official"`` uses the released code's schedule
+            (``d = 1`` for layer 1, then ``d = (n - 1) * (k - 1)``).
+            ``"paper"`` uses the paper text (``d = n``).
 
     Note:
         Defaults follow the paper's best eICU configuration. Smaller values
         are recommended for CPU runs and unit tests.
+
+        Differences from the official implementation
+        (github.com/EmmaRocheteau/TPC-LoS-prediction, ``models/tpc_model.py``):
+
+        * Standard ``BatchNorm1d`` is used. The official code's custom
+          ``MyBatchNorm1d`` keeps using batch statistics in eval mode.
+        * ``forward`` predicts only the last hour of each window (PyHealth's
+          regression label is a single number). The official code predicts
+          every hour from hour 5 on; use :meth:`forward_sequence` for that.
+        * Temporal and pointwise sizes are the same in every layer (the
+          official code accepts one size per layer).
+        * No mortality head or multitask loss, and no sequence-length mask in
+          the loss because windows have a fixed length.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
@@ -267,6 +310,7 @@ class TPC(BaseModel):
         decay_key: Optional[str] = "decay",
         static_key: Optional[str] = None,
         diag_key: Optional[str] = None,
+        time_key: Optional[str] = None,
         temporal_channels: int = 12,
         pointwise_channels: int = 13,
         num_layers: int = 9,
@@ -276,16 +320,17 @@ class TPC(BaseModel):
         diag_embedding_size: int = 64,
         final_fc_size: int = 17,
         loss: str = "msle",
+        dilation_schedule: str = "official",
     ):
         super().__init__(dataset=dataset)
         assert len(self.label_keys) == 1, "TPC supports a single label key."
         if self.mode != "regression":
-            raise ValueError(
-                f"TPC needs a 'regression' label, got mode={self.mode!r}."
-            )
+            raise ValueError(f"TPC needs a 'regression' label, got mode={self.mode!r}.")
         if loss not in ("msle", "mse"):
             raise ValueError("loss must be 'msle' or 'mse'.")
-        for key in (value_key, decay_key, static_key, diag_key):
+        if dilation_schedule not in ("official", "paper"):
+            raise ValueError("dilation_schedule must be 'official' or 'paper'.")
+        for key in (value_key, decay_key, static_key, diag_key, time_key):
             if key is not None and key not in self.feature_keys:
                 raise ValueError(f"'{key}' is not in the dataset input_schema.")
 
@@ -294,12 +339,19 @@ class TPC(BaseModel):
         self.decay_key = decay_key
         self.static_key = static_key
         self.diag_key = diag_key
+        self.time_key = time_key
         self.loss_type = loss
 
         procs = dataset.input_processors
         num_features = procs[value_key].size()
         num_static = procs[static_key].size() if static_key else 0
         num_diag = procs[diag_key].size() if diag_key else 0
+        num_time = procs[time_key].size() if time_key else 0
+
+        def dilation(n: int) -> int:
+            if dilation_schedule == "paper":
+                return n
+            return 1 if n == 1 else (n - 1) * (kernel_size - 1)
 
         self.layers = nn.ModuleList(
             [
@@ -307,9 +359,11 @@ class TPC(BaseModel):
                     layer_idx=n,
                     num_features=num_features,
                     num_static=num_static,
+                    num_time=num_time,
                     temporal_channels=temporal_channels,
                     pointwise_channels=pointwise_channels,
                     kernel_size=kernel_size,
+                    dilation=dilation(n),
                     temporal_dropout=temporal_dropout,
                     main_dropout=main_dropout,
                 )
@@ -366,11 +420,19 @@ class TPC(BaseModel):
         if self.static_key:
             static = self._tensor(kwargs[self.static_key]).float().to(self.device)
 
+        time_feats = None
+        if self.time_key:
+            time_feats = self._tensor(kwargs[self.time_key]).float().to(self.device)
+            time_feats = time_feats.permute(0, 2, 1)  # (batch, n_time, time)
+
         # First layer input: values and decay as two channels per feature.
         h = torch.stack([x, decay], dim=2)  # (batch, F, 2, time)
         prev_point: List[torch.Tensor] = []
+        prev_temp = None
         for layer in self.layers:
-            h, point = layer(h, x, decay, static, prev_point)
+            h, point, prev_temp = layer(
+                h, x, decay, static, time_feats, prev_point, prev_temp
+            )
             prev_point.append(point)
 
         parts = [h.reshape(batch, -1, steps)]
