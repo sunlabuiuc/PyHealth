@@ -731,6 +731,11 @@ class YAIBKidneyFunctionMIMIC4(_YAIBMIMIC4Task):
     excluded if the ICU stay is shorter than 48 hours or has no creatinine in
     that window.
 
+    As in YAIB, the label is min-max scaled to 0..1 on the range of the
+    training labels (learned when the processors are fitted, so use
+    ``set_task(task, split=...)``; other splits are not clipped). The loss is
+    on the scaled label, and predictions and metrics are in mg/dL.
+
     Requires the ``labevents``, ``chartevents`` and ``outputevents`` tables.
 
     Examples:
@@ -744,7 +749,9 @@ class YAIBKidneyFunctionMIMIC4(_YAIBMIMIC4Task):
     """
 
     task_name: str = "YAIBKidneyFunctionMIMIC4"
-    output_schema: ClassVar[dict[str, Any]] = {"creatinine": "regression"}
+    output_schema: ClassVar[dict[str, Any]] = {
+        "creatinine": ("regression", {"normalization": "minmax"})
+    }
 
     OBSERVATION_HOURS: ClassVar[int] = 24
     MIN_STAY_HOURS: ClassVar[int] = 48
@@ -796,7 +803,11 @@ class YAIBLengthOfStayMIMIC4(_YAIBMIMIC4Task):
     exclusions.
 
     The label is a per-hour series on the hours of ``dynamic``
-    (``timeseries_regression``), so models predict at every hour.
+    (``timeseries_regression``), so models predict at every hour. As in
+    YAIB, it is min-max scaled to 0..1 on the range of all hourly training
+    labels (learned when the processors are fitted, so use
+    ``set_task(task, split=...)``; other splits are not clipped). The loss is
+    on the scaled label, and predictions and metrics are in hours.
 
     Requires the ``labevents``, ``chartevents`` and ``outputevents`` tables.
 
@@ -811,7 +822,9 @@ class YAIBLengthOfStayMIMIC4(_YAIBMIMIC4Task):
     """
 
     task_name: str = "YAIBLengthOfStayMIMIC4"
-    output_schema: ClassVar[dict[str, Any]] = {"los": "timeseries_regression"}
+    output_schema: ClassVar[dict[str, Any]] = {
+        "los": ("timeseries_regression", {"normalization": "minmax"})
+    }
 
     MAX_HOURS: ClassVar[int] = 7 * 24
 
