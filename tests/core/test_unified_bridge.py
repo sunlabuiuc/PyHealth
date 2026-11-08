@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import torch
@@ -1233,11 +1234,9 @@ class TestBridgeDataset(unittest.TestCase):
         self.assertEqual(len(inner), 3)
 
     def test_fields_without_a_bridge_are_rejected(self):
-        class _Dataset:
-            input_processors = {"text": TupleTimeTextProcessor()}
-
+        dataset = SimpleNamespace(input_processors={"text": TupleTimeTextProcessor()})
         with self.assertRaisesRegex(TypeError, "has no unified bridge"):
-            BridgeDataset(_Dataset())
+            BridgeDataset(dataset)
 
 
 if __name__ == "__main__":

@@ -1110,7 +1110,7 @@ def transform_batch(
 
 
 class BridgeDataset:
-    """A dataset whose legacy input processors are :class:`UnifiedBridge`\ s.
+    """A dataset whose legacy input processors are replaced by unified bridges.
 
     For model constructors only: a V2 model wraps the dataset it is given,
     so it reads each legacy field as the levels its bridge describes, and
