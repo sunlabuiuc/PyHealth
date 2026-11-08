@@ -17,9 +17,11 @@ name: AI Review
 # Duplication is judged by component: a PR that adds a model, task or dataset
 # PyHealth already has is blocked, but code copied into a new component is
 # fine, since components are kept mostly self-contained. Sharing between
-# components must be the author's decision, so each new link (another
-# component's internals imported, a concrete class subclassed, code moved to a
-# shared module) must be explained in the PR description, or the review blocks.
+# components must be the author's decision, so each new link (another concrete
+# component's code used, code moved to a shared module, an existing component
+# changed for a new one) must be named in the PR description with a reason or
+# a clear purpose, or the review blocks. Code meant to be shared, such as base
+# classes, abstract family bases and utilities, needs none.
 #
 # When an automatic PR switches to manual:
 # - right away, for prompt injection, and when the author's 10th requested AI
@@ -663,17 +665,25 @@ jobs:
             an experiment doesn't silently change another. Sharing is allowed,
             but it must be the author's choice, not their coding assistant's.
             Find every new link the pull request creates between components:
-            - importing another component's private (underscore-prefixed)
-              internals;
-            - subclassing another concrete model or task;
+            - using code from another concrete component, such as a model,
+              task or dataset, whether public or private: importing its
+              helpers, constants, layers or classes, subclassing it, or
+              wrapping it;
             - moving code out of a component into a shared module;
             - changing an existing component so that a new one can use it.
-            Building on the base classes and public shared code is not such a
-            link, and neither is sharing within one module or one family of
-            components defined together.
-            Each link needs a reason in the pull request's description; a code
-            comment doesn't count. Any reasonable sentence is enough, so don't
-            argue with a stated reason. For each link without one, report a
+            Using code that is meant to be shared is not such a link: base
+            classes, abstract classes that a family of components builds on,
+            and utility modules. Judge by purpose, not by name: code is meant
+            to be shared when it is written for many components, not as a
+            helper for one or a few concrete classes, even if it is public. An
+            underscore prefix suggests it isn't meant to be shared. Sharing
+            within one module or one family of components defined together is
+            not a link either.
+            Each link must be named in the pull request's description, with a
+            reason or a purpose the description makes clear, such as an option
+            described as added for the new component; a code comment doesn't
+            count. Any reasonable explanation is enough, so don't argue with
+            one. For each link the description doesn't cover, report a
             medium-severity finding on its line: name the link, say why
             PyHealth keeps components self-contained, and ask the author to
             either confirm the sharing and say why in the description, or keep
@@ -985,14 +995,15 @@ jobs:
 
             Components are kept mostly self-contained, so that changing one for
             an experiment doesn't silently change another. Code copied into a
-            component is fine. Sharing between components, such as importing
-            another component's private internals, subclassing another concrete
-            model or task, or changing an existing component for a new one,
-            needs a reason in the description, so that it is the author's
-            choice and not their coding assistant's; any reasonable sentence is
-            enough. Building on the base classes and public shared code needs
-            none. Never suggest sharing code, and never ask the author to copy
-            code they chose to share.
+            component is fine. Sharing between components, such as using
+            another concrete component's code, public or private, or changing
+            an existing component for a new one, must be named in the
+            description with a reason or a purpose the description makes
+            clear, so that it is the author's choice and not their coding
+            assistant's; any reasonable explanation is enough. Code meant to be
+            shared, such as base classes, abstract classes a family builds on
+            and utilities, needs none. Never suggest sharing code, and never
+            ask the author to copy code they chose to share.
 
             Then answer suggestion:
             - "approve" only if all of these hold:
@@ -1004,10 +1015,10 @@ jobs:
                 adds a component PyHealth already has.
               - Every new link between components, in the first reviewer's
                 summary or in the diff, is named in the description with a
-                reason. For each one that isn't, ask the author to either
-                confirm the sharing is intended and say why in the
-                description, or keep the component self-contained, offering
-                both neutrally.
+                reason or a clear purpose. For each one that isn't, ask the
+                author to either confirm the sharing is intended and say why
+                in the description, or keep the component self-contained,
+                offering both neutrally.
               - Test coverage meets the bar: generally at least 80% for each
                 added or modified file, and at least 60% for the whole
                 repository. This is a guideline, not a strict rule: a file with
