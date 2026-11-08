@@ -287,6 +287,17 @@ def _csv_tsv_gz_path(path: str) -> str:
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
 
 
+# set_task(compression=...) values and the litdata BinaryWriter arguments they
+# map to. "sample" compresses each item as its own zstd frame, so a read
+# inflates one item. litdata's default ("batch") shares a frame between up to
+# 256 items, and a patient split reads them out of order, so most reads
+# inflate a whole frame: 2-3x slower than "sample" on MIMIC-IV for ~30% less
+# space.
+_CACHE_COMPRESSIONS: dict[str, dict[str, str]] = {
+    "zstd": {"compression": "zstd", "compression_level": "sample"},
+}
+
+
 def _litdata_merge(cache_dir: Path) -> None:
     """
     Merges LitData binary writer index files in the given cache directory.
@@ -463,7 +474,7 @@ def _proc_transform_init(queue: multiprocessing.queues.Queue) -> None:
     _proc_transform_progress = queue
 
 
-def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
+def _proc_transform_fn(args: tuple[int, Path, int, int, Path, str | None]) -> None:
     """
     Worker function to apply processors on a chunk of samples.
 
@@ -474,9 +485,11 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
             start_idx (int): The start index of samples to process.
             end_idx (int): The end index of samples to process.
             output_dir (Path): The output directory to save results.
+            compression (Optional[str]): A key of ``_CACHE_COMPRESSIONS``,
+                or None to write uncompressed.
     """
     BATCH_SIZE = 128
-    worker_id, task_df, start_idx, end_idx, output_dir = args
+    worker_id, task_df, start_idx, end_idx, output_dir, compression = args
     total_samples = end_idx - start_idx
     logger.info(
         f"Worker {worker_id} started processing {total_samples} samples. ({start_idx} to {end_idx})"
@@ -486,7 +499,13 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
         set_env(DATA_OPTIMIZER_GLOBAL_RANK=str(worker_id)),
         _ProgressContext(_proc_transform_progress, total=total_samples) as progress,
     ):
-        writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
+        # Every worker writes with the same settings: merging checks that the
+        # per-worker index configs agree.
+        writer = BinaryWriter(
+            cache_dir=str(output_dir),
+            chunk_bytes="64MB",
+            **(_CACHE_COMPRESSIONS[compression] if compression else {}),
+        )
 
         dataset = litdata.StreamingDataset(str(task_df))
         builder = SampleBuilder.load(f"{output_dir}/schema.pkl")
@@ -1207,7 +1226,11 @@ class BaseDataset(ABC):
             raise e
 
     def _proc_transform(
-        self, task_df: Path, output_dir: Path, num_workers: int
+        self,
+        task_df: Path,
+        output_dir: Path,
+        num_workers: int,
+        compression: str | None = None,
     ) -> None:
         self._main_guard(self._proc_transform.__name__)
 
@@ -1225,7 +1248,9 @@ class BaseDataset(ABC):
             with set_env(DATA_OPTIMIZER_NUM_WORKERS=str(num_workers)):
                 if num_workers == 1:
                     logger.info("Single worker mode, processing sequentially")
-                    _proc_transform_fn((0, task_df, 0, num_samples, output_dir))
+                    _proc_transform_fn(
+                        (0, task_df, 0, num_samples, output_dir, compression)
+                    )
                     _litdata_merge(output_dir)
                     return
 
@@ -1241,6 +1266,7 @@ class BaseDataset(ABC):
                         start,
                         end,
                         output_dir,
+                        compression,
                     )
                     for worker_id, (start, end) in enumerate(linspace)
                 ]
@@ -1281,6 +1307,7 @@ class BaseDataset(ABC):
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
         split: Split | None = None,
+        compression: str | None = None,
     ) -> SampleDataset | tuple[SampleDataset, ...]:
         """Processes the base dataset to generate the task-specific sample dataset.
         The cache structure is as follows::
@@ -1309,6 +1336,17 @@ class BaseDataset(ABC):
                 nothing is loaded into memory beyond the per-sample index that
                 processing already keeps. Defaults to None: fit on all samples
                 and return one dataset, as before.
+            compression (Optional[str]): Compress the processed samples on
+                disk. ``"zstd"`` compresses each sample on its own, so random
+                reads (shuffling, split parts) stay close to uncompressed
+                speed. Measured on reads of a patient split: MIMIC-IV
+                ``YAIBMortalityMIMIC4`` samples were 4.9x smaller (412 MB to
+                84 MB) and an epoch 1.1x slower; COVID-19 CXR images were
+                10.9x smaller (12.7 GB to 1.2 GB) and an epoch 1.9x slower.
+                Applies when the samples are built: an existing cache is
+                reused as it was written, compressed or not, since both read
+                back the same. Delete it to rebuild with another setting.
+                Defaults to None (uncompressed).
 
         Returns:
             SampleDataset: The generated sample dataset, or, with ``split``, a
@@ -1323,8 +1361,15 @@ class BaseDataset(ABC):
 
         Raises:
             AssertionError: If no default task is found and task is None.
+            ValueError: If ``compression`` is not None or ``"zstd"``.
         """
         self._main_guard(self.set_task.__name__)
+
+        if compression is not None and compression not in _CACHE_COMPRESSIONS:
+            raise ValueError(
+                f"compression must be None or one of {sorted(_CACHE_COMPRESSIONS)}, "
+                f"got {compression!r}."
+            )
 
         if task is None:
             assert self.default_task is not None, "No default tasks found"
@@ -1449,6 +1494,7 @@ class BaseDataset(ABC):
                         task_df_path,
                         samples_path,
                         num_workers,
+                        compression,
                     )
                     logger.info(f"Cached processed samples to {samples_path}")
         else:
@@ -1461,6 +1507,12 @@ class BaseDataset(ABC):
             dataset_name=self.dataset_name,
             task_name=task.task_name,
         )
+        if samples.compression != compression:
+            logger.info(
+                f"Reusing cached samples written with compression="
+                f"{samples.compression!r}; compression={compression!r} applies "
+                f"only when they are built. Delete {samples_path} to rebuild."
+            )
         if split is None:
             return samples
         with np.load(samples_path / "split.npz") as parts:

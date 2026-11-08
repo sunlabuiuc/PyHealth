@@ -42,8 +42,10 @@ dependencies = [
   "pydantic>=2.11,<3",
   "dask[complete]>=2026.1.0",
   # >=0.2.64: worker indexes merge in numeric rank order (patient_to_index relies
-  # on it).
-  "litdata>=0.2.64",
+  # on it). >=0.2.74: per-sample zstd (set_task(compression="zstd")).
+  "litdata>=0.2.74",
+  # litdata's zstd codec before Python 3.14 (3.14+ uses compression.zstd).
+  "zstd>=1.5; python_version < '3.14'",
   "pyarrow>=23.0.1",
   "orjson~=3.10",
   "narwhals>=2.13,<3",
