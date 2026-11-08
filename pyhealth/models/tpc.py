@@ -396,7 +396,8 @@ class TPC(BaseModel):
             the label is present.
         """
         pred = self.forward_sequence(**kwargs)[:, -1:]  # (batch, 1)
-        results = {"logit": pred, "y_prob": self.prepare_y_prob(pred)}
+        # Regression: the prediction itself is the output (no sigmoid/softmax).
+        results = {"logit": pred, "y_prob": pred}
         if self.label_key in kwargs:
             y_true = self._tensor(kwargs[self.label_key]).float().to(self.device)
             y_true = y_true.view_as(pred)
