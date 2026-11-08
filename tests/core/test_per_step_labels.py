@@ -59,7 +59,6 @@ class TestTimeseriesLabelProcessors(unittest.TestCase):
         self.assertIsInstance(processor, LabelProcessor)
         self.assertIsInstance(processor, TimeseriesLabelProcessor)
         self.assertNotIsInstance(processor, SequenceProcessorV2)
-        self.assertEqual(processor.schema(), ("value", "time"))
         self.assertEqual(processor.size(), 1)
         self.assertFalse(processor.learns_statistics)
         self.assertEqual(

@@ -96,18 +96,18 @@ class NotATensor(FeatureProcessor):
 
 
 class TupleProcessor(FeatureProcessor):
-    """Declares tensor output and returns a tuple, as `value` says."""
+    """Declares tensor output and returns `outputs` in turn, one per sample."""
 
     stores_tensor = True
 
-    def __init__(self, value):
-        self.value = value
+    def __init__(self, *outputs):
+        self.outputs = outputs
+        self.calls = 0
 
     def process(self, value):
-        return self.value
-
-    def schema(self):
-        return ("value", "mask")
+        output = self.outputs[self.calls % len(self.outputs)]
+        self.calls += 1
+        return output
 
 
 def _samples(values):
@@ -181,16 +181,25 @@ class TestCreateSampleDatasetRoundTrip(unittest.TestCase):
                 in_memory=False,
             )
 
-    def test_tensor_tuples_must_match_the_schema(self):
+    def test_tensor_tuples_keep_one_structure(self):
+        pair = (torch.zeros(1), torch.zeros(1))
         cases = {
-            "'codes'.*stores_tensor=True": (torch.zeros(1), "mask"),  # not all tensors
-            r"'codes'.*1 tensors.*schema\(\) has 2": (torch.zeros(1),),
+            # not all tensors
+            "'codes'.*stores_tensor=True": [(torch.zeros(1), "mask")],
+            "'codes'.*a tuple of 1 tensors.*earlier sample returned a tuple of 2": [
+                pair,
+                (torch.zeros(1),),
+            ],
+            "'codes'.*a tensor.*earlier sample returned a tuple of 2": [
+                pair,
+                torch.zeros(1),
+            ],
         }
-        for message, value in cases.items():
+        for message, outputs in cases.items():
             with self.subTest(message), self.assertRaisesRegex(ValueError, message):
                 create_sample_dataset(
                     _samples(CASES["scalar str"]),
-                    {"raw_field": "raw", "codes": TupleProcessor(value)},
+                    {"raw_field": "raw", "codes": TupleProcessor(*outputs)},
                     OUTPUT,
                     in_memory=False,
                 )

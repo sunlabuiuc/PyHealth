@@ -72,7 +72,8 @@ Available Processors
 **Supporting Types:**
 
 - ``ModalityType``: Enum of modality identifiers (``CODE``, ``TEXT``, ``IMAGE``, ``NUMERIC``, ``AUDIO``, ``SIGNAL``) used for routing in ``UnifiedMultimodalEmbeddingModel``
-- ``TemporalFeatureProcessor``: Abstract base class for all temporal processors; requires ``modality()``, ``value_dim()``, and ``process()`` returning ``dict``
+- ``LegacyFeatureProcessor``: Base class for processors read by the legacy models (RNN, Transformer, StageNet, ...) and the interpretability methods; adds ``schema()``, ``is_token()``, ``dim()`` and ``spatial()`` to ``FeatureProcessor``
+- ``TemporalFeatureProcessor``: Abstract base class for all temporal processors (a ``LegacyFeatureProcessor``); requires ``modality()``, ``value_dim()``, and ``process()`` returning ``dict``
 
 Usage Examples
 --------------
@@ -389,6 +390,8 @@ When creating a custom ``FeatureProcessor``, you need to understand two key meth
 1. **process()** - Required method that transforms individual feature values
 2. **fit()** - Optional method for learning global data statistics (e.g., vocabularies, normalization parameters)
 
+A processor whose field feeds the legacy models (RNN, Transformer, StageNet, ...) or the interpretability methods subclasses ``LegacyFeatureProcessor`` instead and also implements ``schema()``, ``is_token()``, ``dim()`` and ``spatial()``.
+
 The ``process()`` Method
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -548,6 +551,7 @@ API Reference
 
     processors/pyhealth.processors.Processor
     processors/pyhealth.processors.FeatureProcessor
+    processors/pyhealth.processors.LegacyFeatureProcessor
     processors/pyhealth.processors.TemporalFeatureProcessor
     processors/pyhealth.processors.ModalityType
     processors/pyhealth.processors.SampleProcessor

@@ -72,11 +72,13 @@ from .cehr_processor import CehrProcessor, ConceptVocab
 # Expose public API
 from .base_processor import (
     FeatureProcessor,
+    LegacyFeatureProcessor,
     ModalityType,
     TemporalFeatureProcessor,
 )
 __all__ = [
     "FeatureProcessor",
+    "LegacyFeatureProcessor",
     "ModalityType",
     "TemporalFeatureProcessor",
     "ImageProcessor",

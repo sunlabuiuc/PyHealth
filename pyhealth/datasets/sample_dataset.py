@@ -93,6 +93,10 @@ def _remap_index_mapping(
     return remapped
 
 
+def _describe_arity(arity: int | None) -> str:
+    return "a tensor" if arity is None else f"a tuple of {arity} tensors"
+
+
 class SampleBuilder:
     """Fit feature processors and transform pickled samples without materializing a dataset.
 
@@ -156,6 +160,9 @@ class SampleBuilder:
         self._record_to_index: Dict[str, List[int]] = {}
         self._fitted = False
         self._split = None
+        # Tuple length of each tensor field (None for a bare tensor), from
+        # the first sample encode() sees; litdata needs it in every sample.
+        self._tensor_arity: dict[str, int | None] = {}
         self._split_indices: list[np.ndarray] | None = None
 
     @property
@@ -368,7 +375,7 @@ class SampleBuilder:
         writes and expects every later sample to have the same structure, so a
         list whose length varies between samples cannot be written as-is.
         Fields whose processor declares ``stores_tensor`` stay tensors (or
-        tuples of tensors, one per ``schema()`` entry); every other field
+        tuples of the same number of tensors in every sample); every other field
         (including keys not in the schema, such as ``patient_id``) goes into
         one pickled payload, which has the same structure in every sample
         whatever the values look like. :class:`SampleDataset` decodes it
@@ -382,8 +389,8 @@ class SampleBuilder:
 
         Raises:
             ValueError: If a field declared ``stores_tensor`` is not a tensor
-                or a tuple of tensors, one per entry of its processor's
-                ``schema()``.
+                or a tuple of tensors, or does not have the structure (a bare
+                tensor, or a tuple of the same length) of its first sample.
         """
         tensor_fields = self._tensor_fields()
         processors = {**self._input_processors, **self._output_processors}
@@ -402,13 +409,14 @@ class SampleBuilder:
                         f"{type(value).__name__}. Set stores_tensor = False on the "
                         "processor, or return a torch.Tensor or a tuple of them."
                     )
-                # litdata expects the same structure in every sample, and
-                # schema() fixes the tuple's length for all of them.
-                if is_tensors and len(value) != len(processor.schema()):
+                # litdata expects the same structure in every sample.
+                arity = len(value) if is_tensors else None
+                expected = self._tensor_arity.setdefault(key, arity)
+                if arity != expected:
                     raise ValueError(
                         f"Field '{key}': {type(processor).__name__}.process() "
-                        f"returned {len(value)} tensors, but its schema() has "
-                        f"{len(processor.schema())} entries."
+                        f"returned {_describe_arity(arity)}, but an earlier "
+                        f"sample returned {_describe_arity(expected)}."
                     )
                 record[key] = value
             else:
