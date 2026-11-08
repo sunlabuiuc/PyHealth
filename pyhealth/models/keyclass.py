@@ -1,4 +1,7 @@
-"""Phase 6: a multilabel MLP trained on fixed clinical text embeddings."""
+# Author: Amin Torabi
+# Paper title: Classifying Unstructured Clinical Notes via Automatic Weak Supervision
+# Paper link: https://arxiv.org/abs/2206.12088v2
+# Description: Multilabel MLP trained on fixed clinical text embeddings.
 
 import torch
 from torch import nn

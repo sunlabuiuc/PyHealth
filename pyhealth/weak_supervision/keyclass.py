@@ -1,4 +1,7 @@
-"""Phases 4–5: train-only phrase mining and categorical weak supervision."""
+# Author: Amin Torabi
+# Paper title: Classifying Unstructured Clinical Notes via Automatic Weak Supervision
+# Paper link: https://arxiv.org/abs/2206.12088v2
+# Description: Automatic phrase mining, labeling-function generation, and categorical weak-label aggregation.
 
 from dataclasses import dataclass
 
