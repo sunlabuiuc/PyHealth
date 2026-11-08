@@ -186,11 +186,11 @@ class TestCreateSampleDatasetRoundTrip(unittest.TestCase):
         cases = {
             # not all tensors
             "'codes'.*stores_tensor=True": [(torch.zeros(1), "mask")],
-            "'codes'.*a tuple of 1 tensors.*earlier sample returned a tuple of 2": [
+            "'codes'.*same number of tensors": [
                 pair,
                 (torch.zeros(1),),
             ],
-            "'codes'.*a tensor.*earlier sample returned a tuple of 2": [
+            "'codes'.*same number of tensors in every sample": [
                 pair,
                 torch.zeros(1),
             ],

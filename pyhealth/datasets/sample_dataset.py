@@ -93,10 +93,6 @@ def _remap_index_mapping(
     return remapped
 
 
-def _describe_arity(arity: int | None) -> str:
-    return "a tensor" if arity is None else f"a tuple of {arity} tensors"
-
-
 class SampleBuilder:
     """Fit feature processors and transform pickled samples without materializing a dataset.
 
@@ -415,8 +411,7 @@ class SampleBuilder:
                 if arity != expected:
                     raise ValueError(
                         f"Field '{key}': {type(processor).__name__}.process() "
-                        f"returned {_describe_arity(arity)}, but an earlier "
-                        f"sample returned {_describe_arity(expected)}."
+                        "must return the same number of tensors in every sample."
                     )
                 record[key] = value
             else:

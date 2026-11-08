@@ -130,6 +130,26 @@ class LegacyFeatureProcessor(FeatureProcessor):
     decide how to embed and attribute a field.
     :class:`~pyhealth.processors.SequenceProcessorV2` describes its output
     in its own format instead, and label processors need none of these.
+
+    Examples:
+        >>> import torch
+        >>> from pyhealth.processors import LegacyFeatureProcessor
+        >>> class Codes(LegacyFeatureProcessor):
+        ...     def process(self, value):
+        ...         return torch.tensor(value)
+        ...     def is_token(self):
+        ...         return True
+        ...     def schema(self):
+        ...         return ("value",)
+        ...     def dim(self):
+        ...         return (1,)
+        ...     def spatial(self):
+        ...         return (True,)
+        >>> p = Codes()
+        >>> p.process([3, 1, 2])
+        tensor([3, 1, 2])
+        >>> p.schema(), p.is_token(), p.dim(), p.spatial()
+        (('value',), True, (1,), (True,))
     """
 
     def is_token(self) -> bool:
@@ -287,6 +307,19 @@ class TemporalFeatureProcessor(LegacyFeatureProcessor):
     Schema           Positional, fragile      Named keys, self-documenting
     Extensibility    Adding field = new arity Adding key = backward-compat
     ================ ======================== ==================================
+
+    Examples:
+        >>> from pyhealth.processors import (
+        ...     TemporalFeatureProcessor,
+        ...     TemporalTimeseriesProcessor,
+        ... )
+        >>> proc = TemporalTimeseriesProcessor()
+        >>> isinstance(proc, TemporalFeatureProcessor)
+        True
+        >>> proc.modality()
+        <ModalityType.NUMERIC: 'numeric'>
+        >>> proc.schema()
+        ('value', 'time')
     """
 
     # ── New API (required by UnifiedMultimodalEmbeddingModel) ─────────────────
