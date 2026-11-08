@@ -86,8 +86,12 @@ def _parts(
     return result
 
 
+def _index_config(cache_dir: Path) -> dict:
+    return json.loads((cache_dir / "index.json").read_text())["config"]
+
+
 def _config(dataset: SampleDataset) -> dict:
-    return json.loads((Path(dataset.path) / "index.json").read_text())["config"]
+    return _index_config(Path(dataset.path))
 
 
 def _has_arrow_footer(cache_dir: Path) -> bool:
@@ -114,9 +118,10 @@ class TestSetTaskCompression(unittest.TestCase):
 
     def test_zstd_writes_per_sample_zstd(self):
         samples = self._set_task_one("zstd", compression="zstd")
-        config = _config(samples)
-        self.assertEqual(config["compression"], "zstd")
-        self.assertEqual(config["compression_level"], "sample")
+        task_df = Path(samples.path).parent / "task_df.ld"
+        for config in (_config(samples), _index_config(task_df)):
+            self.assertEqual(config["compression"], "zstd")
+            self.assertEqual(config["compression_level"], "sample")
         self.assertEqual(samples.compression, "zstd")
 
     def test_zstd_reads_back_the_uncompressed_samples(self):
@@ -128,6 +133,8 @@ class TestSetTaskCompression(unittest.TestCase):
     def test_default_is_uncompressed(self):
         samples = self._set_task_one("plain")
         self.assertIsNone(_config(samples)["compression"])
+        task_df = Path(samples.path).parent / "task_df.ld"
+        self.assertIsNone(_index_config(task_df)["compression"])
         self.assertIsNone(samples.compression)
 
     def test_compression_does_not_change_the_cache_path(self):
@@ -231,6 +238,7 @@ class TestPytreeLayout(unittest.TestCase):
         self.assertEqual(config["compression"], "zstd")
         self.assertEqual(parts[0].compression, "zstd")
         task_df = Path(parts[0].path).parent / "task_df.ld"
+        self.assertEqual(_index_config(task_df)["compression"], "zstd")
         for path in (Path(parts[0].path), task_df):
             self.assertFalse(_has_arrow_footer(path), path)
         # Every part reads one item at a time.

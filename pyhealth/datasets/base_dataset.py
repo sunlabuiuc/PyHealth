@@ -454,7 +454,7 @@ def _task_transform_init(queue: multiprocessing.queues.Queue) -> None:
 
 
 def _task_transform_fn(
-    args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, Path],
+    args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, Path, str | None],
 ) -> None:
     """
     Worker function to apply task transformation on a chunk of patients.
@@ -466,9 +466,11 @@ def _task_transform_fn(
             patient_ids (Iterable[str]): The patient IDs to process.
             global_event_df (pl.LazyFrame): The global event dataframe.
             output_dir (Path): The output directory to save results.
+            compression (Optional[str]): One of ``_CACHE_COMPRESSIONS``,
+                or None to write uncompressed.
     """
     BATCH_SIZE = 128  # Use a batch size 128 can reduce runtime by 30%.
-    worker_id, task, patient_ids, global_event_df, output_dir = args
+    worker_id, task, patient_ids, global_event_df, output_dir, compression = args
     if isinstance(task, bytes):
         try:
             task = pickle.loads(task)
@@ -489,7 +491,12 @@ def _task_transform_fn(
         _ProgressContext(_task_transform_progress, total=total_patients) as progress,
         _litdata_pytree_layout(),
     ):
-        writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
+        writer = BinaryWriter(
+            cache_dir=str(output_dir),
+            chunk_bytes="64MB",
+            compression=compression,
+            compression_level=_CACHE_COMPRESSION_LEVEL if compression else None,
+        )
 
         write_index = 0
         batches = itertools.batched(patient_ids, BATCH_SIZE)
@@ -1190,7 +1197,11 @@ class BaseDataset(ABC):
         return None
 
     def _task_transform(
-        self, task: BaseTask, output_dir: Path, num_workers: int
+        self,
+        task: BaseTask,
+        output_dir: Path,
+        num_workers: int,
+        compression: str | None = None,
     ) -> None:
         self._main_guard(self._task_transform.__name__)
 
@@ -1226,7 +1237,14 @@ class BaseDataset(ABC):
                 if num_workers == 1:
                     logger.info("Single worker mode, processing sequentially")
                     _task_transform_fn(
-                        (0, task, patient_ids, global_event_df, output_dir)
+                        (
+                            0,
+                            task,
+                            patient_ids,
+                            global_event_df,
+                            output_dir,
+                            compression,
+                        )
                     )
                     _litdata_merge(output_dir)
                     return
@@ -1246,6 +1264,7 @@ class BaseDataset(ABC):
                         pids,
                         global_event_df,
                         output_dir,
+                        compression,
                     )
                     for worker_id, pids in enumerate(
                         itertools.batched(
@@ -1391,14 +1410,15 @@ class BaseDataset(ABC):
                 nothing is loaded into memory beyond the per-sample index that
                 processing already keeps. Defaults to None: fit on all samples
                 and return one dataset, as before.
-            compression (Optional[str]): Compress the processed samples on
-                disk. ``"zstd"`` compresses each sample on its own, so random
+            compression (Optional[str]): Compress the cached task samples
+                (``task_df.ld``) and processed samples on disk. ``"zstd"``
+                compresses each sample on its own, so random
                 reads (shuffling, split parts) stay close to uncompressed
                 speed. Measured on reads of a patient split: MIMIC-IV
                 ``YAIBMortalityMIMIC4`` samples were 4.9x smaller (412 MB to
                 84 MB) and an epoch 1.1x slower; COVID-19 CXR images were
                 10.9x smaller (12.7 GB to 1.2 GB) and an epoch 1.9x slower.
-                Applies when the samples are built: an existing cache is
+                Applies when a cache is built: an existing cache is
                 reused as it was written, compressed or not, since both read
                 back the same. Delete it to rebuild with another setting.
                 Defaults to None (uncompressed).
@@ -1518,6 +1538,7 @@ class BaseDataset(ABC):
                             task,
                             task_df_path,
                             num_workers,
+                            compression,
                         )
                     else:
                         logger.info(
