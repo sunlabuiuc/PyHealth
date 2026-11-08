@@ -24,17 +24,22 @@ Available Processors
 
 **Sequence Processors:**
 
+- :doc:`SequenceProcessorV2 <processors/pyhealth.processors.SequenceProcessorV2>`: Unified processor for hierarchical packed records (codes, continuous values, and timestamps at any nesting depth) without padding or truncation
 - ``SequenceProcessor``: For categorical sequences (e.g., medical codes like diagnoses, procedures)
 - ``NestedSequenceProcessor``: For nested categorical sequences (e.g., drug recommendation with visit history)
 - ``NestedMultiHotProcessor``: For nested categorical sequences as per-visit multi-hot vectors (e.g., generative EHR models)
 - ``NestedFloatsProcessor``: For nested numerical sequences with optional forward-fill
 
-**Label Processors:**
+**Label Processors** (subclasses of ``LabelProcessor``, which also define the loss, activation, output size and metrics of the label):
 
 - ``BinaryLabelProcessor``: Binary classification labels (e.g., mortality prediction)
 - ``MultiClassLabelProcessor``: Multi-class classification labels
 - ``MultiLabelProcessor``: Multi-label classification (e.g., drug recommendation)
-- ``RegressionLabelProcessor``: Continuous regression targets
+- ``RegressionLabelProcessor``: Continuous regression targets, optionally normalized for training, as ``TensorProcessor`` does for inputs (``("regression", {"normalization": "minmax"})``, ``"zscore"``, or a fixed ``(low, high)`` range); ``Trainer.inference`` and metrics are in the original units
+- ``TimeseriesBinaryLabelProcessor``: Binary labels at given times (``"timeseries_binary"``): each sample is ``{"time": [...], "values": [...]}``, packed per batch as ``(values [ΣN, 1], time [ΣN], batch offsets [B + 1])``, one record per label, with no grid or mask
+- ``TimeseriesMultiClassLabelProcessor``: One class per given time (``"timeseries_multiclass"``), values ``[ΣN]``, in the same packed format
+- ``TimeseriesMultiLabelProcessor``: A set of labels per given time (``"timeseries_multilabel"``), values ``[ΣN, K]``, in the same packed format
+- ``TimeseriesRegressionLabelProcessor``: Real-valued labels at given times (``"timeseries_regression"``), in the same packed format, with the same ``normalization`` option
 
 **Data Type Processors:**
 
@@ -43,9 +48,9 @@ Available Processors
 - ``TupleTimeTextProcessor``: For text paired with temporal information (time-aware text)
 - ``AudioProcessor``: For audio signal data
 - ``SignalProcessor``: For general signal data (e.g., EEG, ECG)
-- ``TimeseriesProcessor``: For time-series data
+- ``TimeseriesProcessor``: For time-series data; optional ``normalization`` (``"zscore"`` or ``"minmax"``, fitted on the training split) and ``missing_indicators``
 - ``TimeImageProcessor``: For time-stamped image sequences (e.g., serial X-rays)
-- ``TensorProcessor``: For pre-processed tensor data
+- ``TensorProcessor``: For pre-processed tensor data; optional ``normalization``, ``missing_indicators`` and ``impute_strategy="zero"``
 - ``RawProcessor``: Pass-through processor for raw data
 
 **Specialized Processors:**
@@ -276,11 +281,80 @@ For maximum control, you can pass pre-configured processor instances directly in
             return samples
 
 
+Reusing Fitted Processors
+-------------------------
+
+``set_task()`` and ``create_sample_dataset()`` accept already-fitted processors
+through ``input_processors`` and ``output_processors``. A supplied processor is
+used as it is and never refitted; every schema field you do not supply gets a
+processor fitted on the samples as usual. A common use is fitting on training
+samples only and reusing those processors for validation and test data, so test
+patients do not shape preprocessing:
+
+.. code-block:: python
+
+    from pyhealth.datasets import create_sample_dataset
+
+    train = create_sample_dataset(train_samples, input_schema, output_schema)
+    test = create_sample_dataset(
+        test_samples, input_schema, output_schema,
+        input_processors=train.input_processors,
+        output_processors=train.output_processors,
+    )
+
+In PyHealth 2.0.2 and earlier, supplying a processor for some fields fitted
+none for the rest of that schema: those fields reached the model as raw Python
+values, without an error. See ``examples/reuse_train_processors.py``.
+
+For datasets built with ``set_task``, ``set_task(task, split=PatientSplit(...))``
+does this in one step and streams the samples; see :doc:`datasets/pyhealth.datasets.splitter`.
+
+How Processed Samples Are Stored
+--------------------------------
+
+``set_task()`` and ``create_sample_dataset(..., in_memory=False)`` write processed
+samples to a disk cache (litdata). Each field is stored according to its processor:
+
+- Processors that always return a ``torch.Tensor`` — or a tuple of tensors with
+  the same length for every sample — declare ``stores_tensor = True``
+  (``sequence_v2``, ``sequence``, ``nested_sequence``, ``tensor``, ``timeseries``,
+  the label processors, ``image``, ``audio`` and others). Their outputs are
+  stored natively as tensors.
+- Every other field — ``raw``, ``text``, ``stagenet``, ``tuple_time_text``,
+  ``graph``, ``temporal_timeseries``, ``time_image``, and keys that are not in the
+  schema at all, such as ``patient_id`` or extra keys a task adds — is stored in
+  one pickled value per sample. It may vary in length, shape and type between
+  samples (notes per admission, codes per visit, measurement times, ``None``).
+
+Reading a sample back (``dataset[i]``, iteration, ``subset()``, ``set_task``
+split parts, ``get_dataloader`` batches) returns the same Python objects that went
+in: lists stay lists, tuples stay tuples. The in-memory dataset returns identical
+objects. Pickled values are as trusted as the rest of the cache directory, which
+already holds pickled processors in ``schema.pkl``: only load caches you created or
+trust.
+
+A custom processor should set ``stores_tensor = True`` only if ``process()`` always
+returns a single tensor or a fixed-length tuple of tensors; if such a field ever
+returns something else, writing the cache fails with an error naming the field.
+
+In PyHealth 2.0.2 and earlier, non-tensor fields were handed to litdata as they
+were. litdata infers the layout of every sample from the first one it writes, so a
+value whose length, shape or type varied between samples failed to write, or was
+read back wrong. Caches written by those versions are rebuilt automatically (the
+storage layout is part of the cache key).
+
+Processors whose batches need custom packing (such as ``SequenceProcessorV2``)
+define ``collate(items)``, which ``get_dataloader`` uses automatically for those
+fields. For fields without a processor-level ``collate``, the default collate
+function treats any 2-tuple as a ``(time, values)`` pair of tensors, so batch raw
+fields holding 2-tuples with your own ``collate_fn``.
+
 Processor String Keys
 ---------------------
 
 Common string keys for automatic processor selection:
 
+- ``"sequence_v2"``: For unified hierarchical packed records (codes, continuous values, and timestamps)
 - ``"temporal_timeseries"``: For time-series data with preserved timestamps (use in place of ``"timeseries"`` when building ``UnifiedMultimodalEmbeddingModel``)
 - ``"sequence"``: For categorical sequences (medical codes)
 - ``"nested_sequence"``: For nested categorical sequences (visit history)
@@ -290,6 +364,7 @@ Common string keys for automatic processor selection:
 - ``"multiclass"``: For multi-class labels  
 - ``"multilabel"``: For multi-label classification
 - ``"regression"``: For regression targets
+- ``"timeseries_binary"``, ``"timeseries_multiclass"``, ``"timeseries_multilabel"``, ``"timeseries_regression"``: For labels given at time points
 - ``"text"``: For text data
 - ``"tuple_time_text"``: For text paired with temporal information
 - ``"image"``: For image data
@@ -478,13 +553,20 @@ API Reference
     processors/pyhealth.processors.SampleProcessor
     processors/pyhealth.processors.DatasetProcessor
     processors/pyhealth.processors.SequenceProcessor
+    processors/pyhealth.processors.SequenceProcessorV2
     processors/pyhealth.processors.NestedSequenceProcessor
     processors/pyhealth.processors.NestedMultiHotProcessor
     processors/pyhealth.processors.NestedFloatsProcessor
+    processors/pyhealth.processors.LabelProcessor
     processors/pyhealth.processors.BinaryLabelProcessor
     processors/pyhealth.processors.MultiClassLabelProcessor
     processors/pyhealth.processors.MultiLabelProcessor
     processors/pyhealth.processors.RegressionLabelProcessor
+    processors/pyhealth.processors.TimeseriesLabelProcessor
+    processors/pyhealth.processors.TimeseriesBinaryLabelProcessor
+    processors/pyhealth.processors.TimeseriesMultiClassLabelProcessor
+    processors/pyhealth.processors.TimeseriesMultiLabelProcessor
+    processors/pyhealth.processors.TimeseriesRegressionLabelProcessor
     processors/pyhealth.processors.ImageProcessor
     processors/pyhealth.processors.TextProcessor
     processors/pyhealth.processors.TupleTimeTextProcessor
@@ -500,3 +582,4 @@ API Reference
     processors/pyhealth.processors.StageNetProcessor
     processors/pyhealth.processors.StageNetTensorProcessor
     processors/pyhealth.processors.GraphProcessor
+    processors/pyhealth.processors.utils

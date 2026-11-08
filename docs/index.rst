@@ -237,6 +237,8 @@ Quick Navigation
    api/processors
    api/interpret
    api/trainer
+   api/autoimprove
+   api/benchmarks
    api/tokenizer
    api/metrics
    api/medcode

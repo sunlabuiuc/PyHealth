@@ -1,19 +1,23 @@
 import logging
 import os
 import pickle
+import posixpath
 from abc import ABC
 from pathlib import Path
 from typing import Dict, Iterator, Iterable, List, Optional, Any, Callable
 import functools
 import operator
 from urllib.parse import urlparse, urlunparse
-from urllib.request import urlretrieve
 import json
+import glob
+import hashlib
 import uuid
 import platformdirs
 import multiprocessing
 import multiprocessing.queues
+from queue import Empty
 import shutil
+import time
 
 from filelock import FileLock
 import litdata
@@ -42,12 +46,55 @@ from ..data import Patient
 from ..tasks import BaseTask
 from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
-from .sample_dataset import SampleDataset, SampleBuilder
-from ..utils import set_env
+from .sample_dataset import STORAGE_FORMAT, SampleDataset, SampleBuilder
+from .splitter import Split
+from ..utils import download_file, preserve_rng_state, set_env
 
 # Set logging level for distributed to ERROR to reduce verbosity
 logging.getLogger("distributed").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
+
+# Set to 1/true/yes to make datasets refuse to fall back to the default cache.
+REQUIRE_CACHE_DIR_ENV = "PYHEALTH_REQUIRE_CACHE_DIR"
+_warned_default_cache_dirs: set[str] = set()
+
+
+def _default_cache_dir(cache_id: str) -> Path:
+    """Returns the default cache directory for a dataset, after warning about it.
+
+    Datasets write processed copies of their source data (the event table and
+    task samples) to their cache. Without an explicit ``cache_dir`` that is the
+    user cache folder, which for identified clinical data is usually outside the
+    project's controlled storage. So this logs a warning naming the path (once
+    per path), and raises if ``PYHEALTH_REQUIRE_CACHE_DIR`` is set.
+
+    Args:
+        cache_id: The dataset's cache identifier (a UUID string).
+
+    Returns:
+        Path: ``<user cache dir>/pyhealth/<cache_id>``.
+
+    Raises:
+        ValueError: If ``PYHEALTH_REQUIRE_CACHE_DIR`` is set to 1, true or yes.
+    """
+    if os.environ.get(REQUIRE_CACHE_DIR_ENV, "").strip().lower() in {"1", "true", "yes"}:
+        raise ValueError(
+            f"No cache_dir was given and {REQUIRE_CACHE_DIR_ENV} is set. Pass "
+            "cache_dir=... pointing to storage approved for this data; PyHealth "
+            "writes processed copies of the source data there."
+        )
+    path = Path(platformdirs.user_cache_dir(appname="pyhealth")) / cache_id
+    if str(path) not in _warned_default_cache_dirs:
+        _warned_default_cache_dirs.add(str(path))
+        logger.warning(
+            "No cache_dir given: PyHealth will write processed copies of this "
+            "dataset (event table, task samples) to %s. For identified or "
+            "sensitive data, pass cache_dir=... inside your project's controlled "
+            "storage, or set %s=1 to make a missing cache_dir an error.",
+            path,
+            REQUIRE_CACHE_DIR_ENV,
+        )
+    return path
 # Remove LitData version check to avoid unnecessary warnings
 os.environ["LITDATA_DISABLE_VERSION_CHECK"] = "1"
 
@@ -60,10 +107,21 @@ def is_url(path: str) -> bool:
 
 
 def clean_path(path: str) -> str:
-    """Clean a path string."""
+    """Clean a path string.
+
+    URL paths are normalised as POSIX paths on every OS; local paths are
+    expanded and resolved.
+
+    Examples:
+        >>> from pyhealth.datasets.base_dataset import clean_path
+        >>> clean_path("https://example.org/a/b/../c.csv")
+        'https://example.org/a/c.csv'
+    """
     if is_url(path):
         parsed = urlparse(path)
-        cleaned_path = os.path.normpath(parsed.path)
+        # A URL path is POSIX whatever the host OS: os.path.normpath would
+        # rewrite the separators as backslashes on Windows.
+        cleaned_path = posixpath.normpath(parsed.path)
         # Rebuild the full URL
         return urlunparse(parsed._replace(path=cleaned_path))
     else:
@@ -85,6 +143,113 @@ def path_exists(path: str) -> bool:
             return False
     else:
         return Path(path).exists()
+
+
+# Column holding each event's row number in its source table (see load_table),
+# stored as delta-encoded int32 to keep the cache small.
+SOURCE_ROW = "_source_row"
+# Layout of the cached event table; part of the dataset cache key, so caches
+# written with an older layout are rebuilt. 2: adds SOURCE_ROW.
+EVENT_FORMAT = 2
+_INT32_MAX = int(np.iinfo(np.int32).max)
+
+
+def _with_row_number(df: dd.DataFrame, column: str) -> dd.DataFrame:
+    """Adds ``column``: 0, 1, 2, ... in the frame's current row order.
+
+    A cumulative sum runs across partitions in order, unlike a per-partition
+    ``reset_index``, which restarts at 0 in every partition.
+    """
+    df = df.assign(**{column: 1})
+    return df.assign(**{column: df[column].cumsum() - 1})
+
+
+def _with_source_row(df: dd.DataFrame) -> dd.DataFrame:
+    """Adds ``SOURCE_ROW``: each row's position in the frame's current order."""
+    return _with_row_number(df, SOURCE_ROW)
+
+
+def _source_row_as_int32(df: dd.DataFrame) -> dd.DataFrame:
+    """Stores ``SOURCE_ROW`` as int32, which the cache writes delta-encoded.
+
+    The cast is the last step of loading a table, as an explicit partition map:
+    dask can change the column's declared type to float64 when other columns
+    are assigned, and the parquet writer follows the declared type.
+
+    Rows that a right or outer join adds without a match have no source row
+    and get -1.
+
+    Raises:
+        OverflowError: When the frame is computed (for example when the
+            cache is written), if a table has more than 2**31 - 1 rows,
+            rather than letting the numbers wrap around.
+    """
+
+    def cast(part: pd.DataFrame) -> pd.DataFrame:
+        rows = part[SOURCE_ROW].fillna(-1)
+        if len(part) and rows.max() > _INT32_MAX:
+            raise OverflowError(
+                f"A table has more than {_INT32_MAX:,} rows, more than the int32 "
+                f"{SOURCE_ROW} column can number."
+            )
+        return part.assign(**{SOURCE_ROW: rows.astype("int32")})
+
+    meta = {**df.dtypes.to_dict(), SOURCE_ROW: "int32"}
+    return df.map_partitions(cast, meta=meta)
+
+
+def _event_parquet_options(dtypes: pd.Series) -> dict[str, Any]:
+    """Parquet writer options for the cached event table, from its dtypes.
+
+    ``SOURCE_ROW`` has about one distinct value per row, so the default
+    dictionary encoding does not shrink it and int32 alone saves nothing.
+    Delta encoding stores the small differences between neighbouring rows
+    (a patient's rows of one table are close together in the source) and
+    takes about 1.8 bytes per event instead of about 4.5. It applies to
+    integer columns only, so a frame whose column is not an integer (e.g. a
+    subclass's own ``load_table`` without it) is written with the defaults.
+    """
+    if SOURCE_ROW not in dtypes or not pd.api.types.is_integer_dtype(dtypes[SOURCE_ROW]):
+        return {}
+    return {
+        "use_dictionary": [c for c in dtypes.index if c != SOURCE_ROW],
+        "column_encoding": {SOURCE_ROW: "DELTA_BINARY_PACKED"},
+    }
+
+
+def _source_fingerprint(path: str) -> list:
+    """Identifies the current version of a table source for the cache key.
+
+    Returns ``[file, size, mtime_ns]`` for every local file behind ``path``:
+    the file itself and its ``.csv``/``.csv.gz`` (or ``.tsv``) twin, the files
+    matching a glob, or every file under a directory. A rewrite of any of them
+    therefore changes the dataset's cache key, like ``make``. Contents are not
+    hashed, so large sources stay cheap to check. URLs are identified by the
+    URL alone.
+
+    Args:
+        path (str): The table source path, as resolved from the config.
+
+    Returns:
+        list: ``[[file, size, mtime_ns], ...]``, or ``[path]`` for a URL.
+    """
+    if is_url(path):
+        return [path]
+    candidates = [path, path[:-3] if path.endswith(".gz") else f"{path}.gz"]
+    files: list[str] = []
+    for candidate in candidates:
+        source = Path(candidate)
+        if glob.has_magic(candidate):
+            files += sorted(glob.glob(candidate, recursive=True))
+        elif source.is_dir():
+            files += sorted(str(f) for f in source.rglob("*") if f.is_file())
+        elif source.is_file():
+            files.append(candidate)
+    fingerprint = []
+    for file in files:
+        stat = os.stat(file)
+        fingerprint.append([file, stat.st_size, stat.st_mtime_ns])
+    return fingerprint
 
 
 def _csv_tsv_gz_path(path: str) -> str:
@@ -126,6 +291,14 @@ def _litdata_merge(cache_dir: Path) -> None:
     """
     Merges LitData binary writer index files in the given cache directory.
 
+    Workers write contiguous sample ranges, each with its own
+    ``{rank}.index.json``. ``patient_to_index`` and ``record_to_index`` are
+    built before processing and assume merged sample ``i`` is input sample
+    ``i``, so the per-worker indexes must be joined in numeric rank order.
+    ``BinaryWriter.merge`` does this from litdata 0.2.64 on; earlier versions
+    sort the file names as strings (0, 1, 10, 11, ..., 2), which reorders
+    samples with more than 10 workers.
+
     Args:
         cache_dir (Path): The cache directory containing LitData binary writer files.
     """
@@ -148,6 +321,28 @@ def _litdata_merge(cache_dir: Path) -> None:
     BinaryWriter(cache_dir=str(cache_dir), chunk_bytes="64MB").merge(
         num_workers=len(index_files)
     )
+
+
+# Seconds between the progress updates dask's scheduler sends (dask's default).
+_DASK_PROGRESS_INTERVAL = 0.1
+
+
+def _dask_progress_notebook() -> bool | None:
+    """
+    Chooses the ``notebook`` argument for dask's ``progress()``.
+
+    In a Jupyter kernel dask draws an ipywidgets progress bar, but ipywidgets is
+    not a PyHealth dependency. Without it, fall back to dask's text bar.
+
+    Returns:
+        bool | None: None to let dask detect the environment, or False to force
+            the text progress bar when ipywidgets is not installed.
+    """
+    try:
+        import ipywidgets  # noqa: F401
+    except ImportError:
+        return False
+    return None
 
 
 class _ProgressContext:
@@ -204,13 +399,23 @@ def _task_transform_fn(
     Args:
         args (tuple): A tuple containing:
             worker_id (int): The ID of the worker.
-            task (BaseTask): The task to apply.
+            task (BaseTask | bytes): The task to apply, or the task pickled.
             patient_ids (Iterable[str]): The patient IDs to process.
             global_event_df (pl.LazyFrame): The global event dataframe.
             output_dir (Path): The output directory to save results.
     """
     BATCH_SIZE = 128  # Use a batch size 128 can reduce runtime by 30%.
     worker_id, task, patient_ids, global_event_df, output_dir = args
+    if isinstance(task, bytes):
+        try:
+            task = pickle.loads(task)
+        except Exception as e:
+            raise RuntimeError(
+                f"A set_task worker process could not load the task ({e}). Worker "
+                "processes import your script without running its "
+                "`if __name__ == '__main__':` block, so define the task class at "
+                "module level in an importable file, or use num_workers=1."
+            ) from e
     total_patients = len(list(patient_ids))
     logger.info(
         f"Worker {worker_id} started processing {total_patients} patients. (Polars threads: {pl.thread_pool_size()})"
@@ -289,7 +494,7 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
         complete = 0
         write_index = 0
         for i in range(start_idx, end_idx):
-            transformed: Dict[str, Any] = builder.transform(dataset[i])
+            transformed: dict[str, Any] = builder.transform_for_storage(dataset[i])
             writer.add_item(write_index, transformed)
             write_index += 1
             complete += 1
@@ -369,16 +574,24 @@ class BaseDataset(ABC):
 
         # Cached attributes
         self.cache_dir = self._init_cache_dir(cache_dir)
+        self._tmp_dirs: list[Path] = []  # created by create_tmpdir()
         self._global_event_df = None
         self._unique_patient_ids = None
 
     def _init_cache_dir(self, cache_dir: str | Path | None) -> Path:
         """Returns the cache directory path.
 
+        The cache key covers the dataset's root, tables, name and dev flag and,
+        for config-based datasets, a hash of the YAML config plus the size and
+        modification time of every source file the requested tables read. Editing
+        the config or rewriting a source file therefore builds a fresh cache.
+
         The cache directory is determined by the type of ``cache_dir`` passed
         to ``__init__``:
 
-        - **None**: Auto-generated under default pyhealth cache directory.
+        - **None**: Auto-generated under the default pyhealth cache directory,
+          with a warning naming it; an error if ``PYHEALTH_REQUIRE_CACHE_DIR``
+          is set.
         - **str** or **Path: Used as the root cache directory path. A UUID
           is appended to the provided path to capture dataset configuration.
 
@@ -395,22 +608,33 @@ class BaseDataset(ABC):
         Returns:
             Path: The resolved cache directory path.
         """
-        id_str = json.dumps(
-            {
-                "root": str(self.root),
-                "tables": sorted(self.tables),
-                "dataset_name": self.dataset_name,
-                "dev": self.dev,
-            },
-            sort_keys=True,
-        )
+        key = {
+            "root": str(self.root),
+            "tables": sorted(self.tables),
+            "dataset_name": self.dataset_name,
+            "dev": self.dev,
+            "event_format": EVENT_FORMAT,
+        }
+        if self.config is not None:
+            # Editing the YAML or rewriting a source file must not reuse a stale
+            # cache, so the key also covers the config and the source files.
+            config_json = json.dumps(self.config.model_dump(mode="json"), sort_keys=True)
+            key["config"] = hashlib.sha256(config_json.encode()).hexdigest()
+            key["sources"] = {
+                table: [
+                    _source_fingerprint(clean_path(f"{self.root}/{file_path}"))
+                    for file_path in [cfg.file_path, *(j.file_path for j in cfg.join)]
+                ]
+                for table in sorted(self.tables)
+                if (cfg := self.config.tables.get(table)) is not None
+            }
+        id_str = json.dumps(key, sort_keys=True)
 
         id = str(uuid.uuid5(uuid.NAMESPACE_DNS, id_str))
 
         if cache_dir is None:
-            cache_dir = Path(platformdirs.user_cache_dir(appname="pyhealth")) / id
+            cache_dir = _default_cache_dir(id)
             cache_dir.mkdir(parents=True, exist_ok=True)
-            logger.info(f"No cache_dir provided. Using default cache dir: {cache_dir}")
         else:
             # Ensure separate cache directories for different table configurations by appending a UUID suffix
             cache_dir = Path(cache_dir) / id
@@ -426,13 +650,25 @@ class BaseDataset(ABC):
         """
         tmp_dir = self.cache_dir / "tmp" / str(uuid.uuid4())
         tmp_dir.mkdir(parents=True, exist_ok=True)
+        self._tmp_dirs.append(tmp_dir)
         return tmp_dir
 
     def clean_tmpdir(self) -> None:
-        """Cleans up the temporary directory within the cache."""
-        tmp_dir = self.cache_dir / "tmp"
-        if tmp_dir.exists():
-            shutil.rmtree(tmp_dir)
+        """Removes the temporary directories this dataset created.
+
+        Other jobs may share the same cache directory and still be using their
+        own directories under ``tmp/``, so those are left alone. ``tmp/`` itself
+        is removed once it is empty.
+        """
+        for tmp_dir in self._tmp_dirs:
+            # Called from ``finally`` blocks: a failed cleanup must not hide the
+            # error that ended the build.
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        self._tmp_dirs.clear()
+        try:
+            (self.cache_dir / "tmp").rmdir()
+        except OSError:
+            pass  # missing, or still holds another job's directories
 
     def _scan_table(self, source_path: str) -> dd.DataFrame:
         """Routes a table source to the appropriate scanner based on its format.
@@ -524,7 +760,7 @@ class BaseDataset(ABC):
                 local_path = self.create_tmpdir() / local_filename
                 if not local_path.exists():
                     logger.info(f"Downloading {source_path} to {local_path}")
-                    urlretrieve(source_path, local_path)
+                    download_file(source_path, local_path)
                 source_path = str(local_path)
 
             # Determine delimiter based on file extension
@@ -593,11 +829,25 @@ class BaseDataset(ABC):
                         output_dir,
                         write_index=False,
                         compute=False,
+                        **_event_parquet_options(df.dtypes),
                     )
                     handle = client.compute(collection)
-                    dask_progress(handle)
+                    dask_progress(
+                        handle,
+                        notebook=_dask_progress_notebook(),
+                        interval=_DASK_PROGRESS_INTERVAL,
+                    )
                     handle.result()  # type: ignore
                     compute_ok = True  # Data is fully written to disk
+                    if in_notebook():
+                        # The scheduler's progress feed (Scheduler.feed in
+                        # distributed 2026.8) sleeps one interval between updates
+                        # and stops only when its next update finds the bar's
+                        # connection closed. Closing the threaded cluster during
+                        # that sleep cancels it, and distributed logs the
+                        # CancelledError as an error. distributed has no public
+                        # way to wait for the feed, so wait a few intervals.
+                        time.sleep(3 * _DASK_PROGRESS_INTERVAL)
         except TimeoutError:
             if compute_ok:
                 # Cluster shutdown timed out after successful compute — data is intact
@@ -687,6 +937,10 @@ class BaseDataset(ABC):
 
         # Convert column names to lowercase before calling preprocess_func
         df = df.rename(columns=str.lower)
+        # Number rows in source-file order. Patient uses this to order events
+        # that share a timestamp, so the order is the same on every cache build
+        # (the parallel build below does not preserve row order).
+        df = _with_source_row(df)
 
         # Check if there is a preprocessing function for this table
         preprocess_func: Optional[Callable[[nw.LazyFrame], nw.LazyFrame]]
@@ -696,6 +950,13 @@ class BaseDataset(ABC):
                 f"Preprocessing table: {table_name} with {preprocess_func.__name__}"
             )
             df = preprocess_func(nw.from_native(df)).to_native()  # type: ignore
+            # A hook should keep SOURCE_ROW. If it drops the column, rows are
+            # numbered again in the hook's output order, which is the same on
+            # every build only if the hook keeps (or deterministically sets)
+            # the row order; a hook that reorders or aggregates rows should
+            # carry SOURCE_ROW through.
+            if SOURCE_ROW not in df.columns:
+                df = _with_source_row(df)
 
         # Handle joins
         for join_cfg in table_cfg.join:
@@ -708,6 +969,10 @@ class BaseDataset(ABC):
             columns = join_cfg.columns
             how = join_cfg.how
 
+            # A one-to-many join copies a row's SOURCE_ROW to every match;
+            # Patient orders the copies by their other columns. Rows a right
+            # or outer join adds without a match get -1 when the column is
+            # cast.
             df: dd.DataFrame = df.merge(
                 join_df[[join_key] + columns], on=join_key, how=how
             )
@@ -755,10 +1020,9 @@ class BaseDataset(ABC):
 
             # Dask applies reset_index independently across frames,
             # meaning partitions share indexes, and therefore merge patients.
-            # The trick is to use a cumsum which acts globally across partitions.
-            df: dd.DataFrame = df.assign(_one=1)
-            df: dd.DataFrame = df.assign(patient_id=(df["_one"].cumsum() - 1).astype("string"))
-            df: dd.DataFrame = df.drop(columns="_one")
+            # Number rows with a cumsum instead, which runs across partitions.
+            df: dd.DataFrame = _with_row_number(df, "patient_id")
+            df: dd.DataFrame = df.assign(patient_id=df["patient_id"].astype("string"))
 
         df: dd.DataFrame = df.assign(event_type=table_name)
 
@@ -766,8 +1030,8 @@ class BaseDataset(ABC):
         df: dd.DataFrame = df.rename(columns=rename_attr)
 
         attr_cols = [rename_attr[attr.lower()] for attr in attribute_cols]
-        final_cols = ["patient_id", "event_type", "timestamp"] + attr_cols
-        event_frame = df[final_cols]
+        final_cols = ["patient_id", "event_type", "timestamp", SOURCE_ROW] + attr_cols
+        event_frame = _source_row_as_int32(df[final_cols])
 
         return event_frame
 
@@ -896,10 +1160,15 @@ class BaseDataset(ABC):
                 # spwan is required for polars in multiprocessing, see https://docs.pola.rs/user-guide/misc/multiprocessing/#summary
                 ctx = multiprocessing.get_context("spawn")
                 queue = ctx.Queue()
+                # Send the task pickled: if a worker cannot unpickle it (e.g. the
+                # class is defined under `if __name__ == "__main__":`), the error
+                # is raised in _task_transform_fn and reaches the caller, instead
+                # of failing inside the pool's own argument handling, which hangs.
+                task_bytes = pickle.dumps(task)
                 args_list = [
                     (
                         worker_id,
-                        task,
+                        task_bytes,
                         pids,
                         global_event_df,
                         output_dir,
@@ -920,7 +1189,7 @@ class BaseDataset(ABC):
                         while not result.ready():
                             try:
                                 progress.update(queue.get(timeout=1))
-                            except:
+                            except Empty:
                                 pass
 
                         # remaining items
@@ -985,7 +1254,7 @@ class BaseDataset(ABC):
                         while not result.ready():
                             try:
                                 progress.update(queue.get(timeout=1))
-                            except:
+                            except Empty:
                                 pass
 
                         # remaining items
@@ -1004,13 +1273,15 @@ class BaseDataset(ABC):
         finally:
             self.clean_tmpdir()
 
+    @preserve_rng_state()
     def set_task(
         self,
         task: Optional[BaseTask] = None,
         num_workers: Optional[int] = None,
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
-    ) -> SampleDataset:
+        split: Split | None = None,
+    ) -> SampleDataset | tuple[SampleDataset, ...]:
         """Processes the base dataset to generate the task-specific sample dataset.
         The cache structure is as follows::
 
@@ -1018,6 +1289,7 @@ class BaseDataset(ABC):
                 task_df.ld/                 # Intermediate task dataframe based on schema
                 samples_{proc_uuid}.ld/     # Final processed samples after applying processors
                     schema.pkl              # Saved SampleBuilder schema
+                    split.npz               # Sample indices per split part (with split= only)
                     *.bin                   # Processed sample files
 
         Args:
@@ -1029,9 +1301,25 @@ class BaseDataset(ABC):
             output_processors (Optional[Dict[str, FeatureProcessor]]):
                 Pre-fitted output processors. If provided, these will be used
                 instead of creating new ones from task's output_schema. Defaults to None.
+            split (Optional[Split]): Split the samples, e.g. by patient with
+                ``PatientSplit``, and fit every processor on the first
+                (training) part only, so the other parts never shape
+                preprocessing. The parts are used as the split returns them.
+                Samples are streamed;
+                nothing is loaded into memory beyond the per-sample index that
+                processing already keeps. Defaults to None: fit on all samples
+                and return one dataset, as before.
 
         Returns:
-            SampleDataset: The generated sample dataset.
+            SampleDataset: The generated sample dataset, or, with ``split``, a
+            tuple with one dataset per part, training part first, whose
+            processors were fitted on the training part.
+
+        Examples:
+            >>> from pyhealth.datasets import PatientSplit
+            >>> train, val, test = dataset.set_task(  # doctest: +SKIP
+            ...     task, split=PatientSplit(ratios=(0.7, 0.1, 0.2), seed=42)
+            ... )
 
         Raises:
             AssertionError: If no default task is found and task is None.
@@ -1084,6 +1372,10 @@ class BaseDataset(ABC):
                     if output_processors
                     else None
                 ),
+                # Layout of processed samples on disk; a new layout gets a new cache.
+                "storage_format": STORAGE_FORMAT,
+                # Only present with a split, so existing unsplit caches keep their key.
+                **({"split": split.to_dict()} if split is not None else {}),
             },
             sort_keys=True,
             default=str,
@@ -1144,8 +1436,12 @@ class BaseDataset(ABC):
                         input_processors=input_processors,
                         output_processors=output_processors,
                     )
-                    builder.fit(dataset)
+                    builder.fit(dataset, split=split)
                     builder.save(str(samples_path / "schema.pkl"))
+                    if split is not None:
+                        # Written before the samples, whose index.json marks the
+                        # cache complete, so a valid cache always has its split.
+                        np.savez(samples_path / "split.npz", *builder.split_indices)
 
                     # Apply processors and save final samples to cache_dir
                     logger.info(f"Processing samples and saving to {samples_path}...")
@@ -1160,11 +1456,17 @@ class BaseDataset(ABC):
                 f"Found cached processed samples at {samples_path}, skipping processing."
             )
 
-        return SampleDataset(
+        samples = SampleDataset(
             path=str(samples_path),
             dataset_name=self.dataset_name,
             task_name=task.task_name,
         )
+        if split is None:
+            return samples
+        with np.load(samples_path / "split.npz") as parts:
+            return tuple(
+                samples.subset(parts[f"arr_{k}"]) for k in range(len(parts.files))
+            )
 
     def _main_guard(self, func_name: str):
         """Warn if method is accessed from a non-main process."""

@@ -26,13 +26,19 @@ def split(
     Note:
         The original dataset can be accessed by `train_dataset.dataset`,
             `val_dataset.dataset`, and `test_dataset.dataset`.
+        The seed shuffles with a private generator; NumPy's global random
+            state is not changed.
+
+    Examples:
+        >>> train, val, test = split(dataset, [0.8, 0.1, 0.1], seed=0)  # doctest: +SKIP
     """
     
-    if seed is not None:
-        np.random.seed(seed)
     assert sum(ratios) == 1.0, "ratios must sum to 1.0"
     index = np.arange(len(dataset))
-    np.random.shuffle(index)
+    # A private generator: same order as seeding the global one, without
+    # changing the caller's global NumPy state.
+    rng = np.random.RandomState(seed) if seed is not None else np.random
+    rng.shuffle(index)
     train_index = index[: int(len(dataset) * ratios[0])]
     val_index = index[
         int(len(dataset) * ratios[0]) : int(len(dataset) * (ratios[0] + ratios[1]))

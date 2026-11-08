@@ -123,6 +123,7 @@ class TestCachingFunctionality(BaseTestCase):
             "num_workers",
             "input_processors",
             "output_processors",
+            "split",
         ]
         self.assertEqual(params, expected_params)
 
@@ -131,6 +132,7 @@ class TestCachingFunctionality(BaseTestCase):
         self.assertEqual(sig.parameters["num_workers"].default, None)
         self.assertEqual(sig.parameters["input_processors"].default, None)
         self.assertEqual(sig.parameters["output_processors"].default, None)
+        self.assertEqual(sig.parameters["split"].default, None)
 
     def test_set_task_writes_cache_and_metadata(self):
         """Ensure set_task materializes cache files and schema metadata."""
@@ -168,9 +170,9 @@ class TestCachingFunctionality(BaseTestCase):
                 all(len(indexes) == 2 for indexes in sample_dataset.patient_to_index.values())
             )
             self.assertEqual(sample_dataset.record_to_index, {})
-        # Ensure directory is cleaned up after context exit
-        self.assertFalse((sample_dir / "index.json").exists())
-        self.assertFalse((sample_dir / "schema.pkl").exists())
+        # The processed-sample cache is reusable, so closing keeps it
+        self.assertTrue((sample_dir / "index.json").exists())
+        self.assertTrue((sample_dir / "schema.pkl").exists())
         # Ensure intermediate cache files are still present
         self.assertTrue((task_cache_dir / "task_df.ld" / "index.json").exists())
 
@@ -331,6 +333,59 @@ class TestCachingFunctionality(BaseTestCase):
 
         # The stale file should be gone (the whole directory was removed then recreated)
         self.assertFalse(stale_file.exists())
+
+
+class TestTmpDirOwnership(BaseTestCase):
+    """Jobs sharing a cache_dir must not delete each other's temporary files.
+
+    Before, clean_tmpdir() removed all of tmp/, so a job that finished a build
+    deleted the converted tables and Dask scratch of a job still building.
+    """
+
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        # Same configuration, so one cache directory: like two jobs of a sweep.
+        self.mine = MockDataset(cache_dir=temp_dir.name)
+        self.other = MockDataset(cache_dir=temp_dir.name)
+        self.assertEqual(self.mine.cache_dir, self.other.cache_dir)
+
+    def test_clean_tmpdir_keeps_other_datasets_tmpdirs(self):
+        mine_dir = self.mine.create_tmpdir()
+        other_file = self.other.create_tmpdir() / "table.parquet"
+        other_file.write_text("in use")
+
+        self.mine.clean_tmpdir()
+
+        self.assertFalse(mine_dir.exists())
+        self.assertTrue(other_file.exists())
+
+    def test_failed_build_keeps_other_datasets_tmpdirs(self):
+        # _event_transform calls clean_tmpdir() in its finally block.
+        other_file = self.other.create_tmpdir() / "table.parquet"
+        other_file.write_text("in use")
+
+        with (
+            patch.object(self.mine, "load_data", side_effect=RuntimeError("boom")),
+            self.assertRaises(RuntimeError),
+        ):
+            self.mine._event_transform(self.mine.cache_dir / "out.parquet")
+
+        self.assertTrue(other_file.exists())
+
+    def test_tmp_root_is_removed_once_empty(self):
+        tmp_root = self.mine.cache_dir / "tmp"
+        self.mine.create_tmpdir()
+        self.other.create_tmpdir()
+
+        self.mine.clean_tmpdir()
+        self.assertTrue(tmp_root.exists())
+        self.other.clean_tmpdir()
+        self.assertFalse(tmp_root.exists())
+
+    def test_clean_tmpdir_without_tmpdirs(self):
+        self.mine.clean_tmpdir()
+        self.assertFalse((self.mine.cache_dir / "tmp").exists())
 
 
 if __name__ == "__main__":

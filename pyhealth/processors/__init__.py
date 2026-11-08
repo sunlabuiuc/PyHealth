@@ -21,6 +21,7 @@ def get_processor(name: str):
 from .image_processor import ImageProcessor
 from .label_processor import (
     BinaryLabelProcessor,
+    LabelProcessor,
     MultiClassLabelProcessor,
     MultiLabelProcessor,
     RegressionLabelProcessor,
@@ -37,6 +38,14 @@ from .deep_nested_sequence_processor import (
 )
 from .raw_processor import RawProcessor
 from .sequence_processor import SequenceProcessor
+from .sequence_processor_v2 import (
+    Impute,
+    LevelConfig,
+    Normalize,
+    Records,
+    Resample,
+    SequenceProcessorV2,
+)
 from .signal_processor import SignalProcessor
 from .stagenet_processor import (
     StageNetProcessor,
@@ -45,6 +54,13 @@ from .stagenet_processor import (
 from .tensor_processor import TensorProcessor
 from .text_processor import TextProcessor
 from .timeseries_processor import TimeseriesProcessor
+from .timeseries_label_processor import (
+    TimeseriesBinaryLabelProcessor,
+    TimeseriesLabelProcessor,
+    TimeseriesMultiClassLabelProcessor,
+    TimeseriesMultiLabelProcessor,
+    TimeseriesRegressionLabelProcessor,
+)
 from .time_image_processor import TimeImageProcessor
 from .graph_processor import GraphProcessor
 from .audio_processor import AudioProcessor
@@ -71,13 +87,24 @@ __all__ = [
     "NestedSequenceProcessor",
     "RawProcessor",
     "SequenceProcessor",
+    "SequenceProcessorV2",
+    "Records",
+    "LevelConfig",
+    "Impute",
+    "Normalize",
+    "Resample",
     "SignalProcessor",
     "StageNetProcessor",
     "StageNetTensorProcessor",
     "TensorProcessor",
     "TemporalTimeseriesProcessor",
     "TextProcessor",
+    "TimeseriesBinaryLabelProcessor",
+    "TimeseriesLabelProcessor",
+    "TimeseriesMultiClassLabelProcessor",
+    "TimeseriesMultiLabelProcessor",
     "TimeseriesProcessor",
+    "TimeseriesRegressionLabelProcessor",
     "TimeImageProcessor",
     "GraphProcessor",
     "AudioProcessor",

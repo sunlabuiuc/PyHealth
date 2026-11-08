@@ -1,22 +1,27 @@
-name: CI
+name: Python Test
 
 on:
   pull_request:
   push:
     paths-ignore:
       - '**.md'
-      - 'doc/*'
+      - 'docs/**'
     branches:
       - master
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout reposistory
-        uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           submodules: recursive
+          # full history so the coverage report can diff against the base commit
+          fetch-depth: 0
 
       - name: Install Python environment needed for the relpo command
         uses: actions/setup-python@v5
@@ -32,8 +37,44 @@ jobs:
       # we have to install the environment without --lock, as otherwise the
       # pyproject.toml sha1 changes due to different whitespace in the build
       # environment
-      - name: Create the enviornment, which updates the lock file
-        run: 'make init'
+      - name: Create the environment, which updates the lock file
+        run: 'pixi install'
 
-      - name: Run tests
-        run: 'make testall'
+      - name: Run core tests
+        run: 'pixi run -e test pytest tests/core -v --cov=pyhealth --cov-report='
+
+      - name: Run NLP tests
+        if: ${{ !cancelled() }}
+        run: 'pixi run -e nlp pytest tests/nlp -v --cov=pyhealth --cov-append --cov-report='
+
+      - name: Report test coverage
+        if: ${{ !cancelled() }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          pixi run -e test coverage json -q -o coverage.json
+          git diff --name-only --diff-filter=d "$BASE_SHA" HEAD -- 'pyhealth/*.py' > modified.txt || true
+          python - <<'PY'
+          import json, os
+
+          with open("coverage.json") as f:
+              report = json.load(f)
+
+          def summarize(s):
+              return {
+                  "percent_covered": round(s["percent_covered"], 2),
+                  "covered_lines": s["covered_lines"],
+                  "num_statements": s["num_statements"],
+              }
+
+          files = {os.path.relpath(k): v["summary"] for k, v in report["files"].items()}
+          with open("modified.txt") as f:
+              modified = [line.strip() for line in f if line.strip()]
+
+          print(json.dumps({
+              "total": summarize(report["totals"]),
+              "modified_files": {
+                  p: summarize(files[p]) if p in files else None for p in modified
+              },
+          }, indent=2))
+          PY

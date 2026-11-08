@@ -5,6 +5,204 @@ All notable changes to PyHealth are documented here. Versions follow the
 [releases page](https://github.com/sunlabuiuc/PyHealth/releases) for the
 corresponding tags and wheels.
 
+## 2.1.0 — 2026-10-16
+
+A minor release focused on making PyHealth results trustworthy: leakage-free
+preprocessing with split-aware `set_task`, reproducible training, calibration metrics
+with patient-level confidence intervals, and a large set of cache and data-handling
+fixes. It also adds an XGBoost model with exact TreeSHAP, Synthea synthetic-patient
+generation, ICD-9 ↔ ICD-10 translation, and a new nine-notebook tutorial series.
+
+Most 2.0.2 code runs unchanged, but read **Upgrading from 2.0.2** below: dependency
+floors moved (notably `torch>=2.10`), the EHR-generation tasks were reorganised,
+and a few behaviours changed on purpose.
+
+### Upgrading from 2.0.2
+
+- **Dependencies.** `torch>=2.10`, `pyarrow>=23.0.1`, `dask[complete]>=2026.1.0` and
+  `litdata>=0.2.64,<0.2.68` are now required; numpy, pandas, pydantic, scikit-learn and
+  narwhals use bounded ranges instead of `~=` pins, so installs on Google Colab no
+  longer downgrade preloaded packages. `urllib3` is no longer a dependency, and
+  `icd-mappings` is new. ([#1254](https://github.com/sunlabuiuc/PyHealth/pull/1254),
+  [#1287](https://github.com/sunlabuiuc/PyHealth/pull/1287),
+  [#1273](https://github.com/sunlabuiuc/PyHealth/pull/1273),
+  [#1257](https://github.com/sunlabuiuc/PyHealth/pull/1257))
+- **EHR-generation tasks.** The `EHRGeneration` base class is gone. There are now
+  six tasks, one per encoding and dataset:
+  `EHRGenerationMIMIC3/4` (per-visit multi-hot, for HALO),
+  `EHRSequenceGenerationMIMIC3/4` (per-visit code indices, for GPT-2 and PromptEHR) and
+  `EHRCodeSetGenerationMIMIC3/4` (one code set per patient, for MedGAN and CorGAN).
+  `EHRGenerationMIMIC3/4` now emit `nested_multihot` instead of `nested_sequence`
+  rows; GPT-2 and PromptEHR users should switch to `EHRSequenceGenerationMIMIC3/4`.
+  ([#1233](https://github.com/sunlabuiuc/PyHealth/pull/1233))
+- **Missing `Event` timestamps are `None`.** `Event` used to substitute
+  `datetime.now()` for a missing timestamp (e.g. MIMIC `patients`, eICU tables), which
+  sorted before every real event and silently passed time-window filters. Code that
+  relied on a non-null timestamp must handle `None`. ([#1247](https://github.com/sunlabuiuc/PyHealth/pull/1247))
+- **Caches rebuild once.** The dataset cache key now covers the YAML config and the
+  source files' size and mtime, and the processed-sample cache key covers the new
+  storage format, so existing caches are rebuilt on first use. Old cache folders are
+  left in place and can be deleted. ([#1265](https://github.com/sunlabuiuc/PyHealth/pull/1265),
+  [#1277](https://github.com/sunlabuiuc/PyHealth/pull/1277))
+- **Shuffle orders differ from 2.0.2.** Dataloaders now draw shuffles from a seeded
+  per-loader generator, and patient-level splitters sort patient IDs before shuffling.
+  Runs are reproducible from here on, but the same seed selects different batches and
+  splits than it did in 2.0.2. ([#1280](https://github.com/sunlabuiuc/PyHealth/pull/1280),
+  [#1286](https://github.com/sunlabuiuc/PyHealth/pull/1286))
+- **Logging.** The `pyhealth` logger no longer propagates to the root logger, so each
+  message prints once in Jupyter and Colab. To route PyHealth messages through your own
+  root configuration, remove `pyhealth.handler` and re-enable propagation. ([#1285](https://github.com/sunlabuiuc/PyHealth/pull/1285))
+- **Default cache warning.** Building a dataset without `cache_dir` now logs a
+  warning naming the user cache folder it writes to; set
+  `PYHEALTH_REQUIRE_CACHE_DIR=1` to make it an error. ([#1264](https://github.com/sunlabuiuc/PyHealth/pull/1264))
+- The unmaintained 2023 `chat-assistant/` demo was removed (it remains in git
+  history). ([#1252](https://github.com/sunlabuiuc/PyHealth/pull/1252))
+
+### Highlights
+
+- **Split-aware preprocessing** — `dataset.set_task(task, split=PatientSplit(...))`
+  fits every processor (vocabularies and any learned statistics) on the training
+  patients only and returns `(train, val, test)` views of one processed cache.
+  `PatientSplit` accepts two or more ratios, and custom splits implement the new
+  `Split` interface. Processors that learn statistics warn when fitted on all
+  samples. ([#1273](https://github.com/sunlabuiuc/PyHealth/pull/1273))
+- **Reproducible training** — `get_dataloader(..., seed=None)` gives each loader its
+  own seeded, per-epoch shuffle on both the in-memory and disk backends, so
+  `torch.manual_seed` alone makes runs repeatable. `pyhealth.utils.preserve_rng_state()`
+  is new; `set_task`, dataset creation and interpretability methods no longer
+  touch global RNG state, and importing `pyhealth.models` no longer reseeds numpy
+  and torch. `Trainer.train` restores the best epoch even with logging off
+  (`keep_best_in_memory`). ([#1280](https://github.com/sunlabuiuc/PyHealth/pull/1280))
+- **Calibration and confidence intervals** — `binary_metrics_fn` adds `brier`,
+  `oe_ratio`, `calibration_slope` and `calibration_intercept`; the new
+  `pyhealth.metrics.bootstrap` module provides `bootstrap_ci` and
+  `paired_bootstrap_diff`, with `groups=` for patient-clustered resampling.
+  ([#1268](https://github.com/sunlabuiuc/PyHealth/pull/1268))
+- **Imbalanced outcomes** — `BaseModel.set_pos_weight(...)` takes a number, a
+  per-label list, or `"balanced"` computed from a training dataset, and applies to
+  every model that uses the default binary/multilabel loss. ([#1267](https://github.com/sunlabuiuc/PyHealth/pull/1267))
+
+### New models and generators
+
+- **`XGBoostModel`** — gradient-boosted trees for binary, multiclass, multilabel and
+  regression tasks, fit with `model.fit(train, val=None)` and evaluated through the
+  usual `Trainer`. Supports tensor, timeseries, multi-hot and nested multi-hot
+  inputs (and bag-of-codes for code sequences), `scale_pos_weight`, early stopping,
+  and exact TreeSHAP through `explain()` and the new
+  `pyhealth.interpret.methods.TreeSHAP`. Install with `pip install "pyhealth[xgboost]"`.
+  ([#1278](https://github.com/sunlabuiuc/PyHealth/pull/1278))
+- **Synthea** — `pyhealth.models.Synthea` runs the Synthea synthetic-patient
+  generator (Java 17+ required; the JAR is downloaded and cached), and
+  `SyntheaCSVDataset` loads its CSV output. ([#1244](https://github.com/sunlabuiuc/PyHealth/pull/1244))
+- **HALO** — visit encoding is now vectorised, removing a per-code Python loop that
+  took ~85% of a training step on GPU. ([#1233](https://github.com/sunlabuiuc/PyHealth/pull/1233))
+
+### New processors and medical codes
+
+- **`NestedMultiHotProcessor`** (`"nested_multihot"`) — one multi-hot row per visit,
+  sized by the vocabulary rather than by the longest visit (8.6× smaller per patient
+  on eICU). ([#1233](https://github.com/sunlabuiuc/PyHealth/pull/1233))
+- **ICD-9 ↔ ICD-10 translation and grouper vocabularies** — `CrossMap` gains an
+  `icd-mappings` backend for pairs PyHealth hosts no table for (ICD-9 ↔ ICD-10,
+  CCSR, chapters and blocks, chronic-condition indicators, and more). Existing
+  mappings such as ICD9CM→CCSCM are unchanged. ICD-9 ↔ ICD-10 is a primary-mapping
+  approximation of the GEMs, reported through a warning and
+  `CrossMap.unmapped_codes`. `CrossMap` also downloads vocabulary tables only when
+  they are used. ([#1257](https://github.com/sunlabuiuc/PyHealth/pull/1257))
+- `TensorProcessor.size()` now returns the fitted feature width, and embeddings are
+  sized from already-processed samples instead of re-running `process()`.
+  ([#1262](https://github.com/sunlabuiuc/PyHealth/pull/1262))
+
+### Fixes
+
+**Data leakage and label correctness**
+
+- `MultimodalMortalityPredictionMIMIC4` used chest X-rays from after the prediction
+  time; X-rays are now limited to those available by the last included admission's
+  discharge. ([#1229](https://github.com/sunlabuiuc/PyHealth/pull/1229))
+- `T1DDKAPredictionMIMIC4` counted DKA events recorded before a separate T1DM
+  diagnosis; those patients are now excluded. ([#1230](https://github.com/sunlabuiuc/PyHealth/pull/1230))
+- With more than 10 workers, `set_task` merged worker indexes in string order
+  (0, 1, 10, 11, …), so `patient_to_index` pointed at other patients' samples and
+  patient-level splits shared patients (on full MIMIC-IV with 32 workers, ~3.6k
+  patients appeared in both train and val). Fixed by requiring `litdata>=0.2.64`.
+  **Caches built with more than 10 workers before this release keep the wrong order;
+  delete and rebuild them.** ([#1273](https://github.com/sunlabuiuc/PyHealth/pull/1273))
+- Supplying pre-fitted processors for some fields left the other fields without a
+  processor, so raw values reached the model; missing processors are now fitted.
+  ([#1273](https://github.com/sunlabuiuc/PyHealth/pull/1273))
+
+**Datasets, caching and samples**
+
+- Rewriting a source file or editing a dataset's YAML config silently reused the
+  stale cached event table. ([#1265](https://github.com/sunlabuiuc/PyHealth/pull/1265))
+- Sample fields whose length or shape varies between samples (notes, measurement
+  times, `None` mixed with lists) failed, were truncated, or were misread on the
+  disk-backed cache. Non-tensor fields are now stored as one opaque value per sample.
+  ([#1277](https://github.com/sunlabuiuc/PyHealth/pull/1277))
+- Nested sequence and float processors now truncate visits longer than the fitted
+  width (with a one-time warning) instead of producing ragged batches.
+  ([#1263](https://github.com/sunlabuiuc/PyHealth/pull/1263))
+- `Event` objects could not be copied or unpickled (`RecursionError`), so a sample
+  containing one was written to the cache but crashed when read back. ([#1247](https://github.com/sunlabuiuc/PyHealth/pull/1247))
+- Every dataset build leaked three file descriptors through dask's dashboard,
+  eventually failing with "Too many open files" on macOS. ([#1245](https://github.com/sunlabuiuc/PyHealth/pull/1245))
+- Downloads are now atomic with a timeout: an interrupted download no longer leaves
+  a truncated file that later runs reuse, and a stalled server no longer hangs.
+  medcode JSON downloads no longer re-download on every call. ChestX-ray14 extraction
+  rejects unsafe archive members. ([#1255](https://github.com/sunlabuiuc/PyHealth/pull/1255))
+- `split_by_patient`, `split_by_patient_conformal` and the TUH patient splitters
+  picked different patients for the same seed depending on sample order.
+  ([#1286](https://github.com/sunlabuiuc/PyHealth/pull/1286))
+- `create_sample_dataset(in_memory=False)` could leave helper processes running
+  after an error and hang at exit; it now writes in-process. The in-memory dataset
+  no longer yields every sample once per dataloader worker. ([#1277](https://github.com/sunlabuiuc/PyHealth/pull/1277),
+  [#1280](https://github.com/sunlabuiuc/PyHealth/pull/1280))
+
+**Models**
+
+- `model.mode` was overwritten with the raw schema entry in 16 models, so processor
+  class or tuple `output_schema` forms crashed `Trainer.evaluate`, calibration and
+  `Agent`. `BaseModel.mode` is now a property that always resolves to a mode string.
+  ([#1246](https://github.com/sunlabuiuc/PyHealth/pull/1246), fixes [#914](https://github.com/sunlabuiuc/PyHealth/issues/914))
+- GRASP never built its similar-patient graph, falling back to an identity
+  adjacency; the kNN cluster graph now works with self-connections. ([#1194](https://github.com/sunlabuiuc/PyHealth/pull/1194))
+- `TransformerDeID` ignored its configured feature and label keys. ([#1224](https://github.com/sunlabuiuc/PyHealth/pull/1224))
+
+**Metrics and interpretability**
+
+- Removal-based interpretability metrics (comprehensiveness, sufficiency) crashed
+  for every model with integer code-sequence inputs; removed codes are now set to the
+  padding id. ([#1284](https://github.com/sunlabuiuc/PyHealth/pull/1284))
+- Ranking metrics used a bare `except`. ([#1237](https://github.com/sunlabuiuc/PyHealth/pull/1237))
+
+### Docs and examples
+
+- A nine-notebook tutorial series under `examples/tutorials/series/`, from a first
+  model through datasets, tasks, training and evaluation, model choice,
+  interpretation, medical codes, clinical text, and contributing. Each notebook runs
+  on CPU in Colab. ([#1281](https://github.com/sunlabuiuc/PyHealth/pull/1281))
+- New docs sections and runnable examples covering reproducible runs, shuffling,
+  split-aware `set_task`, reusing fitted processors, imbalanced outcomes,
+  calibration and bootstrap CIs, cache behaviour, identified data, logging setup,
+  and custom tensor processors.
+- Fixed the GAMENet drug-recommendation example; `minimal_legacy_*.py` scripts are
+  labelled as PyHealth 1.1.6-only. ([#1206](https://github.com/sunlabuiuc/PyHealth/pull/1206))
+
+### Infrastructure and security
+
+- `SECURITY.md` describes private vulnerability reporting and the trust model
+  (pickle-based caches and checkpoints must come from trusted sources). Workflows
+  declare least-privilege token permissions. ([#1253](https://github.com/sunlabuiuc/PyHealth/pull/1253))
+- Dependency floors were raised past known CVEs in torch, pyarrow, dask and urllib3;
+  pip-audit reports no known vulnerabilities on a fresh install. ([#1254](https://github.com/sunlabuiuc/PyHealth/pull/1254))
+- CI reports test coverage. ([#1299](https://github.com/sunlabuiuc/PyHealth/pull/1299))
+- Tests find their resources relative to the test file, and a flaky ATC-3 ordering
+  assertion is now order-insensitive. ([#1292](https://github.com/sunlabuiuc/PyHealth/pull/1292),
+  [#1261](https://github.com/sunlabuiuc/PyHealth/pull/1261))
+
+**Full Changelog**: https://github.com/sunlabuiuc/PyHealth/compare/v2.0.2...v2.1.0
+
 ## 2.0.2 — 2026-09-02
 
 The first release since 2.0.1 (2026-03-30). It adds four datasets, a synthetic-EHR

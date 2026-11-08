@@ -39,6 +39,9 @@ routes each feature type automatically.
    * - ``MultimodalRNN``
      - Features mix sequential codes with static tensors or multi-hot encodings
      - Auto-routes sequential features to RNN layers and non-sequential features to linear layers; good default for EHR
+   * - ``RNN_V2``
+     - Features are ``sequence_v2`` fields (nested codes, values and timestamps), plus static tensors
+     - Encodes each field bottom-up over packed records, without padding the hierarchy
    * - :doc:`models/pyhealth.models.StageNet`
      - You have time-stamped vital signs with irregular measurement intervals
      - Requires ``StageNetProcessor`` or ``StageNetTensorProcessor`` in the task schema
@@ -48,6 +51,9 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.GraphCare`
      - You want to augment EHR codes with a medical knowledge graph
      - Combines code sequences with a :class:`~pyhealth.graph.KnowledgeGraph`
+   * - :doc:`models/pyhealth.models.XGBoostModel`
+     - Features are tabular (engineered labs, demographics) or bags of codes; you want the standard strong baseline
+     - Gradient-boosted trees; fit with ``model.fit`` (not ``Trainer.train``); exact TreeSHAP; needs ``pip install "pyhealth[xgboost]"``
 
 How BaseModel Works
 --------------------
@@ -60,16 +66,20 @@ base class reads the dataset's schemas and automatically sets:
 - ``self.label_keys`` — the list of output field names from ``output_schema``
 - ``self.device`` — the compute device
 
-It also provides three helper methods that take care of the boilerplate that
-varies by task type:
+It also gives the label processor, ``self.label_processor`` (see
+:class:`~pyhealth.processors.LabelProcessor`), which takes care of everything
+that varies by task type:
 
-- ``self.get_output_size()`` returns the output dimension from the fitted
-  label processor, so you don't have to hard-code it.
-- ``self.get_loss_function()`` returns the right loss for the task: BCE for
-  binary and multilabel tasks, cross-entropy for multiclass, MSE for
-  regression.
-- ``self.prepare_y_prob(logits)`` applies sigmoid, softmax, or identity to
-  logits depending on the task, producing calibrated probabilities.
+- ``self.label_processor.output_size()`` is the output dimension, so you don't have
+  to hard-code it.
+- ``self.label_processor.loss(logits, y_true)`` is the right loss for the
+  task: BCE for binary and multilabel tasks, cross-entropy for multiclass, MSE
+  for regression.
+- ``self.label_processor.activation(logits)`` applies sigmoid, softmax, or
+  identity to logits depending on the task, producing ``y_prob``.
+
+A model with several labels uses ``self.label_processors``, a dict by output
+key.
 
 The ``forward()`` method is expected to return a dictionary with four keys:
 ``loss``, ``y_prob``, ``y_true``, and ``logit``. The Trainer reads all four.
@@ -116,6 +126,10 @@ on the label processor in your task's ``output_schema``:
    * - ``"regression"``
      - MSE
      - identity → (batch, 1)
+   * - ``"timeseries_binary"``, ``"timeseries_multiclass"``,
+       ``"timeseries_multilabel"``, ``"timeseries_regression"``
+     - the static loss, per label record
+     - the static activation → (label records, ...)
 
 The schema value can be written as a string, a label processor class, a
 processor instance, or a ``(name, kwargs)`` tuple. These are equivalent:
@@ -126,12 +140,34 @@ processor instance, or a ``(name, kwargs)`` tuple. These are equivalent:
     output_schema = {"icd_codes": MultiLabelProcessor}
     output_schema = {"icd_codes": ("multilabel", {})}
 
-Whichever form a task uses, ``model.mode`` is always the plain string
-(``"binary"``, ``"multiclass"``, ``"multilabel"`` or ``"regression"``), or
-``None`` when the label is not one of these kinds. ``Trainer.evaluate()`` and
-the calibration methods use it to pick metrics. ``BaseModel`` sets it for you,
-so custom models don't need to assign ``self.mode``; if they do, the value is
-resolved the same way.
+Whichever form a task uses, the model gets the same fitted label processor,
+and ``model.mode`` is its kind (``"binary"``, ``"multiclass"``, ...), or
+``None`` when the model has no single label processor. ``mode`` is read-only.
+``Trainer.evaluate()`` asks the label processor how to gather the predictions
+and which metrics to compute. A model that scores something other than its
+dataset's label (for example a reconstruction) overrides
+``label_processors``.
+
+Imbalanced outcomes
+^^^^^^^^^^^^^^^^^^^
+
+For rare binary or multilabel outcomes, the task weights the positive examples
+in the loss with the label processor's ``pos_weight``:
+
+.. code-block:: python
+
+    output_schema = {"mortality": ("binary", {"pos_weight": "balanced"})}
+    # or a fixed weight: ("binary", {"pos_weight": 9.0}); per label for
+    # ("multilabel", {"pos_weight": [...]})
+
+``"balanced"`` is negatives / positives over the samples the processor is
+fitted on, so fit the processors on the training split
+(``set_task(task, split=PatientSplit(...))``); PyHealth warns otherwise. The
+weight applies to models that use ``label_processor.loss``; the
+drug-recommendation models (GAMENet, SafeDrug, MoleRec, MICRON, ARMR) compute
+their own loss and ignore it. Weighting shifts the predicted probabilities
+upward, so check calibration before interpreting them as risks. See
+``examples/imbalanced_outcome_pos_weight.py``.
 
 Building a Custom Model
 -----------------------
@@ -154,7 +190,7 @@ an ``EmbeddingModel`` in ``__init__``, unpack processor schemas in
             self.label_key = self.label_keys[0]
             self.embedding_model = EmbeddingModel(dataset, embedding_dim)
             self.fc = nn.Linear(embedding_dim * len(self.feature_keys),
-                                self.get_output_size())
+                                self.label_processor.output_size())
 
         def forward(self, **kwargs):
             inputs, masks = {}, {}
@@ -173,8 +209,8 @@ an ``EmbeddingModel`` in ``__init__``, unpack processor schemas in
 
             y_true = kwargs[self.label_key].to(self.device)
             return {
-                "loss":   self.get_loss_function()(logits, y_true),
-                "y_prob": self.prepare_y_prob(logits),
+                "loss":   self.label_processor.loss(logits, y_true),
+                "y_prob": self.label_processor.activation(logits),
                 "y_true": y_true,
                 "logit":  logits,
             }
@@ -194,6 +230,8 @@ API Reference
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
     models/pyhealth.models.TransformersModel
+    models/pyhealth.models.LLMEHREncoder
+    models/pyhealth.models.MEME
     models/pyhealth.models.TransformerDeID
     models/pyhealth.models.RETAIN
     models/pyhealth.models.GAMENet
@@ -201,6 +239,7 @@ API Reference
     models/pyhealth.models.MICRON
     models/pyhealth.models.SafeDrug
     models/pyhealth.models.MoleRec
+    models/pyhealth.models.ARMR
     models/pyhealth.models.Deepr
     models/pyhealth.models.EHRMamba
     models/pyhealth.models.EHRMambaCEHR
@@ -224,9 +263,18 @@ API Reference
     models/pyhealth.models.PromptEHR
     models/pyhealth.models.MedGAN
     models/pyhealth.models.CorGAN
+    models/pyhealth.models.Synthea
     models/pyhealth.models.SDOH
+    models/pyhealth.models.SequenceEmbeddingModel
     models/pyhealth.models.VisionEmbeddingModel
     models/pyhealth.models.TextEmbedding
     models/pyhealth.models.BIOT
     models/pyhealth.models.unified_multimodal_embedding_docs
     models/pyhealth.models.califorest
+    models/pyhealth.models.XGBoostModel
+    models/pyhealth.models.survival_mdn
+    models/pyhealth.models.TrajSurv
+    models/pyhealth.models.ProtoECGNet
+    models/pyhealth.models.HeartLang
+    models/pyhealth.models.APN
+

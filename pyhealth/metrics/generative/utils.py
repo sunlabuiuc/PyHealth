@@ -14,6 +14,8 @@ import pandas as pd
 import torch
 import torch.nn as nn
 
+from pyhealth.utils import preserve_rng_state
+
 __all__ = [
     "summarize_metric_runs",
     "convert_visits_to_sets",
@@ -286,6 +288,7 @@ class EHR_LSTM_Classifier(nn.Module):
         return probs.squeeze(-1)
 
 
+@preserve_rng_state()
 def train_lstm_model(
     train_ehr: pd.DataFrame,
     test_ehr: pd.DataFrame,
@@ -319,8 +322,16 @@ def train_lstm_model(
     Returns:
         A tuple ``(model, y_true, y_pred)`` where ``y_true`` and ``y_pred`` are
             numpy arrays of test labels and binary predictions.
+
+    The seed applies to this call only: the caller's global random state is
+    restored on return.
+
+    Examples:
+        >>> model, y_true, y_pred = train_lstm_model(  # doctest: +SKIP
+        ...     train_ehr, test_ehr, seed=4
+        ... )
     """
-    torch.manual_seed(seed)
+    torch.manual_seed(seed)  # restored on return by preserve_rng_state
     all_codes = set()
     all_codes.update(train_ehr[code_col].unique().tolist())
     all_codes.update(test_ehr[code_col].unique().tolist())

@@ -13,6 +13,8 @@ from typing import Dict, Optional
 
 import torch
 
+from pyhealth.utils import _seeded_by
+
 from pyhealth.models import BaseModel
 from .base_interpreter import BaseInterpreter
 
@@ -42,7 +44,7 @@ class RandomBaseline(BaseInterpreter):
     Examples:
         >>> import torch
         >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
-        >>> from pyhealth.interpret.methods.baseline import Random
+        >>> from pyhealth.interpret.methods import RandomBaseline
         >>> from pyhealth.models import MLP
         >>>
         >>> samples = [
@@ -62,7 +64,7 @@ class RandomBaseline(BaseInterpreter):
         >>> model.eval()
         >>> test_loader = get_dataloader(dataset, batch_size=1, shuffle=False)
         >>>
-        >>> rand_interp = Random(model, random_seed=42)
+        >>> rand_interp = RandomBaseline(model, random_seed=42)
         >>> batch = next(iter(test_loader))
         >>> attributions = rand_interp.attribute(**batch)
         >>> print({k: v.shape for k, v in attributions.items()})
@@ -88,6 +90,7 @@ class RandomBaseline(BaseInterpreter):
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+    @_seeded_by("random_seed")
     def attribute(
         self,
         **kwargs: torch.Tensor | tuple[torch.Tensor, ...],
@@ -107,9 +110,6 @@ class RandomBaseline(BaseInterpreter):
             Dictionary mapping each feature key to a random attribution
             tensor whose shape matches the raw input values.
         """
-        if self.random_seed is not None:
-            torch.manual_seed(self.random_seed)
-
         device = next(self.model.parameters()).device
 
         # Filter kwargs to only include model feature keys

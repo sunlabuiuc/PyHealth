@@ -1,5 +1,11 @@
 from .adacare import AdaCare, AdaCareLayer, MultimodalAdaCare
 from .agent import Agent, AgentLayer
+from .apn import (
+    APN as APN,
+    LearnableTimeEncoding as LearnableTimeEncoding,
+    TimeAwarePatchAggregation as TimeAwarePatchAggregation,
+    masked_mse as masked_mse,
+)
 from .base_model import BaseModel
 from .transformer_deid import TransformerDeID
 from .biot import BIOT
@@ -8,6 +14,12 @@ from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D
 from .deepr import Deepr, DeeprLayer
 from .embedding import EmbeddingModel
+from .sequence_embedding import (
+    LevelEmbedding as LevelEmbedding,
+    PretrainedEmbedding as PretrainedEmbedding,
+    SequenceEmbeddingModel as SequenceEmbeddingModel,
+)
+from .armr import ARMR as ARMR
 from .gamenet import GAMENet, GAMENetLayer
 from .jamba_ehr import JambaEHR, JambaLayer
 from .logistic_regression import LogisticRegression
@@ -23,6 +35,7 @@ from .mlp import MLP
 from .molerec import MoleRec, MoleRecLayer
 from .retain import MultimodalRETAIN, RETAIN, RETAINLayer
 from .rnn import MultimodalRNN, RNN, RNNLayer
+from .rnn import RNN_V2 as RNN_V2
 from .safedrug import SafeDrug, SafeDrugLayer
 from .sparcnet import DenseBlock, DenseLayer, SparcNet, TransitionLayer
 from .stagenet import StageNet, StageNetLayer
@@ -39,6 +52,7 @@ from .tfm_tokenizer import (
 from .torchvision_model import TorchvisionModel
 from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
+from .llm_ehr_encoder import LLMEHREncoder as LLMEHREncoder
 from .ehrmamba import EHRMamba, MambaBlock
 from .ehrmamba_cehr import EHRMambaCEHR
 from .vae import VAE
@@ -48,9 +62,28 @@ from .sdoh import SdohClassifier
 from .medlink import MedLink
 from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEmbedding
 from .califorest import CaliForest
+from .gradient_boosted_trees import GradientBoostedTreeModel as GradientBoostedTreeModel
+from .xgboost_model import XGBoostModel as XGBoostModel
+from .protoecgnet import (
+    PTBXL_BRANCH_KWARGS as PTBXL_BRANCH_KWARGS,
+    PTBXL_BRANCH_LABELS as PTBXL_BRANCH_LABELS,
+    ProtoECGNet as ProtoECGNet,
+    PrototypeBranch as PrototypeBranch,
+    ResNet1dBackbone as ResNet1dBackbone,
+    ResNet2dBackbone as ResNet2dBackbone,
+)
 from .generators.halo import HALO
 from .generators.gpt2 import GPT2
 from .generators.promptehr import PromptEHR
 from .generators.medgan import MedGAN
-from .generators.corgan import CorGAN
-from .keyclass import KeyClass
+from .generators.synthea import Synthea as Synthea
+from .generators.corgan import CorGAN as CorGAN
+from .survival_mdn import SurvivalMDN as SurvivalMDN
+from .trajsurv import TrajSurv as TrajSurv
+from .heartlang import (
+    HeartLang as HeartLang,
+    HeartLangBackbone as HeartLangBackbone,
+    ecg_to_heartbeat_sentence as ecg_to_heartbeat_sentence,
+)
+from .meme import MEME as MEME
+from .meme import DomainSelfAttention as DomainSelfAttention

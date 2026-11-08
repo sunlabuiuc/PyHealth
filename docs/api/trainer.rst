@@ -93,6 +93,48 @@ object. To capture results for downstream use, call ``evaluate()`` separately:
     with open("results.json", "w") as f:
         json.dump(scores, f, indent=2)
 
+Reproducible Runs
+-----------------
+
+On CPU, one seed makes a training run bit-for-bit reproducible, in the same
+process or a new one:
+
+.. code-block:: python
+
+    import torch
+    from pyhealth.datasets import get_dataloader
+
+    torch.manual_seed(42)        # or pyhealth.utils.set_seed(42)
+    train_loader = get_dataloader(train_ds, batch_size=64, shuffle=True)
+    model = RNN(dataset=train_ds)
+    Trainer(model=model).train(train_loader, val_loader, epochs=10, monitor="pr_auc")
+
+How the pieces fit:
+
+- **Shuffle order** belongs to each loader. ``get_dataloader(..., shuffle=True)``
+  draws its seed from torch's generator when it is created (or takes
+  ``seed=...``), and each epoch gets a new order derived from that seed and
+  the epoch number. Shuffling never touches Python's, NumPy's or torch's
+  global random state, and works the same for in-memory and disk-backed
+  datasets.
+- **Model initialization** uses torch's generator, as usual.
+- **Cache writes** (``set_task``, ``create_sample_dataset(in_memory=False)``)
+  leave the global random state as it was, so a run behaves the same whether
+  or not the cache already existed. PyHealth never seeds the global
+  generators itself; ``pyhealth.utils.set_seed`` is the only place, and only
+  when you call it.
+- **The best epoch** is restored at the end of ``train`` when ``monitor`` is
+  set, with or without logging. Without an output directory
+  (``enable_logging=False``) the best weights are kept as a CPU copy in
+  memory; pass ``keep_best_in_memory=False`` to skip that copy for very large
+  models (the last epoch's weights are then kept, with a warning).
+
+On GPU, some kernels are non-deterministic. For bit-identical GPU runs also
+call ``torch.use_deterministic_algorithms(True)``, set
+``torch.backends.cudnn.benchmark = False`` and the environment variable
+``CUBLAS_WORKSPACE_CONFIG=:4096:8``. These are process-wide settings that can
+slow training, so PyHealth leaves them to you.
+
 API Reference
 -------------
 

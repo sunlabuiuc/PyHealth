@@ -55,6 +55,8 @@ class NestedMultiHotProcessor(FeatureProcessor, TokenProcessorInterface):
         [2, 3]
     """
 
+    stores_tensor = True
+
     def __init__(self, padding: int = 0):
         # `padding` is accepted and ignored so this is a drop-in swap for
         # NestedSequenceProcessor in a schema. There is no inner axis to pad --
