@@ -1045,7 +1045,6 @@ def _new_vocab() -> dict[str, int]:
 
 
 @register_processor("unified")
-@register_processor("sequence_v2")
 class UnifiedFeatureProcessor(FeatureProcessor):
     """Processor for hierarchical packed records, without padding or truncation.
 
@@ -1062,9 +1061,9 @@ class UnifiedFeatureProcessor(FeatureProcessor):
     Subclasses are configuration only: their ``__init__`` passes fixed
     ``levels`` to ``super().__init__()`` and adds no logic.
 
-    Registered as ``"unified"``. ``"sequence_v2"`` and the name
-    ``SequenceProcessorV2`` (in ``pyhealth.processors.sequence_processor_v2``)
-    remain as aliases of this class.
+    Registered as ``"unified"``. The former name
+    :class:`~pyhealth.processors.sequence_processor_v2.SequenceProcessorV2`
+    (``"sequence_v2"``) is a deprecated subclass that behaves identically.
 
     Args:
         levels: One :class:`LevelConfig` per level, innermost (level 0)

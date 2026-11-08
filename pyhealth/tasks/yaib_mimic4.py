@@ -276,7 +276,7 @@ class _YAIBMIMIC4Task(BaseTask):
         # (normalization leaves it as is): YAIB's preprocessing, with the
         # missing-value indicators as the mask.
         "dynamic": (
-            "sequence_v2",
+            "unified",
             {
                 "levels": [
                     {
@@ -297,7 +297,7 @@ class _YAIBMIMIC4Task(BaseTask):
         # seen in training: YAIB's standardize-then-zero-fill, with the
         # missing-value indicators as the mask.
         "static": (
-            "sequence_v2",
+            "unified",
             {
                 "levels": [
                     {

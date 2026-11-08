@@ -377,6 +377,8 @@ Processor String Keys
 Common string keys for automatic processor selection:
 
 - ``"unified"``: For unified hierarchical packed records (codes, continuous values, and timestamps)
+- ``"sequence_v2"``: Deprecated former name of ``"unified"``
+  (:class:`~pyhealth.processors.sequence_processor_v2.SequenceProcessorV2`); use ``"unified"``
 - ``"temporal_timeseries"``: For time-series data with preserved timestamps (use in place of ``"timeseries"`` when building ``UnifiedMultimodalEmbeddingModel``)
 - ``"sequence"``: For categorical sequences (medical codes)
 - ``"nested_sequence"``: For nested categorical sequences (visit history)

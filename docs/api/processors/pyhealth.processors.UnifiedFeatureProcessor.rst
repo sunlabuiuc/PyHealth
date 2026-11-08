@@ -2,7 +2,7 @@ pyhealth.processors.UnifiedFeatureProcessor
 ===========================================
 
 :class:`~pyhealth.processors.UnifiedFeatureProcessor` (registered as
-``"unified"``) processes sequential, hierarchical, and temporal clinical
+``"unified"``; the former name ``"sequence_v2"`` is deprecated) processes sequential, hierarchical, and temporal clinical
 records—categorical medical codes, continuous physiological measurements, and
 timestamps at any nesting depth—into packed tensors without padding or
 truncation.
@@ -897,3 +897,6 @@ API Reference
 
 .. autoclass:: pyhealth.processors.Normalize
     :members:
+
+.. autoclass:: pyhealth.processors.sequence_processor_v2.SequenceProcessorV2
+    :show-inheritance:

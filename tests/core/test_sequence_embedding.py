@@ -7,7 +7,7 @@ import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import LevelEmbedding, SequenceEmbeddingModel
-from pyhealth.processors import LevelConfig, SequenceProcessorV2
+from pyhealth.processors import LevelConfig, UnifiedFeatureProcessor
 
 NAN = float("nan")
 # stays (series) -> labs (series) with tokens (test, unit) and a value
@@ -24,7 +24,7 @@ ECG: list[LevelConfig] = [
 
 def _dataset(**fields: Any):
     schema = {
-        name: ("sequence_v2", {"levels": levels})
+        name: ("unified", {"levels": levels})
         for name, (levels, _) in fields.items()
     }
     samples = [
@@ -71,7 +71,7 @@ def _layer(model: SequenceEmbeddingModel, field: str, level: int, name: str) -> 
 
 def _batch(dataset, field: str):
     proc = dataset.input_processors[field]
-    assert isinstance(proc, SequenceProcessorV2)
+    assert isinstance(proc, UnifiedFeatureProcessor)
     return proc.collate([dataset[i][field] for i in range(len(dataset))])
 
 
@@ -128,7 +128,7 @@ class TestConfiguration(unittest.TestCase):
         ]
         dataset = create_sample_dataset(
             samples,
-            {"labs": ("sequence_v2", {"levels": LABS}), "age": "tensor"},
+            {"labs": ("unified", {"levels": LABS}), "age": "tensor"},
             {"y": "binary"},
         )
         model = SequenceEmbeddingModel(dataset, embedding_dim=LAB_DIMS)
@@ -307,7 +307,7 @@ class TestPretrain(unittest.TestCase):
         )
         embedding = _layer(model, "labs", 0, "token_0")
         proc = self.dataset.input_processors["labs"]
-        assert isinstance(proc, SequenceProcessorV2)
+        assert isinstance(proc, UnifiedFeatureProcessor)
         index = proc.vocab(0, 0)["Glucose"]
         self.assertEqual(embedding.weight[index].tolist(), [1.0, 2.0, 3.0, 4.0])
         self.assertTrue(torch.all(embedding.weight[0] == 0))  # <pad>
