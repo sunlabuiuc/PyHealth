@@ -9,18 +9,20 @@ Paper:
 Original code: https://github.com/EmmaRocheteau/TPC-LoS-prediction
 """
 
-from typing import Dict, List, Optional, Tuple
+import math
+from collections.abc import Sequence
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 from pyhealth.datasets import SampleDataset
-from pyhealth.models import BaseModel
+from pyhealth.models.base_model import BaseModel
 
 # Prediction bounds from the paper (Appendix A): 30 minutes to 100 days.
 MIN_LOS_DAYS = 1.0 / 48.0
 MAX_LOS_DAYS = 100.0
+TensorInput = torch.Tensor | tuple[torch.Tensor, ...] | list[torch.Tensor]
 
 
 def compute_decay_indicators(
@@ -46,6 +48,10 @@ def compute_decay_indicators(
         >>> compute_decay_indicators(obs).flatten()
         tensor([1.0000, 0.7500, 0.5625])
     """
+    if not 0.0 < base <= 1.0:
+        raise ValueError("base must be in (0, 1].")
+    if observed.ndim != 3:
+        raise ValueError("observed must have shape (batch, time, features).")
     observed = observed.float()
     batch, steps, feats = observed.shape
     out = torch.zeros_like(observed)
@@ -56,6 +62,73 @@ def compute_decay_indicators(
             torch.isinf(since), torch.zeros_like(since), base**since
         )
     return out
+
+
+def prepare_time_series(
+    values: torch.Tensor,
+    observed: torch.Tensor,
+    decay_base: float = 0.75,
+    lab_indices: Sequence[int] | None = None,
+    forward_fill_labs: bool = True,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Prepares hourly values and decay without reading future measurements.
+
+    Unobserved values before the first measurement are zero. Vitals are
+    forward-filled; labs are either forward-filled or zero at missing hours.
+    Missing entries in ``values`` may contain NaNs; observed entries must be finite.
+
+    Args:
+        values: Raw values of shape ``(batch, time, features)``.
+        observed: Measurement mask with the same shape, before any filling.
+        decay_base: Base in ``(0, 1]`` for the decay indicators.
+        lab_indices: Lab feature indices; None treats every feature as a lab.
+        forward_fill_labs: Whether to forward-fill missing lab measurements.
+
+    Returns:
+        Filled values and decay indicators, each with the input shape.
+
+    Raises:
+        ValueError: If shapes, lab indices, or observed values are invalid.
+
+    Examples:
+        >>> values = torch.tensor([[[2.0], [float("nan")]]])
+        >>> filled, decay = prepare_time_series(values, torch.isfinite(values))
+        >>> filled.flatten()
+        tensor([2., 2.])
+        >>> decay.flatten()
+        tensor([1.0000, 0.7500])
+    """
+    if values.ndim != 3 or values.shape != observed.shape:
+        raise ValueError("values and observed must share (batch, time, features).")
+    mask = observed.to(device=values.device, dtype=torch.bool)
+    if not torch.isfinite(values[mask]).all():
+        raise ValueError("Observed values must be finite.")
+    labs = list(range(values.shape[-1])) if lab_indices is None else list(lab_indices)
+    if any(not isinstance(i, int) or not 0 <= i < values.shape[-1] for i in labs):
+        raise ValueError("lab_indices must contain valid feature indices.")
+    fill = torch.ones(values.shape[-1], dtype=torch.bool, device=values.device)
+    if not forward_fill_labs:
+        fill[labs] = False
+    previous = (
+        torch.zeros_like(values[:, 0])
+        if values.shape[1]
+        else values.new_zeros((values.shape[0], values.shape[2]))
+    )
+    filled = torch.zeros_like(values)
+    for t in range(values.shape[1]):
+        previous = torch.where(mask[:, t], values[:, t], previous)
+        filled[:, t] = torch.where(mask[:, t] | fill, previous, 0.0)
+    return filled, compute_decay_indicators(mask, base=decay_base)
+
+
+def _log_residual(
+    y_pred: torch.Tensor, y_true: torch.Tensor, eps: float
+) -> torch.Tensor:
+    if not math.isfinite(eps) or eps <= 0:
+        raise ValueError("eps must be finite and positive.")
+    if y_pred.shape != y_true.shape:
+        raise ValueError("Predictions and targets must have identical shapes.")
+    return torch.log(y_pred.clamp_min(eps)) - torch.log(y_true.clamp_min(eps))
 
 
 def msle_loss(
@@ -70,10 +143,72 @@ def msle_loss(
 
     Returns:
         Scalar loss tensor.
+
+    Examples:
+        >>> y = torch.tensor([1.0, 2.0])
+        >>> msle_loss(y, y).item()
+        0.0
     """
-    return F.mse_loss(
-        torch.log(y_pred.clamp_min(eps)), torch.log(y_true.clamp_min(eps))
-    )
+    return _log_residual(y_pred, y_true, eps).square().mean()
+
+
+def asymmetric_msle_loss(
+    y_pred: torch.Tensor,
+    y_true: torch.Tensor,
+    underprediction_weight: float = 2.0,
+    eps: float = MIN_LOS_DAYS,
+) -> torch.Tensor:
+    """Computes MSLE with extra weight on underpredictions.
+
+    Args:
+        y_pred: Predicted remaining LoS in days.
+        y_true: True remaining LoS, with the same shape.
+        underprediction_weight: Finite weight at least 1 for negative log errors.
+        eps: Positive lower bound before taking logs.
+
+    Returns:
+        Scalar weighted log-squared loss. Weight 1 recovers ordinary MSLE.
+
+    Examples:
+        >>> target = torch.tensor([2.0])
+        >>> under = asymmetric_msle_loss(torch.tensor([1.0]), target)
+        >>> over = asymmetric_msle_loss(torch.tensor([4.0]), target)
+        >>> bool(torch.isclose(under, 2 * over))
+        True
+    """
+    if not math.isfinite(underprediction_weight) or underprediction_weight < 1:
+        raise ValueError("underprediction_weight must be finite and at least 1.")
+    residual = _log_residual(y_pred, y_true, eps)
+    weight = torch.where(residual < 0, underprediction_weight, 1.0)
+    return (weight * residual.square()).mean()
+
+
+def huber_log_loss(
+    y_pred: torch.Tensor,
+    y_true: torch.Tensor,
+    delta: float = 1.0,
+    eps: float = MIN_LOS_DAYS,
+) -> torch.Tensor:
+    """Computes Huber loss on log LoS, limiting extreme log-error influence.
+
+    Args:
+        y_pred: Predicted remaining LoS in days.
+        y_true: True remaining LoS, with the same shape.
+        delta: Finite positive quadratic-to-linear transition in log units.
+        eps: Positive lower bound before taking logs.
+
+    Returns:
+        Scalar Huber log-loss; small errors have half the MSLE scale.
+
+    Examples:
+        >>> y = torch.tensor([1.0, 2.0])
+        >>> huber_log_loss(y, y).item()
+        0.0
+    """
+    if not math.isfinite(delta) or delta <= 0:
+        raise ValueError("delta must be finite and positive.")
+    residual = _log_residual(y_pred, y_true, eps)
+    return F.huber_loss(residual, torch.zeros_like(residual), delta=delta)
 
 
 class TPCLayer(nn.Module):
@@ -127,10 +262,10 @@ class TPCLayer(nn.Module):
         temporal_channels: int = 12,
         pointwise_channels: int = 13,
         kernel_size: int = 4,
-        dilation: Optional[int] = None,
+        dilation: int | None = None,
         temporal_dropout: float = 0.05,
         main_dropout: float = 0.45,
-    ):
+    ) -> None:
         super().__init__()
         self.layer_idx = layer_idx
         self.dilation = layer_idx if dilation is None else dilation
@@ -171,11 +306,11 @@ class TPCLayer(nn.Module):
         h: torch.Tensor,
         x_values: torch.Tensor,
         x_decay: torch.Tensor,
-        static: Optional[torch.Tensor],
-        time_feats: Optional[torch.Tensor],
-        prev_point: List[torch.Tensor],
-        prev_temp: Optional[torch.Tensor],
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        static: torch.Tensor | None,
+        time_feats: torch.Tensor | None,
+        prev_point: list[torch.Tensor],
+        prev_temp: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Applies one TPC layer.
 
         Args:
@@ -259,10 +394,21 @@ class TPC(BaseModel):
         main_dropout: Dropout in the pointwise parts of the model.
         diag_embedding_size: Size ``D*`` of the diagnosis embedding.
         final_fc_size: Width ``X`` of the first final pointwise layer.
-        loss: ``"msle"`` (paper default) or ``"mse"``.
+        loss: ``"msle"`` (paper default), ``"mse"``, ``"asymmetric_msle"``,
+            or ``"huber_log"``.
         dilation_schedule: ``"official"`` uses the released code's schedule
             (``d = 1`` for layer 1, then ``d = (n - 1) * (k - 1)``).
-            ``"paper"`` uses the paper text (``d = n``).
+            ``"paper"`` and ``"linear"`` use ``d = n``; ``"constant"`` uses
+            ``d = 1``; ``"exponential"`` uses ``d = 2 ** (n - 1)``.
+            Linear is an alias of paper, not a distinct architectural novelty.
+        underprediction_weight: Weight for asymmetric MSLE (at least 1).
+        huber_delta: Positive Huber transition in log units.
+        observed_key: Optional key containing the pre-fill measurement mask.
+            If set, values are prepared internally and decay is recomputed;
+            set ``decay_key=None`` to omit a separate decay input.
+        decay_base: Decay base for internal preparation, default 0.75.
+        lab_indices: Lab indices for internal preparation; None means all.
+        forward_fill_labs: Whether internal preparation forward-fills labs.
 
     Note:
         Defaults follow the paper's best eICU configuration. Smaller values
@@ -307,10 +453,10 @@ class TPC(BaseModel):
         self,
         dataset: SampleDataset,
         value_key: str = "time_series",
-        decay_key: Optional[str] = "decay",
-        static_key: Optional[str] = None,
-        diag_key: Optional[str] = None,
-        time_key: Optional[str] = None,
+        decay_key: str | None = "decay",
+        static_key: str | None = None,
+        diag_key: str | None = None,
+        time_key: str | None = None,
         temporal_channels: int = 12,
         pointwise_channels: int = 13,
         num_layers: int = 9,
@@ -321,16 +467,46 @@ class TPC(BaseModel):
         final_fc_size: int = 17,
         loss: str = "msle",
         dilation_schedule: str = "official",
-    ):
+        underprediction_weight: float = 2.0,
+        huber_delta: float = 1.0,
+        observed_key: str | None = None,
+        decay_base: float = 0.75,
+        lab_indices: Sequence[int] | None = None,
+        forward_fill_labs: bool = True,
+    ) -> None:
+        """Initializes the TPC layers and day-valued output head."""
         super().__init__(dataset=dataset)
-        assert len(self.label_keys) == 1, "TPC supports a single label key."
+        if len(self.label_keys) != 1:
+            raise ValueError("TPC supports a single label key.")
         if self.mode != "regression":
             raise ValueError(f"TPC needs a 'regression' label, got mode={self.mode!r}.")
-        if loss not in ("msle", "mse"):
-            raise ValueError("loss must be 'msle' or 'mse'.")
-        if dilation_schedule not in ("official", "paper"):
-            raise ValueError("dilation_schedule must be 'official' or 'paper'.")
-        for key in (value_key, decay_key, static_key, diag_key, time_key):
+        if self.label_processor.normalization is not None:
+            raise ValueError("TPC requires unnormalized remaining-LoS labels in days.")
+        if loss not in ("msle", "mse", "asymmetric_msle", "huber_log"):
+            raise ValueError(
+                "Unknown loss; use msle, mse, asymmetric_msle, or huber_log."
+            )
+        if dilation_schedule not in (
+            "official",
+            "paper",
+            "constant",
+            "linear",
+            "exponential",
+        ):
+            raise ValueError("Unknown dilation_schedule.")
+        if min(num_layers, kernel_size, temporal_channels, pointwise_channels) < 1:
+            raise ValueError("Layer count, kernel size, and channels must be positive.")
+        if not math.isfinite(underprediction_weight) or underprediction_weight < 1:
+            raise ValueError("underprediction_weight must be finite and at least 1.")
+        if not math.isfinite(huber_delta) or huber_delta <= 0:
+            raise ValueError("huber_delta must be finite and positive.")
+        if not 0 < decay_base <= 1:
+            raise ValueError("decay_base must be in (0, 1].")
+        if observed_key is None and (
+            decay_base != 0.75 or lab_indices is not None or not forward_fill_labs
+        ):
+            raise ValueError("Preprocessing options require observed_key.")
+        for key in (value_key, decay_key, static_key, diag_key, time_key, observed_key):
             if key is not None and key not in self.feature_keys:
                 raise ValueError(f"'{key}' is not in the dataset input_schema.")
 
@@ -341,6 +517,12 @@ class TPC(BaseModel):
         self.diag_key = diag_key
         self.time_key = time_key
         self.loss_type = loss
+        self.underprediction_weight = underprediction_weight
+        self.huber_delta = huber_delta
+        self.observed_key = observed_key
+        self.decay_base = decay_base
+        self.lab_indices = lab_indices
+        self.forward_fill_labs = forward_fill_labs
 
         procs = dataset.input_processors
         num_features = procs[value_key].size()
@@ -351,6 +533,12 @@ class TPC(BaseModel):
         def dilation(n: int) -> int:
             if dilation_schedule == "paper":
                 return n
+            if dilation_schedule == "linear":
+                return n
+            if dilation_schedule == "constant":
+                return 1
+            if dilation_schedule == "exponential":
+                return 2 ** (n - 1)
             return 1 if n == 1 else (n - 1) * (kernel_size - 1)
 
         self.layers = nn.ModuleList(
@@ -392,11 +580,11 @@ class TPC(BaseModel):
         self.final2 = nn.Conv1d(final_fc_size, 1, 1)
 
     @staticmethod
-    def _tensor(feature) -> torch.Tensor:
+    def _tensor(feature: TensorInput) -> torch.Tensor:
         """Extracts the value tensor from a processor output."""
         return feature[0] if isinstance(feature, (tuple, list)) else feature
 
-    def forward_sequence(self, **kwargs) -> torch.Tensor:
+    def forward_sequence(self, **kwargs: TensorInput) -> torch.Tensor:
         """Predicts remaining LoS at every hour.
 
         Args:
@@ -407,10 +595,18 @@ class TPC(BaseModel):
             ``[1/48, 100]``.
         """
         x = self._tensor(kwargs[self.value_key]).float().to(self.device)
+        prepared_decay = None
+        if self.observed_key:
+            observed = self._tensor(kwargs[self.observed_key]).to(self.device)
+            x, prepared_decay = prepare_time_series(
+                x, observed, self.decay_base, self.lab_indices, self.forward_fill_labs
+            )
         x = x.permute(0, 2, 1)  # (batch, F, time)
         batch, _, steps = x.shape
 
-        if self.decay_key:
+        if prepared_decay is not None:
+            decay = prepared_decay.permute(0, 2, 1)
+        elif self.decay_key:
             decay = self._tensor(kwargs[self.decay_key]).float().to(self.device)
             decay = decay.permute(0, 2, 1)
         else:
@@ -427,7 +623,7 @@ class TPC(BaseModel):
 
         # First layer input: values and decay as two channels per feature.
         h = torch.stack([x, decay], dim=2)  # (batch, F, 2, time)
-        prev_point: List[torch.Tensor] = []
+        prev_point: list[torch.Tensor] = []
         prev_temp = None
         for layer in self.layers:
             h, point, prev_temp = layer(
@@ -444,9 +640,11 @@ class TPC(BaseModel):
 
         z = self.final_drop(self.final_bn(self.final1(torch.cat(parts, dim=1))))
         z = self.final2(F.relu(z)).squeeze(1)  # (batch, time)
-        return torch.clamp(torch.exp(z), MIN_LOS_DAYS, MAX_LOS_DAYS)
+        return torch.exp(z.clamp(math.log(MIN_LOS_DAYS), math.log(MAX_LOS_DAYS))).clamp(
+            MIN_LOS_DAYS, MAX_LOS_DAYS
+        )
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs: TensorInput) -> dict[str, torch.Tensor]:
         """Forward pass using the prediction at the final time step.
 
         Args:
@@ -465,6 +663,12 @@ class TPC(BaseModel):
             y_true = y_true.view_as(pred)
             if self.loss_type == "msle":
                 results["loss"] = msle_loss(pred, y_true)
+            elif self.loss_type == "asymmetric_msle":
+                results["loss"] = asymmetric_msle_loss(
+                    pred, y_true, self.underprediction_weight
+                )
+            elif self.loss_type == "huber_log":
+                results["loss"] = huber_log_loss(pred, y_true, self.huber_delta)
             else:
                 results["loss"] = F.mse_loss(pred, y_true)
             results["y_true"] = y_true

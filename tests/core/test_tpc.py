@@ -1,17 +1,27 @@
 """Fast unit tests for the TPC model. All data is small and synthetic."""
 
 import unittest
+from unittest.mock import patch
 
+import numpy as np
 import torch
 
+from examples.synthetic_icu_los_tpc import (
+    build_dataset,
+    los_metrics,
+    make_synthetic_samples,
+    train_and_eval,
+)
 from pyhealth.datasets import create_sample_dataset, get_dataloader
+from pyhealth.models import TPC, TPCLayer
 from pyhealth.models.tpc import (
     MAX_LOS_DAYS,
     MIN_LOS_DAYS,
-    TPC,
-    TPCLayer,
+    asymmetric_msle_loss,
     compute_decay_indicators,
+    huber_log_loss,
     msle_loss,
+    prepare_time_series,
 )
 
 STEPS, FEATS, STATIC, DIAG = 6, 3, 2, 5
@@ -42,21 +52,22 @@ def _make_dataset(n: int = 4):
         },
         output_schema={"los": "regression"},
         dataset_name="tpc_test",
+        in_memory=True,
     )
 
 
 def _small_model(dataset, **kwargs):
-    params = dict(
-        value_key="ts",
-        decay_key="decay",
-        temporal_channels=3,
-        pointwise_channels=4,
-        num_layers=2,
-        kernel_size=3,
-        final_fc_size=5,
-        main_dropout=0.0,
-        temporal_dropout=0.0,
-    )
+    params = {
+        "value_key": "ts",
+        "decay_key": "decay",
+        "temporal_channels": 3,
+        "pointwise_channels": 4,
+        "num_layers": 2,
+        "kernel_size": 3,
+        "final_fc_size": 5,
+        "main_dropout": 0.0,
+        "temporal_dropout": 0.0,
+    }
     params.update(kwargs)
     return TPC(dataset, **params)
 
@@ -71,6 +82,11 @@ class TestTPC(unittest.TestCase):
         model = _small_model(self.dataset)
         self.assertEqual(model.mode, "regression")
         self.assertEqual(len(model.layers), 2)
+
+    def test_no_temporary_directory(self):
+        with patch("pyhealth.datasets.sample_dataset.tempfile.mkdtemp") as mkdtemp:
+            _make_dataset()
+        mkdtemp.assert_not_called()
 
     def test_forward_shapes_and_keys(self):
         model = _small_model(self.dataset)
@@ -136,14 +152,90 @@ class TestTPC(unittest.TestCase):
         self.assertEqual(temp_out.shape, (2, (3 + 5) * 4, STEPS))
 
     def test_dilation_schedules(self):
-        official = _small_model(self.dataset, num_layers=3, kernel_size=4)
-        paper = _small_model(
-            self.dataset, num_layers=3, kernel_size=4, dilation_schedule="paper"
-        )
-        self.assertEqual([l.dilation for l in official.layers], [1, 3, 6])
-        self.assertEqual([l.dilation for l in paper.layers], [1, 2, 3])
+        schedules = {
+            "official": [1, 3, 6, 9],
+            "paper": [1, 2, 3, 4],
+            "constant": [1, 1, 1, 1],
+            "linear": [1, 2, 3, 4],
+            "exponential": [1, 2, 4, 8],
+        }
+        for schedule, expected in schedules.items():
+            with self.subTest(schedule=schedule):
+                model = _small_model(
+                    self.dataset,
+                    num_layers=4,
+                    kernel_size=4,
+                    dilation_schedule=schedule,
+                ).eval()
+                self.assertEqual([layer.dilation for layer in model.layers], expected)
+                seq = model.forward_sequence(**self.batch)
+                changed_batch = dict(self.batch)
+                changed_batch["ts"] = self.batch["ts"].clone()
+                changed_batch["ts"][:, -1] += 10
+                changed = model.forward_sequence(**changed_batch)
+                torch.testing.assert_close(seq[:, :-1], changed[:, :-1])
+                self.assertEqual(seq.shape, (4, STEPS))
         with self.assertRaises(ValueError):
             _small_model(self.dataset, dilation_schedule="bad")
+
+    def test_loss_modes_and_gradients(self):
+        for mode, helper in (
+            ("msle", msle_loss),
+            ("mse", torch.nn.functional.mse_loss),
+            ("asymmetric_msle", asymmetric_msle_loss),
+            ("huber_log", huber_log_loss),
+        ):
+            with self.subTest(loss=mode):
+                model = _small_model(self.dataset, loss=mode)
+                out = model(**self.batch)
+                torch.testing.assert_close(
+                    out["loss"], helper(out["y_prob"], out["y_true"])
+                )
+                out["loss"].backward()
+                self.assertTrue(torch.isfinite(model.final2.weight.grad).all())
+                self.assertGreater(model.final2.weight.grad.abs().sum().item(), 0)
+
+    def test_internal_preprocessing(self):
+        model = _small_model(
+            self.dataset,
+            observed_key="decay",
+            decay_key=None,
+            decay_base=0.5,
+            lab_indices=[1, 2],
+            forward_fill_labs=False,
+        ).eval()
+        values, decay = prepare_time_series(
+            self.batch["ts"], self.batch["decay"] > 0.5, 0.5, [1, 2], False
+        )
+        batch = dict(self.batch)
+        batch["decay"] = self.batch["decay"] > 0.5
+        internal = model.forward_sequence(**batch)
+        model.observed_key = None
+        model.decay_key = "decay"
+        batch.update(ts=values, decay=decay)
+        torch.testing.assert_close(internal, model.forward_sequence(**batch))
+
+    def test_extreme_logits_have_finite_gradients(self):
+        model = _small_model(self.dataset).eval()
+        with torch.no_grad():
+            model.final2.weight.zero_()
+            model.final2.bias.fill_(1000)
+        out = model(**self.batch)
+        self.assertTrue((out["y_prob"] == MAX_LOS_DAYS).all())
+        out["loss"].backward()
+        self.assertTrue(torch.isfinite(model.final2.bias.grad).all())
+
+    def test_invalid_configuration(self):
+        for config in (
+            {"loss": "bad"},
+            {"num_layers": 0},
+            {"decay_base": 0},
+            {"huber_delta": 0},
+            {"underprediction_weight": 0.5},
+            {"forward_fill_labs": False},
+        ):
+            with self.subTest(config=config), self.assertRaises(ValueError):
+                _small_model(self.dataset, **config)
 
     def test_time_features(self):
         model = _small_model(self.dataset, time_key="ts")  # reuse (time, F) input
@@ -166,6 +258,7 @@ class TestTPC(unittest.TestCase):
             input_schema={"ts": "tensor", "decay": "tensor"},
             output_schema={"label": "binary"},
             dataset_name="tpc_bad_mode",
+            in_memory=True,
         )
         with self.assertRaises(ValueError):
             TPC(ds, value_key="ts", decay_key="decay")
@@ -174,8 +267,88 @@ class TestTPC(unittest.TestCase):
         with self.assertRaises(ValueError):
             TPC(self.dataset, value_key="nope")
 
+    def test_normalized_labels_raise(self):
+        ds = create_sample_dataset(
+            samples=[
+                {"ts": torch.ones(STEPS, FEATS).tolist(), "los": label}
+                for label in (1.0, 2.0)
+            ],
+            input_schema={"ts": "tensor"},
+            output_schema={"los": ("regression", {"normalization": "minmax"})},
+            in_memory=True,
+        )
+        with self.assertRaisesRegex(ValueError, "unnormalized"):
+            TPC(ds, value_key="ts", decay_key=None)
+
 
 class TestHelpers(unittest.TestCase):
+    def test_preparation_and_decay_bases(self):
+        values = torch.tensor(
+            [[[float("nan"), 2.0], [4.0, float("nan")], [float("nan"), float("nan")]]]
+        )
+        observed = torch.isfinite(values)
+        for base in (0.5, 0.75, 0.9):
+            filled, decay = prepare_time_series(values, observed, base, [1], False)
+            torch.testing.assert_close(
+                filled, torch.tensor([[[0.0, 2.0], [4.0, 0.0], [4.0, 0.0]]])
+            )
+            torch.testing.assert_close(
+                decay, torch.tensor([[[0.0, 1.0], [1.0, base], [base, base**2]]])
+            )
+        filled, _ = prepare_time_series(values, observed)
+        self.assertEqual(filled[0, 2, 1].item(), 2.0)
+
+    def test_invalid_helper_arguments(self):
+        y = torch.ones(2)
+        for invoke in (
+            lambda: compute_decay_indicators(torch.ones(1, 2, 3), 0),
+            lambda: compute_decay_indicators(torch.ones(2, 3)),
+            lambda: prepare_time_series(torch.ones(1, 2, 3), torch.ones(1, 2, 2)),
+            lambda: prepare_time_series(
+                torch.ones(1, 2, 3), torch.ones(1, 2, 3), lab_indices=[3]
+            ),
+            lambda: prepare_time_series(
+                torch.full((1, 2, 3), float("nan")), torch.ones(1, 2, 3)
+            ),
+            lambda: msle_loss(y, y, eps=0),
+            lambda: msle_loss(y, y[:, None]),
+            lambda: asymmetric_msle_loss(y, y, float("inf")),
+            lambda: huber_log_loss(y, y, delta=0),
+        ):
+            with self.assertRaises(ValueError):
+                invoke()
+
+    def test_asymmetric_proportional_error(self):
+        target = torch.tensor([2.0])
+        under = asymmetric_msle_loss(torch.tensor([1.0]), target, 3)
+        over = asymmetric_msle_loss(torch.tensor([4.0]), target, 3)
+        torch.testing.assert_close(under, 3 * over)
+        pred = torch.tensor([1.0, 4.0], requires_grad=True)
+        truth = target.expand_as(pred)
+        torch.testing.assert_close(
+            asymmetric_msle_loss(pred, truth, 1), msle_loss(pred, truth)
+        )
+        asymmetric_msle_loss(pred, truth).backward()
+        self.assertLess(pred.grad[0].item(), 0)
+        self.assertGreater(pred.grad[1].item(), 0)
+
+    def test_huber_log_transition(self):
+        residual = torch.tensor([0.5, 2.0])
+        pred = residual.exp().requires_grad_()
+        loss = huber_log_loss(pred, torch.ones(2), delta=1)
+        torch.testing.assert_close(loss, torch.tensor((0.125 + 1.5) / 2))
+        loss.backward()
+        self.assertTrue(torch.isfinite(pred.grad).all())
+        self.assertLess(loss.item(), msle_loss(pred, torch.ones(2)).item())
+
+    def test_log_loss_clamping(self):
+        for helper in (msle_loss, asymmetric_msle_loss, huber_log_loss):
+            pred = torch.tensor([0.0, 2.0], requires_grad=True)
+            loss = helper(pred, torch.tensor([0.0, 1.0]))
+            loss.backward()
+            self.assertTrue(torch.isfinite(loss))
+            self.assertTrue(torch.isfinite(pred.grad).all())
+
     def test_decay_indicators(self):
         obs = torch.tensor([[[1.0, 0.0], [0.0, 0.0], [0.0, 1.0]]])
         out = compute_decay_indicators(obs)
@@ -194,6 +367,57 @@ class TestHelpers(unittest.TestCase):
         short = msle_loss(torch.tensor([3.0]), torch.tensor([1.0]))
         long = msle_loss(torch.tensor([32.0]), torch.tensor([30.0]))
         self.assertGreater(short.item(), long.item())
+
+
+class TestSyntheticExample(unittest.TestCase):
+    def test_preprocessing_changes_only_labs(self):
+        filled = make_synthetic_samples(3, 7)
+        unfilled = make_synthetic_samples(3, 7, forward_fill_labs=False)
+        slower_decay = make_synthetic_samples(3, 7, decay_base=0.9)
+        for original, no_fill, slower in zip(filled, unfilled, slower_decay):
+            self.assertEqual(original["los"], no_fill["los"])
+            self.assertEqual(original["decay"], no_fill["decay"])
+            self.assertEqual(original["time_series"], slower["time_series"])
+            x = np.array(original["time_series"])
+            other = np.array(no_fill["time_series"])
+            observed = np.array(original["decay"]) == 1
+            np.testing.assert_array_equal(x[:, :4], other[:, :4])
+            np.testing.assert_array_equal(x[observed], other[observed])
+            self.assertTrue((other[:, 4:][~observed[:, 4:]] == 0).all())
+
+    def test_metrics_bias_and_long_stays(self):
+        truth = np.array([1.0, 2.0, 6.0, 8.0])
+        pred = truth / 2
+        metrics = los_metrics(truth, pred)
+        self.assertEqual(metrics["MAPE"], 50)
+        self.assertEqual(metrics["Bias"], -2.125)
+        self.assertEqual(metrics["LongMAD"], 3.5)
+        self.assertEqual(metrics["LongBias"], -3.5)
+        self.assertEqual(metrics["LongN"], 2)
+        self.assertAlmostEqual(metrics["MSLE"], np.log(2) ** 2)
+        for invalid in (np.zeros(4), np.full(4, np.nan)):
+            with self.assertRaises(ValueError):
+                los_metrics(truth, invalid)
+        with self.assertRaises(ValueError):
+            los_metrics(truth[:2], pred[:2])
+
+    def test_training_is_reproducible(self):
+        samples = make_synthetic_samples(4, 0)
+        for sample, label in zip(samples, (1.0, 2.0, 6.0, 8.0)):
+            sample["los"] = label
+        train = build_dataset(samples, "train")
+        test = build_dataset(samples, "test", training=train)
+        self.assertIs(train.input_processors["decay"], test.input_processors["decay"])
+        params = {
+            "num_layers": 1,
+            "temporal_channels": 2,
+            "pointwise_channels": 2,
+            "final_fc_size": 3,
+            "main_dropout": 0.2,
+        }
+        first = train_and_eval(train, test, 1, 0.0023, 0, **params)
+        second = train_and_eval(train, test, 1, 0.0023, 0, **params)
+        self.assertEqual(first, second)
 
 
 if __name__ == "__main__":
