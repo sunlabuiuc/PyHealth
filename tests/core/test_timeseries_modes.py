@@ -22,7 +22,12 @@ from pyhealth.trainer import Trainer
 from tests.core.label_record_model_utils import LabelRecordModel
 
 DYNAMIC: list[LevelConfig] = [{"ordering": "series", "values": [2]}]
-DIMS: dict[str, list[LevelEmbedding]] = {"dynamic": [{"values": 8}]}
+# Static values: one record at t = 0, before the first label.
+STATIC: list[LevelConfig] = [{"ordering": "series", "values": [2]}]
+DIMS: dict[str, list[LevelEmbedding]] = {
+    "dynamic": [{"values": 8}],
+    "static": [{"values": 4}],
+}
 
 
 def _dataset(
@@ -39,7 +44,7 @@ def _dataset(
             {
                 "patient_id": f"p{i}",
                 "dynamic": {"time": hours, "values": rng.normal(size=(steps, 2))},
-                "static": [float(i), 1.0],
+                "static": {"time": [0.0], "values": [[float(i), 1.0]]},
                 "label": {
                     "time": [float(h) for h in kept],
                     "values": [float((i + h) % 2) for h in kept],
@@ -50,7 +55,7 @@ def _dataset(
         samples=samples,
         input_schema={
             "dynamic": ("sequence_v2", {"levels": DYNAMIC}),
-            "static": "tensor",
+            "static": ("sequence_v2", {"levels": STATIC}),
         },
         output_schema={"label": mode},
         dataset_name="timeseries_modes",
