@@ -464,7 +464,7 @@ class TestLegacyFields(unittest.TestCase):
         return create_sample_dataset(
             samples,
             {
-                "visits": ("sequence_v2", {"levels": VISITS}),
+                "visits": ("jagged", {"levels": VISITS}),
                 "codes": "sequence",
                 "age": "tensor",
             },
