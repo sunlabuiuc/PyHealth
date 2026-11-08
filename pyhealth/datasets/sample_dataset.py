@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from pathlib import Path
+import os
 import pickle
 import shutil
 import tempfile
@@ -909,7 +910,7 @@ _STRUCTURE_ERROR = (
 )
 
 
-def _add_item(writer: Any, index: int, record: dict[str, Any]) -> None:
+def _litdata_add(writer: Any, index: int, record: dict[str, Any]) -> None:
     """``writer.add_item``, with litdata's error on a mismatched sample explained.
 
     litdata takes each value's serializer from the first sample a writer
@@ -920,6 +921,52 @@ def _add_item(writer: Any, index: int, record: dict[str, Any]) -> None:
     try:
         writer.add_item(index, record)
     except TypeError as e:
+        raise ValueError(_STRUCTURE_ERROR) from e
+
+
+def _litdata_merge(cache_dir: Path) -> None:
+    """
+    Merges LitData binary writer index files in the given cache directory.
+
+    Workers write contiguous sample ranges, each with its own
+    ``{rank}.index.json``. ``patient_to_index`` and ``record_to_index`` are
+    built before processing and assume merged sample ``i`` is input sample
+    ``i``, so the per-worker indexes must be joined in numeric rank order.
+    ``BinaryWriter.merge`` does this from litdata 0.2.64 on; earlier versions
+    sort the file names as strings (0, 1, 10, 11, ..., 2), which reorders
+    samples with more than 10 workers.
+
+    Each worker's writer takes its structure from its own first sample, so
+    workers whose samples differ (say, in the number of tensors of a field)
+    only conflict here; litdata's error is re-raised as a ``ValueError``
+    saying so. Other errors pass through.
+
+    Args:
+        cache_dir (Path): The cache directory containing LitData binary writer files.
+    """
+    from litdata.streaming.writer import _INDEX_FILENAME, BinaryWriter
+
+    files = os.listdir(cache_dir)
+
+    # Return if the index already exists
+    if _INDEX_FILENAME in files:
+        return
+
+    index_files = [f for f in files if f.endswith(_INDEX_FILENAME)]
+
+    # Return if there are no index files to merge
+    if len(index_files) == 0:
+        raise ValueError(
+            "There are zero samples in the dataset, please check the task and processors."
+        )
+
+    try:
+        BinaryWriter(cache_dir=str(cache_dir), chunk_bytes="64MB").merge(
+            num_workers=len(index_files)
+        )
+    except Exception as e:
+        if "isn't consistent between chunks" not in str(e):
+            raise
         raise ValueError(_STRUCTURE_ERROR) from e
 
 
@@ -935,11 +982,9 @@ def _write_samples(builder: "SampleBuilder", samples: list[dict], path: Path) ->
     """
     from litdata.streaming.writer import BinaryWriter
 
-    from .base_dataset import _litdata_merge
-
     writer = BinaryWriter(cache_dir=str(path), chunk_bytes="64MB")
     for i, sample in enumerate(samples):
-        _add_item(writer, i, builder.transform_for_storage({"sample": pickle.dumps(sample)}))
+        _litdata_add(writer, i, builder.transform_for_storage({"sample": pickle.dumps(sample)}))
     writer.done()
     _litdata_merge(path)
 

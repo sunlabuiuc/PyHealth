@@ -47,11 +47,11 @@ from ..tasks import BaseTask
 from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
 from .sample_dataset import (
-    _STRUCTURE_ERROR,
     STORAGE_FORMAT,
     SampleBuilder,
     SampleDataset,
-    _add_item,
+    _litdata_add,
+    _litdata_merge,
 )
 from .splitter import Split
 from ..utils import download_file, preserve_rng_state, set_env
@@ -293,42 +293,6 @@ def _csv_tsv_gz_path(path: str) -> str:
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
 
 
-def _litdata_merge(cache_dir: Path) -> None:
-    """
-    Merges LitData binary writer index files in the given cache directory.
-
-    Workers write contiguous sample ranges, each with its own
-    ``{rank}.index.json``. ``patient_to_index`` and ``record_to_index`` are
-    built before processing and assume merged sample ``i`` is input sample
-    ``i``, so the per-worker indexes must be joined in numeric rank order.
-    ``BinaryWriter.merge`` does this from litdata 0.2.64 on; earlier versions
-    sort the file names as strings (0, 1, 10, 11, ..., 2), which reorders
-    samples with more than 10 workers.
-
-    Args:
-        cache_dir (Path): The cache directory containing LitData binary writer files.
-    """
-    from litdata.streaming.writer import _INDEX_FILENAME
-
-    files = os.listdir(cache_dir)
-
-    # Return if the index already exists
-    if _INDEX_FILENAME in files:
-        return
-
-    index_files = [f for f in files if f.endswith(_INDEX_FILENAME)]
-
-    # Return if there are no index files to merge
-    if len(index_files) == 0:
-        raise ValueError(
-            "There are zero samples in the dataset, please check the task and processors."
-        )
-
-    BinaryWriter(cache_dir=str(cache_dir), chunk_bytes="64MB").merge(
-        num_workers=len(index_files)
-    )
-
-
 # Seconds between the progress updates dask's scheduler sends (dask's default).
 _DASK_PROGRESS_INTERVAL = 0.1
 
@@ -455,22 +419,6 @@ def _task_transform_fn(
     logger.info(f"Worker {worker_id} finished processing patients.")
 
 
-def _merge_samples(cache_dir: Path) -> None:
-    """:func:`_litdata_merge` of processed samples, with a mismatch explained.
-
-    Each worker's writer takes its structure from its own first sample, so
-    workers whose samples differ (say, in the number of tensors of a field)
-    only conflict when their indexes are merged, where litdata raises a
-    plain ``Exception``.
-    """
-    try:
-        _litdata_merge(cache_dir)
-    except Exception as e:
-        if "isn't consistent between chunks" not in str(e):
-            raise
-        raise ValueError(_STRUCTURE_ERROR) from e
-
-
 _proc_transform_progress: multiprocessing.queues.Queue | None = None
 
 
@@ -517,7 +465,7 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
         write_index = 0
         for i in range(start_idx, end_idx):
             transformed: dict[str, Any] = builder.transform_for_storage(dataset[i])
-            _add_item(writer, write_index, transformed)
+            _litdata_add(writer, write_index, transformed)
             write_index += 1
             complete += 1
 
@@ -1248,7 +1196,7 @@ class BaseDataset(ABC):
                 if num_workers == 1:
                     logger.info("Single worker mode, processing sequentially")
                     _proc_transform_fn((0, task_df, 0, num_samples, output_dir))
-                    _merge_samples(output_dir)
+                    _litdata_merge(output_dir)
                     return
 
                 ctx = multiprocessing.get_context("spawn")
@@ -1283,7 +1231,7 @@ class BaseDataset(ABC):
                         while not queue.empty():
                             progress.update(queue.get())
                     result.get()  # ensure exceptions are raised
-                _merge_samples(output_dir)
+                _litdata_merge(output_dir)
 
                 logger.info(
                     f"Processor transformation completed and saved to {output_dir}"
