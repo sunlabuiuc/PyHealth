@@ -913,7 +913,7 @@ class TestImage(_Images):
         legacy.fit([{"x": gray}, {"x": wide}], "x")
         bridge = ImageToUnifiedBridge(legacy)
         self.assertEqual(bridge.value_dim(), {0: (1, 6, 10)})  # max H, max W
-        values, batch = bridge.transform_batch(_collate(legacy, gray))
+        values, _ = bridge.transform_batch(_collate(legacy, gray))
         self.assertEqual(values.shape, (1, 1, 6, 10))
         torch.testing.assert_close(values[0, :, :6, :8], legacy.process(gray))
         self.assertEqual(values[0, :, :, 8:].abs().sum().item(), 0.0)  # padded width
