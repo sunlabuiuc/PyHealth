@@ -39,7 +39,7 @@ VISIT_RECORDS = [
 
 def _dataset(output: str = "binary", **fields: Any):
     schema = {
-        name: ("sequence_v2", {"levels": levels}) if levels is not None else "tensor"
+        name: ("sequence_v2", {"levels": levels})
         for name, (levels, _) in fields.items()
     }
     n = len(next(iter(fields.values()))[1])
@@ -108,8 +108,12 @@ class TestConfiguration(unittest.TestCase):
         model = _model(dataset, embedding_dim={"x": [{}]}, time_feature=True)
         self.assertEqual(model(**_batch(dataset))["logit"].shape, (2, 1))
 
-    def test_rejects_v1_sequences_sets_and_tokens(self):
-        for spec, value in (("sequence", ["A", "B"]), ("multi_hot", ["A"])):
+    def test_rejects_v1_sequences_sets_tokens_and_tensors(self):
+        for spec, value in (
+            ("sequence", ["A", "B"]),
+            ("multi_hot", ["A"]),
+            ("tensor", [1.0, 2.0]),  # a static value is a series at t = 0
+        ):
             samples = [{"patient_id": f"p{i}", "x": value, "y": i} for i in range(2)]
             dataset = create_sample_dataset(samples, {"x": spec}, {"y": "binary"})
             with self.subTest(spec=spec), self.assertRaises(TypeError):
@@ -187,20 +191,59 @@ class TestBottomUp(unittest.TestCase):
         self.assertEqual(result["logit"].shape, (4, 1))
 
 
-class TestStatics(unittest.TestCase):
-    def setUp(self):
-        ages = [[60.0, 1.0], [70.0, 0.0], [50.0, 1.0], [80.0, 0.0]]
-        self.dataset = _dataset(visits=(VISITS, VISIT_RECORDS), age=(None, ages))
+# Static values: a series with one record at t = 0.
+AGE: list[LevelConfig] = [{"ordering": "series", "values": [2]}]
+AGE_DIMS: dict[str, list[LevelEmbedding]] = {"age": [{"values": 3}]}
 
-    def test_used_directly_or_projected(self):
-        direct = _model(self.dataset, embedding_dim=VISIT_DIMS, hidden_dim=5)
-        self.assertEqual(direct.fc.in_features, 5 + 2)
-        projected = _model(
-            self.dataset, embedding_dim=VISIT_DIMS, hidden_dim=5, static_dim={"age": 3}
+
+def _ages(*ages: tuple[float, float]) -> list[dict[str, Any]]:
+    return [{"time": [0.0], "values": [list(age)]} for age in ages]
+
+
+class TestStatics(unittest.TestCase):
+    def test_a_static_series_is_encoded_like_any_field(self):
+        ages = _ages((60.0, 1.0), (70.0, 0.0), (50.0, 1.0), (80.0, 0.0))
+        dataset = _dataset(visits=(VISITS, VISIT_RECORDS), age=(AGE, ages))
+        model = _model(
+            dataset,
+            embedding_dim={**VISIT_DIMS, **AGE_DIMS},
+            hidden_dim={"visits": 5, "age": 4},
         )
-        self.assertEqual(projected.fc.in_features, 5 + 3)
-        result = projected(**_batch(self.dataset), embed=True)
-        self.assertEqual(result["embed"].shape, (4, 8))
+        self.assertEqual(model.fc.in_features, 5 + 4)
+        batch = _batch(dataset)
+        result = model(**batch, embed=True)
+        self.assertEqual(result["embed"].shape, (4, 9))
+        _, (summary, _, _) = _encode(model, batch, "age")
+        torch.testing.assert_close(result["embed"][:, 5:], summary)
+
+    def test_every_label_record_sees_the_static_record(self):
+        # Labels at 0, 1 and 2: the record at t = 0 is at or before each.
+        samples = [
+            {
+                "patient_id": f"p{i}",
+                "x": _visits((1.0, "er", ["A"])),
+                "age": _ages((50.0 + 10 * i, float(i)))[0],
+                "y": {"time": [0.0, 1.0, 2.0], "values": [0, 1, i % 2]},
+            }
+            for i in range(2)
+        ]
+        dataset = create_sample_dataset(
+            samples,
+            {
+                "x": ("sequence_v2", {"levels": VISITS}),
+                "age": ("sequence_v2", {"levels": AGE}),
+            },
+            {"y": "timeseries_binary"},
+        )
+        model = _model(
+            dataset,
+            embedding_dim={"x": VISIT_DIMS["visits"], **AGE_DIMS},
+            hidden_dim=5,
+        )
+        batch = _batch(dataset)
+        embed = model(**batch, embed=True)["embed"][:, 5:]
+        _, (_, states, _) = _encode(model, batch, "age")
+        torch.testing.assert_close(embed, states.repeat_interleave(3, dim=0))
 
     def test_per_field_settings(self):
         dataset = _dataset(
@@ -225,14 +268,13 @@ class TestPerStep(unittest.TestCase):
             {
                 "patient_id": f"p{i}",
                 "x": records[i],
-                "age": [float(i)],
                 "y": self.labels(list(times)),
             }
             for i in range(len(records))
         ]
         return create_sample_dataset(
             samples,
-            {"x": ("sequence_v2", {"levels": levels}), "age": "tensor"},
+            {"x": ("sequence_v2", {"levels": levels})},
             {"y": "timeseries_binary"},
         )
 
@@ -278,8 +320,6 @@ class TestPerStep(unittest.TestCase):
         self.assertTrue(torch.all(embed[3] == 0))
         torch.testing.assert_close(embed[4], states[2])
         torch.testing.assert_close(embed[5], states[2])
-        # The static age goes with every label record of its sample.
-        self.assertEqual(result["embed"][:, 5].tolist(), [0.0] * 3 + [1.0] * 3)
 
     def test_a_top_level_record_includes_all_its_children(self):
         # Stays (series) of timed labs (series); lab times are in their own unit.
@@ -325,7 +365,7 @@ class TestPerStep(unittest.TestCase):
         model = _model(dataset, embedding_dim={"x": VISIT_DIMS["visits"]}, hidden_dim=5)
         batch = next(iter(get_dataloader(dataset.subset([1, 2]), batch_size=2)))
         embed = model(**batch, embed=True)["embed"]
-        self.assertEqual(embed.shape, (6, 6))  # 3 labels each, 5 + age
+        self.assertEqual(embed.shape, (6, 5))  # 3 labels each
         self.assertTrue(torch.all(embed[:, :5] == 0))
 
     def test_resampled_top_level(self):
