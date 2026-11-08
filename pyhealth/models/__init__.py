@@ -85,3 +85,5 @@ from .heartlang import (
     HeartLangBackbone as HeartLangBackbone,
     ecg_to_heartbeat_sentence as ecg_to_heartbeat_sentence,
 )
+from .meme import MEME as MEME
+from .meme import DomainSelfAttention as DomainSelfAttention

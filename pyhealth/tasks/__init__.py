@@ -35,6 +35,12 @@ from .drug_recommendation import (
     drug_recommendation_mimic4_fn,
     drug_recommendation_omop_fn,
 )
+from .ed_disposition_mimic4 import (
+    ED_NOTE_DOMAINS as ED_NOTE_DOMAINS,
+    ED_OUTCOMES as ED_OUTCOMES,
+    EDDispositionMIMIC4 as EDDispositionMIMIC4,
+    EDOutcomesMIMIC4 as EDOutcomesMIMIC4,
+)
 from .ehr_text_serialization import (
     CodeDescriber as CodeDescriber,
     EHRTextSerializationTask as EHRTextSerializationTask,
@@ -100,9 +106,19 @@ from .temple_university_EEG_tasks import (
     EEGEventsTUEV,
     EEGAbnormalTUAB
 )
+from .seizure_detection_chbmit import (
+    SeizureDetectionCHBMIT as SeizureDetectionCHBMIT,
+)
+from .sleep_staging_ear_eeg import (
+    SleepStagingEarEEG as SleepStagingEarEEG,
+)
 from .eegbci import (
     EEGBCIPatternDiscovery as EEGBCIPatternDiscovery,
     EEGMotorImageryEEGBCI as EEGMotorImageryEEGBCI,
+)
+from .iiic_seizure_classification import (
+    EEGSeizureIIIC as EEGSeizureIIIC,
+    IIICSeizureClassification as IIICSeizureClassification,
 )
 from .variant_classification import (
     MutationPathogenicityPrediction,

@@ -295,6 +295,7 @@ Available Datasets
     datasets/pyhealth.datasets.SampleDataset
     datasets/pyhealth.datasets.MIMIC3Dataset
     datasets/pyhealth.datasets.MIMIC4Dataset
+    datasets/pyhealth.datasets.MIMIC4EDDataset
     datasets/pyhealth.datasets.FHIRDataset
     datasets/pyhealth.datasets.MEDSDataset
     datasets/pyhealth.datasets.MIMIC4FHIR
@@ -320,6 +321,9 @@ Available Datasets
     PhysioNet 2012 Dataset <datasets/pyhealth.datasets.PhysioNet2012Dataset>
     datasets/pyhealth.datasets.TUABDataset
     datasets/pyhealth.datasets.TUEVDataset
+    datasets/pyhealth.datasets.CHBMITDataset
+    datasets/pyhealth.datasets.EESM23Dataset
+    datasets/pyhealth.datasets.IIICDataset
     datasets/pyhealth.datasets.ClinVarDataset
     datasets/pyhealth.datasets.COSMICDataset
     datasets/pyhealth.datasets.TCGAPRADDataset

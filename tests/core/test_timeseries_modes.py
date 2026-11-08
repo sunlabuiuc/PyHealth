@@ -9,8 +9,9 @@ from pyhealth.metrics import (
     timeseries_binary_metrics_fn,
     timeseries_regression_metrics_fn,
 )
-from pyhealth.models import RNN, LevelEmbedding, MultimodalRNN, RNN_V2
+from pyhealth.models import RNN, BaseModel, LevelEmbedding, MultimodalRNN, RNN_V2
 from pyhealth.processors import (
+    LabelProcessor,
     LevelConfig,
     MultiHotProcessor,
     TimeseriesBinaryLabelProcessor,
@@ -21,7 +22,12 @@ from pyhealth.trainer import Trainer
 from tests.core.label_record_model_utils import LabelRecordModel
 
 DYNAMIC: list[LevelConfig] = [{"ordering": "series", "values": [2]}]
-DIMS: dict[str, list[LevelEmbedding]] = {"dynamic": [{"values": 8}]}
+# Static values: one record at t = 0, before the first label.
+STATIC: list[LevelConfig] = [{"ordering": "series", "values": [2]}]
+DIMS: dict[str, list[LevelEmbedding]] = {
+    "dynamic": [{"values": 8}],
+    "static": [{"values": 4}],
+}
 
 
 def _dataset(
@@ -38,7 +44,7 @@ def _dataset(
             {
                 "patient_id": f"p{i}",
                 "dynamic": {"time": hours, "values": rng.normal(size=(steps, 2))},
-                "static": [float(i), 1.0],
+                "static": {"time": [0.0], "values": [[float(i), 1.0]]},
                 "label": {
                     "time": [float(h) for h in kept],
                     "values": [float((i + h) % 2) for h in kept],
@@ -49,7 +55,7 @@ def _dataset(
         samples=samples,
         input_schema={
             "dynamic": ("sequence_v2", {"levels": DYNAMIC}),
-            "static": "tensor",
+            "static": ("sequence_v2", {"levels": STATIC}),
         },
         output_schema={"label": mode},
         dataset_name="timeseries_modes",
@@ -74,8 +80,7 @@ class TestTimeseriesModes(unittest.TestCase):
             self.assertEqual(_model(_dataset(mode)).mode, mode)
 
     def test_label_processor_class_resolves_to_its_own_mode(self):
-        # The label processors subclass SequenceProcessorV2; the most specific
-        # registered class decides the mode.
+        # A processor class in the schema gives the same mode as its name.
         for processor, mode in (
             (TimeseriesBinaryLabelProcessor, "timeseries_binary"),
             (TimeseriesRegressionLabelProcessor, "timeseries_regression"),
@@ -117,7 +122,7 @@ class TestTimeseriesModes(unittest.TestCase):
         model = _model(_dataset())
         label = (torch.zeros(4, 1), torch.arange(4.0), torch.tensor([0, 4]))
         with self.assertRaisesRegex(ValueError, "one prediction per label record"):
-            model.get_loss_function()(torch.zeros(1, 3, 1), label)
+            model.label_processor.loss(torch.zeros(1, 3, 1), label)
 
     def test_batch_without_label_records_has_zero_loss(self):
         for mode in ("timeseries_binary", "timeseries_regression"):
@@ -125,18 +130,23 @@ class TestTimeseriesModes(unittest.TestCase):
                 model = _model(_dataset(mode))
                 logits = torch.zeros(0, 1, requires_grad=True)
                 label = (torch.zeros(0, 1), torch.zeros(0), torch.tensor([0, 0, 0]))
-                loss = model.get_loss_function()(logits, label)
+                loss = model.label_processor.loss(logits, label)
                 loss.backward()
                 self.assertEqual(loss.item(), 0.0)
                 self.assertTrue(torch.isfinite(logits.grad).all())
 
-    def test_multi_hot_processor_still_resolves_to_multilabel(self):
-        # MultiHotProcessor subclasses MultiLabelProcessor but is registered
-        # as "multi_hot", which is not a mode.
-        model = _model(_dataset())
-        for entry in (MultiHotProcessor, MultiHotProcessor(), (MultiHotProcessor, {})):
-            with self.subTest(entry=entry):
-                self.assertEqual(model._resolve_mode(entry), "multilabel")
+    def test_multi_hot_processor_is_not_a_label(self):
+        # MultiHotProcessor is an input processor: as an output it is no label,
+        # so the model has no mode.
+        self.assertNotIsInstance(MultiHotProcessor(), LabelProcessor)
+        samples = [
+            {"patient_id": f"p{i}", "codes": ["a", "b"][: 1 + i % 2], "y": ["x"]}
+            for i in range(2)
+        ]
+        dataset = create_sample_dataset(
+            samples, {"codes": "sequence"}, {"y": MultiHotProcessor}
+        )
+        self.assertIsNone(BaseModel(dataset).mode)
 
     def test_v1_rnns_reject_per_step_labels(self):
         rng = np.random.default_rng(0)
