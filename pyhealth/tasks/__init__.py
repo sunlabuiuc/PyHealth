@@ -119,6 +119,13 @@ from .variant_classification import (
     VariantClassificationClinVar,
 )
 from .patient_linkage_mimic3 import PatientLinkageMIMIC3Task
+from .yaib_mimic3 import (
+    YAIBAKIMIMIC3 as YAIBAKIMIMIC3,
+    YAIBKidneyFunctionMIMIC3 as YAIBKidneyFunctionMIMIC3,
+    YAIBLengthOfStayMIMIC3 as YAIBLengthOfStayMIMIC3,
+    YAIBMortalityMIMIC3 as YAIBMortalityMIMIC3,
+    YAIBSepsisMIMIC3 as YAIBSepsisMIMIC3,
+)
 from .yaib_mimic4 import (
     YAIBAKIMIMIC4 as YAIBAKIMIMIC4,
     YAIBKidneyFunctionMIMIC4 as YAIBKidneyFunctionMIMIC4,
