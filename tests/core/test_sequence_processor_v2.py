@@ -53,7 +53,7 @@ class TestConfiguration(unittest.TestCase):
     def test_repr_shows_levels(self):
         self.assertEqual(
             repr(SequenceProcessorV2(levels=[CODES])),
-            "SequenceProcessorV2(levels=[{'tokens': 1}])",
+            "UnifiedFeatureProcessor(levels=[{'tokens': 1}])",
         )
 
     def test_subclass_is_configuration_only(self):
@@ -1241,6 +1241,26 @@ class TestStorage(unittest.TestCase):
             self.assertIsInstance(sample["visits"], tuple)
             for got, want in zip(sample["visits"], expected):
                 torch.testing.assert_close(got, want)
+
+
+class TestOldName(unittest.TestCase):
+    """SequenceProcessorV2 and "sequence_v2" are aliases of the new names."""
+
+    def test_names_and_registrations_are_one_class(self):
+        from pyhealth.processors import UnifiedFeatureProcessor
+        from pyhealth.processors.sequence_processor_v2 import (
+            SequenceProcessorV2 as OldModuleName,
+        )
+
+        self.assertIs(SequenceProcessorV2, UnifiedFeatureProcessor)
+        self.assertIs(OldModuleName, UnifiedFeatureProcessor)
+        self.assertIs(get_processor("sequence_v2"), UnifiedFeatureProcessor)
+        self.assertIs(get_processor("unified"), UnifiedFeatureProcessor)
+
+    def test_pickles_under_the_old_module_load(self):
+        # Caches written before the rename refer to the class by its old path.
+        old = b"cpyhealth.processors.sequence_processor_v2\nSequenceProcessorV2\n."
+        self.assertIs(pickle.loads(old), SequenceProcessorV2)
 
 
 if __name__ == "__main__":

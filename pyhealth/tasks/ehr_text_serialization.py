@@ -50,7 +50,7 @@ DEFAULT_SECTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
 # Not supported: "cehr" (concept records, not plain codes) and the numeric
 # "stagenet_tensor", "timeseries", "tensor" and similar inputs.
 CODE_PROCESSORS: frozenset[str] = frozenset({
-    "sequence", "sequence_v2", "nested_sequence", "deep_nested_sequence",
+    "sequence", "sequence_v2", "unified", "nested_sequence", "deep_nested_sequence",
     "multi_hot", "nested_multihot", "stagenet",
 })
 TIMED_CODE_PROCESSORS: frozenset[str] = frozenset({"stagenet"})

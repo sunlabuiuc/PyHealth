@@ -47,14 +47,15 @@ from .deep_nested_sequence_processor import (
 )
 from .raw_processor import RawProcessor
 from .sequence_processor import SequenceProcessor
-from .sequence_processor_v2 import (
+from .unified_processor import (
     Impute,
     LevelConfig,
     Normalize,
     Records,
     Resample,
-    SequenceProcessorV2,
+    UnifiedFeatureProcessor,
 )
+from .sequence_processor_v2 import SequenceProcessorV2
 from .signal_processor import SignalProcessor
 from .stagenet_processor import (
     StageNetProcessor,
@@ -106,6 +107,7 @@ __all__ = [
     "RawProcessor",
     "SequenceProcessor",
     "SequenceProcessorV2",
+    "UnifiedFeatureProcessor",
     "Records",
     "LevelConfig",
     "Impute",

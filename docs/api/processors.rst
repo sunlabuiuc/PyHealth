@@ -28,7 +28,7 @@ MLP and others) train on a field of that type.
 
 **Sequence Processors:**
 
-- :doc:`SequenceProcessorV2 <processors/pyhealth.processors.SequenceProcessorV2>`: Unified processor for hierarchical packed records (codes, continuous values, and timestamps at any nesting depth) without padding or truncation
+- :doc:`UnifiedFeatureProcessor <processors/pyhealth.processors.UnifiedFeatureProcessor>`: Unified processor for hierarchical packed records (codes, continuous values, and timestamps at any nesting depth) without padding or truncation
 - ``SequenceProcessor``: For categorical sequences (e.g., medical codes like diagnoses, procedures)
 - ``NestedSequenceProcessor``: For nested categorical sequences (e.g., drug recommendation with visit history)
 - ``NestedMultiHotProcessor``: For nested categorical sequences as per-visit multi-hot vectors (e.g., generative EHR models)
@@ -339,7 +339,7 @@ samples to a disk cache (litdata). Each field is stored according to its process
 
 - Processors that always return a ``torch.Tensor`` — or a tuple of tensors with
   the same length for every sample — declare ``stores_tensor = True``
-  (``sequence_v2``, ``sequence``, ``nested_sequence``, ``tensor``, ``timeseries``,
+  (``unified``, ``sequence``, ``nested_sequence``, ``tensor``, ``timeseries``,
   the label processors, ``image``, ``audio`` and others). Their outputs are
   stored natively as tensors.
 - Every other field — ``raw``, ``text``, ``stagenet``, ``tuple_time_text``,
@@ -365,7 +365,7 @@ value whose length, shape or type varied between samples failed to write, or was
 read back wrong. Caches written by those versions are rebuilt automatically (the
 storage layout is part of the cache key).
 
-Processors whose batches need custom packing (such as ``SequenceProcessorV2``)
+Processors whose batches need custom packing (such as ``UnifiedFeatureProcessor``)
 define ``collate(items)``, which ``get_dataloader`` uses automatically for those
 fields. For fields without a processor-level ``collate``, the default collate
 function treats any 2-tuple as a ``(time, values)`` pair of tensors, so batch raw
@@ -376,7 +376,7 @@ Processor String Keys
 
 Common string keys for automatic processor selection:
 
-- ``"sequence_v2"``: For unified hierarchical packed records (codes, continuous values, and timestamps)
+- ``"unified"``: For unified hierarchical packed records (codes, continuous values, and timestamps)
 - ``"temporal_timeseries"``: For time-series data with preserved timestamps (use in place of ``"timeseries"`` when building ``UnifiedMultimodalEmbeddingModel``)
 - ``"sequence"``: For categorical sequences (medical codes)
 - ``"nested_sequence"``: For nested categorical sequences (visit history)
@@ -579,7 +579,7 @@ API Reference
     processors/pyhealth.processors.SampleProcessor
     processors/pyhealth.processors.DatasetProcessor
     processors/pyhealth.processors.SequenceProcessor
-    processors/pyhealth.processors.SequenceProcessorV2
+    processors/pyhealth.processors.UnifiedFeatureProcessor
     processors/pyhealth.processors.NestedSequenceProcessor
     processors/pyhealth.processors.NestedMultiHotProcessor
     processors/pyhealth.processors.NestedFloatsProcessor

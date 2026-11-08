@@ -40,7 +40,7 @@ routes each feature type automatically.
      - Features mix sequential codes with static tensors or multi-hot encodings
      - Auto-routes sequential features to RNN layers and non-sequential features to linear layers; good default for EHR
    * - ``RNN_V2``
-     - Features are ``sequence_v2`` fields (nested codes, values and timestamps); static values are a series with one record at ``t = 0``
+     - Features are ``unified`` fields (nested codes, values and timestamps); static values are a series with one record at ``t = 0``
      - Encodes each field bottom-up over packed records, without padding the hierarchy
    * - :doc:`models/pyhealth.models.StageNet`
      - You have time-stamped vital signs with irregular measurement intervals
