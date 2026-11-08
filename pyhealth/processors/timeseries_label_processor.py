@@ -62,18 +62,28 @@ class TimeseriesLabelProcessor[B: LabelProcessor](LabelProcessor):
         self.base: B = base
         """The static label processor of each record, fitted on all records."""
         self.learns_statistics = base.learns_statistics
+        self.need_fit_test = base.need_fit_test
 
     # ------------------------------------------------------------------
     # FeatureProcessor
     # ------------------------------------------------------------------
     def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
         """Fits :attr:`base` on the values of every label record."""
-        records = [
+        self.base.fit(self._records(samples, field), field)
+
+    def fit_test(self, samples: Iterable[dict[str, Any]], field: str) -> None:
+        """Adds the labels of every label record to :attr:`base`, see
+        :meth:`LabelProcessor.fit_test`."""
+        if self.need_fit_test:
+            self.base.fit_test(self._records(samples, field), field)
+
+    def _records(self, samples: Iterable[dict[str, Any]], field: str) -> list[dict]:
+        """One sample per label record, holding its value under ``field``."""
+        return [
             {field: self._value(value)}
             for sample in samples
             for value in sample[field]["values"]
         ]
-        self.base.fit(records, field)
 
     def process(self, value: dict[str, Any]) -> tuple[torch.Tensor, torch.Tensor]:
         if not isinstance(value, dict) or "time" not in value or "values" not in value:
