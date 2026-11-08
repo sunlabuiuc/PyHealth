@@ -773,25 +773,46 @@ def _static(value: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     return _values(value), _single(value.shape[0], value.device)
 
 
+def _check_shape(name: str, got: Sequence[int], fitted: Sequence[int]) -> None:
+    if tuple(got) != tuple(fitted):
+        raise ValueError(
+            f"{name}: a batch has shape {tuple(got)} per record, but fit() saw "
+            f"{tuple(fitted)}."
+        )
+
+
 @_bridges(TensorProcessor)
 class TensorToUnifiedBridge(UnifiedBridge):
-    """:class:`~pyhealth.processors.TensorProcessor` as a ``set`` of one record.
+    """:class:`~pyhealth.processors.TensorProcessor` as one record, or one per row.
 
-    Each sample is one record with ``[F]`` values (``[1]`` for a scalar).
+    ``fit()`` records the shape of every sample's tensor. When its first
+    axis has the same length in every sample, each sample is one record of
+    a ``set`` level, holding the whole tensor (``[1]`` for a scalar). When
+    the first axis varies in length, each row along it is one record,
+    holding the rest of the tensor (``[1]`` for an element of a vector);
+    the level is a ``sequence`` when ``spatial_dims`` marks the first axis
+    spatial, and a ``set`` otherwise. Each sample's trailing all-zero (or
+    NaN) rows are then padding (see :class:`UnifiedBridge`).
+
     With ``missing_indicators``, the appended indicators become the
     ``mask``. Integer tensors become float values, and NaN (left by a
     processor without ``impute_strategy``) becomes 0, as the unified format
-    holds finite floats. Only scalars and vectors are bridged: ``fit()``
-    keeps just the last dimension, so the shape of a 2-D or deeper tensor is
-    unknown.
+    holds finite floats. A batch whose records do not have the fitted shape
+    (say, a longer fixed axis at evaluation) raises ``ValueError``.
+
+    Not bridged: tensors whose other axes (or number of axes) vary between
+    samples, and variable-length vectors with ``missing_indicators``, whose
+    indicators are appended along the same axis as the values, so the batch
+    padding hides where they start. A processor fitted before the shape was
+    recorded is bridged only for scalars and vectors, as one record.
 
     Examples:
         >>> from pyhealth.processors import TensorProcessor
-        >>> legacy = TensorProcessor()
-        >>> legacy.fit([{"x": [1.0, 2.0]}], "x")
+        >>> legacy = TensorProcessor(spatial_dims=(True, False))
+        >>> legacy.fit([{"x": [[1.0, 2.0]]}, {"x": [[3.0, 4.0], [5.0, 6.0]]}], "x")
         >>> bridge = TensorToUnifiedBridge(legacy)
-        >>> bridge.transform_batch(legacy.process([3.0, 4.0]).unsqueeze(0))
-        (tensor([[3., 4.]]), tensor([0, 1]))
+        >>> bridge.ordering(), bridge.value_dim()
+        ({0: 'sequence'}, {0: (2,)})
     """
 
     def __init__(self, legacy: TensorProcessor) -> None:
@@ -800,41 +821,59 @@ class TensorToUnifiedBridge(UnifiedBridge):
                 "TensorProcessor: fit() saw no values, so the shape is unknown "
                 "and the processor cannot be bridged."
             )
-        if legacy._n_dim > 1:
-            raise ValueError(
-                f"TensorProcessor: a {legacy._n_dim}-D tensor cannot be bridged, "
-                "as fit() records only its last dimension."
-            )
-        features = legacy._feature_dim
+        shape = legacy._shape
+        if shape is None:
+            if legacy._n_dim > 1:
+                raise ValueError(
+                    "TensorProcessor: the shape varies between samples beyond "
+                    "the first axis, or fit() did not record it, so the "
+                    "processor cannot be bridged."
+                )
+            shape = (legacy._feature_dim,) if legacy._n_dim == 1 else ()
         spatial = legacy._spatial_dims
-        level: LevelConfig = {"ordering": "set", "values": [features]}
-        if spatial is not None and len(spatial) == 1:
-            level["spatial"] = list(spatial)
+        if spatial is not None and len(spatial) != len(shape):
+            spatial = None
+        self._rows = shape[:1] == (None,)
+        if self._rows:
+            if legacy.missing_indicators and len(shape) == 1:
+                raise ValueError(
+                    "TensorProcessor: a vector of varying length with "
+                    "missing_indicators cannot be bridged, as the indicators "
+                    "follow the values on the same axis."
+                )
+            record = [int(n) for n in shape[1:]] or [1]
+            ordering = "sequence" if spatial and spatial[0] else "set"
+            record_spatial = list(spatial[1:]) if spatial and len(shape) > 1 else None
+        else:
+            record = [int(n) for n in shape] or [1]
+            ordering = "set"
+            record_spatial = list(spatial) if spatial and shape else None
+        level: LevelConfig = {"ordering": ordering, "values": record}
+        if record_spatial is not None:
+            level["spatial"] = record_spatial
         if legacy.missing_indicators:
             level["impute"] = {"method": "zero"}
             level["missing_indicator"] = True
         super().__init__(legacy, [level])
+        self._record = tuple(record)
 
     def transform_batch(self, value: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        if value.dim() == 1:  # a batch of scalars
-            value = value.unsqueeze(1)
-        values, batch = _static(value)
-        if self.legacy.missing_indicators:
-            n = self.legacy._feature_dim
-            return values[:, :n], value[:, n:] != 0, batch
-        return values, batch
-
-
-def _image_channels(mode: str | None) -> int:
-    """The channel count of images converted to ``mode``."""
-    from PIL import Image
-
-    if mode is None:
-        raise ValueError(
-            "ImageProcessor: without a mode, the channel count depends on each "
-            "image, so the processor cannot be bridged. Set mode (e.g. 'RGB')."
-        )
-    return len(Image.new(mode, (1, 1)).getbands())
+        indicators = self.legacy.missing_indicators
+        n = self._record[-1]
+        fitted = (*self._record[:-1], 2 * n) if indicators else self._record
+        if self._rows:
+            if len(self._record) == 1 and value.dim() == 2:
+                value = value.unsqueeze(-1)  # elements of vectors
+            _check_shape("TensorProcessor", value.shape[2:], fitted)
+            rows, batch = _trailing_rows(value, _is_zero(value).flatten(2).all(dim=2))
+        else:
+            if value.dim() == 1:  # a batch of scalars
+                value = value.unsqueeze(1)
+            _check_shape("TensorProcessor", value.shape[1:], fitted)
+            rows, batch = value, _single(value.shape[0], value.device)
+        if indicators:
+            return _values(rows[..., :n]), rows[..., n:] != 0, batch
+        return _values(rows), batch
 
 
 @_bridges(ImageProcessor)
@@ -842,40 +881,64 @@ class ImageToUnifiedBridge(UnifiedBridge):
     """:class:`~pyhealth.processors.ImageProcessor` as a ``set`` of one image.
 
     Each sample is one record with ``[C, H, W]`` values, the height and
-    width being spatial. The processor must resize (``image_size``), output
-    tensors and convert to a ``mode``, which gives the channel count.
+    width being spatial. The shape is the widest that ``fit()`` saw: the
+    most channels of ``mode`` (or of the images' own modes, without one),
+    and ``image_size`` (or the largest height and width, without one). A
+    batch narrower than that is zero-padded at the end of each axis, as the
+    legacy collate pads a batch's channels; a wider one (an image unlike any
+    seen in ``fit()``) raises ``ValueError``. The processor must output
+    tensors. One fitted before the shape was recorded needs ``mode`` and
+    ``image_size``.
 
     Examples:
         >>> import torch
         >>> from pyhealth.processors import ImageProcessor
-        >>> legacy = ImageProcessor(image_size=4, mode="L")
+        >>> legacy = ImageProcessor(image_size=4, mode="RGB")
+        >>> legacy.fit([], "x")  # the shape is known from mode and image_size
         >>> bridge = ImageToUnifiedBridge(legacy)
         >>> bridge.value_dim()
-        {0: (1, 4, 4)}
-        >>> values, batch = bridge.transform_batch(torch.zeros(2, 1, 4, 4))
-        >>> values.shape, batch
-        (torch.Size([2, 1, 4, 4]), tensor([0, 1, 2]))
+        {0: (3, 4, 4)}
+        >>> values, batch = bridge.transform_batch(torch.ones(2, 1, 4, 4))
+        >>> values.shape, values[:, 1:].abs().sum().item(), batch
+        (torch.Size([2, 3, 4, 4]), 0.0, tensor([0, 1, 2]))
     """
 
     def __init__(self, legacy: ImageProcessor) -> None:
-        if not legacy.to_tensor or legacy.image_size is None:
+        if not legacy.to_tensor:
             raise ValueError(
-                "ImageProcessor: only a processor with to_tensor=True and an "
-                "image_size has a fixed image shape to bridge."
+                "ImageProcessor: only a processor with to_tensor=True outputs "
+                "tensors to bridge."
             )
-        size = legacy.image_size
+        shape = legacy._shape
+        if shape is None:
+            if legacy.mode is None or legacy.image_size is None:
+                raise ValueError(
+                    "ImageProcessor: fit() has not recorded the image shape, and "
+                    "without a mode and an image_size it is unknown, so the "
+                    "processor cannot be bridged."
+                )
+            from PIL import Image
+
+            size = legacy.image_size
+            shape = (Image.getmodebands(legacy.mode), size, size)
         super().__init__(
             legacy,
             [
                 {
                     "ordering": "set",
-                    "values": [_image_channels(legacy.mode), size, size],
+                    "values": list(shape),
                     "spatial": [False, True, True],
                 }
             ],
         )
+        self._shape = tuple(shape)
 
     def transform_batch(self, value: torch.Tensor) -> tuple[torch.Tensor, ...]:
+        got = value.shape[1:]
+        if any(n > fitted for n, fitted in zip(got, self._shape)):
+            _check_shape("ImageProcessor", got, self._shape)
+        (c, h, w), (fc, fh, fw) = got, self._shape
+        value = torch.nn.functional.pad(value, (0, fw - w, 0, fh - h, 0, fc - c))
         return _static(value)
 
 
@@ -885,8 +948,16 @@ class AudioToUnifiedBridge(UnifiedBridge):
 
     Each sample is one record: the ``[1, samples]`` waveform, or the
     ``[1, n_mels, frames]`` mel spectrogram, with the time (and mel) axes
-    spatial. The shape is only fixed for a processor with ``to_mono``, a
-    ``sample_rate`` and a ``duration``.
+    spatial.
+
+    Limitations:
+        :class:`~pyhealth.processors.AudioProcessor` has no ``fit()``, and
+        the bridge reads no recording: the shape comes from the
+        configuration alone. It is only fixed for a processor with
+        ``to_mono``, a ``sample_rate`` and a ``duration``, so others are
+        rejected: their recordings may differ in channel count, sample rate
+        or length. The mel frame count follows torchaudio's
+        ``MelSpectrogram`` defaults (centered frames, hop ``n_fft // 2``).
 
     Examples:
         >>> from pyhealth.processors import AudioProcessor

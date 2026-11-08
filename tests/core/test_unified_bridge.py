@@ -739,11 +739,119 @@ class TestTensor(unittest.TestCase):
         legacy = _fit(TensorProcessor(spatial_dims=(True,)), [1.0, 2.0, 3.0])
         self.assertEqual(TensorToUnifiedBridge(legacy).spatial(), {0: (True,)})
 
-    def test_higher_dimensional_and_unfitted_tensors_are_rejected(self):
-        with self.assertRaisesRegex(ValueError, "2-D tensor cannot be bridged"):
-            TensorToUnifiedBridge(_fit(TensorProcessor(), [[1.0, 2.0]]))
+    def test_fixed_matrix_is_one_record(self):
+        legacy = _fit(TensorProcessor(), [[1.0, 2.0], [3.0, 4.0]], [[0.0, 0.0], [5.0, 6.0]])
+        bridge, got = _bridge_batch(
+            TensorToUnifiedBridge, legacy, [[1.0, 2.0], [3.0, 4.0]], [[0.0, 0.0], [0.0, 0.0]]
+        )
+        self.assertEqual(
+            got, [[[[1.0, 2.0], [3.0, 4.0]]], [[[0.0, 0.0], [0.0, 0.0]]]]
+        )
+        self.assertEqual(bridge.ordering(), {0: "set"})
+        self.assertEqual(bridge.value_dim(), {0: (2, 2)})
+        self.assertEqual(bridge.spatial(), {0: (False, False)})
+
+    def test_fixed_spatial_flags_carry_over(self):
+        legacy = _fit(TensorProcessor(spatial_dims=(True, False)), [[1.0, 2.0]])
+        self.assertEqual(TensorToUnifiedBridge(legacy).spatial(), {0: (True, False)})
+
+    def test_variable_rows_are_a_sequence_when_spatial(self):
+        legacy = _fit(
+            TensorProcessor(spatial_dims=(True, False)),
+            [[1.0, 2.0]],
+            [[3.0, 4.0], [5.0, 6.0], [7.0, 8.0]],
+        )
+        bridge, got = _bridge_batch(
+            TensorToUnifiedBridge,
+            legacy,
+            [[1.0, 2.0], [0.0, 0.0], [3.0, 4.0]],
+            [[5.0, 6.0]],
+        )
+        self.assertEqual(got, [[[1.0, 2.0], [0.0, 0.0], [3.0, 4.0]], [[5.0, 6.0]]])
+        self.assertEqual(bridge.ordering(), {0: "sequence"})
+        self.assertEqual(bridge.value_dim(), {0: (2,)})
+        self.assertEqual(bridge.spatial(), {0: (False,)})
+
+    def test_variable_rows_are_a_set_otherwise(self):
+        legacy = _fit(TensorProcessor(), [[1.0, 2.0]], [[3.0, 4.0], [5.0, 6.0]])
+        bridge = TensorToUnifiedBridge(legacy)
+        self.assertEqual(bridge.ordering(), {0: "set"})
+
+    def test_variable_rows_drop_trailing_zero_rows(self):
+        # A documented limitation: a real trailing zero row looks like padding.
+        legacy = _fit(TensorProcessor(), [[1.0]], [[2.0], [3.0]])
+        _, got = _bridge_batch(TensorToUnifiedBridge, legacy, [[1.0], [0.0]], [[2.0]])
+        self.assertEqual(got, [[[1.0]], [[2.0]]])
+
+    def test_variable_length_vectors(self):
+        legacy = _fit(TensorProcessor(spatial_dims=(True,)), [1.0], [2.0, 3.0])
+        bridge, got = _bridge_batch(TensorToUnifiedBridge, legacy, [1.0, 2.0, 3.0], [4.0], [])
+        self.assertEqual(got, [[[1.0], [2.0], [3.0]], [[4.0]], []])
+        self.assertEqual(bridge.ordering(), {0: "sequence"})
+        self.assertEqual(bridge.value_dim(), {0: (1,)})
+
+    def test_variable_rows_with_missing_indicators(self):
+        legacy = _fit(
+            TensorProcessor(missing_indicators=True, impute_strategy="zero"),
+            [[1.0, 2.0]],
+            [[3.0, 4.0], [5.0, 6.0]],
+        )
+        bridge, got = _bridge_batch(
+            TensorToUnifiedBridge,
+            legacy,
+            [[1.0, float("nan")], [3.0, 4.0]],
+            [[float("nan"), float("nan")]],
+        )
+        self.assertEqual(
+            got,
+            [
+                [
+                    {"values": [1.0, 0.0], "mask": [False, True]},
+                    {"values": [3.0, 4.0], "mask": [False, False]},
+                ],
+                # all missing: the indicators keep the row from looking like padding
+                [{"values": [0.0, 0.0], "mask": [True, True]}],
+            ],
+        )
+        self.assertEqual(bridge.value_dim(), {0: (2,)})
+
+    def test_fixed_matrix_with_missing_indicators(self):
+        legacy = _fit(TensorProcessor(missing_indicators=True), [[1.0, 2.0], [3.0, 4.0]])
+        _, got = _bridge_batch(
+            TensorToUnifiedBridge, legacy, [[1.0, float("nan")], [3.0, 4.0]]
+        )
+        self.assertEqual(
+            got,
+            [[{"values": [[1.0, 0.0], [3.0, 4.0]], "mask": [[False, True], [False, False]]}]],
+        )
+
+    def test_batch_unlike_the_fitted_shape_is_rejected(self):
+        fixed = _fit(TensorProcessor(), [1.0, 2.0])
+        with self.assertRaisesRegex(ValueError, r"shape \(3,\) per record, but fit\(\) saw \(2,\)"):
+            TensorToUnifiedBridge(fixed).transform_batch(torch.zeros(2, 3))
+        rows = _fit(TensorProcessor(), [[1.0, 2.0]], [[3.0, 4.0], [5.0, 6.0]])
+        with self.assertRaisesRegex(ValueError, "fit"):
+            TensorToUnifiedBridge(rows).transform_batch(torch.zeros(2, 4, 3))
+
+    def test_unbridgeable_tensors_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, "varies between samples beyond"):
+            TensorToUnifiedBridge(_fit(TensorProcessor(), [[1.0]], [[1.0, 2.0]]))
+        with self.assertRaisesRegex(ValueError, "same axis"):
+            TensorToUnifiedBridge(
+                _fit(TensorProcessor(missing_indicators=True), [1.0], [1.0, 2.0])
+            )
         with self.assertRaisesRegex(ValueError, "shape is unknown"):
             TensorToUnifiedBridge(TensorProcessor())
+
+    def test_processors_fitted_before_the_shape_was_recorded(self):
+        vector = _fit(TensorProcessor(), [1.0, 2.0])
+        del vector.__dict__["_shape"]
+        _, got = _bridge_batch(TensorToUnifiedBridge, vector, [3.0, 4.0])
+        self.assertEqual(got, [[[3.0, 4.0]]])
+        matrix = _fit(TensorProcessor(), [[1.0, 2.0]])
+        del matrix.__dict__["_shape"]
+        with self.assertRaisesRegex(ValueError, "did not record it"):
+            TensorToUnifiedBridge(matrix)
 
 
 class _Images(unittest.TestCase):
@@ -779,10 +887,51 @@ class TestImage(_Images):
                 out = bridge.transform_batch(_collate(legacy, self.paths[0]))
                 bridge.validate(out, batched=True)
 
-    def test_processors_without_a_fixed_shape_are_rejected(self):
+    def _gray_and_wide(self):
+        gray = str(Path(self._dir.name) / "gray.png")
+        Image.new("L", (8, 6), color=200).save(gray)
+        wide = str(Path(self._dir.name) / "wide.png")
+        Image.new("RGB", (10, 4), color=(9, 9, 9)).save(wide)
+        return gray, wide
+
+    def test_widest_mode_pads_narrower_batches(self):
+        gray, _ = self._gray_and_wide()
+        legacy = ImageProcessor(image_size=4)  # no mode: each image keeps its own
+        legacy.fit([{"x": gray}, {"x": self.paths[0]}], "x")
+        bridge = ImageToUnifiedBridge(legacy)
+        self.assertEqual(bridge.value_dim(), {0: (3, 4, 4)})
+        out = bridge.transform_batch(_collate(legacy, gray, gray))
+        bridge.validate(out, batched=True)
+        values, _ = out
+        self.assertEqual(values.shape, (2, 3, 4, 4))
+        torch.testing.assert_close(values[0, :1], legacy.process(gray))
+        self.assertEqual(values[:, 1:].abs().sum().item(), 0.0)  # padded channels
+
+    def test_widest_size_without_an_image_size(self):
+        gray, wide = self._gray_and_wide()
+        legacy = ImageProcessor(image_size=None, mode="L")
+        legacy.fit([{"x": gray}, {"x": wide}], "x")
+        bridge = ImageToUnifiedBridge(legacy)
+        self.assertEqual(bridge.value_dim(), {0: (1, 6, 10)})  # max H, max W
+        values, batch = bridge.transform_batch(_collate(legacy, gray))
+        self.assertEqual(values.shape, (1, 1, 6, 10))
+        torch.testing.assert_close(values[0, :, :6, :8], legacy.process(gray))
+        self.assertEqual(values[0, :, :, 8:].abs().sum().item(), 0.0)  # padded width
+        values, _ = bridge.transform_batch(_collate(legacy, wide))
+        torch.testing.assert_close(values[0, :, :4, :], legacy.process(wide))
+
+    def test_batch_wider_than_fitted_is_rejected(self):
+        gray, _ = self._gray_and_wide()
+        legacy = ImageProcessor(image_size=4)
+        legacy.fit([{"x": gray}], "x")  # one channel seen
+        bridge = ImageToUnifiedBridge(legacy)
+        with self.assertRaisesRegex(ValueError, r"\(3, 4, 4\) per record, but fit\(\) saw \(1, 4, 4\)"):
+            bridge.transform_batch(_collate(legacy, self.paths[0]))
+
+    def test_processors_without_a_known_shape_are_rejected(self):
         for legacy, message in (
-            (ImageProcessor(image_size=4), "without a mode"),
-            (ImageProcessor(image_size=None, mode="L"), "image_size"),
+            (ImageProcessor(image_size=4), "fit\\(\\) has not recorded"),
+            (ImageProcessor(image_size=None, mode="L"), "fit\\(\\) has not recorded"),
             (ImageProcessor(image_size=4, mode="L", to_tensor=False), "to_tensor"),
         ):
             with self.subTest(message), self.assertRaisesRegex(ValueError, message):
@@ -870,6 +1019,8 @@ class TestRNNV2Encoders(_Images):
         hours = lambda *h: [T0 + timedelta(hours=x) for x in h]
         series = [(hours(0, 2), [[1.0, 2.0], [3.0, float("nan")]]), (hours(0), [[5.0, 6.0]])]
         image = ImageProcessor(image_size=4, mode="L")
+        unmoded = ImageProcessor(image_size=4)
+        unmoded.fit([{"x": path} for path in self.paths], "x")
         time_image = TimeImageProcessor(image_size=4, mode="L")
         time_image.fit([{"x": (self.paths, [0.0, 1.0, 2.0])}], "x")
         cases = [
@@ -895,6 +1046,12 @@ class TestRNNV2Encoders(_Images):
             (_fit(TensorProcessor(missing_indicators=True), [1.0, 2.0]), [[1.0, float("nan")], [3.0, 4.0]]),
             (_fit(TensorProcessor(), 1.0), [1.0, 2.0]),
             (image, self.paths[:2]),
+            (_fit(TensorProcessor(), [[1.0, 2.0]]), [[[1.0, 2.0]], [[3.0, 4.0]]]),
+            (
+                _fit(TensorProcessor(spatial_dims=(True, False)), [[1.0]], [[2.0], [3.0]]),
+                [[[1.0], [2.0]], [[3.0]]],
+            ),
+            (unmoded, self.paths[:2]),
             (time_image, [(self.paths[:2], [0.0, 1.0]), (self.paths[2:], [0.0])]),
         ]
         return cases
