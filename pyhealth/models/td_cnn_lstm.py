@@ -39,17 +39,17 @@ Intentional differences from the released reference code
 import copy
 import math
 from collections.abc import Mapping
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 
-STATE_KEYS: Tuple[str, ...] = (
+STATE_KEYS: tuple[str, ...] = (
     "timepoints",
     "values",
     "features",
@@ -58,16 +58,16 @@ STATE_KEYS: Tuple[str, ...] = (
 )
 """Required per-state channels, in a fixed order."""
 
-SCALAR_KEYS: Tuple[str, ...] = ("timepoints", "values", "delta_time", "delta_value")
+SCALAR_KEYS: tuple[str, ...] = ("timepoints", "values", "delta_time", "delta_value")
 """Channels holding real-valued (scalable) inputs."""
 
-FEATURE_SCALED_KEYS: Tuple[str, ...] = ("values", "delta_time", "delta_value")
+FEATURE_SCALED_KEYS: tuple[str, ...] = ("values", "delta_time", "delta_value")
 """Channels normalized with per-feature statistics."""
 
-DELTA_KEYS: Tuple[str, ...] = ("delta_time", "delta_value")
+DELTA_KEYS: tuple[str, ...] = ("delta_time", "delta_value")
 """Channels removed by the ``use_delta_embeddings=False`` ablation."""
 
-EMBEDDING_NAMES: Dict[str, str] = {
+EMBEDDING_NAMES: dict[str, str] = {
     "timepoints": "time",
     "values": "value",
     "delta_time": "delta_time",
@@ -82,7 +82,7 @@ EMBEDDING_NAMES: Dict[str, str] = {
 NEXT_PREFIX = "next_"
 """Prefix of the successor-state channels used by the TD target."""
 
-OBJECTIVES: Tuple[str, ...] = ("td", "supervised")
+OBJECTIVES: tuple[str, ...] = ("td", "supervised")
 """Supported training objectives."""
 
 PADDING_FEATURE_ID = -1
@@ -213,7 +213,7 @@ class _EventEmbedding(nn.Module):
         self.use_delta_embeddings = use_delta_embeddings
         self.feature_embedding = nn.Embedding(n_features, hidden_dim)
         interim_dim = max(1, math.isqrt(hidden_dim))
-        self.scalar_keys: Tuple[str, ...] = tuple(
+        self.scalar_keys: tuple[str, ...] = tuple(
             key for key in SCALAR_KEYS if use_delta_embeddings or key not in DELTA_KEYS
         )
         self.scalar_embeddings = nn.ModuleDict(
@@ -229,7 +229,7 @@ class _EventEmbedding(nn.Module):
         self.norm = _MaskedBatchNorm1d(hidden_dim)
 
     def forward(
-        self, state: Dict[str, torch.Tensor], masks: Dict[str, torch.Tensor]
+        self, state: dict[str, torch.Tensor], masks: dict[str, torch.Tensor]
     ) -> torch.Tensor:
         """Computes normalized event embeddings.
 
@@ -402,7 +402,7 @@ class _TDPredictor(nn.Module):
                 nn.init.xavier_normal_(parameter)
 
     def forward(
-        self, state: Dict[str, torch.Tensor], masks: Dict[str, torch.Tensor]
+        self, state: dict[str, torch.Tensor], masks: dict[str, torch.Tensor]
     ) -> torch.Tensor:
         """Predicts one mortality logit per state.
 
@@ -523,7 +523,7 @@ class TDCNNLSTM(BaseModel):
         use_delta_embeddings: bool = True,
         objective: str = "td",
         target_alpha: float = 0.99,
-        scaling: Optional[Mapping[str, Mapping[str, Any]]] = None,
+        scaling: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> None:
         _check_config(
             n_features,
@@ -550,7 +550,7 @@ class TDCNNLSTM(BaseModel):
             n_features, hidden_dim, self.dropout, use_delta_embeddings
         )
         # the target starts as an exact, frozen copy of the online model.
-        self.target: Optional[_TDPredictor] = None
+        self.target: _TDPredictor | None = None
         if objective == "td":
             target = copy.deepcopy(self.online)
             target.requires_grad_(False)
@@ -560,7 +560,7 @@ class TDCNNLSTM(BaseModel):
     # ------------------------------------------------------------------
     # Dataset schema, canonicalization and validation
     # ------------------------------------------------------------------
-    def _check_dataset_schema(self, dataset: Optional[SampleDataset]) -> None:
+    def _check_dataset_schema(self, dataset: SampleDataset | None) -> None:
         """Checks the single binary label and the current-state inputs."""
         if dataset is None:
             raise ValueError("TDCNNLSTM requires a SampleDataset")
@@ -579,8 +579,8 @@ class TDCNNLSTM(BaseModel):
         self,
         batch: Mapping[str, Any],
         prefix: str = "",
-        expected_shape: Optional[torch.Size] = None,
-    ) -> Dict[str, torch.Tensor]:
+        expected_shape: torch.Size | None = None,
+    ) -> dict[str, torch.Tensor]:
         """Collects one state's five channels as ``(B, L)`` tensors.
 
         Accepts ``(B, L)`` or ``(B, L, 1)`` inputs, removing only a trailing
@@ -602,8 +602,8 @@ class TDCNNLSTM(BaseModel):
         missing = [prefix + key for key in STATE_KEYS if prefix + key not in batch]
         if missing:
             raise ValueError(f"Missing required input(s): {missing}")
-        state: Dict[str, torch.Tensor] = {}
-        shape: Optional[torch.Size] = None
+        state: dict[str, torch.Tensor] = {}
+        shape: torch.Size | None = None
         for key in STATE_KEYS:
             name = prefix + key
             x = batch[name]
@@ -630,11 +630,11 @@ class TDCNNLSTM(BaseModel):
             if x.dtype == torch.bool or x.is_complex():
                 raise ValueError(f"{name} has unsupported dtype {x.dtype}")
             if key == "features":
-                if x.is_floating_point():
-                    if not bool(torch.isfinite(x).all()) or not torch.equal(
-                        x, torch.round(x)
-                    ):
-                        raise ValueError(f"{name} must contain integer feature IDs")
+                if x.is_floating_point() and (
+                    not bool(torch.isfinite(x).all())
+                    or not torch.equal(x, torch.round(x))
+                ):
+                    raise ValueError(f"{name} must contain integer feature IDs")
                 x = x.to(device=self.device, dtype=torch.long)
             else:
                 x = x.to(device=self.device, dtype=torch.float32)
@@ -652,10 +652,10 @@ class TDCNNLSTM(BaseModel):
 
     def _validate_state(
         self,
-        state: Dict[str, torch.Tensor],
+        state: dict[str, torch.Tensor],
         allow_empty: bool,
         prefix: str = "",
-    ) -> Tuple[Dict[str, torch.Tensor], torch.Tensor]:
+    ) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
         """Validates padding sentinels and builds event/delta masks.
 
         An event is valid when both ``timepoints`` and ``values`` are finite,
@@ -737,7 +737,7 @@ class TDCNNLSTM(BaseModel):
     # Train-derived, feature-specific scaling
     # ------------------------------------------------------------------
     def _register_scaling(
-        self, scaling: Optional[Mapping[str, Mapping[str, Any]]]
+        self, scaling: Mapping[str, Mapping[str, Any]] | None
     ) -> None:
         """Validates scaling statistics and registers them as buffers.
 
@@ -799,8 +799,8 @@ class TDCNNLSTM(BaseModel):
             self.register_buffer(f"{key}_std_replaced", replaced)
 
     def _scale_state(
-        self, state: Dict[str, torch.Tensor], masks: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
+        self, state: dict[str, torch.Tensor], masks: dict[str, torch.Tensor]
+    ) -> dict[str, torch.Tensor]:
         """Applies shared time scaling and per-feature scalar scaling.
 
         Missing entries are NaN before scaling and remain NaN afterwards.
@@ -830,8 +830,8 @@ class TDCNNLSTM(BaseModel):
     # ------------------------------------------------------------------
     @staticmethod
     def _sort_state(
-        state: Dict[str, torch.Tensor], masks: Dict[str, torch.Tensor]
-    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+        state: dict[str, torch.Tensor], masks: dict[str, torch.Tensor]
+    ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
         """Orders events oldest to newest and moves padding to the end.
 
         ``timepoints`` are minutes *before* the state marker, so the order is
@@ -856,8 +856,8 @@ class TDCNNLSTM(BaseModel):
         batch: Mapping[str, Any],
         prefix: str = "",
         allow_empty: bool = False,
-        expected_shape: Optional[torch.Size] = None,
-    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], torch.Tensor]:
+        expected_shape: torch.Size | None = None,
+    ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor], torch.Tensor]:
         """Canonicalizes, validates, sorts and scales one state.
 
         Args:
@@ -904,8 +904,8 @@ class TDCNNLSTM(BaseModel):
     def _target_probability(
         self,
         batch: Mapping[str, Any],
-        current_shape: Optional[torch.Size] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        current_shape: torch.Size | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Scores successor states with the frozen target predictor.
 
         Rows whose successor is all padding are never passed to the target.
@@ -992,7 +992,7 @@ class TDCNNLSTM(BaseModel):
         self,
         observed_labels: torch.Tensor,
         batch: Mapping[str, Any],
-        current_shape: Optional[torch.Size] = None,
+        current_shape: torch.Size | None = None,
     ) -> torch.Tensor:
         """Builds detached TD targets from successor risks or observed labels.
 
@@ -1023,7 +1023,7 @@ class TDCNNLSTM(BaseModel):
         logits: torch.Tensor,
         observed_labels: torch.Tensor,
         batch: Mapping[str, Any],
-        current_shape: Optional[torch.Size] = None,
+        current_shape: torch.Size | None = None,
     ) -> torch.Tensor:
         """Computes mean TD binary cross-entropy from online logits.
 
@@ -1058,7 +1058,7 @@ class TDCNNLSTM(BaseModel):
         self,
         logits: torch.Tensor,
         batch: Mapping[str, Any],
-        current_shape: Optional[torch.Size] = None,
+        current_shape: torch.Size | None = None,
     ) -> torch.Tensor:
         """Dispatches to the TD or supervised loss used by ``forward()``.
 
@@ -1078,7 +1078,7 @@ class TDCNNLSTM(BaseModel):
     # ------------------------------------------------------------------
     # Standard PyHealth forward outputs
     # ------------------------------------------------------------------
-    def forward(self, **batch: Any) -> Dict[str, torch.Tensor]:
+    def forward(self, **batch: Any) -> dict[str, torch.Tensor]:
         """Predicts mortality and optionally computes an objective-specific loss.
 
         The ``y_true`` field always contains observed 28-day mortality. In TD
