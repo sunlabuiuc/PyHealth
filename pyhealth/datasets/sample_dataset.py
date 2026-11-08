@@ -28,7 +28,10 @@ logger = logging.getLogger(__name__)
 # How processed samples are laid out in the disk (litdata) cache. Bump when
 # the layout changes; it is part of the processed-cache key, so caches written
 # with an older layout are rebuilt instead of misread.
-STORAGE_FORMAT = 2
+# 3: chunks always use litdata's pytree layout (see _litdata_pytree_layout in
+# base_dataset.py); format 2 caches without tensor fields used its
+# Arrow-footer layout, which subset() cannot read.
+STORAGE_FORMAT = 3
 # Record key holding one pickled payload with every non-tensor field.
 _OBJECTS_KEY = "_pyhealth_objects"
 _PICKLE_PROTOCOL = 5
@@ -555,9 +558,6 @@ class SampleDataset(litdata.StreamingDataset):
             config = json.load(f)["config"]
         # How the cached samples were compressed on disk (e.g. "zstd"), or None.
         self.compression: str | None = config.get("compression")
-        # Records with no tensor field are a single bytes value, which litdata
-        # stores in its Arrow-footer layout (see subset()).
-        self._bytes_only: bool = config.get("data_format") == ["bytes"]
 
     def __getitem__(self, index: Any) -> Any:
         """Returns the sample(s) at ``index`` as the original Python objects.
@@ -621,9 +621,9 @@ class SampleDataset(litdata.StreamingDataset):
         The subset reads with litdata's POSIX-fast mmap reads turned off.
         They cache per index run, not per chunk file, which makes a
         patient-level split ~20x slower to iterate. It also decodes only the
-        requested item instead of a window of neighbours (except for records
-        without tensor fields), which makes a split's scattered reads ~2.5x
-        faster. The full dataset keeps litdata's defaults.
+        requested item instead of a window of neighbours, which makes a
+        split's scattered reads ~2.5x faster. The full dataset keeps
+        litdata's defaults.
         """
 
         new_dataset = deepcopy_dataset(self)
@@ -709,13 +709,11 @@ class SampleDataset(litdata.StreamingDataset):
         # of neighbours around each miss, and a split's reads are scattered,
         # so most of that work is thrown away: on a MIMIC-IV patient split an
         # epoch took 3.7 s instead of 10.1 s (4.2 s instead of 13.5 s with
-        # zstd, which also inflates every item in the window).
-        # The condition works around Lightning-AI/litData#954: litdata
-        # <= 0.2.76 cannot read single items from bytes-only records (stored
-        # in its Arrow-footer layout) with POSIX-fast off. Drop it once the
-        # litdata floor includes the fix (Lightning-AI/litData#955).
-        if not self._bytes_only:
-            new_dataset.batch_decode = 0  # type: ignore
+        # zstd, which also inflates every item in the window). PyHealth writes
+        # every cache in litdata's pytree layout (_litdata_pytree_layout),
+        # which reads this way; litdata's Arrow-footer layout cannot
+        # (Lightning-AI/litData#954).
+        new_dataset.batch_decode = 0  # type: ignore
 
         return new_dataset
 
@@ -926,12 +924,15 @@ def _write_samples(builder: "SampleBuilder", samples: list[dict], path: Path) ->
     """
     from litdata.streaming.writer import BinaryWriter
 
-    from .base_dataset import _litdata_merge
+    from .base_dataset import _litdata_merge, _litdata_pytree_layout
 
-    writer = BinaryWriter(cache_dir=str(path), chunk_bytes="64MB")
-    for i, sample in enumerate(samples):
-        writer.add_item(i, builder.transform_for_storage({"sample": pickle.dumps(sample)}))
-    writer.done()
+    with _litdata_pytree_layout():
+        writer = BinaryWriter(cache_dir=str(path), chunk_bytes="64MB")
+        for i, sample in enumerate(samples):
+            writer.add_item(
+                i, builder.transform_for_storage({"sample": pickle.dumps(sample)})
+            )
+        writer.done()
     _litdata_merge(path)
 
 
