@@ -14,6 +14,13 @@ name: AI Review
 # change. The decision is that suggestion, or "human review" when the PR is
 # manual, so a maintainer still gets Sonnet's advice.
 #
+# Duplication is judged by component: a PR that adds a model, task or dataset
+# PyHealth already has is blocked, but code copied into a new component is
+# fine, since components are kept mostly self-contained. Sharing between
+# components must be the author's decision, so each new link (another
+# component's internals imported, a concrete class subclassed, code moved to a
+# shared module) must be explained in the PR description, or the review blocks.
+#
 # When an automatic PR switches to manual:
 # - right away, for prompt injection, and when the author's 10th requested AI
 #   decision since "status: automatic" was last added is posted (reviews a
@@ -616,9 +623,10 @@ jobs:
 
             Review against this standard: a change can be merged when it works
             as described, is tested to the level comparable PyHealth components
-            are, and does not duplicate existing functionality. It does not need
-            to be the best possible version of itself. Classify each problem by
-            whether it should block the merge.
+            are, does not add a component PyHealth already has, and explains in
+            its description any code it shares between components. It does not
+            need to be the best possible version of itself. Classify each
+            problem by whether it should block the merge.
 
             Look for correctness bugs, unhandled edge cases, breaking changes to
             public APIs, missing or inadequate tests for new behavior, and
@@ -632,23 +640,47 @@ jobs:
 
             Also check whether PyHealth already has what the pull request
             adds. Search the repository with Grep and Glob for existing models,
-            datasets, tasks, processors, metrics, interpretability methods and
-            utilities that do the same thing, including under other names: the
-            same method or paper under a different class name, a loader for a
-            dataset PyHealth already supports, the same task definition, or a
-            helper that duplicates an existing one.
-            - Redundant: it reimplements an existing component without a
-              meaningful difference, copies code from an existing module
-              instead of reusing or subclassing it, or adds a helper that
-              duplicates an existing one.
+            datasets, tasks, processors, metrics and interpretability methods
+            that do the same thing, including under other names: the same
+            method or paper under a different class name, a loader for a
+            dataset PyHealth already supports, or the same task definition.
+            - Redundant: it adds a component that does what an existing one
+              already does, without a meaningful difference.
             - Not redundant: a different method, even from the same family
               (two different transformer variants are both fine); a variant
               whose difference is clearly explained, such as a different paper
               or a new capability; or an extension of an existing component.
+              Code copied into a new component, such as a helper, a layer
+              from another model or a list of constants, is not redundant
+              either: it is not a problem at all, so never report it.
             If it is redundant, report a finding that names the existing
             component and its path, with medium severity, or high if it is a
-            near-copy. Say so in the summary as well, since the next reviewer
-            only sees the summary.
+            near-copy of a whole component. Say so in the summary as well,
+            since the next reviewer only sees the summary.
+
+            Then check how the change shares code between components.
+            Components are kept mostly self-contained, so that changing one for
+            an experiment doesn't silently change another. Sharing is allowed,
+            but it must be the author's choice, not their coding assistant's.
+            Find every new link the pull request creates between components:
+            - importing another component's private (underscore-prefixed)
+              internals;
+            - subclassing another concrete model or task;
+            - moving code out of a component into a shared module;
+            - changing an existing component so that a new one can use it.
+            Building on the base classes and public shared code is not such a
+            link, and neither is sharing within one module or one family of
+            components defined together.
+            Each link needs a reason in the pull request's description; a code
+            comment doesn't count. Any reasonable sentence is enough, so don't
+            argue with a stated reason. For each link without one, report a
+            medium-severity finding on its line: name the link, say why
+            PyHealth keeps components self-contained, and ask the author to
+            either confirm the sharing and say why in the description, or keep
+            the component self-contained, offering both neutrally. List every
+            link in the summary, explained or not. Never suggest sharing code
+            yourself, and never ask the author to copy code they chose to
+            share.
 
             Severity, where high and medium should block the merge and low
             should not:
@@ -656,7 +688,8 @@ jobs:
               or code that looks fabricated or placeholder
             - medium: another problem that should block the merge: a broken or
               misleading API or documentation, behavior that doesn't match the
-              description, or new behavior with no tests
+              description, new behavior with no tests, or sharing between
+              components that the description doesn't explain
             - low: anything that would improve the change but needn't block it,
               including conventions in example scripts and limitations the pull
               request already states clearly
@@ -942,12 +975,24 @@ jobs:
             own. Always give your suggestion, whatever you answered.
 
             A change can be merged when it works as described, is tested to the
-            coverage bar, and does not duplicate existing functionality; it does
-            not need to be the best possible version of itself. Answer "need
-            change" only for blocking problems, and give everything else as
-            suggestions. Judge the change on its merits, the same way whether
+            coverage bar, does not add a component PyHealth already has, and
+            explains in its description any code it shares between components;
+            it does not need to be the best possible version of itself. Answer
+            "need change" only for blocking problems, and give everything else
+            as suggestions. Judge the change on its merits, the same way whether
             or not it needs a human review: the suggestion is your advice to
             the maintainer as well as to the author.
+
+            Components are kept mostly self-contained, so that changing one for
+            an experiment doesn't silently change another. Code copied into a
+            component is fine. Sharing between components, such as importing
+            another component's private internals, subclassing another concrete
+            model or task, or changing an existing component for a new one,
+            needs a reason in the description, so that it is the author's
+            choice and not their coding assistant's; any reasonable sentence is
+            enough. Building on the base classes and public shared code needs
+            none. Never suggest sharing code, and never ask the author to copy
+            code they chose to share.
 
             Then answer suggestion:
             - "approve" only if all of these hold:
@@ -956,7 +1001,13 @@ jobs:
                 problem. Non-blocking problems and suggestions don't prevent
                 approval.
               - The first reviewer's summary raises no concern that the change
-                duplicates something PyHealth already has.
+                adds a component PyHealth already has.
+              - Every new link between components, in the first reviewer's
+                summary or in the diff, is named in the description with a
+                reason. For each one that isn't, ask the author to either
+                confirm the sharing is intended and say why in the
+                description, or keep the component self-contained, offering
+                both neutrally.
               - Test coverage meets the bar: generally at least 80% for each
                 added or modified file, and at least 60% for the whole
                 repository. This is a guideline, not a strict rule: a file with
