@@ -696,7 +696,7 @@ class _FieldRNN(nn.Module):
         super().__init__()
         self.depth = processor.depth
         orderings = processor.ordering()
-        # A level runs an RNN unless it is a set (a resampled series is a sequence).
+        # A level runs an RNN unless it is a set.
         self.is_rnn = [orderings[level] != "set" for level in range(self.depth + 1)]
         timed = {level for level, role in processor.schema() if role == "time"}
         self.gap_levels = sorted(timed) if time_feature else []
@@ -803,9 +803,10 @@ class RNN_V2(BaseModel):
     later top-level record. That state covers everything the record contains:
     lower levels' times are not on the label's timeline and are not compared
     to it, so data that must be cut at label times belongs at the top level.
-    Every V2 field must have a ``series`` top level; a resampled one counts,
-    with record ``i`` at time ``i * step``. Wrap a ``set`` or ``sequence``
-    top level in a ``series`` with ``t = 0``. Logits are ``[label records,
+    Every V2 field must have a ``series`` top level, resampled or not (a
+    resampled one with ``align: "right"``, the default, keeps this causal:
+    a step holds no record later than its time). Wrap a ``set`` or
+    ``sequence`` top level in a ``series`` with ``t = 0``. Logits are ``[label records,
     1]``, packed like the label.
 
     Every per-field argument takes one value for all V2 fields, or a
@@ -978,9 +979,8 @@ class RNN_V2(BaseModel):
 
     def _at_labels(
         self,
-        field: str,
         states: torch.Tensor,
-        time: torch.Tensor | None,
+        time: torch.Tensor,
         batch: torch.Tensor,
         label_time: torch.Tensor,
         label_sample: torch.Tensor,
@@ -990,12 +990,6 @@ class RNN_V2(BaseModel):
         That is the state after the sample's last top-level record with time
         ``<=`` the label's time, or zeros before the first.
         """
-        if time is None:  # resampled top level: record i is at time i * step
-            processor = self.processors[field]
-            resample = processor.levels[processor.depth].get("resample")
-            assert resample is not None  # __init__ allows no other untimed top level
-            _, position = _groups(batch)
-            time = position.to(states.dtype) * float(resample["step"])
         counts = batch.diff()
         n, width = len(counts), int(counts.max()) if len(counts) else 0
         padded = time.new_full((n, max(width, 1)), float("inf"))
@@ -1036,11 +1030,12 @@ class RNN_V2(BaseModel):
             if not self.per_step:
                 parts.append(summary)
                 continue
-            assert states is not None  # a series top level has states
+            # __init__ requires a series top level, which has states and time.
+            assert states is not None and time is not None
             out = embedded[field]
             offsets = out[encoder.depth]["offsets"]
             parts.append(
-                self._at_labels(field, states, time, offsets, label_time, label_sample)
+                self._at_labels(states, time, offsets, label_time, label_sample)
             )
         for field in self.static_fields:
             x = batch[field].to(self.device).float().flatten(1)

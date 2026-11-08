@@ -1,0 +1,423 @@
+[
+  {
+    "id": "yaib_length_of_stay",
+    "name": "YAIB Remaining Length of Stay",
+    "tags": [
+      "yaib",
+      "icu",
+      "length_of_stay",
+      "timeseries_regression"
+    ],
+    "columns": [
+      {
+        "task": "yaib_mimic4_length_of_stay",
+        "label": "MIMIC-IV",
+        "metrics": [
+          "mae",
+          "mse"
+        ]
+      }
+    ],
+    "models": [
+      {
+        "id": "rnn_gru",
+        "name": "RNN (GRU)",
+        "results": {
+          "yaib_mimic4_length_of_stay": {
+            "version": "ec90e675a09ac5a9ed0ed29c05b951f07892092d",
+            "metrics": {
+              "mae": {
+                "mean": 38.2920977275,
+                "std": 0.2919081688
+              },
+              "mse": {
+                "mean": 2294.6392415365,
+                "std": 14.325059367
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "rnn_lstm",
+        "name": "RNN (LSTM)",
+        "results": {
+          "yaib_mimic4_length_of_stay": {
+            "version": "ec90e675a09ac5a9ed0ed29c05b951f07892092d",
+            "metrics": {
+              "mae": {
+                "mean": 38.2397321065,
+                "std": 0.2989573357
+              },
+              "mse": {
+                "mean": 2288.8854980469,
+                "std": 30.3383724248
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "rnn_rnn",
+        "name": "RNN",
+        "results": {
+          "yaib_mimic4_length_of_stay": {
+            "version": "ec90e675a09ac5a9ed0ed29c05b951f07892092d",
+            "metrics": {
+              "mae": {
+                "mean": 41.6231854757,
+                "std": 1.083957924
+              },
+              "mse": {
+                "mean": 2585.0467122396,
+                "std": 78.2962076556
+              }
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "yaib_mortality",
+    "name": "YAIB ICU Mortality",
+    "tags": [
+      "yaib",
+      "icu",
+      "mortality",
+      "binary"
+    ],
+    "columns": [
+      {
+        "task": "yaib_mimic4_mortality",
+        "label": "MIMIC-IV",
+        "metrics": [
+          "roc_auc",
+          "pr_auc",
+          "accuracy",
+          "f1"
+        ]
+      }
+    ],
+    "models": [
+      {
+        "id": "rnn_gru",
+        "name": "RNN (GRU)",
+        "results": {
+          "yaib_mimic4_mortality": {
+            "version": "ec90e675a09ac5a9ed0ed29c05b951f07892092d",
+            "metrics": {
+              "roc_auc": {
+                "mean": 0.8773290176,
+                "std": 0.0048543261
+              },
+              "pr_auc": {
+                "mean": 0.4364476148,
+                "std": 0.0053280113
+              },
+              "accuracy": {
+                "mean": 0.9309055047,
+                "std": 0.0009223427
+              },
+              "f1": {
+                "mean": 0.3218796177,
+                "std": 0.0291968761
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "rnn_lstm",
+        "name": "RNN (LSTM)",
+        "results": {
+          "yaib_mimic4_mortality": {
+            "version": "ec90e675a09ac5a9ed0ed29c05b951f07892092d",
+            "metrics": {
+              "roc_auc": {
+                "mean": 0.8765724863,
+                "std": 0.0080778639
+              },
+              "pr_auc": {
+                "mean": 0.4388825621,
+                "std": 0.0134048983
+              },
+              "accuracy": {
+                "mean": 0.9315251377,
+                "std": 0.0005195777
+              },
+              "f1": {
+                "mean": 0.2894096874,
+                "std": 0.0222518129
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "rnn_rnn",
+        "name": "RNN",
+        "results": {
+          "yaib_mimic4_mortality": {
+            "version": "ec90e675a09ac5a9ed0ed29c05b951f07892092d",
+            "metrics": {
+              "roc_auc": {
+                "mean": 0.8651556835,
+                "std": 0.0080561338
+              },
+              "pr_auc": {
+                "mean": 0.4103521247,
+                "std": 0.0037199899
+              },
+              "accuracy": {
+                "mean": 0.930909239,
+                "std": 0.0007658477
+              },
+              "f1": {
+                "mean": 0.2599113571,
+                "std": 0.0293578606
+              }
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "yaib_aki",
+    "name": "YAIB Acute Kidney Injury",
+    "tags": [
+      "yaib",
+      "icu",
+      "aki",
+      "timeseries_binary"
+    ],
+    "columns": [
+      {
+        "task": "yaib_mimic4_aki",
+        "label": "MIMIC-IV",
+        "metrics": [
+          "roc_auc",
+          "pr_auc"
+        ]
+      }
+    ],
+    "models": [
+      {
+        "id": "rnn_gru",
+        "name": "RNN (GRU)",
+        "results": {
+          "yaib_mimic4_aki": {
+            "version": "ec90e675a09ac5a9ed0ed29c05b951f07892092d",
+            "metrics": {
+              "roc_auc": {
+                "mean": 0.9021446568,
+                "std": 0.0021404753
+              },
+              "pr_auc": {
+                "mean": 0.7243279391,
+                "std": 0.0015294215
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "rnn_lstm",
+        "name": "RNN (LSTM)",
+        "results": {
+          "yaib_mimic4_aki": {
+            "version": "ec90e675a09ac5a9ed0ed29c05b951f07892092d",
+            "metrics": {
+              "roc_auc": {
+                "mean": 0.9004905885,
+                "std": 0.003234277
+              },
+              "pr_auc": {
+                "mean": 0.7217431007,
+                "std": 0.0035157891
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "rnn_rnn",
+        "name": "RNN",
+        "results": {
+          "yaib_mimic4_aki": {
+            "version": "ec90e675a09ac5a9ed0ed29c05b951f07892092d",
+            "metrics": {
+              "roc_auc": {
+                "mean": 0.8741766607,
+                "std": 0.0042143499
+              },
+              "pr_auc": {
+                "mean": 0.6666308372,
+                "std": 0.0021627058
+              }
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "yaib_sepsis",
+    "name": "YAIB Sepsis",
+    "tags": [
+      "yaib",
+      "icu",
+      "sepsis",
+      "timeseries_binary"
+    ],
+    "columns": [
+      {
+        "task": "yaib_mimic4_sepsis",
+        "label": "MIMIC-IV",
+        "metrics": [
+          "roc_auc",
+          "pr_auc"
+        ]
+      }
+    ],
+    "models": [
+      {
+        "id": "rnn_gru",
+        "name": "RNN (GRU)",
+        "results": {
+          "yaib_mimic4_sepsis": {
+            "version": "ec90e675a09ac5a9ed0ed29c05b951f07892092d",
+            "metrics": {
+              "roc_auc": {
+                "mean": 0.8487984168,
+                "std": 0.0091854615
+              },
+              "pr_auc": {
+                "mean": 0.0976827188,
+                "std": 0.0089329103
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "rnn_lstm",
+        "name": "RNN (LSTM)",
+        "results": {
+          "yaib_mimic4_sepsis": {
+            "version": "ec90e675a09ac5a9ed0ed29c05b951f07892092d",
+            "metrics": {
+              "roc_auc": {
+                "mean": 0.8459082756,
+                "std": 0.0090466742
+              },
+              "pr_auc": {
+                "mean": 0.0895524846,
+                "std": 0.0119675401
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "rnn_rnn",
+        "name": "RNN",
+        "results": {
+          "yaib_mimic4_sepsis": {
+            "version": "ec90e675a09ac5a9ed0ed29c05b951f07892092d",
+            "metrics": {
+              "roc_auc": {
+                "mean": 0.7977252695,
+                "std": 0.0156588998
+              },
+              "pr_auc": {
+                "mean": 0.0509490071,
+                "std": 0.0091679957
+              }
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "yaib_kidney_function",
+    "name": "YAIB Kidney Function",
+    "tags": [
+      "yaib",
+      "icu",
+      "kidney_function",
+      "regression"
+    ],
+    "columns": [
+      {
+        "task": "yaib_mimic4_kidney_function",
+        "label": "MIMIC-IV",
+        "metrics": [
+          "mae",
+          "mse"
+        ]
+      }
+    ],
+    "models": [
+      {
+        "id": "rnn_gru",
+        "name": "RNN (GRU)",
+        "results": {
+          "yaib_mimic4_kidney_function": {
+            "version": "ec90e675a09ac5a9ed0ed29c05b951f07892092d",
+            "metrics": {
+              "mae": {
+                "mean": 0.2410857926,
+                "std": 0.0043714427
+              },
+              "mse": {
+                "mean": 0.2103220274,
+                "std": 0.0161307638
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "rnn_lstm",
+        "name": "RNN (LSTM)",
+        "results": {
+          "yaib_mimic4_kidney_function": {
+            "version": "ec90e675a09ac5a9ed0ed29c05b951f07892092d",
+            "metrics": {
+              "mae": {
+                "mean": 0.2498698731,
+                "std": 0.0062638358
+              },
+              "mse": {
+                "mean": 0.2220720202,
+                "std": 0.0223668609
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "rnn_rnn",
+        "name": "RNN",
+        "results": {
+          "yaib_mimic4_kidney_function": {
+            "version": "ec90e675a09ac5a9ed0ed29c05b951f07892092d",
+            "metrics": {
+              "mae": {
+                "mean": 0.2479128391,
+                "std": 0.0037332506
+              },
+              "mse": {
+                "mean": 0.2295418183,
+                "std": 0.0298145966
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+]

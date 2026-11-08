@@ -8,7 +8,6 @@ import numpy as np
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor
 from .label_processor import (
     BinaryLabelProcessor,
     LabelProcessor,
@@ -17,6 +16,7 @@ from .label_processor import (
     PosWeight,
     RegressionLabelProcessor,
 )
+from .utils import Normalization
 
 
 class TimeseriesLabelProcessor[B: LabelProcessor](LabelProcessor):
@@ -69,8 +69,6 @@ class TimeseriesLabelProcessor[B: LabelProcessor](LabelProcessor):
     # ------------------------------------------------------------------
     def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
         """Fits :attr:`base` on the values of every label record."""
-        if type(self.base).fit is FeatureProcessor.fit:
-            return  # nothing to learn: no need to read the samples
         self.base.fit(self._records(samples, field), field)
 
     def fit_test(self, samples: Iterable[dict[str, Any]], field: str) -> None:
@@ -175,8 +173,8 @@ class TimeseriesLabelProcessor[B: LabelProcessor](LabelProcessor):
         self, y_true: Any, y_prob: torch.Tensor
     ) -> tuple[list[np.ndarray], list[np.ndarray]]:
         """One array of labels and one of predictions per sample."""
-        values, _, offsets = (t.detach().cpu().numpy() for t in y_true)
-        prob = y_prob.detach().cpu().numpy()
+        (values,), (prob,) = self.base.to_numpy(y_true[0], y_prob)
+        offsets = y_true[2].detach().cpu().numpy()
         if self._scalar_values and values.ndim == 2:
             values, prob = values[:, 0], prob[:, 0]
         true_parts, prob_parts = [], []
@@ -310,15 +308,26 @@ class TimeseriesRegressionLabelProcessor(
 ):
     """Real-valued labels at time points, see :class:`TimeseriesLabelProcessor`.
 
+    Args:
+        normalization: As in :class:`RegressionLabelProcessor`; a learned
+            one is fitted on the label records of all fitted samples.
+
     Examples:
         >>> from pyhealth.processors import TimeseriesRegressionLabelProcessor
         >>> TimeseriesRegressionLabelProcessor().process({"time": [0.0, 2.0], "values": [2.5, 0.5]})
         (tensor([[2.5000],
                 [0.5000]]), tensor([0., 2.]))
+        >>> p = TimeseriesRegressionLabelProcessor(normalization=(0, 10))
+        >>> p.base.center, p.base.scale
+        (0.0, 10.0)
     """
 
     mode = "timeseries_regression"
     base_cls = RegressionLabelProcessor
 
-    def __init__(self) -> None:
-        super().__init__(RegressionLabelProcessor())
+    def __init__(self, normalization: Normalization | Sequence[float] = None) -> None:
+        super().__init__(RegressionLabelProcessor(normalization=normalization))
+
+    def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
+        if self.base.learns_statistics:  # otherwise, no need to read the samples
+            super().fit(samples, field)

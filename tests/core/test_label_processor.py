@@ -398,6 +398,151 @@ class TestTimeseriesLabels(unittest.TestCase):
         processor.fit(Unreadable(), "y")
 
 
+class TestRegressionScale(unittest.TestCase):
+    SAMPLES = [{"y": 10.0}, {"y": 30.0}, {"y": 20.0}]
+
+    def _minmax(self):
+        processor = RegressionLabelProcessor(normalization="minmax")
+        processor.fit(self.SAMPLES, "y")
+        return processor
+
+    def test_no_normalization_changes_nothing(self):
+        processor = RegressionLabelProcessor()
+        processor.fit(self.SAMPLES, "y")
+        self.assertIsNone(processor.center)
+        self.assertFalse(processor.learns_statistics)
+        self.assertEqual(processor.process(20.0).tolist(), [20.0])
+        (y_true,), (y_prob,) = processor.to_numpy(
+            torch.tensor([[20.0]]), torch.tensor([[21.0]])
+        )
+        self.assertEqual((y_true.item(), y_prob.item()), (20.0, 21.0))
+
+    def test_minmax_learns_the_range_of_the_fitted_samples(self):
+        processor = self._minmax()
+        self.assertEqual((processor.center, processor.scale), (10.0, 20.0))
+        self.assertTrue(processor.learns_statistics)
+
+    def test_process_scales_without_clipping(self):
+        processor = self._minmax()
+        self.assertEqual(processor.process(20.0).tolist(), [0.5])
+        self.assertEqual(processor.process(50.0).tolist(), [2.0])
+
+    def test_labels_outside_the_range_keep_their_true_value(self):
+        # A held-out label beyond the fitted range is not made easier to predict.
+        processor = self._minmax()
+        y_true = torch.stack([processor.process(50.0), processor.process(-10.0)])
+        (true,), _ = processor.to_numpy(y_true, y_true)
+        self.assertEqual(true.ravel().tolist(), [50.0, -10.0])
+
+    def test_loss_and_activation_use_the_processed_label_as_is(self):
+        processor = self._minmax()
+        logits = torch.tensor([[0.0], [0.25]])
+        y_true = torch.stack([processor.process(20.0), processor.process(30.0)])
+        self.assertIs(processor.activation(logits), logits)
+        torch.testing.assert_close(
+            processor.loss(logits, y_true), F.mse_loss(logits, y_true)
+        )
+        # a model's own loss sees logits and y_true in the same units
+        self.assertEqual(processor.loss(y_true, y_true).item(), 0.0)
+
+    def test_to_numpy_maps_labels_and_predictions_back_together(self):
+        processor = self._minmax()
+        y_true = processor.process(20.0)
+        (true,), (prob,) = processor.to_numpy(y_true, y_true + 0.25)
+        self.assertEqual(true.tolist(), [20.0])
+        self.assertEqual(prob.tolist(), [25.0])
+
+    def test_fixed_range_needs_no_fit(self):
+        processor = RegressionLabelProcessor(normalization=(0, 15))
+        self.assertEqual((processor.center, processor.scale), (0.0, 15.0))
+        self.assertFalse(processor.learns_statistics)
+        processor.fit(self.SAMPLES, "y")  # does not move them
+        self.assertEqual((processor.center, processor.scale), (0.0, 15.0))
+        self.assertEqual(processor.process(15).tolist(), [1.0])
+
+    def test_minmax_must_be_fitted(self):
+        with self.assertRaisesRegex(ValueError, "fit first"):
+            RegressionLabelProcessor(normalization="minmax").process(1.0)
+
+    def test_zscore(self):
+        processor = RegressionLabelProcessor(normalization="zscore")
+        self.assertTrue(processor.learns_statistics)
+        processor.fit(self.SAMPLES, "y")
+        self.assertAlmostEqual(processor.center, 20.0)
+        self.assertAlmostEqual(processor.scale, float(np.std([10.0, 30.0, 20.0])))
+        y_true = processor.process(30.0)
+        (true,), _ = processor.to_numpy(y_true, y_true)
+        self.assertAlmostEqual(true.item(), 30.0, places=4)
+
+    def test_invalid_normalization(self):
+        with self.assertRaisesRegex(ValueError, "must be one of"):
+            RegressionLabelProcessor(normalization="robust")
+        for bad in [(5, 5), (0, float("inf")), (float("nan"), 1)]:
+            with self.assertRaisesRegex(ValueError, "finite low < high"):
+                RegressionLabelProcessor(normalization=bad)
+
+    def test_learned_normalization_needs_samples(self):
+        with self.assertRaisesRegex(ValueError, "no samples"):
+            RegressionLabelProcessor(normalization="minmax").fit([], "y")
+
+    def test_constant_label_gets_a_unit_scale(self):
+        processor = RegressionLabelProcessor(normalization="minmax")
+        with self.assertLogs("pyhealth.processors.label_processor", "WARNING"):
+            processor.fit([{"y": 3.0}, {"y": 3.0}], "y")
+        self.assertEqual((processor.center, processor.scale), (3.0, 1.0))
+
+    def test_pickles_from_before_the_option_load(self):
+        processor = RegressionLabelProcessor()
+        processor.__dict__.clear()  # as pickled before the option
+        restored = pickle.loads(pickle.dumps(processor))
+        self.assertIsNone(restored.center)
+        self.assertEqual(restored.process(1.5).tolist(), [1.5])
+
+    def test_timeseries_fits_on_every_label_record(self):
+        processor = TimeseriesRegressionLabelProcessor(normalization="minmax")
+        self.assertTrue(processor.learns_statistics)
+        processor.fit(
+            [
+                {"y": {"time": [0.0, 1.0], "values": [10.0, 20.0]}},
+                {"y": {"time": [0.0], "values": [[30.0]]}},
+            ],
+            "y",
+        )
+        self.assertEqual((processor.base.center, processor.base.scale), (10.0, 20.0))
+        batch = processor.collate(
+            [
+                processor.process({"time": [0.0, 1.0], "values": [20.0, 30.0]}),
+                processor.process({"time": [0.0], "values": [10.0]}),
+            ]
+        )
+        self.assertEqual(batch[0].tolist(), [[0.5], [1.0], [0.0]])
+        y_true, y_prob = processor.to_numpy(batch, batch[0] + 0.5)
+        self.assertEqual([part.tolist() for part in y_true], [[20.0, 30.0], [10.0]])
+        self.assertEqual([part.tolist() for part in y_prob], [[30.0, 40.0], [20.0]])
+
+    def test_timeseries_fixed_range_does_not_read_the_samples(self):
+        processor = TimeseriesRegressionLabelProcessor(normalization=(0, 15))
+        self.assertFalse(processor.learns_statistics)
+
+        class Unreadable:
+            def __iter__(self):
+                raise AssertionError("fit read the samples")
+
+        processor.fit(Unreadable(), "y")
+
+    def test_dataset_warns_when_fitted_on_all_samples(self):
+        samples = [
+            {"patient_id": f"p{i}", "codes": ["a"], "y": float(i)} for i in range(3)
+        ]
+        with self.assertLogs("pyhealth.datasets.sample_dataset", "WARNING") as logs:
+            create_sample_dataset(
+                samples,
+                {"codes": "sequence"},
+                {"y": ("regression", {"normalization": "minmax"})},
+            )
+        self.assertIn("fitted on all samples", "".join(logs.output))
+
+
 def _static_dataset(mode):
     labels = {
         "binary": lambda i: i % 2,
@@ -467,6 +612,38 @@ class TestTrainerWithEveryLabel(unittest.TestCase):
                 trainer = self._run(model, dataset, self.METRIC[mode])
                 y_true, _, _ = trainer.inference(get_dataloader(dataset, batch_size=3))
                 self.assertEqual([len(a) for a in y_true], [3, 2, 4, 3])
+
+    def test_scaled_labels_are_scored_in_original_units(self):
+        samples = [
+            {"patient_id": f"p{i}", "codes": ["a", "b"][: 1 + i % 2], "y": 100.0 * i}
+            for i in range(9)
+        ]
+        dataset = create_sample_dataset(
+            samples, {"codes": "sequence"}, {"y": ("regression", {"normalization": (0, 800)})}
+        )
+        model = LogisticRegression(dataset=dataset, embedding_dim=8)
+        trainer = self._run(model, dataset, "mae")
+        loader = get_dataloader(dataset, batch_size=3)
+
+        # inside the model, labels and predictions are both scaled
+        batch = next(iter(loader))
+        out = model(**batch)
+        self.assertLessEqual(out["y_true"].max().item(), 1.0)
+        torch.testing.assert_close(
+            out["loss"], F.mse_loss(out["y_prob"], out["y_true"])
+        )
+
+        # outside it, both are in the label's units
+        y_true, y_prob, loss = trainer.inference(loader)
+        np.testing.assert_allclose(
+            sorted(y_true.ravel()), [100.0 * i for i in range(9)], rtol=1e-5
+        )
+        self.assertAlmostEqual(
+            trainer.evaluate(loader)["mae"], np.abs(y_true - y_prob).mean(), places=3
+        )
+        self.assertAlmostEqual(
+            loss, np.mean(((y_true - y_prob) / 800) ** 2), places=5
+        )
 
 
 if __name__ == "__main__":
