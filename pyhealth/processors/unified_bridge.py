@@ -80,12 +80,14 @@ class UnifiedBridge(JaggedFeatureProcessor):
     the unified configuration requires one.
 
     Limitations:
-        The legacy collate pads samples with 0 and keeps no lengths. Token
-        fields recover their records exactly, since index 0 is ``<pad>``.
-        A float field without a mask cannot tell padding from data, so each
-        sample's *trailing* rows whose values are all 0 (or NaN) are treated
-        as padding and dropped: a sample whose real last rows are all exactly
-        0 loses them. The same rule drops trailing empty visits and groups of
+        The legacy collate pads samples with 0 and keeps no lengths, so
+        each sample's *trailing* padding is dropped and everything before it
+        is kept. For a token field, that is its trailing ``<pad>`` ids (index
+        0): a ``<pad>`` in between, such as the left padding of CEHR tasks,
+        stays a ``<pad>`` record. A float field without a mask cannot tell
+        padding from data, so its trailing rows whose values are all 0 (or
+        NaN) are dropped: a sample whose real last rows are all exactly 0
+        loses them. The same rule drops trailing empty visits and groups of
         nested token fields, while empty ones in between are kept.
 
     Args:
@@ -200,9 +202,9 @@ def _values(x: torch.Tensor) -> torch.Tensor:
 
 
 def _tokens(ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    """The non-``<pad>`` ids of ``ids [n, L]`` and the offsets of each row."""
-    keep = ids != _PAD
-    return ids[keep].to(torch.long), _offsets(keep.sum(dim=1))
+    """The ids of ``ids [n, L]`` before each row's trailing ``<pad>``, and offsets."""
+    length = _kept_length(ids == _PAD)
+    return ids[_prefix(length, ids.shape[1])].to(torch.long), _offsets(length)
 
 
 def _nested_tokens(ids: torch.Tensor) -> list[torch.Tensor]:
@@ -245,7 +247,8 @@ def _trailing_rows(
 class SequenceToUnifiedBridge(UnifiedBridge):
     """:class:`~pyhealth.processors.SequenceProcessor` as one ``sequence`` level of tokens.
 
-    The batch ``[B, L]`` keeps every id but ``<pad>``.
+    The batch ``[B, L]`` keeps each sample's ids before its trailing
+    ``<pad>`` (see :class:`UnifiedBridge`).
 
     Examples:
         >>> from pyhealth.datasets import collate_fn_dict_with_padding
@@ -273,8 +276,9 @@ class SequenceToUnifiedBridge(UnifiedBridge):
 class CehrToUnifiedBridge(UnifiedBridge):
     """:class:`~pyhealth.processors.CehrProcessor` as one ``sequence`` level of tokens.
 
-    CEHR tasks left-pad their concept lists with ``<pad>``, so every
-    ``<pad>`` id is dropped, wherever it is.
+    CEHR tasks left-pad their concept lists with ``<pad>``: those leading
+    ``<pad>`` ids stay ``<pad>`` records, in their positions, and only
+    trailing ``<pad>`` ids are dropped (see :class:`UnifiedBridge`).
 
     Examples:
         >>> from pyhealth.processors import CehrProcessor
@@ -282,7 +286,7 @@ class CehrToUnifiedBridge(UnifiedBridge):
         >>> _ = legacy.fit([{"x": ["A"]}], "x")
         >>> bridge = CehrToUnifiedBridge(legacy)
         >>> bridge.transform_batch(legacy.process(["<pad>", "<cls>", "A"]).unsqueeze(0))
-        (tensor([2, 6]), tensor([0, 2]))
+        (tensor([0, 2, 6]), tensor([0, 3]))
     """
 
     def __init__(self, legacy: CehrProcessor) -> None:
@@ -440,7 +444,7 @@ class StageNetToUnifiedBridge(UnifiedBridge):
     ``(time, ids)`` pair. Times are passed through unchanged, in whatever
     unit and origin the task used: some StageNet tasks store the time since
     the previous visit rather than a timeline. A batch without time (any
-    sample had none) gets time 0 for every record. ``<pad>`` ids are dropped,
+    sample had none) gets time 0 for every record. Trailing ``<pad>`` ids
     and trailing all-``<pad>`` visits are padding (see :class:`UnifiedBridge`).
 
     Examples:
@@ -474,9 +478,8 @@ class StageNetToUnifiedBridge(UnifiedBridge):
             tokens, offsets, batch = _nested_tokens(ids)
         else:
             tokens, batch = _tokens(ids)
-        counts = batch.diff()
         width = ids.shape[1]
-        top = _prefix(counts, width) if self.legacy._is_nested else ids != _PAD
+        top = _prefix(batch.diff(), width)
         if time is None:
             record_time = torch.zeros(int(top.sum()), device=ids.device)
         else:

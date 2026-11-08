@@ -175,6 +175,12 @@ class TestSequence(unittest.TestCase):
         _, got = _bridge_batch(SequenceToUnifiedBridge, self.legacy, [], ["A"], [])
         self.assertEqual(got, [[], ["A"], []])
 
+    def test_pad_in_between_is_kept_and_trailing_is_dropped(self):
+        _, got = _bridge_batch(
+            SequenceToUnifiedBridge, self.legacy, ["A", "<pad>", "B", "<pad>"]
+        )
+        self.assertEqual(got, [["A", "<pad>", "B"]])
+
     def test_all_samples_empty(self):
         _, got = _bridge_batch(SequenceToUnifiedBridge, self.legacy, [], [])
         self.assertEqual(got, [[], []])
@@ -200,14 +206,22 @@ class TestCehr(unittest.TestCase):
         self.legacy = CehrProcessor()
         self.legacy.fit([{"x": ["A", "B"]}], "x")
 
-    def test_left_padding_and_batch_padding_are_dropped(self):
+    def test_left_padding_is_kept_and_trailing_padding_dropped(self):
         bridge, got = _bridge_batch(
             CehrToUnifiedBridge,
             self.legacy,
             ["<pad>", "<pad>", "<cls>", "A"],
             ["<cls>", "B", "Z"],
+            ["<cls>", "A", "<pad>"],
         )
-        self.assertEqual(got, [["<cls>", "A"], ["<cls>", "B", "<unk>"]])
+        self.assertEqual(
+            got,
+            [
+                ["<pad>", "<pad>", "<cls>", "A"],
+                ["<cls>", "B", "<unk>"],
+                ["<cls>", "A"],  # a real trailing <pad> looks like batch padding
+            ],
+        )
         self.assertEqual(bridge.ordering(), {0: "sequence"})
 
     def test_vocabulary_includes_special_tokens(self):
