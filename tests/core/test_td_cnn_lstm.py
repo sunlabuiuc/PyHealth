@@ -1,5 +1,4 @@
-"""Focused synthetic regressions for T21-T41 (no clinical data needed).
-"""
+"""Fast, deterministic synthetic tests for ``TDCNNLSTM`` (no clinical data)."""
 
 import importlib.util
 import math
@@ -72,8 +71,10 @@ def test_encoder_shorter_patient_unaffected_by_longer_batchmate():
         expected = encoder(short, torch.ones(1, 2, dtype=torch.bool))
         batched = torch.cat((F.pad(short, (0, 15)), long), dim=0)
         mask = torch.cat(
-            (torch.tensor([[True, True] + [False] * 15]),
-             torch.ones(1, 17, dtype=torch.bool)),
+            (
+                torch.tensor([[True, True] + [False] * 15]),
+                torch.ones(1, 17, dtype=torch.bool),
+            ),
             dim=0,
         )
         actual = encoder(batched, mask)[0:1]
@@ -140,8 +141,9 @@ def test_target_initially_frozen_and_always_eval():
     assert model.target is not None
     assert not model.target.training
     assert all(not parameter.requires_grad for parameter in model.target.parameters())
-    for online_value, target_value in zip(model.online.state_dict().values(),
-                                          model.target.state_dict().values()):
+    for online_value, target_value in zip(
+        model.online.state_dict().values(), model.target.state_dict().values()
+    ):
         torch.testing.assert_close(online_value, target_value)
     model.train()
     assert model.online.training
@@ -156,8 +158,7 @@ def test_td_loss_uses_successor_risks_and_28_day_terminal_labels(monkeypatch):
     model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4)
     online_logits = torch.tensor([[-1.0], [0.0], [2.0]], requires_grad=True)
     observed = torch.tensor([0.0, 1.0, 0.0])
-    successor_risks = torch.tensor([[0.2], [float("nan")], [0.8]],
-                                   requires_grad=True)
+    successor_risks = torch.tensor([[0.2], [float("nan")], [0.8]], requires_grad=True)
 
     def fake_target_probability(batch, current_shape=None):
         assert current_shape == torch.Size([3, 4])
@@ -170,9 +171,7 @@ def test_td_loss_uses_successor_risks_and_28_day_terminal_labels(monkeypatch):
         current_shape=torch.Size([3, 4]),
     )
     expected_targets = torch.tensor([[0.2], [1.0], [0.8]])
-    expected_loss = F.binary_cross_entropy_with_logits(
-        online_logits, expected_targets
-    )
+    expected_loss = F.binary_cross_entropy_with_logits(online_logits, expected_targets)
     torch.testing.assert_close(loss, expected_loss)
     assert loss.ndim == 0
     loss.backward()
@@ -190,8 +189,7 @@ def test_td_loss_all_terminal_uses_observed_labels():
     )
     labels = torch.tensor([1, 0])
     logits = torch.tensor([[-0.4], [0.9]], requires_grad=True)
-    loss = model._compute_loss(logits, {**current, **empty_successor,
-                                        "label": labels})
+    loss = model._compute_loss(logits, {**current, **empty_successor, "label": labels})
     expected_loss = F.binary_cross_entropy_with_logits(
         logits, labels.float().unsqueeze(1)
     )
@@ -287,9 +285,7 @@ def test_td_loss_rejects_missing_or_mismatched_successor_state():
         model._compute_loss(logit, {**current, "label": [0, 1]})
     wrong_shape = make_state(2, 5, prefix="next_")
     with pytest.raises(ValueError, match="paired states must have identical"):
-        model._compute_loss(
-            logit, {**current, **wrong_shape, "label": [0, 1]}
-        )
+        model._compute_loss(logit, {**current, **wrong_shape, "label": [0, 1]})
 
 
 def test_labeled_forward_returns_standard_pyhealth_keys_in_supervised_mode():
@@ -416,9 +412,7 @@ def test_unlabeled_forward_returns_only_predictions_in_both_modes():
 @pytest.mark.parametrize("alpha", [0.0, 0.75, 0.99, 1.0])
 def test_update_target_handles_parameters_float_buffers_and_integer_buffers(alpha):
     """Every float tensor uses EMA; BatchNorm integer counts copy exactly."""
-    model = TDCNNLSTM(
-        make_dataset(), n_features=3, hidden_dim=4, target_alpha=alpha
-    )
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4, target_alpha=alpha)
     with torch.no_grad():
         model.online.embedding.feature_embedding.weight.add_(2.0)
         model.online.embedding.norm.running_mean.add_(3.0)
@@ -456,9 +450,7 @@ def test_update_target_rejects_supervised_objective():
 def test_target_changes_only_after_explicit_post_optimizer_update():
     """A TD optimizer step changes only online weights until target update."""
     torch.manual_seed(40)
-    model = TDCNNLSTM(
-        make_dataset(), n_features=3, hidden_dim=4, target_alpha=0.5
-    )
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4, target_alpha=0.5)
     batch = {
         **make_state(2, 5),
         **make_state(2, 5, valid_lengths=[3, 0], prefix="next_"),
@@ -495,9 +487,7 @@ def test_target_changes_only_after_explicit_post_optimizer_update():
 
 
 _EXAMPLE_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "examples"
-    / "mimic4_mortality_td_cnn_lstm.py"
+    Path(__file__).resolve().parents[2] / "examples" / "mimic4_mortality_td_cnn_lstm.py"
 )
 _EXAMPLE_SPEC = importlib.util.spec_from_file_location(
     "td_cnn_lstm_example_helpers", _EXAMPLE_PATH
@@ -578,8 +568,12 @@ def test_training_step_orders_gradients_optimizer_and_target_update(
     """We must finish optimizer.step before synchronizing a TD target."""
     torch.manual_seed(37)
     model = TDCNNLSTM(
-        make_dataset(), n_features=3, hidden_dim=4,
-        dropout=0.0, objective=objective, target_alpha=0.8,
+        make_dataset(),
+        n_features=3,
+        hidden_dim=4,
+        dropout=0.0,
+        objective=objective,
+        target_alpha=0.8,
     )
     optimizer = make_reference_optimizer(model, 100, learning_rate=0.001)
     batch = {**make_state(2, 4), "label": torch.tensor([0, 1])}
@@ -670,11 +664,11 @@ def test_constructor_rejects_invalid_settings(settings, error_type):
 @pytest.mark.parametrize("mode", ["td", "supervised"])
 def test_eval_inference_returns_finite_scores_for_single_and_padded_states(mode):
     """One valid event or heavily padded sequences work in eval mode on CPU."""
-    model = TDCNNLSTM(
-        make_dataset(), n_features=3, hidden_dim=4, objective=mode
-    ).eval()
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4, objective=mode).eval()
     for batch_size, lengths, sequence_length in [
-        (1, [1], 1), (1, [1], 15), (2, [1, 11], 15),
+        (1, [1], 1),
+        (1, [1], 15),
+        (2, [1, 11], 15),
     ]:
         outputs = model(**make_state(batch_size, sequence_length, lengths))
         assert set(outputs) == {"logit", "y_prob"}
@@ -712,8 +706,9 @@ def test_cpu_event_and_independent_delta_masks_align_after_sorting():
     assert masks["event"].tolist() == [[True, True, True, False]]
     assert masks["delta_time"].tolist() == [[False, True, True, False]]
     assert masks["delta_value"].tolist() == [[True, True, False, False]]
-    torch.testing.assert_close(prepared["timepoints"][0, :3],
-                               torch.tensor([20.0, 10.0, 0.0]))
+    torch.testing.assert_close(
+        prepared["timepoints"][0, :3], torch.tensor([20.0, 10.0, 0.0])
+    )
     assert prepared["features"].tolist() == [[0, 1, 2, -1]]
 
 
@@ -759,14 +754,10 @@ def test_per_feature_scaling_preserves_missing_values_and_padding():
         "delta_value": [[0.0, 3.0, float("nan")]],
     }
     prepared, masks, _ = model._prepare_state(inputs)
-    torch.testing.assert_close(prepared["timepoints"][0, :2],
-                               torch.tensor([5.0, 0.0]))
-    torch.testing.assert_close(prepared["values"][0, :2],
-                               torch.tensor([1.0, 1.0]))
-    torch.testing.assert_close(prepared["delta_time"][0, 1],
-                               torch.tensor(1.0))
-    torch.testing.assert_close(prepared["delta_value"][0, :2],
-                               torch.tensor([0.0, 1.0]))
+    torch.testing.assert_close(prepared["timepoints"][0, :2], torch.tensor([5.0, 0.0]))
+    torch.testing.assert_close(prepared["values"][0, :2], torch.tensor([1.0, 1.0]))
+    torch.testing.assert_close(prepared["delta_time"][0, 1], torch.tensor(1.0))
+    torch.testing.assert_close(prepared["delta_value"][0, :2], torch.tensor([0.0, 1.0]))
     assert torch.isnan(prepared["values"][0, 2])
     assert torch.isnan(prepared["delta_time"][0, 0])
     assert masks["event"].tolist() == [[True, True, False]]
@@ -790,9 +781,7 @@ def test_t36_td_forward_matches_manual_mixed_targets_and_logit_gradients():
     outputs = model(**batch)
     next_risks, has_next = model._target_probability(batch)
     assert has_next.tolist() == [True, False, True]
-    torch.testing.assert_close(
-        outputs["y_true"], torch.tensor([[1.0], [0.0], [1.0]])
-    )
+    torch.testing.assert_close(outputs["y_true"], torch.tensor([[1.0], [0.0], [1.0]]))
     expected_targets = torch.where(has_next[:, None], next_risks, outputs["y_true"])
     expected_loss = F.binary_cross_entropy_with_logits(
         outputs["logit"], expected_targets
@@ -801,9 +790,9 @@ def test_t36_td_forward_matches_manual_mixed_targets_and_logit_gradients():
 
     outputs["logit"].retain_grad()
     outputs["loss"].backward()
-    expected_logit_gradient = (
-        outputs["y_prob"].detach() - expected_targets
-    ) / len(batch["label"])
+    expected_logit_gradient = (outputs["y_prob"].detach() - expected_targets) / len(
+        batch["label"]
+    )
     torch.testing.assert_close(
         outputs["logit"].grad, expected_logit_gradient, atol=1e-6, rtol=1e-6
     )
@@ -893,9 +882,7 @@ def test_t36_observed_labels_do_not_replace_nonterminal_td_targets():
     )
     torch.testing.assert_close(
         changed_terminal["loss"],
-        F.binary_cross_entropy_with_logits(
-            changed_terminal["logit"], expected_targets
-        ),
+        F.binary_cross_entropy_with_logits(changed_terminal["logit"], expected_targets),
     )
     assert changed_terminal["y_true"].tolist() == [[0.0], [1.0]]
 
@@ -961,6 +948,7 @@ def test_t36_supervised_loss_is_independent_of_supplied_successor_states():
     for key in ("logit", "y_prob", "y_true", "loss"):
         torch.testing.assert_close(with_successor[key], without_successor[key])
 
+
 # ---------------------------------------------------------------------------
 # T37: delta ablation, embedding gradients, checkpoints and target EMA
 # ---------------------------------------------------------------------------
@@ -982,16 +970,24 @@ def test_t37_ablation_removes_only_delta_embedding_branches():
     """No-delta models omit both scalar branches without changing the encoder."""
     full = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=8)
     reduced = TDCNNLSTM(
-        make_dataset(), n_features=3, hidden_dim=8,
+        make_dataset(),
+        n_features=3,
+        hidden_dim=8,
         use_delta_embeddings=False,
     )
 
     assert full.online.embedding.scalar_keys == (
-        "timepoints", "values", "delta_time", "delta_value"
+        "timepoints",
+        "values",
+        "delta_time",
+        "delta_value",
     )
     assert reduced.online.embedding.scalar_keys == ("timepoints", "values")
     assert set(full.online.embedding.scalar_embeddings) == {
-        "time", "value", "delta_time", "delta_value"
+        "time",
+        "value",
+        "delta_time",
+        "delta_value",
     }
     assert set(reduced.online.embedding.scalar_embeddings) == {"time", "value"}
     assert reduced.n_online_trainable_parameters < full.n_online_trainable_parameters
@@ -1006,7 +1002,9 @@ def test_t37_no_delta_predictions_ignore_delta_values_and_missingness():
     """Removing delta branches makes inference independent of both delta inputs."""
     torch.manual_seed(71)
     model = TDCNNLSTM(
-        make_dataset(), n_features=3, hidden_dim=8,
+        make_dataset(),
+        n_features=3,
+        hidden_dim=8,
         use_delta_embeddings=False,
     ).eval()
     original = make_t37_state()
@@ -1054,7 +1052,10 @@ def test_t37_full_training_backpropagates_through_all_five_branches():
     """Supervised loss trains every selected scalar embedding and feature IDs."""
     torch.manual_seed(73)
     model = TDCNNLSTM(
-        make_dataset(), n_features=3, hidden_dim=8, dropout=0.0,
+        make_dataset(),
+        n_features=3,
+        hidden_dim=8,
+        dropout=0.0,
         objective="supervised",
     ).train()
     for network in model.online.embedding.scalar_embeddings.values():
@@ -1081,8 +1082,12 @@ def test_t37_ablation_backpropagates_only_through_retained_branches():
     """No-delta training keeps feature, time and value gradients intact."""
     torch.manual_seed(74)
     model = TDCNNLSTM(
-        make_dataset(), n_features=3, hidden_dim=8, dropout=0.0,
-        use_delta_embeddings=False, objective="supervised",
+        make_dataset(),
+        n_features=3,
+        hidden_dim=8,
+        dropout=0.0,
+        use_delta_embeddings=False,
+        objective="supervised",
     ).train()
     for network in model.online.embedding.scalar_embeddings.values():
         with torch.no_grad():
@@ -1117,9 +1122,13 @@ def test_t37_checkpoint_roundtrip_preserves_predictions_and_scaling(
     }
     torch.manual_seed(75)
     model = TDCNNLSTM(
-        make_dataset(), n_features=3, hidden_dim=8,
-        objective=objective, use_delta_embeddings=use_delta_embeddings,
-        scaling=scaling, target_alpha=0.8,
+        make_dataset(),
+        n_features=3,
+        hidden_dim=8,
+        objective=objective,
+        use_delta_embeddings=use_delta_embeddings,
+        scaling=scaling,
+        target_alpha=0.8,
     ).eval()
     if model.target is not None:
         with torch.no_grad():
@@ -1138,8 +1147,11 @@ def test_t37_checkpoint_roundtrip_preserves_predictions_and_scaling(
     checkpoint = tmp_path / "td_cnn_lstm_state.pt"
     torch.save(model.state_dict(), checkpoint)
     restored = TDCNNLSTM(
-        make_dataset(), n_features=3, hidden_dim=8,
-        objective=objective, use_delta_embeddings=use_delta_embeddings,
+        make_dataset(),
+        n_features=3,
+        hidden_dim=8,
+        objective=objective,
+        use_delta_embeddings=use_delta_embeddings,
         target_alpha=0.8,
     ).eval()
     saved_state = torch.load(checkpoint, map_location="cpu", weights_only=True)
@@ -1184,9 +1196,7 @@ def test_t37_target_starts_equal_but_is_not_parameter_aliased():
 def test_t37_repeated_target_updates_match_analytic_ema():
     """Two target updates obey repeated EMA, including BatchNorm buffers."""
     alpha = 0.8
-    model = TDCNNLSTM(
-        make_dataset(), n_features=3, hidden_dim=8, target_alpha=alpha
-    )
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=8, target_alpha=alpha)
     with torch.no_grad():
         model.online.embedding.feature_embedding.weight.add_(2.0)
         model.online.embedding.norm.running_mean.fill_(3.0)
@@ -1202,10 +1212,9 @@ def test_t37_repeated_target_updates_match_analytic_ema():
         model.update_target()
         for key, actual in model.target.state_dict().items():
             if torch.is_floating_point(actual):
-                expected = (
-                    (alpha ** step) * target_before[key]
-                    + (1 - alpha ** step) * online_before[key]
-                )
+                expected = (alpha**step) * target_before[key] + (
+                    1 - alpha**step
+                ) * online_before[key]
                 torch.testing.assert_close(actual, expected, atol=1e-6, rtol=1e-6)
             else:
                 torch.testing.assert_close(actual, online_before[key])
@@ -1241,9 +1250,7 @@ def _run_t38_synthetic_training_step(objective):
         }
         if objective == "td":
             # we include one valid successor and one terminal fallback
-            batch.update(
-                make_state(2, 5, valid_lengths=[3, 0], prefix="next_")
-            )
+            batch.update(make_state(2, 5, valid_lengths=[3, 0], prefix="next_"))
 
         online_before = {
             key: value.detach().clone()
@@ -1320,9 +1327,7 @@ def test_t38_deterministic_one_step_synthetic_training(objective):
 
     # we verify a fresh run with the same seed produces identical results
     for key in outputs:
-        torch.testing.assert_close(
-            outputs[key], repeated_outputs[key], atol=0, rtol=0
-        )
+        torch.testing.assert_close(outputs[key], repeated_outputs[key], atol=0, rtol=0)
     for name, value in model.state_dict().items():
         torch.testing.assert_close(
             value, repeated_model.state_dict()[name], atol=0, rtol=0
@@ -1518,15 +1523,9 @@ def test_t40_ablation_shares_full_model_optimizer_defaults(monkeypatch):
     expected_weight_decay = 1.0 / (expected_learning_rate * n_training_batches)
     assert full["learning_rate"] == pytest.approx(expected_learning_rate)
     assert full["weight_decay"] == pytest.approx(expected_weight_decay)
-    assert results["optimizer"]["learning_rate"] == pytest.approx(
-        full["learning_rate"]
-    )
-    assert results["optimizer"]["weight_decay"] == pytest.approx(
-        full["weight_decay"]
-    )
-    assert results["optimizer"]["reference_parameter_count"] == full[
-        "parameter_count"
-    ]
+    assert results["optimizer"]["learning_rate"] == pytest.approx(full["learning_rate"])
+    assert results["optimizer"]["weight_decay"] == pytest.approx(full["weight_decay"])
+    assert results["optimizer"]["reference_parameter_count"] == full["parameter_count"]
 
 
 @pytest.mark.parametrize(
@@ -1652,3 +1651,81 @@ def test_t41_example_command_line(capsys):
 def test_t41_example_rejects_settings_without_a_full_training_batch():
     with pytest.raises(ValueError, match="fewer than batch_size"):
         _example_helpers.run_example(_tiny_config(batch_size=64))
+
+
+# ---------------------------------------------------------------------------
+# Public import path and hand-computed expected outputs
+# ---------------------------------------------------------------------------
+def test_model_is_exported_from_pyhealth_models():
+    """The documented public import path resolves to the implementation."""
+    from pyhealth.models import TDCNNLSTM as ExportedTDCNNLSTM
+
+    assert ExportedTDCNNLSTM is TDCNNLSTM
+
+
+def test_td_loss_matches_hand_computed_value(monkeypatch):
+    """TD BCE equals a closed-form value for one successor and one terminal row.
+
+    Both logits are ``ln 3`` (probability 0.75). Row 0 bootstraps from a
+    successor risk of 0.25; row 1 has no successor and falls back to its
+    observed label 1. With ``BCE(z, y) = ln(1 + e^z) - y * z``:
+    row 0 is ``ln 4 - 0.25 ln 3`` and row 1 is ``ln 4 - ln 3``, so the mean
+    is ``ln 4 - 0.625 ln 3 = 0.699662``. The logit gradients are
+    ``(0.75 - 0.25) / 2 = 0.25`` and ``(0.75 - 1) / 2 = -0.125``.
+    """
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4)
+    logits = torch.full((2, 1), math.log(3.0), requires_grad=True)
+
+    def fake_target_probability(batch, current_shape=None):
+        return torch.tensor([[0.25], [float("nan")]]), torch.tensor([True, False])
+
+    monkeypatch.setattr(model, "_target_probability", fake_target_probability)
+    loss = model._compute_loss(
+        logits, {"label": torch.tensor([0, 1])}, current_shape=torch.Size([2, 4])
+    )
+
+    assert loss.item() == pytest.approx(0.699662, abs=1e-6)
+    assert loss.item() == pytest.approx(math.log(4.0) - 0.625 * math.log(3.0))
+    loss.backward()
+    torch.testing.assert_close(logits.grad, torch.tensor([[0.25], [-0.125]]))
+
+
+def test_supervised_loss_matches_hand_computed_value():
+    """Supervised BCE ignores successors: ``(ln 4 + ln 2) / 2 = 1.5 ln 2``.
+
+    Row 0 has logit ``ln 3`` and label 0, giving ``ln 4``; row 1 has logit 0
+    and label 1, giving ``ln 2``.
+    """
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=4, objective="supervised"
+    )
+    logits = torch.tensor([[math.log(3.0)], [0.0]], requires_grad=True)
+    loss = model._compute_loss(logits, {"label": torch.tensor([0, 1])})
+
+    assert loss.item() == pytest.approx(1.039721, abs=1e-6)
+    assert loss.item() == pytest.approx(1.5 * math.log(2.0))
+    loss.backward()
+    # d/dz = (sigmoid(z) - y) / B = (0.75 - 0) / 2 and (0.5 - 1) / 2
+    torch.testing.assert_close(logits.grad, torch.tensor([[0.375], [-0.25]]))
+
+
+def test_update_target_matches_hand_computed_values():
+    """Two soft updates with alpha 0.75 move a bias 0 -> 0.25 -> 0.4375.
+
+    Integer BatchNorm counters are copied rather than averaged.
+    """
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4, target_alpha=0.75)
+    online_bias = model.online.decoder[-1].bias
+    target_bias = model.target.decoder[-1].bias
+    with torch.no_grad():
+        online_bias.fill_(1.0)
+        target_bias.fill_(0.0)
+        model.online.decoder[0].num_batches_tracked.fill_(5)
+
+    model.update_target()
+    assert target_bias.item() == pytest.approx(0.25)
+    assert model.target.decoder[0].num_batches_tracked.item() == 5
+
+    model.update_target()
+    assert target_bias.item() == pytest.approx(0.4375)
+    assert online_bias.item() == 1.0

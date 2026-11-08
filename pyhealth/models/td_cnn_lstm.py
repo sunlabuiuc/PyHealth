@@ -10,14 +10,16 @@ time since the previous same-feature event, and change since that event).
 A TD-trained model also receives the matching ``next_*`` channels of the
 selected successor state.
 
-Implementation status (tasks T21-T33): input validation, train-derived
-scaling, the five-branch event embedding, the no-delta ablation switch,
-chronological ordering, the CNN/LSTM encoder, the dense decoder, the frozen
-target predictor, TD/supervised losses, labeled ``forward()`` outputs, and
-explicit post-optimizer target updates.
+Training in TD mode needs one extra call per step: after
+``optimizer.step()``, call :meth:`TDCNNLSTM.update_target` to soft-update the
+frozen target predictor. The standard PyHealth ``Trainer`` does not make this
+call, so TD training uses a short custom loop (see the class example and
+``examples/mimic4_mortality_td_cnn_lstm.py``).
 
-Intentional, documented differences from the released reference code
-(``utils/train/models.py``), approved in ``MODEL_API_DECISIONS.md``:
+Paper: https://arxiv.org/abs/2411.04285
+
+Intentional differences from the released reference code
+(``utils/train/models.py``):
 
 * ``delta_time`` and ``delta_value`` embeddings use independent missingness
   masks (the reference masks both with the ``delta_time`` mask).
@@ -78,12 +80,17 @@ EMBEDDING_NAMES: Dict[str, str] = {
 """
 
 NEXT_PREFIX = "next_"
+"""Prefix of the successor-state channels used by the TD target."""
+
 OBJECTIVES: Tuple[str, ...] = ("td", "supervised")
+"""Supported training objectives."""
+
 PADDING_FEATURE_ID = -1
+"""Feature ID that marks a padded event position."""
 
 
 # ---------------------------------------------------------------------------
-# T21: configuration validation
+# Configuration validation
 # ---------------------------------------------------------------------------
 def _is_real_number(value: Any) -> bool:
     """Returns True for finite ints/floats that are not booleans."""
@@ -102,7 +109,7 @@ def _check_config(
     objective: Any,
     target_alpha: Any,
 ) -> None:
-    """Validates constructor hyperparameters (policy 9).
+    """Validates constructor hyperparameters before any module is built.
 
     Raises:
         ValueError: If any hyperparameter is outside its allowed range.
@@ -126,7 +133,7 @@ def _check_config(
 
 
 # ---------------------------------------------------------------------------
-# T23: masked embedding normalization
+# Masked embedding normalization
 # ---------------------------------------------------------------------------
 class _MaskedBatchNorm1d(nn.BatchNorm1d):
     """BatchNorm over channels that ignores padded sequence positions.
@@ -175,9 +182,7 @@ class _MaskedBatchNorm1d(nn.BatchNorm1d):
                         momentum = self.momentum
                     unbiased_var = var * (n / (n - 1.0))
                     self.running_mean.mul_(1.0 - momentum).add_(momentum * mean)
-                    self.running_var.mul_(1.0 - momentum).add_(
-                        momentum * unbiased_var
-                    )
+                    self.running_var.mul_(1.0 - momentum).add_(momentum * unbiased_var)
         else:
             mean = self.running_mean
             var = self.running_var
@@ -188,7 +193,7 @@ class _MaskedBatchNorm1d(nn.BatchNorm1d):
 
 
 # ---------------------------------------------------------------------------
-# T23 + T24: five-branch event embedding with the no-delta switch
+# Five-branch event embedding with the no-delta switch
 # ---------------------------------------------------------------------------
 class _EventEmbedding(nn.Module):
     """Embeds each event as the sum of feature-ID and scalar-channel embeddings.
@@ -196,7 +201,7 @@ class _EventEmbedding(nn.Module):
     Args:
         n_features: Feature-vocabulary size.
         hidden_dim: Embedding width ``H``.
-        use_delta_embeddings: If False (T24 ablation), the ``delta_time`` and
+        use_delta_embeddings: If False (ablation), the ``delta_time`` and
             ``delta_value`` branches are not constructed and contribute
             nothing; all other branches are unchanged.
     """
@@ -238,7 +243,7 @@ class _EventEmbedding(nn.Module):
             Tensor of shape ``(B, H, L)`` with zeros at padded positions.
         """
         event_mask = masks["event"]
-        # T25: substitute a safe index only at padded positions, so the
+        # we substitute a safe index only at padded positions, so the
         # embedding is never indexed with -1; the result is masked below.
         safe_ids = torch.where(
             event_mask, state["features"], torch.zeros_like(state["features"])
@@ -254,7 +259,7 @@ class _EventEmbedding(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# T26 + T27: CNN blocks with mask propagation and a packed LSTM
+# CNN blocks with mask propagation and a packed LSTM
 # ---------------------------------------------------------------------------
 class _SequenceEncoder(nn.Module):
     """Two Conv1d/ReLU/MaxPool blocks followed by a two-layer LSTM.
@@ -359,7 +364,7 @@ class _SequenceEncoder(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# T28: full predictor (embedding -> encoder -> decoder)
+# Full predictor (embedding -> encoder -> decoder)
 # ---------------------------------------------------------------------------
 class _TDPredictor(nn.Module):
     """One mortality predictor; shared class for online and target networks.
@@ -433,6 +438,14 @@ class TDCNNLSTM(BaseModel):
     state; the target is updated only through ``update_target()`` after each
     optimizer step.
 
+    Each batch holds one state per row as five aligned ``(B, L)`` channels:
+    ``timepoints`` (minutes before the state marker), ``values``,
+    ``features`` (integer IDs), ``delta_time`` and ``delta_value`` (change
+    since the previous event of the same feature). Padded events use NaN
+    scalars and feature ID ``-1``. Labeled TD batches also carry the matching
+    ``next_*`` channels of the successor state; an all-padded successor means
+    no successor, and the observed label becomes the TD target for that row.
+
     Args:
         dataset: PyHealth ``SampleDataset`` with ``output_schema`` exactly
             ``{"label": "binary"}`` (observed 28-day mortality) and the five
@@ -458,11 +471,47 @@ class TDCNNLSTM(BaseModel):
         TypeError: For hyperparameters or scaling of the wrong type.
 
     Examples:
-        >>> model = TDCNNLSTM(dataset, n_features=4, hidden_dim=8)
-        >>> _ = model.eval()
-        >>> out = model(**current_state_batch)  # five (B, L) channels
-        >>> tuple(out["y_prob"].shape) == (batch_size, 1)
-        True
+        >>> import torch
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
+        >>> from pyhealth.models import TDCNNLSTM
+        >>> nan = float("nan")
+        >>> state = {
+        ...     "timepoints": [0.0, 30.0, nan],
+        ...     "values": [1.2, 0.8, nan],
+        ...     "features": [0, 1, -1],
+        ...     "delta_time": [nan, nan, nan],
+        ...     "delta_value": [nan, nan, nan],
+        ... }
+        >>> no_next = {key: [nan] * 3 for key in state}
+        >>> no_next["features"] = [-1] * 3
+        >>> samples = [
+        ...     {
+        ...         "patient_id": f"p{i}",
+        ...         **state,
+        ...         **{f"next_{k}": v for k, v in (no_next if i else state).items()},
+        ...         "label": i % 2,
+        ...     }
+        ...     for i in range(4)
+        ... ]
+        >>> input_schema = {
+        ...     prefix + key: ("tensor", {"dtype": torch.long})
+        ...     if key == "features"
+        ...     else "tensor"
+        ...     for prefix in ("", "next_")
+        ...     for key in state
+        ... }
+        >>> dataset = create_sample_dataset(
+        ...     samples, input_schema, {"label": "binary"}, in_memory=True
+        ... )
+        >>> model = TDCNNLSTM(dataset, n_features=2, hidden_dim=4)
+        >>> optimizer = torch.optim.AdamW(model.online.parameters(), lr=1e-3)
+        >>> batch = next(iter(get_dataloader(dataset, batch_size=4)))
+        >>> out = model(**batch)
+        >>> sorted(out)
+        ['logit', 'loss', 'y_prob', 'y_true']
+        >>> out["loss"].backward()
+        >>> optimizer.step()
+        >>> model.update_target()  # TD mode: always after optimizer.step()
     """
 
     def __init__(
@@ -500,7 +549,7 @@ class TDCNNLSTM(BaseModel):
         self.online = _TDPredictor(
             n_features, hidden_dim, self.dropout, use_delta_embeddings
         )
-        # T29: the target starts as an exact, frozen copy of the online model.
+        # the target starts as an exact, frozen copy of the online model.
         self.target: Optional[_TDPredictor] = None
         if objective == "td":
             target = copy.deepcopy(self.online)
@@ -509,7 +558,7 @@ class TDCNNLSTM(BaseModel):
             self.target = target
 
     # ------------------------------------------------------------------
-    # T21: dataset schema, canonicalization and validation
+    # Dataset schema, canonicalization and validation
     # ------------------------------------------------------------------
     def _check_dataset_schema(self, dataset: Optional[SampleDataset]) -> None:
         """Checks the single binary label and the current-state inputs."""
@@ -607,7 +656,12 @@ class TDCNNLSTM(BaseModel):
         allow_empty: bool,
         prefix: str = "",
     ) -> Tuple[Dict[str, torch.Tensor], torch.Tensor]:
-        """Validates sentinels and builds masks (INPUT_CONTRACT section 2).
+        """Validates padding sentinels and builds event/delta masks.
+
+        An event is valid when both ``timepoints`` and ``values`` are finite,
+        and padded when both are NaN. Padded events must have feature ID
+        ``-1`` and NaN deltas. A valid event may have NaN deltas when no
+        earlier observation of the same feature exists.
 
         Args:
             state: Output of ``_canonicalize_state``.
@@ -680,7 +734,7 @@ class TDCNNLSTM(BaseModel):
         return masks, has_events
 
     # ------------------------------------------------------------------
-    # T22: train-derived, feature-specific scaling
+    # Train-derived, feature-specific scaling
     # ------------------------------------------------------------------
     def _register_scaling(
         self, scaling: Optional[Mapping[str, Mapping[str, Any]]]
@@ -772,7 +826,7 @@ class TDCNNLSTM(BaseModel):
         return scaled
 
     # ------------------------------------------------------------------
-    # T25: chronological ordering
+    # Chronological ordering
     # ------------------------------------------------------------------
     @staticmethod
     def _sort_state(
@@ -821,7 +875,7 @@ class TDCNNLSTM(BaseModel):
         return self._scale_state(state, masks), masks, has_events
 
     # ------------------------------------------------------------------
-    # T29: target predictor behavior
+    # Target predictor behavior
     # ------------------------------------------------------------------
     def train(self, mode: bool = True) -> "TDCNNLSTM":
         """Sets the online predictor's mode; the target always stays in eval.
@@ -889,7 +943,7 @@ class TDCNNLSTM(BaseModel):
         return probability, has_next
 
     # ------------------------------------------------------------------
-    # T30 + T31: 28-day label validation and objective-specific losses
+    # 28-day label validation and objective-specific losses
     # ------------------------------------------------------------------
     def _observed_labels(
         self, batch: Mapping[str, Any], logits: torch.Tensor
@@ -1018,13 +1072,11 @@ class TDCNNLSTM(BaseModel):
         """
         observed_labels = self._observed_labels(batch, logits)
         if self.objective == "td":
-            return self._compute_td_loss(
-                logits, observed_labels, batch, current_shape
-            )
+            return self._compute_td_loss(logits, observed_labels, batch, current_shape)
         return self._compute_supervised_loss(logits, observed_labels)
 
     # ------------------------------------------------------------------
-    # T32: standard PyHealth forward outputs
+    # Standard PyHealth forward outputs
     # ------------------------------------------------------------------
     def forward(self, **batch: Any) -> Dict[str, torch.Tensor]:
         """Predicts mortality and optionally computes an objective-specific loss.
@@ -1074,7 +1126,7 @@ class TDCNNLSTM(BaseModel):
         return outputs
 
     # ------------------------------------------------------------------
-    # T33: target predictor soft update (call after optimizer.step())
+    # Target predictor soft update (call after optimizer.step())
     # ------------------------------------------------------------------
     @torch.no_grad()
     def update_target(self) -> None:

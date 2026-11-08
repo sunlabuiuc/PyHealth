@@ -1,7 +1,7 @@
 """Synthetic TD-CNN-LSTM example: TD training, evaluation and delta ablation.
 
 This script runs the PyHealth ``TDCNNLSTM`` contribution end to end on a small,
-deterministic, **invented** paired-state dataset (tasks T39-T41):
+deterministic, **invented** paired-state dataset:
 
 1. Build a :class:`~pyhealth.datasets.SampleDataset` whose samples are ICU
    measurement-time states. Each sample has the five aligned event channels
@@ -42,7 +42,7 @@ import torch
 from sklearn.metrics import roc_auc_score
 
 from pyhealth.datasets import SampleDataset, create_sample_dataset, get_dataloader
-from pyhealth.models.td_cnn_lstm import TDCNNLSTM
+from pyhealth.models import TDCNNLSTM
 
 STATE_CHANNELS: Tuple[str, ...] = (
     "timepoints",
@@ -61,7 +61,7 @@ LOOKBACK_MINUTES = 168 * 60
 
 
 # ---------------------------------------------------------------------------
-# T34: optimizer and explicit TD training step
+# Optimizer and explicit TD training step
 # ---------------------------------------------------------------------------
 def make_reference_optimizer(
     model: TDCNNLSTM,
@@ -102,9 +102,7 @@ def make_reference_optimizer(
     """
     if not isinstance(model, TDCNNLSTM):
         raise TypeError("model must be a TDCNNLSTM")
-    if isinstance(n_training_batches, bool) or not isinstance(
-        n_training_batches, int
-    ):
+    if isinstance(n_training_batches, bool) or not isinstance(n_training_batches, int):
         raise TypeError("n_training_batches must be an integer")
     if n_training_batches <= 0:
         raise ValueError("n_training_batches must be positive")
@@ -180,7 +178,7 @@ def training_step(
 
 
 # ---------------------------------------------------------------------------
-# T39: minimal public synthetic SampleDataset
+# Minimal public synthetic SampleDataset
 # ---------------------------------------------------------------------------
 def _padded(values: Sequence[float], pad: int, fill: float) -> List[float]:
     """Returns ``values`` as Python floats, right-padded with ``fill``."""
@@ -283,7 +281,7 @@ def make_synthetic_samples(
     an all-padded successor, which the TD loss treats as terminal and replaces
     with the observed label. Lengths vary from a single event to ``seq_len``,
     so samples include short and fully used sequences. Padding uses ``NaN``
-    for scalar channels and ``-1`` for feature IDs, as in the T07 contract.
+    for scalar channels and ``-1`` for feature IDs, as the model expects.
 
     The 28-day outcome is an invented, patient-level flag: exactly
     ``round(n_patients * positive_fraction)`` patients are positive, which
@@ -517,10 +515,10 @@ def compute_training_scaling(
 
 
 # ---------------------------------------------------------------------------
-# T40: training, evaluation and full-versus-no-delta ablation
+# Training, evaluation and full-versus-no-delta ablation
 # ---------------------------------------------------------------------------
 def safe_binary_auroc(y_true: Any, y_prob: Any) -> float:
-    """Computes AUROC, returning ``NaN`` when it is undefined (T41).
+    """Computes AUROC, returning ``NaN`` when it is undefined.
 
     AUROC is undefined for fewer than two samples or a single observed class;
     ``sklearn`` raises in that case, which would abort an evaluation loop.
@@ -727,6 +725,10 @@ def run_example(config: Optional[ExampleConfig] = None) -> Dict[str, Any]:
     Returns:
         A dictionary with the configuration, split sizes, shared AdamW
         optimizer settings, and each model's history, best epoch, and metrics.
+
+    Raises:
+        ValueError: If ``epochs < 1``, ``batch_size < 2``, or the synthetic
+            data or split settings are invalid.
     """
     config = ExampleConfig() if config is None else config
     if config.epochs < 1:
