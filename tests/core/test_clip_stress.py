@@ -60,12 +60,15 @@ class TestCLIPStress(unittest.TestCase):
             "num_layers": 1,
             "num_heads": 2,
             "dropout": 0.0,
+            "signal_length": 4,
+            "residual_dropout": 0.0,
+            "projection_dropout": 0.0,
         }
         config.update(kwargs)
         return CLIPStress(self.dataset, **config)
 
     def test_contrastive_objective_and_gradients(self):
-        model = self.model()
+        model = self.model(objective="paper_cosine")
         batch = {k: v for k, v in self.batch.items() if k != "label"}
         result = model(**batch)
         self.assertIsNone(model.mode)
@@ -84,7 +87,11 @@ class TestCLIPStress(unittest.TestCase):
             model.signal_projection,
             model.text_projection,
         ):
-            grads = [p.grad for p in module.parameters() if p.requires_grad]
+            grads = [
+                p.grad
+                for name, p in module.named_parameters()
+                if p.requires_grad and "blocks.0.bn1" not in name
+            ]
             self.assertTrue(
                 all(g is not None and torch.isfinite(g).all() for g in grads)
             )
@@ -96,7 +103,11 @@ class TestCLIPStress(unittest.TestCase):
     def test_linear_probe_freezes_values_and_dropout(self):
         model = self.model(dropout=0.5, stage="linear_probe")
         model.train()
-        self.assertFalse(model.encoders.training)
+        self.assertTrue(model.encoders.training)
+        self.assertFalse(
+            any(p.requires_grad for p in model.signal_projection.parameters())
+        )
+        model.eval()
         before = copy.deepcopy(model.encoders.state_dict())
         classifier_before = model.classifier.weight.detach().clone()
         first = model(**self.batch)
@@ -108,6 +119,7 @@ class TestCLIPStress(unittest.TestCase):
             torch.testing.assert_close(model.encoders.state_dict()[key], value)
         self.assertFalse(torch.equal(model.classifier.weight, classifier_before))
         model.set_stage("finetune")
+        model.train()
         self.assertTrue(model.encoders.training)
         self.assertTrue(all(p.requires_grad for p in model.encoders.parameters()))
         self.assertEqual(model.mode, "binary")
@@ -118,30 +130,41 @@ class TestCLIPStress(unittest.TestCase):
             signal=self.batch["signal"], tabular=self.batch["tabular"], embed=True
         )
         self.assertEqual(result["y_prob"].shape, (4, 1))
-        self.assertEqual(result["embed"].shape, (4, 8))
+        self.assertEqual(result["embed"].shape, (4, 4))
         self.assertNotIn("loss", result)
         self.assertNotIn("y_true", result)
         model(**self.batch)["loss"].backward()
-        self.assertIsNotNone(model.encoders["signal_input"].weight.grad)
+        self.assertIsNotNone(model.encoders["signal"].layers[0].linear1.weight.grad)
 
-    def test_masked_padding_is_ignored(self):
+    def test_reference_rejects_partial_and_variable_windows(self):
         model = self.model(mask_key="mask", stage="finetune").eval()
-        changed = copy.deepcopy(self.batch)
-        changed["signal"][:, -1] = float("nan")
-        torch.testing.assert_close(
-            model(**self.batch)["logit"], model(**changed)["logit"]
-        )
-        shortened = dict(
-            self.batch,
-            signal=self.batch["signal"][:, :3],
-            mask=self.batch["mask"][:, :3],
-        )
-        torch.testing.assert_close(
-            model(**self.batch)["logit"], model(**shortened)["logit"]
-        )
-        changed["mask"] = torch.zeros(4, 4, dtype=torch.bool)
-        with self.assertRaisesRegex(ValueError, "valid timestep"):
-            model(**changed)
+        with self.assertRaisesRegex(ValueError, "complete fixed windows"):
+            model(**self.batch)
+        valid = dict(self.batch, mask=torch.ones(4, 4, dtype=torch.bool))
+        self.assertTrue(torch.isfinite(model(**valid)["loss"]))
+        with self.assertRaisesRegex(ValueError, "signal must have shape"):
+            model(**dict(valid, signal=valid["signal"][:, :3]))
+
+    def test_channel_attention_is_permutation_invariant_across_channels(self):
+        model = self.model(stage="finetune").eval()
+        flipped = dict(self.batch, signal=self.batch["signal"].flip(2))
+        torch.testing.assert_close(model.encode(**self.batch), model.encode(**flipped))
+
+    def test_reference_soft_targets_keep_their_gradient(self):
+        from pyhealth.models.clip_stress_layers import stress_contrastive_loss
+
+        a = torch.randn(3, 4, requires_grad=True)
+        b = torch.randn(3, 4, requires_grad=True)
+        tau = 0.07
+        logits, loss = stress_contrastive_loss(a, b, tau, "reference_soft")
+        target = ((a @ a.T + b @ b.T) * tau / 2).softmax(-1)
+        expected = -(target * logits.log_softmax(-1)).sum() / 6
+        expected -= (target.T * logits.T.log_softmax(-1)).sum() / 6
+        torch.testing.assert_close(loss, expected)
+        actual_grad = torch.autograd.grad(loss, (a, b), retain_graph=True)
+        expected_grad = torch.autograd.grad(expected, (a, b))
+        for actual, expected in zip(actual_grad, expected_grad):
+            torch.testing.assert_close(actual, expected)
 
     def test_optional_text_does_not_change_supervised_initialization(self):
         torch.manual_seed(11)
@@ -153,7 +176,7 @@ class TestCLIPStress(unittest.TestCase):
             with_text(**self.batch)["logit"], without_text(**self.batch)["logit"]
         )
 
-    def test_zero_signal_is_valid_and_positions_encode_order(self):
+    def test_zero_signal_is_valid_and_time_coordinates_encode_order(self):
         model = self.model(stage="finetune").eval()
         zero = dict(self.batch, signal=torch.zeros_like(self.batch["signal"]))
         self.assertTrue(torch.isfinite(model(**zero)["loss"]))
@@ -180,7 +203,12 @@ class TestCLIPStress(unittest.TestCase):
             dataset = create_sample_dataset(self.samples, self.schema, schema)
             batch = next(iter(get_dataloader(dataset, batch_size=4)))
             model = CLIPStress(
-                dataset, hidden_dim=8, num_layers=1, num_heads=2, stage=stage
+                dataset,
+                hidden_dim=8,
+                num_layers=1,
+                num_heads=2,
+                signal_length=4,
+                stage=stage,
             )
             result = model(**batch)
             self.assertTrue(torch.isfinite(result["loss"]))
@@ -194,7 +222,7 @@ class TestCLIPStress(unittest.TestCase):
         for options in (
             {"temperature": 0},
             {"temperature": float("nan")},
-            {"hidden_dim": 7},
+            {"signal_length": 3},
             {"num_layers": 0},
             {"dropout": 1},
             {"signal_key": None, "tabular_key": None},
@@ -206,7 +234,7 @@ class TestCLIPStress(unittest.TestCase):
                 self.model(**options)
         singleton = {k: v[:1] for k, v in self.batch.items()}
         with self.assertRaisesRegex(ValueError, "at least two pairs"):
-            self.model()(**singleton)
+            self.model(objective="paper_cosine")(**singleton)
         with self.assertRaisesRegex(ValueError, "finite"):
             self.model()(
                 **dict(self.batch, text_embedding=torch.full((4, 5), float("inf")))
@@ -218,6 +246,7 @@ class TestCLIPStress(unittest.TestCase):
         model = self.model()
         model(**self.batch)["loss"].backward()
         model.set_stage("linear_probe")
+        model.eval()
         self.assertTrue(all(p.grad is None for p in model.parameters()))
         before = copy.deepcopy(model.encoders.state_dict())
         optimizer = torch.optim.AdamW(model.parameters(), lr=0.1)
@@ -242,6 +271,9 @@ class TestCLIPStress(unittest.TestCase):
             num_layers=1,
             num_heads=2,
             dropout=0.0,
+            signal_length=4,
+            residual_dropout=0.0,
+            projection_dropout=0.0,
         )
         optimizer = torch.optim.Adam(pretrained.parameters(), lr=0.01)
         pretrained(**self.batch)["loss"].backward()
@@ -250,6 +282,7 @@ class TestCLIPStress(unittest.TestCase):
         head = copy.deepcopy(downstream.classifier.state_dict())
         downstream.load_pretrained_encoder(pretrained)
         pretrained.eval()
+        downstream.eval()
         torch.testing.assert_close(
             downstream.encode(**self.batch), pretrained.encode(**self.batch)
         )
@@ -294,6 +327,32 @@ class TestCLIPStress(unittest.TestCase):
 
 
 class TestStressPrompts(unittest.TestCase):
+    def test_reference_pooling_keeps_logical_batch_padding_when_microbatched(self):
+        class Encoder(nn.Module):
+            def forward(self, **tokens):
+                return SimpleNamespace(
+                    last_hidden_state=tokens["input_ids"].float().unsqueeze(-1)
+                )
+
+        def tokenize(prompts, **kwargs):
+            if kwargs.get("return_length"):
+                return {"length": [2, 3]}
+            return {
+                "input_ids": torch.tensor([[1, 3, 99], [2, 4, 6]]),
+                "attention_mask": torch.tensor([[1, 1, 0], [1, 1, 1]]),
+            }
+
+        with (
+            patch("transformers.AutoTokenizer.from_pretrained", return_value=tokenize),
+            patch("transformers.AutoModel.from_pretrained", return_value=Encoder()),
+        ):
+            full = encode_stress_prompts(["short", "long"], batch_size=2)
+            micro = encode_stress_prompts(
+                ["short", "long"], batch_size=2, micro_batch_size=1
+            )
+        torch.testing.assert_close(full, micro)
+        torch.testing.assert_close(full, torch.tensor([[103 / 3], [4.0]]))
+
     def test_statistics_and_constant_channel(self):
         prompt = build_stress_prompt(
             np.array([[1.0, 2.0], [3.0, 2.0]]), ["steps", "heart rate"], {"age": 30}
@@ -333,7 +392,9 @@ class TestStressPrompts(unittest.TestCase):
             patch("transformers.AutoModel.from_pretrained", return_value=encoder),
             patch("transformers.AutoTokenizer.from_pretrained", return_value=tokenize),
         ):
-            actual = encode_stress_prompts(["steps: 1", "steps: 2"], batch_size=1)
+            actual = encode_stress_prompts(
+                ["steps: 1", "steps: 2"], batch_size=1, pooling="masked_mean"
+            )
         torch.testing.assert_close(actual, torch.tensor([[2.0, 4.0], [2.0, 4.0]]))
         self.assertTrue(encoder.assert_frozen)
         self.assertFalse(actual.requires_grad)
@@ -365,7 +426,9 @@ class TestStressPrompts(unittest.TestCase):
             patch("transformers.AutoModel.from_pretrained", return_value=Encoder()),
             self.assertWarnsRegex(UserWarning, "2 of 2 prompts exceed"),
         ):
-            actual = encode_stress_prompts(["steps: 1", "steps: 2"], batch_size=1)
+            actual = encode_stress_prompts(
+                ["steps: 1", "steps: 2"], batch_size=1, pooling="masked_mean"
+            )
         torch.testing.assert_close(actual, torch.ones(2, 3))
 
     def test_chunk_pooling_preserves_order_and_weights_valid_tokens(self):
@@ -391,7 +454,11 @@ class TestStressPrompts(unittest.TestCase):
             patch("transformers.AutoModel.from_pretrained", return_value=Encoder()),
         ):
             actual = encode_stress_prompts(
-                ["long", "short"], batch_size=2, max_length=2, truncation="chunk"
+                ["long", "short"],
+                batch_size=2,
+                max_length=2,
+                truncation="chunk",
+                pooling="masked_mean",
             )
         torch.testing.assert_close(actual, torch.tensor([[3.0], [4.0]]))
 

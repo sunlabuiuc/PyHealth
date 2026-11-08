@@ -7,12 +7,104 @@ Sensor Data and Surveys (CHIL 2025).
 Paper: https://proceedings.mlr.press/v287/yang25a.html
 """
 
+import ast
 import logging
 import warnings
 from collections.abc import Mapping, Sequence
 
 import numpy as np
 import torch
+
+
+def build_reference_stress_prompt(signal, survey):
+    """Author-code LifeSnaps template with the label explicitly excluded.
+
+    Nine rounded statistics match the public implementation (the paper lists
+    eleven). Constant-channel skew/kurtosis produce the reference's ``nan``
+    text. Survey names refer to the original categorical fields, not ordinals.
+    For the quantile-global experiment pass fold-normalized sensor values.
+
+    Examples:
+        >>> signal = np.arange(120, dtype=float).reshape(24, 5)
+        >>> prompt = build_reference_stress_prompt(signal, {"gender": "FEMALE"})
+        >>> prompt.startswith("steps:") and "gender: female" in prompt
+        True
+    """
+    from scipy import stats
+
+    signal = np.asarray(signal, dtype=np.float64)
+    if signal.shape != (24, 5) or not np.isfinite(signal).all():
+        raise ValueError("Reference prompts require a finite (24, 5) window.")
+    if any("stress" in key.lower() or key.lower() == "label" for key in survey):
+        raise ValueError("Target fields must not enter prompts.")
+    lines = []
+    for column, name in enumerate(
+        ("steps", "heart rate", "calories", "distance", "temperature")
+    ):
+        x = signal[:, column]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            values = (
+                np.mean(x),
+                np.std(x),
+                np.min(x),
+                np.max(x),
+                np.median(x),
+                np.sqrt(np.mean(x**2)),
+                stats.kurtosis(x),
+                stats.skew(x),
+                stats.iqr(x),
+            )
+        names = (
+            "mean",
+            "standard deviation",
+            "min",
+            "max",
+            "median",
+            "root mean squared",
+            "kurtosis",
+            "skewness",
+            "interquartile range",
+        )
+        lines.append(
+            name
+            + ": "
+            + ", ".join(
+                f"{key} is {round(value, 1)}" for key, value in zip(names, values)
+            )
+        )
+    gender = survey.get("gender")
+    if gender in ("MALE", "FEMALE"):
+        lines.append(f"gender: {gender.lower()}")
+    age = survey.get("age")
+    if age in ("<30", ">=30"):
+        lines.append("age: " + ("younger than 30" if age == "<30" else "older than 30"))
+    bmi = {
+        "<19": "less than 19",
+        ">=25": "greater than 24",
+        ">=30": "greater than 29",
+    }.get(survey.get("bmi"))
+    if bmi:
+        lines.append("bmi: " + bmi)
+    if isinstance(survey.get("step_goal_label"), str):
+        lines.append("step goal: " + survey["step_goal_label"].lower())
+    for trait in (
+        "extraversion",
+        "agreeableness",
+        "conscientiousness",
+        "stability",
+        "intellect",
+    ):
+        value = survey.get(f"ipip_{trait}_category")
+        if isinstance(value, str):
+            lines.append(f"{trait}: {value.lower()}")
+    activity = survey.get("activityType")
+    if isinstance(activity, str):
+        activities = ast.literal_eval(activity)
+        lines.append("activity: " + ", ".join(item.lower() for item in activities))
+    # The author's generated location is a list; its prompt branch checks str
+    # and therefore omits it. Keep that template behavior for numeric parity.
+    return "\n".join(lines)
 
 
 def build_stress_prompt(
@@ -107,6 +199,8 @@ def encode_stress_prompts(
     max_length: int = 512,
     local_files_only: bool = False,
     truncation: str = "warn",
+    pooling: str = "reference_mean",
+    micro_batch_size: int | None = None,
 ) -> torch.Tensor:
     """Cache mean-pooled embeddings from a frozen pretrained text model.
 
@@ -122,10 +216,17 @@ def encode_stress_prompts(
             encodes nonoverlapping windows and pools all their valid tokens.
             Chunking preserves feature coverage but changes the text context
             relative to encoding a single truncated sequence.
+        pooling: reference_mean averages every position including padding,
+            matching the author encoder. masked_mean excludes padding and is
+            an explicit alternative, required for chunk mode.
+        micro_batch_size: Optional memory bound for encoder forward passes.
+            Padding is still determined by batch_size, preserving the reference
+            pooling semantics when a logical batch is processed in pieces.
 
     Returns:
         CPU tensor shaped (number of prompts, language model hidden width).
-        Padding is excluded from pooling; model dropout and gradients are off.
+        Model dropout and gradients are off. Reference pooling depends on the
+        encoding batch's padded length; record batch size and sample order.
 
     Raises:
         ValueError: If prompts or batching parameters are invalid.
@@ -144,8 +245,16 @@ def encode_stress_prompts(
         raise ValueError("prompts must be a nonempty sequence of nonempty strings.")
     if batch_size <= 0 or max_length < 2:
         raise ValueError("batch_size must be positive and max_length at least 2.")
+    if micro_batch_size is not None and micro_batch_size < 1:
+        raise ValueError("micro_batch_size must be positive.")
     if truncation not in ("warn", "error", "chunk"):
         raise ValueError("truncation must be warn, error, or chunk.")
+    if pooling not in ("reference_mean", "masked_mean"):
+        raise ValueError("pooling must be reference_mean or masked_mean.")
+    if truncation == "chunk" and pooling != "masked_mean":
+        raise ValueError(
+            "chunk requires masked_mean pooling; it is not reference encoding."
+        )
     # Import and download only when this explicit preprocessing helper is called.
     from transformers import AutoModel, AutoTokenizer
 
@@ -220,9 +329,18 @@ def encode_stress_prompts(
                     len(prompts),
                 )
                 continue
-            tokens = {key: value.to(device) for key, value in tokens.items()}
-            hidden = encoder(**tokens).last_hidden_state
-            mask = tokens["attention_mask"].unsqueeze(-1).to(hidden.dtype)
-            pooled = (hidden * mask).sum(1) / mask.sum(1).clamp_min(1)
-            embeddings.append(pooled.cpu())
+            step = micro_batch_size or batch_size
+            for offset in range(0, len(descriptions), step):
+                piece = {
+                    key: value[offset : offset + step].to(device)
+                    for key, value in tokens.items()
+                }
+                hidden = encoder(**piece).last_hidden_state
+                mask = piece["attention_mask"].unsqueeze(-1).to(hidden.dtype)
+                pooled = (
+                    hidden.mean(1)
+                    if pooling == "reference_mean"
+                    else (hidden * mask).sum(1) / mask.sum(1).clamp_min(1)
+                )
+                embeddings.append(pooled.cpu())
     return torch.cat(embeddings)

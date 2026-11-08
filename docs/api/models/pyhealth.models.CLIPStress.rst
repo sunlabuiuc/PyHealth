@@ -1,110 +1,139 @@
 CLIPStress
 ==========
 
-``CLIPStress`` implements the multimodal contrastive learning method described
-in `Yang, Yu, and Sano (CHIL 2025)
-<https://proceedings.mlr.press/v287/yang25a.html>`_. It inherits ``BaseModel``
-and supports PyHealth datasets, dataloaders, and ``Trainer``.
+``CLIPStress`` integrates the multimodal stress model from
+`Yang, Yu, and Sano (CHIL 2025)
+<https://proceedings.mlr.press/v287/yang25a.html>`_ with PyHealth's ``BaseModel``,
+datasets, dataloaders and ``Trainer``. It implements the authors' Transformer,
+convolutional tabular ResNet and residual projection heads independently.
 
-Workflow
---------
+Architecture and objectives
+---------------------------
 
-1. Split by participant before fitting preprocessing. Use only training
-   participants during pretraining, including their unlabeled windows.
-2. Build feature-only descriptions with ``build_stress_prompt``. Never include
-   the day's stress label, label-derived scores, or held-out information.
-3. Encode descriptions once with ``encode_stress_prompts`` (frozen BERT,
-   attention-mask-aware mean pooling), then cache the returned vectors.
-   Overlength descriptions emit a warning with the affected count. Set
-   ``truncation="error"`` to reject them before loading encoder weights.
-   ``truncation="chunk"`` preserves all tokens using nonoverlapping windows
-   and a token-weighted mean across them. Each window contributes its special
-   tokens; padding is excluded. This changes the text context relative to the
-   reference implementation's single truncated input and must be reported.
-4. Fit sensor/tabular normalization using training samples only. Describe
-   signals in original units and normalize numeric model inputs separately.
-5. Run ``Trainer`` with ``stage="pretrain"``. Use batches of at least two paired
-   samples. The example wraps the PyHealth loader to omit partial batches;
-   the current ``get_dataloader`` API has no ``drop_last`` argument.
-   With ``mode=None``, evaluation reports loss.
-6. Call ``set_stage("linear_probe")`` or ``set_stage("finetune")`` and create a
-   new Trainer. A linear probe freezes the encoders and disables their dropout.
-   Both downstream modes use the ordinary classification output contract.
+The input API accepts wearable arrays shaped ``(time, channels)``. Internally,
+the fixed 24-hour window is transposed to ``(channels, time)``: the reference
+Transformer attends across sensor channels, with model width 24, four heads,
+three layers, feedforward width 64, ReLU and dropout 0.1. There is no positional
+encoding or learned sensor input projection. Channel outputs are mean-pooled.
 
-Input contract
---------------
+The tabular branch is a stride-one ResNet1D with width-three convolutions,
+BatchNorm, ReLU and dropout 0.5. It starts with 128 filters, doubles them every
+four residual blocks, and produces a 64-dimensional vector. Concatenated
+sensor/table features are linearly fused to width 32. Both modalities use
+128-dimensional residual GELU projection heads with dropout 0.5 and LayerNorm.
+Downstream classification uses the sensor/table projection, ReLU and a linear
+classifier. Binary tasks use two internal logits and cross-entropy; the returned
+single logit is their difference, preserving PyHealth's binary output contract.
+
+``objective="reference_soft"`` is the default. It matches the public code's
+unnormalized dot products and differentiable soft targets derived from both
+within-modality similarity matrices. Cross-modal logits divide by temperature;
+the target similarities multiply by temperature. The targets are not detached.
+``objective="paper_cosine"`` is an explicit alternative matching the paper's
+paired cosine formulation, with the sign required to minimize the loss.
+The printed equation and the public implementation are not identical; always
+record which objective is used when reporting results.
+
+Input and training stages
+-------------------------
 
 Use fitted ``tensor`` processors for ``signal`` (time, channels), ``tabular``
-(features), and ``text_embedding`` (text width). Sensor ``timeseries``
-processors are also supported. One binary or multiclass label is optional
-during model construction; a wholly unlabeled model can pretrain, then transfer
-its feature extractor with ``downstream.load_pretrained_encoder(pretrained)``.
-The destination model keeps its own classifier and label processors. Both
-models must use the same predictor ordering and encoder architecture.
-Transfer checks attention head counts as well as parameter names and shapes;
-different head counts change attention even when parameter shapes match.
+(features), and ``text_embedding`` (text width). Only fixed complete windows
+are supported by the reference channel-attention architecture. An optional
+mask must be all true. Zero is a valid measurement, not an inferred mask.
+Inputs must be finite; impute observed missing values before training.
 
-Fixed-length windows need no mask. For variable windows, include an explicit
-boolean tensor field and set ``mask_key``. True means valid. Do not infer
-padding from zeros: zero is a valid sensor observation. Impute missing observed
-values before training; entirely masked windows are rejected.
+* ``pretrain`` aligns numeric predictors with cached frozen BERT vectors.
+  Labels are not read. An unlabeled dataset with an empty output schema works.
+* ``linear_probe`` freezes encoder, fusion and sensor projection parameters.
+  As in the reference loop, training mode still enables dropout and updates
+  BatchNorm buffers. Evaluation mode disables dropout and buffer updates.
+* ``finetune`` trains the complete numeric encoder, projection and classifier.
+  A newly initialized model in this stage is the supervised baseline.
 
-Text vectors are required only during pretraining. Inference needs sensor and
-survey predictors only, and works without labels. Setting ``signal_key=None``
-or ``tabular_key=None`` enables modality ablations. A fresh model with
-``stage="finetune"`` is a supervised baseline without contrastive pretraining.
+Create a new Trainer after changing stages. ``load_pretrained_encoder`` copies
+the numeric encoders, fusion and sensor projection into a model with its own
+label schema and classifier. It checks parameter shapes and attention heads.
+Text is not needed during classification or inference. Either numeric branch
+can be disabled with ``signal_key=None`` or ``tabular_key=None``.
+Old residual-MLP checkpoints are not compatible with this architecture.
 
-Method fidelity
----------------
-
-This is an independent implementation of the paper's method, with explicit
-engineering choices. It does not reproduce the reference repository exactly:
-
-* The paper describes cosine similarities and paired positives. We minimize
-  the mean of the two cross-entropies on L2-normalized embeddings. The printed
-  equation omits the leading negative sign; minimization requires it.
-  The reference code instead uses unnormalized dot products and soft targets
-  formed from within-modality similarities.
-* Tables use residual fully connected blocks with LayerNorm. The reference
-  repository uses a 1-D convolutional ResNet. These are different architectures.
-* Sensor inputs are projected to a configurable hidden width and receive
-  sinusoidal positions. The reference Transformer has no positional encoding.
-* Text features use masked mean pooling in evaluation mode. Padding does not
-  affect a description's vector. Long descriptions are truncated at the
-  configured token limit; audit this before experiments with many fields.
-* Classification uses the fused encoder representation rather than the
-  contrastive projection, following the paper's feature-extractor description.
-
-The model never downloads weights. The text preprocessing helper downloads a
-language model only when explicitly called. Automated tests use synthetic
-tensors and a mocked language encoder, with no network access.
-
-Example and evaluation
+Text and preprocessing
 ----------------------
 
-Run the offline example from the repository root::
+``build_reference_stress_prompt`` implements the LifeSnaps reference template,
+excluding labels, as supported by the authors' experiment scripts. It uses
+nine statistics rounded to one decimal; the paper describes eleven, which the
+separate general-purpose ``build_stress_prompt`` helper supports. The reference
+template uses published personality categories and activity descriptions.
 
-    python examples/clip_stress.py --ablation all --output smoke_results.json
+``encode_stress_prompts`` loads BERT only when explicitly called. Its default
+``pooling="reference_mean"`` includes padding positions in the mean, matching
+the author encoder. Text is truncated at 512 tokens with an audit warning.
+Record encoding order and logical batch size: padding makes these relevant.
+``micro_batch_size`` bounds device memory while preserving the logical batch's
+padding. ``masked_mean`` and chunking are explicitly different alternatives;
+chunking requires ``pooling="masked_mean"``.
 
-These are synthetic integration results, not paper metrics. For real data,
-pass ``--data prepared.npz`` containing numeric ``signal`` (N,T,C), ``tabular``
-(N,F), ``text_embedding`` (N,D), integer ``label`` (N; -1 means unlabeled), and
-string ``patient_id`` (N). Arrays must be readable with ``allow_pickle=False``. The supervised baseline
-(``--ablation supervised``) also accepts archives without text embeddings.
-The example separates subjects, fits normalization on training data only,
-selects checkpoints using validation AUROC, and evaluates the test split once
-per fixed recipe. ``--label-fraction`` subsamples only training labels.
-This subject-disjoint example is not the paper's random-day experiment.
+For the authors' quantile-global LifeSnaps setup, numerical features are
+normalized using training-fold quantiles. Each hour of each sensor channel is
+a separate quantile-transform column. Only the four heart-rate-zone duration
+fields in the 21-dimensional table receive numerical normalization; remaining
+ordinal categorical fields retain their codes. Text must be regenerated from
+the normalized sensor windows separately for each fold. A single globally
+cached text archive cannot represent this protocol.
 
-The example exposes batch size, learning rate, encoder dimensions, layer/head
-counts, dropout and temperature as command-line options, and records these
-settings in its output JSON. Its defaults use a small model for quick checks.
+Runnable comparisons
+--------------------
 
-For a reproduction, use the specified dataset processing, split protocol,
-five folds and four seeds, 300 pretraining epochs and 150 downstream epochs;
-report architectural/protocol differences and uncertainty. Do not use test
-AUROC to choose epochs or hyperparameters. This contribution supplies a model,
-not native LifeSnaps/PMData dataset adapters or a completed empirical replication.
+These commands run small offline synthetic demonstrations::
+
+    python examples/clip_stress.py --ablation all --output smoke.json
+    python examples/lifesnaps_stress_clip_stress.py --output-dir runs/demo
+    python examples/support2_mortality_clip_stress.py --output-dir runs/support-demo
+
+Synthetic outputs verify execution, not performance on the paper's task.
+The LifeSnaps comparison varies contrastive temperature (0.03, 0.07, 0.2)
+against a supervised baseline. With reference-prepared fold archives::
+
+    python examples/lifesnaps_stress_clip_stress.py \
+        --fold-data-dir lifesnaps-reference-folds --output-dir runs/lifesnaps \
+        --paper-budget --seed 0 --device cuda:0 --threads 2
+
+The directory must contain ``fold-1.npz`` through ``fold-5.npz``, with numeric
+``signal``, ``tabular``, ``text_embedding``, ``label`` (-1 for unlabeled),
+``patient_id``, and JSON ``metadata`` identifying the fold's preprocessing and
+subjects. The example checks those identities before training. Each outer fold
+uses four subject groups for training and one for testing, matching the public
+non-random user split. The reference profile also reproduces the author's
+sampling of unlabeled training windows with replacement, while retaining all
+labeled training windows. Labels are removed for the pretraining objective.
+
+``--paper-budget`` selects 300 pretraining epochs, 150 downstream epochs,
+300 supervised epochs, batch size 512, Adam at 0.001, and reference dimensions.
+This is deliberately single-seed when ``--seed 0`` is used; the paper reports
+four seeds and fold-specific tuning. ``--workers N --worker-index I`` divides
+independent runs across devices. ``--summarize-only`` validates completeness.
+Use identical scientific options when resuming or summarizing a run.
+
+Evaluation boundaries
+---------------------
+
+The reference-user example uses fixed final checkpoints and evaluates each
+test fold once. It does not adopt the public training script's use of test
+metrics for checkpoint selection. Standard AUROC is computed from probabilities;
+``reference_argmax_auc`` is additionally recorded for comparison with the public
+script's hard-label score, but is not substituted for AUROC. Average precision,
+F1 and accuracy are also recorded; thresholded metrics use 0.5. Fold standard
+deviations are descriptive, not confidence intervals or seed-robustness claims.
+The optional validated-user protocol reserves a separate validation subject
+fold and is a different evaluation setting.
+
+The SUPPORT2 example uses the existing native dataset and only six explicit
+predictor fields. Its tabular-only dropout comparison varies the ResNet and
+projection dropout together. This demonstrates reuse, not stress detection or
+multimodal pretraining. Model alignment alone does not establish reproduction
+of the paper's tuned, multi-seed results or its PMData experiments.
 
 API
 ---

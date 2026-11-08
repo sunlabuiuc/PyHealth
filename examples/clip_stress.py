@@ -19,6 +19,7 @@ import importlib.metadata
 import itertools
 import json
 import platform
+import time
 from pathlib import Path
 
 import numpy as np
@@ -27,6 +28,19 @@ import torch
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import CLIPStress
 from pyhealth.trainer import Trainer
+
+if __package__:
+    from .clip_stress_experiment_utils import (
+        fit_classifier,
+        seed_training,
+        source_hashes,
+    )
+else:
+    from clip_stress_experiment_utils import (
+        fit_classifier,
+        seed_training,
+        source_hashes,
+    )
 
 
 class _FullBatches:
@@ -65,6 +79,8 @@ def prepare_datasets(
     label_fraction: float,
     require_text: bool = True,
     subject_splits: dict[str, list[str]] | None = None,
+    normalization: str = "quantile",
+    pretrain_sampling: str = "all",
 ) -> tuple:
     """Split subjects before fitting normalization or label processors."""
     if not 0 < label_fraction <= 1:
@@ -119,7 +135,11 @@ def prepare_datasets(
         if not isinstance(subject_splits, dict) or set(subject_splits) != set(names):
             raise ValueError("subject_splits requires train, validation and test.")
         groups = tuple(np.asarray(subject_splits[name]) for name in names)
-        if any(group.ndim != 1 or not len(group) for group in groups):
+        if (
+            any(group.ndim != 1 for group in groups)
+            or not len(groups[0])
+            or not len(groups[2])
+        ):
             raise ValueError("Each subject split must be a nonempty list.")
         combined = np.concatenate(groups)
         if len(np.unique(combined)) != len(combined):
@@ -128,11 +148,16 @@ def prepare_datasets(
             raise ValueError("Subject splits must cover every subject exactly once.")
     indices = [np.flatnonzero(np.isin(data["patient_id"], group)) for group in groups]
     data = {k: np.array(data[k], copy=True) for k in required}
-    for key in ("signal", "tabular"):
-        values = data[key][indices[0]]
-        axes = (0, 1) if key == "signal" else 0
-        mean, std = values.mean(axis=axes), values.std(axis=axes)
-        data[key] = ((data[key] - mean) / np.maximum(std, 1e-6)).astype(np.float32)
+    if __package__:
+        from .clip_stress_experiment_utils import normalize_stress_inputs
+    else:
+        from clip_stress_experiment_utils import normalize_stress_inputs
+    data["signal"], data["tabular"] = normalize_stress_inputs(
+        data["signal"],
+        data["tabular"],
+        indices[0],
+        normalization,
+    )
     labeled_indices = [idx[data["label"][idx] >= 0] for idx in indices]
     # Retain at least one sample from each class when subsampling training labels.
     labeled_train = np.concatenate(
@@ -153,9 +178,11 @@ def prepare_datasets(
             for label in (0, 1)
         ]
     )
+    if label_fraction == 1:
+        labeled_train = labeled_indices[0]
     if any(
         len(np.unique(data["label"][idx])) != 2
-        for idx in (labeled_train, *labeled_indices[1:])
+        for idx in (labeled_train, *[idx for idx in labeled_indices[1:] if len(idx)])
     ):
         raise ValueError(
             "Each labeled split needs both classes; try another split seed."
@@ -172,8 +199,20 @@ def prepare_datasets(
     train = create_sample_dataset(
         samples(labeled_train, True), schema, {"label": "binary"}
     )
+    pretrain_indices = indices[0]
+    if pretrain_sampling == "reference_bootstrap":
+        unlabeled = indices[0][data["label"][indices[0]] < 0]
+        sampled = (
+            np.random.RandomState(seed).choice(unlabeled, len(unlabeled))
+            if len(unlabeled)
+            else unlabeled
+        )
+        pretrain_indices = np.concatenate([labeled_indices[0], sampled])
     pretrain = create_sample_dataset(
-        samples(indices[0], False), schema, {}, input_processors=train.input_processors
+        samples(pretrain_indices, False),
+        schema,
+        {},
+        input_processors=train.input_processors,
     )
     held_out = [
         create_sample_dataset(
@@ -183,6 +222,8 @@ def prepare_datasets(
             input_processors=train.input_processors,
             output_processors=train.output_processors,
         )
+        if len(idx)
+        else None
         for idx in labeled_indices[1:]
     ]
     split_info = {
@@ -212,10 +253,10 @@ def run(
         args.label_fraction,
         require_text=args.ablation != "supervised",
         subject_splits=subject_splits,
+        normalization=args.normalization,
+        pretrain_sampling=args.pretrain_sampling,
     )
     batch_size = args.batch_size
-    val_loader = get_dataloader(val, batch_size=batch_size)
-    test_loader = get_dataloader(test, batch_size=batch_size)
     variants = (
         ["multimodal", "supervised", "signal", "tabular"]
         if args.ablation == "all"
@@ -246,6 +287,10 @@ def run(
                 "num_heads",
                 "dropout",
                 "temperature",
+                "objective",
+                "normalization",
+                "checkpoint_selection",
+                "pretrain_sampling",
                 "device",
                 "threads",
             )
@@ -253,10 +298,22 @@ def run(
         "sample_counts": {
             "train_labeled": len(train),
             "train_pretrain": len(pretrain),
-            "validation": len(val),
+            "validation": len(val) if val is not None else 0,
             "test": len(test),
         },
         "results": {},
+        "details": {},
+        "source_sha256": source_hashes(),
+        "downstream_stage": args.downstream_stage,
+        "class_counts": {
+            name: {
+                str(label): sum(
+                    int(sample["label"]) == label for sample in (dataset or [])
+                )
+                for label in (0, 1)
+            }
+            for name, dataset in (("train", train), ("validation", val), ("test", test))
+        },
     }
     if "metadata" in data:
         results["preprocessing"] = json.loads(str(data["metadata"].item()))
@@ -264,11 +321,12 @@ def run(
         with args.data.open("rb") as stream:
             results["data_sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
     for variant in variants:
-        torch.manual_seed(args.seed)
-        np.random.seed(args.seed)
+        seed_training(args.seed)
         config = {
             "signal_key": None if variant == "tabular" else "signal",
             "tabular_key": None if variant == "signal" else "tabular",
+            "signal_length": data["signal"].shape[1],
+            "objective": args.objective,
             **{
                 key: getattr(args, key)
                 for key in (
@@ -281,8 +339,14 @@ def run(
                 )
             },
         }
+        pretraining_seconds = 0.0
         if variant != "supervised":
-            pretrain_loader = _FullBatches(pretrain, batch_size, args.seed)
+            start = time.perf_counter()
+            pretrain_loader = get_dataloader(
+                pretrain, batch_size, shuffle=True, seed=args.seed
+            )
+            if args.objective == "paper_cosine":
+                pretrain_loader = _FullBatches(pretrain, batch_size, args.seed)
             pretrained_model = CLIPStress(pretrain, **config)
             trainer = Trainer(
                 model=pretrained_model, device=args.device, enable_logging=False
@@ -293,8 +357,11 @@ def run(
                 optimizer_params={"lr": args.learning_rate},
                 load_best_model_at_last=False,
             )
+            if pretrained_model.device.type == "cuda":
+                torch.cuda.synchronize(pretrained_model.device)
+            pretraining_seconds = time.perf_counter() - start
         # Downstream heads start from the same seed for each recipe.
-        torch.manual_seed(args.seed)
+        seed_training(args.seed)
         model = CLIPStress(train, **config, stage="finetune")
         if variant != "supervised":
             model.load_pretrained_encoder(pretrained_model)
@@ -302,29 +369,42 @@ def run(
         stages = (
             ["finetune"] if variant == "supervised" else ["linear_probe", "finetune"]
         )
+        if variant != "supervised" and args.downstream_stage != "both":
+            stages = [args.downstream_stage]
         for stage in stages:
-            torch.manual_seed(args.seed)
-            np.random.seed(args.seed)
             model.load_state_dict(pretrained)
             model.set_stage(stage)
-            train_loader = get_dataloader(
-                train, batch_size=batch_size, shuffle=True, seed=args.seed
+            directory = (
+                args.artifacts_dir / variant / stage if args.artifacts_dir else None
             )
-            trainer = Trainer(
-                model=model,
-                device=args.device,
-                enable_logging=False,
-                metrics=["roc_auc", "accuracy", "f1"],
+            stage_args = copy.copy(args)
+            if (
+                variant != "supervised"
+                and args.pretrain_sampling == "reference_bootstrap"
+            ):
+                if args.label_fraction != 1:
+                    raise ValueError(
+                        "Reference mixed downstream batches require all training labels."
+                    )
+                stage_args.downstream_pool_size = len(pretrain)
+            if variant == "supervised" and args.supervised_epochs is not None:
+                stage_args.epochs = args.supervised_epochs
+            metrics, details = fit_classifier(
+                model,
+                train,
+                val,
+                test,
+                stage_args,
+                directory,
             )
-            trainer.train(
-                train_loader,
-                val_dataloader=val_loader,
-                epochs=args.epochs,
-                optimizer_params={"lr": args.learning_rate},
-                monitor="roc_auc",
-                monitor_criterion="max",
-            )
-            results["results"][f"{variant}/{stage}"] = trainer.evaluate(test_loader)
+            details["pretraining_seconds"] = pretraining_seconds
+            # Input archive row numbers disambiguate repeated participant windows.
+            details["predictions"]["source_row"] = np.flatnonzero(
+                np.isin(data["patient_id"].astype(str), splits["test"])
+                & (data["label"] >= 0)
+            ).tolist()
+            results["results"][f"{variant}/{stage}"] = metrics
+            results["details"][f"{variant}/{stage}"] = details
     return results
 
 
@@ -333,6 +413,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--artifacts-dir", type=Path)
+    parser.add_argument(
+        "--downstream-stage",
+        choices=["both", "linear_probe", "finetune"],
+        default="both",
+    )
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--pretrain-epochs", type=int, default=2)
@@ -341,12 +427,27 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--label-fraction", type=float, default=1.0)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--learning-rate", type=float, default=0.001)
-    parser.add_argument("--hidden-dim", type=int, default=32)
-    parser.add_argument("--projection-dim", type=int, default=16)
-    parser.add_argument("--num-layers", type=int, default=1)
+    parser.add_argument("--hidden-dim", type=int, default=64)
+    parser.add_argument("--projection-dim", type=int, default=128)
+    parser.add_argument("--num-layers", type=int, default=3)
     parser.add_argument("--num-heads", type=int, default=4)
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--temperature", type=float, default=0.07)
+    parser.add_argument(
+        "--objective",
+        choices=["reference_soft", "paper_cosine"],
+        default="reference_soft",
+    )
+    parser.add_argument(
+        "--normalization", choices=["quantile", "standard", "none"], default="quantile"
+    )
+    parser.add_argument(
+        "--checkpoint-selection", choices=["final", "validation"], default="validation"
+    )
+    parser.add_argument("--supervised-epochs", type=int)
+    parser.add_argument(
+        "--pretrain-sampling", choices=["all", "reference_bootstrap"], default="all"
+    )
     parser.add_argument(
         "--ablation",
         choices=["all", "multimodal", "supervised", "signal", "tabular"],
@@ -368,8 +469,6 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("learning-rate must be finite and positive.")
     if min(args.hidden_dim, args.projection_dim, args.num_layers, args.num_heads) < 1:
         raise ValueError("Model dimensions and layer/head counts must be positive.")
-    if args.hidden_dim % args.num_heads:
-        raise ValueError("hidden-dim must be divisible by num-heads.")
     if not 0 <= args.dropout < 1:
         raise ValueError("dropout must be in [0, 1).")
     if not np.isfinite(args.temperature) or args.temperature <= 0:

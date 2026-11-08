@@ -20,64 +20,52 @@ from torch.nn import functional as F
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models.base_model import BaseModel
-
-
-class _ResidualBlock(nn.Module):
-    def __init__(self, width: int, dropout: float) -> None:
-        super().__init__()
-        self.layers = nn.Sequential(
-            nn.LayerNorm(width),
-            nn.Linear(width, width * 2),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(width * 2, width),
-            nn.Dropout(dropout),
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return x + self.layers(x)
+from pyhealth.models.clip_stress_layers import (
+    StressProjection,
+    StressTabularResNet,
+    stress_contrastive_loss,
+)
 
 
 class CLIPStress(BaseModel):
     """Align wearable/survey representations with cached text embeddings.
 
-    A Transformer encodes wearable windows, a residual MLP encodes survey
-    features, and a linear layer fuses their pooled representations. Two
-    projection heads are trained with symmetric cross-entropy on normalized
-    similarities. Downstream classification uses the fused representation.
-    No language model is downloaded by this class.
+    Matches the authors' channel-attention Transformer, convolutional tabular
+    ResNet and residual projection heads. The input API uses (time, channels);
+    the model transposes it to (channels, time) before attention. No positional
+    encoding or learned sensor input projection is added. Classification uses
+    the pretrained projection followed by ReLU and a linear classifier.
 
     Args:
-        dataset: Fitted PyHealth dataset. Feature widths come from processors.
-            Use ``tensor`` for fixed windows (time, channels), tabular vectors,
-            and cached text vectors; ``timeseries`` also supports wearable data.
-            At most one binary or multiclass output is supported. An unlabeled
-            dataset with an empty output schema supports pretraining only.
-        signal_key: Wearable feature key; None disables the wearable branch.
-        tabular_key: Survey feature key; None disables the survey branch.
-        text_key: Cached text embedding key, required only for pretraining.
-        mask_key: Optional boolean tensor key (batch, time), True for observed
-            timesteps. Required for padded variable-length windows; zero sensor
-            values are never treated as padding automatically.
-        hidden_dim: Encoder and fused representation width.
-        projection_dim: Width of the contrastive embedding space.
-        num_layers: Number of Transformer and tabular residual blocks.
-        num_heads: Number of Transformer attention heads.
-        dropout: Dropout probability.
-        temperature: Positive contrastive softmax temperature.
-        stage: ``pretrain``, ``linear_probe``, or ``finetune``. A randomly
-            initialized model in ``finetune`` is the supervised baseline.
+        dataset: Fitted PyHealth dataset with tensor signal/tabular/text fields
+            and zero or one binary/multiclass output. No weights are downloaded.
+        signal_key: Wearable field; None disables this branch.
+        tabular_key: Survey field; None disables this branch.
+        text_key: Cached frozen BERT vector; required only for pretraining.
+        mask_key: Optional all-true mask. Partial or variable windows are rejected:
+            the reference architecture requires fixed complete windows.
+        hidden_dim: Transformer feedforward width and tabular output width.
+        projection_dim: Contrastive and downstream projection width (128).
+        num_layers: Transformer layers and convolutional residual blocks (3).
+        num_heads: Attention heads (4); must divide signal_length.
+        dropout: Transformer dropout (0.1).
+        temperature: Contrastive temperature (0.07).
+        stage: pretrain, linear_probe, or finetune (also supervised from scratch).
+        signal_length: Fixed time dimension (24 hourly values).
+        fusion_dim: Fused width; defaults to hidden_dim // 2, as in author code.
+        residual_dropout: Tabular residual-block dropout (0.5).
+        projection_dropout: Projection-head dropout (0.5).
+        objective: reference_soft matches the public code; paper_cosine follows
+            the printed paired-cosine objective with the minimization sign fixed.
 
     Notes:
-        Pretraining never reads labels. Text embeddings must be generated from
-        predictor features only, without target labels or target-derived fields.
-        The frozen language encoder can be run once outside the training loop.
-        ``mode`` is None during pretraining, so Trainer evaluates contrastive
-        loss only. Classification returns the usual PyHealth prediction keys.
-
-        This is a paper-method implementation, not bitwise reproduction of the
-        authors' repository. It uses hard paired targets and cosine similarity,
-        a residual MLP for tables, and sinusoidal positions for sensor windows.
+        Pretraining never reads labels; use label-excluded text, an explicit
+        configuration in the authors' scripts. Binary classification internally
+        uses two logits and cross-entropy, while returning their difference and
+        positive-class probability for the PyHealth binary contract.
+        Linear probing freezes encoder and projection parameters. As in the
+        reference training loop, train() still enables dropout and BatchNorm
+        updates; eval() is deterministic. Old MLP checkpoints are incompatible.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
@@ -91,7 +79,7 @@ class CLIPStress(BaseModel):
         ...     samples, {k: "tensor" for k in
         ...               ("signal", "tabular", "text_embedding")},
         ...     {"label": "binary"})
-        >>> model = CLIPStress(dataset, hidden_dim=8, num_layers=1, num_heads=2)
+        >>> model = CLIPStress(dataset, hidden_dim=8, num_layers=1, num_heads=2, signal_length=2)
         >>> batch = next(iter(get_dataloader(dataset, batch_size=2)))
         >>> model(**batch)["loss"].ndim
         0
@@ -107,22 +95,32 @@ class CLIPStress(BaseModel):
         tabular_key: str | None = "tabular",
         text_key: str = "text_embedding",
         mask_key: str | None = None,
-        hidden_dim: int = 128,
+        hidden_dim: int = 64,
         projection_dim: int = 128,
         num_layers: int = 3,
         num_heads: int = 4,
         dropout: float = 0.1,
         temperature: float = 0.07,
         stage: str = "pretrain",
+        signal_length: int = 24,
+        fusion_dim: int | None = None,
+        residual_dropout: float = 0.5,
+        projection_dropout: float = 0.5,
+        objective: str = "reference_soft",
     ) -> None:
         super().__init__(dataset)
         if any(v <= 0 for v in (hidden_dim, projection_dim, num_layers, num_heads)):
             raise ValueError("Dimensions, num_layers, and num_heads must be positive.")
-        if hidden_dim % num_heads:
-            raise ValueError("hidden_dim must be divisible by num_heads.")
+        fusion_dim = hidden_dim // 2 if fusion_dim is None else fusion_dim
+        if signal_length <= 0 or fusion_dim <= 0:
+            raise ValueError("signal_length and fusion_dim must be positive.")
+        if signal_key is not None and signal_length % num_heads:
+            raise ValueError("signal_length must be divisible by num_heads.")
+        if objective not in ("reference_soft", "paper_cosine"):
+            raise ValueError("objective must be reference_soft or paper_cosine.")
         if not math.isfinite(temperature) or temperature <= 0:
             raise ValueError("temperature must be finite and positive.")
-        if not 0 <= dropout < 1:
+        if any(not 0 <= p < 1 for p in (dropout, residual_dropout, projection_dropout)):
             raise ValueError("dropout must be in [0, 1).")
         if signal_key is None and tabular_key is None:
             raise ValueError("At least one of signal_key and tabular_key is required.")
@@ -143,46 +141,52 @@ class CLIPStress(BaseModel):
         self.mask_key = mask_key
         self.hidden_dim = hidden_dim
         self.temperature = temperature
+        self.signal_length = signal_length
+        self.fusion_dim = fusion_dim
+        self.objective = objective
+        self.signal_width = self._feature_width(signal_key, 2) if signal_key else None
 
         self.encoders = nn.ModuleDict()
         if signal_key is not None:
-            self.encoders["signal_input"] = nn.Linear(
-                self._feature_width(signal_key, 2), hidden_dim
-            )
             layer = nn.TransformerEncoderLayer(
-                hidden_dim,
+                signal_length,
                 num_heads,
-                hidden_dim * 4,
+                hidden_dim,
                 dropout,
-                activation="gelu",
+                activation="relu",
                 batch_first=True,
             )
             self.encoders["signal"] = nn.TransformerEncoder(
                 layer, num_layers, enable_nested_tensor=False
             )
         if tabular_key is not None:
-            self.encoders["tabular"] = nn.Sequential(
-                nn.Linear(self._feature_width(tabular_key, 1), hidden_dim),
-                *[_ResidualBlock(hidden_dim, dropout) for _ in range(num_layers)],
-                nn.LayerNorm(hidden_dim),
+            self.encoders["tabular"] = StressTabularResNet(
+                self._feature_width(tabular_key, 1),
+                hidden_dim,
+                num_layers,
+                residual_dropout,
             )
         if mask_key is not None and mask_key not in dataset.input_processors:
-            raise ValueError(f"Mask field {mask_key!r} is absent from input_schema.")
-        branches = int(signal_key is not None) + int(tabular_key is not None)
-        self.fusion = nn.Linear(hidden_dim * branches, hidden_dim)
-        self.signal_projection = nn.Sequential(
-            nn.Linear(hidden_dim, projection_dim),
-            nn.GELU(),
-            nn.Linear(projection_dim, projection_dim),
+            raise ValueError("mask_key is absent from input_schema.")
+        fused_input = (signal_length if signal_key else 0) + (
+            hidden_dim if tabular_key else 0
+        )
+        self.fusion = nn.Linear(fused_input, fusion_dim)
+        self.signal_projection = StressProjection(
+            fusion_dim, projection_dim, projection_dropout
         )
         self.classifier = (
-            nn.Linear(hidden_dim, self.get_output_size())
+            nn.Linear(
+                projection_dim, 2 if self.mode == "binary" else self.get_output_size()
+            )
             if self.label_key is not None
             else None
         )
-        # Optional text must not change the supervised classifier's initialization.
+        # Optional text must not affect initialization of the supervised network.
         self.text_projection = (
-            nn.Linear(self._feature_width(text_key, 1), projection_dim)
+            StressProjection(
+                self._feature_width(text_key, 1), projection_dim, projection_dropout
+            )
             if text_key in dataset.input_processors
             else None
         )
@@ -240,9 +244,9 @@ class CLIPStress(BaseModel):
         self.mode = None if stage == "pretrain" else self._classification_mode
         # Frozen parameters must not retain gradients from the previous stage.
         self.zero_grad(set_to_none=True)
-        for module in (self.encoders, self.fusion):
+        for module in (self.encoders, self.fusion, self.signal_projection):
             module.requires_grad_(stage != "linear_probe")
-        for module in (self.signal_projection, self.text_projection):
+        for module in (self.text_projection,):
             if module is not None:
                 module.requires_grad_(stage == "pretrain")
         if self.classifier is not None:
@@ -273,7 +277,11 @@ class CLIPStress(BaseModel):
                 for destination, source in zip(destination_layers, source_layers)
             ):
                 raise ValueError("Pretrained encoder attention head counts differ.")
-        pairs = ((self.encoders, pretrained.encoders), (self.fusion, pretrained.fusion))
+        pairs = (
+            (self.encoders, pretrained.encoders),
+            (self.fusion, pretrained.fusion),
+            (self.signal_projection, pretrained.signal_projection),
+        )
         for destination, source in pairs:
             current, incoming = destination.state_dict(), source.state_dict()
             if current.keys() != incoming.keys() or any(
@@ -283,14 +291,6 @@ class CLIPStress(BaseModel):
         for destination, source in pairs:
             destination.load_state_dict(source.state_dict())
 
-    def train(self, mode: bool = True) -> CLIPStress:
-        """Set training mode while preserving deterministic frozen encoders."""
-        super().train(mode)
-        if self.stage == "linear_probe":
-            self.encoders.eval()
-            self.fusion.eval()
-        return self
-
     def encode(self, **kwargs: Any) -> torch.Tensor:
         """Encode predictors without text or labels.
 
@@ -298,47 +298,27 @@ class CLIPStress(BaseModel):
             **kwargs: Processed batch fields matching the configured keys.
 
         Returns:
-            Fused features of shape (batch, hidden_dim).
+            Fused features of shape (batch, fusion_dim).
         """
         features = []
         if self.signal_key is not None:
             x = self._value(kwargs, self.signal_key)
-            width = self.encoders["signal_input"].in_features
-            if x.ndim != 3 or x.shape[0] == 0 or x.shape[1] == 0 or x.shape[2] != width:
+            if x.ndim != 3 or x.shape[1:] != (self.signal_length, self.signal_width):
                 raise ValueError(
-                    f"signal must have shape (batch, nonempty time, {width})."
+                    f"signal must have shape (batch, {self.signal_length}, {self.signal_width})."
                 )
-            if self.mask_key is None:
-                mask = torch.ones(x.shape[:2], dtype=torch.bool, device=x.device)
-            else:
-                mask_value = self._value(kwargs, self.mask_key)
-                if mask_value.shape != x.shape[:2] or not torch.all(
-                    (mask_value == 0) | (mask_value == 1)
-                ):
-                    raise ValueError("mask must be boolean with shape (batch, time).")
-                mask = mask_value.bool()
-            if not mask.any(dim=1).all():
-                raise ValueError("Each signal window must contain a valid timestep.")
-            # Mask before projecting so arbitrary padded values cannot leak in.
-            x = x.masked_fill(~mask.unsqueeze(-1), 0)
+            if self.mask_key is not None:
+                mask = self._value(kwargs, self.mask_key)
+                if mask.shape != x.shape[:2] or not torch.all(mask == 1):
+                    raise ValueError(
+                        "Reference channel attention requires complete fixed windows."
+                    )
             if not torch.isfinite(x).all():
-                raise ValueError("Observed signal values must be finite; impute first.")
-            x = self.encoders["signal_input"](x)
-            positions = torch.arange(x.shape[1], device=x.device, dtype=x.dtype)
-            frequency = torch.exp(
-                torch.arange(0, self.hidden_dim, 2, device=x.device, dtype=x.dtype)
-                * (-math.log(10000.0) / self.hidden_dim)
-            )
-            angles = positions[:, None] * frequency[None, :]
-            positional = torch.zeros_like(x[0])
-            positional[:, 0::2] = angles.sin()
-            positional[:, 1::2] = angles[:, : self.hidden_dim // 2].cos()
-            x = self.encoders["signal"](x + positional, src_key_padding_mask=~mask)
-            x = x.masked_fill(~mask.unsqueeze(-1), 0)
-            features.append(x.sum(dim=1) / mask.sum(dim=1, keepdim=True))
+                raise ValueError("signal must be finite; impute before training.")
+            features.append(self.encoders["signal"](x.transpose(1, 2)).mean(1))
         if self.tabular_key is not None:
             x = self._value(kwargs, self.tabular_key)
-            width = self.encoders["tabular"][0].in_features
+            width = self.encoders["tabular"].input_dim
             if x.ndim != 2 or x.shape[1] != width or not torch.isfinite(x).all():
                 raise ValueError(f"tabular must be a finite (batch, {width}) tensor.")
             features.append(self.encoders["tabular"](x))
@@ -367,20 +347,19 @@ class CLIPStress(BaseModel):
         fused = self.encode(**kwargs)
         if self.stage == "pretrain":
             text = self._value(kwargs, self.text_key)
-            width = self.text_projection.in_features
+            width = self.text_projection.input_dim
             if text.ndim != 2 or text.shape != (fused.shape[0], width):
                 raise ValueError(f"Text must have shape ({fused.shape[0]}, {width}).")
-            if fused.shape[0] < 2:
+            if fused.shape[0] < 2 and self.objective == "paper_cosine":
                 raise ValueError("Contrastive pretraining needs at least two pairs.")
             if not torch.isfinite(text).all():
                 raise ValueError("Text embeddings must be finite.")
-            sensor_embedding = F.normalize(self.signal_projection(fused), dim=-1)
-            text_embedding = F.normalize(self.text_projection(text), dim=-1)
-            logit = sensor_embedding @ text_embedding.T / self.temperature
+            sensor_embedding = self.signal_projection(fused)
+            text_embedding = self.text_projection(text)
+            logit, loss = stress_contrastive_loss(
+                sensor_embedding, text_embedding, self.temperature, self.objective
+            )
             y_true = torch.arange(logit.shape[0], device=self.device)
-            loss = (
-                F.cross_entropy(logit, y_true) + F.cross_entropy(logit.T, y_true)
-            ) / 2
             result = {
                 "loss": loss,
                 "logit": logit,
@@ -388,16 +367,18 @@ class CLIPStress(BaseModel):
                 "y_true": y_true,
             }
         else:
-            logit = self.classifier(fused)
+            class_logits = self.classifier(F.relu(self.signal_projection(fused)))
+            binary = self._classification_mode == "binary"
+            logit = (
+                class_logits[:, 1:2] - class_logits[:, :1] if binary else class_logits
+            )
             result = {"logit": logit, "y_prob": self.prepare_y_prob(logit)}
             if self.label_key in kwargs:
-                y_true = kwargs[self.label_key].to(self.device)
-                if self.mode == "binary":
-                    y_true = y_true.to(logit.dtype).reshape_as(logit)
-                else:
-                    y_true = y_true.long().reshape(-1)
-                result["y_true"] = y_true
-                result["loss"] = self.get_loss_function()(logit, y_true)
+                target = kwargs[self.label_key].to(self.device).long().reshape(-1)
+                result["y_true"] = (
+                    target.to(logit.dtype).unsqueeze(-1) if binary else target
+                )
+                result["loss"] = F.cross_entropy(class_logits, target)
         if kwargs.get("embed", False):
             result["embed"] = fused
         return result
