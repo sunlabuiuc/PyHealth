@@ -53,3 +53,4 @@ from .generators.gpt2 import GPT2
 from .generators.promptehr import PromptEHR
 from .generators.medgan import MedGAN
 from .generators.corgan import CorGAN
+from .keyclass import KeyClass
