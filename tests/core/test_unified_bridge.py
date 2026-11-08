@@ -11,11 +11,13 @@ from pyhealth.datasets import collate_fn_dict_with_padding
 from pyhealth.processors import (
     AudioProcessor,
     BinaryLabelProcessor,
+    BridgeDataset,
     CehrProcessor,
     DeepNestedFloatsProcessor,
     DeepNestedSequenceProcessor,
     GraphProcessor,
     ImageProcessor,
+    JaggedFeatureProcessor,
     MultiHotProcessor,
     NestedFloatsProcessor,
     NestedMultiHotProcessor,
@@ -30,7 +32,6 @@ from pyhealth.processors import (
     TimeseriesProcessor,
     TupleTimeTextProcessor,
     UnifiedBridge,
-    JaggedFeatureProcessor,
     transform_batch,
     transform_processor,
 )
@@ -1128,9 +1129,19 @@ class TestTransformProcessor(unittest.TestCase):
         bridged = transform_processor({"x": _fit(MyCodes(), ["A"])})
         self.assertIsInstance(bridged["x"], SequenceToUnifiedBridge)
 
-    def test_bridges_are_passed_through(self):
+    def test_bridges_become_passing_through_copies(self):
         bridge = SequenceToUnifiedBridge(_fit(SequenceProcessor(), ["A"]))
-        self.assertIs(transform_processor({"x": bridge})["x"], bridge)
+        passing = transform_processor({"x": bridge})["x"]
+        self.assertIsInstance(passing, SequenceToUnifiedBridge)
+        self.assertIsNot(passing, bridge)
+        self.assertFalse(passing.converts)
+        self.assertTrue(bridge.converts)  # the outer model keeps converting
+        self.assertIs(passing.legacy, bridge.legacy)
+        self.assertEqual(passing.batch_schema(), bridge.batch_schema())
+        self.assertEqual(passing.vocab(0), bridge.vocab(0))
+        self.assertEqual(passing.levels, bridge.levels)
+        self.assertIn("converts=False", repr(passing))
+        self.assertIs(transform_processor({"x": passing})["x"], passing)
 
     def test_processors_without_a_bridge_are_rejected(self):
         for legacy in (GraphProcessor.__new__(GraphProcessor), TupleTimeTextProcessor()):
@@ -1161,6 +1172,72 @@ class TestTransformBatch(unittest.TestCase):
 
     def test_keys_without_a_processor_pass_through(self):
         self.assertEqual(transform_batch({}, {"embed": True}), {"embed": True})
+
+    def test_passing_through_bridges_leave_the_value(self):
+        codes = _fit(SequenceProcessor(), ["A", "B"])
+        outer = transform_processor({"codes": codes})
+        inner = transform_processor(outer)
+        batch = collate_fn_dict_with_padding([{"codes": codes.process(["A", "B"])}])
+        converted = transform_batch(outer, batch)
+        out = transform_batch(inner, converted)
+        self.assertIs(out["codes"], converted["codes"])
+        legacy = transform_batch(inner, batch)
+        self.assertIs(legacy["codes"], batch["codes"])
+
+    def test_native_unified_fields_are_untouched(self):
+        unified = JaggedFeatureProcessor(levels=[{"tokens": 1}])
+        value = (torch.tensor([2]), torch.tensor([0, 1]))
+        out = transform_batch({"x": unified}, {"x": value})
+        self.assertIs(out["x"], value)
+
+
+class TestBridgeDataset(unittest.TestCase):
+    def setUp(self):
+        from pyhealth.datasets import create_sample_dataset
+
+        samples = [
+            {"patient_id": f"p{i}", "codes": ["A", "B"][: i + 1], "note": "n", "y": i % 2}
+            for i in range(3)
+        ]
+        self.dataset = create_sample_dataset(
+            samples, {"codes": "sequence", "note": "raw"}, {"y": "binary"}
+        )
+        self.processors = dict(self.dataset.input_processors)
+
+    def test_bridges_the_input_processors_only(self):
+        bridged = BridgeDataset(self.dataset)
+        self.assertIsInstance(bridged.input_processors["codes"], SequenceToUnifiedBridge)
+        self.assertTrue(bridged.input_processors["codes"].converts)
+        self.assertIs(bridged.input_processors["codes"].legacy, self.processors["codes"])
+        self.assertIs(bridged.input_processors["note"], self.processors["note"])
+        self.assertIs(bridged.output_processors, self.dataset.output_processors)
+        self.assertEqual(bridged.input_schema, self.dataset.input_schema)
+        self.assertEqual(bridged.output_schema, self.dataset.output_schema)
+        self.assertEqual(len(bridged), 3)
+        self.assertTrue(bridged)  # BaseModel checks `if dataset:`
+        self.assertIs(bridged.dataset, self.dataset)
+        self.assertEqual(bridged.patient_to_index, self.dataset.patient_to_index)
+
+    def test_original_is_unchanged(self):
+        BridgeDataset(self.dataset)
+        self.assertEqual(self.dataset.input_processors, self.processors)
+        self.assertIsInstance(self.dataset.input_processors["codes"], SequenceProcessor)
+
+    def test_nested_wrap_passes_through(self):
+        outer = BridgeDataset(self.dataset)
+        inner = BridgeDataset(outer)
+        self.assertFalse(inner.input_processors["codes"].converts)
+        self.assertTrue(outer.input_processors["codes"].converts)
+        self.assertIs(inner.dataset, outer)
+        self.assertIs(inner.output_processors, self.dataset.output_processors)
+        self.assertEqual(len(inner), 3)
+
+    def test_fields_without_a_bridge_are_rejected(self):
+        class _Dataset:
+            input_processors = {"text": TupleTimeTextProcessor()}
+
+        with self.assertRaisesRegex(TypeError, "has no unified bridge"):
+            BridgeDataset(_Dataset())
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ import torch
 from torch import nn
 
 from ..datasets import SampleDataset
-from ..processors import JaggedFeatureProcessor
+from ..processors import BridgeDataset, JaggedFeatureProcessor, transform_batch
 from ..processors.jagged_processor import FieldKey
 from .base_model import BaseModel
 from .embedding import init_embedding_with_pretrained
@@ -243,8 +243,12 @@ class SequenceEmbeddingModel(BaseModel):
 
     Like :class:`~pyhealth.models.EmbeddingModel`, it is a building block for
     other models: :meth:`forward` maps each V2 field of a batch (the tuple of
-    :meth:`JaggedFeatureProcessor.collate`) to embeddings. Fields of other
-    processors are ignored and left out of the output.
+    :meth:`JaggedFeatureProcessor.collate`) to embeddings. A legacy field
+    is read as the levels of its :class:`~pyhealth.processors.UnifiedBridge`:
+    the model wraps its dataset in a
+    :class:`~pyhealth.processors.BridgeDataset` and converts each batch
+    (nested in a model that already converts, it passes batches through).
+    Fields of other processors are ignored and left out of the output.
 
     A record's embedding at level ``l`` is the concatenation of one
     ``nn.Embedding`` per token namespace (``<pad>`` embeds to zeros) and a
@@ -295,12 +299,12 @@ class SequenceEmbeddingModel(BaseModel):
         pretrain: Sequence[PretrainedEmbedding] | None = None,
         mask: MaskMode = "ignore",
     ):
-        super().__init__(dataset)
+        super().__init__(BridgeDataset(dataset))
         if mask not in ("ignore", "concat"):
             raise ValueError(f"mask must be 'ignore' or 'concat', got {mask!r}.")
         processors = {
             field: processor
-            for field, processor in dataset.input_processors.items()
+            for field, processor in self.dataset.input_processors.items()
             if isinstance(processor, JaggedFeatureProcessor)
         }
         flatten_spatial = dict(flatten_spatial or {})
@@ -418,6 +422,7 @@ class SequenceEmbeddingModel(BaseModel):
             the top level), "time": [N_l] or None}``.
         """
         device = self.device
+        inputs = transform_batch(self.dataset.input_processors, inputs)
         return {
             field: layers(tuple(tensor.to(device) for tensor in inputs[field]))
             for field, layers in self.embedding_layers.items()

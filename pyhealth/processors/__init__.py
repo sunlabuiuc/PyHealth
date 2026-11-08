@@ -78,7 +78,12 @@ from .ignore_processor import IgnoreProcessor
 from .temporal_timeseries_processor import TemporalTimeseriesProcessor
 from .tuple_time_text_processor import TupleTimeTextProcessor
 from .cehr_processor import CehrProcessor, ConceptVocab
-from .unified_bridge import UnifiedBridge, transform_batch, transform_processor
+from .unified_bridge import (
+    BridgeDataset,
+    UnifiedBridge,
+    transform_batch,
+    transform_processor,
+)
 
 # Expose public API
 from .base_processor import (
@@ -112,6 +117,7 @@ __all__ = [
     "SequenceProcessorV2",
     "JaggedFeatureProcessor",
     "UnifiedBridge",
+    "BridgeDataset",
     "transform_batch",
     "transform_processor",
     "Records",

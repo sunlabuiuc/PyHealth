@@ -14,6 +14,7 @@ its bridge, and :func:`transform_batch` converts the matching fields of a
 batch.
 """
 
+import copy
 from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, ClassVar
@@ -32,6 +33,7 @@ from .deep_nested_sequence_processor import (
     DeepNestedSequenceProcessor,
 )
 from .image_processor import ImageProcessor
+from .jagged_processor import JaggedFeatureProcessor, LevelConfig
 from .multi_hot_processor import MultiHotProcessor
 from .nested_multihot_processor import NestedMultiHotProcessor
 from .nested_sequence_processor import NestedFloatsProcessor, NestedSequenceProcessor
@@ -41,7 +43,6 @@ from .temporal_timeseries_processor import TemporalTimeseriesProcessor
 from .tensor_processor import TensorProcessor
 from .time_image_processor import TimeImageProcessor
 from .timeseries_processor import TimeseriesProcessor
-from .jagged_processor import LevelConfig, JaggedFeatureProcessor
 
 _PAD = TokenProcessorInterface.PAD
 _UNK = TokenProcessorInterface.UNK
@@ -73,6 +74,12 @@ class UnifiedBridge(JaggedFeatureProcessor):
     :meth:`transform_batch` converts one field's legacy batch (the output of
     :func:`~pyhealth.datasets.collate_fn_dict_with_padding`) into the tuple
     :meth:`collate` would give, in :meth:`batch_schema` order.
+
+    :attr:`converts` is set once, when the bridge is made: a bridge made from
+    a legacy processor converts, and one made from another bridge (by
+    :func:`transform_processor`, for a model nested in one that already
+    converts) passes batches through. Only converting bridges are applied
+    by the module-level :func:`transform_batch`.
 
     The levels never configure imputation, normalization, resampling or code
     mapping: the legacy processor has already applied them. A level with
@@ -122,6 +129,8 @@ class UnifiedBridge(JaggedFeatureProcessor):
         super().__init__(levels)
         self.legacy = legacy
         """The wrapped legacy processor."""
+        self.converts = True
+        """Whether :func:`transform_batch` converts this field's batches."""
         self.learns_statistics = False
         for level, vocab in (vocabs or {}).items():
             self._vocabs[level] = [_checked_vocab(type(legacy).__name__, vocab)]
@@ -134,7 +143,10 @@ class UnifiedBridge(JaggedFeatureProcessor):
         raise NotImplementedError(self._no_processing())
 
     def collate(self, items: list[tuple[torch.Tensor, ...]]) -> tuple[torch.Tensor, ...]:
-        raise NotImplementedError(self._no_processing())
+        raise NotImplementedError(
+            f"{self._no_processing()} Build data loaders from the original "
+            "dataset, not from a BridgeDataset."
+        )
 
     def _no_processing(self) -> str:
         return (
@@ -147,8 +159,17 @@ class UnifiedBridge(JaggedFeatureProcessor):
     def transform_batch(self, value: Any) -> tuple[torch.Tensor, ...]:
         """Converts one field's legacy batch into a :meth:`batch_schema` tuple."""
 
+    def _passing_through(self) -> "UnifiedBridge":
+        """A copy with the same metadata that passes batches through."""
+        if not self.converts:
+            return self
+        bridge = copy.copy(self)
+        bridge.converts = False
+        return bridge
+
     def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.legacy!r})"
+        suffix = "" if self.converts else ", converts=False"
+        return f"{type(self).__name__}({self.legacy!r}{suffix})"
 
 
 def _checked_vocab(name: str, vocab: Mapping[Any, int]) -> dict[Any, int]:
@@ -1005,8 +1026,10 @@ def transform_processor(
     """Replaces every legacy processor with its :class:`UnifiedBridge`.
 
     A legacy processor is bridged by the bridge of its class, or of its
-    nearest base class that has one. Other processors are returned as they
-    are.
+    nearest base class that has one; that bridge converts. A bridge, which
+    only comes in when an outer model already converts, becomes a copy that
+    passes batches through (:attr:`UnifiedBridge.converts` is False). Other
+    processors are returned as they are.
 
     Args:
         processors: Fitted processors by field, such as a dataset's
@@ -1026,9 +1049,14 @@ def transform_processor(
         >>> bridged = transform_processor({"codes": codes, "note": RawProcessor()})
         >>> type(bridged["codes"]).__name__, type(bridged["note"]).__name__
         ('SequenceToUnifiedBridge', 'RawProcessor')
+        >>> bridged["codes"].converts, transform_processor(bridged)["codes"].converts
+        (True, False)
     """
     bridged: dict[str, FeatureProcessor] = {}
     for field, processor in processors.items():
+        if isinstance(processor, UnifiedBridge):
+            bridged[field] = processor._passing_through()
+            continue
         if not isinstance(processor, LegacyFeatureProcessor):
             bridged[field] = processor
             continue
@@ -1044,7 +1072,11 @@ def transform_processor(
 def transform_batch(
     processors: Mapping[str, FeatureProcessor], batch: Mapping[str, Any]
 ) -> dict[str, Any]:
-    """Converts the fields of a legacy batch whose processor is a bridge.
+    """Converts the fields of a legacy batch whose bridge converts.
+
+    A field whose processor is a converting :class:`UnifiedBridge` is
+    converted; every other field (a passing-through bridge, a unified, label
+    or other processor, or no processor) is returned as it is.
 
     Args:
         processors: The output of :func:`transform_processor`.
@@ -1066,9 +1098,66 @@ def transform_batch(
         >>> transform_batch(processors, batch)
         {'codes': (tensor([2, 3]), tensor([0, 2])), 'id': ['p1']}
     """
+    converting = {
+        key
+        for key, processor in processors.items()
+        if isinstance(processor, UnifiedBridge) and processor.converts
+    }
     return {
-        key: processors[key].transform_batch(value)
-        if isinstance(processors.get(key), UnifiedBridge)
-        else value
+        key: processors[key].transform_batch(value) if key in converting else value
         for key, value in batch.items()
     }
+
+
+class BridgeDataset:
+    """A dataset whose legacy input processors are :class:`UnifiedBridge`\ s.
+
+    For model constructors only: a V2 model wraps the dataset it is given,
+    so it reads each legacy field as the levels its bridge describes, and
+    converts each batch with :func:`transform_batch` on its own
+    ``input_processors``. The input processors are
+    :func:`transform_processor` of the wrapped dataset's: a legacy processor
+    becomes a converting bridge, and a bridge (when the wrapped dataset is
+    itself a ``BridgeDataset``, for a model nested in another) becomes one
+    that passes batches through, so only the outermost model converts.
+    Everything else (``output_processors``, ``input_schema``,
+    ``output_schema``, ``len()`` and any other attribute) is the wrapped
+    dataset's, which is not changed. Data loaders are built from the
+    original dataset.
+
+    Args:
+        dataset: The dataset to wrap.
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "codes": ["A"], "y": i} for i in range(2)]
+        >>> dataset = create_sample_dataset(samples, {"codes": "sequence"}, {"y": "binary"})
+        >>> bridged = BridgeDataset(dataset)
+        >>> type(bridged.input_processors["codes"]).__name__, len(bridged)
+        ('SequenceToUnifiedBridge', 2)
+        >>> bridged.output_processors is dataset.output_processors
+        True
+        >>> BridgeDataset(bridged).input_processors["codes"].converts
+        False
+    """
+
+    def __init__(self, dataset: Any) -> None:
+        self._dataset = dataset
+        self.input_processors = transform_processor(dataset.input_processors)
+
+    @property
+    def dataset(self) -> Any:
+        """The wrapped dataset."""
+        return self._dataset
+
+    def __len__(self) -> int:
+        return len(self._dataset)
+
+    def __getattr__(self, name: str) -> Any:
+        # Only called for attributes not found on the wrapper itself.
+        if name == "_dataset":
+            raise AttributeError(name)
+        return getattr(self._dataset, name)
+
+    def __repr__(self) -> str:
+        return f"BridgeDataset({self._dataset!r})"
