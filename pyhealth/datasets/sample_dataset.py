@@ -156,9 +156,6 @@ class SampleBuilder:
         self._record_to_index: Dict[str, List[int]] = {}
         self._fitted = False
         self._split = None
-        # Tuple length of each tensor field (None for a bare tensor), from
-        # the first sample encode() sees; litdata needs it in every sample.
-        self._tensor_arity: dict[str, int | None] = {}
         self._split_indices: list[np.ndarray] | None = None
 
     @property
@@ -371,7 +368,10 @@ class SampleBuilder:
         writes and expects every later sample to have the same structure, so a
         list whose length varies between samples cannot be written as-is.
         Fields whose processor declares ``stores_tensor`` stay tensors (or
-        tuples of the same number of tensors in every sample); every other field
+        tuples of tensors), so they must have the same structure (a tensor,
+        or the same number of tensors) in every sample: litdata fails to
+        write a sample that does not, which the writers report as a
+        ``ValueError``. Every other field
         (including keys not in the schema, such as ``patient_id``) goes into
         one pickled payload, which has the same structure in every sample
         whatever the values look like. :class:`SampleDataset` decodes it
@@ -385,8 +385,7 @@ class SampleBuilder:
 
         Raises:
             ValueError: If a field declared ``stores_tensor`` is not a tensor
-                or a tuple of tensors, or does not have the structure (a bare
-                tensor, or a tuple of the same length) of its first sample.
+                or a tuple of tensors.
         """
         tensor_fields = self._tensor_fields()
         processors = {**self._input_processors, **self._output_processors}
@@ -404,14 +403,6 @@ class SampleBuilder:
                         f"stores_tensor=True but process() returned "
                         f"{type(value).__name__}. Set stores_tensor = False on the "
                         "processor, or return a torch.Tensor or a tuple of them."
-                    )
-                # litdata expects the same structure in every sample.
-                arity = len(value) if is_tensors else None
-                expected = self._tensor_arity.setdefault(key, arity)
-                if arity != expected:
-                    raise ValueError(
-                        f"Field '{key}': {type(processor).__name__}.process() "
-                        "must return the same number of tensors in every sample."
                     )
                 record[key] = value
             else:
@@ -911,6 +902,27 @@ class InMemorySampleDataset(SampleDataset):
         pass  # No temporary directories to clean up for in-memory dataset
 
 
+_STRUCTURE_ERROR = (
+    "Samples could not be written to the cache: every sample must have the "
+    "same structure, so a field whose processor sets stores_tensor must return "
+    "a tensor, or the same number of tensors, in every sample."
+)
+
+
+def _add_item(writer: Any, index: int, record: dict[str, Any]) -> None:
+    """``writer.add_item``, with litdata's error on a mismatched sample explained.
+
+    litdata takes each value's serializer from the first sample a writer
+    gets, so a later sample with another structure (say, a different number
+    of tensors) hands a value to the wrong serializer, which raises
+    ``TypeError``.
+    """
+    try:
+        writer.add_item(index, record)
+    except TypeError as e:
+        raise ValueError(_STRUCTURE_ERROR) from e
+
+
 def _write_samples(builder: "SampleBuilder", samples: list[dict], path: Path) -> None:
     """Writes transformed samples to a litdata directory in this process.
 
@@ -927,7 +939,7 @@ def _write_samples(builder: "SampleBuilder", samples: list[dict], path: Path) ->
 
     writer = BinaryWriter(cache_dir=str(path), chunk_bytes="64MB")
     for i, sample in enumerate(samples):
-        writer.add_item(i, builder.transform_for_storage({"sample": pickle.dumps(sample)}))
+        _add_item(writer, i, builder.transform_for_storage({"sample": pickle.dumps(sample)}))
     writer.done()
     _litdata_merge(path)
 

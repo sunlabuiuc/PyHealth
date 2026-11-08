@@ -46,7 +46,13 @@ from ..data import Patient
 from ..tasks import BaseTask
 from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
-from .sample_dataset import STORAGE_FORMAT, SampleDataset, SampleBuilder
+from .sample_dataset import (
+    _STRUCTURE_ERROR,
+    STORAGE_FORMAT,
+    SampleBuilder,
+    SampleDataset,
+    _add_item,
+)
 from .splitter import Split
 from ..utils import download_file, preserve_rng_state, set_env
 
@@ -449,6 +455,22 @@ def _task_transform_fn(
     logger.info(f"Worker {worker_id} finished processing patients.")
 
 
+def _merge_samples(cache_dir: Path) -> None:
+    """:func:`_litdata_merge` of processed samples, with a mismatch explained.
+
+    Each worker's writer takes its structure from its own first sample, so
+    workers whose samples differ (say, in the number of tensors of a field)
+    only conflict when their indexes are merged, where litdata raises a
+    plain ``Exception``.
+    """
+    try:
+        _litdata_merge(cache_dir)
+    except Exception as e:
+        if "isn't consistent between chunks" not in str(e):
+            raise
+        raise ValueError(_STRUCTURE_ERROR) from e
+
+
 _proc_transform_progress: multiprocessing.queues.Queue | None = None
 
 
@@ -495,7 +517,7 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
         write_index = 0
         for i in range(start_idx, end_idx):
             transformed: dict[str, Any] = builder.transform_for_storage(dataset[i])
-            writer.add_item(write_index, transformed)
+            _add_item(writer, write_index, transformed)
             write_index += 1
             complete += 1
 
@@ -1226,7 +1248,7 @@ class BaseDataset(ABC):
                 if num_workers == 1:
                     logger.info("Single worker mode, processing sequentially")
                     _proc_transform_fn((0, task_df, 0, num_samples, output_dir))
-                    _litdata_merge(output_dir)
+                    _merge_samples(output_dir)
                     return
 
                 ctx = multiprocessing.get_context("spawn")
@@ -1261,7 +1283,7 @@ class BaseDataset(ABC):
                         while not queue.empty():
                             progress.update(queue.get())
                     result.get()  # ensure exceptions are raised
-                _litdata_merge(output_dir)
+                _merge_samples(output_dir)
 
                 logger.info(
                     f"Processor transformation completed and saved to {output_dir}"
