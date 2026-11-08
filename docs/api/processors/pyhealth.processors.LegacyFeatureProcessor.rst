@@ -1,5 +1,5 @@
 pyhealth.processors.LegacyFeatureProcessor
-=========================================
+==========================================
 
 The base class for feature processors that describe their output to the
 legacy models and interpretability methods through ``schema()``,
