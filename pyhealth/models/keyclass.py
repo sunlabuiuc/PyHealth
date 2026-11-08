@@ -6,6 +6,8 @@
 import torch
 from torch import nn
 
+from pyhealth.processors import LabelProcessor, MultiLabelProcessor
+
 from .base_model import BaseModel
 
 
@@ -37,7 +39,7 @@ class KeyClass(BaseModel):
             raise ValueError("Provide at least two unique category IDs in output order")
         if input_dim < 1 or not hidden_dims or any(d < 1 for d in hidden_dims):
             raise ValueError("Layer dimensions must be positive")
-        self.mode = "multilabel"
+        self._target_processor = MultiLabelProcessor(labels=self.category_ids)
         self.feature_key, self.label_key = feature_key, label_key
         self.feature_keys, self.label_keys = [feature_key], [label_key]
         layers = []
@@ -49,6 +51,15 @@ class KeyClass(BaseModel):
         layers.append(nn.Linear(input_dim, len(self.category_ids)))
         self.network = nn.Sequential(*layers)
 
+    @property
+    def label_processors(self) -> dict[str, LabelProcessor]:
+        """Describe model outputs without tokenizing dense soft targets.
+
+        The dataset keeps its tensor processor; this processor supplies the
+        multilabel mode, output size, loss, and metrics expected by BaseModel.
+        """
+        return {self.label_key: self._target_processor}
+
     def forward(self, **kwargs):
         embedding = torch.as_tensor(
             kwargs[self.feature_key], dtype=torch.float32, device=self.device
@@ -56,7 +67,7 @@ class KeyClass(BaseModel):
         if embedding.ndim != 2:
             raise ValueError("Embeddings must have shape [batch, dimension]")
         logits = self.network(embedding)
-        result = {"logit": logits, "y_prob": torch.sigmoid(logits)}
+        result = {"logit": logits, "y_prob": self.label_processor.activation(logits)}
         if self.label_key in kwargs:
             targets = torch.as_tensor(
                 kwargs[self.label_key], dtype=logits.dtype, device=self.device
@@ -71,6 +82,6 @@ class KeyClass(BaseModel):
                 )
             result.update(
                 y_true=targets,
-                loss=nn.functional.binary_cross_entropy_with_logits(logits, targets),
+                loss=self.label_processor.loss(logits, targets),
             )
         return result
