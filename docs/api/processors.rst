@@ -582,6 +582,7 @@ API Reference
     processors/pyhealth.processors.DatasetProcessor
     processors/pyhealth.processors.SequenceProcessor
     processors/pyhealth.processors.JaggedFeatureProcessor
+    processors/pyhealth.processors.UnifiedBridge
     processors/pyhealth.processors.NestedSequenceProcessor
     processors/pyhealth.processors.NestedMultiHotProcessor
     processors/pyhealth.processors.NestedFloatsProcessor
