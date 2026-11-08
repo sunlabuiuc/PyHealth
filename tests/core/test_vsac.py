@@ -424,6 +424,12 @@ class TestValueSetCompletion(VSACFixture):
         self.assertIsInstance(train[0]["code"], str)
         self.assertGreater(train[0]["n_true_codes"], 0)
         self.assertGreater(len(val), 0)
+        positives = sum(float(s["label"]) for s in train)
+        self.assertAlmostEqual(
+            float(train.output_processors["label"].weight),
+            (len(train) - positives) / positives,
+            places=5,
+        )
 
 
 if __name__ == "__main__":

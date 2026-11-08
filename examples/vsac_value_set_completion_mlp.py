@@ -327,7 +327,6 @@ def run_config(
         hidden_dim=args.hidden_dim,
         n_layers=args.n_layers,
     )
-    model.set_pos_weight("balanced", train)
     trainer = Trainer(
         model,
         metrics=["roc_auc", "pr_auc"],

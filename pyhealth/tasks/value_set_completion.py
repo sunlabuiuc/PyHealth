@@ -415,7 +415,9 @@ class ValueSetCompletion(BaseTask):
     retrieved from the index built by :func:`build_retrieval_index`, and the
     union of their codes, deduplicated on ``(code, system)`` with the highest
     retrieval score kept, is the candidate pool. Each candidate becomes one
-    sample labeled 1 when its code is in the target's code set.
+    sample labeled 1 when its code is in the target's code set. Positives
+    are rare, so the label uses ``pos_weight="balanced"`` (the paper's
+    class-balanced BCE); fit it on the training split.
 
     ``max_codes_per_set`` keeps only each value set's first N codes in VSAC
     expansion order, for both labels and candidate pools. The default, 1,000,
@@ -501,7 +503,7 @@ class ValueSetCompletion(BaseTask):
         self.features = tuple(f for f in ALL_FEATURES if f in features)
         self.target_splits = tuple(target_splits)
         self.input_schema = {name: "tensor" for name in self.features}
-        self.output_schema = {"label": "binary"}
+        self.output_schema = {"label": ("binary", {"pos_weight": "balanced"})}
         super().__init__()
 
     def _within_cap(self, rank: int) -> bool:
