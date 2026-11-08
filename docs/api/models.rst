@@ -225,6 +225,7 @@ API Reference
     models/pyhealth.models.BaseModel
     models/pyhealth.models.LogisticRegression
     models/pyhealth.models.MLP
+    models/pyhealth.models.KeyClass
     models/pyhealth.models.CNN
     models/pyhealth.models.RNN
     models/pyhealth.models.GNN

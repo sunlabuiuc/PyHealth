@@ -22,6 +22,7 @@ from .sequence_embedding import (
 from .armr import ARMR as ARMR
 from .gamenet import GAMENet, GAMENetLayer
 from .jamba_ehr import JambaEHR, JambaLayer
+from .keyclass import KeyClass as KeyClass
 from .logistic_regression import LogisticRegression
 from .gan import GAN
 from .gnn import GAT, GCN

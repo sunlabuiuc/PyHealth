@@ -84,6 +84,9 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+keyclass = [
+  "snorkel>=0.10,<0.11",
+]
 graph = [
   "torch-geometric>=2.6.0",
 ]
