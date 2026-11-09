@@ -147,18 +147,6 @@ _MEASUREMENT_SCHEMA = {
 
 _TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
-# MIMIC-IV MetaVision therapy item IDs, shared with ICUAcuityMIMIC4.
-_VASOPRESSOR_ITEMIDS = {  # inputevents
-    "dopa": 221662,
-    "norepi": 221906,
-    "dobu": 221653,
-    "epi": 221289,
-}
-_VENTILATION_ITEMIDS = {  # procedureevents
-    "invasive": 225792,
-    "noninvasive": 225794,
-}
-
 
 def _item_lookup(
     features: dict[str, tuple[float | None, float | None, list[_Item]]],
@@ -1144,10 +1132,10 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
     _SOFA_ITEMS: ClassVar[pl.DataFrame] = _item_lookup(_SOFA_INPUTS)
     # Vasopressor: (inputevents item ID, minimum rate, maximum rate).
     _VASOPRESSORS: ClassVar[dict[str, tuple[int, float, float]]] = {
-        "dopa": (_VASOPRESSOR_ITEMIDS["dopa"], 0, 50),
-        "norepi": (_VASOPRESSOR_ITEMIDS["norepi"], 0, 3),
-        "dobu": (_VASOPRESSOR_ITEMIDS["dobu"], 0, 50),
-        "epi": (_VASOPRESSOR_ITEMIDS["epi"], 0, 1.5),
+        "dopa": (221662, 0, 50),
+        "norepi": (221906, 0, 3),
+        "dobu": (221653, 0, 50),
+        "epi": (221289, 0, 1.5),
     }
     _ANTIBIOTICS: ClassVar[tuple[int, ...]] = (
         225798, 225837, 225838, 225840, 225842, 225843, 225844, 225845, 225847,
@@ -1158,12 +1146,12 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
         225900, 225902, 225903, 225905, 227691, 228003,
     )
     # Invasive and non-invasive ventilation (procedureevents).
-    _VENTILATION: ClassVar[tuple[int, ...]] = tuple(_VENTILATION_ITEMIDS.values())
+    _VENTILATION: ClassVar[tuple[int, ...]] = (225792, 225794)
     _INTUBATED_GCS: ClassVar[str] = "No Response-ETT"
 
     _EXTRA_ITEMIDS: ClassVar[dict[str, tuple[int, ...]]] = {
         "chartevents": (220739, 223901, 223900),
-        "inputevents": (*_VASOPRESSOR_ITEMIDS.values(), *_ANTIBIOTICS),
+        "inputevents": (221662, 221906, 221653, 221289, *_ANTIBIOTICS),
         "procedureevents": _VENTILATION,
     }
     _EXTRA_TABLES: ClassVar[tuple[str, ...]] = (
