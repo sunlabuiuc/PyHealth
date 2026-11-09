@@ -70,6 +70,7 @@ from .physionet_deid import PhysioNetDeIDDataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
+from .nsrr_sleep import NSRRSleepDataset
 from .bmd_hs import BMDHSDataset
 from .support2 import Support2Dataset
 from .synthea_csv import SyntheaCSVDataset as SyntheaCSVDataset
