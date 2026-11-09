@@ -27,7 +27,6 @@ from torch import nn
 
 from ..datasets import SampleDataset
 from .base_model import BaseModel
-from .transformer import PositionwiseFeedForward
 
 
 class TRACETimeEmbedding(nn.Module):
@@ -157,6 +156,24 @@ class TRACEAttention(nn.Module):
         return self.output(out.transpose(1, 2).reshape(batch, length, -1))
 
 
+class _FeedForward(nn.Module):
+    """Position-wise feed-forward block: linear, GELU (tanh), dropout, linear.
+
+    TRACE keeps its own copy rather than reusing the Transformer model's
+    block: the authors' code uses the tanh approximation of GELU.
+    """
+
+    def __init__(self, d_model: int, d_ff: int, dropout: float) -> None:
+        super().__init__()
+        self.w_1 = nn.Linear(d_model, d_ff)
+        self.w_2 = nn.Linear(d_ff, d_model)
+        self.dropout = nn.Dropout(dropout)
+        self.activation = nn.GELU(approximate="tanh")
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.w_2(self.dropout(self.activation(self.w_1(x))))
+
+
 class TRACELayer(nn.Module):
     """One pre-norm Transformer block of TRACE (attention, then feed-forward).
 
@@ -179,9 +196,7 @@ class TRACELayer(nn.Module):
         super().__init__()
         self.attention = TRACEAttention(hidden_dim, num_heads, max_len, dropout)
         self.attention_norm = nn.LayerNorm(hidden_dim)
-        self.ffn = PositionwiseFeedForward(hidden_dim, 4 * hidden_dim, dropout)
-        # the authors' code uses the tanh approximation of GELU
-        self.ffn.activation = nn.GELU(approximate="tanh")
+        self.ffn = _FeedForward(hidden_dim, 4 * hidden_dim, dropout)
         self.ffn_norm = nn.LayerNorm(hidden_dim)
         self.dropout = nn.Dropout(dropout)
 

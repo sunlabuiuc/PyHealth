@@ -92,8 +92,11 @@ def multilabel_ranking_at_k(
     for ranks ``r`` from 1. All three are averaged over the samples with
     ``n > 0`` (recall and NDCG are undefined without a true label, and the
     three are kept on the same samples); they are 0 when no sample has one.
-    These are the definitions of TRACE's released code (precision@k,
-    recall@k and NDCG@k, every sample there having a true label).
+    Precision@k and recall@k are those of TRACE's released code
+    (``recalls_and_ndcgs_for_ks`` in ``model/trainer.py``, where every
+    sample has a true label). NDCG@k here is the standard one; the released
+    code weights every rank by ``1 / log2(2) = 1``, so its "NDCG@k" is
+    ``hits / min(n, k)``, which equals precision@k whenever ``n >= k``.
 
     Relation to :func:`ranking_metrics_fn`: the two use the same
     definitions of ``P@k``, ``Recall@k`` and ``NDCG@k`` (binary relevance),
