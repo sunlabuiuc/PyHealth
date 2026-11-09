@@ -5,8 +5,10 @@ operators over the events PyHealth already stores for every patient
 (``Patient.get_events``). Nothing a proposer writes is executed: a spec is
 validated against the :class:`FeatureSpace` and compiled by this module.
 
-Each spec carries its clinical ``rationale`` and expected ``direction``, and
-gets a deterministic ``name`` and plain-language ``definition`` generated from
+Each spec carries its clinical ``rationale`` (required) and, optionally, its
+expected ``direction`` (``"+"``, ``"-"``, ``"u"``, or empty when there is no
+clear expectation), and gets a deterministic ``name`` and plain-language
+``definition`` generated from
 the spec itself, so the sentence a clinician reviews always describes exactly
 what was computed.
 
@@ -35,7 +37,9 @@ Windows always end strictly before the prediction time t.
 Every compiled spec must pass the future-blind test (:meth:`FeatureSpace.
 future_blind`): each feature is computed twice for a sample of predictions,
 once on the patient's full record and once with every row known at or after t
-deleted. Any difference rejects the spec.
+deleted. Any difference rejects the spec. :meth:`FeatureSpace.augment` runs
+the test on any spec that has not passed it on the space yet and refuses
+those that fail, so a leaking spec cannot reach a model.
 """
 
 from __future__ import annotations
@@ -206,6 +210,7 @@ class FeatureSpace:
         self.max_features = max_features
         self.min_patients = min_patients
         self._allowed: dict[tuple[str, str], set] = {}
+        self._future_blind: set[str] = set()  # names of specs that passed
 
     @classmethod
     def from_task(cls, dataset: Any, task: Any, **kwargs: Any) -> FeatureSpace:
@@ -663,6 +668,8 @@ class FeatureSpace:
                 f"uses information known at or after {self.time_word}: {bad} of "
                 f"{len(idx)} checked samples change when later rows are removed"
             )
+            if bad == 0:
+                self._future_blind.add(spec.name)
         return out
 
     def check(
@@ -714,10 +721,26 @@ class FeatureSpace:
         for a training split. Pass the training split's ``stats`` when
         augmenting validation and test splits.
 
+        Specs that have not passed the future-blind test on this space (in
+        :meth:`check`, :meth:`future_blind` or an earlier ``augment``) are
+        tested on ``samples`` first.
+
+        Raises:
+            ValueError: If a spec fails the future-blind test.
+
         Examples:
             >>> train_fe = fs.augment(train_ds, specs)  # doctest: +SKIP
             >>> test_fe = fs.augment(test_ds, specs, stats=train_fe.stats)  # doctest: +SKIP
         """
+        untested = [s for s in specs if s.name not in self._future_blind]
+        if untested:
+            failed = {name: reason for name, reason in
+                      self.future_blind(untested, samples).items() if reason}
+            if failed:
+                raise ValueError(
+                    "specs failing the future-blind test cannot be added: "
+                    + "; ".join(f"{name}: {why}" for name, why in failed.items())
+                )
         raw = self.compute(specs, samples) if values is None else np.asarray(values)
         return EngineeredDataset(samples, raw, [s.name for s in specs], stats)
 

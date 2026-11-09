@@ -200,7 +200,8 @@ itself, so the sentence a clinician reviews is exactly what was computed:
 
 .. code-block:: python
 
-    fs = FeatureSpace(base_dataset, time_key="landmark")   # or FeatureSpace.from_task
+    fs = FeatureSpace(base_dataset, time_key="landmark",   # or FeatureSpace.from_task
+                      time_word="the landmark")
     specs = [{"op": "ge", "x": 3,
               "of": {"op": "count", "window": 365,
                      "select": {"event_type": "med_orders", "group": "SABA"}},

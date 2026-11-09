@@ -695,8 +695,11 @@ def _test_section(ctx, test) -> Section:
         return Section("Performance in clinical terms", blocks)
     sel = clinical["best"]
     n_text = f"{sel['n']}" if sel["n"] is not None else "fewer than 11"
-    blocks.append(("p", (f"Test set: {n_text} patients, prevalence "
-                         f"{sel['prevalence']:.1%}.")))
+    prev_text = (f"prevalence {sel['prevalence']:.1%}" if sel["prevalence"] is not None
+                 else "fewer than 11 patients with or without the event, so the "
+                      "prevalence, alert, calibration-bin and net-benefit results "
+                      "are withheld")
+    blocks.append(("p", f"Test set: {n_text} patients, {prev_text}."))
     cal_rows = []
     for key, name in present:
         if key in clinical:
@@ -712,25 +715,28 @@ def _test_section(ctx, test) -> Section:
                           "Brier"], cal_rows)]
     if sel["calibration_bins"]:
         blocks.append(("table", ["predicted risk (bin mean)", "observed rate",
-                                 "test samples"],
+                                 "test patients"],
                        [[f"{b['mean_predicted']:.1%}", f"{b['observed']:.1%}",
                          b["n"]] for b in sel["calibration_bins"]]))
     alert_rows = []
     for label, a in sel["alerts"].items():
         if a.get("suppressed"):
-            alert_rows.append([label, "fewer than 11", "-", "-", "-"])
+            alert_rows.append([label, "withheld (a count below 11)", "-", "-", "-"])
             continue
         base = clinical.get("baseline", {}).get("alerts", {}).get(label, {})
         tail = (f" (start: {base['sensitivity']:.0%})"
                 if base and not base.get("suppressed") else "")
         alert_rows.append([label, a["n_flagged"], f"{a['sensitivity']:.0%}{tail}",
                            f"{a['ppv']:.0%}", f"{a['nne']:.1f}"])
-    blocks += [("p", ("**Acting on the highest risks**: flag the top share of test "
-                      "samples by predicted risk. Sensitivity is the share of all "
-                      "events caught, PPV the share of flags that are events, and "
-                      "NNE the flags per event caught. *(measured)*")),
-               ("table", ["flag", "samples flagged", "sensitivity", "PPV", "NNE"],
-                alert_rows)]
+    if alert_rows:
+        blocks += [("p", ("**Acting on the highest risks**: flag the top share of "
+                          "test samples by predicted risk. Sensitivity is the share "
+                          "of all events caught, PPV the share of flags that are "
+                          "events, and NNE the flags per event caught. A row is "
+                          "withheld when the flags, events caught or false alarms "
+                          "number fewer than 11 patients. *(measured)*")),
+                   ("table", ["flag", "samples flagged", "sensitivity", "PPV", "NNE"],
+                    alert_rows)]
     nb_rows = []
     base_nb = {r["threshold"]: r for r in clinical.get("baseline", {}).get(
         "net_benefit", [])}
@@ -738,15 +744,16 @@ def _test_section(ctx, test) -> Section:
         b = base_nb.get(r["threshold"])
         nb_rows.append([f"{r['threshold']:.1%}", f"{r['model']:+.4f}",
                         f"{b['model']:+.4f}" if b else "-", f"{r['treat_all']:+.4f}"])
-    blocks += [("p", ("**Net benefit** at risk thresholds where one might act "
-                      "(decision curve): true positives per patient minus false "
-                      "positives weighted by the threshold odds. Acting on no one "
-                      "scores 0. It takes predicted risks at face value, so a model "
-                      "whose risks are inflated (observed / expected well below 1) "
-                      "acts on too many patients at each threshold; compare after "
-                      "recalibration. *(measured)*")),
-               ("table", ["threshold", "selected", "starting pipeline",
-                          "act on everyone"], nb_rows)]
+    if nb_rows:
+        blocks += [("p", ("**Net benefit** at risk thresholds where one might act "
+                          "(decision curve): true positives per patient minus false "
+                          "positives weighted by the threshold odds. Acting on no one "
+                          "scores 0. It takes predicted risks at face value, so a model "
+                          "whose risks are inflated (observed / expected well below 1) "
+                          "acts on too many patients at each threshold; compare after "
+                          "recalibration. *(measured)*")),
+                   ("table", ["threshold", "selected", "starting pipeline",
+                              "act on everyone"], nb_rows)]
     sub_rows, gaps = [], []
     for attribute, sub in sel["subgroups"].items():
         for value, r in sub["groups"].items():

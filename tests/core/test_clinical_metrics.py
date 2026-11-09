@@ -66,6 +66,49 @@ class TestClinicalMetrics(unittest.TestCase):
         self.assertNotIn("roc_auc", site_b)
         self.assertEqual(out["site"]["max_gap"], {})
 
+    def test_alerts_withhold_small_caught_or_false_alarm_counts(self):
+        y = np.array([1] * 5 + [0] * 95)  # 5 events: caught counts are small
+        p = np.linspace(1, 0, 100)
+        out = alert_rate_metrics(y, p, rates=(0.2,), min_count=11)
+        self.assertEqual(out["top 20%"], {"rate": 0.2, "suppressed": True})
+        y = np.array([1] * 30 + [0] * 70)  # 20 flagged, all events: 0 false alarms
+        out = alert_rate_metrics(y, p, rates=(0.2,), min_count=11)
+        self.assertTrue(out["top 20%"]["suppressed"])
+        y = np.array([1, 0] * 50)  # 20 flagged: 10 caught, 10 false alarms
+        self.assertTrue(alert_rate_metrics(y, p, (0.2,), 11)["top 20%"]["suppressed"])
+        self.assertEqual(alert_rate_metrics(y, p, (0.3,), 11)["top 30%"]["n_flagged"], 30)
+        # with patient ids, 30 flagged samples from 5 patients are withheld
+        patients = np.arange(100) % 5
+        out = alert_rate_metrics(y, p, (0.3,), 11, groups=patients)
+        self.assertTrue(out["top 30%"]["suppressed"])
+
+    def test_calibration_bins_have_enough_events_and_non_events(self):
+        rng = np.random.default_rng(3)
+        p = rng.uniform(size=400)
+        y = (rng.uniform(size=400) < p).astype(int)
+        bins = calibration_bins(y, p, n_bins=10, min_count=11)
+        self.assertGreater(len(bins), 1)
+        for b in bins:
+            events = round(b["observed"] * b["n"])
+            self.assertGreaterEqual(min(events, b["n"] - events), 11)
+
+    def test_summary_withholds_results_with_few_events(self):
+        rng = np.random.default_rng(4)
+        y = np.zeros(300, dtype=int)
+        y[:8] = 1  # 8 events
+        p = rng.uniform(size=300)
+        s = clinical_summary(y, p)
+        self.assertEqual(s["n"], 300)
+        self.assertIsNone(s["positives"])
+        self.assertIsNone(s["prevalence"])
+        self.assertEqual((s["alerts"], s["calibration_bins"], s["net_benefit"]),
+                         ({}, [], []))
+        self.assertIn("brier", s["calibration"])
+        y[:40] = 1
+        s = clinical_summary(y, p)
+        self.assertAlmostEqual(s["prevalence"], 40 / 300)
+        self.assertTrue(s["net_benefit"])
+
     def test_summary_has_every_part(self):
         rng = np.random.default_rng(2)
         y = rng.integers(0, 2, 300)
