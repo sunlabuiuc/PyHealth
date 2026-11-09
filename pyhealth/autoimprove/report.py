@@ -589,18 +589,20 @@ def _test_section(ctx, test) -> Section:
     names = {"best": "selected", "baseline": "starting pipeline",
              "top": "highest-scoring candidate"}
     present = [(k, n) for k, n in names.items() if k in test]
+    # PR-AUC's chance level is the prevalence, so only there is the ratio a lift.
+    lift = metric == "pr_auc"
     rows = []
     for key, name in present:
         r = test[key]
         trial = f"#{r['trial_id']}" if "trial_id" in r else ""
         row = [name, trial, r.get("config", {}).get("model", ""), _ci(r)]
         clinical = r.get("clinical")
-        if clinical:
+        if lift and clinical:
             prev = clinical["prevalence"]
             row.append(f"{r['estimate'] / prev:.1f}×" if prev else "-")
         rows.append(row)
     headers = ["config", "trial", "model", f"test {metric}"]
-    if any(test[k].get("clinical") for k, _ in present):
+    if lift and any(test[k].get("clinical") for k, _ in present):
         headers.append("lift over prevalence")
     blocks = [("p", ("Each config was retrained on all training patients and "
                      "scored once on the test patients; intervals are "
