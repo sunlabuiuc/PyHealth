@@ -33,6 +33,13 @@ class eICUDataset(BaseDataset):
         - physicalexam: contains all physical exams conducted for patients.
         - admissiondx: table contains the primary diagnosis for admission to
             the ICU per the APACHE scoring criteria.
+        - vitalperiodic, vitalaperiodic: periodic (monitor) and aperiodic
+            vital signs.
+        - intakeoutput: fluid intake and output, including urine output.
+        - respiratorycharting, respiratorycare: charted respiratory settings
+            and ventilation start and end times.
+        - nursecharting: nurse-charted vital signs and scores (e.g. GCS).
+        - infusiondrug: continuous infusions with their rates.
 
     Attributes:
         root (str): The root directory where the dataset is stored.

@@ -19,6 +19,7 @@ from packaging.version import Version
 
 from ..processors import get_processor, IgnoreProcessor
 from ..processors.base_processor import FeatureProcessor
+from ..processors.label_processor import LabelProcessor
 
 if TYPE_CHECKING:  # splitter imports this module
     from .splitter import Split
@@ -241,7 +242,11 @@ class SampleBuilder:
                 :class:`~pyhealth.datasets.PatientSplit`. When given,
                 processors are fitted on the first (training) part only, and
                 the sample indices of every part are kept in
-                ``split_indices``.
+                ``split_indices``. Label processors with a learned
+                vocabulary then add the labels of every part
+                (:meth:`~pyhealth.processors.LabelProcessor.fit_test`), so
+                a class seen only in validation or test still gets a model
+                output.
 
         Behavior:
             - Validates the samples contain all keys specified by the input
@@ -299,6 +304,15 @@ class SampleBuilder:
                 if key not in processors:
                     processor = self._get_processor_instance(spec)
                     processor.fit(fit_samples, key)
+                    if (
+                        split is not None
+                        and isinstance(processor, LabelProcessor)
+                        and processor.need_fit_test
+                    ):
+                        # The label vocabulary covers every split, test
+                        # included; fit_test learns nothing else from them.
+                        # Without a split, fit already saw every label.
+                        processor.fit_test(samples, key)
                     processors[key] = processor
                     if split is None and getattr(processor, "learns_statistics", False):
                         learned_on_all.append(key)
