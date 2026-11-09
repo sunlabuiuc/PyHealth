@@ -529,6 +529,22 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "duplicate or overlapping"):
             DicomSeriesReader().read_metadata(self.root)
 
+    def test_series_warns_on_non_uniform_spacing(self):
+        for index, z in enumerate((0.0, 1.0, 3.0)):
+            _write_slice(
+                self.root / f"IMG-{index}.dcm",
+                1024,
+                z,
+                index + 1,
+                self.series_uid,
+                self.study_uid,
+            )
+        with self.assertLogs(
+            "pyhealth.processors.image_io.readers.dicom", level="WARNING"
+        ):
+            metadata = DicomSeriesReader().read_metadata(self.root)
+        self.assertEqual(metadata["spacing"][0], 1.5)
+
     def test_series_prefers_measured_slice_spacing(self):
         for index in range(3):
             _write_slice(

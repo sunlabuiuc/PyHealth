@@ -201,7 +201,16 @@ def _slice_spacing(entries: list[tuple[Path, Any]]) -> float:
                     )
                 diffs = np.abs(raw_diffs[raw_diffs != 0])
                 if len(diffs) > 0:
-                    return float(np.median(diffs))
+                    median = float(np.median(diffs))
+                    tolerance = max(1e-3, abs(median) * 1e-3)
+                    if np.any(np.abs(diffs - median) > tolerance):
+                        logger.warning(
+                            "DICOM series has non-uniform slice spacing "
+                            "(gaps=%s); using the median %.3f mm.",
+                            [float(value) for value in diffs],
+                            median,
+                        )
+                    return median
     for name in ("SpacingBetweenSlices", "SliceThickness"):
         value = _float_list(entries[0][1], name)
         if value is not None and value[0] > 0:
