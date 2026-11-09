@@ -142,7 +142,7 @@ class PipelineConfig:
         model: A model name from the search space, e.g. ``"RNN"``.
         model_params: Constructor arguments for the model.
         train_params: Training settings (``epochs``, ``lr``, ``weight_decay``,
-            ``batch_size``, ``pos_weight``).
+            ``batch_size``).
         rationale: Why the proposer chose it, kept for the report.
         hypothesis: What the proposer expects, stated before the trial runs:
             ``expected`` (e.g. "PR-AUC up, smaller spread between folds"),
@@ -256,15 +256,6 @@ TRAIN_PARAMS: dict[str, Param] = {
     ),
     "batch_size": Param("choice", choices=(16, 32, 64, 128, 256), default=64,
                         meaning="{value} samples per update"),
-    "pos_weight": Param(
-        "choice", choices=("none", "balanced"), default="none",
-        meaning={
-            "none": "no class weighting: predicted risks stay on the scale of "
-                    "observed frequencies",
-            "balanced": "positive samples weighted up to balance the classes: "
-                        "predicted risks are inflated and need recalibration",
-        },
-    ),
     "patience": Param(
         "int", 1, 10, default=3,
         meaning="training stops after {value} epochs without improvement on "

@@ -41,7 +41,6 @@ SPACE = SearchSpace(
         "epochs": Param("int", 1, 2, default=1),
         "lr": Param("float", 1e-4, 1e-1, log=True, default=1e-2),
         "batch_size": Param("choice", choices=(16, 32), default=16),
-        "pos_weight": Param("choice", choices=("none", "balanced"), default="none"),
     }
 )
 SPACE.models = {k: SPACE.models[k] for k in ("LogisticRegression", "MLP", "RNN")}
@@ -245,7 +244,7 @@ class TestAutoImprover(unittest.TestCase):
 
     def test_failed_trial_is_recorded_as_feedback(self):
         llm = ScriptedLLM([_reply({"model": "RNN", "train_params": {
-            "pos_weight": "balanced"}, "model_params": {"embedding_dim": 16}})])
+            "epochs": 1}, "model_params": {"embedding_dim": 16}})])
         improver = AutoImprover(
             self.train, self.val, LLMProposer(llm), space=SPACE,
             metric="no_such_metric", n_agents=1, n_cycles=1,
@@ -525,14 +524,6 @@ class TestAutoImprover(unittest.TestCase):
             AutoImprover(self.train, self.val, RandomProposer(), space=space,
                          baseline=PipelineConfig("XGBoost")).run()
 
-    def test_balanced_pos_weight_uses_the_training_labels(self):
-        config, _ = SPACE.validate(PipelineConfig(
-            "LogisticRegression", {"embedding_dim": 16}, {"pos_weight": "balanced"}))
-        model = train_pipeline(config, SPACE, self.train, self.val, "pr_auc")
-        positives = sum(s["label"] for s in _samples(80, 0))
-        self.assertAlmostEqual(float(model.pos_weight), (80 - positives) / positives,
-                               places=5)
-
     def test_random_search_budget_and_test_comparison(self):
         improver = AutoImprover(
             self.train, self.val, RandomProposer(seed=1),
@@ -553,16 +544,16 @@ class TestAutoImprover(unittest.TestCase):
 
 
 class TestLabelTypes(unittest.TestCase):
-    def test_label_type_sets_the_metric_and_the_space(self):
+    def test_label_type_sets_the_metric(self):
         cases = [
-            ("binary", lambda codes: int("c1" in codes), "pr_auc", True),
-            (BinaryLabelProcessor, lambda codes: int("c1" in codes), "pr_auc", True),
-            ("multiclass", _three_classes, "f1_macro", False),
+            ("binary", lambda codes: int("c1" in codes), "pr_auc"),
+            (BinaryLabelProcessor, lambda codes: int("c1" in codes), "pr_auc"),
+            ("multiclass", _three_classes, "f1_macro"),
             ("multilabel", lambda codes: sorted({"c1", "c2"} & set(codes)) or ["none"],
-             "pr_auc_samples", True),
-            ("regression", lambda codes: float(_three_classes(codes)), "mse", False),
+             "pr_auc_samples"),
+            ("regression", lambda codes: float(_three_classes(codes)), "mse"),
         ]
-        for label_type, label, metric, weighted in cases:
+        for label_type, label, metric in cases:
             with self.subTest(label_type=label_type):
                 samples = _samples(20, 0)
                 for s in samples:
@@ -573,19 +564,16 @@ class TestLabelTypes(unittest.TestCase):
                 improver = AutoImprover(data, data, RandomProposer(), space=SPACE,
                                         check=False)
                 self.assertEqual(improver.metric, metric)
-                self.assertEqual("pos_weight" in improver.space.train_params, weighted)
 
     def test_multiclass_search_and_test_scores(self):
         train, val, test = _datasets("multiclass", _three_classes)
         improver = AutoImprover(
             train, val, RandomProposer(seed=0),
-            baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16},
-                                    {"pos_weight": "balanced"}),
+            baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
             space=SPACE, n_agents=2, n_cycles=1,
         )
         result = improver.run()
         self.assertTrue(all(t.error is None for t in result.trials))
-        self.assertFalse(any("pos_weight" in t.config.train_params for t in result.trials))
 
         scores = improver.evaluate_on_test(test, return_predictions=True)
         self.assertNotIn("difference", scores)

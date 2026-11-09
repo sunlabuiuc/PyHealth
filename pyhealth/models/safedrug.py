@@ -384,11 +384,6 @@ class SafeDrug(BaseModel):
         else:
             raise ValueError(f"SafeDrug requires exactly one label key, but got {self.label_keys}")
         
-        if not hasattr(self, 'mode') or not self.mode:
-            if self.label_key in self.dataset.output_schema:
-                self.mode = self._resolve_mode(self.dataset.output_schema[self.label_key])
-            else:
-                self.mode = "multilabel"
         
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
