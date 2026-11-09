@@ -1067,8 +1067,8 @@ class AutoImprover:
         self,
         test_dataset: SampleDataset,
         n_boot: int = 1000,
-        subgroups: Mapping[str, Sequence[Any]] | None = None,
         return_predictions: bool = False,
+        subgroups: Mapping[str, Sequence[Any]] | None = None,
     ) -> dict[str, Any]:
         """Retrains the selected and the baseline configs and scores them on test.
 
@@ -1090,11 +1090,11 @@ class AutoImprover:
         Args:
             test_dataset: The held-out test samples, never seen by the search.
             n_boot: Bootstrap resamples (of patients) for the intervals.
-            subgroups: Attribute name to one label per test sample, in the
-                dataset's order, e.g. ``{"sex": [...], "age band": [...]}``.
             return_predictions: Also return the test predictions, e.g. to
                 compute other metrics without training again. They are not
                 written to ``test.json``.
+            subgroups: Attribute name to one label per test sample, in the
+                dataset's order, e.g. ``{"sex": [...], "age band": [...]}``.
 
         Returns:
             ``{"best": {...}, "baseline": {...}, "difference": {...}}``, with
