@@ -19,7 +19,6 @@ import sys
 from pathlib import Path
 
 import pyhealth
-from pyhealth.datasets import SampleDataset
 
 HERE = Path(__file__).parent
 sys.path[:0] = [
@@ -127,16 +126,6 @@ autodoc_default_options = {
     "show-inheritance": True,
     "imported-members": True,
 }
-
-# Fully qualify SampleDataset references to avoid ambiguous Sphinx targets
-def format_typehint(annotation, config):
-    """Use a unique documentation target for SampleDataset type hints."""
-    if annotation is SampleDataset:
-        return ":py:class:`pyhealth.datasets.SampleDataset`"
-    return None
-
-
-typehints_formatter = format_typehint
 
 # The master toctree document.
 master_doc = "index"
