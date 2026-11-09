@@ -28,3 +28,5 @@ API reference
 .. autofunction:: pyhealth.datasets.prepare_gbsg_csv
 .. autofunction:: pyhealth.datasets.gbsg_paper_time_transform
 .. autofunction:: pyhealth.datasets.gbsg_released_split_ids
+
+See :doc:`../../survival_pipeline` for the native pipeline and manual checks.
