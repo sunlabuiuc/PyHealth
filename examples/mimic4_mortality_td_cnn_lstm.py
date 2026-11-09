@@ -34,8 +34,9 @@ Example:
 import argparse
 import copy
 import math
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any
 
 import numpy as np
 import torch
@@ -44,7 +45,7 @@ from sklearn.metrics import roc_auc_score
 from pyhealth.datasets import SampleDataset, create_sample_dataset, get_dataloader
 from pyhealth.models import TDCNNLSTM
 
-STATE_CHANNELS: Tuple[str, ...] = (
+STATE_CHANNELS: tuple[str, ...] = (
     "timepoints",
     "values",
     "features",
@@ -67,8 +68,8 @@ def make_reference_optimizer(
     model: TDCNNLSTM,
     n_training_batches: int,
     *,
-    learning_rate: Optional[float] = None,
-    weight_decay: Optional[float] = None,
+    learning_rate: float | None = None,
+    weight_decay: float | None = None,
 ) -> torch.optim.AdamW:
     """Constructs the AdamW optimizer for the online mortality predictor.
 
@@ -143,7 +144,7 @@ def training_step(
     model: TDCNNLSTM,
     optimizer: torch.optim.Optimizer,
     batch: Mapping[str, Any],
-) -> Dict[str, torch.Tensor]:
+) -> dict[str, torch.Tensor]:
     """Performs one training step, including the TD target update when needed.
 
     The order is: zero online gradients, run the labeled model forward pass,
@@ -180,12 +181,12 @@ def training_step(
 # ---------------------------------------------------------------------------
 # Minimal public synthetic SampleDataset
 # ---------------------------------------------------------------------------
-def _padded(values: Sequence[float], pad: int, fill: float) -> List[float]:
+def _padded(values: Sequence[float], pad: int, fill: float) -> list[float]:
     """Returns ``values`` as Python floats, right-padded with ``fill``."""
     return [float(value) for value in values] + [fill] * pad
 
 
-def _empty_state(seq_len: int) -> Dict[str, List[float]]:
+def _empty_state(seq_len: int) -> dict[str, list[float]]:
     """Returns an all-padded state, meaning *no eligible successor*."""
     return {
         "timepoints": [math.nan] * seq_len,
@@ -202,7 +203,7 @@ def _generate_state(
     seq_len: int,
     n_features: int,
     severity: float,
-) -> Dict[str, List[float]]:
+) -> dict[str, list[float]]:
     """Generates one right-padded state of invented events.
 
     The first event is the state marker (time 0); the others are distinct
@@ -239,7 +240,7 @@ def _generate_state(
     # we define deltas against the previous observation of the same feature
     delta_time = np.full(n_events, math.nan)
     delta_value = np.full(n_events, math.nan)
-    last_seen: Dict[int, int] = {}
+    last_seen: dict[int, int] = {}
     for index in np.argsort(-timepoints, kind="stable"):  # oldest event first
         feature = int(features[index])
         if feature in last_seen:
@@ -273,7 +274,7 @@ def make_synthetic_samples(
     n_features: int = 6,
     positive_fraction: float = 0.35,
     seed: int = 42,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Generates invented paired-state samples for the TD-CNN-LSTM model.
 
     Each patient has ``states_per_patient`` consecutive states. The successor
@@ -319,7 +320,7 @@ def make_synthetic_samples(
         _check_positive_int(name, value)
     if not 0.0 < float(positive_fraction) < 1.0:
         raise ValueError("positive_fraction must be strictly between 0 and 1")
-    n_positive = int(round(n_patients * float(positive_fraction)))
+    n_positive = round(n_patients * float(positive_fraction))
     if n_positive < 3 or n_patients - n_positive < 3:
         raise ValueError(
             "need at least 3 positive and 3 negative patients so that every "
@@ -330,7 +331,7 @@ def make_synthetic_samples(
     positive = np.zeros(n_patients, dtype=bool)
     positive[rng.permutation(n_patients)[:n_positive]] = True
 
-    samples: List[Dict[str, Any]] = []
+    samples: list[dict[str, Any]] = []
     for patient in range(n_patients):
         latent = rng.normal(1.0 if positive[patient] else 0.0, 0.5)
         states = []
@@ -345,7 +346,7 @@ def make_synthetic_samples(
                 if index + 1 < states_per_patient
                 else _empty_state(seq_len)
             )
-            sample: Dict[str, Any] = {
+            sample: dict[str, Any] = {
                 "patient_id": f"synthetic-{patient:03d}",
                 "state_index": index,
             }
@@ -357,9 +358,9 @@ def make_synthetic_samples(
     return samples
 
 
-def synthetic_input_schema() -> Dict[str, Any]:
+def synthetic_input_schema() -> dict[str, Any]:
     """Returns the ten-channel input schema (``int64`` IDs, ``float32`` rest)."""
-    schema: Dict[str, Any] = {}
+    schema: dict[str, Any] = {}
     for prefix in ("", NEXT_PREFIX):
         for key in STATE_CHANNELS:
             schema[prefix + key] = (
@@ -396,7 +397,7 @@ def split_by_patient_stratified(
     dataset: SampleDataset,
     ratios: Sequence[float] = (0.6, 0.2, 0.2),
     seed: int = 42,
-) -> Tuple[SampleDataset, SampleDataset, SampleDataset]:
+) -> tuple[SampleDataset, SampleDataset, SampleDataset]:
     """Splits by patient, stratified by the patient-level outcome.
 
     Unlike ``split_by_patient``, every split is guaranteed at least one
@@ -419,13 +420,13 @@ def split_by_patient_stratified(
     if not math.isclose(sum(ratios), 1.0):
         raise ValueError("ratios must sum to 1")
 
-    patients_by_label: Dict[int, List[str]] = {0: [], 1: []}
+    patients_by_label: dict[int, list[str]] = {0: [], 1: []}
     for patient_id, indices in dataset.patient_to_index.items():
         label = int(torch.as_tensor(dataset[indices[0]]["label"]).reshape(-1)[0])
         patients_by_label[label].append(patient_id)
 
     rng = np.random.default_rng(seed)
-    split_patients: List[List[str]] = [[], [], []]
+    split_patients: list[list[str]] = [[], [], []]
     for label in (0, 1):
         patients = sorted(patients_by_label[label], key=str)
         if len(patients) < 3:
@@ -455,7 +456,7 @@ def _as_numpy(value: Any) -> np.ndarray:
     return np.asarray(value).reshape(-1)
 
 
-def _mean_std(values: np.ndarray) -> Tuple[float, float]:
+def _mean_std(values: np.ndarray) -> tuple[float, float]:
     """Returns finite-value mean and sample std (``NaN`` std if undefined).
 
     An unseen feature gets mean ``0`` and an undefined std; the model replaces
@@ -470,7 +471,7 @@ def _mean_std(values: np.ndarray) -> Tuple[float, float]:
 
 def compute_training_scaling(
     train_dataset: SampleDataset, n_features: int
-) -> Dict[str, Dict[str, torch.Tensor]]:
+) -> dict[str, dict[str, torch.Tensor]]:
     """Derives the model's ``scaling`` mapping from training samples only.
 
     Uses current-state events of the training split. Successor states belong
@@ -486,7 +487,7 @@ def compute_training_scaling(
         ``{"timepoints", "values", "delta_time", "delta_value"}``, each a
         ``{"mean", "std"}`` mapping of ``float32`` tensors.
     """
-    channels: Dict[str, List[np.ndarray]] = {key: [] for key in STATE_CHANNELS}
+    channels: dict[str, list[np.ndarray]] = {key: [] for key in STATE_CHANNELS}
     for sample in train_dataset:
         for key in STATE_CHANNELS:
             channels[key].append(_as_numpy(sample[key]))
@@ -495,7 +496,7 @@ def compute_training_scaling(
     event = np.isfinite(data["values"]) & np.isfinite(data["timepoints"])
 
     time_mean, time_std = _mean_std(data["timepoints"][event])
-    scaling: Dict[str, Dict[str, torch.Tensor]] = {
+    scaling: dict[str, dict[str, torch.Tensor]] = {
         "timepoints": {
             "mean": torch.tensor(time_mean, dtype=torch.float32),
             "std": torch.tensor(time_std, dtype=torch.float32),
@@ -553,7 +554,7 @@ def safe_binary_auroc(y_true: Any, y_prob: Any) -> float:
 
 
 @torch.no_grad()
-def evaluate(model: TDCNNLSTM, dataloader: Any) -> Dict[str, Any]:
+def evaluate(model: TDCNNLSTM, dataloader: Any) -> dict[str, Any]:
     """Scores a split in evaluation mode.
 
     Args:
@@ -624,14 +625,14 @@ class ExampleConfig:
     seq_len: int = 32
     n_features: int = 6
     positive_fraction: float = 0.35
-    ratios: Tuple[float, float, float] = (0.6, 0.2, 0.2)
+    ratios: tuple[float, float, float] = (0.6, 0.2, 0.2)
     epochs: int = 3
     batch_size: int = 8
     hidden_dim: int = 8
     dropout: float = 0.5
     target_alpha: float = 0.99
-    learning_rate: Optional[float] = None
-    weight_decay: Optional[float] = None
+    learning_rate: float | None = None
+    weight_decay: float | None = None
     seed: int = 42
     device: str = "cpu"
 
@@ -643,7 +644,7 @@ def fit_model(
     scaling: Mapping[str, Mapping[str, Any]],
     use_delta_embeddings: bool,
     config: ExampleConfig,
-) -> Tuple[TDCNNLSTM, List[Dict[str, Any]], int]:
+) -> tuple[TDCNNLSTM, list[dict[str, Any]], int]:
     """Trains one TD model and restores its best-validation-AUROC epoch.
 
     The model seed and training-loader shuffle seed depend only on
@@ -694,7 +695,7 @@ def fit_model(
         train_dataset, batch_size=config.batch_size, shuffle=True, seed=config.seed
     )
 
-    history: List[Dict[str, Any]] = []
+    history: list[dict[str, Any]] = []
     best_state = copy.deepcopy(model.state_dict())
     best_score, best_epoch = -math.inf, 0
     for epoch in range(1, config.epochs + 1):
@@ -714,7 +715,7 @@ def fit_model(
     return model, history, best_epoch
 
 
-def run_example(config: Optional[ExampleConfig] = None) -> Dict[str, Any]:
+def run_example(config: ExampleConfig | None = None) -> dict[str, Any]:
     """Runs the full synthetic pipeline and the delta ablation.
 
     Global PyTorch CPU random state is restored afterwards.
@@ -752,8 +753,8 @@ def run_example(config: Optional[ExampleConfig] = None) -> Dict[str, Any]:
         val_loader = get_dataloader(val, batch_size=config.batch_size, shuffle=False)
         test_loader = get_dataloader(test, batch_size=config.batch_size, shuffle=False)
 
-        models: Dict[str, Dict[str, Any]] = {}
-        shared_settings: Optional[Dict[str, float]] = None
+        models: dict[str, dict[str, Any]] = {}
+        shared_settings: dict[str, float] | None = None
         full_parameter_count = 0
         for name, use_delta in (("full", True), ("no_delta", False)):
             # we resolve defaults using the full model before fitting the ablation
@@ -840,7 +841,7 @@ def format_results(results: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def main(argv: Optional[Sequence[str]] = None) -> Dict[str, Any]:
+def main(argv: Sequence[str] | None = None) -> dict[str, Any]:
     """Command-line entry point.
 
     Args:
