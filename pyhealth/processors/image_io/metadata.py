@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from .readers.factory import get_reader, get_reader_by_name
+from .readers.image_mask import (
+    ImageMaskReader,
+    _mask_files,
+    _prepare_mask_files,
+)
 from .types import PathLike
 
 
@@ -25,12 +31,18 @@ def _target_layout(
     spatial = shape[1:]
     if target_shape is not None:
         new_shape = tuple(int(value) for value in target_shape)
+        if len(new_shape) != 3 or any(value <= 0 for value in new_shape):
+            raise ValueError("target_shape must contain three positive values.")
         new_spacing = tuple(
             spacing[index] * spatial[index] / new_shape[index]
             for index in range(3)
         )
     else:
         new_spacing = tuple(float(value) for value in target_spacing)
+        if len(new_spacing) != 3 or any(value <= 0 for value in new_spacing):
+            raise ValueError(
+                "target_spacing must contain three positive values."
+            )
         new_shape = tuple(
             max(
                 1,
@@ -69,7 +81,10 @@ def read_image_metadata(
     Returns:
         A dictionary with keys such as ``format``, ``shape``, ``spacing``,
         ``affine``, ``orientation``, ``dtype``, ``modality`` and ``source``.
-        Target shape/spacing are only reported for 3D volumes.
+        Available keys vary by reader: NIfTI has no ``modality``, and a mask
+        directory has no ``spacing``/``affine`` unless a reference DICOM
+        series is supplied as ``(mask_dir, series_path)``. Target shape/spacing
+        are only reported for 3D volumes.
 
     Raises:
         ValueError: If a target grid is requested for metadata that is not a
@@ -79,10 +94,42 @@ def read_image_metadata(
         >>> read_image_metadata("scan.nii.gz")  # doctest: +SKIP
         {'format': 'nifti', ...}
     """
-    instance = (
-        get_reader_by_name(reader) if reader is not None else get_reader(path)
-    )
-    metadata = instance.read_metadata(path, **reader_kwargs)
+    if reader == "image_mask":
+        canonical = bool(reader_kwargs.pop("canonical", True))
+        if (
+            isinstance(path, (tuple, list))
+            and len(path) == 2
+            and Path(path[0]).is_dir()
+        ):
+            files, series_metadata = _prepare_mask_files(
+                _mask_files(Path(path[0])),
+                path[1],
+                canonical=canonical,
+            )
+            metadata = ImageMaskReader().read_metadata(tuple(files))
+            if series_metadata is not None:
+                for key in (
+                    "affine",
+                    "source_affine",
+                    "spacing",
+                    "orientation",
+                    "modality",
+                    "patient_id",
+                    "study_id",
+                    "series_id",
+                    "n_frames",
+                ):
+                    if series_metadata.get(key) is not None:
+                        metadata[key] = series_metadata[key]
+        else:
+            metadata = ImageMaskReader().read_metadata(path)
+    else:
+        instance = (
+            get_reader_by_name(reader)
+            if reader is not None
+            else get_reader(path)
+        )
+        metadata = instance.read_metadata(path, **reader_kwargs)
     if target_shape is not None or target_spacing is not None:
         shape, spacing = _target_layout(metadata, target_shape, target_spacing)
         metadata = {**metadata, "shape": shape, "spacing": spacing}

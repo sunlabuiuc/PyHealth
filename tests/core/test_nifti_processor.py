@@ -83,6 +83,15 @@ class TestNiftiReaderAndProcessor(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "normalize='auto'"):
             NiftiProcessor(normalize="auto")
 
+    def test_2d_target_is_rejected(self):
+        path = self.root / "two_d.nii.gz"
+        nib.save(
+            nib.Nifti1Image(np.zeros((4, 5), dtype=np.float32), self.affine),
+            str(path),
+        )
+        with self.assertRaisesRegex(ValueError, "3D NIfTI"):
+            NiftiReader().load(str(path), target_shape=(2, 3, 4))
+
     def test_5d_nifti_is_rejected(self):
         path = self.root / "five_d.nii.gz"
         nib.save(

@@ -50,7 +50,8 @@ class NiftiReader(BaseImageReader):
             Metadata for the image.
 
         Raises:
-            ValueError: If the image has fewer than two dimensions.
+            ValueError: If the image does not have 2, 3 or 4 dimensions, or
+                uses a non-last channel axis for 4D input.
         """
         nib = _require_nibabel()
         source = nib.load(str(path))
@@ -209,6 +210,12 @@ class NiftiReader(BaseImageReader):
             )
 
         spatial_ndim = data.ndim - 1
+        if spatial_ndim != 3 and (
+            target_shape is not None or target_spacing is not None
+        ):
+            raise ValueError(
+                "target_shape and target_spacing require a 3D NIfTI volume."
+            )
         interpolation = order if order is not None else (0 if is_mask else 1)
         if spatial_ndim == 3:
             spacing_xyz = (

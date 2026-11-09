@@ -286,7 +286,9 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         )
         try:
             model = CNN(dataset=dataset)
-            self.assertIsNotNone(model)
+            batch = next(iter(get_dataloader(dataset, batch_size=2)))
+            output = model(**batch)
+            self.assertIn("loss", output)
         finally:
             dataset.close()
 
@@ -432,6 +434,18 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         ):
             DicomSeriesReader().read_metadata(self.root)
 
+    def test_read_image_metadata_mask_tuple(self):
+        self._write_series()
+        mask_dir = self.root / "masks"
+        _write_masks(mask_dir, 3, "IMG", "-")
+        metadata = read_image_metadata(
+            (mask_dir, self.root),
+            reader="image_mask",
+            target_shape=(2, 3, 4),
+        )
+        self.assertEqual(metadata["shape"], (1, 2, 3, 4))
+        self.assertEqual(len(metadata["spacing"]), 3)
+
     def test_read_image_metadata_target_requires_3d(self):
         path = self._write_single()
         with self.assertRaisesRegex(ValueError, "3D volume"):
@@ -480,14 +494,15 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
             array = np.zeros((5, 7), dtype=np.uint8)
             array[0, 0] = index + 1
             Image.fromarray(array).save(mask_dir / f"IMG-{index}.png")
-        for kwargs in ({}, {"target_shape": (2, 3, 4)}):
-            processor = ImageMaskDirectoryProcessor(
-                lazy=False, canonical=False, **kwargs
-            )
-            with self.assertRaisesRegex(
-                ValueError, "does not match the reference"
-            ):
-                processor.process((mask_dir, self.root))
+        for lazy in (False, True):
+            for kwargs in ({}, {"target_shape": (2, 3, 4)}):
+                processor = ImageMaskDirectoryProcessor(
+                    lazy=lazy, canonical=False, **kwargs
+                )
+                with self.assertRaisesRegex(
+                    ValueError, "does not match the reference"
+                ):
+                    processor.process((mask_dir, self.root))
 
     def test_mask_alignment_requires_readable_series(self):
         mask_dir = self.root / "masks"
@@ -645,6 +660,20 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "different window"):
             DicomSeriesReader().load(self.root, window=True)
 
+    def test_single_dicom_rejects_half_window(self):
+        path = self.root / "half_window.dcm"
+        _write_slice(
+            path,
+            1024,
+            0.0,
+            1,
+            self.series_uid,
+            self.study_uid,
+            window_center=-1000.0,
+        )
+        with self.assertRaisesRegex(ValueError, "both WindowCenter"):
+            DicomReader().load(str(path), window=True)
+
     def test_series_monochrome1_window_is_applied_before_inversion(self):
         for index, value in enumerate((10, 20, 30)):
             _write_slice(
@@ -747,6 +776,63 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         dataset.save_as(str(path), enforce_file_format=True)
         with self.assertRaises(ValueError):
             DicomSeriesReader().load(str(path), normalize="auto")
+
+    def test_lazy_mask_dataloader_with_reference_series(self):
+        self._write_series()
+        mask_dir = self.root / "masks"
+        _write_masks(mask_dir, 3, "IMG", "-")
+        dataset = create_sample_dataset(
+            [
+                {
+                    "patient_id": "p0",
+                    "mask": (str(mask_dir), str(self.root)),
+                    "label": 0,
+                },
+                {
+                    "patient_id": "p1",
+                    "mask": (str(mask_dir), str(self.root)),
+                    "label": 1,
+                },
+            ],
+            {
+                "mask": (
+                    "image_mask_dir",
+                    {"lazy": True, "canonical": False},
+                )
+            },
+            {"label": "binary"},
+            in_memory=False,
+        )
+        try:
+            self.assertIsInstance(dataset[0]["mask"], dict)
+            batch = next(iter(get_dataloader(dataset, batch_size=2)))
+            self.assertEqual(tuple(batch["mask"].shape), (2, 1, 3, 6, 8))
+        finally:
+            dataset.close()
+
+    def test_series_uid_selection(self):
+        other_uid = generate_uid()
+        _write_slice(
+            self.root / "a.dcm",
+            1024,
+            0.0,
+            1,
+            self.series_uid,
+            self.study_uid,
+        )
+        _write_slice(
+            self.root / "b.dcm",
+            1024,
+            0.0,
+            1,
+            other_uid,
+            self.study_uid,
+        )
+        metadata = DicomSeriesReader().read_metadata(
+            self.root, series_uid=other_uid
+        )
+        self.assertEqual(len(metadata["source"]), 1)
+        self.assertTrue(metadata["source"][0].endswith("b.dcm"))
 
     def test_series_processor(self):
         self._write_series()

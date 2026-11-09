@@ -121,15 +121,17 @@ class ImageMaskDirectoryProcessor(FeatureProcessor):
                 rows/columns.
         """
         mask_dir, series_path = self._split_value(value)
-        self._prepare(mask_dir, series_path)
+        files, metadata = self._prepare(mask_dir, series_path)
         if self.lazy:
             return {
                 "mask_dir": str(mask_dir.resolve()),
                 "series_path": (
-                    None if series_path is None else str(Path(series_path).resolve())
+                    None
+                    if series_path is None
+                    else str(Path(series_path).resolve())
                 ),
             }
-        return self._load(mask_dir, series_path)
+        return self._load_prepared(files, metadata)
 
     def materialize(self, value: Any) -> Any:
         """Load a lazy mask value and return an integer mask tensor.
@@ -143,9 +145,10 @@ class ImageMaskDirectoryProcessor(FeatureProcessor):
         if isinstance(value, dict):
             mask_dir = Path(value["mask_dir"])
             series_path = value.get("series_path")
-            return self._load(mask_dir, series_path)
-        mask_dir, series_path = self._split_value(value)
-        return self._load(mask_dir, series_path)
+        else:
+            mask_dir, series_path = self._split_value(value)
+        files, metadata = self._prepare(mask_dir, series_path)
+        return self._load_prepared(files, metadata)
 
     def _split_value(self, value: Any) -> tuple[Path, str | Path | None]:
         """Return ``(mask_dir, series_path)`` from a mask value."""
@@ -170,8 +173,18 @@ class ImageMaskDirectoryProcessor(FeatureProcessor):
             canonical=self.canonical,
         )
         reader = ImageMaskReader()
+        mask_metadata = reader.read_metadata(tuple(files))
         if metadata is None:
-            metadata = reader.read_metadata(tuple(files))
+            metadata = mask_metadata
+        else:
+            source_shape = metadata.get("source_shape")
+            mask_shape = tuple(int(v) for v in mask_metadata["shape"][1:])
+            if source_shape is not None and mask_shape != tuple(source_shape):
+                raise ValueError(
+                    f"Mask volume shape {mask_shape} does not match the "
+                    f"reference image shape {tuple(source_shape)}; check the "
+                    "mask slice count and in-plane rows/columns."
+                )
         if (
             self.target_shape is not None or self.target_spacing is not None
         ) and (metadata is None or metadata.get("affine") is None):
@@ -181,9 +194,10 @@ class ImageMaskDirectoryProcessor(FeatureProcessor):
             )
         return files, metadata
 
-    def _load(self, mask_dir: Path, series_path: str | Path | None) -> Any:
-        """Load masks and apply this processor's settings."""
-        files, metadata = self._prepare(mask_dir, series_path)
+    def _load_prepared(
+        self, files: list[Path], metadata: dict[str, Any] | None
+    ) -> Any:
+        """Load prepared masks and apply this processor's settings."""
         array = ImageMaskReader().load(
             tuple(files),
             metadata=metadata,

@@ -496,6 +496,10 @@ class DicomReader(BaseImageReader):
                 if window_width is not None
                 else intensity.get("window_width")
             )
+            if (center is None) != (width is None):
+                raise ValueError(
+                    "DICOM window requires both WindowCenter and WindowWidth."
+                )
             if center is not None and width is not None:
                 # Window tags describe the stored intensities, so apply the
                 # window before any MONOCHROME1 inversion.
@@ -604,6 +608,7 @@ class DicomSeriesReader(BaseImageReader):
             "series_id": str(getattr(first, "SeriesInstanceUID", "") or "")
             or None,
             "source": tuple(str(file) for file, _ in entries),
+            "source_shape": tuple(int(value) for value in reversed(shape_xyz)),
             "n_frames": len(entries),
         }
 
