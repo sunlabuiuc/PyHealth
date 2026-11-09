@@ -211,6 +211,18 @@ def _build_task(args: argparse.Namespace):
     raise ValueError(f"Unknown task: {args.task}")
 
 
+def _is_mortality_task(task: str) -> bool:
+    """Whether this --task value predicts in-hospital mortality.
+
+    Derived from each task class's ``output_schema`` (both declare
+    ``{"mortality": "binary"}``), not from the task name alone, so a
+    future non-mortality task stays silent.
+    """
+    task_classes = {"labs": LabsMIMIC4, "notes_labs": NotesLabsMIMIC4}
+    task_cls = task_classes.get(task)
+    return task_cls is not None and "mortality" in task_cls.output_schema
+
+
 def _split_dataset(
     dataset: Any, seed: int, allow_leaky_split: bool = False
 ) -> Tuple[Any, Any, Any, str]:
@@ -467,6 +479,18 @@ def run(args: argparse.Namespace, sample_dataset: Any = None) -> Path:
             tests). When ``None`` (the CLI path), the MIMIC-IV dataset is
             loaded from ``args`` roots and the task is applied to it.
     """
+    # A window of 0 keeps the full stay through discharge, so mortality
+    # features can include data up to discharge or death and the label can
+    # leak into the inputs. Warning only: driver arms share this path, so
+    # they warn here too.
+    if args.observation_window_hours == 0 and _is_mortality_task(args.task):
+        logger.warning(
+            "Task '%s' predicts in-hospital mortality with an observation "
+            "window of 0: features cover the full stay through discharge, "
+            "so the label can leak into the inputs. Pass "
+            "--observation-window-hours to cap collection per admission.",
+            args.task,
+        )
     set_seed(args.seed)
 
     if sample_dataset is None:
