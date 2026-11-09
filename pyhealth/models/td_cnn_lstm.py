@@ -557,6 +557,11 @@ class TDCNNLSTM(BaseModel):
             target.eval()
             self.target = target
 
+    @property
+    def mode(self) -> str:
+        """Reports the binary prediction mode to PyHealth consumers."""
+        return "binary"
+
     # ------------------------------------------------------------------
     # Dataset schema, canonicalization and validation
     # ------------------------------------------------------------------
@@ -569,8 +574,8 @@ class TDCNNLSTM(BaseModel):
                 "TDCNNLSTM expects output_schema {'label': 'binary'} "
                 f"(observed 28-day mortality); got labels {self.label_keys}"
             )
-        if self.mode != "binary":
-            raise ValueError(f"TDCNNLSTM supports binary labels only; got {self.mode}")
+        if dataset.output_schema != {"label": "binary"}:
+            raise ValueError("TDCNNLSTM expects output_schema {'label': 'binary'}")
         missing = [key for key in STATE_KEYS if key not in dataset.input_schema]
         if missing:
             raise ValueError(f"dataset.input_schema is missing {missing}")
