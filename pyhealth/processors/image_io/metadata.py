@@ -108,6 +108,22 @@ def read_image_metadata(
             )
             metadata = ImageMaskReader().read_metadata(tuple(files))
             if series_metadata is not None:
+                source_shape = series_metadata.get("source_shape")
+                if source_shape is not None:
+                    mask_shape = tuple(
+                        int(value) for value in metadata["shape"][1:]
+                    )
+                    if mask_shape != tuple(source_shape):
+                        raise ValueError(
+                            f"Mask volume shape {mask_shape} does not match "
+                            f"the reference image shape {tuple(source_shape)}; "
+                            "check the mask slice count and in-plane "
+                            "rows/columns."
+                        )
+                if series_metadata.get("shape") is not None:
+                    # Shape must follow the same canonical/source layout as
+                    # affine and spacing from the reference series.
+                    metadata["shape"] = series_metadata["shape"]
                 for key in (
                     "affine",
                     "source_affine",

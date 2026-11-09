@@ -446,6 +446,29 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         self.assertEqual(metadata["shape"], (1, 2, 3, 4))
         self.assertEqual(len(metadata["spacing"]), 3)
 
+    def test_read_image_metadata_mask_tuple_non_axial(self):
+        iop = [0, 1, 0, 0, 0, 1]
+        for index in range(3):
+            _write_slice(
+                self.root / f"IMG-{index}.dcm",
+                1024,
+                float(index),
+                index + 1,
+                self.series_uid,
+                self.study_uid,
+                iop=iop,
+                position=[float(index) * 3.0, 0.0, 0.0],
+            )
+        mask_dir = self.root / "masks"
+        _write_masks(mask_dir, 3, "IMG", "-")
+        metadata = read_image_metadata(
+            (mask_dir, self.root), reader="image_mask"
+        )
+        tensor = ImageMaskDirectoryProcessor(
+            lazy=False, canonical=True
+        ).process((mask_dir, self.root))
+        self.assertEqual(metadata["shape"], tuple(tensor.shape))
+
     def test_read_image_metadata_target_requires_3d(self):
         path = self._write_single()
         with self.assertRaisesRegex(ValueError, "3D volume"):
