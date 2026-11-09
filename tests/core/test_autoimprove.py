@@ -1018,6 +1018,35 @@ class TestClinicalReport(unittest.TestCase):
         expected = (values - values.mean(axis=0)) * weights
         np.testing.assert_allclose(contribs, expected, atol=1e-4)
 
+    def test_time_series_attributions_per_feature(self):
+        # A (time, features) field: integrated gradients of a linear model are
+        # exact, summed over time per feature; values are averaged over time.
+        rng = np.random.default_rng(0)
+        samples = [{"patient_id": f"p{i}", "ts": rng.normal(size=(4, 3)).tolist(),
+                    "label": i % 2} for i in range(40)]
+        data = create_sample_dataset(samples, {"ts": "tensor"}, {"label": "binary"})
+        weight = torch.tensor([0.5, -1.0, 0.0])
+
+        class Linear(torch.nn.Module):
+            feature_keys = ["ts"]
+
+            def __init__(self):
+                super().__init__()
+                self.bias = torch.nn.Parameter(torch.zeros(1))
+
+            def forward(self, ts, **kwargs):
+                return {"logit": (ts * weight).sum(dim=(1, 2)).unsqueeze(-1) + self.bias}
+
+        out = attributions(Linear(), data, steps=5)
+        x = np.stack([np.asarray(s["ts"].numpy(), dtype=float)
+                      for s in (data[i] for i in range(len(data)))])
+        values = out["fields"]["ts"]["values"]
+        contribs = out["fields"]["ts"]["contributions"]
+        np.testing.assert_allclose(values, x.mean(axis=1), atol=1e-5)
+        expected = ((x - x.mean(axis=0)) * weight.numpy()).sum(axis=1)
+        np.testing.assert_allclose(contribs, expected, atol=1e-4)
+        self.assertEqual(contribs.shape, (40, 3))
+
     def test_tree_attributions_use_the_model_columns(self):
         # A nested multi-hot field is (n, visits, vocab) as input but one
         # column per code (visit counts, reserved codes dropped) in the tree

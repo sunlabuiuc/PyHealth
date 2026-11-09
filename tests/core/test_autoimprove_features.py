@@ -3,7 +3,6 @@
 import math
 import unittest
 from datetime import datetime, timedelta
-from unittest import mock
 
 import numpy as np
 import polars as pl
@@ -243,10 +242,20 @@ class TestFutureBlind(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "future-blind.*admissions|future-blind"):
             fs.augment(_samples(), [safe, leak])
         train = fs.augment(_samples(), [safe])  # tested here, and passes
-        # a spec that already passed is not tested again
-        with mock.patch.object(fs, "future_blind") as blind:
-            fs.augment(_samples(), [safe], stats=train.stats)
-        blind.assert_not_called()
+        self.assertEqual(train.names, [safe.name])
+
+    def test_augment_checks_every_sample(self):
+        # Only p0 has the leaking stay; a screen of one random sample can miss
+        # it, augment cannot.
+        fs = _space()
+        leak = fs.validate({"op": "stat", "agg": "max", "attr": "los", "window": 30,
+                            "select": {"event_type": "admissions"}, "rationale": "r"})
+        samples = _samples(12)
+        screens = [fs.future_blind([leak], samples, n_samples=1, seed=s)[leak.name]
+                   for s in range(12)]
+        self.assertIn(None, screens)  # some one-sample screens pass
+        with self.assertRaisesRegex(ValueError, "1 of 12 checked samples"):
+            fs.augment(samples, [leak])
 
 
 class TestFromTask(unittest.TestCase):
