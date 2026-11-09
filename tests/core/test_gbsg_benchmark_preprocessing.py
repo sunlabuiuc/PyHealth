@@ -96,6 +96,7 @@ def test_gbsg_standardization_uses_training_rows_and_preserves_labels(tmp_path):
     assert scaled.split(1)[2] == metadata
 
 
+@threaded_csv_loading()
 def test_gbsg_cli_versions_preprocessing_and_reuses_saved_fits(tmp_path, capsys):
     root = tmp_path / "inputs"
     released, _ = write_inputs(root)
