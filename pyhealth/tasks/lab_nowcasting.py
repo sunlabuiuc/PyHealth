@@ -90,7 +90,8 @@ def _parse_time(value: Any) -> datetime | None:
 
 
 def _number(column: str) -> pl.Expr:
-    return pl.col(column).cast(pl.Float64, strict=False)
+    # NaN counts as missing, as in lab_flag
+    return pl.col(column).cast(pl.Float64, strict=False).fill_nan(None)
 
 
 class LabNowcasting(BaseTask):

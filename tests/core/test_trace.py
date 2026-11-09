@@ -14,6 +14,7 @@ from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.metrics import multilabel_metrics_fn, multilabel_ranking_at_k
 from pyhealth.models import TRACE, TRACEAttention, TRACETimeEmbedding
 from pyhealth.tasks import LabNowcastingMIMIC3, LabNowcastingMIMIC4, lab_flag
+from pyhealth.tasks.lab_nowcasting import LabNowcasting
 from pyhealth.trainer import Trainer
 
 T0 = datetime(2150, 1, 1, 8, 0)
@@ -170,6 +171,22 @@ class TestLabNowcastingTask(unittest.TestCase):
         self.assertEqual(lab_flag(5.1, 3.5, 5.1), "N")
         self.assertEqual(lab_flag(None, 3.5, 5.1, "abnormal"), "A")
         self.assertEqual(lab_flag("pending", None, None, None), "N")
+
+    def test_table_flags_match_lab_flag(self):
+        rows = [
+            ("6.2", "3.5", "5.1", None), ("3.0", "3.5", None, None),
+            ("NaN", "3.5", "5.1", "abnormal"), ("4.0", "NaN", "NaN", "abnormal"),
+            (None, "3.5", "5.1", "abnormal"), ("pending", None, None, None),
+            ("4.0", None, None, "abnormal"),
+        ]
+        names = ["valuenum", "ref_range_lower", "ref_range_upper", "flag"]
+        df = pl.DataFrame(
+            {f"labevents/{n}": [r[i] for r in rows] for i, n in enumerate(names)},
+            schema={f"labevents/{n}": pl.Utf8 for n in names},
+        )
+        table = df.select(LabNowcasting._flag_expr(df)).to_series().to_list()
+        self.assertEqual(table, [lab_flag(*r) for r in rows])
+        self.assertEqual(table, ["H", "L", "A", "A", "A", "N", "A"])
 
     def test_last_draw_sample(self):
         (sample,) = LabNowcastingMIMIC4()(_patient(_trajectory()))
