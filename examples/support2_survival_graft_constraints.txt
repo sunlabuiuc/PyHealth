@@ -1,0 +1,12 @@
+torch==2.10.0+cpu
+torchvision==0.25.0+cpu
+torchsort==0.1.10
+numpy==2.2.6
+pandas==2.3.3
+scipy==1.18.1
+scikit-learn==1.7.2
+lifelines==0.30.3
+scikit-survival==0.26.0
+pycox==0.3.0
+torchtuples==0.2.2
+feather-format==0.4.1
