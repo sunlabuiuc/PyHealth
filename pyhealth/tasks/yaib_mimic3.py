@@ -1107,7 +1107,7 @@ class YAIBSepsisMIMIC3(_YAIBMIMIC3Task):
     procedures, so it is inferred from charted ventilation settings (each
     one starts a ventilation window that ends at the next charted or
     MetaVision extubation within 6 hours, or else after 6 hours, kept if at
-    least 30 minutes long). Vasopressors come from both ``inputevents_cv``
+    least 30 minutes long; see the note on ventilation windows). Vasopressors come from both ``inputevents_cv``
     (CareVue, where each rate lasts until the next one of the same order,
     for at most 6 hours, or 1 hour for the last) and ``inputevents_mv``
     (MetaVision). GCS also uses the charted CareVue total, which takes
@@ -1132,6 +1132,16 @@ class YAIBSepsisMIMIC3(_YAIBMIMIC3Task):
     :class:`~pyhealth.tasks.YAIBSepsisMIMIC4`. With ricu's grid instead, the
     cohort and labels were verified to match YAIB-cohorts exactly on the
     MIMIC-III demo.
+
+    Note on ventilation windows (deliberate deviation from YAIB): a
+    ventilation start without an extubation within 6 hours gets a window of
+    6 hours. In ricu 0.6.0, which YAIB pins, ``vent_ind`` instead gives it
+    the duration ``start + 6 hours`` (``calc_dur`` adds ``match_win`` to the
+    start time, where the matched case returns ``end - start``), so such
+    windows grow with the time since ICU admission. This is a ricu bug that
+    YAIB inherits, fixed as in :class:`~pyhealth.tasks.YAIBSepsisEICU`, whose
+    docstring gives the reasoning. The demo verification above already used
+    the 6-hour windows, so on the MIMIC-III demo the bug changes no label.
 
     On top of the YAIB base cohort, stays with onset before hour 6 of the
     ICU stay are excluded, including onsets before ICU admission (as in

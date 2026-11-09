@@ -133,6 +133,13 @@ from .yaib_mimic4 import (
     YAIBMortalityMIMIC4 as YAIBMortalityMIMIC4,
     YAIBSepsisMIMIC4 as YAIBSepsisMIMIC4,
 )
+from .yaib_eicu import (
+    YAIBAKIEICU as YAIBAKIEICU,
+    YAIBKidneyFunctionEICU as YAIBKidneyFunctionEICU,
+    YAIBLengthOfStayEICU as YAIBLengthOfStayEICU,
+    YAIBMortalityEICU as YAIBMortalityEICU,
+    YAIBSepsisEICU as YAIBSepsisEICU,
+)
 
 
 def __getattr__(name: str):
