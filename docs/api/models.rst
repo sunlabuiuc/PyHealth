@@ -279,4 +279,5 @@ API Reference
     models/pyhealth.models.HeartLang
     models/pyhealth.models.APN
     models/pyhealth.models.TRACE
+    models/pyhealth.models.MIRA
 
