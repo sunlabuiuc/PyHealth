@@ -3,6 +3,7 @@
 import math
 import unittest
 from datetime import datetime, timedelta
+from unittest import mock
 
 import numpy as np
 import polars as pl
@@ -10,7 +11,10 @@ import polars as pl
 from pyhealth.autoimprove.evaluate import fold_parts
 from pyhealth.autoimprove.features import EngineeredDataset, FeatureSpace, FeatureSpec
 from pyhealth.data import Patient
-from pyhealth.datasets import create_sample_dataset
+from pyhealth.datasets import create_sample_dataset, get_dataloader
+from pyhealth.models import LogisticRegression
+from pyhealth.tasks import FeatureInfo, TaskCard
+from pyhealth.trainer import Trainer
 
 T = datetime(2020, 12, 31)
 
@@ -229,7 +233,69 @@ class TestFutureBlind(unittest.TestCase):
         self.assertIn("SABA order", rows[0]["definition"])
 
 
+    def test_augment_refuses_specs_that_fail(self):
+        fs = _space()
+        leak = fs.validate({"op": "stat", "agg": "max", "attr": "los", "window": 30,
+                            "select": {"event_type": "admissions"}, "rationale": "r"})
+        safe = fs.validate({"op": "count", "window": 365, "select": SABA,
+                            "rationale": "r"})
+        self.assertEqual(safe.direction, "")  # a direction is optional
+        with self.assertRaisesRegex(ValueError, "future-blind.*admissions|future-blind"):
+            fs.augment(_samples(), [safe, leak])
+        train = fs.augment(_samples(), [safe])  # tested here, and passes
+        # a spec that already passed is not tested again
+        with mock.patch.object(fs, "future_blind") as blind:
+            fs.augment(_samples(), [safe], stats=train.stats)
+        blind.assert_not_called()
+
+
+class TestFromTask(unittest.TestCase):
+    def test_reads_the_task_hooks_and_card(self):
+        def episodes(patient, t):
+            return []
+
+        class Task:
+            time_key = "t"
+            derived_event_types = {"episodes": ["n_stays"]}
+            derived_events = staticmethod(episodes)
+
+            def feature_vocabulary(self):
+                return VOCAB
+
+            def task_card(self):
+                return TaskCard(population=("adults", "test"), outcome="y",
+                                features={"age": FeatureInfo("age", "demographics")},
+                                columns={"x": ["age", "bias"]})
+
+        fs = FeatureSpace.from_task(FakeDataset(), Task(), max_features=3)
+        self.assertEqual(fs.time_key, "t")
+        self.assertEqual(fs.vocabulary, VOCAB)
+        self.assertEqual(fs.derived_types, {"episodes": ["n_stays"]})
+        self.assertIs(fs.derived_events, episodes)
+        self.assertEqual(fs.columns, {"x": ["age", "bias"]})
+        self.assertEqual(fs.max_features, 3)
+        spec = fs.validate({"op": "column", "column": "age", "rationale": "r"})
+        self.assertEqual(fs.compute([spec], _samples(3))[:, 0].tolist(), [0.0, 1.0, 2.0])
+
+
 class TestEngineeredDataset(unittest.TestCase):
+    def test_a_model_trains_on_engineered_features(self):
+        fs = _space()
+        spec = fs.validate({"op": "count", "window": 365, "select": SABA,
+                            "rationale": "recent reliever use", "direction": "+"})
+        train = fs.augment(_samples(12), [spec])
+        model = LogisticRegression(train, embedding_dim=4)
+        self.assertIn("engineered", model.feature_keys)
+        Trainer(model=model, enable_logging=False).train(
+            train_dataloader=get_dataloader(train, batch_size=4, shuffle=True),
+            epochs=1,
+        )
+        batch = next(iter(get_dataloader(train, batch_size=4)))
+        self.assertEqual(tuple(batch["engineered"].shape), (4, 1))
+        out = model(**batch)
+        self.assertTrue(math.isfinite(float(out["loss"])))
+
+
     def test_per_fold_statistics(self):
         base = _samples(6)
         raw = np.array([[1.0], [2.0], [np.nan], [3.0], [100.0], [4.0]])
