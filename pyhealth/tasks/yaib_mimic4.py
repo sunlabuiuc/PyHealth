@@ -18,6 +18,7 @@ from typing import Any, ClassVar, NamedTuple
 import numpy as np
 import polars as pl
 
+from ..processors import Records
 from .base_task import BaseTask
 
 
@@ -112,6 +113,8 @@ _DYNAMIC_FEATURES: dict[str, tuple[float | None, float | None, list[_Item]]] = {
     ),
     "wbc": (0, None, [_lab(51301)]),
 }
+
+_STATIC_FEATURES = ("age", "sex", "height", "weight")
 
 # Chart-based static features, aggregated by median over the whole stay.
 _STATIC_CHART_FEATURES: dict[str, tuple[float | None, float | None, list[_Item]]] = {
@@ -226,15 +229,18 @@ class _YAIBMIMIC4Task(BaseTask):
     Each sample holds ``dynamic``, a ``sequence_v2`` series of the hourly
     bins (``{"time": [0, 1, ..., T], "values": [T + 1, 48]}``, time in hours
     since ICU admission, ``NaN`` for bins without measurement), and
-    ``static`` (``[age, sex, height, weight]``, sex encoded as 1 for male and
-    0 for female, ``NaN`` when unavailable). Per-hour labels are
+    ``static``, a ``sequence_v2`` series with one record at hour 0, known
+    before any hourly bin (``{"time": [0], "values": [[age, sex, height,
+    weight]]}``, sex encoded as 1 for male and 0 for female, ``NaN`` when
+    unavailable). Per-hour labels are
     ``timeseries_*`` labels on the same hours (``{"time": [...], "values":
     [...]}``), so a model predicts at hour ``h`` from the bins up to ``h``.
     Missing values are left to the processors, which apply YAIB's
     preprocessing: the dynamic features are forward-filled, with values
     before the first measurement set to the training mean (0 once
     standardized), standardized, and get a missing-value mask; the static
-    features get missing-value indicators, are standardized and zero-filled.
+    features get a missing-value mask, are standardized and set to the
+    training mean (0 once standardized) where missing.
     The statistics are learned when the processors are fitted, so use
     ``set_task(task, split=...)`` to learn them on the training patients
     only. Unlike YAIB, which label-encodes sex as a category, sex is
@@ -287,18 +293,30 @@ class _YAIBMIMIC4Task(BaseTask):
                 ]
             },
         ),
+        # The training mean (0 once standardized), then 0 for a feature never
+        # seen in training: YAIB's standardize-then-zero-fill, with the
+        # missing-value indicators as the mask.
         "static": (
-            "tensor",
+            "sequence_v2",
             {
-                "normalization": "zscore",
-                "missing_indicators": True,
-                "impute_strategy": "zero",
+                "levels": [
+                    {
+                        "ordering": "series",
+                        "values": [len(_STATIC_FEATURES)],
+                        "impute": [
+                            {"method": "mean", "by_dims": ()},  # per feature
+                            {"method": "zero"},
+                        ],
+                        "normalize": {"method": "zscore"},
+                        "missing_indicator": True,
+                    }
+                ]
             },
         ),
     }
 
     DYNAMIC_FEATURES: ClassVar[list[str]] = list(_DYNAMIC_FEATURES)
-    STATIC_FEATURES: ClassVar[list[str]] = ["age", "sex", "height", "weight"]
+    STATIC_FEATURES: ClassVar[list[str]] = list(_STATIC_FEATURES)
 
     _DYNAMIC_ITEMS: ClassVar[pl.DataFrame] = _item_lookup(_DYNAMIC_FEATURES)
     _STATIC_ITEMS: ClassVar[pl.DataFrame] = _item_lookup(_STATIC_CHART_FEATURES)
@@ -533,6 +551,11 @@ class _YAIBMIMIC4Task(BaseTask):
         return {"time": [float(hour) for hour in range(end + 1)], "values": values}
 
     @staticmethod
+    def _static_series(values: list[float]) -> Records:
+        """The static features as one record at hour 0, before any bin."""
+        return {"time": [0.0], "values": [values]}
+
+    @staticmethod
     def _labels(time: list[float], labels: list[float]) -> dict[str, Any]:
         """A per-hour label series on the hours of ``dynamic``."""
         return {"time": time, "values": [[label] for label in labels]}
@@ -713,7 +736,7 @@ class YAIBMortalityMIMIC4(_YAIBMIMIC4Task):
                     "dynamic": self._dynamic(
                         hourly, stay_id, min(end, self.OBSERVATION_HOURS)
                     ),
-                    "static": static[stay_id],
+                    "static": self._static_series(static[stay_id]),
                     "mortality": int(death is not None),
                 }
             )
@@ -731,6 +754,11 @@ class YAIBKidneyFunctionMIMIC4(_YAIBMIMIC4Task):
     excluded if the ICU stay is shorter than 48 hours or has no creatinine in
     that window.
 
+    As in YAIB, the label is min-max scaled to 0..1 on the range of the
+    training labels (learned when the processors are fitted, so use
+    ``set_task(task, split=...)``; other splits are not clipped). The loss is
+    on the scaled label, and predictions and metrics are in mg/dL.
+
     Requires the ``labevents``, ``chartevents`` and ``outputevents`` tables.
 
     Examples:
@@ -744,7 +772,9 @@ class YAIBKidneyFunctionMIMIC4(_YAIBMIMIC4Task):
     """
 
     task_name: str = "YAIBKidneyFunctionMIMIC4"
-    output_schema: ClassVar[dict[str, Any]] = {"creatinine": "regression"}
+    output_schema: ClassVar[dict[str, Any]] = {
+        "creatinine": ("regression", {"normalization": "minmax"})
+    }
 
     OBSERVATION_HOURS: ClassVar[int] = 24
     MIN_STAY_HOURS: ClassVar[int] = 48
@@ -778,7 +808,7 @@ class YAIBKidneyFunctionMIMIC4(_YAIBMIMIC4Task):
                     "dynamic": self._dynamic(
                         hourly, stay_id, min(end, self.OBSERVATION_HOURS)
                     ),
-                    "static": static[stay_id],
+                    "static": self._static_series(static[stay_id]),
                     "creatinine": labels[stay_id],
                 }
             )
@@ -796,7 +826,11 @@ class YAIBLengthOfStayMIMIC4(_YAIBMIMIC4Task):
     exclusions.
 
     The label is a per-hour series on the hours of ``dynamic``
-    (``timeseries_regression``), so models predict at every hour.
+    (``timeseries_regression``), so models predict at every hour. As in
+    YAIB, it is min-max scaled to 0..1 on the range of all hourly training
+    labels (learned when the processors are fitted, so use
+    ``set_task(task, split=...)``; other splits are not clipped). The loss is
+    on the scaled label, and predictions and metrics are in hours.
 
     Requires the ``labevents``, ``chartevents`` and ``outputevents`` tables.
 
@@ -811,7 +845,9 @@ class YAIBLengthOfStayMIMIC4(_YAIBMIMIC4Task):
     """
 
     task_name: str = "YAIBLengthOfStayMIMIC4"
-    output_schema: ClassVar[dict[str, Any]] = {"los": "timeseries_regression"}
+    output_schema: ClassVar[dict[str, Any]] = {
+        "los": ("timeseries_regression", {"normalization": "minmax"})
+    }
 
     MAX_HOURS: ClassVar[int] = 7 * 24
 
@@ -833,7 +869,7 @@ class YAIBLengthOfStayMIMIC4(_YAIBMIMIC4Task):
                     "patient_id": patient.patient_id,
                     "stay_id": stay_id,
                     "dynamic": dynamic,
-                    "static": static[stay_id],
+                    "static": self._static_series(static[stay_id]),
                     "los": self._labels(dynamic["time"], remaining),
                 }
             )
@@ -976,7 +1012,7 @@ class YAIBAKIMIMIC4(_YAIBMIMIC4Task):
                     "patient_id": patient.patient_id,
                     "stay_id": stay_id,
                     "dynamic": dynamic,
-                    "static": static[stay_id],
+                    "static": self._static_series(static[stay_id]),
                     "aki": self._labels(dynamic["time"], labels),
                 }
             )
@@ -1607,7 +1643,7 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
                     "patient_id": patient.patient_id,
                     "stay_id": stay_id,
                     "dynamic": dynamic,
-                    "static": static[stay_id],
+                    "static": self._static_series(static[stay_id]),
                     "sepsis": self._labels(dynamic["time"], labels),
                 }
             )

@@ -6,7 +6,6 @@ import torch
 
 from . import register_processor
 from .base_processor import FeatureProcessor
-from .sequence_processor_v2 import Records, SequenceProcessorV2
 from .utils import (
     NORMALIZATIONS,
     Normalization,
@@ -189,90 +188,3 @@ class TimeseriesProcessor(FeatureProcessor):
             f"normalization={self.normalization!r}, "
             f"missing_indicators={self.missing_indicators})"
         )
-
-
-class TimeseriesLabelProcessor(SequenceProcessorV2):
-    """Base processor for labels given at time points (a restricted V2 field).
-
-    A :class:`SequenceProcessorV2` with one fixed ``series`` level of scalar
-    values, so a label is a :class:`Records`: ``{"time": [...], "values":
-    [[v], ...]}`` (a flat ``[v, ...]`` also works). Times are in the unit of
-    the inputs' top level and must be strictly increasing: two labels at one
-    time raise. A missing label is left out rather than given as NaN, which
-    raises. There is no grid, resampling, imputation or mask.
-
-    A model predicts one value per label, at its time, from the input records
-    at or before it (see :class:`~pyhealth.models.RNN_V2`).
-
-    Output:
-        - ``(values, time)``: ``[N, 1]`` values and ``[N]`` times. A batch
-          (:meth:`collate`) is packed: ``[ΣN, 1]`` values, ``[ΣN]`` times
-          and the batch offsets ``[B + 1]``.
-
-    The registered names ``"timeseries_binary"`` and
-    ``"timeseries_regression"`` are model modes of their own, so modules that
-    assume one prediction per sample (calibration, prediction sets,
-    interpretability) do not treat these labels as ``"binary"`` or
-    ``"regression"``.
-
-    Examples:
-        >>> from pyhealth.processors import TimeseriesRegressionLabelProcessor
-        >>> TimeseriesRegressionLabelProcessor().process({"time": [0.0, 3.0], "values": [2.5, 4.0]})
-        (tensor([[2.5000],
-                [4.0000]]), tensor([0., 3.]))
-    """
-
-    def __init__(self) -> None:
-        super().__init__(levels=[{"ordering": "series", "values": [1]}])
-        # No tokens and no statistics: there is nothing to fit.
-        self._fitted = True
-
-    def process(self, value: Records) -> tuple[torch.Tensor, ...]:
-        if isinstance(value, dict) and "time" in value:
-            time = np.asarray(value["time"], dtype=np.float64)
-            if (np.diff(time) <= 0).any():
-                raise ValueError(
-                    "Label times must be strictly increasing: give at most one "
-                    "label per time."
-                )
-        output = super().process(value)
-        self._check(output[0])
-        return output
-
-    def _check(self, values: torch.Tensor) -> None:
-        pass
-
-    def size(self) -> int:
-        """One output per label."""
-        return 1
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}()"
-
-
-@register_processor("timeseries_binary")
-class TimeseriesBinaryLabelProcessor(TimeseriesLabelProcessor):
-    """Binary (0/1) labels at time points, see :class:`TimeseriesLabelProcessor`.
-
-    Examples:
-        >>> from pyhealth.processors import TimeseriesBinaryLabelProcessor
-        >>> TimeseriesBinaryLabelProcessor().process({"time": [0.0, 1.0], "values": [0, 1]})
-        (tensor([[0.],
-                [1.]]), tensor([0., 1.]))
-    """
-
-    def _check(self, values: torch.Tensor) -> None:
-        if not torch.isin(values, torch.tensor([0.0, 1.0])).all():
-            raise ValueError("Binary labels must be 0 or 1.")
-
-
-@register_processor("timeseries_regression")
-class TimeseriesRegressionLabelProcessor(TimeseriesLabelProcessor):
-    """Real-valued labels at time points, see :class:`TimeseriesLabelProcessor`.
-
-    Examples:
-        >>> from pyhealth.processors import TimeseriesRegressionLabelProcessor
-        >>> TimeseriesRegressionLabelProcessor().process({"time": [0.0, 2.0], "values": [2.5, 0.5]})
-        (tensor([[2.5000],
-                [0.5000]]), tensor([0., 2.]))
-    """
