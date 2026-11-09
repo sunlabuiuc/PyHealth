@@ -317,7 +317,7 @@ class TRACE(BaseModel):
             TRACELayer(embedding_dim, num_heads, max_len, dropout)
             for _ in range(num_layers)
         )
-        self.fc = nn.Linear(embedding_dim, self.get_output_size())
+        self.fc = nn.Linear(embedding_dim, self.label_processor.output_size())
 
     def _input_keys(
         self, feature_key: str | None, time_key: str | None
@@ -420,10 +420,10 @@ class TRACE(BaseModel):
             codes, times = codes[None], times[None]
         hidden = self.encode(codes, times)
         logit = self.fc(hidden)
-        out = {"logit": logit, "y_prob": self.prepare_y_prob(logit)}
+        out = {"logit": logit, "y_prob": self.label_processor.activation(logit)}
         if self.label_key in kwargs:
             y_true = kwargs[self.label_key].to(self.device).float()
-            loss = self.get_loss_function()(logit, y_true)
+            loss = self.label_processor.loss(logit, y_true)
             if self.denoise_weight:
                 loss = loss + self.denoise_weight * self.denoise_loss()
             out["loss"] = loss
