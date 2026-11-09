@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 
 from ..transforms import _require_nibabel, normalize_intensity, resample_volume
-from ..types import ImageMetadata, PathLike
+from ..types import PathLike
 from .base import BaseImageReader
 
 
@@ -36,7 +36,7 @@ class NiftiReader(BaseImageReader):
 
     def read_metadata(
         self, path: PathLike, *, canonical: bool = True, channel_axis: int = -1
-    ) -> ImageMetadata:
+    ) -> dict[str, Any]:
         """Read NIfTI header information without loading pixel data.
 
         Args:
@@ -101,26 +101,26 @@ class NiftiReader(BaseImageReader):
         if intercept is not None:
             intensity["intercept"] = float(intercept)
 
-        return ImageMetadata(
-            format="nifti",
-            shape=output_shape,
-            spacing=output_spacing,
-            affine=tuple(
+        return {
+            "format": "nifti",
+            "shape": output_shape,
+            "spacing": output_spacing,
+            "affine": tuple(
                 tuple(float(value) for value in row)
                 for row in metadata_affine
             ),
-            orientation=orientation,
-            dtype=data_dtype,
-            intensity=intensity,
-            source=(str(path),),
-            n_frames=n_frames,
-        )
+            "orientation": orientation,
+            "dtype": data_dtype,
+            "intensity": intensity,
+            "source": (str(path),),
+            "n_frames": n_frames,
+        }
 
     def load(
         self,
         path: PathLike,
         *,
-        metadata: ImageMetadata | None = None,
+        metadata: dict[str, Any] | None = None,
         channels: int | None = None,
         canonical: bool = True,
         target_spacing: Sequence[float] | None = None,

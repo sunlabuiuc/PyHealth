@@ -8,7 +8,6 @@ from . import register_processor
 from .base_processor import FeatureProcessor
 from .image_io.readers.nifti import NiftiReader
 from .image_io.tensor_utils import _materialize_and_collate, _to_torch
-from .image_io.types import ImageRef, _apply_resampling_to_metadata
 
 
 @register_processor("nifti")
@@ -16,8 +15,8 @@ class NiftiProcessor(FeatureProcessor):
     """Processor for NIfTI images and volumes.
 
     Args:
-        lazy: Store an :class:`ImageRef` in the sample cache instead of the
-            volume. Defaults to False; set True for lazy loading.
+        lazy: Store the file path in the sample cache instead of the volume.
+            Defaults to True; set False to cache tensors.
         channels: Expected channel count. If None, the reader infers it.
         canonical: Reorient to canonical RAS. Defaults to True.
         target_spacing: Target spacing in ``(D, H, W)`` order.
@@ -52,7 +51,7 @@ class NiftiProcessor(FeatureProcessor):
 
     def __init__(
         self,
-        lazy: bool = False,
+        lazy: bool = True,
         channels: int | None = None,
         canonical: bool = True,
         target_spacing: Sequence[float] | None = None,
@@ -112,55 +111,43 @@ class NiftiProcessor(FeatureProcessor):
         """Whether the processed cache stores a tensor (not a reference)."""
         return not self.lazy
 
-    def process(self, value: str | Path | ImageRef) -> Any:
-        """Process a NIfTI path or reference.
+    def process(self, value: str | Path) -> Any:
+        """Process a NIfTI path.
 
         Args:
-            value: File path or existing :class:`ImageRef`.
+            value: File path.
 
         Returns:
-            An :class:`ImageRef` in lazy mode, otherwise a tensor.
+            An absolute path string in lazy mode, otherwise a tensor.
 
         Raises:
             FileNotFoundError: If the path does not exist.
         """
-        if isinstance(value, ImageRef):
-            return self.materialize(value)
         path = Path(value)
         if not path.exists():
             raise FileNotFoundError(f"NIfTI file not found: {path}")
         reader = NiftiReader()
         if self.lazy:
-            metadata = reader.read_metadata(
+            # Validate the header at task-build time, not mid-training.
+            reader.read_metadata(
                 str(path),
                 canonical=self.canonical,
                 channel_axis=self.channel_axis,
             )
-            metadata = _apply_resampling_to_metadata(
-                metadata, self.target_shape, self.target_spacing
-            )
-            return ImageRef(
-                path=str(path.resolve()),
-                reader="nifti",
-                metadata=metadata,
-            )
+            return str(path.resolve())
         array = reader.load(str(path), **self._reader_kwargs())
         return _to_torch(array, dtype=self._output_dtype())
 
-    def materialize(self, ref: ImageRef) -> Any:
-        """Load an :class:`ImageRef` and apply this processor's settings.
+    def materialize(self, value: str | Path) -> Any:
+        """Load a lazy path and apply this processor's settings.
 
         Args:
-            ref: Reference created by :meth:`process`.
+            value: Path returned by :meth:`process`.
 
         Returns:
             A tensor with shape ``(C, H, W)`` or ``(C, D, H, W)``.
         """
-        array = NiftiReader().load(
-            ref.path,
-            metadata=ref.metadata,
-            **self._reader_kwargs(),
-        )
+        array = NiftiReader().load(str(value), **self._reader_kwargs())
         return _to_torch(array, dtype=self._output_dtype())
 
     def _output_dtype(self) -> str:

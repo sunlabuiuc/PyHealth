@@ -13,9 +13,8 @@ try:
 except ImportError:  # pragma: no cover - test env installs the extra
     nib = None
 
-from pyhealth.processors import NiftiProcessor
+from pyhealth.processors import NiftiProcessor, read_image_metadata
 from pyhealth.processors.image_io.readers.nifti import NiftiReader
-from pyhealth.processors.image_io.types import ImageRef
 
 
 @unittest.skipUnless(nib is not None, "nibabel is not installed")
@@ -33,11 +32,11 @@ class TestNiftiReaderAndProcessor(unittest.TestCase):
 
     def test_read_metadata(self):
         metadata = NiftiReader().read_metadata(str(self.path))
-        self.assertEqual(metadata.shape, (1, 6, 5, 4))
-        self.assertEqual(metadata.spacing, (4.0, 3.0, 2.0))
-        self.assertEqual(metadata.orientation, "RAS")
-        self.assertEqual(metadata.dtype, "int16")
-        self.assertEqual(metadata.source, (str(self.path),))
+        self.assertEqual(metadata["shape"], (1, 6, 5, 4))
+        self.assertEqual(metadata["spacing"], (4.0, 3.0, 2.0))
+        self.assertEqual(metadata["orientation"], "RAS")
+        self.assertEqual(metadata["dtype"], "int16")
+        self.assertEqual(metadata["source"], (str(self.path),))
 
     def test_load_returns_dhw(self):
         array = NiftiReader().load(str(self.path))
@@ -53,8 +52,8 @@ class TestNiftiReaderAndProcessor(unittest.TestCase):
             str(flipped),
         )
         metadata = NiftiReader().read_metadata(str(flipped))
-        self.assertEqual(metadata.orientation, "RAS")
-        self.assertEqual(metadata.shape, (1, 6, 5, 4))
+        self.assertEqual(metadata["orientation"], "RAS")
+        self.assertEqual(metadata["shape"], (1, 6, 5, 4))
         array = NiftiReader().load(str(flipped))
         self.assertEqual(array.shape, (1, 6, 5, 4))
 
@@ -99,18 +98,18 @@ class TestNiftiReaderAndProcessor(unittest.TestCase):
         tensor = NiftiProcessor(lazy=False, is_mask=True).process(str(path))
         self.assertEqual(str(tensor.dtype), "torch.int64")
 
-    def test_lazy_ref_path_is_absolute(self):
+    def test_lazy_path_is_absolute(self):
         relative = os.path.relpath(self.path, Path.cwd())
-        ref = NiftiProcessor(lazy=True).process(relative)
-        self.assertTrue(Path(ref.path).is_absolute())
-        self.assertEqual(Path(ref.path), self.path.resolve())
+        value = NiftiProcessor(lazy=True).process(relative)
+        self.assertTrue(Path(value).is_absolute())
+        self.assertEqual(Path(value), self.path.resolve())
 
     def test_lazy_processor(self):
         processor = NiftiProcessor(lazy=True)
-        ref = processor.process(str(self.path))
-        self.assertIsInstance(ref, ImageRef)
+        value = processor.process(str(self.path))
+        self.assertIsInstance(value, str)
         self.assertFalse(processor.stores_tensor)
-        tensor = processor.materialize(ref)
+        tensor = processor.materialize(value)
         self.assertEqual(tuple(tensor.shape), (1, 6, 5, 4))
         self.assertEqual(str(tensor.dtype), "torch.float32")
 
@@ -124,18 +123,16 @@ class TestNiftiReaderAndProcessor(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             NiftiProcessor().process(str(self.root / "missing.nii.gz"))
 
-    def test_lazy_metadata_reflects_target_shape(self):
-        processor = NiftiProcessor(lazy=True, target_shape=(3, 4, 5))
-        ref = processor.process(str(self.path))
-        self.assertEqual(ref.metadata.shape, (1, 3, 4, 5))
-        self.assertEqual(tuple(processor.materialize(ref).shape), (1, 3, 4, 5))
+    def test_read_image_metadata_reflects_target_shape(self):
+        metadata = read_image_metadata(str(self.path), target_shape=(3, 4, 5))
+        self.assertEqual(metadata["shape"], (1, 3, 4, 5))
+        self.assertEqual(tuple(NiftiReader().load(str(self.path), target_shape=(3, 4, 5)).shape), (1, 3, 4, 5))
 
-    def test_lazy_metadata_reflects_target_spacing(self):
-        processor = NiftiProcessor(lazy=True, target_spacing=(1, 1, 1))
-        ref = processor.process(str(self.path))
-        tensor = processor.materialize(ref)
-        self.assertEqual(ref.metadata.shape, tuple(tensor.shape))
-        self.assertEqual(tuple(ref.metadata.spacing), (1.0, 1.0, 1.0))
+    def test_read_image_metadata_reflects_target_spacing(self):
+        metadata = read_image_metadata(str(self.path), target_spacing=(1, 1, 1))
+        tensor = NiftiReader().load(str(self.path), target_spacing=(1, 1, 1))
+        self.assertEqual(metadata["shape"], tuple(tensor.shape))
+        self.assertEqual(tuple(metadata["spacing"]), (1.0, 1.0, 1.0))
 
     def test_dataloader_pads_variable_volumes(self):
         from pyhealth.datasets import create_sample_dataset, get_dataloader

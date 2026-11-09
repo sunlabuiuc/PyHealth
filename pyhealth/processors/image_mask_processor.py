@@ -14,7 +14,6 @@ from .image_io.readers.image_mask import (
     _prepare_mask_files,
 )
 from .image_io.tensor_utils import _materialize_and_collate, _to_torch
-from .image_io.types import ImageRef, _apply_resampling_to_metadata
 
 
 @register_processor("image_mask_dir")
@@ -31,8 +30,8 @@ class ImageMaskDirectoryProcessor(FeatureProcessor):
         mode: Optional PIL mode conversion. Usually left as None.
         pattern: Glob pattern for mask files. Defaults to ``"*.png"``.
         canonical: Reorient the mask like the reference DICOM volume.
-        lazy: Store an :class:`ImageRef` instead of the stacked mask volume.
-            Defaults to False; set True for lazy loading.
+        lazy: Store the mask directory and reference series path instead of
+            the stacked volume. Defaults to True; set False to cache tensors.
         label_map: Optional mapping from raw pixel values to class indices.
             Use this for datasets whose masks store scaled or sparse label
             values, such as CHAOS MR masks. In lazy mode, unmapped labels are
@@ -60,7 +59,7 @@ class ImageMaskDirectoryProcessor(FeatureProcessor):
         mode: str | None = None,
         pattern: str = "*.png",
         canonical: bool = True,
-        lazy: bool = False,
+        lazy: bool = True,
         label_map: dict[int, int] | None = None,
         num_classes: int | None = None,
         target_spacing: Sequence[float] | None = None,
@@ -103,35 +102,61 @@ class ImageMaskDirectoryProcessor(FeatureProcessor):
 
     def process(
         self,
-        value: str | Path | tuple[str, str] | ImageRef,
+        value: str | Path | tuple[str, str] | list[str],
     ) -> Any:
-        """Read image masks and return a tensor or an :class:`ImageRef`.
+        """Read image masks and return a tensor or lazy value.
 
         Args:
-            value: Directory containing image mask slices, a
-                ``(mask_dir, series_path)`` tuple, or an existing
-                :class:`ImageRef`. The series path is used to match mask
-                slices to the DICOM slice order; set ``strict_mask_names`` to
-                require matching filenames instead of positional pairing.
+            value: Directory containing image mask slices or a
+                ``(mask_dir, series_path)`` tuple.
 
         Returns:
-            An :class:`ImageRef` in lazy mode, otherwise a
-            ``torch.int64`` tensor with shape ``(1, D, H, W)``.
+            A ``torch.int64`` tensor in eager mode, otherwise a dictionary
+            with the absolute mask directory and optional series path.
 
         Raises:
             FileNotFoundError: If the directory or any mask file is missing.
-            ValueError: If the optional reference DICOM series cannot be read
-                or has a different number of slices than the mask directory.
+            ValueError: If the optional reference DICOM series cannot be read,
+                has a different number of slices, or has mismatched in-plane
+                rows/columns.
         """
-        if isinstance(value, ImageRef):
-            return self.materialize(value)
+        mask_dir, series_path = self._split_value(value)
+        self._prepare(mask_dir, series_path)
+        if self.lazy:
+            return {
+                "mask_dir": str(mask_dir.resolve()),
+                "series_path": (
+                    None if series_path is None else str(Path(series_path).resolve())
+                ),
+            }
+        return self._load(mask_dir, series_path)
 
-        series_path: str | Path | None = None
+    def materialize(self, value: Any) -> Any:
+        """Load a lazy mask value and return an integer mask tensor.
+
+        Args:
+            value: Dictionary or path value returned by :meth:`process`.
+
+        Returns:
+            A ``torch.int64`` tensor with shape ``(1, D, H, W)``.
+        """
+        if isinstance(value, dict):
+            mask_dir = Path(value["mask_dir"])
+            series_path = value.get("series_path")
+            return self._load(mask_dir, series_path)
+        mask_dir, series_path = self._split_value(value)
+        return self._load(mask_dir, series_path)
+
+    def _split_value(self, value: Any) -> tuple[Path, str | Path | None]:
+        """Return ``(mask_dir, series_path)`` from a mask value."""
         if isinstance(value, (tuple, list)) and len(value) == 2:
-            mask_value, series_path = value
-            mask_dir = Path(mask_value)
-        else:
-            mask_dir = Path(value)
+            return Path(value[0]), value[1]
+        return Path(value), None
+
+    def _prepare(
+        self, mask_dir: Path, series_path: str | Path | None
+    ) -> tuple[list[Path], dict[str, Any] | None]:
+        """Validate mask files and return their order and reference metadata."""
         files = _mask_files(mask_dir, self.pattern)
         files, metadata = _prepare_mask_files(
             files,
@@ -144,49 +169,19 @@ class ImageMaskDirectoryProcessor(FeatureProcessor):
             metadata = reader.read_metadata(tuple(files))
         if (
             self.target_shape is not None or self.target_spacing is not None
-        ) and (metadata is None or metadata.affine is None):
+        ) and (metadata is None or metadata.get("affine") is None):
             raise ValueError(
                 "Mask resampling requires a reference affine; pass the "
                 "DICOM series path as the second mask value."
             )
-        metadata = _apply_resampling_to_metadata(
-            metadata, self.target_shape, self.target_spacing
-        )
+        return files, metadata
 
-        if self.lazy:
-            return ImageRef(
-                path=tuple(str(path.resolve()) for path in files),
-                reader=reader.name,
-                metadata=metadata,
-                read_kwargs={
-                    "canonical": self.canonical,
-                    "mode": self.mode,
-                },
-            )
-
-        array = reader.load(
+    def _load(self, mask_dir: Path, series_path: str | Path | None) -> Any:
+        """Load masks and apply this processor's settings."""
+        files, metadata = self._prepare(mask_dir, series_path)
+        array = ImageMaskReader().load(
             tuple(files),
             metadata=metadata,
-            canonical=self.canonical,
-            mode=self.mode,
-            target_spacing=getattr(self, "target_spacing", None),
-            target_shape=getattr(self, "target_shape", None),
-        )
-        array = self._apply_label_map(array)
-        return _to_torch(array, dtype="int64")
-
-    def materialize(self, ref: ImageRef) -> Any:
-        """Load an :class:`ImageRef` and return an integer mask tensor.
-
-        Args:
-            ref: Reference created by :meth:`process`.
-
-        Returns:
-            A ``torch.int64`` tensor with shape ``(1, D, H, W)``.
-        """
-        array = ImageMaskReader().load(
-            ref.path,
-            metadata=ref.metadata,
             canonical=self.canonical,
             mode=self.mode,
             target_spacing=getattr(self, "target_spacing", None),

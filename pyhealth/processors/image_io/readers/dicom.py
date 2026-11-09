@@ -22,7 +22,7 @@ from ..transforms import (
     normalize_intensity,
     resample_volume,
 )
-from ..types import ImageMetadata, PathLike
+from ..types import PathLike
 from .base import BaseImageReader
 
 logger = logging.getLogger(__name__)
@@ -341,7 +341,7 @@ class DicomReader(BaseImageReader):
 
     name = "dicom"
 
-    def read_metadata(self, path: PathLike) -> ImageMetadata:
+    def read_metadata(self, path: PathLike) -> dict[str, Any]:
         """Read a DICOM header without loading pixel data.
 
         Args:
@@ -367,28 +367,32 @@ class DicomReader(BaseImageReader):
         affine = _to_lps_affine(dataset)
         nib = _require_nibabel()
         photometric = str(getattr(dataset, "PhotometricInterpretation", "") or "")
-        return ImageMetadata(
-            format="dicom",
-            shape=(1, rows, columns),
-            spacing=(row_spacing, column_spacing),
-            affine=tuple(tuple(float(value) for value in row) for row in affine),
-            orientation="".join(nib.aff2axcodes(affine)),
-            dtype=_dicom_dtype(dataset),
-            modality=str(getattr(dataset, "Modality", "") or "") or None,
-            photometric=photometric or None,
-            intensity=_intensity(dataset),
-            patient_id=str(getattr(dataset, "PatientID", "") or "") or None,
-            study_id=str(getattr(dataset, "StudyInstanceUID", "") or "") or None,
-            series_id=str(getattr(dataset, "SeriesInstanceUID", "") or "") or None,
-            source=(str(file),),
-            n_frames=int(getattr(dataset, "NumberOfFrames", 1) or 1),
-        )
+        return {
+            "format": "dicom",
+            "shape": (1, rows, columns),
+            "spacing": (row_spacing, column_spacing),
+            "affine": tuple(
+                tuple(float(value) for value in row) for row in affine
+            ),
+            "orientation": "".join(nib.aff2axcodes(affine)),
+            "dtype": _dicom_dtype(dataset),
+            "modality": str(getattr(dataset, "Modality", "") or "") or None,
+            "photometric": photometric or None,
+            "intensity": _intensity(dataset),
+            "patient_id": str(getattr(dataset, "PatientID", "") or "") or None,
+            "study_id": str(getattr(dataset, "StudyInstanceUID", "") or "")
+            or None,
+            "series_id": str(getattr(dataset, "SeriesInstanceUID", "") or "")
+            or None,
+            "source": (str(file),),
+            "n_frames": int(getattr(dataset, "NumberOfFrames", 1) or 1),
+        }
 
     def load(
         self,
         path: PathLike,
         *,
-        metadata: ImageMetadata | None = None,
+        metadata: dict[str, Any] | None = None,
         apply_rescale: bool = True,
         invert_monochrome1: bool = True,
         window: bool = False,
@@ -511,7 +515,7 @@ class DicomSeriesReader(BaseImageReader):
         series_uid: str | None = None,
         canonical: bool = True,
         **kwargs: Any,
-    ) -> ImageMetadata:
+    ) -> dict[str, Any]:
         """Read series headers and geometry without loading pixels.
 
         Args:
@@ -544,39 +548,38 @@ class DicomSeriesReader(BaseImageReader):
                 float(value) for value in reversed(spacing_xyz)
             )
             orientation = "".join(nib.aff2axcodes(affine))
-        return ImageMetadata(
-            format="dicom_series",
-            shape=(1,) + shape_dhw,
-            spacing=spacing_dhw,
-            affine=tuple(tuple(float(value) for value in row) for row in affine),
-            orientation=orientation,
-            dtype=_dicom_dtype(first),
-            modality=str(getattr(first, "Modality", "") or "") or None,
-            photometric=str(
+        return {
+            "format": "dicom_series",
+            "shape": (1,) + shape_dhw,
+            "spacing": spacing_dhw,
+            "affine": tuple(
+                tuple(float(value) for value in row) for row in affine
+            ),
+            "orientation": orientation,
+            "dtype": _dicom_dtype(first),
+            "modality": str(getattr(first, "Modality", "") or "") or None,
+            "photometric": str(
                 getattr(first, "PhotometricInterpretation", "") or ""
             )
             or None,
-            intensity=_intensity(first),
-            patient_id=str(getattr(first, "PatientID", "") or "") or None,
-            study_id=str(
-                getattr(first, "StudyInstanceUID", "") or ""
-            )
+            "intensity": _intensity(first),
+            "patient_id": str(getattr(first, "PatientID", "") or "") or None,
+            "study_id": str(getattr(first, "StudyInstanceUID", "") or "")
             or None,
-            series_id=str(
-                getattr(first, "SeriesInstanceUID", "") or ""
-            )
+            "series_id": str(getattr(first, "SeriesInstanceUID", "") or "")
             or None,
-            source=tuple(str(file) for file, _ in entries),
-            n_frames=len(entries),
-        )
+            "source": tuple(str(file) for file, _ in entries),
+            "n_frames": len(entries),
+        }
 
     def load(
         self,
         path: PathLike,
         *,
-        metadata: ImageMetadata | None = None,
+        metadata: dict[str, Any] | None = None,
         series_uid: str | None = None,
         canonical: bool = True,
+        sorted_paths: bool = False,
         target_spacing: Sequence[float] | None = None,
         target_shape: Sequence[int] | None = None,
         normalize: str | None = None,
@@ -601,6 +604,8 @@ class DicomSeriesReader(BaseImageReader):
                 reused so the series is not sorted again.
             series_uid: Series to select when several are present.
             canonical: Reorient the volume to canonical RAS.
+            sorted_paths: Treat a path list as already sorted and skip series
+                grouping and sorting. Used for lazy DICOM series values.
             target_spacing: Target spacing in ``(D, H, W)`` order.
             target_shape: Target shape in ``(D, H, W)`` order.
             normalize: Intensity normalisation mode.
@@ -631,11 +636,16 @@ class DicomSeriesReader(BaseImageReader):
         """
         del kwargs
         pydicom = _require_pydicom()
-        if metadata is not None and metadata.source:
-            files = [Path(item) for item in metadata.source]
+        if metadata is not None and metadata.get("source"):
+            files = [Path(item) for item in metadata["source"]]
             entries = [
                 (file, pydicom.dcmread(str(file), stop_before_pixels=False))
                 for file in files
+            ]
+        elif sorted_paths and isinstance(path, (tuple, list)):
+            entries = [
+                (Path(item), pydicom.dcmread(str(item), stop_before_pixels=False))
+                for item in path
             ]
         else:
             entries = _series_entries(
@@ -732,8 +742,8 @@ class DicomSeriesReader(BaseImageReader):
         volume_hwd = np.stack(slices, axis=0)
         volume_xyz = np.transpose(volume_hwd, (2, 1, 0))
         affine = None
-        if metadata is not None and metadata.affine is not None:
-            affine = np.asarray(metadata.affine, dtype=float)
+        if metadata is not None and metadata.get("affine") is not None:
+            affine = np.asarray(metadata["affine"], dtype=float)
         if affine is None:
             affine, _, _ = _affine_from_geometry(entries)
         if canonical:
@@ -758,7 +768,7 @@ class DicomSeriesReader(BaseImageReader):
         if is_mask:
             return np.ascontiguousarray(volume.astype(np.int64, copy=False))
         if normalize == "auto":
-            modality = metadata.modality if metadata is not None else None
+            modality = metadata.get("modality") if metadata is not None else None
             if not modality:
                 modality = str(getattr(entries[0][1], "Modality", "") or "")
             if not modality:

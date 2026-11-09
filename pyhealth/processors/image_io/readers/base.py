@@ -13,13 +13,13 @@ from typing import Any
 
 import numpy as np
 
-from ..types import ImageMetadata, PathLike
+from ..types import PathLike
 
 
 class BaseImageReader(ABC):
     """Abstract base class for image and volume readers.
 
-    Subclasses set ``name`` to the registry key used by :class:`ImageRef`
+    Subclasses set ``name`` to the registry key used by the reader factory
     and implement :meth:`read_metadata` and :meth:`load`.
 
     Attributes:
@@ -34,14 +34,14 @@ class BaseImageReader(ABC):
     name: str = "base"
 
     @abstractmethod
-    def read_metadata(self, path: PathLike) -> ImageMetadata:
+    def read_metadata(self, path: PathLike) -> dict[str, Any]:
         """Read metadata without loading pixel data.
 
         Args:
             path: File path, directory, or ordered tuple of paths.
 
         Returns:
-            An :class:`ImageMetadata` instance.
+            A dictionary describing the image.
         """
         raise NotImplementedError
 

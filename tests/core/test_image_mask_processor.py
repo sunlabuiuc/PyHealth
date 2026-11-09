@@ -12,7 +12,6 @@ from PIL import Image
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.processors import ImageMaskDirectoryProcessor, ImageProcessor
 from pyhealth.processors.image_io.readers.image_mask import ImageMaskReader
-from pyhealth.processors.image_io.types import ImageMetadata, ImageRef
 
 
 class TestImageMaskDirectoryProcessor(unittest.TestCase):
@@ -36,21 +35,17 @@ class TestImageMaskDirectoryProcessor(unittest.TestCase):
     def test_lazy_process(self):
         processor = ImageMaskDirectoryProcessor(lazy=True)
         self.assertFalse(processor.stores_tensor)
-        reference = processor.process(self.mask_dir)
-        self.assertIsInstance(reference, ImageRef)
-        self.assertEqual(reference.reader, "image_mask")
-        self.assertEqual(reference.metadata.shape, (1, 3, 4, 5))
+        value = processor.process(self.mask_dir)
+        self.assertIsInstance(value, dict)
+        self.assertEqual(Path(value["mask_dir"]), self.mask_dir.resolve())
+        self.assertIsNone(value["series_path"])
 
-        tensor = processor.materialize(reference)
+        tensor = processor.materialize(value)
         self.assertTrue(torch.is_tensor(tensor))
         self.assertEqual(tuple(tensor.shape), (1, 3, 4, 5))
         self.assertEqual(str(tensor.dtype), "torch.int64")
         self.assertEqual(int(tensor[0, 0, 0, 0]), 1)
         self.assertEqual(int(tensor[0, 1, 1, 1]), 1)
-
-        raw = reference.load()
-        self.assertEqual(raw.shape, (1, 3, 4, 5))
-        self.assertEqual(str(raw.dtype), "int64")
 
     def test_eager_process_matches_lazy(self):
         lazy_tensor = ImageMaskDirectoryProcessor(lazy=True).process(self.mask_dir)
@@ -62,12 +57,12 @@ class TestImageMaskDirectoryProcessor(unittest.TestCase):
 
     def test_target_shape_resamples_mask(self):
         files = tuple(sorted(self.mask_dir.glob("*.png")))
-        metadata = ImageMetadata(
-            format="image_mask",
-            shape=(1, 3, 4, 5),
-            affine=tuple(tuple(row) for row in np.eye(4)),
-            source=tuple(str(path) for path in files),
-        )
+        metadata = {
+            "format": "image_mask",
+            "shape": (1, 3, 4, 5),
+            "affine": tuple(tuple(row) for row in np.eye(4)),
+            "source": tuple(str(path) for path in files),
+        }
         volume = ImageMaskReader().load(
             files,
             metadata=metadata,

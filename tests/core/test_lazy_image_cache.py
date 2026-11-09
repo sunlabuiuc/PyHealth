@@ -1,4 +1,4 @@
-"""Tests that lazy image references keep the processed cache small."""
+"""Tests for opt-in lazy image storage and DataLoader materialization."""
 
 import pickle
 import shutil
@@ -19,7 +19,6 @@ except ImportError:  # pragma: no cover
     litdata = None
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
-from pyhealth.processors.image_io.types import ImageRef
 
 
 @unittest.skipUnless(
@@ -29,17 +28,17 @@ from pyhealth.processors.image_io.types import ImageRef
 class TestLazyImageCache(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
-        image_path = Path(self.temp_dir) / "scan.nii.gz"
+        self.image_path = Path(self.temp_dir) / "scan.nii.gz"
         nib.save(
             nib.Nifti1Image(
                 np.arange(4 * 5 * 6, dtype=np.int16).reshape(4, 5, 6),
                 np.eye(4),
             ),
-            str(image_path),
+            str(self.image_path),
         )
         self.samples = [
-            {"patient_id": "p1", "image": str(image_path), "label": 1},
-            {"patient_id": "p2", "image": str(image_path), "label": 0},
+            {"patient_id": "p1", "image": str(self.image_path), "label": 1},
+            {"patient_id": "p2", "image": str(self.image_path), "label": 0},
         ]
 
     def tearDown(self):
@@ -53,27 +52,29 @@ class TestLazyImageCache(unittest.TestCase):
             in_memory=in_memory,
         )
 
-    def test_disk_cache_stores_reference(self):
+    def test_disk_cache_stores_path(self):
         dataset = self._dataset()
         try:
             self.assertFalse(dataset.input_processors["image"].stores_tensor)
             record = litdata.StreamingDataset(dataset.path)[0]
             payload = pickle.loads(record["_pyhealth_objects"])
-            self.assertIsInstance(payload["values"]["image"], ImageRef)
+            self.assertEqual(
+                payload["values"]["image"], str(self.image_path.resolve())
+            )
         finally:
             dataset.close()
 
-    def test_direct_getitem_returns_reference(self):
+    def test_direct_getitem_returns_path(self):
         dataset = self._dataset()
         try:
-            reference = dataset[0]["image"]
-            self.assertIsInstance(reference, ImageRef)
-            tensor = dataset.input_processors["image"].materialize(reference)
+            value = dataset[0]["image"]
+            self.assertIsInstance(value, str)
+            tensor = dataset.input_processors["image"].materialize(value)
             self.assertEqual(tuple(tensor.shape), (1, 6, 5, 4))
         finally:
             dataset.close()
 
-    def test_dataloader_materializes_reference(self):
+    def test_dataloader_materializes_path(self):
         dataset = self._dataset()
         try:
             batch = next(iter(get_dataloader(dataset, batch_size=2)))
@@ -81,7 +82,7 @@ class TestLazyImageCache(unittest.TestCase):
         finally:
             dataset.close()
 
-    def test_in_memory_dataloader_materializes_reference(self):
+    def test_in_memory_dataloader_materializes_path(self):
         dataset = self._dataset(True)
         batch = next(iter(get_dataloader(dataset, batch_size=2)))
         self.assertEqual(tuple(batch["image"].shape), (2, 1, 6, 5, 4))

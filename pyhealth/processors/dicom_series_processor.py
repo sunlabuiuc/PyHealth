@@ -8,7 +8,6 @@ from . import register_processor
 from .base_processor import FeatureProcessor
 from .image_io.readers.dicom import DicomSeriesReader
 from .image_io.tensor_utils import _materialize_and_collate, _to_torch
-from .image_io.types import ImageRef, _apply_resampling_to_metadata
 
 
 @register_processor("dicom_series")
@@ -16,8 +15,8 @@ class DicomSeriesProcessor(FeatureProcessor):
     """Processor for a directory or list of DICOM slices.
 
     Args:
-        lazy: Store an :class:`ImageRef` instead of the reconstructed volume.
-            Defaults to False; set True for lazy loading.
+        lazy: Store the ordered slice paths instead of the volume. Defaults
+            to True; set False to cache tensors.
         channels: Expected channel count. DICOM series currently produce one
             channel.
         canonical: Reorient to canonical RAS. Defaults to True.
@@ -45,7 +44,7 @@ class DicomSeriesProcessor(FeatureProcessor):
 
     def __init__(
         self,
-        lazy: bool = False,
+        lazy: bool = True,
         channels: int | None = 1,
         canonical: bool = True,
         target_spacing: Sequence[float] | None = None,
@@ -125,20 +124,19 @@ class DicomSeriesProcessor(FeatureProcessor):
         """Whether the processed cache stores a tensor (not a reference)."""
         return not self.lazy
 
-    def process(self, value: str | Path | Sequence[str] | ImageRef) -> Any:
-        """Process a DICOM series path or reference.
+    def process(self, value: str | Path | Sequence[str]) -> Any:
+        """Process a DICOM series path.
 
         Args:
-            value: Directory, file list, or existing :class:`ImageRef`.
+            value: Directory or file list.
 
         Returns:
-            An :class:`ImageRef` in lazy mode, otherwise a tensor.
+            An ordered list of absolute slice paths in lazy mode, otherwise a
+            tensor.
 
         Raises:
             FileNotFoundError: If a path does not exist.
         """
-        if isinstance(value, ImageRef):
-            return self.materialize(value)
         if isinstance(value, (str, Path)):
             source: str | Path = value
             if not Path(value).exists():
@@ -155,35 +153,25 @@ class DicomSeriesProcessor(FeatureProcessor):
                 series_uid=self.series_uid,
                 canonical=self.canonical,
             )
-            metadata = _apply_resampling_to_metadata(
-                metadata, self.target_shape, self.target_spacing
-            )
-            path: str | tuple[str, ...]
-            if isinstance(source, (str, Path)):
-                path = str(Path(source).resolve())
-            else:
-                path = tuple(str(Path(item).resolve()) for item in source)
-            return ImageRef(
-                path=path,
-                reader="dicom_series",
-                metadata=metadata,
-                read_kwargs={"series_uid": self.series_uid},
-            )
+            # Validate and record slice order once; materialize trusts it.
+            return [
+                str(Path(item).resolve()) for item in metadata["source"]
+            ]
         array = reader.load(source, **self._reader_kwargs())
         return self._to_tensor(array)
 
-    def materialize(self, ref: ImageRef) -> Any:
-        """Load an :class:`ImageRef` and apply this processor's settings.
+    def materialize(self, value: Sequence[str]) -> Any:
+        """Load lazy slice paths and apply this processor's settings.
 
         Args:
-            ref: Reference created by :meth:`process`.
+            value: Ordered slice paths returned by :meth:`process`.
 
         Returns:
             A tensor with shape ``(1, D, H, W)``.
         """
         array = DicomSeriesReader().load(
-            ref.path,
-            metadata=ref.metadata,
+            list(value),
+            sorted_paths=True,
             **self._reader_kwargs(),
         )
         return self._to_tensor(array)

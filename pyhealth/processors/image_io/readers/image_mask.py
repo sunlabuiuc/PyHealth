@@ -18,7 +18,7 @@ import numpy as np
 from PIL import Image
 
 from ..transforms import canonicalize_volume, resample_volume
-from ..types import ImageMetadata, PathLike
+from ..types import PathLike
 from .base import BaseImageReader
 from .dicom import DicomSeriesReader
 
@@ -54,7 +54,7 @@ def _prepare_mask_files(
     series_path: str | Path | None,
     require_name_match: bool = False,
     canonical: bool = True,
-) -> tuple[list[Path], ImageMetadata | None]:
+) -> tuple[list[Path], dict[str, Any] | None]:
     """Order mask slices like the DICOM series and return its metadata.
 
     Args:
@@ -84,7 +84,7 @@ def _prepare_mask_files(
             "needed to align mask slices. Pass the mask directory alone to "
             "use filename order."
         ) from exc
-    ordered_dicom = [Path(path) for path in metadata.source]
+    ordered_dicom = [Path(path) for path in metadata["source"]]
     if len(ordered_dicom) != len(mask_files):
         raise ValueError(
             f"Mask directory has {len(mask_files)} slices but the reference "
@@ -147,7 +147,7 @@ class ImageMaskReader(BaseImageReader):
 
     name = "image_mask"
 
-    def read_metadata(self, path: PathLike) -> ImageMetadata:
+    def read_metadata(self, path: PathLike) -> dict[str, Any]:
         """Read mask shape and source files without loading every slice.
 
         Args:
@@ -162,17 +162,17 @@ class ImageMaskReader(BaseImageReader):
         files = _mask_files(path)
         with Image.open(files[0]) as image:
             width, height = image.size
-        return ImageMetadata(
-            format="image_mask",
-            shape=(1, len(files), height, width),
-            dtype="int64",
-            source=tuple(str(file) for file in files),
-        )
+        return {
+            "format": "image_mask",
+            "shape": (1, len(files), height, width),
+            "dtype": "int64",
+            "source": tuple(str(file) for file in files),
+        }
 
     def load(
         self,
         path: PathLike,
-        metadata: ImageMetadata | None = None,
+        metadata: dict[str, Any] | None = None,
         canonical: bool = True,
         mode: str | None = None,
         image_processor: Any = None,
@@ -224,8 +224,8 @@ class ImageMaskReader(BaseImageReader):
         # int32 for the intermediate volume and widen after canonicalisation.
         volume = np.stack(slices, axis=0).astype(np.int32, copy=False)
         affine = None
-        if metadata is not None and metadata.affine is not None:
-            affine = np.asarray(metadata.affine, dtype=float)
+        if metadata is not None and metadata.get("affine") is not None:
+            affine = np.asarray(metadata["affine"], dtype=float)
         if canonical and affine is not None:
             volume_xyz = np.transpose(volume, (2, 1, 0))
             volume_xyz, affine = canonicalize_volume(volume_xyz, affine)
@@ -234,14 +234,15 @@ class ImageMaskReader(BaseImageReader):
             metadata is not None
             and target_spacing is None
             and target_shape is None
-            and len(metadata.shape) == 4
-            and volume.shape != tuple(int(v) for v in metadata.shape[1:])
+            and len(metadata.get("shape", ())) == 4
         ):
-            raise ValueError(
-                f"Mask volume shape {tuple(volume.shape)} does not match the "
-                f"reference image shape {tuple(metadata.shape[1:])}; check "
-                "the mask slice count and in-plane rows/columns."
-            )
+            expected_shape = tuple(int(v) for v in metadata["shape"][1:])
+            if volume.shape != expected_shape:
+                raise ValueError(
+                    f"Mask volume shape {tuple(volume.shape)} does not match "
+                    f"the reference image shape {expected_shape}; check the "
+                    "mask slice count and in-plane rows/columns."
+                )
         if target_spacing is not None or target_shape is not None:
             if affine is None:
                 raise ValueError(

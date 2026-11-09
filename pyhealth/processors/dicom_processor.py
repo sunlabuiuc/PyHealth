@@ -14,7 +14,6 @@ from .image_io.tensor_utils import (
     _resize_tensor,
     _tensor_to_pil,
 )
-from .image_io.types import ImageRef
 from .image_processor import ImageProcessor
 
 
@@ -33,7 +32,7 @@ class DicomProcessor(ImageProcessor):
         mean: Per-channel means for normalisation.
         std: Per-channel standard deviations for normalisation.
         mode: Output channel mode such as ``"L"`` or ``"RGB"``.
-        lazy: Store an :class:`ImageRef` instead of decoded pixels.
+        lazy: Store the file path instead of decoded pixels. Defaults to True.
         apply_rescale: Apply DICOM rescale slope/intercept. Defaults to True.
         invert_monochrome1: Invert ``MONOCHROME1`` images. Defaults to True.
         window: Apply the DICOM window. Defaults to False.
@@ -49,7 +48,7 @@ class DicomProcessor(ImageProcessor):
         >>> from pyhealth.processors import DicomProcessor
         >>> processor = DicomProcessor(image_size=128, mode="L")
         >>> processor.stores_tensor
-        True
+        False
         >>> processor.is_token()
         False
     """
@@ -62,7 +61,7 @@ class DicomProcessor(ImageProcessor):
         mean: list[float] | None = None,
         std: list[float] | None = None,
         mode: str | None = None,
-        lazy: bool = False,
+        lazy: bool = True,
         apply_rescale: bool = True,
         invert_monochrome1: bool = True,
         window: bool = False,
@@ -127,45 +126,38 @@ class DicomProcessor(ImageProcessor):
         """Whether the processed cache stores a tensor (not a reference)."""
         return bool(self.to_tensor and not self.lazy)
 
-    def process(self, value: str | Path | ImageRef) -> Any:
-        """Process a DICOM path or reference.
+    def process(self, value: str | Path) -> Any:
+        """Process a DICOM path.
 
         Args:
-            value: File path or existing :class:`ImageRef`.
+            value: File path.
 
         Returns:
-            An :class:`ImageRef` in lazy mode, otherwise a tensor or PIL
+            An absolute path string in lazy mode, otherwise a tensor or PIL
             image.
 
         Raises:
             FileNotFoundError: If the path does not exist.
         """
-        if isinstance(value, ImageRef):
-            return self.materialize(value)
         path = Path(value)
         if not path.exists():
             raise FileNotFoundError(f"DICOM file not found: {path}")
         if self.lazy:
-            metadata = DicomReader().read_metadata(str(path))
-            return ImageRef(
-                path=str(path.resolve()), reader="dicom", metadata=metadata
-            )
+            # Validate the header at task-build time, not mid-training.
+            DicomReader().read_metadata(str(path))
+            return str(path.resolve())
         return self._array_to_output(self._load_array(str(path)))
 
-    def materialize(self, ref: ImageRef) -> Any:
-        """Load an :class:`ImageRef` and apply this processor's settings.
+    def materialize(self, value: str | Path) -> Any:
+        """Load a lazy path and apply this processor's settings.
 
         Args:
-            ref: Reference created by :meth:`process`.
+            value: Path returned by :meth:`process`.
 
         Returns:
             A tensor or PIL image, matching ``to_tensor``.
         """
-        array = DicomReader().load(
-            ref.path,
-            metadata=ref.metadata,
-            **self._reader_kwargs(),
-        )
+        array = DicomReader().load(str(value), **self._reader_kwargs())
         return self._array_to_output(array)
 
     def _load_array(self, path: str) -> Any:

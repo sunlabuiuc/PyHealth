@@ -2,6 +2,7 @@ import unittest
 from pathlib import Path
 
 from pyhealth.datasets.sample_dataset import SampleDataset, create_sample_dataset
+from pyhealth.datasets.utils import get_dataloader
 
 
 class TestSampleDatasetParity(unittest.TestCase):
@@ -175,6 +176,35 @@ class TestSampleDatasetParity(unittest.TestCase):
         owner.close()
 
         self.assertFalse(path.exists())
+
+    def test_dataloader_forwards_loader_kwargs(self):
+        dataset, _ = self._get_datasets()
+        try:
+            loader = get_dataloader(
+                dataset,
+                batch_size=2,
+                num_workers=0,
+                pin_memory=False,
+            )
+            self.assertEqual(loader.num_workers, 0)
+            self.assertFalse(loader.pin_memory)
+        finally:
+            dataset.close()
+
+    def test_persistent_workers_with_shuffle_is_rejected(self):
+        dataset, _ = self._get_datasets()
+        try:
+            with self.assertRaisesRegex(ValueError, "persistent_workers"):
+                get_dataloader(
+                    dataset,
+                    batch_size=2,
+                    shuffle=True,
+                    num_workers=1,
+                    persistent_workers=True,
+                )
+        finally:
+            dataset.close()
+
 
 if __name__ == "__main__":
     unittest.main()

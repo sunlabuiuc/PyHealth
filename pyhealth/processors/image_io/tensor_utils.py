@@ -38,16 +38,9 @@ def _collate_volumes(values: Sequence[Any]) -> Any:
 
 
 def _materialize_and_collate(processor: Any, values: Sequence[Any]) -> Any:
-    """Materialise lazy image refs, then stack or pad the values."""
-    from .types import ImageRef
-
-    if values and isinstance(values[0], ImageRef):
-        values = [
-            processor.materialize(value)
-            if isinstance(value, ImageRef)
-            else value
-            for value in values
-        ]
+    """Materialise lazy values, then stack or pad them."""
+    if values and not isinstance(values[0], torch.Tensor):
+        values = [processor.materialize(value) for value in values]
     return _collate_volumes(values)
 
 

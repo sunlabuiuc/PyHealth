@@ -23,6 +23,7 @@ from .dicom_processor import DicomProcessor
 from .dicom_series_processor import DicomSeriesProcessor
 from .nifti_processor import NiftiProcessor
 from .image_mask_processor import ImageMaskDirectoryProcessor
+from .image_io.metadata import read_image_metadata
 from .label_processor import (
     BinaryLabelProcessor,
     LabelProcessor,
@@ -88,6 +89,7 @@ __all__ = [
     "DicomSeriesProcessor",
     "NiftiProcessor",
     "ImageMaskDirectoryProcessor",
+    "read_image_metadata",
     "LabelProcessor",
     "MultiHotProcessor",
     "NestedFloatsProcessor",
