@@ -245,8 +245,13 @@ def _canonical_layout(
     affine: np.ndarray,
     shape_xyz: tuple[int, int, int],
     spacing_xyz: tuple[float, float, float],
-) -> tuple[tuple[int, int, int], tuple[float, float, float], str]:
-    """Return output ``(D, H, W)`` shape/spacing and RAS orientation code."""
+) -> tuple[
+    tuple[int, int, int],
+    tuple[float, float, float],
+    str,
+    np.ndarray,
+]:
+    """Return output ``(D, H, W)`` shape/spacing, orientation and affine."""
     nib = _require_nibabel()
     orientation = nib.orientations.io_orientation(affine)
     permutation = [
@@ -261,6 +266,7 @@ def _canonical_layout(
         tuple(int(value) for value in reversed(shape_ras)),
         tuple(float(value) for value in reversed(spacing_ras)),
         "".join(nib.aff2axcodes(canonical_affine)),
+        canonical_affine,
     )
 
 
@@ -372,6 +378,9 @@ class DicomReader(BaseImageReader):
             "shape": (1, rows, columns),
             "spacing": (row_spacing, column_spacing),
             "affine": tuple(
+                tuple(float(value) for value in row) for row in affine
+            ),
+            "source_affine": tuple(
                 tuple(float(value) for value in row) for row in affine
             ),
             "orientation": "".join(nib.aff2axcodes(affine)),
@@ -538,8 +547,8 @@ class DicomSeriesReader(BaseImageReader):
         _require_grayscale(first)
         affine, shape_xyz, spacing_xyz = _affine_from_geometry(entries)
         if canonical:
-            shape_dhw, spacing_dhw, orientation = _canonical_layout(
-                affine, shape_xyz, spacing_xyz
+            shape_dhw, spacing_dhw, orientation, metadata_affine = (
+                _canonical_layout(affine, shape_xyz, spacing_xyz)
             )
         else:
             nib = _require_nibabel()
@@ -548,11 +557,16 @@ class DicomSeriesReader(BaseImageReader):
                 float(value) for value in reversed(spacing_xyz)
             )
             orientation = "".join(nib.aff2axcodes(affine))
+            metadata_affine = affine
         return {
             "format": "dicom_series",
             "shape": (1,) + shape_dhw,
             "spacing": spacing_dhw,
             "affine": tuple(
+                tuple(float(value) for value in row)
+                for row in metadata_affine
+            ),
+            "source_affine": tuple(
                 tuple(float(value) for value in row) for row in affine
             ),
             "orientation": orientation,
@@ -743,7 +757,9 @@ class DicomSeriesReader(BaseImageReader):
         volume_xyz = np.transpose(volume_hwd, (2, 1, 0))
         affine = None
         if metadata is not None and metadata.get("affine") is not None:
-            affine = np.asarray(metadata["affine"], dtype=float)
+            affine = np.asarray(
+                metadata.get("source_affine", metadata["affine"]), dtype=float
+            )
         if affine is None:
             affine, _, _ = _affine_from_geometry(entries)
         if canonical:

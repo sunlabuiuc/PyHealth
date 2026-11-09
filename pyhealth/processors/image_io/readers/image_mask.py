@@ -175,7 +175,6 @@ class ImageMaskReader(BaseImageReader):
         metadata: dict[str, Any] | None = None,
         canonical: bool = True,
         mode: str | None = None,
-        image_processor: Any = None,
         target_spacing: Sequence[float] | None = None,
         target_shape: Sequence[int] | None = None,
     ) -> np.ndarray:
@@ -187,8 +186,6 @@ class ImageMaskReader(BaseImageReader):
                 mask is reoriented like the reference volume.
             canonical: Reorient to canonical RAS when an affine is available.
             mode: Optional PIL mode conversion.
-            image_processor: Optional pre-built ``ImageProcessor`` used to
-                read each slice.
             target_spacing: Target spacing in ``(D, H, W)`` order. Masks use
                 nearest-neighbour interpolation.
             target_shape: Target shape in ``(D, H, W)`` order.
@@ -202,19 +199,12 @@ class ImageMaskReader(BaseImageReader):
         """
         files = _mask_files(path)
 
-        if image_processor is None:
-            # Imported lazily to avoid a circular import with the processor
-            # package while keeping image reading in one place.
-            from ...image_processor import ImageProcessor
-
-            image_processor = ImageProcessor(
-                image_size=None,
-                to_tensor=False,
-                normalize=False,
-                mode=mode,
-            )
-
-        slices = [np.asarray(image_processor.process(file)) for file in files]
+        slices = []
+        for file in files:
+            with Image.open(file) as image:
+                if mode is not None:
+                    image = image.convert(mode)
+                slices.append(np.asarray(image))
         if slices and slices[0].ndim == 3:
             raise ValueError(
                 "Image masks must be single-channel; convert the colour mask "
@@ -225,17 +215,14 @@ class ImageMaskReader(BaseImageReader):
         volume = np.stack(slices, axis=0).astype(np.int32, copy=False)
         affine = None
         if metadata is not None and metadata.get("affine") is not None:
-            affine = np.asarray(metadata["affine"], dtype=float)
+            affine = np.asarray(
+                metadata.get("source_affine", metadata["affine"]), dtype=float
+            )
         if canonical and affine is not None:
             volume_xyz = np.transpose(volume, (2, 1, 0))
             volume_xyz, affine = canonicalize_volume(volume_xyz, affine)
             volume = np.transpose(volume_xyz, (2, 1, 0))
-        if (
-            metadata is not None
-            and target_spacing is None
-            and target_shape is None
-            and len(metadata.get("shape", ())) == 4
-        ):
+        if metadata is not None and len(metadata.get("shape", ())) == 4:
             expected_shape = tuple(int(v) for v in metadata["shape"][1:])
             if volume.shape != expected_shape:
                 raise ValueError(

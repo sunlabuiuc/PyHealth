@@ -218,6 +218,12 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         # The position gap is 3 mm, so it wins over SliceThickness=2 mm.
         self.assertEqual(metadata["spacing"], (1.0, 2.0, 3.0))
         self.assertEqual(metadata["orientation"], "RAS")
+        import nibabel as nib
+
+        self.assertEqual(
+            "".join(nib.aff2axcodes(np.asarray(metadata["affine"]))),
+            "RAS",
+        )
 
     def test_mask_names_matching_dicom_order(self):
         self._write_series()
@@ -369,9 +375,14 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
             array = np.zeros((5, 7), dtype=np.uint8)
             array[0, 0] = index + 1
             Image.fromarray(array).save(mask_dir / f"IMG-{index}.png")
-        processor = ImageMaskDirectoryProcessor(lazy=False, canonical=False)
-        with self.assertRaisesRegex(ValueError, "does not match the reference"):
-            processor.process((mask_dir, self.root))
+        for kwargs in ({}, {"target_shape": (2, 3, 4)}):
+            processor = ImageMaskDirectoryProcessor(
+                lazy=False, canonical=False, **kwargs
+            )
+            with self.assertRaisesRegex(
+                ValueError, "does not match the reference"
+            ):
+                processor.process((mask_dir, self.root))
 
     def test_mask_alignment_requires_readable_series(self):
         mask_dir = self.root / "masks"
