@@ -118,7 +118,9 @@ class APRICOTM(BaseModel):
         pos_weight: Weight of the positive examples of each label in the
             loss: a number, one number per label, ``"balanced"``
             (negatives / positives of each label in ``dataset``, so pass the
-            training split) or None.
+            training split; this reads every sample of ``dataset`` once) or
+            None. With ``"balanced"`` a label that is positive in every
+            sample gets weight 0 and one with no positive gets weight 1.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset
