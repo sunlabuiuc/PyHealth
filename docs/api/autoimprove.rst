@@ -211,7 +211,8 @@ itself, so the sentence a clinician reviews is exactly what was computed:
         print(row["definition"])          # 1 if there were 3 or more SABA orders
                                           # in the 365 days before the landmark, else 0
     specs = fs.validate_many(specs)
-    train_fe = fs.augment(train, specs)   # adds an "engineered" tensor field
+    train_fe = fs.augment(train, specs)   # adds an "engineered" tensor field;
+                                          # future-blind test on every sample
     val_fe = fs.augment(val, specs, stats=train_fe.stats)
 
 - **Refusals.** An unknown operator, group or attribute, a window outside the
@@ -256,7 +257,9 @@ Safety and data
   positive samples (the improver warns below 30).
   :meth:`~pyhealth.autoimprove.AutoImprover.evaluate_on_test` retrains the
   best and the baseline configs and compares them on test. For binary labels
-  it reports patient-level bootstrap intervals and a paired difference.
+  it reports patient-level bootstrap intervals and a paired difference. When
+  the baseline is itself the selected config it is trained once, and the
+  result has only ``best`` (no ``baseline`` or ``difference``).
   ``return_predictions=True`` also returns the test predictions, for other
   metrics without training again.
 

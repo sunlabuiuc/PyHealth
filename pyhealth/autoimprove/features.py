@@ -37,9 +37,12 @@ Windows always end strictly before the prediction time t.
 Every compiled spec must pass the future-blind test (:meth:`FeatureSpace.
 future_blind`): each feature is computed twice for a sample of predictions,
 once on the patient's full record and once with every row known at or after t
-deleted. Any difference rejects the spec. :meth:`FeatureSpace.augment` runs
-the test on any spec that has not passed it on the space yet and refuses
-those that fail, so a leaking spec cannot reach a model.
+deleted. Any difference on a checked sample rejects the spec.
+:meth:`FeatureSpace.check` and :meth:`FeatureSpace.future_blind` check 200
+random samples by default, a quick screen that can miss a leak affecting
+only a few predictions. :meth:`FeatureSpace.augment` checks every sample of
+the dataset it augments and refuses specs that fail, so a spec is only
+added to samples on which it was shown to be future-blind.
 """
 
 from __future__ import annotations
@@ -210,7 +213,6 @@ class FeatureSpace:
         self.max_features = max_features
         self.min_patients = min_patients
         self._allowed: dict[tuple[str, str], set] = {}
-        self._future_blind: set[str] = set()  # names of specs that passed
 
     @classmethod
     def from_task(cls, dataset: Any, task: Any, **kwargs: Any) -> FeatureSpace:
@@ -586,7 +588,9 @@ class FeatureSpace:
     ) -> dict[str, str | None]:
         """Checks that no spec uses information known at or after t.
 
-        For up to ``n_samples`` samples, each spec is computed on the full
+        For up to ``n_samples`` random samples (a screen: a leak that
+        changes only a few predictions can pass; :meth:`augment` checks
+        every sample), each spec is computed on the full
         record and on the record cut at t: rows dated at or after t are
         removed, and the values of rows known only at or after t (by the
         ``known_at`` attribute, where declared) are blanked. Derived events
@@ -605,6 +609,12 @@ class FeatureSpace:
                                 replace=False).tolist())
         full = self.compute(specs, samples, idx)
         cut = self.compute(specs, samples, idx, truncate=True)
+        return self._leaks(specs, full, cut)
+
+    def _leaks(
+        self, specs: Sequence[FeatureSpec], full: np.ndarray, cut: np.ndarray
+    ) -> dict[str, str | None]:
+        """Compares values on full and truncated records, spec by spec."""
         out = {}
         for j, spec in enumerate(specs):
             a, b = full[:, j], cut[:, j]
@@ -612,10 +622,8 @@ class FeatureSpace:
             bad = int((~same).sum())
             out[spec.name] = None if bad == 0 else (
                 f"uses information known at or after {self.time_word}: {bad} of "
-                f"{len(idx)} checked samples change when later rows are removed"
+                f"{len(a)} checked samples change when later rows are removed"
             )
-            if bad == 0:
-                self._future_blind.add(spec.name)
         return out
 
     def check(
@@ -667,9 +675,10 @@ class FeatureSpace:
         for a training split. Pass the training split's ``stats`` when
         augmenting validation and test splits.
 
-        Specs that have not passed the future-blind test on this space (in
-        :meth:`check`, :meth:`future_blind` or an earlier ``augment``) are
-        tested on ``samples`` first.
+        Unless ``values`` is given, every spec is put through the
+        future-blind test on all of ``samples`` (not the 200-sample screen
+        of :meth:`check`): its values are computed on the full and on the
+        truncated records, which costs one extra pass.
 
         Raises:
             ValueError: If a spec fails the future-blind test.
@@ -678,16 +687,18 @@ class FeatureSpace:
             >>> train_fe = fs.augment(train_ds, specs)  # doctest: +SKIP
             >>> test_fe = fs.augment(test_ds, specs, stats=train_fe.stats)  # doctest: +SKIP
         """
-        untested = [s for s in specs if s.name not in self._future_blind]
-        if untested:
+        if values is None:
+            raw = self.compute(specs, samples)
+            cut = self.compute(specs, samples, truncate=True)
             failed = {name: reason for name, reason in
-                      self.future_blind(untested, samples).items() if reason}
+                      self._leaks(specs, raw, cut).items() if reason}
             if failed:
                 raise ValueError(
                     "specs failing the future-blind test cannot be added: "
                     + "; ".join(f"{name}: {why}" for name, why in failed.items())
                 )
-        raw = self.compute(specs, samples) if values is None else np.asarray(values)
+        else:
+            raw = np.asarray(values)
         return EngineeredDataset(samples, raw, [s.name for s in specs], stats)
 
 
