@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import torch
@@ -11,7 +12,12 @@ from safetensors.torch import save_file
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import MIRA, MIRABackbone, MIRAConfig
-from pyhealth.models.mira import normalize_time_for_ctrope
+from pyhealth.models.mira import (
+    HF_REPO_ID,
+    HF_REVISION,
+    load_mira_checkpoint,
+    normalize_time_for_ctrope,
+)
 from pyhealth.trainer import Trainer
 
 
@@ -284,6 +290,34 @@ class TestMIRAModel(unittest.TestCase):
             save_file(state, str(Path(tmp, "model.safetensors")))
             with self.assertRaisesRegex(ValueError, "model.norm.weight"):
                 MIRA(self.dataset, pretrained=tmp)
+
+    def test_default_download_uses_pinned_revision(self):
+        source = MIRABackbone(_tiny_config()).eval()
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "config.json").write_text(json.dumps(source.config.to_dict()))
+            state = {k: v.contiguous() for k, v in source.state_dict().items()}
+            save_file(state, str(Path(tmp, "model.safetensors")))
+
+            def fake_download(repo_id, filename, revision=None):
+                return str(Path(tmp, filename))
+
+            with mock.patch(
+                "huggingface_hub.hf_hub_download", side_effect=fake_download
+            ) as download:
+                config, loaded = load_mira_checkpoint()
+                model = MIRA(self.dataset, pretrained=True)
+        self.assertEqual(config, source.config)
+        self.assertEqual(set(loaded), set(state))
+        self.assertEqual(model.backbone.config, source.config)
+        calls = {c.args[1]: c for c in download.call_args_list}
+        self.assertEqual(set(calls), {"config.json", "model.safetensors"})
+        for call in download.call_args_list:
+            self.assertEqual(call.args[0], HF_REPO_ID)
+            self.assertEqual(call.kwargs["revision"], HF_REVISION)
+
+    def test_pretrained_rejects_config(self):
+        with self.assertRaisesRegex(ValueError, "pretrained"):
+            MIRA(self.dataset, pretrained=True, config=_tiny_config())
 
     def test_trainer_scores_regression(self):
         model = MIRA(self.dataset, config=_tiny_config(num_hidden_layers=1))

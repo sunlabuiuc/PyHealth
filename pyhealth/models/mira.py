@@ -37,7 +37,8 @@ The original code is released under the MIT License:
     Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 
 Parts of the authors' code come from Time-MoE (Apache License 2.0,
-https://github.com/Time-MoE/Time-MoE) and Mistral/Llama.
+https://github.com/Time-MoE/Time-MoE; license text at
+https://www.apache.org/licenses/LICENSE-2.0) and Mistral/Llama.
 """
 
 from __future__ import annotations
@@ -682,9 +683,14 @@ class MIRA(BaseModel):
             local snapshot directory to load it from there, or ``False`` for
             random weights with ``config``.
         config: Model sizes when not pretrained; MIRA-Large by default.
+            With ``pretrained`` the checkpoint's config is used, and passing
+            ``config`` too raises ``ValueError``.
         use_ode: Integrate the last hidden state to each query time with the
             neural-ODE block. Off by default, as in the authors' inference
-            example.
+            example. ``torchdiffeq`` is optional and not a PyHealth
+            dependency: with it the block uses the checkpoint's adaptive
+            solver (as the authors' code does); without it, a fixed-step RK4,
+            whose forecasts differ slightly.
         ode_time_scale: Factor applied to the times before they are passed
             to the ODE block (e.g. 48 to turn PhysioNet 2012's ``hour / 48``
             back into hours).
@@ -745,6 +751,11 @@ class MIRA(BaseModel):
         self.min_std = min_std
         self.chunk_size = chunk_size
         state = None
+        if pretrained and config is not None:
+            raise ValueError(
+                "config is read from the checkpoint when pretrained is set; "
+                "pass one or the other."
+            )
         if pretrained:
             config, state = load_mira_checkpoint(
                 pretrained if isinstance(pretrained, str) else None
