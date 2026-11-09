@@ -46,7 +46,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence
 
-from pyhealth.datasets import SampleDataset
+import pyhealth.datasets
 from pyhealth.models import BaseModel
 
 STATE_KEYS: tuple[str, ...] = (
@@ -447,7 +447,8 @@ class TDCNNLSTM(BaseModel):
     no successor, and the observed label becomes the TD target for that row.
 
     Args:
-        dataset: PyHealth ``SampleDataset`` with ``output_schema`` exactly
+        dataset (pyhealth.datasets.SampleDataset): PyHealth dataset with
+            ``output_schema`` exactly
             ``{"label": "binary"}`` (observed 28-day mortality) and the five
             current-state channels in ``input_schema``.
         n_features: Size of the feature vocabulary. Valid feature IDs are
@@ -516,7 +517,7 @@ class TDCNNLSTM(BaseModel):
 
     def __init__(
         self,
-        dataset: SampleDataset,
+        dataset: pyhealth.datasets.SampleDataset,
         n_features: int,
         hidden_dim: int = 32,
         dropout: float = 0.5,
@@ -565,7 +566,9 @@ class TDCNNLSTM(BaseModel):
     # ------------------------------------------------------------------
     # Dataset schema, canonicalization and validation
     # ------------------------------------------------------------------
-    def _check_dataset_schema(self, dataset: SampleDataset | None) -> None:
+    def _check_dataset_schema(
+        self, dataset: pyhealth.datasets.SampleDataset | None
+    ) -> None:
         """Checks the single binary label and the current-state inputs."""
         if dataset is None:
             raise ValueError("TDCNNLSTM requires a SampleDataset")

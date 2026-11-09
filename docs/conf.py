@@ -72,9 +72,6 @@ extensions = [
 
 toggleprompt_offset_right = 35
 
-typehints_fully_qualified = True
-autodoc_typehints_format = "fully-qualified"
-
 ogp_site_url = "https://pyhealth.readthedocs.io/en/latest/"
 ogp_image = (
     "https://pyhealth.readthedocs.io/en/latest/pyhealth_logos/_static/"
