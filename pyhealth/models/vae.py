@@ -11,10 +11,11 @@ Description:
     dataset's ``ImageProcessor``, so the model adapts to whatever image task
     it is given, for example :class:`~pyhealth.tasks.COVID19CXRImageGeneration`.
 
-    The model reports ``mode == "regression"``, with the input image as the
-    target and the reconstruction as the prediction, so it trains with the
-    standard :class:`~pyhealth.trainer.Trainer` and its validation metrics are
-    reconstruction errors such as ``"mse"`` and ``"mae"``.
+    Its :attr:`label_processors` describe the reconstructed input independently
+    of the task's output label. The image mode uses regression metrics such as
+    ``"mse"`` and ``"mae"``; the sequence mode uses a time-series multiclass
+    processor to gather variable-length token predictions and compute token-level
+    metrics with the standard :class:`~pyhealth.trainer.Trainer`.
 
     The model also supports categorical EHR code sequences. In that mode, a
     recurrent encoder and autoregressive decoder reconstruct and generate code
@@ -27,9 +28,15 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence
 
 from pyhealth.datasets import SampleDataset
-from pyhealth.models import BaseModel
+from pyhealth.models.base_model import BaseModel
 from pyhealth.models.contrawr import ResBlock2D
-from pyhealth.processors import ImageProcessor, SequenceProcessor
+from pyhealth.processors import (
+    ImageProcessor,
+    LabelProcessor,
+    RegressionLabelProcessor,
+    SequenceProcessor,
+    TimeseriesMultiClassLabelProcessor,
+)
 
 
 ENCODER_WIDTHS = (16, 64, 256)
@@ -44,9 +51,9 @@ class VAE(BaseModel):
     ``SequenceProcessor`` inputs use a recurrent encoder and an autoregressive
     decoder trained to reconstruct code tokens. Both paths use the same latent
     sampling and KL-divergence objective. The model reconstructs inputs rather
-    than predicting the dataset's output label. ``Trainer.evaluate()`` reports
-    the loss for sequence VAEs; ``Trainer.inference()`` returns each reconstructed
-    sequence and its token probabilities as variable-length per-sample arrays.
+    than predicting the dataset's output label. Its :attr:`label_processors`
+    describe the reconstructed input, allowing the standard ``Trainer`` to
+    return variable-length sequence predictions and compute token-level metrics.
     Each token probability is a dense vector over the fitted code vocabulary, so
     inference memory grows with the number of tokens times the vocabulary size.
 
@@ -151,14 +158,21 @@ class VAE(BaseModel):
                 )
             self._init_sequence(dataset)
 
-        # This is an input-reconstruction model; dataset labels are optional
-        # conditions and are not predictions for Trainer's task metrics.
-        self._mode = "regression" if self.modality == "image" else None
-        self.inference_output_mode = (
-            "categorical_sequence_reconstruction"
-            if self.modality == "sequence"
-            else None
-        )
+
+    @property
+    def label_processors(self) -> dict[str, LabelProcessor]:
+        """Describe the reconstructed input for generic Trainer inference.
+
+        The sequence processor uses the input vocabulary, where tokens are
+        already represented by contiguous integer indices.
+        """
+        if self.modality == "image":
+            return {"reconstruction": RegressionLabelProcessor()}
+        return {
+            "reconstruction": TimeseriesMultiClassLabelProcessor(
+                labels=self.vocab_size
+            )
+        }
 
     def _init_image(
         self, dataset: SampleDataset, condition_key: str | None
@@ -170,7 +184,7 @@ class VAE(BaseModel):
                     f"condition_key {condition_key!r} must be in output_schema."
                 )
             processor = dataset.output_processors[condition_key]
-            mode = self._resolve_mode(dataset.output_schema[condition_key])
+            mode = processor.mode
             if mode not in ("binary", "multiclass"):
                 raise ValueError(
                     "condition_key must use a binary or multiclass label processor."
@@ -419,11 +433,18 @@ class VAE(BaseModel):
         kl_loss = kl_per_sequence.mean()
         loss = reconstruction_loss + kl_loss
         token_probabilities = F.softmax(logits, dim=-1)
+        lengths = mask.sum(dim=1)
+        offsets = torch.cat(
+            [lengths.new_zeros(1), lengths.cumsum(dim=0)]
+        )
+        positions = torch.arange(tokens.shape[1], device=tokens.device)
+        times = positions.expand_as(tokens)[mask].to(torch.float32)
+        packed_y_true = (tokens[mask], times, offsets)
         return {
             "loss": loss,
             "reconstruction_logits": logits,
-            "y_true": tokens,
-            "y_prob": token_probabilities,
+            "y_true": packed_y_true,
+            "y_prob": token_probabilities[mask],
             "mu": mu,
             "log_var": log_var,
             "mask": mask,
