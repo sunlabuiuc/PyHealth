@@ -144,7 +144,16 @@ class ICUAcuityMIMIC4(_YAIBMIMIC4Task):
                 ]
             },
         ),
-        "static": _YAIBMIMIC4Task.input_schema["static"],
+        # A flat vector, which APRICOT-M fuses with the pooled events (unlike
+        # the YAIB tasks, where static is a sequence_v2 series at t = 0).
+        "static": (
+            "tensor",
+            {
+                "normalization": "zscore",
+                "missing_indicators": True,
+                "impute_strategy": "zero",
+            },
+        ),
     }
     output_schema: ClassVar[dict[str, Any]] = {"acuity": "tensor"}
 

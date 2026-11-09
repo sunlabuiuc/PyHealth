@@ -325,13 +325,17 @@ class TestAPRICOTM(unittest.TestCase):
     def test_balanced_pos_weight(self):
         batch = self._batch(range(6))
         plain = self.model(**batch)["loss"]
-        self.model.set_pos_weight("balanced", [self.dataset[i] for i in range(6)])
-        # BaseModel.set_pos_weight("balanced") gives negatives / positives, so
-        # the last label, positive in every sample, gets weight 0 (only labels
-        # with no positive at all fall back to 1).
-        torch.testing.assert_close(self.model.pos_weight,
+        torch.manual_seed(0)
+        weighted = APRICOTM(self.dataset, static_key="static", embedding_dim=16,
+                            hidden_dim=8, state_size=4, top_k=3,
+                            pos_weight="balanced")
+        # "balanced" gives negatives / positives over the dataset, so the last
+        # label, positive in every sample, gets weight 0 (only labels with no
+        # positive at all fall back to 1).
+        torch.testing.assert_close(weighted.label_processor.weight,
                                    torch.tensor([1.0, 2.0, 1.0, 0.0]))
-        self.assertFalse(torch.allclose(plain, self.model(**batch)["loss"]))
+        self.assertIsNone(self.model.label_processor.weight)
+        self.assertFalse(torch.allclose(plain, weighted(**batch)["loss"]))
 
     def test_invalid_arguments(self):
         with self.assertRaises(ValueError):

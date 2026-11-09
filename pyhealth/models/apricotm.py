@@ -31,9 +31,9 @@ ones it trains with). Differences:
   the other samples in its batch.
 - No positional encoding is added (the authors' code has it disabled; the
   scan is order-aware).
-- Class imbalance: the paper weights each label's loss term; here
-  :meth:`~pyhealth.models.BaseModel.set_pos_weight` (e.g. ``"balanced"``)
-  weights the positive examples of each label.
+- Class imbalance: the paper weights each label's loss term; here the
+  ``pos_weight`` argument (e.g. ``"balanced"``) weights the positive
+  examples of each label.
 - The isotonic recalibration and the overall-acuity logic of the paper are
   evaluation steps and are not part of the model.
 """
@@ -41,6 +41,7 @@ ones it trains with). Differences:
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 
 import torch
 import torch.nn.functional as F
@@ -49,6 +50,7 @@ from torch import Tensor, nn
 from pyhealth.datasets import SampleDataset
 from pyhealth.models.base_model import BaseModel
 from pyhealth.models.selective_ssm import SelectiveSSM
+from pyhealth.processors import LabelProcessor, MultiLabelProcessor
 
 __all__ = ["APRICOTM"]
 
@@ -94,8 +96,8 @@ class APRICOTM(BaseModel):
     field of :class:`~pyhealth.tasks.ICUAcuityMIMIC4`, ``K = 12``). The
     model is a multilabel classifier: one two-layer head per label,
     ``mode`` is ``"multilabel"``, and the loss is the binary cross-entropy
-    averaged over labels. Use :meth:`set_pos_weight` (e.g. ``"balanced"``
-    with the training samples) for the class weighting of the paper.
+    averaged over labels. Pass ``pos_weight="balanced"`` with the training
+    split for the class weighting of the paper.
 
     Args:
         dataset: The dataset (schemas, vocabulary and static width).
@@ -113,6 +115,10 @@ class APRICOTM(BaseModel):
         max_seq_len: Events read per sample, the most recent ones (512).
         time_scale: Divides the event times (720 hours = 30 days, the
             longest stay in the paper's cohort, maps them to [0, 1]).
+        pos_weight: Weight of the positive examples of each label in the
+            loss: a number, one number per label, ``"balanced"``
+            (negatives / positives of each label in ``dataset``, so pass the
+            training split) or None.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset
@@ -157,6 +163,7 @@ class APRICOTM(BaseModel):
         dropout: float = 0.2,
         max_seq_len: int = 512,
         time_scale: float = 720.0,
+        pos_weight: float | Sequence[float] | str | None = None,
     ) -> None:
         super().__init__(dataset)
         if feature_key not in dataset.input_schema:
@@ -178,12 +185,22 @@ class APRICOTM(BaseModel):
         self.top_k = top_k
         self.max_seq_len = max_seq_len
         self.time_scale = float(time_scale)
-        self.mode = "multilabel"
 
         processor = dataset.input_processors[feature_key]
         self._roles = self._event_roles(processor, feature_key)
         sample = dataset[0]
         self.num_labels = int(torch.as_tensor(sample[label_key]).numel())
+        # The label is a tensor field, which is not a label processor, so the
+        # model supplies one: K fixed binary labels with BCE (see
+        # label_processors). "balanced" is learned from ``dataset``.
+        self._label = MultiLabelProcessor(labels=self.num_labels, pos_weight=pos_weight)
+        if pos_weight == "balanced":
+            self._label._fit_pos_weight(
+                [
+                    torch.as_tensor(dataset[i][label_key], dtype=torch.float32)
+                    for i in range(len(dataset))
+                ]
+            )
         static_dim = 0
         if static_key is not None:
             static_dim = int(torch.as_tensor(sample[static_key]).numel())
@@ -296,6 +313,20 @@ class APRICOTM(BaseModel):
             h = h + self.static_ffn(static.reshape(static.shape[0], -1))
         return h
 
+    @property
+    def label_processors(self) -> dict[str, LabelProcessor]:
+        """The ``K`` binary labels, scored as a multilabel classification.
+
+        The label is a ``"tensor"`` field, which is not a label processor, so
+        APRICOT-M supplies a fixed :class:`~pyhealth.processors.MultiLabelProcessor`
+        with ``K`` labels and the model's ``pos_weight``.
+
+        Examples:
+            >>> model.label_processor.size()  # doctest: +SKIP
+            12
+        """
+        return {self.label_key: self._label}
+
     def forward(self, **kwargs) -> dict[str, Tensor]:
         """Runs APRICOT-M on a batch.
 
@@ -306,22 +337,17 @@ class APRICOTM(BaseModel):
         Returns:
             ``logit`` ``[B, K]``, ``y_prob`` (sigmoid of the logits), and
             with labels ``loss`` (mean binary cross-entropy, weighted by
-            :attr:`pos_weight` when set) and ``y_true``. ``embed=True`` adds
+            ``pos_weight`` when given) and ``y_true``. ``embed=True`` adds
             ``embed``, the fused representation.
         """
         h = self.encode(**kwargs)
         logits = torch.cat([head(h) for head in self.heads], dim=-1)
-        out = {"logit": logits, "y_prob": torch.sigmoid(logits)}
+        out = {"logit": logits, "y_prob": self.label_processor.activation(logits)}
         if self.label_key in kwargs:
             y_true = torch.as_tensor(kwargs[self.label_key]).to(
                 self.device, torch.float32
             ).reshape(logits.shape)
-            pos_weight = self.pos_weight
-            out["loss"] = F.binary_cross_entropy_with_logits(
-                logits,
-                y_true,
-                pos_weight=None if pos_weight is None else pos_weight.to(self.device),
-            )
+            out["loss"] = self.label_processor.loss(logits, y_true)
             out["y_true"] = y_true
         if kwargs.get("embed", False):
             out["embed"] = h

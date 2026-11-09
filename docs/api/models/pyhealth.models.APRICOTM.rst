@@ -36,8 +36,8 @@ event, such as the ``events`` field of
 field. The label is a tensor of ``K`` binary labels (12 for that task, in the
 order of ``ICUAcuityMIMIC4.LABELS``). ``mode`` is ``"multilabel"``; the model
 returns ``logit``, ``y_prob`` and, with labels, ``loss`` (binary
-cross-entropy) and ``y_true``. Use ``set_pos_weight("balanced",
-train_samples)`` for the class weighting of the paper. The example notebook
+cross-entropy) and ``y_true``. Pass ``pos_weight="balanced"`` with the
+training split for the class weighting of the paper. The example notebook
 ``examples/apricotm_mimic4_acuity.ipynb`` trains it on MIMIC-IV.
 
 API
