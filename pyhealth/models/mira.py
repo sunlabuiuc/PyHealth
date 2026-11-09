@@ -51,10 +51,56 @@ import torch.nn.functional as F
 from torch import nn
 
 from ..datasets import SampleDataset
-from ..processors import LabelProcessor
-from .apn import _ForecastLabel, masked_mse
+from ..processors import LabelProcessor, RegressionLabelProcessor
 from .base_model import BaseModel
-from .ehrmamba import RMSNorm
+
+# MIRA keeps its own copies of these small pieces, so a later change to APN
+# or EHRMamba cannot silently change its outputs or its loss.
+
+
+def masked_mse(prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """Mean squared error over the finite entries of ``target``.
+
+    The same loss as APN's, so the two models are scored identically on
+    ``PhysioNet2012Forecasting``.
+
+    Args:
+        prediction: Forecasts, any shape.
+        target: Targets of the same shape, NaN where not observed.
+
+    Returns:
+        A scalar; 0 (with gradient) when nothing is observed.
+
+    Examples:
+        >>> import torch
+        >>> masked_mse(torch.tensor([1.0, 2.0]), torch.tensor([0.0, float("nan")]))
+        tensor(1.)
+    """
+    mask = torch.isfinite(target)
+    if not mask.any():
+        return prediction.sum() * 0.0
+    return ((prediction[mask] - target[mask]) ** 2).mean()
+
+
+class _ForecastLabel(RegressionLabelProcessor):
+    """A regression over the observed (finite) targets of a forecast."""
+
+    def loss(self, logits: torch.Tensor, y_true: Any, **kwargs: Any) -> torch.Tensor:
+        return masked_mse(logits, y_true)
+
+
+class _RMSNorm(nn.Module):
+    """Root mean square layer normalization, as in the MIRA checkpoint."""
+
+    def __init__(self, dim: int, eps: float = 1e-6):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        rms = (x.pow(2).mean(-1, keepdim=True) + self.eps).rsqrt()
+        return x * rms * self.weight
+
 
 HF_REPO_ID = "MIRA-Mode/MIRA"
 """Hugging Face repository with the published MIRA-Large checkpoint."""
@@ -327,8 +373,8 @@ class _DecoderLayer(nn.Module):
             if config.use_dense
             else _SparseExperts(config)
         )
-        self.input_layernorm = RMSNorm(config.hidden_size, config.rms_norm_eps)
-        self.post_attention_layernorm = RMSNorm(config.hidden_size, config.rms_norm_eps)
+        self.input_layernorm = _RMSNorm(config.hidden_size, config.rms_norm_eps)
+        self.post_attention_layernorm = _RMSNorm(config.hidden_size, config.rms_norm_eps)
 
     def forward(
         self, x: torch.Tensor, times: torch.Tensor, mask: torch.Tensor
@@ -344,7 +390,7 @@ class _Decoder(nn.Module):
         self.layers = nn.ModuleList(
             _DecoderLayer(config) for _ in range(config.num_hidden_layers)
         )
-        self.norm = RMSNorm(config.hidden_size, config.rms_norm_eps)
+        self.norm = _RMSNorm(config.hidden_size, config.rms_norm_eps)
 
 
 class _ODEFunc(nn.Module):
