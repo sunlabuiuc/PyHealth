@@ -55,8 +55,11 @@ class NiftiReader(BaseImageReader):
         nib = _require_nibabel()
         source = nib.load(str(path))
         shape = tuple(int(x) for x in source.shape)
-        if len(shape) < 2:
-            raise ValueError(f"NIfTI image must have at least 2 dimensions: {shape}")
+        if len(shape) < 2 or len(shape) > 4:
+            raise ValueError(
+                "NIfTI image must have 2, 3 or 4 dimensions: "
+                f"{shape}"
+            )
 
         if len(shape) == 4 and channel_axis % 4 != 3:
             raise ValueError(

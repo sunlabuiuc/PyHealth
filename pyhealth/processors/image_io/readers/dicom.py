@@ -270,6 +270,15 @@ def _canonical_layout(
     )
 
 
+def _require_single_frame(dataset: Any) -> None:
+    """Reject multi-frame files, which the readers do not support yet."""
+    frames = int(getattr(dataset, "NumberOfFrames", 1) or 1)
+    if frames > 1:
+        raise NotImplementedError(
+            "Multi-frame DICOM is not supported yet; use one file per slice."
+        )
+
+
 def _require_grayscale(dataset: Any) -> None:
     """Reject colour DICOM images, which are not supported yet."""
     samples = int(getattr(dataset, "SamplesPerPixel", 1) or 1)
@@ -366,6 +375,7 @@ class DicomReader(BaseImageReader):
                 "for a series."
             )
         file, dataset = entries[0]
+        _require_single_frame(dataset)
         _require_grayscale(dataset)
         rows = int(dataset.Rows)
         columns = int(dataset.Columns)
@@ -544,6 +554,8 @@ class DicomSeriesReader(BaseImageReader):
             path, series_uid=series_uid, stop_before_pixels=True
         )
         _, first = entries[0]
+        for _, dataset in entries:
+            _require_single_frame(dataset)
         _require_grayscale(first)
         affine, shape_xyz, spacing_xyz = _affine_from_geometry(entries)
         if canonical:

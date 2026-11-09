@@ -32,7 +32,7 @@ class DicomProcessor(ImageProcessor):
         mean: Per-channel means for normalisation.
         std: Per-channel standard deviations for normalisation.
         mode: Output channel mode such as ``"L"`` or ``"RGB"``.
-        lazy: Store the file path instead of decoded pixels. Defaults to True.
+        lazy: Store the file path instead of decoded pixels. Defaults to False.
         apply_rescale: Apply DICOM rescale slope/intercept. Defaults to True.
         invert_monochrome1: Invert ``MONOCHROME1`` images. Defaults to True.
         window: Apply the DICOM window. Defaults to False.
@@ -61,7 +61,7 @@ class DicomProcessor(ImageProcessor):
         mean: list[float] | None = None,
         std: list[float] | None = None,
         mode: str | None = None,
-        lazy: bool = True,
+        lazy: bool = False,
         apply_rescale: bool = True,
         invert_monochrome1: bool = True,
         window: bool = False,

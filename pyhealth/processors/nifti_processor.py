@@ -85,6 +85,11 @@ class NiftiProcessor(FeatureProcessor):
                 supported.
             order: Interpolation order.
         """
+        if normalize == "auto":
+            raise ValueError(
+                "NiftiProcessor does not infer a modality for "
+                "normalize='auto'; use 'ct' or 'mri' explicitly."
+            )
         self.lazy = bool(lazy)
         self.channels = channels
         self.canonical = bool(canonical)

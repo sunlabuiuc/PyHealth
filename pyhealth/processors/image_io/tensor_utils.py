@@ -39,7 +39,7 @@ def _collate_volumes(values: Sequence[Any]) -> Any:
 
 def _materialize_and_collate(processor: Any, values: Sequence[Any]) -> Any:
     """Materialise lazy values, then stack or pad them."""
-    if values and not isinstance(values[0], torch.Tensor):
+    if values and getattr(processor, "lazy", False):
         values = [processor.materialize(value) for value in values]
     return _collate_volumes(values)
 

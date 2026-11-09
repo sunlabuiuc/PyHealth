@@ -45,7 +45,7 @@ Available Processors
 
 - ``ImageProcessor``: For image data (e.g., chest X-rays)
 - ``NiftiProcessor``: For NIfTI images and 3D volumes, with lazy loading by default
-- ``DicomProcessor``: For single-frame DICOM images, with lazy loading by default
+- ``DicomProcessor``: For single-frame DICOM images, with optional lazy loading
 - ``DicomSeriesProcessor``: For DICOM series reconstructed as 3D volumes
 - ``ImageMaskDirectoryProcessor``: For directories of 2D image mask slices (PNG by default), with lazy loading by default
 - ``TextProcessor``: For text/clinical notes data
@@ -58,9 +58,11 @@ Available Processors
 - ``RawProcessor``: Pass-through processor for raw data
 
 Medical imaging processors require the optional dependencies:
-``pip install "pyhealth[imaging]"``. ``NiftiProcessor``, ``DicomProcessor``,
+``pip install "pyhealth[imaging]"``. ``NiftiProcessor``,
 ``DicomSeriesProcessor`` and ``ImageMaskDirectoryProcessor`` use lazy loading
-by default (``lazy=True``). Set ``lazy=False`` to cache tensors. In lazy mode
+by default (``lazy=True``); ``DicomProcessor`` defaults to eager loading for
+the existing 2D image path. Set ``lazy=False`` to cache tensors or
+``lazy=True`` to load on demand. In lazy mode
 the sample stores a path or ordered path list, and a DataLoader reads the
 pixels through the processor's ``collate`` method.
 

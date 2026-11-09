@@ -79,6 +79,19 @@ class TestNiftiReaderAndProcessor(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "last axis"):
             NiftiProcessor(channel_axis=0).process(str(path))
 
+    def test_auto_normalize_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "normalize='auto'"):
+            NiftiProcessor(normalize="auto")
+
+    def test_5d_nifti_is_rejected(self):
+        path = self.root / "five_d.nii.gz"
+        nib.save(
+            nib.Nifti1Image(np.zeros((2, 2, 2, 2, 2), dtype=np.float32), self.affine),
+            str(path),
+        )
+        with self.assertRaisesRegex(ValueError, "2, 3 or 4"):
+            NiftiReader().read_metadata(str(path))
+
     def test_mask_keeps_labels(self):
         path = self.root / "mask.nii.gz"
         data = (self.data % 3).astype(np.uint8)

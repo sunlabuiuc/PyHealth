@@ -84,6 +84,15 @@ def _write_slice(
     dataset.save_as(str(path), enforce_file_format=True)
 
 
+def _write_multiframe(path: Path, series_uid: str, study_uid: str) -> None:
+    """Write a small multi-frame DICOM file."""
+    _write_slice(path, 1024, 0.0, 1, series_uid, study_uid)
+    dataset = pydicom.dcmread(str(path))
+    dataset.NumberOfFrames = 2
+    dataset.PixelData = np.zeros((2, 6, 8), dtype=np.int16).tobytes()
+    dataset.save_as(str(path), enforce_file_format=True)
+
+
 def _write_rgb_slice(path: Path) -> None:
     """Write one small RGB DICOM slice."""
     file_meta = FileMetaDataset()
@@ -244,6 +253,60 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         tensor = processor.process(str(path))
         self.assertEqual(str(tensor.dtype), "torch.int64")
         self.assertEqual(set(tensor.unique().tolist()), {1025})
+
+    def test_default_processor_is_eager(self):
+        path = self._write_single(1024 + 1)
+        processor = DicomProcessor(image_size=4, mode="L")
+        tensor = processor.process(str(path))
+        self.assertTrue(processor.stores_tensor)
+        self.assertEqual(tuple(tensor.shape), (1, 4, 4))
+
+    def test_multiframe_dicom_is_rejected_while_reading_metadata(self):
+        path = self.root / "multi.dcm"
+        _write_multiframe(path, self.series_uid, self.study_uid)
+        with self.assertRaisesRegex(NotImplementedError, "Multi-frame"):
+            DicomReader().read_metadata(str(path))
+        with self.assertRaisesRegex(NotImplementedError, "Multi-frame"):
+            DicomSeriesReader().read_metadata(str(path))
+
+    def test_pil_output_collates_without_lazy(self):
+        paths = []
+        for index in range(2):
+            path = self.root / f"pil_{index}.dcm"
+            _write_slice(
+                path,
+                1024 + index,
+                0.0,
+                1,
+                generate_uid(),
+                self.study_uid,
+            )
+            paths.append(path)
+        dataset = create_sample_dataset(
+            [
+                {"patient_id": "p0", "image": str(paths[0]), "label": 0},
+                {"patient_id": "p1", "image": str(paths[1]), "label": 1},
+            ],
+            {
+                "image": (
+                    "dicom",
+                    {
+                        "lazy": False,
+                        "to_tensor": False,
+                        "image_size": 4,
+                        "mode": "L",
+                    },
+                )
+            },
+            {"label": "binary"},
+            in_memory=False,
+        )
+        try:
+            batch = next(iter(get_dataloader(dataset, batch_size=2)))
+            self.assertEqual(len(batch["image"]), 2)
+            self.assertIsInstance(batch["image"][0], Image.Image)
+        finally:
+            dataset.close()
 
     def test_lazy_dicom_dataloader_materializes(self):
         paths = []
