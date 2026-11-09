@@ -48,7 +48,7 @@ class DicomProcessor(ImageProcessor):
         >>> from pyhealth.processors import DicomProcessor
         >>> processor = DicomProcessor(image_size=128, mode="L")
         >>> processor.stores_tensor
-        False
+        True
         >>> processor.is_token()
         False
     """

@@ -403,6 +403,19 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         ):
             DicomSeriesReader().read_metadata(self.root)
 
+    def test_read_image_metadata_target_requires_3d(self):
+        path = self._write_single()
+        with self.assertRaisesRegex(ValueError, "3D volume"):
+            read_image_metadata(str(path), target_shape=(2, 3, 4))
+        mask_dir = self.root / "masks"
+        _write_masks(mask_dir, 3, "IMG", "-")
+        with self.assertRaisesRegex(ValueError, "3D volume"):
+            read_image_metadata(
+                mask_dir,
+                reader="image_mask",
+                target_shape=(2, 3, 4),
+            )
+
     def test_colour_dicom_is_rejected(self):
         path = self.root / "colour.dcm"
         _write_rgb_slice(path)

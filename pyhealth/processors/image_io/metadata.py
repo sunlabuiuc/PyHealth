@@ -18,7 +18,10 @@ def _target_layout(
     shape = tuple(int(value) for value in metadata.get("shape", ()))
     spacing = tuple(float(value) for value in metadata.get("spacing", ()))
     if len(shape) != 4 or len(spacing) != 3:
-        return shape, spacing
+        raise ValueError(
+            "target_shape and target_spacing require 3D volume metadata "
+            "with shape (C, D, H, W) and three spacing values."
+        )
     spatial = shape[1:]
     if target_shape is not None:
         new_shape = tuple(int(value) for value in target_shape)
@@ -48,22 +51,29 @@ def read_image_metadata(
 ) -> dict[str, Any]:
     """Read image metadata as a plain dictionary.
 
-    Tasks can store the result as an ordinary sample key. When
-    ``target_shape`` or ``target_spacing`` is given, the returned shape and
-    spacing describe the resampled grid; the affine remains the source
-    affine.
+    Tasks can store the result as an ordinary sample key. For a spaced 3D
+    volume, ``target_shape`` or ``target_spacing`` makes the returned shape
+    and spacing describe the resampled grid; the affine remains the source
+    affine. Target grids on other metadata raise ``ValueError``.
 
     Args:
         path: File path, directory, or ordered path sequence.
         reader: Optional reader name. Inferred from the path when omitted.
             Use ``"image_mask"`` for mask directories.
-        target_shape: Optional target spatial shape ``(D, H, W)``.
-        target_spacing: Optional target spacing ``(D, H, W)``.
+        target_shape: Optional target spatial shape ``(D, H, W)``. Only
+            supported for 3D volume metadata with spacing.
+        target_spacing: Optional target spacing ``(D, H, W)``. Only supported
+            for 3D volume metadata with spacing.
         **reader_kwargs: Extra arguments forwarded to ``read_metadata``.
 
     Returns:
         A dictionary with keys such as ``format``, ``shape``, ``spacing``,
         ``affine``, ``orientation``, ``dtype``, ``modality`` and ``source``.
+        Target shape/spacing are only reported for 3D volumes.
+
+    Raises:
+        ValueError: If a target grid is requested for metadata that is not a
+            spaced 3D volume.
 
     Examples:
         >>> read_image_metadata("scan.nii.gz")  # doctest: +SKIP
