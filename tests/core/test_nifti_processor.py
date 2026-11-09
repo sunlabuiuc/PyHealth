@@ -104,6 +104,11 @@ class TestNiftiReaderAndProcessor(unittest.TestCase):
         self.assertTrue(Path(value).is_absolute())
         self.assertEqual(Path(value), self.path.resolve())
 
+    def test_default_is_lazy(self):
+        value = NiftiProcessor().process(str(self.path))
+        self.assertIsInstance(value, str)
+        self.assertFalse(NiftiProcessor().stores_tensor)
+
     def test_lazy_processor(self):
         processor = NiftiProcessor(lazy=True)
         value = processor.process(str(self.path))
