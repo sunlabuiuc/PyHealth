@@ -10,7 +10,11 @@ import torch
 from PIL import Image
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
-from pyhealth.processors import ImageMaskDirectoryProcessor, ImageProcessor
+from pyhealth.processors import (
+    ImageMaskDirectoryProcessor,
+    ImageProcessor,
+    read_image_metadata,
+)
 from pyhealth.processors.image_io.readers.image_mask import ImageMaskReader
 
 
@@ -46,6 +50,11 @@ class TestImageMaskDirectoryProcessor(unittest.TestCase):
         self.assertEqual(str(tensor.dtype), "torch.int64")
         self.assertEqual(int(tensor[0, 0, 0, 0]), 1)
         self.assertEqual(int(tensor[0, 1, 1, 1]), 1)
+
+    def test_read_image_metadata(self):
+        metadata = read_image_metadata(self.mask_dir, reader="image_mask")
+        self.assertEqual(metadata["shape"], (1, 3, 4, 5))
+        self.assertEqual(len(metadata["source"]), 3)
 
     def test_eager_process_matches_lazy(self):
         lazy_tensor = ImageMaskDirectoryProcessor(lazy=True).process(self.mask_dir)
