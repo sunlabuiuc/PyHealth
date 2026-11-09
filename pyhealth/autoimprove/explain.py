@@ -3,14 +3,20 @@
 :func:`attributions` measures, for each sample, how much each input column
 moved the model's prediction (on the log-odds scale):
 
-- tree models (``XGBoostModel`` and other gradient-boosted trees): exact
-  TreeSHAP values;
+- tree models (``XGBoostModel`` and other gradient-boosted trees): the exact
+  TreeSHAP values of :meth:`GradientBoostedTreeModel.explain`, the same
+  values :class:`~pyhealth.interpret.methods.TreeSHAP` returns, kept in the
+  model's column form (one value per model column, absent codes included)
+  next to the column values;
 - torch models: integrated gradients from the mean input, for numeric
   fields (tensors and time series). For a logistic regression this is the
   exact contribution of each input, its coefficient times its deviation
   from the mean.
 
-Code fields (sequences of codes) are not attributed per column here.
+Code fields (sequences of codes) are not attributed per column for torch
+models; they stay fixed along the integration path. Only the first output
+column is explained, so for a multiclass or multilabel task that is class
+or label 0.
 
 :func:`summarize` turns the attributions into aggregates a clinician can
 check: importance by clinical factor group, the top features with their
@@ -83,10 +89,9 @@ def attributions(
         means = _numeric_means(loader, model.feature_keys)
     for batch in loader:
         if trees:
-            out = model.explain(**batch)
-            contrib = {k: np.asarray(v, dtype=float) for k, v in out["attributions"].items()}
-        else:
-            contrib = _integrated_gradients(model, batch, means, steps)
+            _tree_columns(model, batch, fields)
+            continue
+        contrib = _integrated_gradients(model, batch, means, steps)
         for key in model.feature_keys:
             value = _numeric(batch[key])
             if value is None or key not in contrib:
@@ -96,12 +101,18 @@ def attributions(
             if c.ndim > 2 and c.shape[-1] != value.shape[-1]:
                 c = c[..., 0]  # one output column (binary)
             v = value.numpy().astype(float)
-            if v.ndim == 3:  # (n, time, features): per feature
+            if v.ndim == 3 and c.size == v.size:  # (n, time, features)
                 c = c.reshape(v.shape).sum(axis=1)
                 v = v.mean(axis=1)
-            else:
+            elif v.ndim != 3 and c.size == v.size:
                 c = c.reshape(len(v), -1)
                 v = v.reshape(len(v), -1)
+            else:
+                skipped[key] = (
+                    f"contributions of shape {tuple(c.shape)} do not match "
+                    f"the input of shape {tuple(v.shape)}"
+                )
+                continue
             entry = fields.setdefault(key, {"values": [], "contributions": []})
             entry["values"].append(v)
             entry["contributions"].append(c)
@@ -111,7 +122,7 @@ def attributions(
         "fields": {
             k: {"values": np.concatenate(v["values"]),
                 "contributions": np.concatenate(v["contributions"])}
-            for k, v in fields.items()
+            for k, v in fields.items() if k not in skipped
         },
         "skipped": skipped,
         "patient_ids": patient_ids,
@@ -231,6 +242,25 @@ def _numeric(value: Any) -> torch.Tensor | None:
     if isinstance(value, torch.Tensor) and value.is_floating_point():
         return value.detach().cpu()
     return None
+
+
+def _tree_columns(model, batch, fields) -> None:
+    """Adds a tree model's TreeSHAP values and the matching model columns.
+
+    The values are the model's own feature matrix (e.g. the number of visits
+    with each code for a nested multi-hot field), so they line up with the
+    attributions column by column for every field kind.
+    """
+    out = model.explain(**batch)
+    matrix = np.asarray(model.build_feature_matrix(**batch), dtype=float)
+    for field in model.feature_layout:
+        key = field["key"]
+        c = np.asarray(out["attributions"][key].detach().cpu(), dtype=float)
+        if c.ndim == 3:  # (n, columns, classes): the first output column
+            c = c[..., 0]
+        entry = fields.setdefault(key, {"values": [], "contributions": []})
+        entry["values"].append(matrix[:, field["start"]:field["stop"]])
+        entry["contributions"].append(c)
 
 
 def _numeric_means(loader, keys) -> dict[str, torch.Tensor]:

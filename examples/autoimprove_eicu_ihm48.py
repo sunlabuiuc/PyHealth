@@ -173,10 +173,21 @@ def task_card(view: str) -> TaskCard:
                 features[f"{name}_{stat}"] = FeatureInfo(
                     f"{label} {words} in the first 48 h, {units} (0 if unmeasured)",
                     group, direction, unit)
-            features[f"{name}_n"] = FeatureInfo(
-                f"number of {words} measurements in the first 48 h (log scale)",
-                "monitoring intensity", "+",
-                rationale="sicker patients are measured more often")
+            if group == "vital signs":
+                # eICU charts vital signs automatically (every 5 minutes), so
+                # their count measures time in the ICU before 48 h, not
+                # severity; an earlier version of this card expected "+" and
+                # the direction check flagged it.
+                features[f"{name}_n"] = FeatureInfo(
+                    f"number of {words} measurements in the first 48 h (log scale)",
+                    "monitoring intensity", "",
+                    rationale="charted automatically, so the count reflects "
+                              "time in the ICU rather than severity")
+            else:
+                features[f"{name}_n"] = FeatureInfo(
+                    f"number of {words} measurements in the first 48 h (log scale)",
+                    "monitoring intensity", "+",
+                    rationale="sicker patients are measured more often")
         else:
             features[name] = FeatureInfo(
                 f"hourly {words} over the first 48 h, {units}, carried forward",
