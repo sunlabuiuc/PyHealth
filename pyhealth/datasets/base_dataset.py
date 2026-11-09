@@ -520,6 +520,10 @@ class BaseDataset(ABC):
         config (dict): Configuration loaded from a YAML file.
         global_event_df (pl.LazyFrame): The global event data frame.
         dev (bool): Whether to enable dev mode (limit to 1000 patients).
+        event_cache_lock_timeout (float): Seconds a process waits for another
+            process building the same event table before raising
+            ``filelock.Timeout`` (default 7200). Set it on the class or the
+            instance for longer builds; a negative value waits forever.
 
     Examples:
         >>> from pyhealth.datasets import BaseDataset
@@ -530,6 +534,8 @@ class BaseDataset(ABC):
         ... )
         >>> dataset.stats()
     """
+
+    event_cache_lock_timeout: float = 7200
 
     def __init__(
         self,
@@ -921,7 +927,10 @@ class BaseDataset(ABC):
                 logger.info(f"Found cached event dataframe: {ret_path}")
             else:
                 # One process builds; others wait, then find the published table.
-                with FileLock(str(self.cache_dir / "global_event_df.lock"), timeout=7200):
+                with FileLock(
+                    str(self.cache_dir / "global_event_df.lock"),
+                    timeout=self.event_cache_lock_timeout,
+                ):
                     if self._event_cache_valid(ret_path):
                         logger.info(
                             f"Found cached event dataframe: {ret_path} "

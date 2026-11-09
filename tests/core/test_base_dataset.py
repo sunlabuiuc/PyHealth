@@ -1,6 +1,7 @@
 import os
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -206,6 +207,77 @@ class TestBaseDataset(unittest.TestCase):
             self.assertEqual(list(first.cache_dir.glob("*.building")), [])
 
             second = dataset()
+            patients = second.global_event_df.collect()["patient_id"].to_list()
+            self.assertEqual(sorted(patients), ["1", "2", "3"])
+            self.assertEqual(list(second.cache_dir.glob("*.building")), [])
+
+    def test_concurrent_event_df_builds_run_once(self):
+        # Two datasets on the same cache: while the first builds (holding the
+        # lock), the second waits, then finds the published table and does not
+        # build it again.
+        data = dd.from_pandas(
+            pd.DataFrame(
+                {
+                    "patient_id": ["1", "2", "3"],
+                    "event_type": ["test"] * 3,
+                    "timestamp": [None] * 3,
+                    "test/value": [1, 2, 3],
+                }
+            ),
+            npartitions=1,
+        )
+
+        with tempfile.TemporaryDirectory() as cache_root, patch(
+            "pyhealth.datasets.base_dataset.platformdirs.user_cache_dir",
+            return_value=cache_root,
+        ):
+            def dataset():
+                return MockDataset(
+                    data=data,
+                    root="/data/root_concurrent",
+                    tables=["table_a"],
+                    dataset_name="ConcurrentDataset",
+                    dev=False,
+                )
+
+            first, second = dataset(), dataset()
+            self.assertEqual(first.cache_dir, second.cache_dir)
+            building, release = threading.Event(), threading.Event()
+            builds, errors = [], []
+
+            def transform(name):
+                def build(output_dir):
+                    builds.append(name)
+                    building.set()
+                    self.assertTrue(release.wait(30))
+                    output_dir.mkdir(parents=True)
+                    data.compute().to_parquet(
+                        output_dir / "part.0.parquet", index=False
+                    )
+
+                return build
+
+            def read(ds):
+                try:
+                    _ = ds.global_event_df
+                except BaseException as e:  # surfaced by the main thread
+                    errors.append(e)
+
+            with patch.object(first, "_event_transform", transform("first")), \
+                    patch.object(second, "_event_transform", transform("second")):
+                a = threading.Thread(target=read, args=(first,))
+                a.start()
+                self.assertTrue(building.wait(30))
+                b = threading.Thread(target=read, args=(second,))
+                b.start()
+                b.join(1.0)
+                self.assertTrue(b.is_alive())  # waiting for the lock
+                release.set()
+                a.join(30)
+                b.join(30)
+
+            self.assertEqual(errors, [])
+            self.assertEqual(builds, ["first"])
             patients = second.global_event_df.collect()["patient_id"].to_list()
             self.assertEqual(sorted(patients), ["1", "2", "3"])
             self.assertEqual(list(second.cache_dir.glob("*.building")), [])
