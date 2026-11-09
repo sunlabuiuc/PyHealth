@@ -102,7 +102,7 @@ class ImageMaskDirectoryProcessor(FeatureProcessor):
 
     def process(
         self,
-        value: str | Path | tuple[str, str] | list[str],
+        value: str | Path | tuple[str, str],
     ) -> Any:
         """Read image masks and return a tensor or lazy value.
 
@@ -149,8 +149,13 @@ class ImageMaskDirectoryProcessor(FeatureProcessor):
 
     def _split_value(self, value: Any) -> tuple[Path, str | Path | None]:
         """Return ``(mask_dir, series_path)`` from a mask value."""
-        if isinstance(value, (tuple, list)) and len(value) == 2:
+        if isinstance(value, tuple) and len(value) == 2:
             return Path(value[0]), value[1]
+        if isinstance(value, list):
+            raise TypeError(
+                "Pass masks as a directory or a (mask_dir, series_path) "
+                "tuple, not as a list of files."
+            )
         return Path(value), None
 
     def _prepare(

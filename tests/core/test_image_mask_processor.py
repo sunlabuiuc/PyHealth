@@ -80,6 +80,12 @@ class TestImageMaskDirectoryProcessor(unittest.TestCase):
         )
         self.assertEqual(tuple(volume.shape), (1, 2, 3, 4))
 
+    def test_mask_file_list_is_rejected(self):
+        with self.assertRaisesRegex(TypeError, "not as a list"):
+            ImageMaskDirectoryProcessor(lazy=False).process(
+                [self.mask_dir / "mask_0.png"]
+            )
+
     def test_colour_mask_is_rejected(self):
         mask_dir = Path(self.temp_dir) / "colour"
         mask_dir.mkdir()
