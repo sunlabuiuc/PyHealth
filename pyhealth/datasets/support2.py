@@ -173,7 +173,7 @@ def support2_released_split_ids(
                 outcomes.append((parsed[1] / _DAYS_PER_YEAR, parsed[2]))
     features = np.asarray(features, dtype=float)
     outcomes = np.asarray(outcomes, dtype=float)
-    # Index by float32 features and event for speed; check times exactly.
+    # Index by float32 features and event for speed, then check time tolerance.
     index: dict[tuple, list[int]] = {}
     for i, (row, event) in enumerate(zip(features.astype(np.float32), outcomes[:, 1])):
         index.setdefault((row.tobytes(), event), []).append(i)
@@ -192,21 +192,24 @@ def support2_released_split_ids(
             raise ValueError(f"{file.name}: expected arr_2 [N, 27] and arr_1 [N, 2]")
         members = []
         for r in range(len(x)):
-            key = (x[r].astype(np.float32).tobytes(), y[r, 1])
-            candidates = [i for i in index.get(key, []) if not used[i]]
-            if not candidates:  # fall back to a tolerance search
+            time, event = y[r]
+            key = (x[r].astype(np.float32).tobytes(), event)
+            candidates = [
+                i
+                for i in index.get(key, [])
+                if not used[i] and abs(outcomes[i, 0] - time) <= tolerance
+            ]
+            if not candidates:
                 close = (
                     ~used
-                    & (outcomes[:, 1] == y[r, 1])
+                    & (outcomes[:, 1] == event)
+                    & (np.abs(outcomes[:, 0] - time) <= tolerance)
                     & (
                         np.abs(features - x[r])
                         <= tolerance * np.maximum(1.0, np.abs(x[r]))
                     ).all(axis=1)
                 )
                 candidates = list(np.flatnonzero(close))
-            candidates = [
-                i for i in candidates if abs(outcomes[i, 0] - y[r, 0]) <= tolerance
-            ]
             if not candidates:
                 raise ValueError(f"{file.name} row {r}: no matching SUPPORT2 patient")
             used[candidates[0]] = True

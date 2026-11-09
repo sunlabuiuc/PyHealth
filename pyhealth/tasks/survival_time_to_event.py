@@ -7,6 +7,7 @@ https://proceedings.mlr.press/v182/han22a.html
 
 import math
 from collections.abc import Mapping, Sequence
+from decimal import Decimal, InvalidOperation
 from typing import ClassVar
 
 import numpy as np
@@ -213,11 +214,17 @@ def _support2_values(
             level = "missing"
         else:
             level = str(raw).strip()
-            if name in ("num.co", "diabetes", "dementia"):
+            if level not in levels and name in ("num.co", "diabetes", "dementia"):
                 try:
-                    level = str(int(float(level)))
-                except ValueError:
+                    numeric = Decimal(level)
+                except InvalidOperation:
                     pass
+                else:
+                    if numeric.is_finite():
+                        level = next(
+                            (allowed for allowed in levels if numeric == int(allowed)),
+                            level,
+                        )
         if level not in levels:
             raise ValueError(f"SUPPORT2 record {source_id}: unknown {name} {raw!r}")
         features.extend(1.0 if level == other else 0.0 for other in levels[1:])

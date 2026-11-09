@@ -171,6 +171,24 @@ class TestSupport2Task(unittest.TestCase):
         )
         self.assertAlmostEqual(sample["duration"][0], 30 / 365.25 + 0.001)
 
+    def test_numeric_categories_require_integer_values(self):
+        task = SurvivalTimeToEventSupport2()
+        canonical = row(1, diabetes="0", dementia="1", **{"num.co": "1"})
+        decimal = row(1, diabetes="0.0", dementia="1e0", **{"num.co": "1.0"})
+        self.assertEqual(task(patient([decimal]))[0]["features"], encode(canonical))
+        for field, value in (
+            ("num.co", "1.9"),
+            ("diabetes", "0.9"),
+            ("dementia", "1.2"),
+            ("num.co", "1.00000000000000001"),
+            ("diabetes", "inf"),
+        ):
+            with (
+                self.subTest(field=field, value=value),
+                self.assertRaisesRegex(ValueError, f"unknown {field}"),
+            ):
+                task(patient([row(1, **{field: value})]))
+
     def test_invalid_inputs_are_rejected(self):
         for transform in ({"time_divisor": 1e-300}, {"time_offset": 1e300}):
             with (
@@ -217,6 +235,18 @@ class TestSupport2ReleasedSplits(unittest.TestCase):
         write_released(self.root, self.cohort, [[3, 0], [4, 1], [2]])
         ids = support2_released_split_ids(self.root, self.root, 1)
         self.assertEqual(ids, {"train": ["5", "1"], "valid": ["6", "2"], "test": ["4"]})
+
+    def test_mapping_falls_back_when_exact_features_match_the_wrong_time(self):
+        exact = row(1, age="50", wblc="5.25", **{"num.co": "1", "d.time": "30"})
+        nearby = row(3, age="50.00002", wblc="5.25", **{"num.co": "1", "d.time": "90"})
+        other = row(2)
+        write_csv(self.root, [exact, nearby, other])
+        released = [exact, {**nearby, "age": exact["age"]}, other]
+        write_released(self.root, released, [[1], [0], [2]])
+        self.assertEqual(
+            support2_released_split_ids(self.root, self.root, 1),
+            {"train": ["3"], "valid": ["1"], "test": ["2"]},
+        )
 
     def test_mapping_rejects_invalid_controls_and_duplicate_ids(self):
         for tolerance in (float("nan"), float("inf"), -1):
