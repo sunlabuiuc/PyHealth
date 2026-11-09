@@ -119,6 +119,8 @@ class ClusterLabel(SetPredictor):
         random_state: int = 42,
         score_type: str = "threshold",
         debug: bool = False,
+        raps_lambda: float = 0.1,
+        raps_kreg: int = 1,
         **kwargs,
     ) -> None:
         super().__init__(model, **kwargs)
@@ -143,6 +145,8 @@ class ClusterLabel(SetPredictor):
         self.device = model.device
         self.debug = debug
         self.score_type = score_type
+        self.raps_lambda = raps_lambda
+        self.raps_kreg = raps_kreg
 
         # Store alpha
         if not isinstance(alpha, float):
@@ -244,7 +248,12 @@ class ClusterLabel(SetPredictor):
 
         # Compute non-conformity scores (higher = less conforming)
         conformity_scores = true_class_nc_scores(
-            y_prob, y_true, score_type=self.score_type, rng=self.rng
+            y_prob,
+            y_true,
+            score_type=self.score_type,
+            rng=self.rng,
+            raps_lambda=self.raps_lambda,
+            raps_kreg=self.raps_kreg,
         )
 
         # Compute cluster-specific thresholds
@@ -346,7 +355,11 @@ class ClusterLabel(SetPredictor):
         # Include class y if its NC score <= NC threshold
         y_prob_np = pred["y_prob"].detach().cpu().numpy()
         nc_scores = all_class_nc_scores(
-            y_prob_np, score_type=self.score_type, rng=self.rng
+            y_prob_np,
+            score_type=self.score_type,
+            rng=self.rng,
+            raps_lambda=self.raps_lambda,
+            raps_kreg=self.raps_kreg,
         )
         nc_scores = torch.as_tensor(
             nc_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype
