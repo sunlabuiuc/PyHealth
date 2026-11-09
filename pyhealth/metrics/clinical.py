@@ -6,10 +6,26 @@ how many alerts are false? Do the predicted risks match observed rates? Does
 acting on the model do more good than acting on everyone or no one? Does it
 work as well for every group?
 
-Every count that could describe a small group of patients is suppressed below
-``min_count`` (default 11, the HIPAA / CMS small-cell convention). When
-``groups`` (patient ids) is given, a cell is counted in distinct patients,
-not samples, so a patient with many samples cannot make a cell look large.
+Small cells are withheld below ``min_count`` (default 11, the HIPAA / CMS
+small-cell convention). When ``groups`` (patient ids) is given, a cell is
+counted in distinct patients, not samples, so a patient with many samples
+cannot make a cell look large. Exactly what is withheld:
+
+- :func:`clinical_summary`: ``n`` and ``positives`` below ``min_count``; and
+  when positives or negatives are below ``min_count``, everything computed
+  from the labels besides the overall calibration scores (``prevalence``,
+  ``alerts``, ``calibration_bins``, ``net_benefit``), which are then
+  ``None``, ``{}``, ``[]`` and ``[]``.
+- :func:`alert_rate_metrics`: an alert rate whose flagged, caught or false
+  alarm count is below ``min_count``.
+- :func:`calibration_bins`: bins are merged until each has ``min_count``
+  positives and ``min_count`` negatives.
+- :func:`subgroup_metrics`: counts below ``min_count``, and metrics of a
+  group with fewer than ``min_count`` positives or negatives.
+
+The functions default to ``min_count=MIN_CELL``, except
+:func:`alert_rate_metrics` and :func:`net_benefit`, which are plain metrics
+when called on their own.
 """
 
 from __future__ import annotations
@@ -32,6 +48,7 @@ def alert_rate_metrics(
     y_prob: Sequence[float],
     rates: Sequence[float] = (0.05, 0.10, 0.20),
     min_count: int = 0,
+    groups: Sequence[Any] | None = None,
 ) -> dict[str, dict[str, float]]:
     """What happens when the highest-risk fraction of samples is flagged.
 
@@ -42,8 +59,12 @@ def alert_rate_metrics(
         y_true: Binary labels.
         y_prob: Predicted risks.
         rates: Shares of samples to flag.
-        min_count: A rate that flags fewer samples than this is reported as
-            ``{"rate", "suppressed": True}`` only.
+        min_count: A rate whose flagged samples, caught positives or false
+            alarms number fewer than this is reported as
+            ``{"rate", "suppressed": True}`` only, since sensitivity and PPV
+            would reveal those counts.
+        groups: Patient id per sample; the counts above are then distinct
+            patients.
 
     Returns:
         ``{"top 10%": {"rate", "n_flagged", "threshold", "sensitivity", "ppv",
@@ -59,16 +80,23 @@ def alert_rate_metrics(
     """
     y_true = np.asarray(y_true, dtype=float).ravel()
     y_prob = np.asarray(y_prob, dtype=float).ravel()
+    ids = None if groups is None else np.asarray(groups)
     order = np.argsort(-y_prob, kind="stable")
     positives = y_true.sum()
+
+    def count(idx: np.ndarray) -> int:
+        return len(idx) if ids is None else len(set(ids[idx].tolist()))
+
     out = {}
     for rate in rates:
         k = max(1, math.ceil(rate * len(y_true)))
-        if k < min_count:
-            out[f"top {rate:.0%}"] = {"rate": float(rate), "suppressed": True}
-            continue
         flagged = order[:k]
         caught = y_true[flagged].sum()
+        hit = flagged[y_true[flagged] == 1]
+        miss = flagged[y_true[flagged] != 1]
+        if min(count(flagged), count(hit), count(miss)) < min_count:
+            out[f"top {rate:.0%}"] = {"rate": float(rate), "suppressed": True}
+            continue
         ppv = caught / k
         out[f"top {rate:.0%}"] = {
             "rate": float(rate),
@@ -129,18 +157,20 @@ def calibration_bins(
     """Mean predicted risk against the observed rate, in bins of predicted risk.
 
     Bins hold equal numbers of samples (by rank of predicted risk). A bin
-    with fewer than ``min_count`` samples, or distinct ``groups`` when
-    given, is merged into its neighbour, so every bin shown is large enough
-    to publish.
+    with fewer than ``min_count`` positives or ``min_count`` negatives
+    (samples, or distinct ``groups`` when given) is merged into its
+    neighbour, so neither the bin's size nor ``observed * n`` reveals a
+    small count.
 
     Returns:
         One dict per bin, lowest risk first: ``mean_predicted``,
-        ``observed`` and ``n``.
+        ``observed`` and ``n`` (samples, or distinct ``groups``).
 
     Examples:
-        >>> bins = calibration_bins([0] * 20 + [1] * 20, [0.1] * 20 + [0.9] * 20, 2)
+        >>> y = [0] * 15 + [1] * 5 + [0] * 5 + [1] * 15
+        >>> bins = calibration_bins(y, [0.2] * 20 + [0.8] * 20, 2, min_count=5)
         >>> [(round(b["mean_predicted"], 2), b["observed"], b["n"]) for b in bins]
-        [(0.1, 0.0, 20), (0.9, 1.0, 20)]
+        [(0.2, 0.25, 20), (0.8, 0.75, 20)]
     """
     y_true = np.asarray(y_true, dtype=float).ravel()
     y_prob = np.asarray(y_prob, dtype=float).ravel()
@@ -149,9 +179,12 @@ def calibration_bins(
     edges = np.linspace(0, len(order), n_bins + 1).round().astype(int)
     chunks = [order[a:b] for a, b in itertools.pairwise(edges) if b > a]
 
+    def count(idx: np.ndarray) -> int:
+        return len(idx) if ids is None else len(set(ids[idx].tolist()))
+
     def big(idx: np.ndarray) -> bool:
-        size = len(idx) if ids is None else len(set(ids[idx].tolist()))
-        return size >= min_count
+        positive = y_true[idx] == 1
+        return min(count(idx[positive]), count(idx[~positive])) >= min_count
 
     merged: list[np.ndarray] = []
     for chunk in chunks:
@@ -164,7 +197,7 @@ def calibration_bins(
         merged[-1] = np.concatenate([merged[-1], last])
     return [
         {"mean_predicted": float(y_prob[idx].mean()),
-         "observed": float(y_true[idx].mean()), "n": len(idx)}
+         "observed": float(y_true[idx].mean()), "n": count(idx)}
         for idx in merged if big(idx)
     ]
 
@@ -251,6 +284,9 @@ def clinical_summary(
 
     Thresholds for the decision curve default to half, one and two times the
     prevalence, the range where acting on a risk score is usually debated.
+    With fewer than ``min_count`` positives or negatives, only ``n``,
+    ``positives``, ``calibration`` and ``subgroups`` are given (see the
+    module docstring).
 
     Examples:
         >>> s = clinical_summary([0, 1] * 30, [0.3, 0.6] * 30)
@@ -267,18 +303,24 @@ def clinical_summary(
         y_true, y_prob,
         metrics=["brier", "oe_ratio", "calibration_slope", "calibration_intercept"],
     )
-    n = len(y_true) if groups is None else len(set(np.asarray(groups).tolist()))
-    positives = (int(y_true.sum()) if groups is None else
-                 len(set(np.asarray(groups)[y_true == 1].tolist())))
+    ids = None if groups is None else np.asarray(groups)
+
+    def count(mask: np.ndarray) -> int:
+        return int(mask.sum()) if ids is None else len(set(ids[mask].tolist()))
+
+    n = count(np.ones(len(y_true), dtype=bool))
+    positives, negatives = count(y_true == 1), count(y_true != 1)
+    enough = min(positives, negatives) >= min_count
     return {
         "n": n if n >= min_count else None,
         "positives": positives if positives >= min_count else None,
-        "prevalence": prevalence,
+        "prevalence": prevalence if enough else None,
         "calibration": {k: float(v) for k, v in calibration.items()},
         "calibration_bins": calibration_bins(y_true, y_prob, min_count=min_count,
-                                             groups=groups),
-        "alerts": alert_rate_metrics(y_true, y_prob, rates, min_count),
-        "net_benefit": net_benefit(y_true, y_prob, thresholds),
+                                             groups=groups) if enough else [],
+        "alerts": alert_rate_metrics(y_true, y_prob, rates, min_count,
+                                     groups=groups) if enough else {},
+        "net_benefit": net_benefit(y_true, y_prob, thresholds) if enough else [],
         "subgroups": subgroup_metrics(y_true, y_prob, subgroups or {},
                                       min_count=min_count, groups=groups),
     }

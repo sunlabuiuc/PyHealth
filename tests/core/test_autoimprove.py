@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
+import torch
 
 from pyhealth.autoimprove import (
     AutoImprover,
@@ -653,6 +654,20 @@ class TestOneSERule(unittest.TestCase):
         # without a ladder the top candidate is selected
         self.assertEqual(select_simplest([base, lr, deep], True, 1.0)[0].trial_id, 2)
 
+    def test_exact_tie_counts_as_within_one_se(self):
+        # Identical fold scores give gap 0 and SE 0; a tie is "within one SE",
+        # so the simpler of two tied configs is selected (and the top
+        # candidate is always within one SE of itself).
+        space = with_xgboost(SearchSpace())
+        base = self._trial(0, "XGBoost", 0.50, [0.48, 0.50, 0.52], "baseline")
+        deep = self._trial(1, "XGBoost", 0.56, [0.55, 0.555, 0.575],
+                           params={"max_depth": 6})
+        lr = self._trial(2, "LogisticRegression", 0.56, [0.55, 0.555, 0.575])
+        selected, top = select_simplest([base, deep, lr], True, 1.0, space.rung)
+        self.assertEqual((selected.trial_id, top.trial_id), (2, 1))
+        selected, top = select_simplest([base, deep], True, 1.0, space.rung)
+        self.assertIs(selected, deep)
+
     def test_top_kept_when_simpler_is_clearly_worse(self):
         space = with_xgboost(SearchSpace())
         base = self._trial(0, "XGBoost", 0.50, [0.50, 0.50, 0.50], "baseline")
@@ -1002,6 +1017,35 @@ class TestClinicalReport(unittest.TestCase):
         # integrated gradients start from the mean of the explained samples
         expected = (values - values.mean(axis=0)) * weights
         np.testing.assert_allclose(contribs, expected, atol=1e-4)
+
+    def test_tree_attributions_use_the_model_columns(self):
+        # A nested multi-hot field is (n, visits, vocab) as input but one
+        # column per code (visit counts, reserved codes dropped) in the tree
+        # model; values and TreeSHAP contributions must line up by column.
+        samples = [{"patient_id": f"p{i}", "visits": [["a", "b"], ["b"]][: 1 + i % 2],
+                    "label": i % 2} for i in range(30)]
+        data = create_sample_dataset(samples, {"visits": "nested_multihot"},
+                                     {"label": "binary"})
+
+        class Trees(torch.nn.Module):
+            feature_keys = ["visits"]
+            estimators_ = [None]
+            feature_layout = [{"key": "visits", "start": 0, "stop": 2}]
+
+            def build_feature_matrix(self, **batch):
+                return batch["visits"].sum(dim=1)[:, 2:].numpy()
+
+            def explain(self, **batch):
+                counts = torch.as_tensor(self.build_feature_matrix(**batch))
+                return {"attributions": {"visits": counts * torch.tensor([0.5, -1.0])}}
+
+        out = attributions(Trees(), data)
+        self.assertTrue(out["method"].startswith("TreeSHAP"))
+        values = out["fields"]["visits"]["values"]
+        contribs = out["fields"]["visits"]["contributions"]
+        self.assertEqual(values.shape, (30, 2))
+        np.testing.assert_allclose(contribs, values * [0.5, -1.0])
+        self.assertEqual(sorted(np.unique(values[:, 1])), [1.0, 2.0])  # visits with "b"
 
     @unittest.skipUnless(importlib.util.find_spec("xgboost"), "needs xgboost")
     def test_tree_attributions(self):
