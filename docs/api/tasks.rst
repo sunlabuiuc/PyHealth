@@ -259,3 +259,4 @@ Available Tasks
     ICU Acuity and Therapies (MIMIC-IV) <tasks/pyhealth.tasks.ICUAcuityMIMIC4>
     Cancer Mutation Burden (TCGA) <tasks/pyhealth.tasks.CancerMutationBurden>
     Value Set Completion (VSAC) <tasks/pyhealth.tasks.ValueSetCompletion>
+    Time-to-event survival (GBSG and SUPPORT) <tasks/pyhealth.tasks.survival_time_to_event>

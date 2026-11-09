@@ -32,3 +32,4 @@ reference includes the ECE definition and formula used by these helpers.
     metrics/pyhealth.metrics.interpretability
     metrics/pyhealth.metrics.generative
     metrics/pyhealth.metrics.survival
+    metrics/pyhealth.metrics.survival_curve
