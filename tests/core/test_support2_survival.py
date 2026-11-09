@@ -22,6 +22,7 @@ from pyhealth.datasets import (
 from pyhealth.models import SurvivalMDN
 from pyhealth.tasks import SurvivalTimeToEventSupport2
 from pyhealth.tasks.survival_time_to_event import SUPPORT2_FEATURES
+from tests.core.survival_test_utils import threaded_csv_loading
 
 NUMERIC = ["age", "meanbp", "hrt", "resp", "temp", "sod", "wblc", "crea"]
 COLUMNS = [
@@ -268,6 +269,7 @@ class TestSupport2ReleasedSplits(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no matching SUPPORT2 patient"):
             support2_released_split_ids(self.root, self.root, 1)
 
+    @threaded_csv_loading()
     def test_dataset_task_and_model(self):
         dataset = Support2Dataset(
             root=str(self.root),

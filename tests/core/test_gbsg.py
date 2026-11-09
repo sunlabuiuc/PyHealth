@@ -147,6 +147,7 @@ class TestGBSGDataset(unittest.TestCase):
     def dataset(self):
         return GBSGDataset(str(self.root), cache_dir=self.root / "cache", num_workers=1)
 
+    @threaded_csv_loading()
     def test_actual_loading_shuffling_and_model(self):
         dataset = self.dataset()
         self.assertEqual(
@@ -188,6 +189,7 @@ class TestGBSGDataset(unittest.TestCase):
         self.assertTrue(((curves >= 0) & (curves <= 1)).all())
         self.assertTrue((curves[:, 1:] <= curves[:, :-1]).all())
 
+    @threaded_csv_loading()
     def test_reordering_source_preserves_ids_and_feature_order(self):
         # CSV column order and physical row order are irrelevant to IDs.
         path = self.root / "gbsg.csv"
@@ -313,6 +315,7 @@ class TestGBSGPreparation(unittest.TestCase):
                 g["t"] = [12.5, 30]
                 g["e"] = [1, 0]
 
+    @threaded_csv_loading()
     def test_conversion_values_provenance_and_actual_loader(self):
         out = self.root / "prepared"
         metadata = prepare_gbsg_csv(self.source, out)
@@ -438,6 +441,7 @@ class TestGBSGReleasedSplits(unittest.TestCase):
             ):
                 SurvivalTimeToEventGBSG(**transform)(patient_from_rows(self.rows[:1]))
 
+    @threaded_csv_loading()
     def test_example_runs_released_protocol(self):
         from examples.gbsg_survival_loading import load_gbsg_splits
 
