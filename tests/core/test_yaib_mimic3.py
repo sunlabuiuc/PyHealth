@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timedelta
+from typing import cast
 
 import numpy as np
 import polars as pl
@@ -8,6 +9,13 @@ import torch
 from pyhealth.data import Patient
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import RNN_V2, LevelEmbedding
+from pyhealth.processors import (
+    LabelProcessor,
+    LevelConfig,
+    SequenceProcessorV2,
+    TensorProcessor,
+    TimeseriesProcessor,
+)
 from pyhealth.tasks import (
     YAIBAKIMIMIC3,
     YAIBKidneyFunctionMIMIC3,
@@ -337,6 +345,92 @@ class TestYAIBAKIMIMIC3(unittest.TestCase):
         self.assertGreater(sum(_labels(self._run(urine + [heavy])[0]["aki"])), 0)
         self.assertEqual(sum(_labels(self._run(urine + [light])[0]["aki"])), 0)
 
+    def test_stay_without_aki_is_negative_for_seven_days(self):
+        samples = self._run([_crea(T0 + timedelta(hours=2), 1.0)], hours=200)
+        aki = samples[0]["aki"]
+        self.assertEqual(len(aki["time"]), 169)
+        self.assertEqual(sum(_labels(aki)), 0)
+
+    def test_onset_within_six_hours_is_excluded(self):
+        # Onset at hour 3: a rise of 0.5 within 48 hours.
+        within = [
+            _crea(T0 - timedelta(hours=10), 1.0),
+            _crea(T0 + timedelta(hours=3), 1.5),
+        ]
+        self.assertEqual(self._run(within), [])
+        # Onset 5 hours before ICU admission.
+        before = [
+            _crea(T0 - timedelta(hours=20), 1.0),
+            _crea(T0 - timedelta(hours=5), 1.5),
+        ]
+        self.assertEqual(self._run(before), [])
+        # The same rise at hour 6 is kept.
+        at_six = [
+            _crea(T0 - timedelta(hours=10), 1.0),
+            _crea(T0 + timedelta(hours=6), 1.5),
+        ]
+        self.assertEqual(len(self._run(at_six)), 1)
+
+    def test_high_baseline_creatinine_is_excluded(self):
+        # The baseline is the running minimum up to the first ICU creatinine.
+        high = [
+            _crea(T0 - timedelta(hours=5), 4.5),
+            _crea(T0 + timedelta(hours=2), 4.6),
+        ]
+        self.assertEqual(self._run(high), [])
+        at_limit = [
+            _crea(T0 - timedelta(hours=5), 4.0),
+            _crea(T0 + timedelta(hours=2), 4.1),
+        ]
+        self.assertEqual(len(self._run(at_limit)), 1)
+
+    def test_kdigo_creatinine_stages(self):
+        for hours, crea, expected in (
+            ([0, 10], [1.0, 1.3], 1),  # a rise of 0.3 within 48 hours
+            ([0, 100], [1.0, 1.5], 1),  # 1.5 times the 7-day minimum
+            ([0, 100], [1.0, 1.4], 0),
+            ([0, 100], [1.0, 2.0], 2),  # 2 times
+            ([0, 100], [1.0, 3.0], 3),  # 3 times
+            ([0, 10], [3.7, 4.1], 3),  # at least 4 with a rise of 0.3
+            ([0, 100], [3.9, 4.0], 0),  # at least 4 without a rise
+            ([0, 200], [1.0, 3.0], 0),  # minimum older than 7 days
+        ):
+            with self.subTest(hours=hours, crea=crea):
+                stage = YAIBAKIMIMIC3._kdigo_crea(
+                    np.array(hours, dtype=float), np.array(crea)
+                )
+                self.assertEqual(stage.tolist(), [0, expected])
+
+    def test_kdigo_urine_stages(self):
+        # One urine bin every hour: each rate is the bin divided by 2 (hours
+        # since the previous bin plus one), the first bin by 1. Window sums
+        # of rates, divided by the 10 kg weight, from hour 6 on: 6 hours give
+        # 0.3 * u, 12 hours 0.6 * u and 24 hours 1.2 * u.
+        hours = np.arange(31, dtype=float)
+        for urine, stage_6, stage_12, stage_24 in (
+            (1.7, 0, 0, 0),  # 6 hours: 0.51
+            (1.5, 1, 1, 1),  # 6 hours: 0.45
+            (0.8, 1, 2, 2),  # 12 hours: 0.48
+            (0.2, 1, 2, 3),  # 24 hours: 0.24
+            (0.0, 1, 3, 3),  # 12 hours: 0
+        ):
+            with self.subTest(urine=urine):
+                kept, stage = YAIBAKIMIMIC3._kdigo_urine(
+                    hours, np.full(len(hours), urine), 10.0
+                )
+                self.assertEqual(kept.tolist(), hours.tolist())
+                # No stage before as many hours have passed.
+                expected = [0] * 6 + [stage_6] * 6 + [stage_12] * 12 + [stage_24] * 7
+                self.assertEqual(stage.tolist(), expected)
+        # Without any weight, the sums are not divided.
+        _, stage = YAIBAKIMIMIC3._kdigo_urine(hours, np.full(len(hours), 0.8), np.nan)
+        self.assertEqual(stage.tolist(), [0] * len(hours))
+        # Rates outside ricu's 0..2000 bounds are dropped.
+        kept, _ = YAIBAKIMIMIC3._kdigo_urine(
+            np.array([0.0, 1.0]), np.array([10.0, 5000.0]), 10.0
+        )
+        self.assertEqual(kept.tolist(), [0.0])
+
 
 def _antibiotic(start, hours=1, stay_id=10):
     return _event("inputevents_mv", start, icustay_id=stay_id, hadm_id=1,
@@ -493,34 +587,198 @@ class TestYAIBSepsisMIMIC3(unittest.TestCase):
         self.assertEqual(gcs[4], 12.0)  # total carried forward over the sum
 
 
-class TestYAIBMIMIC3Training(unittest.TestCase):
-    def test_tasks_train_with_rnn_v2(self):
-        patients = [
+class TestYAIBProcessingMIMIC3(unittest.TestCase):
+    """The tasks' schemas: processors, and a model, on task samples."""
+
+    TASKS = (
+        (YAIBMortalityMIMIC3(), "mortality"),
+        (YAIBKidneyFunctionMIMIC3(), "creatinine"),
+        (YAIBLengthOfStayMIMIC3(), "los"),
+        (YAIBAKIMIMIC3(), "aki"),
+        (YAIBSepsisMIMIC3(), "sepsis"),
+    )
+
+    @staticmethod
+    def _patients():
+        # Two stays long enough for every task, each with a day-2 creatinine
+        # and a temperature that is missing before hour 5.
+        return [
             _patient(
-                stays=[(10 + i, 1, T0, 40 + 5 * i, range(40 + 5 * i))],
+                stays=[(10 + i, 1, T0, 50 + 5 * i, range(50 + 5 * i))],
                 admissions=[_admission(hours=60 + 5 * i)],
+                extra=[
+                    _crea(T0 + timedelta(hours=30), 1.0 + i),
+                    *(
+                        _chart(T0 + timedelta(hours=h, minutes=10), 676,
+                               36.5 + i + 0.1 * h, "Deg. C")
+                        for h in range(5, 40, 3)
+                    ),
+                ],
             )
             for i in range(2)
         ]
+
+    def _samples(self, task, label):
+        samples = [s for patient in self._patients() for s in task(patient)]
+        self.assertEqual(len(samples), 2)
+        if label == "mortality":  # a binary label needs both classes
+            samples[0]["mortality"], samples[1]["mortality"] = 0, 1
+        return samples
+
+    def test_dynamic_matches_the_previous_timeseries_preprocessing(self):
+        # The sequence_v2 configuration reproduces TimeseriesProcessor with
+        # z-score, forward fill (0 before the first value) and indicators.
+        rng = np.random.default_rng(0)
+        grids = []
+        for steps in (5, 9, 3):
+            values = rng.normal(loc=2.0, scale=3.0, size=(steps, 4))
+            values[rng.random(values.shape) < 0.4] = np.nan
+            grids.append(values)
+        grids[0][:, 3] = np.nan  # a feature never seen in one sample
+        yaib: LevelConfig = YAIBMortalityMIMIC3.input_schema["dynamic"][1]["levels"][0]
+        levels: list[LevelConfig] = [{**yaib, "values": [4]}]  # 4 features here
+        v2 = SequenceProcessorV2(levels=levels)
+        v2.fit([{"x": {"time": list(range(len(g))), "values": g}} for g in grids], "x")
+
+        def hourly(grid):  # the previous input format: datetimes and values
+            return [T0 + timedelta(hours=h) for h in range(len(grid))], grid
+
+        v1 = TimeseriesProcessor(normalization="zscore", missing_indicators=True)
+        v1.fit([{"x": hourly(g)} for g in grids], "x")
+        for grid in grids:
+            values, mask, _ = v2.process({"time": list(range(len(grid))), "values": grid})
+            old = v1.process(hourly(grid))
+            torch.testing.assert_close(values, old[:, :4])
+            torch.testing.assert_close(mask.float(), old[:, 4:])
+
+    def test_static_matches_the_previous_tensor_preprocessing(self):
+        # The t = 0 series reproduces TensorProcessor with z-score, missing
+        # indicators and zero fill.
+        rows = [
+            [60.0, 1.0, 170.0, np.nan],
+            [70.0, 0.0, np.nan, 80.0],
+            [50.0, np.nan, 160.0, 90.0],
+            [80.0, 1.0, 180.0, np.nan],
+        ]
+        schema = YAIBMortalityMIMIC3.input_schema["static"][1]
+        v2 = SequenceProcessorV2(**schema)
+        v2.fit([{"x": YAIBMortalityMIMIC3._static_series(r)} for r in rows], "x")
+        v1 = TensorProcessor(
+            normalization="zscore", missing_indicators=True, impute_strategy="zero"
+        )
+        v1.fit([{"x": r} for r in rows], "x")
+        for row in rows:
+            values, mask, time = v2.process(YAIBMortalityMIMIC3._static_series(row))
+            old = v1.process(row)
+            self.assertEqual(time.tolist(), [0.0])
+            torch.testing.assert_close(values[0], old[:4])
+            torch.testing.assert_close(mask[0].float(), old[4:])
+
+    def test_task_samples_are_processed_by_the_schemas(self):
+        for task, label in self.TASKS:
+            with self.subTest(task=task.task_name):
+                samples = self._samples(task, label)
+                dataset = create_sample_dataset(
+                    samples, task.input_schema, task.output_schema
+                )
+                for i, sample in enumerate(samples):
+                    raw = np.asarray(sample["dynamic"]["values"], dtype=float)
+                    values, mask, time = dataset[i]["dynamic"]
+                    self.assertEqual(tuple(values.shape), raw.shape)
+                    self.assertTrue(torch.isfinite(values).all())
+                    self.assertEqual(mask.bool().tolist(), np.isnan(raw).tolist())
+                    self.assertEqual(time.tolist(), sample["dynamic"]["time"])
+                    # The mask marks the missing values.
+                    # Before its first measurement, temperature is the training
+                    # mean, 0 once standardized; then it is forward-filled.
+                    self.assertTrue((values[:5, TEMP] == 0).all())
+                    filled = values[5:8, TEMP]
+                    self.assertTrue((filled == filled[0]).all())
+
+                    static, static_mask, static_time = dataset[i]["static"]
+                    self.assertEqual(tuple(static.shape), (1, 4))
+                    self.assertTrue(torch.isfinite(static).all())
+                    self.assertEqual(static_time.tolist(), [0.0])
+                    self.assertEqual(
+                        static_mask[0].bool().tolist(),
+                        [False, False, True, True],  # height and weight missing
+                    )
+
+    def test_regression_labels_are_minmax_scaled_on_the_fitted_samples(self):
+        # As YAIB: min-max on the training labels, other splits not clipped,
+        # metrics back in the original units.
+        def kidney(stay_id, creatinine):
+            return _patient(
+                stays=[(stay_id, 1, T0, 60, range(60))],
+                admissions=[_admission(hours=70)],
+                extra=[_crea(T0 + timedelta(hours=30), creatinine)],
+            )
+
+        def los(stay_id, hours):
+            return _patient(
+                stays=[(stay_id, 1, T0, hours, range(int(hours)))],
+                admissions=[_admission(hours=hours + 10)],
+            )
+
+        for task, label, train, held_out, original in (
+            (
+                YAIBKidneyFunctionMIMIC3(),
+                "creatinine",
+                [kidney(10, 2.0), kidney(11, 4.0)],
+                kidney(12, 5.0),
+                5.0,
+            ),
+            (
+                YAIBLengthOfStayMIMIC3(),
+                "los",
+                [los(10, 10.5), los(11, 20.5)],
+                los(12, 30.5),
+                30.0,  # the label at hour 0
+            ),
+        ):
+            with self.subTest(task=task.task_name):
+                samples = [sample for patient in train for sample in task(patient)]
+                dataset = create_sample_dataset(
+                    samples, task.input_schema, task.output_schema
+                )
+                processor = cast(LabelProcessor, dataset.output_processors[label])
+                ys = torch.cat(
+                    [
+                        dataset[i][label][0] if label == "los" else dataset[i][label]
+                        for i in range(len(dataset))
+                    ]
+                )
+                self.assertEqual((float(ys.min()), float(ys.max())), (0.0, 1.0))
+
+                y_true = processor.process(task(held_out)[0][label])
+                if label == "los":
+                    batch = (y_true[0], y_true[1], torch.tensor([0, len(y_true[0])]))
+                    self.assertAlmostEqual(float(y_true[0][0]), 1.5)  # 30 on 0..20
+                    (values,), _ = processor.to_numpy(batch, y_true[0])
+                else:
+                    self.assertAlmostEqual(float(y_true[0]), 1.5)  # 5 on 2..4
+                    (values,), _ = processor.to_numpy(y_true, y_true)
+                self.assertAlmostEqual(float(values.reshape(-1)[0]), original, 5)
+
+    def test_tasks_train_with_rnn_v2(self):
         dims: dict[str, list[LevelEmbedding]] = {
             "dynamic": [{"values": 8}],
             "static": [{"values": 4}],
         }
-        for task, label in (
-            (YAIBMortalityMIMIC3(), "mortality"),
-            (YAIBLengthOfStayMIMIC3(), "los"),
-            (YAIBAKIMIMIC3(), "aki"),
-        ):
+        for task, label in self.TASKS:
             with self.subTest(task=task.task_name):
-                samples = [sample for patient in patients for sample in task(patient)]
-                if label == "mortality":  # a binary label needs both classes
-                    samples[0]["mortality"], samples[1]["mortality"] = 0, 1
+                samples = self._samples(task, label)
                 dataset = create_sample_dataset(
                     samples, task.input_schema, task.output_schema
                 )
                 model = RNN_V2(dataset, embedding_dim=dims, hidden_dim=8, mask="concat")
                 out = model(**next(iter(get_dataloader(dataset, batch_size=2))))
                 self.assertTrue(torch.isfinite(out["loss"]))
+                per_stay = label in ("mortality", "creatinine")
+                expected = 2 if per_stay else sum(
+                    len(s[label]["time"]) for s in samples
+                )
+                self.assertEqual(out["logit"].shape[0], expected)
 
 
 if __name__ == "__main__":
