@@ -18,6 +18,7 @@ except ImportError:  # pragma: no cover - test env installs the extra
 from PIL import Image
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
+from pyhealth.models import CNN
 from pyhealth.processors import (
     DicomProcessor,
     DicomSeriesProcessor,
@@ -260,6 +261,34 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         tensor = processor.process(str(path))
         self.assertTrue(processor.stores_tensor)
         self.assertEqual(tuple(tensor.shape), (1, 4, 4))
+
+    def test_default_processor_works_with_cnn(self):
+        paths = []
+        for index in range(2):
+            path = self.root / f"cnn_{index}.dcm"
+            _write_slice(
+                path,
+                1024 + index,
+                0.0,
+                1,
+                generate_uid(),
+                self.study_uid,
+            )
+            paths.append(path)
+        dataset = create_sample_dataset(
+            [
+                {"patient_id": "p0", "image": str(paths[0]), "label": 0},
+                {"patient_id": "p1", "image": str(paths[1]), "label": 1},
+            ],
+            {"image": ("dicom", {"image_size": 8})},
+            {"label": "binary"},
+            in_memory=False,
+        )
+        try:
+            model = CNN(dataset=dataset)
+            self.assertIsNotNone(model)
+        finally:
+            dataset.close()
 
     def test_multiframe_dicom_is_rejected_while_reading_metadata(self):
         path = self.root / "multi.dcm"

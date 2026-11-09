@@ -32,7 +32,10 @@ class DicomProcessor(ImageProcessor):
         mean: Per-channel means for normalisation.
         std: Per-channel standard deviations for normalisation.
         mode: Output channel mode such as ``"L"`` or ``"RGB"``.
-        lazy: Store the file path instead of decoded pixels. Defaults to False.
+        lazy: Store the file path instead of decoded pixels. Defaults to
+            False. Lazy 2D values are path strings; existing 2D vision models
+            inspect raw sample values for channel inference, so use eager
+            loading or materialize paths in a wrapper.
         apply_rescale: Apply DICOM rescale slope/intercept. Defaults to True.
         invert_monochrome1: Invert ``MONOCHROME1`` images. Defaults to True.
         window: Apply the DICOM window. Defaults to False.

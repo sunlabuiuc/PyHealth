@@ -62,7 +62,9 @@ Medical imaging processors require the optional dependencies:
 ``DicomSeriesProcessor`` and ``ImageMaskDirectoryProcessor`` use lazy loading
 by default (``lazy=True``); ``DicomProcessor`` defaults to eager loading for
 the existing 2D image path. Set ``lazy=False`` to cache tensors or
-``lazy=True`` to load on demand. In lazy mode
+``lazy=True`` to load on demand. Lazy ``DicomProcessor`` values are paths, so
+existing 2D vision models that inspect raw samples for channel inference
+should use eager mode or materialize paths in a wrapper. In lazy mode
 the sample stores a path or ordered path list, and a DataLoader reads the
 pixels through the processor's ``collate`` method.
 
