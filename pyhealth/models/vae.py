@@ -23,6 +23,7 @@ from torch import nn
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models.base_model import BaseModel
+from pyhealth.processors import LabelProcessor, RegressionLabelProcessor
 from pyhealth.models.contrawr import ResBlock2D
 from pyhealth.processors import ImageProcessor
 
@@ -160,9 +161,13 @@ class VAE(BaseModel):
         self.decoder = nn.Sequential(*layers)
         self.output_activation = nn.Identity() if self.normalized else nn.Sigmoid()
 
-        # The target is the input image, so the Trainer evaluates the
-        # reconstruction with regression metrics.
-        self.mode = "regression"
+    @property
+    def label_processors(self) -> dict[str, LabelProcessor]:
+        """The reconstruction, scored as a regression of the input image.
+
+        The dataset's labels, if any, are not what the VAE predicts.
+        """
+        return {"reconstruction": RegressionLabelProcessor()}
 
     def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Maps images to the mean and log-variance of the latent posterior.
