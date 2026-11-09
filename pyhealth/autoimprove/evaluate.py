@@ -80,8 +80,6 @@ def train_pipeline(
         if spec.trainer == "fit":
             return model.fit(train_dataset, val_dataset)
         tp = config.train_params
-        if tp.get("pos_weight") == "balanced":
-            model.set_pos_weight("balanced", train_dataset)
         batch_size = int(tp.get("batch_size", 64))
         trainer = Trainer(model, metrics=[metric], device=device, enable_logging=False)
         trainer.train(

@@ -60,6 +60,7 @@ from torch import Tensor, nn
 from pyhealth.datasets import SampleDataset
 from pyhealth.models.base_model import BaseModel
 from pyhealth.models.survival_mdn import _value_tensor as _first
+from pyhealth.processors import LabelProcessor
 
 __all__ = ["TrajSurv", "cox_partial_likelihood_loss", "rank_n_contrast_loss"]
 
@@ -335,6 +336,12 @@ class TrajSurv(BaseModel):
         Machine Learning for Healthcare, 2025.
     """
 
+    @property
+    def label_processors(self) -> dict[str, LabelProcessor]:
+        """None: the survival outputs are scored by the model, not as a label,
+        so the Trainer reports only the loss."""
+        return {}
+
     def __init__(
         self,
         dataset: SampleDataset,
@@ -356,7 +363,6 @@ class TrajSurv(BaseModel):
         time_grid: Tensor | None = None,
     ) -> None:
         super().__init__(dataset)
-        self.mode = None
         for key in (feature_key, static_key, alignment_key):
             if key is not None and key not in dataset.input_schema:
                 raise ValueError(f"{key!r} is not in dataset.input_schema")

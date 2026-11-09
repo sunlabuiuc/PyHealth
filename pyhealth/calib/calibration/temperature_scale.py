@@ -107,13 +107,10 @@ class TemperatureScaling(PostHocCalibrator):
                 requires_grad=True,
             )
         optimizer = optim.LBFGS([self.temperature], lr=lr, max_iter=max_iter)
-        criterion = self.model.get_loss_function()
+        criterion = self.model.label_processor.loss
         logits = torch.tensor(_cal_data["logit"], dtype=torch.float, device=self.device)
-        label = torch.tensor(
-            _cal_data["y_true"],
-            dtype=torch.long if self.model.mode == "multiclass" else torch.float32,
-            device=self.device,
-        )
+        # The label processor's own dtype: long for multiclass, float otherwise.
+        label = torch.as_tensor(_cal_data["y_true"], device=self.device)
 
         def _eval():
             optimizer.zero_grad()
@@ -139,8 +136,8 @@ class TemperatureScaling(PostHocCalibrator):
         """
         ret = self.model(**kwargs)
         ret["logit"] = ret["logit"] / self.temperature
-        ret["y_prob"] = self.model.prepare_y_prob(ret["logit"])
-        criterion = self.model.get_loss_function()
+        ret["y_prob"] = self.model.label_processor.activation(ret["logit"])
+        criterion = self.model.label_processor.loss
         ret["loss"] = criterion(ret["logit"], ret["y_true"])
         return ret
 

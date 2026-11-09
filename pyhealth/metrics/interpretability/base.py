@@ -107,14 +107,13 @@ class RemovalBasedMetric(ABC):
         label_key = list(output_schema.keys())[0]
         schema_entry = output_schema[label_key]
 
-        # Use BaseModel's _resolve_mode if available, else manual check
-        if hasattr(self.model, "_resolve_mode"):
-            try:
-                mode = self.model._resolve_mode(schema_entry)
-            except Exception as e:
+        # A BaseModel knows its label kind; otherwise check the schema entry
+        if hasattr(self.model, "label_processors"):
+            mode = getattr(self.model, "mode", None)
+            if mode is None:
                 self.classifier_type = "unknown"
                 self.num_classes = None
-                print(f"[RemovalBasedMetric] WARNING: {e}")
+                print("[RemovalBasedMetric] WARNING: the model has no single label")
                 return
         else:
             # Fallback: check string or class name
