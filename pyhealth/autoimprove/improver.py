@@ -24,6 +24,7 @@ from .evaluate import (
     MAX_LABEL_SCAN,
     check_models,
     describe_error,
+    fold_parts,
     greater_is_better,
     patient_folds,
     predict,
@@ -845,10 +846,12 @@ class AutoImprover:
             tops = []
             everything = np.arange(len(self.train_dataset))
             for held_out in self.folds:
-                part = self.train_dataset.subset(
-                    np.setdiff1d(everything, held_out).tolist()
+                # fold_parts refits engineered columns on the fold, as in CV
+                part, _, val = fold_parts(
+                    self.train_dataset, self.val_dataset,
+                    np.setdiff1d(everything, held_out).tolist(), held_out,
                 )
-                fold_model = train_pipeline(config, self.space, part, self.val_dataset,
+                fold_model = train_pipeline(config, self.space, part, val,
                                             self.metric, self.seed, self.device)
                 tops.append([f["name"] for f in ranked(fold_model)["features"]])
             out["stability"] = top_overlap([f["name"] for f in out["features"]], tops)
