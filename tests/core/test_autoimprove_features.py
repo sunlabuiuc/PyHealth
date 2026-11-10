@@ -263,6 +263,24 @@ class TestFutureBlind(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "1 of 12 checked samples"):
             fs.augment(samples, [leak])
 
+    def test_hand_built_specs_are_revalidated(self):
+        # A spec built directly or from a dict skips validate(); compute,
+        # future_blind and augment must still refuse a window off the menu.
+        fs = _space()
+        safe = fs.validate({"op": "count", "window": 365, "select": SABA,
+                            "rationale": "r"})
+        bad = FeatureSpec({**safe.node, "window": 9999}, "x", "x", "r")
+        loaded = FeatureSpec.from_dict({**safe.to_dict(), "window": 9999})
+        for spec in (bad, loaded):
+            with self.assertRaisesRegex(ValueError, "window"):
+                fs.augment(_samples(), [spec])
+            with self.assertRaisesRegex(ValueError, "window"):
+                fs.compute([spec], _samples())
+            with self.assertRaisesRegex(ValueError, "window"):
+                fs.future_blind([spec], _samples())
+        renamed = FeatureSpec(safe.node, "wrong_name", "wrong", "r")
+        self.assertEqual(fs.augment(_samples(), [renamed]).names, [safe.name])
+
 
 class TestFromTask(unittest.TestCase):
     def test_reads_the_task_hooks_and_card(self):
