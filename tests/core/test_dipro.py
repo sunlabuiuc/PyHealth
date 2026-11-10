@@ -269,6 +269,65 @@ class TestMissingModalities(DiProCase):
                 )
             )
 
+    def _longer(self, entry):
+        """The same sample with a third, different, image 10 hours later."""
+        images, hours, *rest = entry
+        generator = torch.Generator().manual_seed(1)
+        extra = torch.rand(images[:1].shape, generator=generator)
+        return (
+            torch.cat([images, extra]),
+            torch.cat([hours, hours[-1:] + 10]),
+            *rest,
+        )
+
+    def _assert_image_padding_is_ignored(self, dataset, keys):
+        model = _model(dataset).eval()
+        batch = _batch(dataset)
+        alone = {key: batch[key][:1] for key in keys}
+        mixed = {key: batch[key][:2] for key in keys}
+        mixed["cxr"] = [batch["cxr"][0], self._longer(batch["cxr"][1])]
+        with torch.no_grad():
+            expected = model(**alone)["logit"]
+            got = model(**mixed)["logit"][:1]
+        self.assertTrue(torch.allclose(expected, got, atol=1e-5))
+
+    def test_image_padding_does_not_change_a_sample(self):
+        self._assert_image_padding_is_ignored(
+            self.images, ("ehr", "cxr", "first_ehr_hour")
+        )
+
+    def test_image_padding_does_not_change_a_sample_with_regions(self):
+        self._assert_image_padding_is_ignored(
+            self.regions, ("ehr", "cxr", "first_ehr_hour", "demographics")
+        )
+
+    def test_sample_without_images_is_finite_and_batch_independent(self):
+        model = _model(self.images).eval()
+        batch = _batch(self.images)
+        keys = ("ehr", "first_ehr_hour")
+        alone = {**{key: batch[key][:1] for key in keys}, "cxr": [None]}
+        mixed = {
+            **{key: batch[key][:2] for key in keys},
+            "cxr": [None, self._longer(batch["cxr"][1])],
+        }
+        with torch.no_grad():
+            expected = model(**alone)["logit"]
+            got = model(**mixed)["logit"]
+        self.assertTrue(torch.isfinite(got).all())
+        self.assertTrue(torch.allclose(expected, got[:1], atol=1e-5))
+
+    def test_padded_pairs_do_not_enter_the_losses(self):
+        model = _model(self.images).eval()
+        batch = _batch(self.images, size=1)
+        longer = {**batch, "cxr": [self._longer(batch["cxr"][0])]}
+        image_mask = torch.tensor([[True, True, False]])
+        regions, _, _ = model._stack_cxr(longer["cxr"], 1)
+        with torch.no_grad():
+            masked = model.cxr_encoder(regions, image_mask[:, 1:])
+            two = model.cxr_encoder(regions[:, :2])
+        for loss in ("orthogonal", "static_order", "consistency"):
+            self.assertTrue(torch.allclose(masked[loss], two[loss], atol=1e-6), loss)
+
     def test_padding_inside_the_interval_does_not_change_a_sample(self):
         # A short series: the padded rows' hours fall inside [1.5, 9.5].
         model = _model(self.images).eval()

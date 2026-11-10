@@ -30,6 +30,24 @@ _NUM_HEADS = 8
 _BACKBONES = ("resnet18", "resnet34", "resnet50")
 
 
+def _attended_pairs(pair_mask: torch.Tensor) -> torch.Tensor:
+    """The pairs that attention may read, ``[B, P]``.
+
+    These are the real pairs. A sample without one keeps its first pair, which
+    is learned padding, so that its attention has a key and no padding beyond
+    the first pair can change it.
+    """
+    first = torch.zeros_like(pair_mask)
+    first[:, 0] = True
+    return pair_mask | (first & ~pair_mask.any(dim=1, keepdim=True))
+
+
+def _masked_mean(values: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """Mean of ``values`` where ``mask`` (broadcast to them) is True, or 0."""
+    mask = mask.expand_as(values).to(values.dtype)
+    return (values * mask).sum() / mask.sum().clamp(min=1)
+
+
 class _PositionalEncoding(nn.Module):
     """Sinusoidal positional encoding added to a sequence, then dropout.
 
@@ -155,11 +173,15 @@ class _LongitudinalCXREncoder(nn.Module):
         """Returns the logits of each disease, ``[B, P, R, K, 3]``."""
         return torch.stack([head(dynamic) for head in self.progression_heads], dim=3)
 
-    def forward(self, regions: torch.Tensor) -> dict[str, torch.Tensor]:
+    def forward(
+        self, regions: torch.Tensor, pair_mask: torch.Tensor | None = None
+    ) -> dict[str, torch.Tensor]:
         """Encodes the regions of a series of images.
 
         Args:
             regions: ``[B, T, R, C, H, W]``.
+            pair_mask: True for real pairs, ``[B, T - 1]``. The losses ignore
+                the other pairs. None means every pair is real.
 
         Returns:
             ``static`` and ``dynamic`` features ``[B, P, R, D]`` with ``P = T -
@@ -175,18 +197,25 @@ class _LongitudinalCXREncoder(nn.Module):
         static, static_reversed = self.static_proj(pairs)
         dynamic, dynamic_reversed = self.dynamic_proj(pairs)
 
+        if pair_mask is None:
+            pair_mask = torch.ones(B, T - 1, dtype=torch.bool, device=regions.device)
+        real = pair_mask[:, :, None, None]  # [B, P, 1, 1]
         similarity = F.cosine_similarity(static, dynamic, dim=-1, eps=1e-12)
         consistency = static.sum() * 0.0
         if T > 2:  # needs two pairs, so it is zero for a pair of images
-            consistency = F.mse_loss(static[:, :-1], static[:, 1:])
+            consistency = _masked_mean(
+                (static[:, :-1] - static[:, 1:]) ** 2, real[:, :-1] & real[:, 1:]
+            )
         return {
             "static": static,
             "dynamic": dynamic,
             "forward_logits": self._classify(dynamic),
             "reversed_logits": self._classify(dynamic_reversed),
-            "orthogonal": (similarity**2).mean(),
+            "orthogonal": _masked_mean(similarity**2, real[..., 0]),
             "consistency": consistency,
-            "static_order": F.mse_loss(static, static_reversed.detach()),
+            "static_order": _masked_mean(
+                (static - static_reversed.detach()) ** 2, real
+            ),
         }
 
 
@@ -379,8 +408,11 @@ class _MultiscaleFusion(nn.Module):
             regions = layer(regions, repeated_ehr, repeated_mask)
         regions = rearrange(regions, "(b p) r d -> b (p r) d", b=B)
 
-        # Global: the whole EHR attends to all the fused regions.
-        attended, _ = self.ehr_cross_attention(ehr, regions, regions)
+        # Global: the whole EHR attends to the fused regions of real pairs.
+        region_padding = ~_attended_pairs(pair_mask).repeat_interleave(R, dim=1)
+        attended, _ = self.ehr_cross_attention(
+            ehr, regions, regions, key_padding_mask=region_padding
+        )
         ehr = self.ehr_cross_norm(ehr + attended)
 
         tokens = self.tokens.expand(B, -1, -1)
@@ -435,14 +467,19 @@ class DiPro(BaseModel):
 
     Inputs, from the dataset's fields:
 
-    - ``ehr``: ``[B, L, ehr_dim]``. Rows after a sample's last nonzero row are
-      padding, and so is a sample that is all zeros. Without the field, the
-      model works from the images alone.
+    - ``ehr``: ``[B, L, ehr_dim]``. The dataset must have this field, since
+      ``ehr_dim`` comes from its processor. Rows after a sample's last nonzero
+      row are padding, and so is a sample that is all zeros, so a sample
+      without EHR is given as all-zero rows. A batch may also leave ``ehr``
+      out, and the model then works from the images alone.
     - ``cxr``: a list with one ``(images, hours, tag)`` per sample, as the
       ``time_image`` (``images`` ``[T, C, H, W]``, one region per image) and
       ``time_region_image`` (``[T, R, C, H, W]``) processors give it. An
       entry that is None, or a missing image at the end of a series, is
-      replaced by learned padding.
+      replaced by learned padding. A pair with a padded image is masked out
+      of every attention and loss, so a sample's predictions do not depend
+      on how many images the other samples in its batch have. A sample with
+      no real pair keeps its first, padded, pair as an attention key.
     - ``first_ehr_hour``: the hour of each sample's first EHR row.
     - ``demographics``: ``[B, n]``, optional.
 
@@ -454,6 +491,10 @@ class DiPro(BaseModel):
       num_diseases]`` with 3 for not mentioned. It is only read for that loss,
       and only with region crops. With whole images, ``progression`` is used
       for that loss instead, as the single region is the whole image.
+
+    Whole images (``time_image``, one region per image) are a PyHealth
+    addition. Results in that mode are not those of DiPro as published,
+    which always uses the region crops (``region_crops=True`` on the task).
 
     ``forward`` returns ``logit`` ``[B, 3 * num_diseases]``, and ``y_prob``,
     a softmax over the three statuses of each disease, so it is not a
@@ -770,22 +811,30 @@ class DiPro(BaseModel):
             ehr, kwargs.get("first_ehr_hour"), batch_size
         )
 
-        encoded = self.cxr_encoder(regions)
         pair_mask = image_mask[:, 1:]
+        encoded = self.cxr_encoder(regions, pair_mask)
         intervals = torch.stack([hours[:, :-1], hours[:, 1:]], dim=-1)
         fused = self.fusion(
             encoded["dynamic"], pair_mask, ehr, ehr_mask, ehr_times, intervals
         )
 
+        # Static tokens of padded pairs are left out, as in the fusion.
         static = encoded["static"].flatten(1, 2)
+        num_regions = encoded["static"].size(2)
+        static_padding = ~_attended_pairs(pair_mask).repeat_interleave(
+            num_regions, dim=1
+        )
         demographics = kwargs.get("demographics")
         if self.demographic_encoder is not None and demographics is not None:
             encoded_demographics = self.demographic_encoder(
                 demographics.to(self.device).float()
             )
             static = torch.cat([static, encoded_demographics[:, None]], dim=1)
+            static_padding = F.pad(static_padding, (0, 1), value=False)
         static = self.group_embedding(static)
-        attended, _ = self.static_attention(fused, static, static)
+        attended, _ = self.static_attention(
+            fused, static, static, key_padding_mask=static_padding
+        )
         tokens = self.static_norm(fused + attended)[:, : self.num_diseases]
 
         logits = torch.stack(
