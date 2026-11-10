@@ -70,8 +70,9 @@ def alert_rate_metrics(
             ``{"rate", "suppressed": True}`` only, since sensitivity and PPV
             would reveal those counts. Defaults to :data:`MIN_CELL`; pass 0
             to report every rate.
-        groups: Patient id per sample; the counts above are then distinct
-            patients.
+        groups: Patient id per sample; the counts checked against
+            ``min_count`` are then distinct patients. ``n_flagged`` is always
+            the number of flagged samples.
 
     Returns:
         ``{"top 10%": {"rate", "n_flagged", "threshold", "sensitivity", "ppv",

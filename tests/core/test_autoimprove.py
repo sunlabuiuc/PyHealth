@@ -1029,6 +1029,28 @@ class TestClinicalReport(unittest.TestCase):
         # NaN alone raises no flag
         self.assertEqual(ids(test(float("nan"), None, float("nan"))), [])
 
+    def test_selected_baseline_is_reported_once(self):
+        # With only the baseline trial, it is the selected config: the test
+        # output has `best` and no `baseline` or `difference`, and the
+        # report still renders the clinical section.
+        improver = AutoImprover(
+            self.train, self.val, RandomProposer(seed=0),
+            baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16},
+                                    {"epochs": 2}),
+            space=SPACE, n_agents=1, n_cycles=1, max_trials=1, task_card=CARD,
+        )
+        result = improver.run()
+        self.assertIs(result.best, result.baseline)
+        test = improver.evaluate_on_test(self.test, n_boot=20)
+        self.assertIn("best", test)
+        self.assertNotIn("baseline", test)
+        self.assertNotIn("difference", test)
+        self.assertIn("clinical", test["best"])
+        report = improver.report()
+        self.assertIn("Performance in clinical terms",
+                      [s.title for s in report.sections])
+        self.assertNotIn("selected − starting pipeline", report.to_markdown())
+
     def test_flags_and_report_without_run_dir(self):
         # Results are kept in memory, so flags and the report still see them.
         improver = AutoImprover(
