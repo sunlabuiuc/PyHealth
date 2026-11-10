@@ -107,6 +107,15 @@ class TestOperators(unittest.TestCase):
         self.assertEqual(spec.definition, "1 if there were 3 or more SABA orders in "
                          "the 365 days before the prediction time, else 0")
 
+    def test_negative_thresholds_keep_their_sign_in_names(self):
+        trend = {"op": "trend", "select": SABA, "short": 30, "long": 365}
+        specs = [{"op": "ge", "x": x, "of": trend, "rationale": "r"} for x in (-5, 5)]
+        up, down = self.fs.validate_many(specs[::-1])  # not called duplicates
+        self.assertEqual((up.name[:4], down.name[:5]), ("ge5_", "gem5_"))
+        band = self.fs.validate({"op": "band", "cuts": [-1, 0.5], "of": trend,
+                                 "rationale": "r"})
+        self.assertTrue(band.name.startswith("bandm1_0_5__"))
+
     def test_values(self):
         lab = {"event_type": "labs"}
         stat = {"op": "stat", "select": lab, "attr": "eos", "window": 365}
