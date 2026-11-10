@@ -1,4 +1,9 @@
 from .base_task import BaseTask
+from .task_card import (
+    DIRECTIONS as DIRECTIONS,
+    FeatureInfo as FeatureInfo,
+    TaskCard as TaskCard,
+)
 from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
@@ -75,6 +80,7 @@ from .mortality_prediction import (
     MultimodalMortalityPredictionMIMIC4,
 )
 from .survival_mimic4 import InHospitalSurvivalMIMIC4 as InHospitalSurvivalMIMIC4
+from .acuity_mimic4 import ICUAcuityMIMIC4 as ICUAcuityMIMIC4
 from .survival_preprocess_support2 import SurvivalPreprocessSupport2
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,

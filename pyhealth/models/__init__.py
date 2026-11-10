@@ -87,6 +87,8 @@ from .trace import (
     TRACELayer as TRACELayer,
     TRACETimeEmbedding as TRACETimeEmbedding,
 )
+from .apricotm import APRICOTM as APRICOTM
+from .selective_ssm import SelectiveSSM as SelectiveSSM
 from .heartlang import (
     HeartLang as HeartLang,
     HeartLangBackbone as HeartLangBackbone,
