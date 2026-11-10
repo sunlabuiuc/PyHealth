@@ -336,6 +336,10 @@ These examples are located in ``examples/length_of_stay/``.
      - RNN for length of stay prediction on MIMIC-III
    * - ``length_of_stay/length_of_stay_mimic4_rnn.py``
      - RNN for length of stay prediction on MIMIC-IV
+   * - ``eicu_los_tpc.py``
+     - Temporal Pointwise Convolution (TPC) for remaining length of stay
+       and mortality prediction on eICU (reproducing Rocheteau et al.,
+       ACM CHIL 2021)
 
 Advanced Topics
 ---------------
