@@ -27,6 +27,7 @@ Examples:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -149,6 +150,11 @@ class PatchDataset(torch.utils.data.Dataset):
         self.num_patches = int(num_patches)
         self.ignore_index = int(ignore_index)
         self.return_meta = bool(return_meta)
+        # litdata keeps one open chunk handle per reader. A forked DataLoader
+        # worker inherits that handle and therefore its file offset, so
+        # concurrent workers can read each other's samples. Remember the
+        # owning process and give each worker its own cache on first access.
+        self._cache_pid = os.getpid()
 
     def __len__(self) -> int:
         """Return the number of patch items."""
@@ -177,8 +183,26 @@ class PatchDataset(torch.utils.data.Dataset):
             )
         return processor.materialize(value)
 
+    def _reset_inherited_cache(self) -> None:
+        """Drop the litdata cache a forked worker inherited from its parent."""
+        dataset = self.dataset
+        if getattr(dataset, "cache", None) is None:
+            return
+        if not hasattr(dataset, "shuffler"):
+            raise RuntimeError(
+                "PatchDataset fork reset expects litdata's cache/shuffler "
+                "attributes; the installed litdata version changed that API."
+            )
+        dataset.cache = None
+        dataset.shuffler = None
+
     def __getitem__(self, index: int) -> dict[str, Any]:
         """Return one fixed-size patch sample."""
+        pid = os.getpid()
+        if pid != self._cache_pid:
+            self._reset_inherited_cache()
+            self._cache_pid = pid
+
         sample_index = int(index) // self.num_patches
         sample = self.dataset[sample_index]
         if not isinstance(sample, dict):
