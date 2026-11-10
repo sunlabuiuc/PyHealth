@@ -1,4 +1,9 @@
 from .base_task import BaseTask
+from .task_card import (
+    DIRECTIONS as DIRECTIONS,
+    FeatureInfo as FeatureInfo,
+    TaskCard as TaskCard,
+)
 from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
@@ -35,6 +40,12 @@ from .drug_recommendation import (
     drug_recommendation_mimic4_fn,
     drug_recommendation_omop_fn,
 )
+from .ed_disposition_mimic4 import (
+    ED_NOTE_DOMAINS as ED_NOTE_DOMAINS,
+    ED_OUTCOMES as ED_OUTCOMES,
+    EDDispositionMIMIC4 as EDDispositionMIMIC4,
+    EDOutcomesMIMIC4 as EDOutcomesMIMIC4,
+)
 from .ehr_text_serialization import (
     CodeDescriber as CodeDescriber,
     EHRTextSerializationTask as EHRTextSerializationTask,
@@ -63,6 +74,7 @@ from .mortality_prediction import (
     MultimodalMortalityPredictionMIMIC4,
 )
 from .survival_mimic4 import InHospitalSurvivalMIMIC4 as InHospitalSurvivalMIMIC4
+from .acuity_mimic4 import ICUAcuityMIMIC4 as ICUAcuityMIMIC4
 from .survival_preprocess_support2 import SurvivalPreprocessSupport2
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
@@ -113,12 +125,29 @@ from .variant_classification import (
     VariantClassificationClinVar,
 )
 from .patient_linkage_mimic3 import PatientLinkageMIMIC3Task
+from .knowrare_mimic4 import (
+    KnowRareICUMortalityMIMIC4 as KnowRareICUMortalityMIMIC4,
+)
+from .yaib_mimic3 import (
+    YAIBAKIMIMIC3 as YAIBAKIMIMIC3,
+    YAIBKidneyFunctionMIMIC3 as YAIBKidneyFunctionMIMIC3,
+    YAIBLengthOfStayMIMIC3 as YAIBLengthOfStayMIMIC3,
+    YAIBMortalityMIMIC3 as YAIBMortalityMIMIC3,
+    YAIBSepsisMIMIC3 as YAIBSepsisMIMIC3,
+)
 from .yaib_mimic4 import (
     YAIBAKIMIMIC4 as YAIBAKIMIMIC4,
     YAIBKidneyFunctionMIMIC4 as YAIBKidneyFunctionMIMIC4,
     YAIBLengthOfStayMIMIC4 as YAIBLengthOfStayMIMIC4,
     YAIBMortalityMIMIC4 as YAIBMortalityMIMIC4,
     YAIBSepsisMIMIC4 as YAIBSepsisMIMIC4,
+)
+from .yaib_eicu import (
+    YAIBAKIEICU as YAIBAKIEICU,
+    YAIBKidneyFunctionEICU as YAIBKidneyFunctionEICU,
+    YAIBLengthOfStayEICU as YAIBLengthOfStayEICU,
+    YAIBMortalityEICU as YAIBMortalityEICU,
+    YAIBSepsisEICU as YAIBSepsisEICU,
 )
 
 

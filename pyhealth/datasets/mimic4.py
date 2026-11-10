@@ -223,6 +223,67 @@ class MIMIC4CXRDataset(BaseDataset):
         return
 
 
+class MIMIC4EDDataset(BaseDataset):
+    """MIMIC-IV-ED, the emergency department module of MIMIC-IV.
+
+    Loads the ED tables of `MIMIC-IV-ED <https://physionet.org/content/mimic-iv-ed/>`_
+    (``edstays``, ``triage``, ``vitalsign``, ``medrecon``, ``pyxis`` and
+    ``diagnosis``) as patient events keyed by ``subject_id``. ``edstays`` is
+    always loaded. Every event carries its ``stay_id``; ``triage`` is stamped
+    with the stay's arrival time and ``diagnosis`` with its departure time,
+    because ED diagnoses are coded at the end of the stay. The open
+    `MIMIC-IV-ED demo <https://physionet.org/content/mimic-iv-ed-demo/>`_ has
+    the same layout.
+
+    To link ED stays with hospital outcomes and demographics (``patients``,
+    ``admissions``, ``icustays``), use :class:`MIMIC4Dataset` with both
+    ``ehr_root`` and ``ed_root``.
+
+    Args:
+        root: The folder that holds ``ed/``.
+        tables: ED tables to load besides ``edstays``.
+        dataset_name: Name of the dataset.
+        config_path: Path to a YAML config; defaults to ``mimic4_ed.yaml``.
+        cache_dir: Directory for the processed cache.
+        **kwargs: Passed to :class:`~pyhealth.datasets.BaseDataset`, e.g.
+            ``dev`` or ``num_workers``.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4EDDataset
+        >>> dataset = MIMIC4EDDataset(  # doctest: +SKIP
+        ...     root="/path/to/mimic-iv-ed/2.2",
+        ...     tables=["triage", "vitalsign", "pyxis", "medrecon", "diagnosis"],
+        ... )
+        >>> dataset.stats()  # doctest: +SKIP
+    """
+
+    def __init__(
+        self,
+        root: str,
+        tables: list[str] | None = None,
+        dataset_name: str = "mimic4_ed",
+        config_path: str | None = None,
+        cache_dir: str | None = None,
+        **kwargs,
+    ):
+        if config_path is None:
+            config_path = os.path.join(
+                os.path.dirname(__file__), "configs", "mimic4_ed.yaml"
+            )
+            logger.info(f"Using default ED config: {config_path}")
+        tables = list(tables or [])
+        if "edstays" not in tables:
+            tables.append("edstays")
+        super().__init__(
+            root=root,
+            tables=tables,
+            dataset_name=dataset_name,
+            config_path=config_path,
+            cache_dir=cache_dir,
+            **kwargs,
+        )
+
+
 class MIMIC4Dataset(BaseDataset):
     """
     Unified MIMIC-IV dataset with support for EHR, clinical notes, and X-rays.
@@ -231,17 +292,22 @@ class MIMIC4Dataset(BaseDataset):
     - Core EHR data (demographics, admissions, diagnoses, etc.)
     - Clinical notes (discharge summaries, radiology reports)
     - Chest X-rays (images and metadata)
+    - Emergency department stays (MIMIC-IV-ED)
 
     Args:
         ehr_root: Root directory for MIMIC-IV EHR data
         note_root: Root directory for MIMIC-IV notes data
         cxr_root: Root directory for MIMIC-CXR data
+        ed_root: Root directory for MIMIC-IV-ED data (the folder holding
+            ``ed/``); ``edstays`` is always loaded with it
         ehr_tables: List of EHR tables to include
         note_tables: List of clinical note tables to include
         cxr_tables: List of X-ray tables to include
+        ed_tables: List of MIMIC-IV-ED tables to include
         ehr_config_path: Path to the EHR config file
         note_config_path: Path to the note config file
         cxr_config_path: Path to the CXR config file
+        ed_config_path: Path to the ED config file
         dataset_name: Name of the dataset
         dev: Whether to enable dev mode (limit to 1000 patients)
 
@@ -266,6 +332,13 @@ class MIMIC4Dataset(BaseDataset):
         ...     note_tables=["discharge"],
         ... )
         >>> dataset.stats()
+        >>>
+        >>> # EHR plus the emergency department module (MIMIC-IV-ED)
+        >>> dataset = MIMIC4Dataset(
+        ...     ehr_root="/path/to/mimic-iv/2.2",
+        ...     ed_root="/path/to/mimic-iv-ed/2.2",
+        ...     ed_tables=["triage", "vitalsign", "pyxis", "medrecon"],
+        ... )
     """
 
     def __init__(
@@ -283,21 +356,33 @@ class MIMIC4Dataset(BaseDataset):
         dev: bool = False,
         cache_dir: Optional[str] = None,
         num_workers: int = 1,
+        ed_root: str | None = None,
+        ed_tables: list[str] | None = None,
+        ed_config_path: str | None = None,
     ):
         log_memory_usage("Starting MIMIC4Dataset init")
 
         # We need at least one root directory
-        if not any([ehr_root, note_root, cxr_root]):
+        if not any([ehr_root, note_root, cxr_root, ed_root]):
             raise ValueError("At least one root directory must be provided")
 
         # Initialize empty lists if None provided
         ehr_tables = ehr_tables or []
         note_tables = note_tables or []
         cxr_tables = cxr_tables or []
+        # without ed_root the ED arguments are ignored, so the tables (and the
+        # cache key) are the same as before ED support
+        ed_tables = list(ed_tables or []) if ed_root else []
+        if ed_root and "edstays" not in ed_tables:
+            ed_tables.append("edstays")
 
+        root = f"{ehr_root}|{note_root}|{cxr_root}"
+        if ed_root:
+            # appended only when given, so existing cache keys are unchanged
+            root += f"|{ed_root}"
         super().__init__(
-            root=f"{ehr_root}|{note_root}|{cxr_root}",
-            tables=ehr_tables + note_tables + cxr_tables,
+            root=root,
+            tables=ehr_tables + note_tables + cxr_tables + ed_tables,
             dataset_name=dataset_name,
             config_path=None,
             dev=dev,
@@ -352,6 +437,20 @@ class MIMIC4Dataset(BaseDataset):
                 num_workers=num_workers,
             )
             log_memory_usage("After CXR dataset initialization")
+
+        if ed_root:
+            logger.info(
+                f"Initializing MIMIC4EDDataset with tables: {ed_tables} (dev mode: {dev})"
+            )
+            self.sub_datasets["ed"] = MIMIC4EDDataset(
+                root=ed_root,
+                tables=ed_tables,
+                config_path=ed_config_path,
+                cache_dir=str(self.cache_dir),
+                dev=dev,
+                num_workers=num_workers,
+            )
+            log_memory_usage("After ED dataset initialization")
 
         log_memory_usage("Completed MIMIC4Dataset init")
 

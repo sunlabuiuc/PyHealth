@@ -584,11 +584,6 @@ class MoleRec(BaseModel):
         else:
             raise ValueError(f"MoleRec requires exactly one label key, but got {self.label_keys}")
         
-        if not hasattr(self, 'mode') or not self.mode:
-            if self.label_key in self.dataset.output_schema:
-                self.mode = self._resolve_mode(self.dataset.output_schema[self.label_key])
-            else:
-                self.mode = "multilabel"
 
         try:
             _import_ogb("1.3.5")
