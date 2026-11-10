@@ -40,6 +40,17 @@ TIMESERIES = {
 }
 
 
+class _FirstSampleOnly:
+    """Samples whose iteration fails past the first one."""
+
+    def __init__(self, sample):
+        self.sample = sample
+
+    def __iter__(self):
+        yield self.sample
+        raise AssertionError("fit read more than the first sample")
+
+
 class TestRegistry(unittest.TestCase):
     def test_each_processor_is_registered_under_its_mode(self):
         for mode, cls in {**STATIC, **TIMESERIES}.items():
@@ -52,8 +63,8 @@ class TestRegistry(unittest.TestCase):
         processors = [
             BinaryLabelProcessor(), MultiClassLabelProcessor(labels=3),
             MultiLabelProcessor(labels=4), RegressionLabelProcessor(),
-            TimeseriesBinaryLabelProcessor(), TimeseriesMultiClassLabelProcessor(labels=3),
-            TimeseriesMultiLabelProcessor(labels=4), TimeseriesRegressionLabelProcessor(),
+            TimeseriesBinaryLabelProcessor(timeline=["x"]), TimeseriesMultiClassLabelProcessor(timeline=["x"], labels=3),
+            TimeseriesMultiLabelProcessor(timeline=["x"], labels=4), TimeseriesRegressionLabelProcessor(timeline=["x"]),
         ]
         for processor in processors:
             with self.subTest(processor=type(processor).__name__):
@@ -236,15 +247,15 @@ class TestFitTest(unittest.TestCase):
     def test_need_fit_test_only_for_learned_vocabularies(self):
         self.assertTrue(MultiClassLabelProcessor().need_fit_test)
         self.assertTrue(MultiLabelProcessor().need_fit_test)
-        self.assertTrue(TimeseriesMultiClassLabelProcessor().need_fit_test)
+        self.assertTrue(TimeseriesMultiClassLabelProcessor(timeline=["x"]).need_fit_test)
         for processor in (
             MultiClassLabelProcessor(labels=["c", "b", "a"]),
             MultiLabelProcessor(labels=2),
             BinaryLabelProcessor(),
             RegressionLabelProcessor(),
-            TimeseriesBinaryLabelProcessor(),
-            TimeseriesMultiClassLabelProcessor(labels=2),
-            TimeseriesRegressionLabelProcessor(),
+            TimeseriesBinaryLabelProcessor(timeline=["x"]),
+            TimeseriesMultiClassLabelProcessor(timeline=["x"], labels=2),
+            TimeseriesRegressionLabelProcessor(timeline=["x"]),
         ):
             with self.subTest(processor=processor):
                 self.assertFalse(processor.need_fit_test)
@@ -278,18 +289,21 @@ class TestFitTest(unittest.TestCase):
             for weight in ([2.0, 0.5], (2.0,), torch.tensor([2.0, 0.5])):
                 with self.subTest(cls=cls.__name__, weight=weight):
                     with self.assertRaisesRegex(ValueError, "needs labels"):
-                        cls(pos_weight=weight)
+                        if issubclass(cls, TimeseriesLabelProcessor):
+                            cls(timeline=["x"], pos_weight=weight)
+                        else:
+                            cls(pos_weight=weight)
         with self.assertRaisesRegex(ValueError, "2 weights for 3 labels"):
             MultiLabelProcessor(labels=["a", "b", "c"], pos_weight=[2.0, 0.5])
         # One number, or a weight per given label, is fine.
         for weight in (2.0, 3, torch.tensor(2.0)):
             MultiLabelProcessor(pos_weight=weight)
-        processor = TimeseriesMultiLabelProcessor(labels=["a", "b"], pos_weight=[2.0, 0.5])
+        processor = TimeseriesMultiLabelProcessor(timeline=["x"], labels=["a", "b"], pos_weight=[2.0, 0.5])
         self.assertEqual(processor.base.weight.tolist(), [2.0, 0.5])
 
     def test_timeseries_labels(self):
-        multilabel = TimeseriesMultiLabelProcessor(pos_weight="balanced")
-        multilabel.fit([{"y": {"time": [0.0, 1.0], "values": [["a"], []]}}], "y")
+        multilabel = TimeseriesMultiLabelProcessor(timeline=["x"], pos_weight="balanced")
+        multilabel.fit([{"x": [], "y": {"time": [0.0, 1.0], "values": [["a"], []]}}], "y")
         with self.assertLogs("pyhealth.processors.label_processor", "WARNING"):
             multilabel.fit_test(
                 [{"y": {"time": [0.0, 1.0], "values": [["a"], ["b"]]}}], "y"
@@ -300,22 +314,22 @@ class TestFitTest(unittest.TestCase):
 
 class TestTimeseriesLabels(unittest.TestCase):
     def test_multiclass_and_multilabel_values(self):
-        multiclass = TimeseriesMultiClassLabelProcessor()
-        multiclass.fit([{"y": {"time": [0.0, 1.0], "values": ["b", "a"]}}], "y")
+        multiclass = TimeseriesMultiClassLabelProcessor(timeline=["x"])
+        multiclass.fit([{"x": [], "y": {"time": [0.0, 1.0], "values": ["b", "a"]}}], "y")
         values, time = multiclass.process({"time": [0.0, 2.0], "values": ["a", "b"]})
         self.assertEqual(values.dtype, torch.long)
         self.assertEqual(values.tolist(), [0, 1])
         self.assertEqual(multiclass.size(), 2)
 
-        multilabel = TimeseriesMultiLabelProcessor(labels=["x", "y"])
+        multilabel = TimeseriesMultiLabelProcessor(timeline=["x"], labels=["x", "y"])
         values, _ = multilabel.process({"time": [0.0, 1.0], "values": [["y"], []]})
         self.assertEqual(values.tolist(), [[0.0, 1.0], [0.0, 0.0]])
 
     def test_empty_label_has_the_value_shape(self):
         for processor, shape in (
-            (TimeseriesBinaryLabelProcessor(), (0, 1)),
-            (TimeseriesMultiClassLabelProcessor(labels=3), (0,)),
-            (TimeseriesMultiLabelProcessor(labels=3), (0, 3)),
+            (TimeseriesBinaryLabelProcessor(timeline=["x"]), (0, 1)),
+            (TimeseriesMultiClassLabelProcessor(timeline=["x"], labels=3), (0,)),
+            (TimeseriesMultiLabelProcessor(timeline=["x"], labels=3), (0, 3)),
         ):
             with self.subTest(processor=type(processor).__name__):
                 values, time = processor.process({"time": [], "values": []})
@@ -323,7 +337,7 @@ class TestTimeseriesLabels(unittest.TestCase):
                 self.assertEqual(tuple(time.shape), (0,))
 
     def test_collate(self):
-        processor = TimeseriesRegressionLabelProcessor()
+        processor = TimeseriesRegressionLabelProcessor(timeline=["x"])
         batch = processor.collate([
             processor.process({"time": [0.0, 1.0], "values": [1.0, 2.0]}),
             processor.process({"time": [], "values": []}),
@@ -333,7 +347,7 @@ class TestTimeseriesLabels(unittest.TestCase):
         self.assertEqual(batch[1].tolist(), [0.0, 1.0, 5.0])
 
     def test_loss_is_the_static_loss_per_record(self):
-        processor = TimeseriesMultiClassLabelProcessor(labels=3)
+        processor = TimeseriesMultiClassLabelProcessor(timeline=["x"], labels=3)
         batch = processor.collate([
             processor.process({"time": [0.0, 1.0], "values": [0, 2]}),
             processor.process({"time": [0.0], "values": [1]}),
@@ -346,7 +360,7 @@ class TestTimeseriesLabels(unittest.TestCase):
             processor.loss(torch.randn(3, 1), batch)
 
     def test_to_numpy_gives_one_array_per_sample(self):
-        processor = TimeseriesMultiLabelProcessor(labels=2)
+        processor = TimeseriesMultiLabelProcessor(timeline=["x"], labels=2)
         batch = processor.collate([
             processor.process({"time": [0.0, 1.0], "values": [[0], [1]]}),
             processor.process({"time": [0.0], "values": [[0, 1]]}),
@@ -366,36 +380,33 @@ class TestTimeseriesLabels(unittest.TestCase):
 
     def test_values_are_checked(self):
         bad = [
-            (TimeseriesMultiClassLabelProcessor(labels=["a"]), {"time": [0.0], "values": ["b"]}),
-            (TimeseriesMultiLabelProcessor(labels=2), {"time": [0.0, 1.0], "values": [[0]]}),
-            (TimeseriesBinaryLabelProcessor(), {"time": [0.0], "values": [0.5]}),
+            (TimeseriesMultiClassLabelProcessor(timeline=["x"], labels=["a"]), {"time": [0.0], "values": ["b"]}),
+            (TimeseriesMultiLabelProcessor(timeline=["x"], labels=2), {"time": [0.0, 1.0], "values": [[0]]}),
+            (TimeseriesBinaryLabelProcessor(timeline=["x"]), {"time": [0.0], "values": [0.5]}),
         ]
         for processor, records in bad:
             with self.subTest(records=records), self.assertRaises(ValueError):
                 processor.process(records)
 
     def test_shape_metadata_follows_the_base(self):
-        multiclass = TimeseriesMultiClassLabelProcessor(labels=3)
+        multiclass = TimeseriesMultiClassLabelProcessor(timeline=["x"], labels=3)
         self.assertTrue(multiclass.is_token())
         self.assertEqual(multiclass.dim(), (1, 1))
         self.assertEqual(multiclass.spatial(), (True,))
-        multilabel = TimeseriesMultiLabelProcessor(labels=3)
+        multilabel = TimeseriesMultiLabelProcessor(timeline=["x"], labels=3)
         self.assertFalse(multilabel.is_token())
         self.assertEqual(multilabel.dim(), (2, 1))
         self.assertEqual(multilabel.spatial(), (True, False))
 
     def test_collate_needs_a_sample(self):
         with self.assertRaisesRegex(ValueError, "at least one sample"):
-            TimeseriesRegressionLabelProcessor().collate([])
+            TimeseriesRegressionLabelProcessor(timeline=["x"]).collate([])
 
-    def test_regression_needs_no_fit(self):
-        processor = TimeseriesRegressionLabelProcessor()
+    def test_regression_reads_only_the_first_sample(self):
+        processor = TimeseriesRegressionLabelProcessor(timeline=["x"])
 
-        class Unreadable:
-            def __iter__(self):
-                raise AssertionError("fit read the samples")
-
-        processor.fit(Unreadable(), "y")
+        # The first sample only checks the timeline; there is nothing to learn.
+        processor.fit(_FirstSampleOnly({"x": [], "y": None}), "y")
 
 
 class TestRegressionScale(unittest.TestCase):
@@ -499,12 +510,12 @@ class TestRegressionScale(unittest.TestCase):
         self.assertEqual(restored.process(1.5).tolist(), [1.5])
 
     def test_timeseries_fits_on_every_label_record(self):
-        processor = TimeseriesRegressionLabelProcessor(normalization="minmax")
+        processor = TimeseriesRegressionLabelProcessor(timeline=["x"], normalization="minmax")
         self.assertTrue(processor.learns_statistics)
         processor.fit(
             [
-                {"y": {"time": [0.0, 1.0], "values": [10.0, 20.0]}},
-                {"y": {"time": [0.0], "values": [[30.0]]}},
+                {"x": [], "y": {"time": [0.0, 1.0], "values": [10.0, 20.0]}},
+                {"x": [], "y": {"time": [0.0], "values": [[30.0]]}},
             ],
             "y",
         )
@@ -520,15 +531,12 @@ class TestRegressionScale(unittest.TestCase):
         self.assertEqual([part.tolist() for part in y_true], [[20.0, 30.0], [10.0]])
         self.assertEqual([part.tolist() for part in y_prob], [[30.0, 40.0], [20.0]])
 
-    def test_timeseries_fixed_range_does_not_read_the_samples(self):
-        processor = TimeseriesRegressionLabelProcessor(normalization=(0, 15))
+    def test_timeseries_fixed_range_reads_only_the_first_sample(self):
+        processor = TimeseriesRegressionLabelProcessor(timeline=["x"], normalization=(0, 15))
         self.assertFalse(processor.learns_statistics)
 
-        class Unreadable:
-            def __iter__(self):
-                raise AssertionError("fit read the samples")
-
-        processor.fit(Unreadable(), "y")
+        # The first sample only checks the timeline; there is nothing to learn.
+        processor.fit(_FirstSampleOnly({"x": [], "y": None}), "y")
 
     def test_dataset_warns_when_fitted_on_all_samples(self):
         samples = [
@@ -572,7 +580,9 @@ def _timeseries_dataset(mode):
             "y": {"time": [float(h) for h in range(steps)],
                   "values": [value(i, h) for h in range(steps)]},
         })
-    return create_sample_dataset(samples, {"codes": "sequence"}, {"y": mode})
+    return create_sample_dataset(
+        samples, {"codes": "sequence"}, {"y": (mode, {"timeline": ["codes"]})}
+    )
 
 
 class TestTrainerWithEveryLabel(unittest.TestCase):

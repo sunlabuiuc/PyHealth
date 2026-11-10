@@ -233,7 +233,7 @@ class TestStatics(unittest.TestCase):
                 "x": ("sequence_v2", {"levels": VISITS}),
                 "age": ("sequence_v2", {"levels": AGE}),
             },
-            {"y": "timeseries_binary"},
+            {"y": ("timeseries_binary", {"timeline": ["x"]})},
         )
         model = _model(
             dataset,
@@ -275,7 +275,7 @@ class TestPerStep(unittest.TestCase):
         return create_sample_dataset(
             samples,
             {"x": ("sequence_v2", {"levels": levels})},
-            {"y": "timeseries_binary"},
+            {"y": ("timeseries_binary", {"timeline": ["x"]})},
         )
 
     def test_top_level_must_be_a_series(self):

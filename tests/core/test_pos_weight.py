@@ -108,11 +108,11 @@ class TestPosWeight(unittest.TestCase):
         self.assertAlmostEqual(weights["y"], 3.0)  # 1 positive, 3 negatives
 
     def test_timeseries_binary_balanced_counts_label_records(self):
-        processor = TimeseriesBinaryLabelProcessor(pos_weight="balanced")
+        processor = TimeseriesBinaryLabelProcessor(timeline=["x"], pos_weight="balanced")
         processor.fit(
             [
-                {"y": {"time": [0.0, 1.0, 2.0], "values": [0, 0, 1]}},
-                {"y": {"time": [0.0], "values": [0]}},
+                {"x": [], "y": {"time": [0.0, 1.0, 2.0], "values": [0, 0, 1]}},
+                {"x": [], "y": {"time": [0.0], "values": [0]}},
             ],
             "y",
         )  # 1 positive of 4 records

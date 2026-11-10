@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 import torch
 
+from pyhealth import tasks
 from pyhealth.datasets import SampleDataset, create_sample_dataset, get_dataloader
 from pyhealth.models import BaseModel, RNN_V2
 from pyhealth.processors import (
@@ -14,6 +15,8 @@ from pyhealth.processors import (
     SequenceProcessorV2,
     TimeseriesBinaryLabelProcessor,
     TimeseriesLabelProcessor,
+    TimeseriesMultiClassLabelProcessor,
+    TimeseriesMultiLabelProcessor,
     TimeseriesRegressionLabelProcessor,
 )
 from pyhealth.trainer import Trainer
@@ -41,21 +44,33 @@ def _samples(label_fn) -> list[dict[str, Any]]:
     return samples
 
 
-def _dataset(output="timeseries_binary", label_fn=lambda i, h: float((i + h) % 2)):
+def _dataset(
+    output="timeseries_binary",
+    label_fn=lambda i, h: float((i + h) % 2),
+    timeline=("dynamic",),
+):
     return create_sample_dataset(
         samples=_samples(label_fn),
         input_schema={
             "dynamic": ("sequence_v2", {"levels": DYNAMIC}),
             "static": ("sequence_v2", {"levels": STATIC}),
         },
-        output_schema={"label": output},
+        output_schema={"label": (output, {"timeline": list(timeline)})},
         dataset_name="per_step",
     )
 
 
+TIMESERIES_CLASSES = (
+    TimeseriesBinaryLabelProcessor,
+    TimeseriesMultiClassLabelProcessor,
+    TimeseriesMultiLabelProcessor,
+    TimeseriesRegressionLabelProcessor,
+)
+
+
 class TestTimeseriesLabelProcessors(unittest.TestCase):
     def test_are_label_processors(self):
-        processor = TimeseriesBinaryLabelProcessor()
+        processor = TimeseriesBinaryLabelProcessor(timeline=["x"])
         self.assertIsInstance(processor, LabelProcessor)
         self.assertIsInstance(processor, TimeseriesLabelProcessor)
         self.assertNotIsInstance(processor, SequenceProcessorV2)
@@ -63,11 +78,11 @@ class TestTimeseriesLabelProcessors(unittest.TestCase):
         self.assertEqual(processor.size(), 1)
         self.assertFalse(processor.learns_statistics)
         self.assertEqual(
-            repr(processor), "TimeseriesBinaryLabelProcessor(label_vocab_size=2)"
+            repr(processor), "TimeseriesBinaryLabelProcessor(timeline=['x'], label_vocab_size=2)"
         )
 
     def test_values_and_time(self):
-        values, time = TimeseriesRegressionLabelProcessor().process(
+        values, time = TimeseriesRegressionLabelProcessor(timeline=["x"]).process(
             {"time": [0.0, 3.0, 4.5], "values": [[2.5], [4.0], [1.0]]}
         )
         self.assertEqual(values.tolist(), [[2.5], [4.0], [1.0]])
@@ -75,7 +90,7 @@ class TestTimeseriesLabelProcessors(unittest.TestCase):
 
     def test_needs_no_fit(self):
         self.assertEqual(
-            TimeseriesBinaryLabelProcessor()
+            TimeseriesBinaryLabelProcessor(timeline=["x"])
             .process({"time": [1.0], "values": [1]})[0]
             .tolist(),
             [[1.0]],
@@ -83,22 +98,22 @@ class TestTimeseriesLabelProcessors(unittest.TestCase):
 
     def test_rejects(self):
         bad: list[tuple[Any, Any]] = [
-            (TimeseriesBinaryLabelProcessor(), {"time": [0.0, 1.0], "values": [0, 2]}),
+            (TimeseriesBinaryLabelProcessor(timeline=["x"]), {"time": [0.0, 1.0], "values": [0, 2]}),
             (
-                TimeseriesBinaryLabelProcessor(),
+                TimeseriesBinaryLabelProcessor(timeline=["x"]),
                 {"time": [0.0, 0.0], "values": [0, 1]},
             ),  # one time twice
             (
-                TimeseriesRegressionLabelProcessor(),
+                TimeseriesRegressionLabelProcessor(timeline=["x"]),
                 {"time": [1.0, 0.0], "values": [1.0, 2.0]},
             ),
             (
-                TimeseriesRegressionLabelProcessor(),
+                TimeseriesRegressionLabelProcessor(timeline=["x"]),
                 {"time": [0.0, 1.0], "values": [1.0, NAN]},
             ),
-            (TimeseriesRegressionLabelProcessor(), {"values": [1.0]}),  # no time
+            (TimeseriesRegressionLabelProcessor(timeline=["x"]), {"values": [1.0]}),  # no time
             (
-                TimeseriesRegressionLabelProcessor(),
+                TimeseriesRegressionLabelProcessor(timeline=["x"]),
                 {"time": [0.0], "values": [[1.0, 2.0]]},
             ),
         ]
@@ -113,6 +128,74 @@ class TestTimeseriesLabelProcessors(unittest.TestCase):
         self.assertEqual(values.shape, (18, 1))
         self.assertEqual(time.shape, (18,))
         self.assertEqual(offsets.tolist(), [0, 5, 8, 14, 18])
+
+
+class TestTimeline(unittest.TestCase):
+    def test_keeps_the_declared_fields_in_order(self):
+        for cls in TIMESERIES_CLASSES:
+            with self.subTest(cls=cls.__name__):
+                processor = cls(timeline=["static", "dynamic"])
+                self.assertEqual(processor.timeline, ("static", "dynamic"))
+
+    def test_is_required_and_keyword_only(self):
+        for cls in TIMESERIES_CLASSES:
+            with self.subTest(cls=cls.__name__):
+                with self.assertRaisesRegex(TypeError, "timeline"):
+                    cls()  # type: ignore[call-arg]
+                with self.assertRaises(TypeError):
+                    cls(["dynamic"])  # type: ignore[misc]
+
+    def test_rejects_bad_declarations(self):
+        bad: list[tuple[Any, type[Exception]]] = [
+            (None, TypeError),
+            ("dynamic", TypeError),  # a field name, not a list of them
+            ([], ValueError),
+            (["dynamic", "dynamic"], ValueError),
+            ([1], TypeError),
+        ]
+        for timeline, error in bad:
+            for cls in TIMESERIES_CLASSES:
+                with self.subTest(cls=cls.__name__, timeline=timeline):
+                    with self.assertRaises(error):
+                        cls(timeline=timeline)
+
+    def test_fit_checks_the_fields(self):
+        sample = {"dynamic": None, "label": {"time": [0.0], "values": [1]}}
+        processors = [
+            TimeseriesBinaryLabelProcessor(timeline=["typo"]),
+            TimeseriesBinaryLabelProcessor(timeline=["typo"], pos_weight="balanced"),
+            TimeseriesMultiClassLabelProcessor(timeline=["typo"]),
+            TimeseriesMultiLabelProcessor(timeline=["typo"]),
+            TimeseriesRegressionLabelProcessor(timeline=["typo"]),
+            TimeseriesRegressionLabelProcessor(
+                timeline=["typo"], normalization="minmax"
+            ),
+        ]
+        for processor in processors:
+            with self.subTest(processor=repr(processor)):
+                with self.assertRaisesRegex(KeyError, "typo"):
+                    processor.fit([sample], "label")
+        for cls in TIMESERIES_CLASSES:
+            with self.subTest(cls=cls.__name__):
+                with self.assertRaisesRegex(ValueError, "label field"):
+                    cls(timeline=["label"]).fit([sample], "label")
+                cls(timeline=["dynamic"]).fit([], "label")  # nothing to check
+
+    def test_dataset_keeps_the_timeline(self):
+        dataset = _dataset(timeline=("dynamic", "static"))
+        processor = dataset.output_processors["label"]
+        assert isinstance(processor, TimeseriesLabelProcessor)
+        self.assertEqual(processor.timeline, ("dynamic", "static"))
+        with self.assertRaisesRegex(KeyError, "dynamics"):
+            _dataset(timeline=("dynamics",))
+
+    def test_yaib_per_step_tasks_put_dynamic_on_the_timeline(self):
+        for source in ("MIMIC3", "MIMIC4", "EICU"):
+            for name in ("LengthOfStay", "AKI", "Sepsis"):
+                task = getattr(tasks, f"YAIB{name}{source}")
+                with self.subTest(task=task.__name__):
+                    ((_, (_, kwargs)),) = task.output_schema.items()
+                    self.assertEqual(kwargs["timeline"], ["dynamic"])
 
 
 class TestPerStepEndToEnd(unittest.TestCase):
