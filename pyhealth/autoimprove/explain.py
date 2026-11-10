@@ -271,7 +271,7 @@ def _numeric_means(loader, keys) -> dict[str, torch.Tensor]:
             value = _numeric(batch[key])
             if value is not None:
                 sums[key] = sums.get(key, 0) + value.sum(dim=0)
-        count += len(next(iter(batch.values())))
+        count += len(batch[keys[0]]) if keys else 0
     return {k: v / max(count, 1) for k, v in sums.items()}
 
 

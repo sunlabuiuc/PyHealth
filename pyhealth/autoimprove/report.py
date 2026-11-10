@@ -620,8 +620,8 @@ def _test_section(ctx, test) -> Section:
         blocks += [("p", "Paired differences on the same test patients:"),
                    ("list", diffs)]
     clinical = {k: test[k]["clinical"] for k, _ in present if test[k].get("clinical")}
-    if "best" not in clinical:
-        return Section("Performance in clinical terms", blocks)
+    if "best" not in clinical:  # not a binary task: only the comparison
+        return Section("Test comparison", blocks)
     sel = clinical["best"]
     n_text = f"{sel['n']}" if sel["n"] is not None else "a withheld number of"
     prev_text = (f"prevalence {sel['prevalence']:.1%}" if sel["prevalence"] is not None
