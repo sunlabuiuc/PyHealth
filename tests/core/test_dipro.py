@@ -237,6 +237,45 @@ class TestMissingModalities(DiProCase):
         batch["first_ehr_hour"] = [100, 100, 100]
         self._finite(_model(self.images), batch)
 
+    def _same_logits(self, alone, batched):
+        model = _model(self.images).eval()
+        with torch.no_grad():
+            expected = model(**alone)["logit"]
+            got = model(**batched)["logit"]
+        self.assertTrue(torch.isfinite(got).all())
+        self.assertTrue(torch.allclose(expected, got[:1], atol=1e-5))
+
+    def test_no_ehr_inside_the_interval_is_batch_independent(self):
+        # Sample 0 (10 rows) has no row inside its interval; sample 2 has 12.
+        batch = _batch(self.images)
+        length = int((batch["ehr"][0] != 0).any(-1).sum())
+        alone = {
+            "ehr": batch["ehr"][:1, :length],
+            "cxr": batch["cxr"][:1],
+            "first_ehr_hour": [100],
+        }
+        batched = {
+            "ehr": batch["ehr"][[0, 2]],
+            "cxr": [batch["cxr"][0], batch["cxr"][2]],
+            "first_ehr_hour": [100, 1],
+        }
+        self.assertLess(length, batched["ehr"].size(1))
+        self._same_logits(alone, batched)
+
+    def test_sample_without_ehr_is_batch_independent(self):
+        batch = _batch(self.images)
+        empty = torch.zeros_like(batch["ehr"][:1, :3])
+        alone = {"ehr": empty, "cxr": batch["cxr"][:1], "first_ehr_hour": [1]}
+        batched = {
+            "ehr": torch.cat([F.pad(empty, (0, 0, 0, batch["ehr"].size(1) - 3)),
+                              batch["ehr"][2:]]),
+            "cxr": [batch["cxr"][0], batch["cxr"][2]],
+            "first_ehr_hour": [1, 1],
+        }
+        self._same_logits(alone, batched)
+        # Leaving ``ehr`` out of the batch is the same as all-zero rows.
+        self._same_logits({"cxr": batch["cxr"][:1]}, batched)
+
     def test_nothing_to_predict_from(self):
         with self.assertRaisesRegex(ValueError, "at least one"):
             _model(self.images)()

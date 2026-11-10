@@ -30,16 +30,22 @@ _NUM_HEADS = 8
 _BACKBONES = ("resnet18", "resnet34", "resnet50")
 
 
-def _attended_pairs(pair_mask: torch.Tensor) -> torch.Tensor:
-    """The pairs that attention may read, ``[B, P]``.
+def _with_first_if_empty(mask: torch.Tensor) -> torch.Tensor:
+    """``mask`` ``[B, N]``, with position 0 set for a row that has none set.
 
-    These are the real pairs. A sample without one keeps its first pair, which
-    is learned padding, so that its attention has a key and no padding beyond
-    the first pair can change it.
+    Attention keys are the real positions (True). A sample without one keeps
+    its first position, so its attention has a key, and no padding beyond the
+    first position, which depends on the rest of the batch, can change it.
     """
-    first = torch.zeros_like(pair_mask)
+    first = torch.zeros_like(mask)
     first[:, 0] = True
-    return pair_mask | (first & ~pair_mask.any(dim=1, keepdim=True))
+    return mask | (first & ~mask.any(dim=1, keepdim=True))
+
+
+def _attended_pairs(pair_mask: torch.Tensor) -> torch.Tensor:
+    """The pairs that attention may read, ``[B, P]``: the real pairs, or the
+    first (learned padding) pair of a sample without one."""
+    return _with_first_if_empty(pair_mask)
 
 
 def _masked_mean(values: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -265,8 +271,13 @@ class _EHRIntervalEncoder(nn.Module):
         scores = torch.where(
             inside, -(times - (start + end) / 2).abs(), float("-inf")
         )
-        # With no row inside an interval, -inf everywhere would give NaN.
-        scores = torch.where(inside.any(-1, keepdim=True), scores, 0.0)
+        # With no row inside an interval, -inf everywhere would give NaN, so
+        # the interval attends uniformly to the sample's real rows instead, or
+        # to its first row if it has none. Padding rows never get a weight.
+        fallback = torch.where(
+            _with_first_if_empty(ehr_mask)[:, None], 0.0, float("-inf")
+        )
+        scores = torch.where(inside.any(-1, keepdim=True), scores, fallback)
         attention_mask = scores[:, :, None].expand(B, P, L, L).flatten(0, 1)
         attention_mask = attention_mask.repeat_interleave(_NUM_HEADS, dim=0)
 

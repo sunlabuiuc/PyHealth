@@ -13,7 +13,7 @@ from PIL import Image
 from torchvision import transforms
 
 from . import register_processor
-from .base_processor import FeatureProcessor
+from .base_processor import FeatureProcessor, ModalityType
 
 
 @register_processor("time_region_image")
@@ -131,6 +131,22 @@ class TimeRegionImageProcessor(FeatureProcessor):
     def is_token(self) -> bool:
         """Pixels are continuous values."""
         return False
+
+    def modality(self) -> ModalityType:
+        """Medical images: the IMAGE modality, as for ``TimeImageProcessor``."""
+        return ModalityType.IMAGE
+
+    def process_temporal(self, value) -> dict[str, torch.Tensor]:
+        """Returns the output of :meth:`process` as a dict.
+
+        Args:
+            value: ``(paths, times, boxes)``, as for :meth:`process`.
+
+        Returns:
+            ``{"value": regions [N, R, C, H, W], "time": times [N]}``.
+        """
+        regions, times, _tag = self.process(value)
+        return {"value": regions, "time": times}
 
     def __repr__(self) -> str:
         return (

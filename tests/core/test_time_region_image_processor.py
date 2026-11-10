@@ -41,6 +41,19 @@ class TestTimeRegionImageProcessor(unittest.TestCase):
         self.assertEqual(hours.tolist(), [2.0])
         self.assertEqual(tag, "image")
 
+    def test_temporal_interface_matches_time_image_processor(self):
+        from pyhealth.processors.base_processor import ModalityType
+
+        self.assertEqual(self.processor.modality(), ModalityType.IMAGE)
+        boxes = [[0, 0, 10, 10], [10, 0, 20, 10]]
+        value = ([self.split, self.dark], [5.0, 2.0], [boxes, boxes])
+        regions, hours, _ = self.processor.process(value)
+        out = self.processor.process_temporal(value)
+        self.assertEqual(set(out), {"value", "time"})
+        self.assertTrue(torch.equal(out["value"], regions))
+        self.assertEqual(out["time"].tolist(), hours.tolist())
+        self.assertEqual(out["time"].tolist(), [2.0, 5.0])
+
     def test_boxes_follow_their_image_when_sorted_by_time(self):
         white, black = [0, 0, 10, 10], [10, 0, 20, 10]
         regions, hours, _ = self.processor.process(
