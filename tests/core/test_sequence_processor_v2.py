@@ -11,7 +11,7 @@ from pyhealth.processors import (
     LevelConfig,
     Records,
     Resample,
-    UnifiedFeatureProcessor,
+    JaggedFeatureProcessor,
     get_processor,
 )
 from pyhealth.tasks import BaseTask
@@ -23,8 +23,8 @@ NESTED: list[LevelConfig] = [{"ordering": "set", "tokens": 1}, {"ordering": "seq
 LAST: Resample = {"step": 1.0, "method": "last"}
 
 
-def _fit(levels: Sequence[LevelConfig], *records: Any) -> UnifiedFeatureProcessor:
-    proc = UnifiedFeatureProcessor(levels=levels)
+def _fit(levels: Sequence[LevelConfig], *records: Any) -> JaggedFeatureProcessor:
+    proc = JaggedFeatureProcessor(levels=levels)
     proc.fit([{"x": r} for r in records], "x")
     return proc
 
@@ -46,19 +46,19 @@ class _FakeMap:
 class TestConfiguration(unittest.TestCase):
     def test_levels_are_required(self):
         with self.assertRaises(TypeError):
-            UnifiedFeatureProcessor()  # type: ignore[call-arg]  # the missing argument is the test
+            JaggedFeatureProcessor()  # type: ignore[call-arg]  # the missing argument is the test
 
     def test_registered(self):
-        self.assertIs(get_processor("unified"), UnifiedFeatureProcessor)
+        self.assertIs(get_processor("jagged"), JaggedFeatureProcessor)
 
     def test_repr_shows_levels(self):
         self.assertEqual(
-            repr(UnifiedFeatureProcessor(levels=[CODES])),
-            "UnifiedFeatureProcessor(levels=[{'tokens': 1}])",
+            repr(JaggedFeatureProcessor(levels=[CODES])),
+            "JaggedFeatureProcessor(levels=[{'tokens': 1}])",
         )
 
     def test_subclass_is_configuration_only(self):
-        class NestedCodes(UnifiedFeatureProcessor):
+        class NestedCodes(JaggedFeatureProcessor):
             def __init__(self):
                 super().__init__(levels=NESTED)
 
@@ -124,10 +124,10 @@ class TestConfiguration(unittest.TestCase):
                 self.subTest(levels=levels),
                 self.assertRaises((ValueError, TypeError)),
             ):
-                UnifiedFeatureProcessor(levels=levels)
+                JaggedFeatureProcessor(levels=levels)
 
     def test_only_vocabulary_needs_fit(self):
-        proc = UnifiedFeatureProcessor(levels=[{"tokens": 2, "values": [3]}])
+        proc = JaggedFeatureProcessor(levels=[{"tokens": 2, "values": [3]}])
         self.assertEqual(proc.schema(), ((0, "tokens"), (0, "values")))
         self.assertEqual(proc.value_dim(), {0: (3,)})
         self.assertEqual(proc.spatial(), {0: (False,)})
@@ -439,7 +439,7 @@ class TestCodeMapping(unittest.TestCase):
         ]
         for levels in cases:
             with self.subTest(levels=levels), self.assertRaises(ValueError):
-                UnifiedFeatureProcessor(levels=levels)
+                JaggedFeatureProcessor(levels=levels)
 
     def test_single_target_mapping_is_allowed_anywhere(self):
         self.use_table({"250.00": ["49"], "401.9": ["98"]})
@@ -485,7 +485,7 @@ class TestResample(unittest.TestCase):
         ]
         for levels in cases:
             with self.subTest(levels=levels), self.assertRaises(ValueError):
-                UnifiedFeatureProcessor(levels=levels)
+                JaggedFeatureProcessor(levels=levels)
 
     def test_first_and_last_keep_one_record_per_step(self):
         raw: Records = {
@@ -715,11 +715,11 @@ class TestImpute(unittest.TestCase):
                 self.subTest(levels=levels),
                 self.assertRaises((ValueError, TypeError)),
             ):
-                UnifiedFeatureProcessor(levels=levels)
+                JaggedFeatureProcessor(levels=levels)
 
     def test_learns_statistics_only_with_statistics(self):
-        zero = UnifiedFeatureProcessor(levels=[self.level({"method": "zero"}, values=[1])])
-        mean = UnifiedFeatureProcessor(levels=[self.level({"method": "mean"}, values=[1])])
+        zero = JaggedFeatureProcessor(levels=[self.level({"method": "zero"}, values=[1])])
+        mean = JaggedFeatureProcessor(levels=[self.level({"method": "mean"}, values=[1])])
         self.assertFalse(zero.learns_statistics)
         self.assertTrue(mean.learns_statistics)
 
@@ -902,10 +902,10 @@ class TestNormalize(unittest.TestCase):
         ]
         for levels in bad:
             with self.subTest(levels=levels), self.assertRaises(ValueError):
-                UnifiedFeatureProcessor(levels=levels)
+                JaggedFeatureProcessor(levels=levels)
 
     def test_learns_statistics(self):
-        proc = UnifiedFeatureProcessor(
+        proc = JaggedFeatureProcessor(
             levels=[self.level({"method": "minmax"}, values=[1])]
         )
         self.assertTrue(proc.learns_statistics)
@@ -1035,7 +1035,7 @@ class TestMissingIndicator(unittest.TestCase):
                 self.subTest(levels=levels),
                 self.assertRaises((ValueError, TypeError)),
             ):
-                UnifiedFeatureProcessor(levels=levels)
+                JaggedFeatureProcessor(levels=levels)
 
     def test_mask_follows_values_in_the_schema(self):
         level: LevelConfig = {
@@ -1045,7 +1045,7 @@ class TestMissingIndicator(unittest.TestCase):
             "impute": {"method": "zero"},
             "missing_indicator": True,
         }
-        proc = UnifiedFeatureProcessor(levels=[level])
+        proc = JaggedFeatureProcessor(levels=[level])
         self.assertEqual(
             proc.schema(), ((0, "tokens"), (0, "values"), (0, "mask"), (0, "time"))
         )
@@ -1203,15 +1203,15 @@ class TestStorage(unittest.TestCase):
         dataset = create_sample_dataset(
             samples=samples,
             input_schema={
-                "visits": ("unified", {"levels": NESTED}),  # two tensors
-                "stays": ("unified", {"levels": deep}),  # three tensors
+                "visits": ("jagged", {"levels": NESTED}),  # two tensors
+                "stays": ("jagged", {"levels": deep}),  # three tensors
             },
             output_schema={"label": "binary"},
         )
         batch = next(iter(get_dataloader(dataset, batch_size=2)))
         for key in ("visits", "stays"):
             proc = dataset.input_processors[key]
-            assert isinstance(proc, UnifiedFeatureProcessor)
+            assert isinstance(proc, JaggedFeatureProcessor)
             expected = proc.collate([dataset[0][key], dataset[1][key]])
             self.assertEqual(len(batch[key]), len(expected))
             for got, want in zip(batch[key], expected):
@@ -1233,7 +1233,7 @@ class TestStorage(unittest.TestCase):
         ]
         dataset = create_sample_dataset(
             samples=samples,
-            input_schema={"visits": ("unified", {"levels": NESTED})},
+            input_schema={"visits": ("jagged", {"levels": NESTED})},
             output_schema={"label": "binary"},
         )
         proc = dataset.input_processors["visits"]
@@ -1254,8 +1254,8 @@ class TestOldName(unittest.TestCase):
         )
 
         self.assertIs(OldModuleName, SequenceProcessorV2)
-        self.assertTrue(issubclass(SequenceProcessorV2, UnifiedFeatureProcessor))
-        self.assertIsNot(SequenceProcessorV2, UnifiedFeatureProcessor)
+        self.assertTrue(issubclass(SequenceProcessorV2, JaggedFeatureProcessor))
+        self.assertIsNot(SequenceProcessorV2, JaggedFeatureProcessor)
         # Nothing but the warning: it must keep behaving like the base class.
         defined = vars(SequenceProcessorV2)
         self.assertEqual([k for k, v in defined.items() if callable(v)], ["__init__"])
@@ -1264,15 +1264,15 @@ class TestOldName(unittest.TestCase):
             ["_abc_impl"],  # every ABC class has it
         )
         self.assertIs(get_processor("sequence_v2"), SequenceProcessorV2)
-        self.assertIs(get_processor("unified"), UnifiedFeatureProcessor)
+        self.assertIs(get_processor("jagged"), JaggedFeatureProcessor)
 
     def test_constructing_it_warns(self):
         from pyhealth.processors import SequenceProcessorV2
 
-        with self.assertWarnsRegex(FutureWarning, "deprecated.*UnifiedFeatureProcessor"):
+        with self.assertWarnsRegex(FutureWarning, "deprecated.*JaggedFeatureProcessor"):
             proc = SequenceProcessorV2(levels=NESTED)
         self.assertEqual(repr(proc), f"SequenceProcessorV2(levels={NESTED})")
-        new = UnifiedFeatureProcessor(levels=NESTED)
+        new = JaggedFeatureProcessor(levels=NESTED)
         records = [{"x": {"children": [{"tokens": ["A", "B"]}, {"tokens": ["C"]}]}}]
         proc.fit(records, "x")
         new.fit(records, "x")
@@ -1302,7 +1302,7 @@ class TestOldName(unittest.TestCase):
         self.assertIs(pickle.loads(old), SequenceProcessorV2)
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            proc = UnifiedFeatureProcessor(levels=[CODES])
+            proc = JaggedFeatureProcessor(levels=[CODES])
             proc.__class__ = SequenceProcessorV2
             loaded = pickle.loads(pickle.dumps(proc))
         self.assertIsInstance(loaded, SequenceProcessorV2)
@@ -1312,7 +1312,7 @@ class TestOldName(unittest.TestCase):
 
 class _CodesTask(BaseTask):
     task_name = "old_name_cache_key"
-    input_schema: ClassVar[dict[str, Any]] = {"x": ("unified", {"levels": [CODES]})}
+    input_schema: ClassVar[dict[str, Any]] = {"x": ("jagged", {"levels": [CODES]})}
     output_schema: ClassVar[dict[str, Any]] = {"y": "binary"}
 
     def __call__(self, patient):
@@ -1370,7 +1370,7 @@ class TestOldNameCacheKey(unittest.TestCase):
             warnings.simplefilter("ignore", FutureWarning)
             old = SequenceProcessorV2(levels=[CODES])
             again = SequenceProcessorV2(levels=[CODES])
-        new = UnifiedFeatureProcessor(levels=[CODES])
+        new = JaggedFeatureProcessor(levels=[CODES])
         # The key hashes the class name and vars(): the subclass keeps the
         # name it had before the rename and adds no state, so its key is
         # the one it had then, and a new run finds the same cache.

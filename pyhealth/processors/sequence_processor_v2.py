@@ -1,10 +1,10 @@
-"""Former home of :class:`~pyhealth.processors.UnifiedFeatureProcessor`.
+"""Former home of :class:`~pyhealth.processors.JaggedFeatureProcessor`.
 
 .. deprecated::
     :class:`SequenceProcessorV2` and the ``"sequence_v2"`` processor name are
-    deprecated; use :class:`~pyhealth.processors.UnifiedFeatureProcessor` and
-    ``"unified"``, which behave identically. The types below are re-exported
-    from :mod:`pyhealth.processors.unified_processor` so existing imports, and
+    deprecated; use :class:`~pyhealth.processors.JaggedFeatureProcessor` and
+    ``"jagged"``, which behave identically. The types below are re-exported
+    from :mod:`pyhealth.processors.jagged_processor` so existing imports, and
     caches pickled under this module, keep working.
 """
 
@@ -12,7 +12,7 @@ import warnings
 from collections.abc import Sequence
 
 from . import register_processor
-from .unified_processor import (
+from .jagged_processor import (
     CodeMapping,
     FieldKey,
     Impute,
@@ -26,23 +26,23 @@ from .unified_processor import (
     ResampleAlign,
     ResampleMethod,
     Role,
-    UnifiedFeatureProcessor,
+    JaggedFeatureProcessor,
 )
 
 _DEPRECATION = (
     "SequenceProcessorV2 and the 'sequence_v2' processor name are deprecated and "
-    "will be removed in a future release; use UnifiedFeatureProcessor and "
-    "'unified', which behave identically."
+    "will be removed in a future release; use JaggedFeatureProcessor and "
+    "'jagged', which behave identically."
 )
 
 
 @register_processor("sequence_v2")
-class SequenceProcessorV2(UnifiedFeatureProcessor):
-    """Deprecated former name of :class:`~pyhealth.processors.UnifiedFeatureProcessor`.
+class SequenceProcessorV2(JaggedFeatureProcessor):
+    """Deprecated former name of :class:`~pyhealth.processors.JaggedFeatureProcessor`.
 
     .. deprecated::
-        Use :class:`~pyhealth.processors.UnifiedFeatureProcessor` (registered
-        as ``"unified"``), which behaves identically. This subclass adds
+        Use :class:`~pyhealth.processors.JaggedFeatureProcessor` (registered
+        as ``"jagged"``), which behaves identically. This subclass adds
         nothing but a ``FutureWarning`` when it is constructed, so that
         schemas naming ``"sequence_v2"`` and caches pickled with this class
         keep working. It must stay empty otherwise.
@@ -52,7 +52,7 @@ class SequenceProcessorV2(UnifiedFeatureProcessor):
         >>> with warnings.catch_warnings(record=True) as caught:
         ...     warnings.simplefilter("always")
         ...     proc = SequenceProcessorV2(levels=[{"tokens": 1}])
-        >>> isinstance(proc, UnifiedFeatureProcessor), caught[0].category.__name__
+        >>> isinstance(proc, JaggedFeatureProcessor), caught[0].category.__name__
         (True, 'FutureWarning')
     """
 

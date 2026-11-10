@@ -128,7 +128,7 @@ class LegacyFeatureProcessor(FeatureProcessor):
     Transformer, StageNet, ...) and the interpretability methods read
     :meth:`schema`, :meth:`is_token`, :meth:`dim` and :meth:`spatial` to
     decide how to embed and attribute a field.
-    :class:`~pyhealth.processors.UnifiedFeatureProcessor` describes its output
+    :class:`~pyhealth.processors.JaggedFeatureProcessor` describes its output
     in its own format instead, and label processors need none of these.
 
     Examples:

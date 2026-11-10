@@ -34,12 +34,12 @@ class InHospitalSurvivalMIMIC4(_YAIBMIMIC4Task):
 
     - ``dynamic``: the 48 YAIB hourly variables (labs, vitals, urine output)
       for hours ``0 .. observation_hours - 1`` after ICU admission, a
-      ``unified`` series that the processor forward-fills, standardizes
+      ``jagged`` series that the processor forward-fills, standardizes
       and masks (36 hourly bins by default, as in TrajSurv).
     - ``static``: age, sex, height and weight, a flat vector standardized
       with missing-value indicators, which
       :class:`~pyhealth.models.TrajSurv` concatenates to its initial state
-      (unlike the YAIB tasks, where it is a ``unified`` series at
+      (unlike the YAIB tasks, where it is a ``jagged`` series at
       ``t = 0``). As in YAIB, height and weight are the medians over the
       whole ICU stay, so they can include measurements charted after the
       observation window.

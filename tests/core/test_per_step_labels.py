@@ -11,7 +11,7 @@ from pyhealth.models import BaseModel, RNN_V2
 from pyhealth.processors import (
     LevelConfig,
     LabelProcessor,
-    UnifiedFeatureProcessor,
+    JaggedFeatureProcessor,
     TimeseriesBinaryLabelProcessor,
     TimeseriesLabelProcessor,
     TimeseriesRegressionLabelProcessor,
@@ -45,8 +45,8 @@ def _dataset(output="timeseries_binary", label_fn=lambda i, h: float((i + h) % 2
     return create_sample_dataset(
         samples=_samples(label_fn),
         input_schema={
-            "dynamic": ("unified", {"levels": DYNAMIC}),
-            "static": ("unified", {"levels": STATIC}),
+            "dynamic": ("jagged", {"levels": DYNAMIC}),
+            "static": ("jagged", {"levels": STATIC}),
         },
         output_schema={"label": output},
         dataset_name="per_step",
@@ -58,7 +58,7 @@ class TestTimeseriesLabelProcessors(unittest.TestCase):
         processor = TimeseriesBinaryLabelProcessor()
         self.assertIsInstance(processor, LabelProcessor)
         self.assertIsInstance(processor, TimeseriesLabelProcessor)
-        self.assertNotIsInstance(processor, UnifiedFeatureProcessor)
+        self.assertNotIsInstance(processor, JaggedFeatureProcessor)
         self.assertEqual(processor.size(), 1)
         self.assertFalse(processor.learns_statistics)
         self.assertEqual(

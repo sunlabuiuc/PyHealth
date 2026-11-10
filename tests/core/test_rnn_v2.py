@@ -39,7 +39,7 @@ VISIT_RECORDS = [
 
 def _dataset(output: str = "binary", **fields: Any):
     schema = {
-        name: ("unified", {"levels": levels})
+        name: ("jagged", {"levels": levels})
         for name, (levels, _) in fields.items()
     }
     n = len(next(iter(fields.values()))[1])
@@ -92,7 +92,7 @@ class TestConfiguration(unittest.TestCase):
         ]
         dataset = create_sample_dataset(
             samples,
-            {"visits": ("unified", {"levels": VISITS})},
+            {"visits": ("jagged", {"levels": VISITS})},
             {"y": "binary", "z": "binary"},
         )
         with self.assertRaisesRegex(ValueError, "exactly one label"):
@@ -230,8 +230,8 @@ class TestStatics(unittest.TestCase):
         dataset = create_sample_dataset(
             samples,
             {
-                "x": ("unified", {"levels": VISITS}),
-                "age": ("unified", {"levels": AGE}),
+                "x": ("jagged", {"levels": VISITS}),
+                "age": ("jagged", {"levels": AGE}),
             },
             {"y": "timeseries_binary"},
         )
@@ -274,7 +274,7 @@ class TestPerStep(unittest.TestCase):
         ]
         return create_sample_dataset(
             samples,
-            {"x": ("unified", {"levels": levels})},
+            {"x": ("jagged", {"levels": levels})},
             {"y": "timeseries_binary"},
         )
 

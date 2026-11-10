@@ -1,4 +1,4 @@
-"""Unified processor for hierarchical packed records (CSR / jagged layout)."""
+"""Jagged processor for hierarchical packed records (CSR / jagged layout)."""
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -72,7 +72,7 @@ class Records(TypedDict, total=False):
         ...     "time": [0.0, 30.0],
         ...     "children": [{"tokens": ["A", "B"]}, {"tokens": ["C"]}],
         ... }
-        >>> proc = UnifiedFeatureProcessor(
+        >>> proc = JaggedFeatureProcessor(
         ...     levels=[{"ordering": "set", "tokens": 1}, {"ordering": "series"}]
         ... )
         >>> proc.fit([{"visits": visits}], "visits")
@@ -131,7 +131,7 @@ class Resample(TypedDict, total=False):
         records up to its time:
 
         >>> resample: Resample = {"step": 1.0, "method": "avg"}
-        >>> proc = UnifiedFeatureProcessor(
+        >>> proc = JaggedFeatureProcessor(
         ...     levels=[{"ordering": "series", "values": [1], "resample": resample}]
         ... )
         >>> proc.fit([], "x")
@@ -188,7 +188,7 @@ class Impute(TypedDict, total=False):
         Forward fill, then zero for the leading gap it cannot fill:
 
         >>> steps: list[Impute] = [{"method": "forward_fill"}, {"method": "zero"}]
-        >>> proc = UnifiedFeatureProcessor(
+        >>> proc = JaggedFeatureProcessor(
         ...     levels=[{"ordering": "series", "values": [1], "impute": steps}]
         ... )
         >>> proc.fit([], "x")
@@ -237,7 +237,7 @@ class Normalize(TypedDict, total=False):
         One z-score per channel, learned from the training values:
 
         >>> normalize: Normalize = {"method": "zscore"}
-        >>> proc = UnifiedFeatureProcessor(
+        >>> proc = JaggedFeatureProcessor(
         ...     levels=[{"values": [2], "normalize": normalize}]
         ... )
         >>> proc.fit([{"x": {"values": [[1.0, 10.0], [3.0, 30.0]]}}], "x")
@@ -254,7 +254,7 @@ class LevelConfig(TypedDict, total=False):
     """Configuration of one level; a plain ``dict`` with type hints.
 
     Like :class:`Records`, ``tokens`` and ``values`` declare a role by being
-    present. They are fixed by the task, so :meth:`UnifiedFeatureProcessor.fit`
+    present. They are fixed by the task, so :meth:`JaggedFeatureProcessor.fit`
     only builds vocabularies (and the statistics of imputation and
     normalization).
 
@@ -298,7 +298,7 @@ class LevelConfig(TypedDict, total=False):
         ...     },
         ...     {"ordering": "sequence"},
         ... ]
-        >>> UnifiedFeatureProcessor(levels=levels).schema()
+        >>> JaggedFeatureProcessor(levels=levels).schema()
         ((0, 'tokens'), (0, 'values'), (0, 'mask'), (0, 'time'), (0, 'offsets'))
     """
 
@@ -1044,8 +1044,8 @@ def _new_vocab() -> dict[str, int]:
     return {"<pad>": TokenProcessorInterface.PAD, "<unk>": TokenProcessorInterface.UNK}
 
 
-@register_processor("unified")
-class UnifiedFeatureProcessor(FeatureProcessor):
+@register_processor("jagged")
+class JaggedFeatureProcessor(FeatureProcessor):
     """Processor for hierarchical packed records, without padding or truncation.
 
     Reads a :class:`Records` and emits a tuple of tensors in :meth:`schema`
@@ -1061,7 +1061,7 @@ class UnifiedFeatureProcessor(FeatureProcessor):
     Subclasses are configuration only: their ``__init__`` passes fixed
     ``levels`` to ``super().__init__()`` and adds no logic.
 
-    Registered as ``"unified"``. The former name
+    Registered as ``"jagged"``. The former name
     :class:`~pyhealth.processors.sequence_processor_v2.SequenceProcessorV2`
     (``"sequence_v2"``) is a deprecated subclass that behaves identically.
 
@@ -1070,7 +1070,7 @@ class UnifiedFeatureProcessor(FeatureProcessor):
             first.
 
     Examples:
-        >>> proc = UnifiedFeatureProcessor(levels=[{"ordering": "set", "tokens": 1}, {"ordering": "sequence"}])
+        >>> proc = JaggedFeatureProcessor(levels=[{"ordering": "set", "tokens": 1}, {"ordering": "sequence"}])
         >>> proc.fit([{"visits": {"children": [{"tokens": ["A", "B"]}, {"tokens": ["C"]}]}}], "visits")
         >>> proc.schema()
         ((0, 'tokens'), (0, 'offsets'))

@@ -47,13 +47,13 @@ from .deep_nested_sequence_processor import (
 )
 from .raw_processor import RawProcessor
 from .sequence_processor import SequenceProcessor
-from .unified_processor import (
+from .jagged_processor import (
     Impute,
     LevelConfig,
     Normalize,
     Records,
     Resample,
-    UnifiedFeatureProcessor,
+    JaggedFeatureProcessor,
 )
 from .sequence_processor_v2 import SequenceProcessorV2
 from .signal_processor import SignalProcessor
@@ -107,7 +107,7 @@ __all__ = [
     "RawProcessor",
     "SequenceProcessor",
     "SequenceProcessorV2",
-    "UnifiedFeatureProcessor",
+    "JaggedFeatureProcessor",
     "Records",
     "LevelConfig",
     "Impute",
