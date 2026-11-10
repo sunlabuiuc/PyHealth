@@ -1,9 +1,9 @@
-"""Tests that ``model.mode`` is always a plain mode string.
+"""Tests that ``model.mode`` is the label processor's kind on every model.
 
 An ``output_schema`` entry may be a string (``"multiclass"``), a processor class
 (``MultiClassLabelProcessor``), a processor instance, or a ``(name, kwargs)``
-tuple. ``Trainer.evaluate`` and the calibration methods compare ``model.mode``
-against strings, so every form must resolve to the same string on every model.
+tuple. Each gives the same fitted label processor, so ``model.mode``,
+``Trainer.evaluate`` and the calibration methods work the same with every form.
 See https://github.com/sunlabuiuc/PyHealth/issues/914.
 """
 
@@ -11,7 +11,7 @@ import unittest
 
 import torch
 
-from pyhealth.calib.calibration import TemperatureScaling
+from pyhealth.calib.calibration import DirichletCalibration, TemperatureScaling
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import (
     GAT,
@@ -98,28 +98,31 @@ class _TinyModel(BaseModel):
 
 
 class TestModelMode(unittest.TestCase):
-    def test_mode_setter_resolves_every_schema_form(self):
-        model = _TinyModel(dataset=None)
+    def test_mode_is_the_label_processors_for_every_schema_form(self):
         forms = [
-            ("MultiClass", "multiclass"),
-            (MultiClassLabelProcessor, "multiclass"),
-            (MultiClassLabelProcessor(), "multiclass"),
-            (("multiclass", {}), "multiclass"),
-            ((MultiClassLabelProcessor, {}), "multiclass"),
-            (None, None),
+            "multiclass",
+            MultiClassLabelProcessor,
+            MultiClassLabelProcessor(),
+            ("multiclass", {}),
+            (MultiClassLabelProcessor, {}),
         ]
-        for value, expected in forms:
-            with self.subTest(value=value):
-                model.mode = value
-                self.assertEqual(model.mode, expected)
+        for spec in forms:
+            with self.subTest(spec=spec):
+                model = _TinyModel(dataset=_dataset(spec))
+                self.assertIsInstance(model.label_processor, MultiClassLabelProcessor)
+                self.assertEqual(model.mode, "multiclass")
 
-    def test_mode_setter_warns_and_clears_on_non_label_entries(self):
+    def test_mode_is_read_only(self):
+        model = _TinyModel(dataset=_dataset("multiclass"))
+        with self.assertRaises(AttributeError):
+            model.mode = "binary"
+
+    def test_no_label_processor_has_no_mode(self):
         model = _TinyModel(dataset=None)
-        for value in ("sequence", "not-a-processor"):
-            with self.subTest(value=value):
-                with self.assertLogs("pyhealth.models.base_model", "WARNING"):
-                    model.mode = value
-                self.assertIsNone(model.mode)
+        self.assertEqual(model.label_processors, {})
+        self.assertIsNone(model.mode)
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            model.label_processor
 
     def test_models_evaluate_with_every_schema_form(self):
         for form, spec in SCHEMA_FORMS.items():
@@ -157,6 +160,30 @@ class TestModelMode(unittest.TestCase):
         dataset = _dataset(MultiClassLabelProcessor)
         cal_model = TemperatureScaling(RNN(dataset=dataset))
         cal_model.calibrate(cal_dataset=dataset)
+
+    def test_calibration_targets_keep_the_label_dtype(self):
+        # The calibration losses get y_true as the label processor emits it:
+        # class indices (long) for multiclass, floats for binary.
+        loader_batch = lambda ds: next(iter(get_dataloader(ds, batch_size=9)))
+        multiclass = _dataset("multiclass")
+        for calibrator in (TemperatureScaling, DirichletCalibration):
+            with self.subTest(calibrator=calibrator.__name__):
+                torch.manual_seed(0)
+                cal_model = calibrator(RNN(dataset=multiclass))
+                cal_model.calibrate(cal_dataset=multiclass)
+                out = cal_model(**loader_batch(multiclass))
+                self.assertTrue(torch.isfinite(out["loss"]))
+        samples = [
+            {"patient_id": f"p{i}", "conditions": ["cond-1", "cond-2"][: 1 + i % 2],
+             "label": i % 2}
+            for i in range(8)
+        ]
+        binary = create_sample_dataset(
+            samples, {"conditions": "sequence"}, {"label": "binary"}
+        )
+        cal_model = TemperatureScaling(RNN(dataset=binary))
+        cal_model.calibrate(cal_dataset=binary)
+        self.assertTrue(torch.isfinite(cal_model(**loader_batch(binary))["loss"]))
 
 
 if __name__ == "__main__":

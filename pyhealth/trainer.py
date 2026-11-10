@@ -1,8 +1,8 @@
 import copy
+import inspect
 import logging
 import os
 from datetime import datetime
-from itertools import pairwise
 from typing import Callable, Dict, List, Optional, Type
 
 import numpy as np
@@ -13,14 +13,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from tqdm.autonotebook import trange
 
-from pyhealth.metrics import (
-    binary_metrics_fn,
-    multiclass_metrics_fn,
-    multilabel_metrics_fn,
-    regression_metrics_fn,
-    timeseries_binary_metrics_fn,
-    timeseries_regression_metrics_fn,
-)
+from pyhealth.processors import PROCESSOR_REGISTRY, LabelProcessor
 from pyhealth.utils import create_directory
 
 logger = logging.getLogger(__name__)
@@ -54,36 +47,44 @@ def set_logger(log_path: str) -> None:
 
 
 def get_metrics_fn(mode: str) -> Callable:
-    """Returns the metrics function for a model mode.
+    """Returns the metrics function for a label kind.
 
     Args:
-        mode: One of ``"binary"``, ``"multiclass"``, ``"multilabel"``,
-            ``"regression"``, ``"timeseries_binary"`` or
-            ``"timeseries_regression"``.
+        mode: A label processor's :attr:`~pyhealth.processors.LabelProcessor.mode`,
+            e.g. ``"binary"`` or ``"timeseries_regression"``.
 
     Returns:
-        The function computing the metrics of that mode. The ``timeseries_*``
-        modes take one array per sample over its labeled steps.
+        That processor's :meth:`~pyhealth.processors.LabelProcessor.metrics_fn`.
+        The ``timeseries_*`` ones take one array per sample over its labeled
+        steps.
 
     Examples:
-        >>> from pyhealth.trainer import get_metrics_fn
-        >>> get_metrics_fn("timeseries_binary").__name__
-        'timeseries_binary_metrics_fn'
+        >>> import numpy as np
+        >>> get_metrics_fn("binary")(np.array([0, 1]), np.array([0.2, 0.9]), metrics=["roc_auc"])
+        {'roc_auc': 1.0}
     """
-    if mode == "binary":
-        return binary_metrics_fn
-    elif mode == "multiclass":
-        return multiclass_metrics_fn
-    elif mode == "multilabel":
-        return multilabel_metrics_fn
-    elif mode == "regression":
-        return regression_metrics_fn
-    elif mode == "timeseries_binary":
-        return timeseries_binary_metrics_fn
-    elif mode == "timeseries_regression":
-        return timeseries_regression_metrics_fn
-    else:
+    cls = PROCESSOR_REGISTRY.get(mode)
+    if not (inspect.isclass(cls) and issubclass(cls, LabelProcessor)):
         raise ValueError(f"Mode {mode} is not supported")
+    return cls.metrics_fn
+
+
+def _label_processor(model: nn.Module) -> LabelProcessor | None:
+    """The label processor that scores ``model``'s outputs, or None.
+
+    A :class:`~pyhealth.models.BaseModel` has its single label processor; any
+    other module with a ``mode`` attribute is scored as that label kind.
+    """
+    processors = getattr(model, "label_processors", None)
+    if processors is not None:
+        return next(iter(processors.values())) if len(processors) == 1 else None
+    mode = getattr(model, "mode", None)
+    if mode is None:
+        return None
+    cls = PROCESSOR_REGISTRY.get(mode)
+    if not (inspect.isclass(cls) and issubclass(cls, LabelProcessor)):
+        raise ValueError(f"Mode {mode} is not supported")
+    return cls()
 
 
 class Trainer:
@@ -356,10 +357,11 @@ class Trainer:
                 Defaults to None ([]).
 
         Returns:
-            y_true_all: List of true labels.
-            y_prob_all: List of predicted probabilities.
-                For the per-step ``timeseries_*`` modes, both are lists with
-                one array per sample, over its label records.
+            y_true_all: True labels, as the label processor's
+                :meth:`~pyhealth.processors.LabelProcessor.gather` gives them:
+                one array, or for the per-step ``timeseries_*`` labels a list
+                with one array per sample, over its label records.
+            y_prob_all: Predictions, in the same layout.
             loss_mean: Mean loss over batches.
             additional_outputs (only if requested): Dict of additional results.
             patient_ids (only if requested): List of patient ids in the same order as y_true_all/y_prob_all.
@@ -370,21 +372,17 @@ class Trainer:
         patient_ids = []
         if additional_outputs is not None:
             additional_outputs = {k: [] for k in additional_outputs}
-        per_step = self.model.mode in ("timeseries_binary", "timeseries_regression")
+        label = _label_processor(self.model)
         self.model.eval()
         for data in tqdm(dataloader, desc="Evaluation"):
             with torch.no_grad():
                 output = self.model(**data)
                 loss = output["loss"]
                 loss_all.append(loss.item())
-                if per_step:
-                    # Packed label records (values, time, batch offsets): one
-                    # array per sample, as the timeseries metrics expect.
-                    values, _, offsets = (t.cpu().numpy() for t in output["y_true"])
-                    y_prob = output["y_prob"].cpu().numpy()[:, 0]
-                    for lo, hi in pairwise(offsets):
-                        y_true_all.append(values[lo:hi, 0])
-                        y_prob_all.append(y_prob[lo:hi])
+                if label is not None:
+                    y_true, y_prob = label.to_numpy(output["y_true"], output["y_prob"])
+                    y_true_all.extend(y_true)
+                    y_prob_all.extend(y_prob)
                 else:
                     y_true_all.append(output["y_true"].cpu().numpy())
                     y_prob_all.append(output["y_prob"].cpu().numpy())
@@ -394,7 +392,9 @@ class Trainer:
             if return_patient_ids:
                 patient_ids.extend(data["patient_id"])
         loss_mean = sum(loss_all) / len(loss_all)
-        if not per_step:
+        if label is not None:
+            y_true_all, y_prob_all = label.gather(y_true_all, y_prob_all)
+        else:
             y_true_all = np.concatenate(y_true_all, axis=0)
             y_prob_all = np.concatenate(y_prob_all, axis=0)
         outputs = [y_true_all, y_prob_all, loss_mean]
@@ -415,11 +415,10 @@ class Trainer:
         Returns:
             scores: a dictionary of scores.
         """
-        if self.model.mode is not None:
+        label = _label_processor(self.model)
+        if label is not None:
             y_true_all, y_prob_all, loss_mean = self.inference(dataloader)
-            mode = self.model.mode
-            metrics_fn = get_metrics_fn(mode)
-            scores = metrics_fn(y_true_all, y_prob_all, metrics=self.metrics)
+            scores = label.metrics_fn(y_true_all, y_prob_all, metrics=self.metrics)
             scores["loss"] = loss_mean
         else:
             loss_all = []

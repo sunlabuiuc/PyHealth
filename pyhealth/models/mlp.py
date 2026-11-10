@@ -153,7 +153,7 @@ class MLP(BaseModel, Interpretable):
                 Modules.append(nn.Linear(self.hidden_dim, self.hidden_dim))
             self.mlp[feature_key] = nn.Sequential(*Modules)
 
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
 
     @staticmethod
@@ -285,7 +285,7 @@ class MLP(BaseModel, Interpretable):
 
         # (patient, label_size)
         logits = self.fc(patient_emb)
-        y_prob = self.prepare_y_prob(logits)
+        y_prob = self.label_processor.activation(logits)
 
         results = {
             "logit": logits,
@@ -295,7 +295,7 @@ class MLP(BaseModel, Interpretable):
         # obtain y_true, loss, y_prob
         if self.label_key in kwargs:
             y_true = cast(torch.Tensor, kwargs[self.label_key]).to(self.device)
-            loss = self.get_loss_function()(logits, y_true)
+            loss = self.label_processor.loss(logits, y_true)
             results["loss"] = loss
             results["y_true"] = y_true
 
