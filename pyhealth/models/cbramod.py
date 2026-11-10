@@ -29,7 +29,7 @@ from einops.layers.torch import Rearrange
 from torch import Tensor, nn
 
 from pyhealth.datasets import SampleDataset
-from pyhealth.models import BaseModel
+from pyhealth.models.base_model import BaseModel
 
 logger = logging.getLogger(__name__)
 
