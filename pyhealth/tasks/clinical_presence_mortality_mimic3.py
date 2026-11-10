@@ -424,6 +424,7 @@ def _impute_draws(
     draw_seeds: Sequence[np.random.SeedSequence],
     max_iter: int,
     forest_params: dict[str, Any],
+    indicators: bool = False,
 ) -> np.ndarray:
     """Imputes the labs once per draw seed, fitting on the training rows only.
 
@@ -440,12 +441,17 @@ def _impute_draws(
         draw_seeds: One seed sequence per draw.
         max_iter: Imputation sweeps for the iterative strategies.
         forest_params: Overrides for the MissForest-style extra trees.
+        indicators: Also use the missingness indicators as predictors, before
+            the group flags, as the reference code at fcb580b does. They are
+            never part of the output.
 
     Returns:
         Imputed labs, float32 of shape (len(draw_seeds), n, n_labs).
     """
-    Z = np.hstack([X, G]) if imputation.startswith("group_") else X
-    Z = Z.astype(np.float64)
+    extra = [G] if imputation.startswith("group_") else []
+    if indicators:
+        extra.insert(0, np.isnan(X))
+    Z = np.hstack([X, *extra]).astype(np.float64)
     train = split == "train"
     bounds = (-np.inf, np.inf)
     if "corrected" in imputation:
@@ -586,8 +592,9 @@ class ClinicalPresenceMortalityMIMIC3(BaseTask):
     admission time; the label uses ``hospital_expire_flag`` and the discharge
     time; labs are linked to the admission by the time window only; the split
     is 80/10/10, with the imputer, scaler and classifier all fit on the same
-    80%; indicators are appended after imputation; Group MICE drops all three
-    flags; the sex flag is real; MICE noise is seeded per draw.
+    80%; indicators are appended after imputation
+    (``indicators_in_imputation=True`` gives the reference's order); Group MICE
+    drops all three flags; the sex flag is real; MICE noise is seeded per draw.
 
     Select samples by their ``split`` field and never re-split them: the
     imputer and the scaler were fit on the training patients.
@@ -609,6 +616,9 @@ class ClinicalPresenceMortalityMIMIC3(BaseTask):
         standardize: Scale every feature to mean 0 and sd 1 over the training
             patients.
         forest_params: Overrides for the MissForest-style ``ExtraTreesRegressor``.
+        indicators_in_imputation: Also use the indicators as imputation
+            predictors, as the reference code at fcb580b does. Needs
+            ``add_missing_indicators`` and an iterative imputation.
 
     Raises:
         ValueError: If an argument is invalid.
@@ -649,6 +659,7 @@ class ClinicalPresenceMortalityMIMIC3(BaseTask):
         split_ratios: Sequence[float] = (0.8, 0.1, 0.1),
         standardize: bool = True,
         forest_params: dict[str, Any] | None = None,
+        indicators_in_imputation: bool = False,
     ) -> None:
         if imputation not in self.IMPUTATIONS:
             raise ValueError(
@@ -663,6 +674,13 @@ class ClinicalPresenceMortalityMIMIC3(BaseTask):
             )
         if imputation == "median" and n_draws > 1:
             raise ValueError("Median imputation is deterministic: use n_draws=1.")
+        if indicators_in_imputation and (
+            imputation == "median" or not add_missing_indicators
+        ):
+            raise ValueError(
+                "indicators_in_imputation needs add_missing_indicators=True and an "
+                "iterative imputation."
+            )
         ratios = [float(r) for r in split_ratios]
         if len(ratios) != 3 or min(ratios) <= 0 or not math.isclose(sum(ratios), 1):
             raise ValueError(
@@ -678,6 +696,7 @@ class ClinicalPresenceMortalityMIMIC3(BaseTask):
         self.split_ratios = ratios
         self.standardize = standardize
         self.forest_params = dict(forest_params or {})
+        self.indicators_in_imputation = indicators_in_imputation
         self._state = _CohortState()
 
     def feature_names(self) -> list[str]:
@@ -716,6 +735,7 @@ class ClinicalPresenceMortalityMIMIC3(BaseTask):
                 seeds[1:],
                 self.max_iter,
                 self.forest_params,
+                self.indicators_in_imputation,
             )
         elapsed = time.perf_counter() - start
         unconverged = 0
@@ -770,8 +790,9 @@ class ClinicalPresenceMortalityMIMIC3(BaseTask):
             f"{(split == p).sum()} {p}" for p in ("train", "val", "test")
         )
         logger.info(f"Split (seed {self.seed}): {sizes}.")
+        order = " (indicators in imputation)" if self.indicators_in_imputation else ""
         logger.info(
-            f"Imputation {self.imputation!r}: {self.n_draws} draw(s) in "
+            f"Imputation {self.imputation!r}{order}: {self.n_draws} draw(s) in "
             f"{elapsed:.0f} s."
         )
         if unconverged:
