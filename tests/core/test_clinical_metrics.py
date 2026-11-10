@@ -25,7 +25,11 @@ class TestClinicalMetrics(unittest.TestCase):
         top30 = out["top 30%"]
         self.assertEqual((top30["n_flagged"], top30["ppv"]), (3, 2 / 3))
         self.assertAlmostEqual(top30["nne"], 1.5)
-        self.assertEqual(top30["threshold"], 0.7)
+        # midway between the lowest flagged (0.7) and next (0.6) risks, so no
+        # one sample's risk is published
+        self.assertAlmostEqual(top30["threshold"], 0.65)
+        everyone = alert_rate_metrics(y, p, rates=(1.0,), min_count=0)["top 100%"]
+        self.assertEqual(everyone["threshold"], 0.0)
         # too few flagged to publish; withheld by default
         small = alert_rate_metrics(y, p, rates=(0.1,))
         self.assertEqual(small["top 10%"], {"rate": 0.1, "suppressed": True})
