@@ -40,7 +40,7 @@ routes each feature type automatically.
      - Features mix sequential codes with static tensors or multi-hot encodings
      - Auto-routes sequential features to RNN layers and non-sequential features to linear layers; good default for EHR
    * - ``RNN_V2``
-     - Features are ``sequence_v2`` fields (nested codes, values and timestamps), plus static tensors
+     - Features are ``sequence_v2`` fields (nested codes, values and timestamps); static values are a series with one record at ``t = 0``
      - Encodes each field bottom-up over packed records, without padding the hierarchy
    * - :doc:`models/pyhealth.models.StageNet`
      - You have time-stamped vital signs with irregular measurement intervals
@@ -157,8 +157,9 @@ in the loss with the label processor's ``pos_weight``:
 .. code-block:: python
 
     output_schema = {"mortality": ("binary", {"pos_weight": "balanced"})}
-    # or a fixed weight: ("binary", {"pos_weight": 9.0}); per label for
-    # ("multilabel", {"pos_weight": [...]})
+    # or a fixed weight: ("binary", {"pos_weight": 9.0}); per label, in the
+    # order of the given labels:
+    # ("multilabel", {"labels": [...], "pos_weight": [...]})
 
 ``"balanced"`` is negatives / positives over the samples the processor is
 fitted on, so fit the processors on the training split
@@ -273,8 +274,10 @@ API Reference
     models/pyhealth.models.XGBoostModel
     models/pyhealth.models.survival_mdn
     models/pyhealth.models.TrajSurv
+    models/pyhealth.models.KnowRare
     models/pyhealth.models.ProtoECGNet
     models/pyhealth.models.HeartLang
     models/pyhealth.models.APN
     models/pyhealth.models.TPC
+    models/pyhealth.models.MIRA
 
