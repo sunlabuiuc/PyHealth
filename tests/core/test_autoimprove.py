@@ -1007,6 +1007,22 @@ class TestClinicalReport(unittest.TestCase):
                     self.assertTrue(row["n"] is None or row["n"] >= 11)
             self.assertTrue(all(b["n"] >= 11 for b in clinical["calibration_bins"]))
 
+    def test_flags_and_report_without_run_dir(self):
+        # Results are kept in memory, so flags and the report still see them.
+        improver = AutoImprover(
+            self.train, self.val, RandomProposer(seed=0),
+            baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16},
+                                    {"epochs": 2}),
+            space=SPACE, n_agents=1, n_cycles=1, task_card=CARD,
+        )
+        improver.run()
+        improver.explain(top_k=3)
+        self.assertIn("direction:protect", [f["id"] for f in improver.flags()])
+        improver.evaluate_on_test(self.test, n_boot=20)
+        titles = [s.title for s in improver.report().sections]
+        self.assertIn("How it decides", titles)
+        self.assertIn("Performance in clinical terms", titles)
+
     def test_logistic_attributions_are_exact(self):
         model = LogisticRegression(self.train, embedding_dim=8)
         out = attributions(model, self.train, max_samples=100)
