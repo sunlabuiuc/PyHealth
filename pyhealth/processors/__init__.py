@@ -49,11 +49,11 @@ from .raw_processor import RawProcessor
 from .sequence_processor import SequenceProcessor
 from .jagged_processor import (
     Impute,
+    JaggedFeatureProcessor,
     LevelConfig,
     Normalize,
     Records,
     Resample,
-    JaggedFeatureProcessor,
 )
 from .sequence_processor_v2 import SequenceProcessorV2
 from .signal_processor import SignalProcessor
@@ -102,6 +102,8 @@ __all__ = [
     "SegmentationBinaryLabelProcessor",
     "SegmentationMultiClassLabelProcessor",
     "NestedFloatsProcessor",
+    "DeepNestedFloatsProcessor",
+    "DeepNestedSequenceProcessor",
     "NestedMultiHotProcessor",
     "NestedSequenceProcessor",
     "RawProcessor",

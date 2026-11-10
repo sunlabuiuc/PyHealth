@@ -17,6 +17,7 @@ from .jagged_processor import (
     FieldKey,
     Impute,
     ImputeMethod,
+    JaggedFeatureProcessor,
     LevelConfig,
     Normalize,
     NormalizeMethod,
@@ -26,7 +27,6 @@ from .jagged_processor import (
     ResampleAlign,
     ResampleMethod,
     Role,
-    JaggedFeatureProcessor,
 )
 
 _DEPRECATION = (
