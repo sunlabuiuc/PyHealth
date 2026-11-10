@@ -63,6 +63,7 @@ from .medical_transcriptions import MedicalTranscriptionsDataset
 from .meds import MEDSDataset as MEDSDataset
 from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
+from .mimic4 import MIMIC4EDDataset as MIMIC4EDDataset
 from .fhir import FHIRDataset, MIMIC4FHIR
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
@@ -75,7 +76,6 @@ from .support2 import Support2Dataset
 from .synthea_csv import SyntheaCSVDataset as SyntheaCSVDataset
 from .tcga_prad import TCGAPRADDataset
 from .splitter import (
-    GoldTestSplit as GoldTestSplit,
     PatientSplit as PatientSplit,
     Split as Split,
     SubjectSplit as SubjectSplit,
@@ -93,6 +93,8 @@ from .splitter import (
     split_by_visit,
     split_by_visit_conformal,
 )
+from .gold_test_split import GoldTestSplit as GoldTestSplit
+from .mimic4_imagenome import MIMIC4ImaGenomeDataset as MIMIC4ImaGenomeDataset
 from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
 from .iiic import IIICDataset as IIICDataset
 from .tuab import TUABDataset

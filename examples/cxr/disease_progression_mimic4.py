@@ -2,7 +2,7 @@
 
 SMOKE TEST ONLY. This script writes a tiny fabricated MIMIC-IV, MIMIC-CXR and
 Chest ImaGenome tree to a temporary directory (random values and images, no
-patient data) and runs the real pipeline on it, from ``MIMIC4Dataset`` through
+patient data) and runs the real pipeline on it, from ``MIMIC4ImaGenomeDataset`` through
 ``set_task`` to a batch of samples. It trains no model, and nothing it prints
 means anything clinically.
 
@@ -37,7 +37,7 @@ import pandas as pd
 import torch
 from PIL import Image
 
-from pyhealth.datasets import GoldTestSplit, MIMIC4Dataset, get_dataloader
+from pyhealth.datasets import GoldTestSplit, MIMIC4ImaGenomeDataset, get_dataloader
 from pyhealth.tasks import DiseaseProgressionMIMIC4
 
 ADMIT_TIME = pd.Timestamp("2150-01-01 08:00:00")
@@ -218,15 +218,15 @@ def main() -> None:
             write_ehr(ehr_root, args.patients, rng)
             write_images(cxr_root, args.patients, rng)
             write_imagenome(imagenome_root, args.patients, rng)
-        dataset = MIMIC4Dataset(
-            ehr_root=str(ehr_root),
-            cxr_root=str(cxr_root),
+        dataset = MIMIC4ImaGenomeDataset(
             imagenome_root=str(imagenome_root),
-            ehr_tables=["chartevents", "labevents"],
-            cxr_tables=["metadata"],
             imagenome_tables=[
                 "silver_images", "silver_comparisons", "gold_comparisons"
             ],
+            ehr_root=str(ehr_root),
+            cxr_root=str(cxr_root),
+            ehr_tables=["chartevents", "labevents"],
+            cxr_tables=["metadata"],
             cache_dir=str(Path(tmp) / "cache") if args.ehr_root is None else None,
         )
         task = DiseaseProgressionMIMIC4(image_size=args.image_size)

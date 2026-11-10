@@ -4,7 +4,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
+import dask.dataframe as dd
 import numpy as np
+import pandas as pd
 import polars as pl
 import torch
 from PIL import Image
@@ -13,7 +15,7 @@ from sklearn.model_selection import train_test_split
 from pyhealth.data import Patient
 from pyhealth.datasets import (
     GoldTestSplit,
-    MIMIC4Dataset,
+    MIMIC4ImaGenomeDataset,
     create_sample_dataset,
     get_dataloader,
 )
@@ -529,7 +531,7 @@ class TestGoldTestSplit(unittest.TestCase):
 
 class TestProcessors(unittest.TestCase):
     def test_labels_keep_their_size_and_order(self):
-        processor = MultiLabelProcessor(classes=TASK.LABELS)
+        processor = MultiLabelProcessor(labels=TASK.LABELS)
         processor.fit([{"y": []}], "y")
         vector = processor.process(_labels((OPACITY, "improved")))
         self.assertEqual(vector.shape, (21,))
@@ -679,28 +681,44 @@ class TestModelOptions(unittest.TestCase):
 class TestComposite(unittest.TestCase):
     def _dataset(self, **kwargs):
         with (
-            mock.patch("pyhealth.datasets.mimic4.MIMIC4EHRDataset"),
-            mock.patch("pyhealth.datasets.mimic4.ChestImaGenomeDataset") as imagenome,
+            mock.patch("pyhealth.datasets.mimic4_imagenome.MIMIC4Dataset") as mimic4,
+            mock.patch(
+                "pyhealth.datasets.mimic4_imagenome.ChestImaGenomeDataset"
+            ) as imagenome,
             tempfile.TemporaryDirectory() as tmp,
         ):
-            dataset = MIMIC4Dataset(ehr_root="ehr", cache_dir=tmp, **kwargs)
-        return dataset, imagenome
+            dataset = MIMIC4ImaGenomeDataset(cache_dir=tmp, **kwargs)
+        return dataset, mimic4, imagenome
 
-    def test_imagenome_is_a_sub_dataset(self):
-        dataset, imagenome = self._dataset(
-            imagenome_root="genome", imagenome_tables=["silver_images"]
+    def test_both_datasets_are_sub_datasets(self):
+        dataset, mimic4, imagenome = self._dataset(
+            imagenome_root="genome",
+            imagenome_tables=["silver_images"],
+            ehr_root="ehr",
+            ehr_tables=["chartevents"],
         )
-        self.assertIn("imagenome", dataset.sub_datasets)
+        self.assertEqual(sorted(dataset.sub_datasets), ["imagenome", "mimic4"])
+        self.assertEqual(mimic4.call_args.kwargs["ehr_root"], "ehr")
+        self.assertEqual(mimic4.call_args.kwargs["ehr_tables"], ["chartevents"])
         self.assertEqual(imagenome.call_args.kwargs["root"], "genome")
         self.assertEqual(imagenome.call_args.kwargs["tables"], ["silver_images"])
-        self.assertIn("silver_images", dataset.tables)
-        self.assertEqual(dataset.root, "ehr|None|None|genome")
+        self.assertEqual(sorted(dataset.tables), ["chartevents", "silver_images"])
+        self.assertEqual(dataset.root, "ehr|None|None|None|genome")
+        for sub in (mimic4, imagenome):
+            self.assertEqual(sub.call_args.kwargs["cache_dir"], str(dataset.cache_dir))
 
-    def test_without_imagenome_the_cache_key_does_not_change(self):
-        dataset, imagenome = self._dataset()
-        self.assertEqual(dataset.root, "ehr|None|None")
-        self.assertNotIn("imagenome", dataset.sub_datasets)
-        imagenome.assert_not_called()
+    def test_load_data_combines_both(self):
+        dataset, mimic4, imagenome = self._dataset(imagenome_root="genome")
+        frames = [
+            pd.DataFrame({"patient_id": ["p1"], "event_type": ["metadata"]}),
+            pd.DataFrame({"patient_id": ["p1"], "event_type": ["silver_images"]}),
+        ]
+        mimic4.return_value.load_data.return_value = dd.from_pandas(frames[0])
+        imagenome.return_value.load_data.return_value = dd.from_pandas(frames[1])
+        combined = dataset.load_data().compute()
+        self.assertEqual(
+            sorted(combined["event_type"]), ["metadata", "silver_images"]
+        )
 
     def test_gold_subjects(self):
         rows = [

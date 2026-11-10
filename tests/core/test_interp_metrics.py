@@ -13,6 +13,7 @@ import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.interpret.methods import IntegratedGradients
+from pyhealth.interpret.methods.base_interpreter import BaseInterpreter
 from pyhealth.metrics.interpretability import (
     ComprehensivenessMetric,
     Evaluator,
@@ -20,7 +21,7 @@ from pyhealth.metrics.interpretability import (
     SufficiencyMetric,
     threshold_sample_filter,
 )
-from pyhealth.models import StageNet
+from pyhealth.models import BaseModel, StageNet
 
 
 class TestInterpretabilityMetrics(unittest.TestCase):
@@ -532,6 +533,42 @@ class TestMetricProperties(unittest.TestCase):
         """Test that sufficiency generally decreases with more retention."""
         # This is a conceptual test
         pass
+
+
+class TestLabelKindDetection(unittest.TestCase):
+    """The metrics and interpreters read the label kind from the label processor."""
+
+    def _dataset(self, output_schema, label):
+        samples = [
+            {"patient_id": f"p{i}", "codes": ["a", "b"][: 1 + i % 2], "y": label(i)}
+            for i in range(4)
+        ]
+        return create_sample_dataset(samples, {"codes": "sequence"}, output_schema)
+
+    def test_metric_reads_the_label_processor(self):
+        model = BaseModel(self._dataset({"y": "multiclass"}, lambda i: i % 3))
+        metric = ComprehensivenessMetric(
+            model, sample_filter=threshold_sample_filter(0.5)
+        )
+        self.assertEqual(metric.classifier_type, "multiclass")
+        self.assertEqual(metric.num_classes, 3)
+
+    def test_metric_without_a_label_processor_is_unknown(self):
+        model = BaseModel(self._dataset({"y": "tensor"}, lambda i: [float(i)]))
+        metric = ComprehensivenessMetric(
+            model, sample_filter=threshold_sample_filter(0.5)
+        )
+        self.assertEqual(metric.classifier_type, "unknown")
+        self.assertIsNone(metric.num_classes)
+
+    def test_interpreter_prediction_mode(self):
+        model = BaseModel(self._dataset({"y": "binary"}, lambda i: i % 2))
+
+        class _Interpreter(BaseInterpreter):
+            def attribute(self, **data):
+                return {}
+
+        self.assertEqual(_Interpreter(model)._prediction_mode(), "binary")
 
 
 if __name__ == "__main__":

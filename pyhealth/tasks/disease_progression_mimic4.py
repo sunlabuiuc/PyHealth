@@ -355,8 +355,8 @@ class DiseaseProgressionMIMIC4(BaseTask):
     """Disease progression between two consecutive chest X-rays of an ICU stay.
 
     One sample per pair of consecutive images, following DiPro (Liu et al.,
-    2025), on a :class:`~pyhealth.datasets.MIMIC4Dataset` built with
-    ``imagenome_root``.
+    2025), on a :class:`~pyhealth.datasets.MIMIC4ImaGenomeDataset`, which
+    adds the Chest ImaGenome tables to MIMIC-IV's.
 
     Stays: as in :class:`EHRCXRMortalityMIMIC4`, then longer than 48 hours and
     inside the IQR limits of the cohort's length of stay. The limits need the
@@ -441,16 +441,16 @@ class DiseaseProgressionMIMIC4(BaseTask):
         ... )
         >>> task.input_schema["cxr"][0], len(task.DEMOGRAPHICS)
         ('time_region_image', 17)
-        >>> from pyhealth.datasets import GoldTestSplit, MIMIC4Dataset
-        >>> dataset = MIMIC4Dataset(  # doctest: +SKIP
-        ...     ehr_root="/path/to/mimic-iv/2.2",
-        ...     cxr_root="/path/to/mimic-cxr-jpg/2.0.0",
+        >>> from pyhealth.datasets import GoldTestSplit, MIMIC4ImaGenomeDataset
+        >>> dataset = MIMIC4ImaGenomeDataset(  # doctest: +SKIP
         ...     imagenome_root="/path/to/chest-imagenome/1.0.0",
-        ...     ehr_tables=["chartevents", "labevents"],
-        ...     cxr_tables=["metadata"],
         ...     imagenome_tables=[
         ...         "silver_images", "silver_comparisons", "gold_comparisons"
         ...     ],
+        ...     ehr_root="/path/to/mimic-iv/2.2",
+        ...     cxr_root="/path/to/mimic-cxr-jpg/2.0.0",
+        ...     ehr_tables=["chartevents", "labevents"],
+        ...     cxr_tables=["metadata"],
         ... )
         >>> train, val, test = dataset.set_task(  # doctest: +SKIP
         ...     task, split=GoldTestSplit(task.gold_subjects(dataset))
@@ -476,7 +476,7 @@ class DiseaseProgressionMIMIC4(BaseTask):
         *(f"marital_status_{value}" for value in _MARITAL_STATUSES),
     ]
     output_schema: ClassVar[dict[str, Any]] = {
-        "progression": ("multilabel", {"classes": LABELS})
+        "progression": ("multilabel", {"labels": LABELS})
     }
 
     MIN_LOS_HOURS: ClassVar[int] = 48

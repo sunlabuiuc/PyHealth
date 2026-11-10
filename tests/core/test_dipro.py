@@ -55,7 +55,7 @@ def _dataset(path, regions=False, demographics=False, n=3):
     return create_sample_dataset(
         samples=[_sample(i, path, regions, demographics) for i in range(n)],
         input_schema=schema,
-        output_schema={"progression": ("multilabel", {"classes": LABELS})},
+        output_schema={"progression": ("multilabel", {"labels": LABELS})},
         in_memory=True,
     )
 

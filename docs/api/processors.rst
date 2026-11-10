@@ -30,18 +30,24 @@ Available Processors
 - ``NestedMultiHotProcessor``: For nested categorical sequences as per-visit multi-hot vectors (e.g., generative EHR models)
 - ``NestedFloatsProcessor``: For nested numerical sequences with optional forward-fill
 
-**Label Processors:**
+**Label Processors** (subclasses of ``LabelProcessor``, which also define the loss, activation, output size and metrics of the label):
 
 - ``BinaryLabelProcessor``: Binary classification labels (e.g., mortality prediction)
 - ``MultiClassLabelProcessor``: Multi-class classification labels
 - ``MultiLabelProcessor``: Multi-label classification (e.g., drug recommendation)
-- ``RegressionLabelProcessor``: Continuous regression targets
+- ``RegressionLabelProcessor``: Continuous regression targets, optionally normalized for training, as ``TensorProcessor`` does for inputs (``("regression", {"normalization": "minmax"})``, ``"zscore"``, or a fixed ``(low, high)`` range); ``Trainer.inference`` and metrics are in the original units
 - ``TimeseriesBinaryLabelProcessor``: Binary labels at given times (``"timeseries_binary"``): each sample is ``{"time": [...], "values": [...]}``, packed per batch as ``(values [ΣN, 1], time [ΣN], batch offsets [B + 1])``, one record per label, with no grid or mask
-- ``TimeseriesRegressionLabelProcessor``: Real-valued labels at given times (``"timeseries_regression"``), in the same packed format
+- ``TimeseriesMultiClassLabelProcessor``: One class per given time (``"timeseries_multiclass"``), values ``[ΣN]``, in the same packed format
+- ``TimeseriesMultiLabelProcessor``: A set of labels per given time (``"timeseries_multilabel"``), values ``[ΣN, K]``, in the same packed format
+- ``TimeseriesRegressionLabelProcessor``: Real-valued labels at given times (``"timeseries_regression"``), in the same packed format, with the same ``normalization`` option
 
 **Data Type Processors:**
 
 - ``ImageProcessor``: For image data (e.g., chest X-rays)
+- ``NiftiProcessor``: For NIfTI images and 3D volumes, with lazy loading by default
+- ``DicomProcessor``: For single-frame DICOM images, with optional lazy loading
+- ``DicomSeriesProcessor``: For DICOM series reconstructed as 3D volumes
+- ``ImageMaskDirectoryProcessor``: For directories of 2D image mask slices (PNG by default), with lazy loading by default
 - ``TextProcessor``: For text/clinical notes data
 - ``TupleTimeTextProcessor``: For text paired with temporal information (time-aware text)
 - ``AudioProcessor``: For audio signal data
@@ -51,6 +57,17 @@ Available Processors
 - ``TimeRegionImageProcessor``: For the same regions cropped from time-stamped images
 - ``TensorProcessor``: For pre-processed tensor data; optional ``normalization``, ``missing_indicators`` and ``impute_strategy="zero"``
 - ``RawProcessor``: Pass-through processor for raw data
+
+Medical imaging processors require the optional dependencies:
+``pip install "pyhealth[imaging]"``. ``NiftiProcessor``,
+``DicomSeriesProcessor`` and ``ImageMaskDirectoryProcessor`` use lazy loading
+by default (``lazy=True``); ``DicomProcessor`` defaults to eager loading for
+the existing 2D image path. Set ``lazy=False`` to cache tensors or
+``lazy=True`` to load on demand. Lazy ``DicomProcessor`` values are paths, so
+existing 2D vision models that inspect raw samples for channel inference
+should use eager mode or materialize paths in a wrapper. In lazy mode
+the sample stores a path or ordered path list, and a DataLoader reads the
+pixels through the processor's ``collate`` method.
 
 **Specialized Processors:**
 
@@ -363,6 +380,7 @@ Common string keys for automatic processor selection:
 - ``"multiclass"``: For multi-class labels  
 - ``"multilabel"``: For multi-label classification
 - ``"regression"``: For regression targets
+- ``"timeseries_binary"``, ``"timeseries_multiclass"``, ``"timeseries_multilabel"``, ``"timeseries_regression"``: For labels given at time points
 - ``"text"``: For text data
 - ``"tuple_time_text"``: For text paired with temporal information
 - ``"image"``: For image data
@@ -556,14 +574,21 @@ API Reference
     processors/pyhealth.processors.NestedSequenceProcessor
     processors/pyhealth.processors.NestedMultiHotProcessor
     processors/pyhealth.processors.NestedFloatsProcessor
+    processors/pyhealth.processors.LabelProcessor
     processors/pyhealth.processors.BinaryLabelProcessor
     processors/pyhealth.processors.MultiClassLabelProcessor
     processors/pyhealth.processors.MultiLabelProcessor
     processors/pyhealth.processors.RegressionLabelProcessor
     processors/pyhealth.processors.TimeseriesLabelProcessor
     processors/pyhealth.processors.TimeseriesBinaryLabelProcessor
+    processors/pyhealth.processors.TimeseriesMultiClassLabelProcessor
+    processors/pyhealth.processors.TimeseriesMultiLabelProcessor
     processors/pyhealth.processors.TimeseriesRegressionLabelProcessor
     processors/pyhealth.processors.ImageProcessor
+    processors/pyhealth.processors.NiftiProcessor
+    processors/pyhealth.processors.DicomProcessor
+    processors/pyhealth.processors.DicomSeriesProcessor
+    processors/pyhealth.processors.ImageMaskDirectoryProcessor
     processors/pyhealth.processors.TextProcessor
     processors/pyhealth.processors.TupleTimeTextProcessor
     processors/pyhealth.processors.AudioProcessor

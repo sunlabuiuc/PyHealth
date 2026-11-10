@@ -43,7 +43,7 @@ import torch
 from disease_progression_mimic4 import write_ehr, write_imagenome, write_images
 from sklearn.metrics import f1_score
 
-from pyhealth.datasets import GoldTestSplit, MIMIC4Dataset, get_dataloader
+from pyhealth.datasets import GoldTestSplit, MIMIC4ImaGenomeDataset, get_dataloader
 from pyhealth.models import DiPro
 from pyhealth.tasks import DiseaseProgressionMIMIC4
 from pyhealth.trainer import Trainer
@@ -121,18 +121,18 @@ def main() -> None:
             write_images(cxr_root, args.patients, rng)
             write_imagenome(imagenome_root, args.patients, rng)
             add_boxes(imagenome_root, task.REGIONS)
-        dataset = MIMIC4Dataset(
-            ehr_root=str(ehr_root),
-            cxr_root=str(cxr_root),
+        dataset = MIMIC4ImaGenomeDataset(
             imagenome_root=str(imagenome_root),
-            ehr_tables=["chartevents", "labevents"],
-            cxr_tables=["metadata"],
             imagenome_tables=[
                 "silver_images",
                 "silver_objects",
                 "silver_comparisons",
                 "gold_comparisons",
             ],
+            ehr_root=str(ehr_root),
+            cxr_root=str(cxr_root),
+            ehr_tables=["chartevents", "labevents"],
+            cxr_tables=["metadata"],
             cache_dir=str(Path(tmp) / "cache") if args.ehr_root is None else None,
         )
         train, val, test = dataset.set_task(

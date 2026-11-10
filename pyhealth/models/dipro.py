@@ -12,6 +12,7 @@ Copyright (c) 2025 LIU Chen @ The Hong Kong Polytechnic University.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Sequence
 from typing import Any
 
@@ -22,12 +23,34 @@ from torch import nn
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models.base_model import BaseModel
-from pyhealth.models.biot import PositionalEncoding
 
 _NUM_STATUSES = 3  # worsened, improved, no change
 _NOT_MENTIONED = _NUM_STATUSES  # DiPro's FILL_VALUE: ignored by the losses
 _NUM_HEADS = 8
 _BACKBONES = ("resnet18", "resnet34", "resnet50")
+
+
+class _PositionalEncoding(nn.Module):
+    """Sinusoidal positional encoding added to a sequence, then dropout.
+
+    The same encoding as ``PositionalEncoding`` in ``pyhealth/models/biot.py``,
+    copied so this model is self-contained.
+    """
+
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 1000):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        position = torch.arange(0, max_len).unsqueeze(1).float()
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model)
+        )
+        pe = torch.zeros(max_len, d_model)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer("pe", pe.unsqueeze(0))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.dropout(x + self.pe[:, : x.size(1)])
 
 
 class _OrderAwareProjection(nn.Module):
@@ -285,7 +308,7 @@ class _MultiscaleFusion(nn.Module):
             nn.LayerNorm(d_model),
             nn.Dropout(dropout_rate),
         )
-        self.ehr_position = PositionalEncoding(d_model, dropout_rate)
+        self.ehr_position = _PositionalEncoding(d_model, dropout_rate)
         self.ehr_global_encoder = self._transformer(d_model, 1, dropout_rate)
         self.ehr_interval_encoder = _EHRIntervalEncoder(d_model)
         self.region_attention = nn.ModuleList(
@@ -488,7 +511,7 @@ class DiPro(BaseModel):
         ...         "ehr": "tensor",
         ...         "cxr": ("time_image", {"image_size": 32, "mode": "RGB"}),
         ...     },
-        ...     output_schema={"progression": ("multilabel", {"classes": labels})},
+        ...     output_schema={"progression": ("multilabel", {"labels": labels})},
         ... )
         >>> model = DiPro(
         ...     dataset,
@@ -526,12 +549,13 @@ class DiPro(BaseModel):
         for field in ("ehr", "cxr"):
             if field not in self.feature_keys:
                 raise ValueError(f"DiPro needs the input field '{field}'.")
-        if self.label_keys != ["progression"]:
-            raise ValueError("DiPro needs the single label 'progression'.")
-        if self.get_output_size() != _NUM_STATUSES * num_diseases:
+        if self.label_keys != ["progression"] or self.mode != "multilabel":
+            raise ValueError("DiPro needs the single multilabel label 'progression'.")
+        output_size = self.label_processor.output_size()
+        if output_size != _NUM_STATUSES * num_diseases:
             raise ValueError(
                 f"Expected {_NUM_STATUSES} labels for each of {num_diseases} "
-                f"diseases, got {self.get_output_size()} labels."
+                f"diseases, got {output_size} labels."
             )
         if backbone not in _BACKBONES:
             raise ValueError(f"backbone must be one of {_BACKBONES}.")

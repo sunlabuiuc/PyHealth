@@ -24,6 +24,7 @@ reference includes the ECE definition and formula used by these helpers.
     metrics/pyhealth.metrics.binary
     metrics/pyhealth.metrics.calibration
     metrics/pyhealth.metrics.bootstrap
+    metrics/pyhealth.metrics.clinical
     metrics/pyhealth.metrics.prediction_set
     metrics/pyhealth.metrics.fairness
     metrics/pyhealth.metrics.interpretability

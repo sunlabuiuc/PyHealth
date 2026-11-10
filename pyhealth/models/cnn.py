@@ -248,7 +248,7 @@ class CNN(BaseModel):
                 **kwargs,
             )
 
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
 
     @staticmethod
@@ -374,8 +374,8 @@ class CNN(BaseModel):
         logits = self.fc(patient_emb)
 
         y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
+        loss = self.label_processor.loss(logits, y_true)
+        y_prob = self.label_processor.activation(logits)
 
         results = {
             "loss": loss,

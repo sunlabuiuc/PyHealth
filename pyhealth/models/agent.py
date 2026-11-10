@@ -429,7 +429,7 @@ class Agent(BaseModel):
             )
 
         # Output layer
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(len(self.seq_feature_keys) * hidden_dim, output_size)
    
     
@@ -620,7 +620,7 @@ class Agent(BaseModel):
         if not isinstance(y_true, torch.Tensor):
             y_true = torch.tensor(y_true, device=self.device)
         y_true = y_true.to(self.device)
-        loss_task = self.get_loss_function()(logits, y_true)
+        loss_task = self.label_processor.loss(logits, y_true)
 
         # Compute RL loss for each agent
         loss_rl = torch.tensor(0.0, device=self.device)
@@ -633,7 +633,7 @@ class Agent(BaseModel):
             )
 
         loss = loss_task + loss_rl
-        y_prob = self.prepare_y_prob(logits)
+        y_prob = self.label_processor.activation(logits)
 
         results = {
             "loss": loss,
