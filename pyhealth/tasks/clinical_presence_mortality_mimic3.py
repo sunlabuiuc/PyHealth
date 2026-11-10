@@ -382,8 +382,11 @@ def _make_imputer(
     predictor and uses the sd of the residuals. The MissForest-style imputer
     predicts with extra trees and stops early on scikit-learn's ``tol``.
     ``keep_empty_features`` keeps the column layout when a lab is never
-    observed in the training rows. ``min_value`` and ``max_value`` bound the
-    iterative imputers' values per column, as in ``IterativeImputer``.
+    observed in the training rows. ``skip_complete`` fits no regression for a
+    column with no missing training value, such as the group flags and
+    indicators; a lab like that keeps the median in validation and test rows.
+    ``min_value`` and ``max_value`` bound the iterative imputers' values per
+    column, as in ``IterativeImputer``.
     """
     if imputation == "median":
         return SimpleImputer(strategy="median", keep_empty_features=True)
@@ -392,6 +395,7 @@ def _make_imputer(
         "initial_strategy": "median",
         "imputation_order": "ascending",
         "keep_empty_features": True,
+        "skip_complete": True,
         "min_value": min_value,
         "max_value": max_value,
         "random_state": random_state,
