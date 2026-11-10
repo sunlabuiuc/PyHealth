@@ -190,6 +190,20 @@ class TestArchitecture(unittest.TestCase):
         with self.assertRaises(ValueError):
             tiny_model(dataset)
 
+    def test_has_no_mode_and_rejects_labels(self):
+        self.assertIsNone(self.model.mode)
+        samples = [
+            {**sample(i, [(0.0, ADMIT, None), (1.0, LAB, 1.0)]), "label": i % 2}
+            for i in range(2)
+        ]
+        dataset = create_sample_dataset(
+            samples,
+            input_schema={"timeline": "ethos", "context": "ethos_context"},
+            output_schema={"label": "binary"},
+        )
+        with self.assertRaises(ValueError):
+            tiny_model(dataset)
+
     def test_rejects_sizes_that_do_not_fit(self):
         with self.assertRaises(ValueError):
             tiny_model(self.dataset, n_head=3)

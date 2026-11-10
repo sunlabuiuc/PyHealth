@@ -27,8 +27,7 @@ import torch
 
 from . import register_processor
 from .base_processor import FeatureProcessor
-from .cehr_processor import ConceptVocab
-from .ethos_processor import STATIC_CODE_PREFIXES
+from .ethos_processor import STATIC_CODE_PREFIXES, EthosVocab
 
 BIRTH_CODE = "MEDS_BIRTH"
 UNKNOWN_SUFFIX = "//UNKNOWN"
@@ -111,7 +110,7 @@ class EthosContextProcessor(FeatureProcessor):
         if BIRTH_CODE not in prefixes:
             raise ValueError(f"prefixes must include {BIRTH_CODE}, got {prefixes}.")
         self.prefixes = tuple(sorted(prefixes))
-        self.vocab: ConceptVocab | None = None
+        self.vocab: EthosVocab | None = None
 
     @property
     def age_position(self) -> int:
@@ -130,7 +129,7 @@ class EthosContextProcessor(FeatureProcessor):
             samples: Sample dictionaries.
             field: Key of the static rows in each sample.
         """
-        self.vocab = ConceptVocab()
+        self.vocab = EthosVocab()
         for prefix in self.prefixes:
             if prefix != BIRTH_CODE:
                 self.vocab.add_token(prefix + UNKNOWN_SUFFIX)
@@ -218,7 +217,7 @@ class EthosContextProcessor(FeatureProcessor):
         state = orjson.loads(Path(path).read_bytes())
         self.prefixes = tuple(state["prefixes"])
         vocab = state["vocab"]
-        self.vocab = None if vocab is None else ConceptVocab.from_json(vocab)
+        self.vocab = None if vocab is None else EthosVocab.from_json(vocab)
 
     def size(self) -> int:
         """Returns the vocabulary size."""

@@ -29,13 +29,8 @@ from typing import Any, ClassVar
 
 import polars as pl
 
-from ..processors.ethos_processor import (
-    DEATH_CODE,
-    STATIC_CODE_PREFIXES,
-    TIMELINE_END_TOKEN,
-)
+from ..processors.ethos_processor import STATIC_CODE_PREFIXES, TIMELINE_END_TOKEN
 from .base_task import BaseTask
-from .in_hospital_mortality_meds import ADMISSION_PREFIX, DIED_CODE, DISCHARGE_PREFIX
 from .meds_outcome_tasks import (
     ICU_ADMISSION_PREFIX,
     HospitalReadmissionMEDS,
@@ -46,6 +41,13 @@ from .meds_outcome_tasks import (
     _rows_at_admission,
     _rows_at_discharge,
 )
+
+# MEDS codes, the same as in in_hospital_mortality_meds.py and
+# meds_outcome_tasks.py, kept here so this module does not import them.
+ADMISSION_PREFIX = "HOSPITAL_ADMISSION"
+DISCHARGE_PREFIX = "HOSPITAL_DISCHARGE"
+DIED_CODE = "HOSPITAL_DISCHARGE//DIED"
+DEATH_CODE = "MEDS_DEATH"
 
 #: Why a rollout stopped. The first three are ETHOS's.
 STOP_TOKEN = "token_of_interest"

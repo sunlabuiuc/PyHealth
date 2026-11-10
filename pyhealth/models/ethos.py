@@ -130,8 +130,8 @@ class ETHOS(BaseModel):
 
     :meth:`forward` is the next-token loss, so the model trains with
     :class:`~pyhealth.trainer.Trainer` on
-    :class:`~pyhealth.tasks.EthosTimelineMEDS`, with no labels. It has no
-    ``mode`` and gives no ``y_prob``. Risks come from :meth:`estimate_risk`,
+    :class:`~pyhealth.tasks.EthosTimelineMEDS`, with no labels. Its dataset has
+    no label processor, so ``mode`` is ``None`` and there is no ``y_prob``. Risks come from :meth:`estimate_risk`,
     which samples timelines forward from each sample of
     :class:`~pyhealth.tasks.EthosOutcomeMEDS`.
 
@@ -155,7 +155,8 @@ class ETHOS(BaseModel):
         dropout: Dropout rate.
 
     Raises:
-        ValueError: If ``dataset`` lacks those fields, or the sizes do not fit.
+        ValueError: If ``dataset`` lacks those fields or has a label, or the
+            sizes do not fit.
 
     Examples:
         >>> from datetime import datetime, timedelta
@@ -206,7 +207,12 @@ class ETHOS(BaseModel):
         dropout: float = 0.3,
     ) -> None:
         super().__init__(dataset=dataset)
-        self.mode = None
+        if self.label_processors:
+            raise ValueError(
+                "ETHOS trains without labels, so its dataset needs an empty "
+                f"output_schema, not {sorted(self.label_processors)}; see "
+                "EthosTimelineMEDS. Score labels with estimate_risk."
+            )
 
         processors = dataset.input_processors
         timeline = processors.get("timeline")
@@ -506,6 +512,11 @@ class ETHOS(BaseModel):
 
         The risk is the share of positive rollouts among those ``rule`` keeps.
         The paper uses 100 rollouts per sample.
+
+        Rollouts have no key-value cache: each new token re-runs the model over
+        the whole sequence so far. That is fine for small models and short
+        rollouts, but it will be slow at the paper's scale (2048-token context,
+        100 rollouts per sample).
 
         Args:
             dataloader: Batches with ``timeline`` and ``context``.
