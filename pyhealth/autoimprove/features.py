@@ -502,11 +502,35 @@ class FeatureSpace:
         Missing values (e.g. ``stat`` with no event) are ``NaN``; they are
         imputed later, per fold. With ``truncate``, every patient's record
         is cut to the rows known before each prediction time first (the
-        future-blind test's second pass).
+        future-blind test's second pass). Every spec is re-validated first,
+        so a spec built by hand or with :meth:`FeatureSpec.from_dict` goes
+        through the same checks as one from :meth:`validate`.
+
+        Raises:
+            ValueError: If a spec fails validation.
 
         Examples:
             >>> values = fs.compute(specs, train_ds)  # doctest: +SKIP
         """
+        return self._compute(self._vetted(specs), samples, indices, truncate)
+
+    def _vetted(self, specs: Sequence[FeatureSpec]) -> list[FeatureSpec]:
+        """Re-validates specs, so none skips the checks in :meth:`validate`."""
+        out = []
+        for spec in specs:
+            try:
+                out.append(self.validate(spec))
+            except ValueError as e:
+                raise ValueError(f"{spec.name or spec.node}: {e}") from None
+        return out
+
+    def _compute(
+        self,
+        specs: Sequence[FeatureSpec],
+        samples: SampleDataset,
+        indices: Sequence[int] | None = None,
+        truncate: bool = False,
+    ) -> np.ndarray:
         indices = list(range(len(samples))) if indices is None else list(indices)
         out = np.full((len(indices), len(specs)), np.nan)
         record_of = {i: rid for rid, idx in getattr(samples, "record_to_index", {}).items()
@@ -604,11 +628,12 @@ class FeatureSpace:
             >>> fs.future_blind(specs, train_ds)  # doctest: +SKIP
             {'count_365d__ed_visits': None}
         """
+        specs = self._vetted(specs)
         rng = np.random.default_rng(seed)
         idx = sorted(rng.choice(len(samples), min(n_samples, len(samples)),
                                 replace=False).tolist())
-        full = self.compute(specs, samples, idx)
-        cut = self.compute(specs, samples, idx, truncate=True)
+        full = self._compute(specs, samples, idx)
+        cut = self._compute(specs, samples, idx, truncate=True)
         return self._leaks(specs, full, cut)
 
     def _leaks(
@@ -648,7 +673,7 @@ class FeatureSpace:
         rng = np.random.default_rng(0)
         idx = sorted(rng.choice(len(samples), min(n_samples, len(samples)),
                                 replace=False).tolist())
-        values = self.compute(valid, samples, idx)
+        values = self._compute(valid, samples, idx)
         out = []
         for j, spec in enumerate(valid):
             col = values[:, j]
@@ -666,7 +691,6 @@ class FeatureSpace:
         samples: SampleDataset,
         specs: Sequence[FeatureSpec],
         stats: dict[str, list[float]] | None = None,
-        values: np.ndarray | None = None,
     ) -> EngineeredDataset:
         """Adds the specs to the samples as one ``engineered`` tensor field.
 
@@ -675,30 +699,29 @@ class FeatureSpace:
         for a training split. Pass the training split's ``stats`` when
         augmenting validation and test splits.
 
-        Unless ``values`` is given, every spec is put through the
-        future-blind test on all of ``samples`` (not the 200-sample screen
-        of :meth:`check`): its values are computed on the full and on the
-        truncated records, which costs one extra pass.
+        Every spec is re-validated (as in :meth:`compute`) and put through
+        the future-blind test on all of ``samples`` (not the 200-sample
+        screen of :meth:`check`): its values are computed on the full and on
+        the truncated records, which costs one extra pass. There is no way
+        to pass precomputed values, so nothing reaches the model unchecked.
 
         Raises:
-            ValueError: If a spec fails the future-blind test.
+            ValueError: If a spec fails validation or the future-blind test.
 
         Examples:
             >>> train_fe = fs.augment(train_ds, specs)  # doctest: +SKIP
             >>> test_fe = fs.augment(test_ds, specs, stats=train_fe.stats)  # doctest: +SKIP
         """
-        if values is None:
-            raw = self.compute(specs, samples)
-            cut = self.compute(specs, samples, truncate=True)
-            failed = {name: reason for name, reason in
-                      self._leaks(specs, raw, cut).items() if reason}
-            if failed:
-                raise ValueError(
-                    "specs failing the future-blind test cannot be added: "
-                    + "; ".join(f"{name}: {why}" for name, why in failed.items())
-                )
-        else:
-            raw = np.asarray(values)
+        specs = self._vetted(specs)
+        raw = self._compute(specs, samples)
+        cut = self._compute(specs, samples, truncate=True)
+        failed = {name: reason for name, reason in
+                  self._leaks(specs, raw, cut).items() if reason}
+        if failed:
+            raise ValueError(
+                "specs failing the future-blind test cannot be added: "
+                + "; ".join(f"{name}: {why}" for name, why in failed.items())
+            )
         return EngineeredDataset(samples, raw, [s.name for s in specs], stats)
 
 
