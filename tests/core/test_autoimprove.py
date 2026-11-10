@@ -1007,6 +1007,28 @@ class TestClinicalReport(unittest.TestCase):
                     self.assertTrue(row["n"] is None or row["n"] >= 11)
             self.assertTrue(all(b["n"] >= 11 for b in clinical["calibration_bins"]))
 
+    def test_calibration_and_subgroup_gap_flags(self):
+        from pyhealth.autoimprove.report import flags_for
+
+        def test(slope, oe, gap):
+            return {"best": {"clinical": {
+                "calibration": {"calibration_slope": slope, "oe_ratio": oe},
+                "subgroups": {"sex": {"max_gap": {"roc_auc": gap}}},
+            }}}
+
+        def ids(t):
+            return [f["id"] for f in flags_for(CARD, None, t)]
+
+        self.assertEqual(ids(test(1.0, 1.0, 0.05)), [])
+        self.assertEqual(ids(test(0.5, 1.0, 0.05)), ["calibration"])  # poor slope
+        self.assertEqual(ids(test(1.0, 2.0, 0.05)), ["calibration"])  # poor O/E
+        self.assertEqual(ids(test(1.0, 1.0, 0.1)), ["subgroup_gap:sex"])
+        both = flags_for(CARD, None, test(0.5, float("nan"), 0.2))
+        self.assertEqual([f["id"] for f in both], ["calibration", "subgroup_gap:sex"])
+        self.assertIn("observed / expected n/a", both[0]["detail"])
+        # NaN alone raises no flag
+        self.assertEqual(ids(test(float("nan"), None, float("nan"))), [])
+
     def test_flags_and_report_without_run_dir(self):
         # Results are kept in memory, so flags and the report still see them.
         improver = AutoImprover(

@@ -11,21 +11,27 @@ small-cell convention). When ``groups`` (patient ids) is given, a cell is
 counted in distinct patients, not samples, so a patient with many samples
 cannot make a cell look large. Exactly what is withheld:
 
-- :func:`clinical_summary`: ``n`` and ``positives`` below ``min_count``; and
-  when positives or negatives are below ``min_count``, everything computed
-  from the labels besides the overall calibration scores (``prevalence``,
-  ``alerts``, ``calibration_bins``, ``net_benefit``), which are then
-  ``None``, ``{}``, ``[]`` and ``[]``.
+- :func:`clinical_summary`: when positives or negatives are below
+  ``min_count``, both ``n`` and ``positives`` (so neither can be recovered
+  from the other) and everything computed from the labels besides the
+  overall calibration scores (``prevalence``, ``alerts``,
+  ``calibration_bins``, ``net_benefit``), which are then ``None``, ``{}``,
+  ``[]`` and ``[]``.
 - :func:`alert_rate_metrics`: an alert rate whose flagged, caught or false
   alarm count is below ``min_count``.
+- :func:`net_benefit`: the model's net benefit at a threshold where the
+  true or false positives number fewer than ``min_count``, since with ``n``
+  and the prevalence it would narrow down those counts.
 - :func:`calibration_bins`: bins are merged until each has ``min_count``
   positives and ``min_count`` negatives.
-- :func:`subgroup_metrics`: counts below ``min_count``, and metrics of a
-  group with fewer than ``min_count`` positives or negatives.
+- :func:`subgroup_metrics`: a group's ``n`` and ``positives`` together, and
+  its metrics, when its positives or negatives are below ``min_count``. If
+  only one group of an attribute would be withheld, the counts of the next
+  smallest group are withheld too, so the withheld counts cannot be
+  recovered by subtracting the others from the total.
 
-The functions default to ``min_count=MIN_CELL``, except
-:func:`alert_rate_metrics` and :func:`net_benefit`, which are plain metrics
-when called on their own.
+Every function defaults to ``min_count=MIN_CELL``; pass ``min_count=0`` to
+use :func:`alert_rate_metrics` or :func:`net_benefit` as plain metrics.
 """
 
 from __future__ import annotations
@@ -47,7 +53,7 @@ def alert_rate_metrics(
     y_true: Sequence[float],
     y_prob: Sequence[float],
     rates: Sequence[float] = (0.05, 0.10, 0.20),
-    min_count: int = 0,
+    min_count: int = MIN_CELL,
     groups: Sequence[Any] | None = None,
 ) -> dict[str, dict[str, float]]:
     """What happens when the highest-risk fraction of samples is flagged.
@@ -62,7 +68,8 @@ def alert_rate_metrics(
         min_count: A rate whose flagged samples, caught positives or false
             alarms number fewer than this is reported as
             ``{"rate", "suppressed": True}`` only, since sensitivity and PPV
-            would reveal those counts.
+            would reveal those counts. Defaults to :data:`MIN_CELL`; pass 0
+            to report every rate.
         groups: Patient id per sample; the counts above are then distinct
             patients.
 
@@ -74,7 +81,8 @@ def alert_rate_metrics(
 
     Examples:
         >>> out = alert_rate_metrics([1, 0, 1, 0, 0, 0, 0, 0, 0, 0],
-        ...                          [.9, .8, .7, .6, .5, .4, .3, .2, .1, .0], [0.2])
+        ...                          [.9, .8, .7, .6, .5, .4, .3, .2, .1, .0], [0.2],
+        ...                          min_count=0)
         >>> out["top 20%"]["sensitivity"], out["top 20%"]["ppv"], out["top 20%"]["nne"]
         (0.5, 0.5, 2.0)
     """
@@ -113,6 +121,8 @@ def net_benefit(
     y_true: Sequence[float],
     y_prob: Sequence[float],
     thresholds: Sequence[float] = (0.05, 0.10, 0.20, 0.30),
+    min_count: int = MIN_CELL,
+    groups: Sequence[Any] | None = None,
 ) -> list[dict[str, float]]:
     """Decision-curve net benefit at risk thresholds (Vickers and Elkin, 2006).
 
@@ -122,28 +132,49 @@ def net_benefit(
     is useful at ``pt`` if it beats both acting on everyone and on no one
     (net benefit 0).
 
+    Args:
+        y_true: Binary labels.
+        y_prob: Predicted risks.
+        thresholds: Risk thresholds ``pt``.
+        min_count: At a threshold where the true or false positives number
+            fewer than this, ``model`` is left out and ``suppressed`` is
+            True: with ``n`` and the prevalence, net benefit would narrow
+            down those counts. ``treat_all`` depends only on the prevalence
+            and is always given. Defaults to :data:`MIN_CELL`; pass 0 to
+            report every threshold.
+        groups: Patient id per sample; the counts above are then distinct
+            patients.
+
     Returns:
-        One dict per threshold: ``threshold``, ``model``, ``treat_all``.
+        One dict per threshold: ``threshold``, ``model`` (or
+        ``suppressed``), ``treat_all``.
 
     Examples:
-        >>> nb = net_benefit([1, 0, 0, 0], [0.9, 0.6, 0.1, 0.1], [0.5])[0]
+        >>> nb = net_benefit([1, 0, 0, 0], [0.9, 0.6, 0.1, 0.1], [0.5],
+        ...                  min_count=0)[0]
         >>> round(nb["model"], 3), round(nb["treat_all"], 3)
         (0.0, -0.5)
     """
     y_true = np.asarray(y_true, dtype=float).ravel()
     y_prob = np.asarray(y_prob, dtype=float).ravel()
+    ids = None if groups is None else np.asarray(groups)
     n, prevalence = len(y_true), y_true.mean()
+
+    def count(mask: np.ndarray) -> int:
+        return int(mask.sum()) if ids is None else len(set(ids[mask].tolist()))
+
     out = []
     for pt in thresholds:
         weight = pt / (1 - pt)
         act = y_prob >= pt
-        tp = (act & (y_true == 1)).sum() / n
-        fp = (act & (y_true == 0)).sum() / n
-        out.append({
-            "threshold": float(pt),
-            "model": float(tp - fp * weight),
-            "treat_all": float(prevalence - (1 - prevalence) * weight),
-        })
+        hit, miss = act & (y_true == 1), act & (y_true == 0)
+        row: dict[str, Any] = {"threshold": float(pt)}
+        if min(count(hit), count(miss)) < min_count:
+            row["suppressed"] = True
+        else:
+            row["model"] = float(hit.sum() / n - miss.sum() / n * weight)
+        row["treat_all"] = float(prevalence - (1 - prevalence) * weight)
+        out.append(row)
     return out
 
 
@@ -218,23 +249,22 @@ def subgroup_metrics(
         subgroups: Attribute name to one label per sample, e.g.
             ``{"sex": ["F", "M", ...], "age band": [...]}``.
         metrics: Metrics from :func:`binary_metrics_fn` to compute per group.
-        min_count: A group gets metrics only with at least this many
-            positives and negatives; its counts are shown only if at least
-            this large.
+        min_count: A group gets its counts and metrics only with at least
+            this many positives and negatives (see the module docstring for
+            the extra group withheld when only one would be).
         groups: Patient id per sample, so counts are distinct patients.
 
     Returns:
         ``{attribute: {"groups": {label: {"n", "positives", metric..., "oe_ratio"}},
-        "max_gap": {metric: gap}}}``. Counts below ``min_count`` are
-        ``None``; a group without enough positives and negatives has counts
-        only.
+        "max_gap": {metric: gap}}}``. Withheld counts are ``None``; a group
+        without enough positives and negatives has no metrics.
 
     Examples:
-        >>> y = [0, 1] * 20
-        >>> p = [0.2, 0.8] * 20
-        >>> out = subgroup_metrics(y, p, {"sex": ["F"] * 24 + ["M"] * 16})
+        >>> y = [0, 1] * 25
+        >>> p = [0.2, 0.8] * 25
+        >>> out = subgroup_metrics(y, p, {"sex": ["F"] * 24 + ["M"] * 26})
         >>> out["sex"]["groups"]["F"]["roc_auc"], out["sex"]["groups"]["M"]["n"]
-        (1.0, 16)
+        (1.0, 26)
     """
     y_true = np.asarray(y_true, dtype=float).ravel()
     y_prob = np.asarray(y_prob, dtype=float).ravel()
@@ -252,16 +282,23 @@ def subgroup_metrics(
                 n = len(set(ids[idx]))
                 pos = len(set(ids[idx & (y_true == 1)]))
                 neg = len(set(ids[idx & (y_true == 0)]))
+            enough = pos >= min_count and neg >= min_count
             row: dict[str, Any] = {
-                "n": n if n >= min_count else None,
-                "positives": pos if pos >= min_count else None,
+                "n": n if enough else None,
+                "positives": pos if enough else None,
             }
-            if pos >= min_count and neg >= min_count:
+            if enough:
                 values = binary_metrics_fn(
                     y_true[idx], y_prob[idx], metrics=[*metrics, "oe_ratio"]
                 )
                 row.update({k: float(v) for k, v in values.items()})
             table[str(value)] = row
+        withheld = [r for r in table.values() if r["n"] is None]
+        shown = [r for r in table.values() if r["n"] is not None]
+        if len(withheld) == 1 and shown:
+            # one withheld group = total minus the others: hide one more
+            smallest = min(shown, key=lambda r: r["n"])
+            smallest["n"] = smallest["positives"] = None
         gaps = {}
         for metric in metrics:
             scored = [r[metric] for r in table.values() if metric in r]
@@ -312,15 +349,16 @@ def clinical_summary(
     positives, negatives = count(y_true == 1), count(y_true != 1)
     enough = min(positives, negatives) >= min_count
     return {
-        "n": n if n >= min_count else None,
-        "positives": positives if positives >= min_count else None,
+        "n": n if enough else None,
+        "positives": positives if enough else None,
         "prevalence": prevalence if enough else None,
         "calibration": {k: float(v) for k, v in calibration.items()},
         "calibration_bins": calibration_bins(y_true, y_prob, min_count=min_count,
                                              groups=groups) if enough else [],
         "alerts": alert_rate_metrics(y_true, y_prob, rates, min_count,
                                      groups=groups) if enough else {},
-        "net_benefit": net_benefit(y_true, y_prob, thresholds) if enough else [],
+        "net_benefit": net_benefit(y_true, y_prob, thresholds, min_count,
+                                   groups=groups) if enough else [],
         "subgroups": subgroup_metrics(y_true, y_prob, subgroups or {},
                                       min_count=min_count, groups=groups),
     }

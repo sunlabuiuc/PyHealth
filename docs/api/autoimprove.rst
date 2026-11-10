@@ -126,8 +126,11 @@ features: meaning, clinical group and expected direction of effect. Then:
 
 - :meth:`~pyhealth.autoimprove.AutoImprover.explain` attributes the selected
   model's predictions to its inputs. Trees use exact TreeSHAP; torch models
-  use integrated gradients, which are exact for logistic regression. It
-  reports:
+  use integrated gradients, which are exact for logistic regression.
+  Attributions are measured on training samples (the test set stays
+  untouched until :meth:`~pyhealth.autoimprove.AutoImprover.evaluate_on_test`),
+  so they describe what the model learned, not how it does on new patients.
+  It reports:
 
   - importance by clinical factor group;
   - the top features with their meaning;
