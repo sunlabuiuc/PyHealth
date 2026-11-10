@@ -18,7 +18,7 @@ class TestClinicalMetrics(unittest.TestCase):
     def test_alert_rates_by_hand(self):
         y = [1, 0, 1, 0, 0, 0, 0, 0, 1, 0]
         p = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0]
-        out = alert_rate_metrics(y, p, rates=(0.1, 0.3))
+        out = alert_rate_metrics(y, p, rates=(0.1, 0.3), min_count=0)
         self.assertEqual(out["top 10%"]["n_flagged"], 1)
         self.assertAlmostEqual(out["top 10%"]["sensitivity"], 1 / 3)
         self.assertEqual(out["top 10%"]["ppv"], 1.0)
@@ -26,17 +26,56 @@ class TestClinicalMetrics(unittest.TestCase):
         self.assertEqual((top30["n_flagged"], top30["ppv"]), (3, 2 / 3))
         self.assertAlmostEqual(top30["nne"], 1.5)
         self.assertEqual(top30["threshold"], 0.7)
-        # too few flagged to publish
-        small = alert_rate_metrics(y, p, rates=(0.1,), min_count=11)
+        # too few flagged to publish; withheld by default
+        small = alert_rate_metrics(y, p, rates=(0.1,))
         self.assertEqual(small["top 10%"], {"rate": 0.1, "suppressed": True})
 
     def test_net_benefit_by_hand(self):
         y = [1, 1, 0, 0, 0, 0, 0, 0, 0, 0]
         p = [0.9, 0.3, 0.4, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
-        nb = net_benefit(y, p, thresholds=(0.25,))[0]
+        nb = net_benefit(y, p, thresholds=(0.25,), min_count=0)[0]
         # acting at >= 0.25: TP 2, FP 1, n 10, odds 1/3
         self.assertAlmostEqual(nb["model"], 2 / 10 - 1 / 10 / 3)
         self.assertAlmostEqual(nb["treat_all"], 0.2 - 0.8 / 3)
+        # by default TP 2 and FP 1 are too few to publish; treat_all still is
+        nb = net_benefit(y, p, thresholds=(0.25,))[0]
+        self.assertEqual(sorted(nb), ["suppressed", "threshold", "treat_all"])
+        self.assertAlmostEqual(nb["treat_all"], 0.2 - 0.8 / 3)
+
+    def test_net_benefit_withholds_small_true_or_false_positive_counts(self):
+        y = np.array([1, 0] * 50)
+        p = np.linspace(1, 0, 100)
+        # acting on the top 30: 15 TP, 15 FP; the top 20: 10 TP, 10 FP
+        rows = net_benefit(y, p, thresholds=(p[29], p[19]))
+        self.assertIn("model", rows[0])
+        self.assertTrue(rows[1]["suppressed"])
+        # the top 30 come from 5 patients: withheld
+        rows = net_benefit(y, p, thresholds=(p[29],), groups=np.arange(100) % 5)
+        self.assertTrue(rows[0]["suppressed"])
+
+    def test_counts_cannot_be_recovered_from_their_complement(self):
+        rng = np.random.default_rng(5)
+        y = np.zeros(300, dtype=int)
+        y[:8] = 1
+        p = rng.uniform(size=300)
+        # n and positives are withheld together: n - positives is not derivable
+        s = clinical_summary(y, p)
+        self.assertEqual((s["n"], s["positives"]), (None, None))
+        y = (rng.uniform(size=300) < 0.3).astype(int)
+        site = np.array(["a"] * 140 + ["b"] * 150 + ["c"] * 10)
+        groups = subgroup_metrics(y, p, {"site": site})["site"]["groups"]
+        # c is too small; a (the next smallest) is withheld too, so c's
+        # counts are not the total minus a and b
+        self.assertEqual((groups["c"]["n"], groups["c"]["positives"]), (None, None))
+        self.assertEqual((groups["a"]["n"], groups["a"]["positives"]), (None, None))
+        self.assertIn("roc_auc", groups["a"])  # its metrics are still shown
+        self.assertEqual(groups["b"]["n"], 150)
+        # a group with few non-events hides both counts, not only one
+        y2 = np.ones(300, dtype=int)
+        y2[:150] = rng.integers(0, 2, 150)
+        two = subgroup_metrics(y2, p, {"half": ["x"] * 150 + ["y"] * 150})
+        self.assertEqual(two["half"]["groups"]["y"]["n"], None)
+        self.assertEqual(two["half"]["groups"]["y"]["positives"], None)
 
     def test_calibration_bins_merge_small_cells(self):
         rng = np.random.default_rng(0)
@@ -98,7 +137,7 @@ class TestClinicalMetrics(unittest.TestCase):
         y[:8] = 1  # 8 events
         p = rng.uniform(size=300)
         s = clinical_summary(y, p)
-        self.assertEqual(s["n"], 300)
+        self.assertIsNone(s["n"])
         self.assertIsNone(s["positives"])
         self.assertIsNone(s["prevalence"])
         self.assertEqual((s["alerts"], s["calibration_bins"], s["net_benefit"]),
@@ -117,7 +156,9 @@ class TestClinicalMetrics(unittest.TestCase):
         self.assertAlmostEqual(s["prevalence"], y.mean())
         self.assertIn("calibration_slope", s["calibration"])
         self.assertEqual(len(s["net_benefit"]), 3)
-        self.assertTrue(all(math.isfinite(r["model"]) for r in s["net_benefit"]))
+        shown = [r["model"] for r in s["net_benefit"] if not r.get("suppressed")]
+        self.assertTrue(shown)
+        self.assertTrue(all(math.isfinite(m) for m in shown))
         self.assertIn("band", s["subgroups"])
 
 
