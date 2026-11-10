@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import html
 import json
+import math
 import os
 import re
 from collections.abc import Sequence
@@ -696,7 +697,7 @@ def _test_section(ctx, test) -> Section:
     if "best" not in clinical:
         return Section("Performance in clinical terms", blocks)
     sel = clinical["best"]
-    n_text = f"{sel['n']}" if sel["n"] is not None else "fewer than 11"
+    n_text = f"{sel['n']}" if sel["n"] is not None else "a withheld number of"
     prev_text = (f"prevalence {sel['prevalence']:.1%}" if sel["prevalence"] is not None
                  else "fewer than 11 patients with or without the event, so the "
                       "prevalence, alert, calibration-bin and net-benefit results "
@@ -742,10 +743,15 @@ def _test_section(ctx, test) -> Section:
     nb_rows = []
     base_nb = {r["threshold"]: r for r in clinical.get("baseline", {}).get(
         "net_benefit", [])}
+    def nb_cell(row) -> str:
+        if row is None:
+            return "-"
+        return "withheld" if row.get("suppressed") else f"{row['model']:+.4f}"
+
     for r in sel["net_benefit"]:
-        b = base_nb.get(r["threshold"])
-        nb_rows.append([f"{r['threshold']:.1%}", f"{r['model']:+.4f}",
-                        f"{b['model']:+.4f}" if b else "-", f"{r['treat_all']:+.4f}"])
+        nb_rows.append([f"{r['threshold']:.1%}", nb_cell(r),
+                        nb_cell(base_nb.get(r["threshold"])),
+                        f"{r['treat_all']:+.4f}"])
     if nb_rows:
         blocks += [("p", ("**Net benefit** at risk thresholds where one might act "
                           "(decision curve): true positives per patient minus false "
@@ -753,7 +759,8 @@ def _test_section(ctx, test) -> Section:
                           "scores 0. It takes predicted risks at face value, so a model "
                           "whose risks are inflated (observed / expected well below 1) "
                           "acts on too many patients at each threshold; compare after "
-                          "recalibration. *(measured)*")),
+                          "recalibration. A value is withheld when the true or false "
+                          "positives number fewer than 11 patients. *(measured)*")),
                    ("table", ["threshold", "selected", "starting pipeline",
                               "act on everyone"], nb_rows)]
     sub_rows, gaps = [], []
@@ -761,8 +768,8 @@ def _test_section(ctx, test) -> Section:
         for value, r in sub["groups"].items():
             sub_rows.append([
                 attribute, value,
-                r["n"] if r["n"] is not None else "fewer than 11",
-                r["positives"] if r["positives"] is not None else "fewer than 11",
+                r["n"] if r["n"] is not None else "withheld",
+                r["positives"] if r["positives"] is not None else "withheld",
                 f"{r['roc_auc']:.3f}" if "roc_auc" in r else "too few events",
                 f"{r['pr_auc']:.3f}" if "pr_auc" in r else "-",
                 f"{r['oe_ratio']:.2f}" if "oe_ratio" in r else "-",
@@ -770,7 +777,11 @@ def _test_section(ctx, test) -> Section:
         for metric_name, gap in sub["max_gap"].items():
             gaps.append(f"{attribute}: largest {metric_name} gap {gap:.3f}")
     if sub_rows:
-        blocks += [("p", "**Subgroups** (counts are patients). *(measured)*"),
+        blocks += [("p", ("**Subgroups** (counts are patients). A group's counts are "
+                          "withheld when it has fewer than 11 patients with or "
+                          "without the event; if only one group would be, the next "
+                          "smallest is withheld too, so no count can be found by "
+                          "subtraction. *(measured)*")),
                    ("table", ["attribute", "group", "n", "events", "ROC-AUC",
                               "PR-AUC", "observed / expected"], sub_rows)]
         if gaps:
@@ -1009,15 +1020,18 @@ def flags_for(card, explanation, test, suspicious=()) -> list[dict[str, str]]:
     if clinical:
         cal = clinical["calibration"]
         slope, oe = cal.get("calibration_slope"), cal.get("oe_ratio")
-        bad = [x for x in (slope, oe) if x is not None and not 0.8 <= x <= 1.25]
-        if bad:
+        known = [x for x in (slope, oe) if x is not None and math.isfinite(x)]
+        if any(not 0.8 <= x <= 1.25 for x in known):
+            def fmt(x) -> str:
+                return f"{x:.2f}" if x is not None and math.isfinite(x) else "n/a"
+
             out.append({"id": "calibration", "kind": "calibration",
-                        "detail": (f"Calibration slope {slope:.2f}, observed / "
-                                   f"expected {oe:.2f}: recalibrate before reading "
+                        "detail": (f"Calibration slope {fmt(slope)}, observed / "
+                                   f"expected {fmt(oe)}: recalibrate before reading "
                                    "predictions as risks.")})
         for attribute, sub in clinical.get("subgroups", {}).items():
             gap = sub["max_gap"].get("roc_auc")
-            if gap is not None and gap >= 0.1:
+            if gap is not None and math.isfinite(gap) and gap >= 0.1:
                 out.append({"id": f"subgroup_gap:{attribute}", "kind": "fairness",
                             "detail": f"ROC-AUC differs by {gap:.2f} between "
                                       f"{attribute} groups."})

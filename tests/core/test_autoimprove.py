@@ -1007,6 +1007,46 @@ class TestClinicalReport(unittest.TestCase):
                     self.assertTrue(row["n"] is None or row["n"] >= 11)
             self.assertTrue(all(b["n"] >= 11 for b in clinical["calibration_bins"]))
 
+    def test_calibration_and_subgroup_gap_flags(self):
+        from pyhealth.autoimprove.report import flags_for
+
+        def test(slope, oe, gap):
+            return {"best": {"clinical": {
+                "calibration": {"calibration_slope": slope, "oe_ratio": oe},
+                "subgroups": {"sex": {"max_gap": {"roc_auc": gap}}},
+            }}}
+
+        def ids(t):
+            return [f["id"] for f in flags_for(CARD, None, t)]
+
+        self.assertEqual(ids(test(1.0, 1.0, 0.05)), [])
+        self.assertEqual(ids(test(0.5, 1.0, 0.05)), ["calibration"])  # poor slope
+        self.assertEqual(ids(test(1.0, 2.0, 0.05)), ["calibration"])  # poor O/E
+        self.assertEqual(ids(test(1.0, 1.0, 0.1)), ["subgroup_gap:sex"])
+        both = flags_for(CARD, None, test(0.5, float("nan"), 0.2))
+        self.assertEqual([f["id"] for f in both], ["calibration", "subgroup_gap:sex"])
+        self.assertIn("observed / expected n/a", both[0]["detail"])
+        # NaN alone raises no flag
+        self.assertEqual(ids(test(float("nan"), None, float("nan"))), [])
+
+    def test_stability_refits_use_fold_parts(self):
+        # Each stability fold model goes through fold_parts, so engineered
+        # columns would be refitted on the fold, as in cross-validation.
+        from pyhealth.autoimprove import evaluate
+
+        improver = AutoImprover(
+            self.train, self.val, RandomProposer(seed=0),
+            baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16},
+                                    {"epochs": 2}),
+            space=SPACE, n_agents=1, n_cycles=1, cv_folds=3, task_card=CARD,
+        )
+        improver.run()
+        with mock.patch("pyhealth.autoimprove.improver.fold_parts",
+                        side_effect=evaluate.fold_parts) as spy:
+            out = improver.explain(top_k=3)
+        self.assertEqual(spy.call_count, 3)
+        self.assertEqual(out["stability"]["models"], 3)
+
     def test_flags_and_report_without_run_dir(self):
         # Results are kept in memory, so flags and the report still see them.
         improver = AutoImprover(

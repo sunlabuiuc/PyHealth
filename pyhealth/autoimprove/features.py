@@ -1049,6 +1049,17 @@ def _slug(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "_", str(text)).strip("_")
 
 
+def _number(x: float) -> str:
+    """A number for a column name, keeping its sign: -5 is ``m5``, 1e-05 is ``1em05``.
+
+    Examples:
+        >>> [_number(v) for v in (5, -5, 0.5, -0.5, 1e-05, 1e07)]
+        ['5', 'm5', '0_5', 'm0_5', '1em05', '1e07']
+    """
+    text = format(x, "g").replace("e-", "em").replace("e+", "e")
+    return _slug("m" + text[1:] if text.startswith("-") else text)
+
+
 def _select_name(select: dict[str, Any]) -> str:
     parts = [select["event_type"]]
     if "group" in select:
@@ -1075,10 +1086,9 @@ def _name(node: dict[str, Any]) -> str:
     if op == "blocks_with":
         return f"blocks{node['n']}x{node['block']}d__{_select_name(node['select'])}"
     if op == "ge":
-        x = _slug(format(node["x"], "g"))
-        return f"ge{x}__{_name(node['of'])}"
+        return f"ge{_number(node['x'])}__{_name(node['of'])}"
     if op == "band":
-        cuts = "_".join(_slug(format(c, "g")) for c in node["cuts"])
+        cuts = "_".join(_number(c) for c in node["cuts"])
         return f"band{cuts}__{_name(node['of'])}"
     if op == "column":
         return _slug(node["column"])
