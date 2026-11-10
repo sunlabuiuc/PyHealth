@@ -76,7 +76,10 @@ def alert_rate_metrics(
 
     Returns:
         ``{"top 10%": {"rate", "n_flagged", "threshold", "sensitivity", "ppv",
-        "nne"}}``: the share of all positives caught (sensitivity), the share
+        "nne"}}``. ``threshold`` is the midpoint between the lowest flagged
+        and the highest unflagged risk (0 when every sample is flagged), so
+        it is not any one sample's predicted risk unless the two are tied.
+        The rest are the share of all positives caught (sensitivity), the share
         of flags that are positive (PPV), and the number needed to evaluate,
         1 / PPV, the flags per true case.
 
@@ -107,10 +110,12 @@ def alert_rate_metrics(
             out[f"top {rate:.0%}"] = {"rate": float(rate), "suppressed": True}
             continue
         ppv = caught / k
+        lowest = y_prob[order[k - 1]]
+        threshold = (lowest + y_prob[order[k]]) / 2 if k < len(y_prob) else 0.0
         out[f"top {rate:.0%}"] = {
             "rate": float(rate),
             "n_flagged": int(k),
-            "threshold": float(y_prob[flagged].min()),
+            "threshold": float(threshold),
             "sensitivity": float(caught / positives) if positives else float("nan"),
             "ppv": float(ppv),
             "nne": float(1 / ppv) if ppv > 0 else float("inf"),

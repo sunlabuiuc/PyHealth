@@ -37,7 +37,7 @@ from pyhealth.autoimprove import (
 )
 from pyhealth.autoimprove import space as space_module
 from pyhealth.autoimprove.evaluate import patient_folds
-from pyhealth.autoimprove.explain import attributions, summarize
+from pyhealth.autoimprove.explain import _effect_bins, attributions, summarize
 from pyhealth.autoimprove.proposers import ProposalContext, parse_json
 from pyhealth.datasets import create_sample_dataset
 from pyhealth.models import LogisticRegression
@@ -1100,6 +1100,20 @@ class TestClinicalReport(unittest.TestCase):
         titles = [s.title for s in improver.report().sections]
         self.assertIn("How it decides", titles)
         self.assertIn("Performance in clinical terms", titles)
+
+    def test_effect_bins_give_a_shared_value_its_own_bin(self):
+        # 0 = "unmeasured" for 60 of 100 patients: it gets its own bin, and
+        # the measured values are cut around it.
+        rng = np.random.default_rng(0)
+        value = np.concatenate([np.zeros(60), rng.uniform(1, 10, 40)])
+        contrib = np.where(value == 0, -1.0, value / 10)
+        bins = _effect_bins(value, contrib, np.arange(100), 11, 5)
+        self.assertEqual(bins[0]["label"], "= 0")
+        self.assertEqual(bins[0]["n"], 60)
+        self.assertAlmostEqual(bins[0]["effect"], -1.0)
+        self.assertGreater(len(bins), 1)
+        self.assertTrue(all(b["n"] >= 11 for b in bins))
+        self.assertEqual(sum(b["n"] for b in bins), 100)
 
     def test_logistic_attributions_are_exact(self):
         model = LogisticRegression(self.train, embedding_dim=8)
