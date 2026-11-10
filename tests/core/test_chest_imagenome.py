@@ -262,6 +262,39 @@ class TestPrepareChestImaGenome(unittest.TestCase):
         with self.assertLogs("pyhealth.datasets.chest_imagenome", logging.WARNING):
             prepare_chest_imagenome(self.root)
 
+    def test_numeric_datetime_is_blank_and_reported(self):
+        write_graph(self.root, "img-g", 6, 602, StudyDateTime=20150102030405)
+        write_graph(self.root, "img-h", 6, 603, StudyDateTime=1.5e9)
+        with self.assertLogs("pyhealth.datasets.chest_imagenome", logging.WARNING) as logs:
+            prepare_chest_imagenome(self.root)
+        images = read_table(self.root, IMAGES_CSV).set_index("dicom_id")
+        self.assertEqual(images.loc["img-g", "study_datetime"], "")
+        self.assertEqual(images.loc["img-h", "study_datetime"], "")
+        self.assertTrue(any("no usable StudyDateTime" in line for line in logs.output))
+
+    def test_scene_graph_without_ids_is_skipped(self):
+        for dicom_id, missing in (("no-patient", "patient_id"), ("no-study", "study_id")):
+            write_graph(self.root, dicom_id, 7, 700)
+            path = self.root / f"silver_dataset/scene_graph/{dicom_id}_SceneGraph.json"
+            graph = json.loads(path.read_text())
+            del graph[missing]
+            path.write_text(json.dumps(graph))
+        with self.assertLogs("pyhealth.datasets.chest_imagenome", logging.WARNING) as logs:
+            prepare_chest_imagenome(self.root)
+        dicom_ids = set(read_table(self.root, IMAGES_CSV)["dicom_id"])
+        self.assertNotIn("no-patient", dicom_ids)
+        self.assertNotIn("no-study", dicom_ids)
+        self.assertEqual(sum("missing or malformed" in line for line in logs.output), 2)
+
+    def test_scene_graph_with_a_malformed_object_writes_nothing(self):
+        write_graph(self.root, "bad-object", 7, 701, objects=[{"bbox_name": "left lung"}])
+        with self.assertLogs("pyhealth.datasets.chest_imagenome", logging.WARNING):
+            prepare_chest_imagenome(self.root)
+        self.assertNotIn("bad-object", set(read_table(self.root, IMAGES_CSV)["dicom_id"]))
+        self.assertNotIn(
+            "bad-object", set(read_table(self.root, OBJECTS_CSV)["dicom_id"])
+        )
+
     def test_files_nested_by_the_zip_are_found(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
