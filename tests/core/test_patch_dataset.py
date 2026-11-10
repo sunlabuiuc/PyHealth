@@ -1,8 +1,17 @@
 """Tests for PatchDataset."""
 
+import shutil
+import tempfile
 import unittest
+from pathlib import Path
 
+import numpy as np
 import torch
+
+try:
+    import nibabel as nib
+except ImportError:  # pragma: no cover - test env installs the extra
+    nib = None
 
 from pyhealth.datasets import PatchDataset, create_sample_dataset, get_dataloader
 from pyhealth.sampler import PatchSampler
@@ -77,6 +86,42 @@ class TestPatchDataset(unittest.TestCase):
             num_patches=3,
         )
         self.assertEqual(len(patches), 6)
+
+    @unittest.skipUnless(nib is not None, "nibabel is not installed")
+    def test_lazy_nifti_dataset_materialises(self):
+        temp_dir = tempfile.mkdtemp()
+        try:
+            image_path = Path(temp_dir) / "image.nii.gz"
+            mask_path = Path(temp_dir) / "mask.nii.gz"
+            image = np.zeros((8, 8, 8), dtype=np.float32)
+            image[4, 4, 4] = 5.0
+            mask = np.zeros((8, 8, 8), dtype=np.int16)
+            mask[4, 4, 4] = 1
+            nib.save(nib.Nifti1Image(image, np.eye(4)), str(image_path))
+            nib.save(nib.Nifti1Image(mask, np.eye(4)), str(mask_path))
+            dataset = create_sample_dataset(
+                [
+                    {
+                        "patient_id": "p0",
+                        "image": str(image_path),
+                        "mask": str(mask_path),
+                    }
+                ],
+                {"image": ("nifti", {"lazy": True})},
+                {"mask": ("nifti", {"lazy": True, "is_mask": True})},
+            )
+            try:
+                patches = PatchDataset(
+                    dataset, PatchSampler((4, 4, 4)), mode="center"
+                )
+                sample = patches[0]
+                self.assertEqual(tuple(sample["image"].shape), (1, 4, 4, 4))
+                self.assertEqual(tuple(sample["mask"].shape), (1, 4, 4, 4))
+                self.assertGreater(float(sample["image"].max()), 0.0)
+            finally:
+                dataset.close()
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     def test_dataloader_collates_3d_and_2d_patches(self):
         for patch_size, expected in (

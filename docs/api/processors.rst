@@ -35,6 +35,8 @@ Available Processors
 - ``BinaryLabelProcessor``: Binary classification labels (e.g., mortality prediction)
 - ``MultiClassLabelProcessor``: Multi-class classification labels
 - ``MultiLabelProcessor``: Multi-label classification (e.g., drug recommendation)
+- ``SegmentationBinaryLabelProcessor``: Binary segmentation masks (``"segmentation_binary"``), scored case by case with Dice/IoU because masks keep their spatial shape
+- ``SegmentationMultiClassLabelProcessor``: Multi-class segmentation masks (``"segmentation_multiclass"``), one integer class per voxel
 - ``RegressionLabelProcessor``: Continuous regression targets, optionally normalized for training, as ``TensorProcessor`` does for inputs (``("regression", {"normalization": "minmax"})``, ``"zscore"``, or a fixed ``(low, high)`` range); ``Trainer.inference`` and metrics are in the original units
 - ``TimeseriesBinaryLabelProcessor``: Binary labels at given times (``"timeseries_binary"``): each sample is ``{"time": [...], "values": [...]}``, packed per batch as ``(values [ΣN, 1], time [ΣN], batch offsets [B + 1])``, one record per label, with no grid or mask
 - ``TimeseriesMultiClassLabelProcessor``: One class per given time (``"timeseries_multiclass"``), values ``[ΣN]``, in the same packed format
@@ -577,6 +579,8 @@ API Reference
     processors/pyhealth.processors.MultiClassLabelProcessor
     processors/pyhealth.processors.MultiLabelProcessor
     processors/pyhealth.processors.RegressionLabelProcessor
+    processors/pyhealth.processors.SegmentationBinaryLabelProcessor
+    processors/pyhealth.processors.SegmentationMultiClassLabelProcessor
     processors/pyhealth.processors.TimeseriesLabelProcessor
     processors/pyhealth.processors.TimeseriesBinaryLabelProcessor
     processors/pyhealth.processors.TimeseriesMultiClassLabelProcessor

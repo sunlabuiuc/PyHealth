@@ -27,13 +27,22 @@ Examples:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import torch
 from torch.nn import functional as F
 
-from pyhealth.processors.image_io.types import ImageRef
 from pyhealth.sampler.patch_sampler import PatchLocation, PatchSampler
+
+
+def _is_lazy_value(value: Any) -> bool:
+    """Whether a processed field holds lazy references instead of pixels."""
+    if isinstance(value, (str, Path, dict)):
+        return True
+    return isinstance(value, (list, tuple)) and all(
+        isinstance(item, (str, Path)) for item in value
+    )
 
 
 def _as_tensor(value: Any, dtype: torch.dtype) -> torch.Tensor:
@@ -154,16 +163,19 @@ class PatchDataset(torch.utils.data.Dataset):
     def _materialize(self, sample: dict[str, Any], key: str) -> Any:
         """Materialise one lazy field using the wrapped dataset's processor."""
         value = sample[key]
-        if not isinstance(value, ImageRef):
+        if not _is_lazy_value(value):
             return value
         processors = {
             **getattr(self.dataset, "input_processors", {}),
             **getattr(self.dataset, "output_processors", {}),
         }
         processor = processors.get(key)
-        if processor is not None and hasattr(processor, "materialize"):
-            return processor.materialize(value)
-        return value.load()
+        if processor is None or not hasattr(processor, "materialize"):
+            raise TypeError(
+                f"Cannot materialise the lazy value of {key!r}: the wrapped "
+                "dataset has no processor with materialize()."
+            )
+        return processor.materialize(value)
 
     def __getitem__(self, index: int) -> dict[str, Any]:
         """Return one fixed-size patch sample."""

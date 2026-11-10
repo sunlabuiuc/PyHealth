@@ -623,11 +623,6 @@ class UNet(BaseModel):
                 "convolutions with depth > 1."
             )
 
-        self.mode = (
-            "segmentation_multiclass"
-            if self.num_classes > 1
-            else "segmentation_binary"
-        )
         self.loss_fn = SegmentationLoss(
             mode=self.mode,
             ce_weight=ce_weight,
@@ -644,6 +639,20 @@ class UNet(BaseModel):
             bilinear=self.bilinear,
             dropout=dropout,
             norm=norm,
+        )
+
+    @property
+    def mode(self) -> str:
+        """The segmentation label kind implied by ``num_classes``.
+
+        The mask output is read by an image processor, not a label processor,
+        so ``BaseModel.mode`` is None; this property gives the ``Trainer`` the
+        label kind it should use for metrics.
+        """
+        return (
+            "segmentation_multiclass"
+            if self.num_classes > 1
+            else "segmentation_binary"
         )
 
     def _infer_spatial_dim(self) -> int:
@@ -781,7 +790,10 @@ class UNet(BaseModel):
             image = F.pad(image, pads, mode="replicate")
         logits = self.network(image)
         logits = _interpolate(logits, original_shape, self.spatial_dim)
-        y_prob = self.prepare_y_prob(logits)
+        if self.num_classes > 1:
+            y_prob = F.softmax(logits, dim=1)
+        else:
+            y_prob = torch.sigmoid(logits)
         results: dict[str, torch.Tensor] = {"logit": logits, "y_prob": y_prob}
         if self.label_key in kwargs:
             y_true = kwargs[self.label_key].to(self.device)

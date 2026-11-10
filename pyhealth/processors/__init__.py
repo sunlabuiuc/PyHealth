@@ -30,6 +30,8 @@ from .label_processor import (
     MultiClassLabelProcessor,
     MultiLabelProcessor,
     RegressionLabelProcessor,
+    SegmentationBinaryLabelProcessor,
+    SegmentationMultiClassLabelProcessor,
 )
 from .multi_hot_processor import MultiHotProcessor
 from .nested_multihot_processor import NestedMultiHotProcessor
@@ -92,6 +94,8 @@ __all__ = [
     "read_image_metadata",
     "LabelProcessor",
     "MultiHotProcessor",
+    "SegmentationBinaryLabelProcessor",
+    "SegmentationMultiClassLabelProcessor",
     "NestedFloatsProcessor",
     "NestedMultiHotProcessor",
     "NestedSequenceProcessor",

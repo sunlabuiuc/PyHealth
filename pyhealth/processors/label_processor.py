@@ -697,3 +697,118 @@ class RegressionLabelProcessor(LabelProcessor):
         from pyhealth.metrics.regression import regression_metrics_fn
 
         return regression_metrics_fn(y_true, y_prob, metrics=metrics)
+
+
+def _segmentation_batches(value: Any) -> list[np.ndarray]:
+    """Split one batch of masks or probabilities into per-sample arrays."""
+    if hasattr(value, "detach"):
+        value = value.detach().cpu().numpy()
+    else:
+        value = np.asarray(value)
+    return [value[index] for index in range(len(value))]
+
+
+class _SegmentationLabelProcessor(LabelProcessor):
+    """Shared behaviour of the segmentation label kinds.
+
+    Segmentation masks keep their spatial shape, so batches cannot be stacked
+    into one array the way classification labels can. :meth:`to_numpy` returns
+    one array per sample and :meth:`gather` keeps that list, which is what
+    :func:`~pyhealth.metrics.segmentation.segmentation_metrics_fn` expects.
+
+    Args:
+        num_classes: Number of classes including background. It is only used
+            by :meth:`size`; the model carries the value it was built with.
+    """
+
+    stores_tensor = False
+
+    def __init__(self, num_classes: int | None = None):
+        super().__init__()
+        self.num_classes = num_classes
+
+    def size(self) -> int:
+        if self.num_classes is None:
+            raise ValueError(
+                "A segmentation label processor needs num_classes to report "
+                "its size."
+            )
+        return int(self.num_classes)
+
+    def process(self, value: Any) -> torch.Tensor:
+        return torch.as_tensor(value)
+
+    def to_numpy(
+        self, y_true: Any, y_prob: torch.Tensor
+    ) -> tuple[list[np.ndarray], list[np.ndarray]]:
+        """One mask and one probability map per sample."""
+        return _segmentation_batches(y_true), _segmentation_batches(y_prob)
+
+    def gather(
+        self, y_true: list[np.ndarray], y_prob: list[np.ndarray]
+    ) -> tuple[list[np.ndarray], list[np.ndarray]]:
+        """Keep one array per sample instead of concatenating."""
+        return y_true, y_prob
+
+    @classmethod
+    def metrics_fn(cls, y_true, y_prob, metrics=None):
+        from pyhealth.metrics.segmentation import segmentation_metrics_fn
+
+        return segmentation_metrics_fn(
+            y_true, y_prob, metrics=metrics, mode=cls.mode
+        )
+
+
+@register_processor("segmentation_binary")
+class SegmentationBinaryLabelProcessor(_SegmentationLabelProcessor):
+    """Binary segmentation labels, one mask channel.
+
+    The mask is already read by an image processor; this processor defines the
+    label kind so models and the ``Trainer`` know how to activate, score and
+    gather variable-shaped masks.
+
+    Examples:
+        >>> import torch
+        >>> p = SegmentationBinaryLabelProcessor()
+        >>> p.mode
+        'segmentation_binary'
+        >>> p.activation(torch.tensor([[0.0]])).item()
+        0.5
+    """
+
+    mode = "segmentation_binary"
+
+    def activation(self, logits: torch.Tensor) -> torch.Tensor:
+        return torch.sigmoid(logits)
+
+    def loss(self, logits: torch.Tensor, y_true: Any, **kwargs: Any) -> torch.Tensor:
+        return F.binary_cross_entropy_with_logits(logits, y_true, **kwargs)
+
+
+@register_processor("segmentation_multiclass")
+class SegmentationMultiClassLabelProcessor(_SegmentationLabelProcessor):
+    """Multi-class segmentation labels: one integer class per voxel.
+
+    Examples:
+        >>> import torch
+        >>> p = SegmentationMultiClassLabelProcessor(num_classes=3)
+        >>> p.mode
+        'segmentation_multiclass'
+        >>> p.size()
+        3
+        >>> probs = p.activation(torch.zeros(1, 3, 2))
+        >>> probs.shape
+        torch.Size([1, 3, 2])
+        >>> float(probs[0, :, 0].sum())
+        1.0
+    """
+
+    mode = "segmentation_multiclass"
+
+    def activation(self, logits: torch.Tensor) -> torch.Tensor:
+        return F.softmax(logits, dim=1)
+
+    def loss(self, logits: torch.Tensor, y_true: Any, **kwargs: Any) -> torch.Tensor:
+        if y_true.ndim == logits.ndim and y_true.shape[1] == 1:
+            y_true = y_true[:, 0]
+        return F.cross_entropy(logits, y_true.long(), **kwargs)

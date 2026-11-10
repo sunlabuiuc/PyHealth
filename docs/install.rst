@@ -68,7 +68,7 @@ Install it with the optional extra:
 
    pip install "pyhealth[xgboost]"
 
-DICOM and NIfTI support is also optional:
+DICOM, NIfTI and segmentation support (UNet, Dice/IoU) is also optional:
 
 .. code-block:: bash
 

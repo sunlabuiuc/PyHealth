@@ -25,6 +25,7 @@ Examples:
 from __future__ import annotations
 
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -37,10 +38,23 @@ def _to_numpy(value: Any) -> np.ndarray:
     return np.asarray(value)
 
 
-def _load_value(value: Any) -> np.ndarray:
-    """Load an ``ImageRef`` or convert an already-materialised value."""
-    if hasattr(value, "load") and hasattr(value, "reader"):
-        value = value.load()
+def _is_lazy_value(value: Any) -> bool:
+    """Whether a processed field holds lazy references instead of pixels."""
+    if isinstance(value, (str, Path, dict)):
+        return True
+    return isinstance(value, (list, tuple)) and all(
+        isinstance(item, (str, Path)) for item in value
+    )
+
+
+def _load_value(value: Any, processor: Any = None) -> np.ndarray:
+    """Materialise a lazy value with its processor, or convert an array."""
+    if (
+        processor is not None
+        and hasattr(processor, "materialize")
+        and _is_lazy_value(value)
+    ):
+        value = processor.materialize(value)
     return _to_numpy(value)
 
 
@@ -123,6 +137,10 @@ def compute_foreground_intensity_stats(
     seen_voxels = 0
     rng = np.random.default_rng(seed)
     seen = 0
+    processors = {
+        **getattr(dataset, "input_processors", {}),
+        **getattr(dataset, "output_processors", {}),
+    }
     for sample in dataset:
         if max_cases is not None and seen >= max_cases:
             break
@@ -133,8 +151,8 @@ def compute_foreground_intensity_stats(
             and str(sample_modality).upper() != str(modality).upper()
         ):
             continue
-        image = _load_value(sample[input_key])
-        mask = _load_value(sample[label_key])
+        image = _load_value(sample[input_key], processors.get(input_key))
+        mask = _load_value(sample[label_key], processors.get(label_key))
         if mask.ndim == image.ndim:
             # Both have a channel axis: keep the mask channel dimension
             # for broadcasting against the image channels.
