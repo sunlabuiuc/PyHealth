@@ -24,6 +24,9 @@ paper); the others make one.
                  Group MissForest Missing (not in the paper)
     diagnostic   Group MICE + Black flag, Group MICE Missing + Black flag: the
                  Black flag also reaches the classifier, as in the reference code
+    order        MICE Missing + indicators first, Group MICE Missing + indicators
+                 first (+ Black flag): the indicators are also imputation
+                 predictors, as in the reference code at fcb580b
     sensitivity  Corrected MICE, Corrected Group MICE (not in the paper)
 
 Usage:
@@ -51,7 +54,9 @@ the chosen C), cohort.json (cohort sizes, the paper's Table 1 and each
 strategy's share of extreme imputations), fig_deltas_<model>_<capacity>.png
 (the gaps of Figures 5 and 9-11, if matplotlib is installed) and report.md
 (Tables 1, 2 and 5-10, the gaps, the chosen C and the extreme imputations, with
-the paper's values in brackets).
+the paper's values in brackets). Each "+ indicators first" strategy run with its
+base strategy also gives order_shift.csv (how far the imputed values move) and
+order_paired.csv (paired bootstrap differences of every metric and gap).
 """
 
 import argparse
@@ -75,6 +80,7 @@ from sklearn.metrics import roc_auc_score
 import pyhealth
 from pyhealth.datasets import MIMIC3Dataset, get_dataloader
 from pyhealth.metrics.fairness_utils import capacity_fairness_metrics
+from pyhealth.metrics.fairness_utils.capacity import _bootstrap
 from pyhealth.models import LogisticRegression
 from pyhealth.tasks import ClinicalPresenceMortalityMIMIC3
 from pyhealth.trainer import Trainer
@@ -113,11 +119,23 @@ STRATEGIES = {
     "Group MICE Missing + Black flag": (
         {"imputation": "group_mice", "add_missing_indicators": True}, ("black",),
         "diagnostic"),
+    # Reference code @ fcb580b adds the indicators before MICE, as predictors
+    "MICE Missing + indicators first": (
+        {"imputation": "mice", "add_missing_indicators": True,
+         "indicators_in_imputation": True}, (), "order"),
+    "Group MICE Missing + indicators first": (
+        {"imputation": "group_mice", "add_missing_indicators": True,
+         "indicators_in_imputation": True}, (), "order"),
+    "Group MICE Missing + indicators first + Black flag": (
+        {"imputation": "group_mice", "add_missing_indicators": True,
+         "indicators_in_imputation": True}, ("black",), "order"),
     "Corrected MICE": ({"imputation": "corrected_mice"}, (), "sensitivity"),
     "Corrected Group MICE": (
         {"imputation": "group_corrected_mice"}, (), "sensitivity"),
 }
-FAMILIES = ("paper", "appendix", "ablation", "diagnostic", "sensitivity")
+FAMILIES = ("paper", "appendix", "ablation", "diagnostic", "order", "sensitivity")
+ORDER = " + indicators first"  # removing it from a name gives the base strategy
+ORDER_MIN_ROWS = 136  # Group MICE Missing first: 66 labs, 67 indicators, 3 flags
 C_GRID = (0.01, 0.1, 1.0, 10.0)  # lambda = 1/C; reference search order, first wins ties
 MAX_ITER = 1000  # reference; sag reaches it on MIMIC-III, so n_iter is recorded
 
@@ -282,6 +300,88 @@ def evaluate(y, p, fields, capacities, n_bootstrap):
     return rows
 
 
+def order_shift(first, after, min_rows=ORDER_MIN_ROWS):
+    """Mean |first - after| over the missing lab cells, and between draws of after.
+
+    Features are standardised per draw, so both are in training-sd units. The
+    "well-posed labs" row keeps the labs with at least min_rows observed training
+    rows. Returns {labs: (number of labs, shift, draw spread)}, None if undefined.
+    """
+    if first["pids"] != after["pids"]:
+        raise ValueError("The two strategies have different cohorts.")
+    A, B = first["X"][..., :N_LABS], after["X"][..., :N_LABS]
+    ind = after["X"][0, :, N_LABS:]
+    missing = ind > ind.min(axis=0)  # a standardised indicator is larger where missing
+    rows = (~missing[after["split"] == "train"]).sum(axis=0)
+    out = {}
+    for label, labs in (("all labs", rows >= 0), ("well-posed labs", rows >= min_rows)):
+        m = missing & labs
+        shift = float(np.abs(A - B)[:, m].mean()) if m.any() else None
+        spread = (float(np.abs(np.diff(B, axis=0))[:, m].mean())
+                  if m.any() and len(B) > 1 else None)
+        out[label] = (int(labs.sum()), shift, spread)
+    return out
+
+
+def paired_differences(y, p_first, p_after, fields, cap, n_bootstrap):
+    """(axis, group, metric, mean, std) of first - after, on evaluate's resamples.
+
+    capacity_fairness_metrics resamples from RandomState(42), protected group
+    first, so both strategies see the same patients in every resample.
+    """
+    k = int(len(y) * cap)
+    if k < 1:
+        raise ValueError("capacity * n_samples is below 1.")
+
+    def draws(p, flag):
+        threshold = float(np.sort(p)[-k])
+        rng = np.random.RandomState(42)  # capacity_fairness_metrics' default seed
+        if flag is None:
+            return _bootstrap(y, p, threshold, n_bootstrap, rng, "population")
+        a, b = (_bootstrap(y[m], p[m], threshold, n_bootstrap, rng, "")
+                for m in (flag == 1, flag == 0))
+        return {key: a[key] - b[key] for key in a}
+
+    rows = []
+    for axis, flag in (("Overall", None),
+                       *((a, fields[f]) for a, (f, _, _) in AXES.items())):
+        try:
+            d1, d2 = draws(p_first, flag), draws(p_after, flag)
+        except ValueError as e:  # only on tiny evaluation sets (demo, --dev)
+            logger.warning("order %s @ %.2f skipped: %s", axis, cap, e)
+            continue
+        group = "Population" if flag is None else "Delta"
+        rows += [(axis, group, m, float(np.mean(d1[m] - d2[m])),
+                  float(np.std(d1[m] - d2[m]))) for m in METRICS]
+    return rows
+
+
+def order_comparison(seed, arrays, test_probs, args):
+    """order_shift and paired_differences rows of each + indicators first strategy."""
+    shifts, paired = [], []
+    for name in [n for n in test_probs if ORDER in n]:
+        base = name.replace(ORDER, "")
+        if base not in test_probs:
+            logger.warning("%s: also run %r to compare the indicator order", name, base)
+            continue
+        after = arrays[base]
+        if not STRATEGIES[name][1]:  # a + Black flag row shares these imputations
+            for labs, (n_labs, shift, spread) in order_shift(arrays[name],
+                                                             after).items():
+                shifts.append((seed, name, labs, n_labs, shift, spread))
+                logger.info("%s, seed %d, %d %s: imputed cells moved %s sd; draws "
+                            "differ by %s sd", name, seed, n_labs, labs,
+                            "n/a" if shift is None else f"{shift:.4f}",
+                            "n/a" if spread is None else f"{spread:.4f}")
+        te = after["split"] == "test"
+        fields = {f: v[te] for f, v in after["fields"].items()}
+        for cap in args.capacities:
+            paired += [(seed, name, cap, *row) for row in paired_differences(
+                after["y"][te], test_probs[name], test_probs[base], fields, cap,
+                args.n_bootstrap)]
+    return shifts, paired
+
+
 def cohort_summary(data):
     """Aggregate cohort statistics, including the paper's Table 1 (t-tests)."""
     y, f = data["y"], data["fields"]
@@ -321,9 +421,10 @@ def extreme_summary(data):
 
 
 def _paper(strategy, metric, group):
-    """The paper's value at 30%; a + Black flag row gets its base strategy's.
+    """The paper's value at 30%; a row with " + ..." suffixes gets its base's.
 
-    The paper's Group MICE code also passed the Black flag to the classifier.
+    The paper's Group MICE code also passed the Black flag to the classifier, and
+    its Missing strategies also used the indicators as imputation predictors.
     """
     vals = PAPER[metric].get(strategy.split(" + ")[0])
     return None if vals is None else vals[GROUP_ROWS.index(group)]
@@ -352,10 +453,15 @@ def _table(header, rows):
             *("| " + " | ".join(r) + " |" for r in rows)]
 
 
-def write_report(df, selection, cohorts, figures, out, args):
+def write_report(df, selection, cohorts, figures, out, args, shifts, paired):
     """report.md: Tables 1, 2 and 5-10 and the gaps, with paper values in brackets."""
     first = cohorts[f"seed {args.seeds[0]}"]
     split = " / ".join(f"{n:,}" for n in first["split_sizes"].values())
+    order_note = [
+        ("- The + indicators first rows also use the indicators as imputation "
+         "predictors, as the paper's code did, so the paper's Group MICE Missing "
+         "values come from the pipeline closest to the + indicators first + Black "
+         "flag row.")] if any(ORDER in s for s in set(df.strategy)) else []
     lines = [
         "# Imputation strategies under clinical presence: results", "",
         (f"Split seed{'s' * (len(args.seeds) > 1)} {', '.join(map(str, args.seeds))}; "
@@ -376,6 +482,7 @@ def write_report(df, selection, cohorts, figures, out, args):
         ("- The paper's code for Group MICE also passed the Black flag to the "
          "classifier, so its Group MICE values are bracketed in the + Black flag rows "
          "too."),
+        *order_note,
         ("- Figure error bars are 1.96 bootstrap sds. The paper's figures divide "
          "that by 10."),
         "", "## Cohort (Table 1)", "",
@@ -479,6 +586,59 @@ def write_report(df, selection, cohorts, figures, out, args):
             fig = f"fig_deltas_{model}_{round(cap * 100)}.png"
             if fig in figures:
                 lines += ["", f"![Gaps at {cap:.0%} capacity]({fig})"]
+
+    def seed_mean(v):
+        v = v.astype(float).dropna()
+        return "—" if v.empty else (f"{v.mean():.3f}"
+                                    + (f" ±{v.std():.3f}" if len(v) > 1 else ""))
+
+    if len(shifts) or len(paired):
+        lines += ["", "## Indicator order", "",
+                  ("Each + indicators first strategy against the same strategy with "
+                   "the indicators added after imputation. Both draw the same random "
+                   "numbers and give the classifier the same columns, and the "
+                   "bootstrap resamples the same patients, so the differences are "
+                   "paired. scikit-learn only.")]
+    if len(shifts):
+        wp = shifts[shifts.labs == "well-posed labs"].n_labs
+        n_wp = f"{wp.min()}" if wp.min() == wp.max() else f"{wp.min()}–{wp.max()}"
+        lines += ["", "### Imputed values", "",
+                  ("Mean |first − after| over the missing lab cells (shift), and the "
+                   "same between consecutive draws of the after strategy (draw "
+                   "spread), in training sds, then ± the sd across seeds if several. "
+                   f"Well-posed labs have at least {ORDER_MIN_ROWS} observed training "
+                   f"rows: {n_wp} of {N_LABS}."), ""]
+        rows = []
+        for s in [s for s in STRATEGIES if s in set(shifts.strategy)]:
+            for labs in ("all labs", "well-posed labs"):
+                g = shifts[(shifts.strategy == s) & (shifts.labs == labs)]
+                shift = g["shift"].astype(float).mean()
+                spread = g["draw_spread"].astype(float).mean()
+                ratio = shift / spread if spread > 0 else np.nan
+                rows.append([s, labs, seed_mean(g["shift"]),
+                             seed_mean(g["draw_spread"]),
+                             "—" if np.isnan(ratio) else f"{ratio:.2f}"])
+        lines += _table(["Strategy", "Labs", "Shift", "Draw spread",
+                         "Shift / spread"], rows)
+    if len(paired):
+        strategies = [s for s in STRATEGIES if s in set(paired.strategy)]
+        d = paired[np.isclose(paired.capacity, main_cap)]
+        rows = [[s, _cell(d, "Overall", s, "Population", "auc", sign="+"),
+                 *(_cell(d, a, s, "Delta", "auc", sign="+") for a in AXES)]
+                for s in strategies]
+        lines += ["", "### Paired differences: AUC", "",
+                  ("First − after: the mean over resamples (paired bootstrap sd), "
+                   "then ± the sd across seeds if several. The Δ columns are changes "
+                   "of the gaps (marginalised − rest)."), ""]
+        lines += _table(["Strategy", "AUC Population", *(f"Δ AUC {a}" for a in AXES)],
+                        rows)
+        for cap in args.capacities:
+            dc = paired[np.isclose(paired.capacity, cap)]
+            rows = [[s, *(_cell(dc, a, s, "Delta", m, sign="+") for m, a in gaps)]
+                    for s in strategies]
+            lines += ["", f"### Paired differences: gaps at {cap:.0%} capacity", ""]
+            lines += _table(["Strategy", *(f"Δ {short[m]} {a}" for m, a in gaps)],
+                            rows)
     (out / "report.md").write_text("\n".join(lines) + "\n")
 
 
@@ -507,7 +667,8 @@ def plot_deltas(df, out):
                 y = base + (n - 1 - 2 * k) * h / 2
                 ax.barh(y, e["mean"], height=h, xerr=1.96 * e["std"], label=s,
                         color=tab20[COLOURS.get(s.split(" + ")[0], 14)],
-                        hatch="///" if STRATEGIES[s][2] == "diagnostic" else None,
+                        hatch=("///" * ("Black flag" in s)
+                               + "..." * ("indicators first" in s)) or None,
                         edgecolor="white", linewidth=0.5, error_kw={"lw": 0.8})
                 paper = [_paper_gap(s, metric, a) for a in AXES]
                 if np.isclose(cap, 0.3) and None not in paper:
@@ -577,9 +738,10 @@ def main():
     base = MIMIC3Dataset(root=args.root, tables=["labevents"], cache_dir=args.cache_dir,
                          dev=args.dev, num_workers=args.num_workers)
     base.stats()  # build the event table once, before any set_task
-    records, selection, cohorts = [], [], {}
+    records, selection, cohorts, shifts, paired = [], [], {}, [], []
     for seed in args.seeds:
         datasets = {}  # task kwargs -> (SampleDataset, arrays); diagnostics reuse
+        arrays, test_probs = {}, {}  # strategy -> this seed's, for order_comparison
         for name in args.strategies:
             kwargs, extra, family = STRATEGIES[name]
             kwargs = {**kwargs, "seed": seed, "split_ratios": args.split_ratios}
@@ -608,6 +770,7 @@ def main():
                         sum(n_iter == MAX_ITER for _, _, _, n_iter, _ in fits),
                         len(fits))
             selection += [(seed, name, *row) for row in fits]
+            arrays[name], test_probs[name] = data, p[te]
             models = {"sklearn": p}
             if args.pyhealth_lr and not extra:
                 run_dir = out / "pyhealth_runs" / f"{name}_s{seed}".replace(" ", "_")
@@ -617,15 +780,27 @@ def main():
                 for row in evaluate(data["y"][te], probs[te], fields_te,
                                     args.capacities, args.n_bootstrap):
                     records.append((seed, model, name, family, *row))
+        seed_shifts, seed_paired = order_comparison(seed, arrays, test_probs, args)
+        shifts += seed_shifts
+        paired += seed_paired
     df = pd.DataFrame(records, columns=["seed", "model", "strategy", "family", "axis",
                                         "group", "metric", "mean", "std", "capacity"])
     df.to_csv(out / "metrics.csv", index=False)
+    shifts = pd.DataFrame(shifts, columns=["seed", "strategy", "labs", "n_labs",
+                                           "shift", "draw_spread"])
+    paired = pd.DataFrame(paired, columns=["seed", "strategy", "capacity", "axis",
+                                           "group", "metric", "mean", "std"])
+    if len(shifts):
+        shifts.to_csv(out / "order_shift.csv", index=False)
+    if len(paired):
+        paired.to_csv(out / "order_paired.csv", index=False)
     selection = pd.DataFrame(selection, columns=["seed", "strategy", "draw", "C",
                                                  f"val_{args.select_metric}", "n_iter",
                                                  "chosen"])
     selection.to_csv(out / "selection.csv", index=False)
     (out / "cohort.json").write_text(json.dumps(cohorts, indent=1))
-    write_report(df, selection, cohorts, plot_deltas(df, out), out, args)
+    write_report(df, selection, cohorts, plot_deltas(df, out), out, args, shifts,
+                 paired)
     logger.info("wrote %s", out)
 
 
