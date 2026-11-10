@@ -125,7 +125,7 @@ class EthosVocab:
         }
 
     @classmethod
-    def from_json(cls, data: dict[str, Any]) -> "EthosVocab":
+    def from_json(cls, data: dict[str, Any]) -> EthosVocab:
         """Rebuilds a vocabulary from :meth:`to_json`'s output."""
         vocab = cls(pad_id=int(data["pad_id"]), unk_id=int(data["unk_id"]))
         vocab.token_to_id = dict(data["token_to_id"])
