@@ -110,7 +110,7 @@ class LogisticRecalibration(PostHocCalibrator):
         self.device = model.device
         self.debug = debug
 
-        num_outputs = self.model.get_output_size()
+        num_outputs = self.model.label_processor.output_size()
         self.intercept = torch.nn.Parameter(
             torch.zeros(num_outputs, dtype=torch.float32, device=self.device)
         )
@@ -223,7 +223,7 @@ class LogisticRecalibration(PostHocCalibrator):
         """
         ret = self.model(**kwargs)
         ret["logit"] = self.intercept + self.slope * ret["logit"]
-        ret["y_prob"] = self.model.prepare_y_prob(ret["logit"])
-        criterion = self.model.get_loss_function()
+        ret["y_prob"] = self.model.label_processor.activation(ret["logit"])
+        criterion = self.model.label_processor.loss
         ret["loss"] = criterion(ret["logit"], ret["y_true"])
         return ret

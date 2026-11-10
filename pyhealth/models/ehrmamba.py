@@ -118,6 +118,18 @@ class EHRMamba(BaseModel):
         state_size: SSM state size per channel. Default 16.
         conv_kernel: Causal conv kernel size in block. Default 4.
         dropout: Dropout before classification head. Default 0.1.
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
+        >>> dataset = create_sample_dataset(
+        ...     [{"patient_id": str(i), "codes": ["a", "b", "c"][: 1 + i], "y": i % 2}
+        ...      for i in range(2)],
+        ...     {"codes": "sequence"}, {"y": "binary"},
+        ... )
+        >>> model = EHRMamba(dataset, embedding_dim=16, num_layers=1)
+        >>> batch = next(iter(get_dataloader(dataset, batch_size=2)))
+        >>> model(**batch)["y_prob"].shape
+        torch.Size([2, 1])
     """
 
     def __init__(
@@ -157,7 +169,7 @@ class EHRMamba(BaseModel):
                 ]
             )
 
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.dropout = nn.Dropout(dropout)
         self.fc = nn.Linear(len(self.feature_keys) * embedding_dim, output_size)
 
@@ -234,8 +246,8 @@ class EHRMamba(BaseModel):
         patient_emb = torch.cat(patient_emb, dim=1)
         logits = self.fc(self.dropout(patient_emb))
         y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
+        loss = self.label_processor.loss(logits, y_true)
+        y_prob = self.label_processor.activation(logits)
         results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
         if kwargs.get("embed", False):
             results["embed"] = patient_emb

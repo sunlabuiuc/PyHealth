@@ -180,6 +180,13 @@ class Graph_TorchvisionModel(BaseModel):
             e.g., {"weights": "DEFAULT"}. See the torchvision documentation for the
             set of supported kwargs for each model.
     -----------------------------------------------------------------------------------
+
+    Examples:
+        >>> model = Graph_TorchvisionModel(  # doctest: +SKIP
+        ...     dataset=dataset, feature_keys=["image"], label_key="label",
+        ...     mode="multiclass", model_name="resnet18",
+        ...     model_config={"weights": "DEFAULT"}, gnn_config={...},
+        ... )
     """
 
     def __init__(
@@ -248,8 +255,8 @@ class Graph_TorchvisionModel(BaseModel):
         img_embs = self.model(x)
         logits = self.gnn(img_embs, kwargs["adjacencies"])
         y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
+        loss = self.label_processor.loss(logits, y_true)
+        y_prob = self.label_processor.activation(logits)
         return {
             "loss": loss,
             "y_prob": y_prob,
