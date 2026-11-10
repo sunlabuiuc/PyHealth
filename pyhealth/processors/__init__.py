@@ -140,6 +140,7 @@ __all__ = [
     "TimeImageProcessor",
     "GraphProcessor",
     "AudioProcessor",
+    "IgnoreProcessor",
     "TupleTimeTextProcessor",
     "CehrProcessor",
     "ConceptVocab",
