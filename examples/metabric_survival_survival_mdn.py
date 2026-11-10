@@ -17,6 +17,14 @@ Ablations (``--ablation``):
   features (model-level).
 - ``horizon``: administrative censoring of follow-up at 60 and 120 months
   vs full follow-up, evaluated on uncut test labels (task-level).
+- ``scale``: lower bound on the mixture standard deviations, 1e-8 vs 0.70
+  (model-level). The paper (Sec. 5.4) makes the scales positive with
+  ``exp``, so they are effectively unbounded below. The authors' released
+  code instead uses ``softplus(clamp(raw, 0.01, 100))``, which keeps every
+  scale at or above softplus(0.01), about 0.70, in the latent time space.
+  ``SurvivalMDN`` computes ``softplus(raw).clamp_min(min_scale)``, so
+  ``min_scale=0.70`` reproduces the code's floor and ``1e-8`` the paper's
+  description. The paper does not report this choice or its effect.
 
 Every configuration uses the same splits, seeds, optimizer and stopping rule,
 so only the ablated setting changes.
@@ -59,6 +67,25 @@ Findings (real METABRIC, ten published splits, one seed, no tuning):
       beyond five components the gains are within one standard error.
     - Cutting follow-up at 60 months costs little ranking accuracy on the
       full-follow-up test labels.
+
+    Scale floor (all features, K = 10, ten splits x three seeds, paired by
+    split and seed; differences are 0.70 minus 1e-8, with standard errors
+    over the ten split-level means):
+
+    =========  =====  =====  ==========  ==========
+    min_scale  C      Brier  test NLL    best epoch
+    =========  =====  =====  ==========  ==========
+    1e-8       0.643  0.179  0.141       8.6
+    0.70       0.645  0.178  0.135       10.1
+    =========  =====  =====  ==========  ==========
+
+    - The authors' floor of 0.70 helps slightly: C +0.002 (SE 0.001,
+      higher on 8 of 10 splits) and test NLL -0.006 (SE 0.002, lower on 8
+      of 10 splits), with no change in Brier score (-0.0004, SE 0.0004).
+      Models with the floor reach their best epoch about 1.5 epochs later.
+    - The effect is small next to the feature-set and K = 1 effects, so the
+      gap between the paper's description and its code is unlikely to
+      explain differences from the published METABRIC numbers.
 """
 
 from __future__ import annotations
@@ -139,9 +166,17 @@ def censored_nll(model: SurvivalMDN, part: Part) -> float:
 
 
 def train_model(
-    train_samples, train: Part, valid: Part, num_components: int, seed: int, args
+    train_samples,
+    train: Part,
+    valid: Part,
+    num_components: int,
+    seed: int,
+    args,
+    min_scale: float = 1e-8,
 ) -> tuple[SurvivalMDN, int, float]:
     """Trains one Survival MDN with early stopping on validation NLL.
+
+    ``min_scale`` is the lower bound on the mixture standard deviations.
 
     Returns:
         The best model, its epoch and the training time in seconds.
@@ -153,6 +188,7 @@ def train_model(
         hidden_dim=args.hidden_dim,
         num_hidden_layers=args.num_layers,
         num_components=num_components,
+        min_scale=min_scale,
         time_grid=torch.linspace(grid_max / 200, grid_max, 200),
     )
     optimizer = torch.optim.RMSprop(
@@ -239,6 +275,16 @@ def configurations(ablations: list[str]) -> list[dict]:
                     "horizon": horizon,
                 }
             )
+    if "scale" in ablations:
+        for min_scale in (1e-8, 0.70):
+            arms.append(
+                {
+                    "ablation": "scale",
+                    "feature_set": "all",
+                    "k": 10,
+                    "min_scale": min_scale,
+                }
+            )
     return arms
 
 
@@ -269,13 +315,20 @@ def run(args: argparse.Namespace) -> list[dict]:
             )
             for seed in args.seeds:
                 model, epoch, seconds = train_model(
-                    train_samples, train, valid, arm["k"], seed, args
+                    train_samples,
+                    train,
+                    valid,
+                    arm["k"],
+                    seed,
+                    args,
+                    min_scale=arm.get("min_scale", 1e-8),
                 )
                 row = {
                     "ablation": arm["ablation"],
                     "feature_set": arm["feature_set"],
                     "num_components": arm["k"],
                     "horizon_months": "full" if horizon is None else horizon,
+                    "min_scale": arm.get("min_scale", 1e-8),
                     "split": split_id,
                     "seed": seed,
                     "best_epoch": epoch,
@@ -287,6 +340,7 @@ def run(args: argparse.Namespace) -> list[dict]:
                     f"{row['ablation']:10s} features={row['feature_set']:8s} "
                     f"K={row['num_components']:2d} "
                     f"horizon={row['horizon_months']!s:5s} "
+                    f"min_scale={row['min_scale']:g} "
                     f"split={split_id} seed={seed} C={row['c_index']:.3f} "
                     f"IBS~{row['brier_mean']:.3f} NLL={row['test_nll']:.3f}"
                 )
@@ -295,11 +349,20 @@ def run(args: argparse.Namespace) -> list[dict]:
 
 def summarize(results: list[dict]) -> None:
     """Prints mean and standard error over splits and seeds for each arm."""
-    keys = ("ablation", "feature_set", "num_components", "horizon_months")
+    keys = (
+        "ablation",
+        "feature_set",
+        "num_components",
+        "horizon_months",
+        "min_scale",
+    )
     groups: dict[tuple, list[dict]] = {}
     for row in results:
         groups.setdefault(tuple(row[k] for k in keys), []).append(row)
-    print("\nablation   features  K   horizon  C-index        mean Brier     test NLL")
+    print(
+        "\nablation   features  K   horizon  min_scale  "
+        "C-index        mean Brier     test NLL"
+    )
     for group, rows in groups.items():
         cells = []
         for metric in ("c_index", "brier_mean", "test_nll"):
@@ -308,7 +371,7 @@ def summarize(results: list[dict]) -> None:
             cells.append(f"{values.mean():.3f} ± {se:.3f}")
         print(
             f"{group[0]:10s} {group[1]:9s} {group[2]:<3d} {group[3]!s:8s} "
-            + "  ".join(cells)
+            f"{group[4]:<10g} " + "  ".join(cells)
         )
 
 
@@ -325,7 +388,7 @@ def main() -> None:
         "--ablation",
         nargs="+",
         default=["features", "components"],
-        choices=["features", "components", "horizon"],
+        choices=["features", "components", "horizon", "scale"],
     )
     parser.add_argument("--splits", nargs="+", type=int, default=[1])
     parser.add_argument("--seeds", nargs="+", type=int, default=[0])
