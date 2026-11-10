@@ -30,7 +30,8 @@ Ablations (``--ablation``):
 
 ``--paper-metrics`` also scores each run with the paper's metrics: the
 IPCW time-dependent concordance C^td, the integrated Brier score (IBS) and
-the integrated binomial log-likelihood (IBLL), without truncation. It reuses
+the integrated binomial log-likelihood (IBLL), at the near-untruncated
+horizon (censoring-survival threshold 1e-8 for C^td). It reuses
 ``paper_metrics`` from ``examples/survival_mdn_metrics.py`` (PR #1279), which
 keeps the authors' evaluation conventions, so METABRIC is scored the same
 way as the SUPPORT reproduction there. Run the script from the repository
@@ -96,8 +97,9 @@ Findings (real METABRIC, ten published splits, one seed, no tuning):
       is a sensitivity analysis within PyHealth's parameterization; it does
       not test the paper's ``exp`` scales.
 
-    Paper comparison (``--paper-metrics``, all features, K = 10, ten splits,
-    one seed, no hyperparameter search; mean ± standard error):
+    Paper comparison (``--paper-metrics``, near-untruncated horizon with a
+    censoring-survival threshold of 1e-8 for C^td, all features, K = 10, ten
+    splits, one seed, no hyperparameter search; mean ± standard error):
 
     ========  =============  =============  ==============
     features  C^td           IBS            IBLL
@@ -285,7 +287,7 @@ def evaluate(model: SurvivalMDN, train: Part, test: Part) -> dict[str, float]:
 
 
 def paper_scores(model: SurvivalMDN, test: Part) -> dict[str, float]:
-    """The paper's C^td, IBS and IBLL (no truncation) on the test part.
+    """The paper's C^td, IBS and IBLL on the test part, near-untruncated.
 
     Uses the evaluator of the SUPPORT reproduction (PR #1279), which keeps the
     authors' conventions, so the numbers are comparable with Table 3.
