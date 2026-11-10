@@ -391,7 +391,11 @@ def run(args: argparse.Namespace) -> list[dict]:
 
 
 def summarize(results: list[dict]) -> None:
-    """Prints mean and standard error over splits and seeds for each arm."""
+    """Prints, for each arm, the mean and standard error over split-level means.
+
+    Seeds are averaged within each split first, since runs on the same split
+    share patients and are not independent.
+    """
     keys = (
         "ablation",
         "feature_set",
@@ -411,7 +415,12 @@ def summarize(results: list[dict]) -> None:
     for group, rows in groups.items():
         cells = []
         for metric in metrics:
-            values = np.array([r[metric] for r in rows])
+            # Seeds on the same split share patients: average them first, so
+            # the standard error is over split-level means.
+            split_values: dict[int, list[float]] = {}
+            for row in rows:
+                split_values.setdefault(row["split"], []).append(row[metric])
+            values = np.array([np.mean(v) for v in split_values.values()])
             se = values.std(ddof=1) / math.sqrt(len(values)) if len(values) > 1 else 0
             cells.append(f"{values.mean():.3f} ± {se:.3f}")
         print(

@@ -69,7 +69,8 @@ class MetabricSurvivalPrediction(BaseTask):
             Defaults to True.
 
     Raises:
-        ValueError: If an option is out of range.
+        ValueError: If an option is out of range, or if ``min_duration_months``
+            is not smaller than ``horizon_months``.
 
     Examples:
         >>> from pyhealth.datasets import MetabricDataset
@@ -123,6 +124,11 @@ class MetabricSurvivalPrediction(BaseTask):
             raise ValueError("horizon_months must be positive or None")
         if not min_duration_months > 0:
             raise ValueError("min_duration_months must be positive")
+        if horizon_months is not None and min_duration_months >= horizon_months:
+            raise ValueError(
+                "min_duration_months must be smaller than horizon_months, or "
+                "raised durations would fall beyond the censoring horizon"
+            )
         self.feature_set = feature_set
         self.time_unit = time_unit
         self.horizon_months = None if horizon_months is None else float(horizon_months)

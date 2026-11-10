@@ -247,6 +247,8 @@ class TestMetabricSurvivalPrediction(unittest.TestCase):
             {"time_unit": "days"},
             {"horizon_months": 0},
             {"min_duration_months": 0},
+            {"horizon_months": 0.005},
+            {"horizon_months": 1.0, "min_duration_months": 2.0},
         ):
             with self.assertRaises(ValueError):
                 MetabricSurvivalPrediction(**kwargs)
