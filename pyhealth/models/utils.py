@@ -43,7 +43,9 @@ def save_array_atomically(
     is created with ``0o666`` and the umask applies, giving the permissions
     ``np.save(path)`` would. With ``mode`` it is created with those bits and
     then set to exactly ``mode`` with :func:`os.chmod`, in case the umask
-    removed some, so the data is never readable more widely.
+    removed some, so the data is never readable more widely. The new file
+    always replaces the old one, so an existing file's permissions are not
+    kept: pass ``mode`` to choose them.
 
     On Windows, replacing a file that another process has open raises
     ``PermissionError``. The move is retried a few times; if it still fails,
@@ -91,6 +93,10 @@ def save_array_atomically(
                 os.replace(tmp_path, path)
                 return True
             except PermissionError as exc:
+                # Expected on Windows (target open elsewhere). On POSIX,
+                # os.replace raises it only for a directory permission
+                # problem, which retrying cannot fix; the loop is harmless
+                # there and ends in the same warning.
                 error = exc
                 time.sleep(0.05 * (attempt + 1))
         os.remove(tmp_path)
