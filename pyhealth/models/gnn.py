@@ -380,7 +380,7 @@ class GCN(BaseModel):
         self.gcn_layers.append(GraphConvolution(input_dim, nhid, init=init))
         for _ in range(num_layers - 1):
             self.gcn_layers.append(GraphConvolution(nhid, nhid, init=init))
-        self.gcn_layers.append(GraphConvolution(nhid, self.get_output_size(), init=init))
+        self.gcn_layers.append(GraphConvolution(nhid, self.label_processor.output_size(), init=init))
 
     def _split_temporal(self, feature):
         """Splits temporal features if present.
@@ -494,8 +494,8 @@ class GCN(BaseModel):
 
         logits = x.mean(dim=1)
         y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
+        loss = self.label_processor.loss(logits, y_true)
+        y_prob = self.label_processor.activation(logits)
         results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
         if kwargs.get("embed", False):
             results["embed"] = logits
@@ -578,7 +578,7 @@ class GAT(BaseModel):
         self.gat_layers.append(GraphAttention(input_dim, nhid, dropout=dropout, alpha=0.2, concat=True))
         for _ in range(num_layers - 1):
             self.gat_layers.append(GraphAttention(nhid, nhid, dropout=dropout, alpha=0.2, concat=True))
-        self.gat_layers.append(GraphAttention(nhid, self.get_output_size(), dropout=dropout, alpha=0.2, concat=False))
+        self.gat_layers.append(GraphAttention(nhid, self.label_processor.output_size(), dropout=dropout, alpha=0.2, concat=False))
 
     def _split_temporal(self, feature):
         """Splits temporal features if present.
@@ -690,8 +690,8 @@ class GAT(BaseModel):
 
         logits = x.mean(dim=1)
         y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
+        loss = self.label_processor.loss(logits, y_true)
+        y_prob = self.label_processor.activation(logits)
         results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
         if kwargs.get("embed", False):
             results["embed"] = logits

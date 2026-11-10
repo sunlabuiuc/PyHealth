@@ -218,7 +218,7 @@ class RETAIN(BaseModel):
         for feature_key in self.feature_keys:
             self.retain[feature_key] = RETAINLayer(feature_size=embedding_dim, **kwargs)
 
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         num_features = len(self.feature_keys)
         self.fc = nn.Linear(num_features * self.embedding_dim, output_size)
 
@@ -277,8 +277,8 @@ class RETAIN(BaseModel):
         logits = self.fc(patient_emb)
         # obtain y_true, loss, y_prob
         y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
+        loss = self.label_processor.loss(logits, y_true)
+        y_prob = self.label_processor.activation(logits)
         results = {
             "loss": loss,
             "y_prob": y_prob,
@@ -457,7 +457,7 @@ class MultimodalRETAIN(BaseModel):
             len(self.sequential_features) * embedding_dim
             + len(self.non_sequential_features) * embedding_dim
         )
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(final_dim, output_size)
 
     def _is_sequential_processor(self, processor) -> bool:
@@ -558,8 +558,8 @@ class MultimodalRETAIN(BaseModel):
 
         # Calculate loss and predictions
         y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
+        loss = self.label_processor.loss(logits, y_true)
+        y_prob = self.label_processor.activation(logits)
 
         results = {
             "loss": loss,
