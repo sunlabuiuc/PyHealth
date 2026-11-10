@@ -1,14 +1,21 @@
 """Tests for EthosTimelineMEDS, EthosOutcomeMEDS and EthosRolloutRule.
 
-Tasks run directly on an in-memory ``Patient``. All data here is synthetic.
+Most tests run the tasks directly on an in-memory ``Patient``;
+``TestSetTask`` runs them through ``MEDSDataset.set_task`` on synthetic
+Parquet. All data here is synthetic.
 """
 
+import shutil
+import tempfile
 import unittest
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import polars as pl
 
 from pyhealth.data import Patient
+from pyhealth.datasets import MEDSDataset
+from pyhealth.processors import EthosContextProcessor, EthosProcessor
 from pyhealth.tasks import (
     EthosOutcomeMEDS,
     EthosRolloutRule,
@@ -177,6 +184,100 @@ class TestRolloutRules(unittest.TestCase):
         rule = EthosRolloutRule(stop_prefixes=("X",), keep_time_limited=True)
         self.assertIsNone(rule.score(None, "key_error", 0.0))
         self.assertIsNone(rule.score("X", "token_limit", 0.0))
+
+
+_CONFIG = """version: "1.0"
+tables:
+  meds:
+    file_path: "data"
+    patient_id: "subject_id"
+    timestamp: "time"
+    attributes:
+      - "code"
+      - "numeric_value"
+      - "hadm_id"
+"""
+
+
+class TestSetTask(unittest.TestCase):
+    """Both tasks through MEDSDataset, so cache keys and processors are real."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp_dir = Path(tempfile.mkdtemp())
+        root = cls.temp_dir / "meds"
+        (root / "data").mkdir(parents=True)
+        config_path = cls.temp_dir / "meds_hadm.yaml"
+        config_path.write_text(_CONFIG)
+        rows = [  # (subject, hours or None, code, hadm_id, value)
+            (1, None, "GENDER//F", None, None),
+            (1, -1e5, "MEDS_BIRTH", None, None),
+            (1, 0.0, ADMIT, 10, None),
+            (1, 2.0, "LAB//A", 10, 1.0),
+            (1, 5.0, ICU, 10, None),
+            (1, 264.0, HOME, 10, None),
+            (1, 480.0, ADMIT, 11, None),
+            (1, 483.0, "LAB//A", 11, 3.0),
+            (1, 528.0, DIED, 11, None),
+            (2, None, "GENDER//M", None, None),
+            (2, 0.0, ADMIT, 20, None),
+            (2, 3.0, "LAB//A", 20, 2.0),
+            (2, 48.0, HOME, 20, None),
+        ]
+        times = [None if r[1] is None else T0 + timedelta(hours=r[1]) for r in rows]
+        pl.DataFrame(
+            {
+                "subject_id": pl.Series([r[0] for r in rows], dtype=pl.Int64),
+                "time": pl.Series(times, dtype=pl.Datetime("us")),
+                "code": pl.Series([r[2] for r in rows], dtype=pl.String),
+                "numeric_value": pl.Series([r[4] for r in rows], dtype=pl.Float32),
+                "hadm_id": pl.Series([r[3] for r in rows], dtype=pl.Int64),
+            }
+        ).write_parquet(root / "data" / "0.parquet")
+        cls.dataset = MEDSDataset(
+            root=str(root),
+            config_path=str(config_path),
+            cache_dir=cls.temp_dir / "cache",
+            num_workers=1,
+        )
+        cls.timelines = cls.dataset.set_task(EthosTimelineMEDS(), num_workers=1)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.timelines.close()
+        shutil.rmtree(cls.temp_dir, ignore_errors=True)
+
+    def outcome_labels(self, **options):
+        task = EthosOutcomeMEDS(ICUAdmissionMEDS, **options)
+        samples = self.dataset.set_task(
+            task, num_workers=1, input_processors=self.timelines.input_processors
+        )
+        try:
+            for key in ("timeline", "context"):
+                self.assertEqual(
+                    samples.input_processors[key].vocab.token_to_id,
+                    self.timelines.input_processors[key].vocab.token_to_id,
+                )
+            return sorted(int(samples[i]["icu_admission"]) for i in range(len(samples)))
+        finally:
+            samples.close()
+
+    def test_timeline_processors_are_fitted(self):
+        self.assertEqual(len(self.timelines), 2)
+        timeline = self.timelines.input_processors["timeline"]
+        context = self.timelines.input_processors["context"]
+        self.assertIsInstance(timeline, EthosProcessor)
+        self.assertIsInstance(context, EthosContextProcessor)
+        self.assertIn("LAB//A", timeline.vocab.token_to_id)
+        self.assertNotIn("GENDER//F", timeline.vocab.token_to_id)
+        self.assertIn("GENDER//F", context.vocab.token_to_id)
+        _, tokens = self.timelines[0]["timeline"]
+        self.assertEqual(timeline.decode(tokens)[-1], "TIMELINE_END")
+
+    def test_outcome_options_reach_the_cache_key(self):
+        # Stays: ICU (10), death without ICU (11), neither (20).
+        self.assertEqual(self.outcome_labels(), [0, 1, 1])
+        self.assertEqual(self.outcome_labels(death_as_positive=False), [0, 0, 1])
 
 
 if __name__ == "__main__":
