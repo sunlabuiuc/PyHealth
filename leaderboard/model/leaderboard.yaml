@@ -1,0 +1,40 @@
+# ==============================================================================
+# PyHealth model leaderboards: how benchmark results are grouped for display.
+# Reporting only: the runner never reads this file to train or test, so editing
+# it never reruns anything. run.py writes leaderboard.json from it.
+#
+# Each leaderboard is one table: a column per task (with its label) and, under
+# it, that task's training.metrics; a row per model of those tasks.
+# ==============================================================================
+version: "1.0"
+
+leaderboards:
+  - id: "yaib_length_of_stay"
+    name: "YAIB Remaining Length of Stay"
+    tags: ["yaib", "icu", "length_of_stay", "timeseries_regression"]
+    columns:
+      - {task: "yaib_mimic4_length_of_stay", label: "MIMIC-IV"}
+
+  - id: "yaib_mortality"
+    name: "YAIB ICU Mortality"
+    tags: ["yaib", "icu", "mortality", "binary"]
+    columns:
+      - {task: "yaib_mimic4_mortality", label: "MIMIC-IV"}
+
+  - id: "yaib_aki"
+    name: "YAIB Acute Kidney Injury"
+    tags: ["yaib", "icu", "aki", "timeseries_binary"]
+    columns:
+      - {task: "yaib_mimic4_aki", label: "MIMIC-IV"}
+
+  - id: "yaib_sepsis"
+    name: "YAIB Sepsis"
+    tags: ["yaib", "icu", "sepsis", "timeseries_binary"]
+    columns:
+      - {task: "yaib_mimic4_sepsis", label: "MIMIC-IV"}
+
+  - id: "yaib_kidney_function"
+    name: "YAIB Kidney Function"
+    tags: ["yaib", "icu", "kidney_function", "regression"]
+    columns:
+      - {task: "yaib_mimic4_kidney_function", label: "MIMIC-IV"}
