@@ -228,14 +228,20 @@ def random_cohort() -> dict:
     }
 
 
-def impute(imputation: str, X: np.ndarray | None = None) -> np.ndarray:
-    """Two fast draws of ``imputation`` on the random fixture, or on ``X``."""
+def impute(
+    imputation: str,
+    X: np.ndarray | None = None,
+    G: np.ndarray | None = None,
+    indicators: bool = False,
+) -> np.ndarray:
+    """Two fast draws of ``imputation`` on the random fixture, or on ``X``/``G``."""
     data = random_cohort()
     X = data["X"] if X is None else X
+    G = data["G"] if G is None else G
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", ConvergenceWarning)
         return _impute_draws(
-            X, data["G"], data["split"], imputation, data["draw_seeds"], 2, FOREST
+            X, G, data["split"], imputation, data["draw_seeds"], 2, FOREST, indicators
         )
 
 
@@ -446,6 +452,39 @@ class TestImputation(unittest.TestCase):
         n_labs = len(LAB_NAMES)
         np.testing.assert_array_equal(plain, with_indicators[:, :, :n_labs])
 
+    def test_constant_predictors_keep_draws(self):
+        # lstsq rounds differently with all-zero columns, so not bit-exact
+        zeros = np.zeros_like(self.X)
+        G = random_cohort()["G"]
+        np.testing.assert_allclose(
+            impute("group_mice", G=np.hstack([zeros, G])),
+            imputed("group_mice"),
+            rtol=1e-4,
+            atol=1e-6,
+        )
+        np.testing.assert_allclose(
+            impute("group_mice", G=zeros), imputed("mice"), rtol=1e-4, atol=1e-6
+        )
+
+    def test_indicators_in_imputation(self):
+        G = random_cohort()["G"]
+        observed = self.X[~self.missing].astype(np.float32)
+        # Indicators go before the flags, as in the reference at fcb580b
+        for imputation, as_flags in (
+            ("group_mice", np.hstack([self.missing, G])),
+            ("mice", self.missing),
+        ):
+            with self.subTest(imputation=imputation):
+                first = impute(imputation, indicators=True)
+                after = imputed(imputation)
+                np.testing.assert_array_equal(first, impute("group_mice", G=as_flags))
+                self.assertEqual(first.shape, after.shape)
+                self.assertFalse(
+                    np.array_equal(first[:, self.missing], after[:, self.missing])
+                )
+                for draw in first:
+                    np.testing.assert_array_equal(draw[~self.missing], observed)
+
     def test_group_flags_never_features(self):
         for imputation in ClinicalPresenceMortalityMIMIC3.IMPUTATIONS:
             self.assertEqual(imputed(imputation).shape[2], len(LAB_NAMES))
@@ -604,6 +643,18 @@ class TestTask(unittest.TestCase):
             ({"split_ratios": (0.8, 0.2)}, "three positive numbers"),
             ({"split_ratios": (0.9, 0.2, -0.1)}, "three positive numbers"),
             ({"split_ratios": (0.5, 0.2, 0.2)}, "summing to 1"),
+            (
+                {
+                    "imputation": "median",
+                    "add_missing_indicators": True,
+                    "indicators_in_imputation": True,
+                },
+                "indicators_in_imputation needs",
+            ),
+            (
+                {"imputation": "mice", "indicators_in_imputation": True},
+                "indicators_in_imputation needs",
+            ),
         ]
         for kwargs, message in cases:
             with self.subTest(**kwargs), self.assertRaisesRegex(ValueError, message):
@@ -625,6 +676,24 @@ class TestTask(unittest.TestCase):
             "Imputed labs beyond the training range ± 3 sd: 0.000%",
         ):
             self.assertIn(line, output)
+
+    def test_indicators_in_imputation(self):
+        task = fast_task(
+            "mice", add_missing_indicators=True, indicators_in_imputation=True
+        )
+        with self.assertLogs(TASK_LOGGER, "INFO") as logs:
+            task.pre_filter(random_cohort()["events"].lazy())
+        self.assertIn(
+            "Imputation 'mice' (indicators in imputation): 2 draw(s)",
+            "\n".join(logs.output),
+        )
+        after = fitted_task("mice", True)
+        F, F_after = task._state.features, after._state.features
+        self.assertEqual(F.shape, (2, 200, 134))
+        # Same indicator columns; only the imputed labs differ
+        np.testing.assert_array_equal(F[:, :, 67:], F_after[:, :, 67:])
+        self.assertFalse(np.array_equal(F[:, :, :67], F_after[:, :, :67]))
+        self.assertNotEqual(cache_key(task), cache_key(after))
 
 
 class TestSetTask(unittest.TestCase):
