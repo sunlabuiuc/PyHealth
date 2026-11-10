@@ -20,7 +20,9 @@ As in ``InHospitalMortalityMEDS``, a *stay* is the set of events sharing one
 and discharge time ``t_d`` (latest ``HOSPITAL_DISCHARGE//*``). Stays without
 both events, or with ``t_d <= t_a``, produce no sample. A stay *ended in death*
 if its discharge code is ``HOSPITAL_DISCHARGE//DIED`` or a ``MEDS_DEATH`` event
-falls in ``[t_a, t_d]``.
+falls in ``[t_a, t_d]``. The discharge code is the one stamped ``t_d``; if a
+stay has two discharge events at exactly ``t_d``, which one is taken is not
+guaranteed to be stable.
 
 ICU admission and prolonged stay predict **at hospital admission**:
 
@@ -58,7 +60,8 @@ Admission-time input also drops events of the current stay stamped at exactly
 midnight before ``t_a``. These are date-resolution records such as HCPCS billing
 codes, which sort before the admission on the same day but describe care given
 during the stay. Timed events of the current stay before ``t_a``, such as
-emergency department labs and transfers, are kept.
+emergency department labs and transfers, are kept. This is a heuristic: it also
+drops a timed event of the current stay that really happened at midnight.
 
 Configuration
 -------------
@@ -340,6 +343,31 @@ class HospitalReadmissionMEDS(BaseTask):
     patient's history up to and including this stay's discharge events, and
     the binary label is whether the patient was readmitted or died within
     ``window_days``. See the module docstring for the full definition.
+
+    Differences from
+    :class:`~pyhealth.tasks.readmission_prediction.ReadmissionPredictionMIMIC4`,
+    which also labels readmission within a window after discharge:
+
+    * **Data.** This task reads any MEDS dataset through
+      :class:`~pyhealth.datasets.MEDSDataset`, whose events are all in one
+      ``meds`` table. ``ReadmissionPredictionMIMIC4`` reads the MIMIC-IV
+      ``patients``, ``admissions``, ``diagnoses_icd``, ``procedures_icd`` and
+      ``prescriptions`` tables of ``MIMIC4EHRDataset``.
+    * **Input.** One code sequence with the whole history up to discharge,
+      instead of the current admission's diagnoses, procedures and drugs as
+      three sequences.
+    * **Death.** A death within the window counts as positive, and stays that
+      ended in death are excluded. ``ReadmissionPredictionMIMIC4`` does not
+      look at deaths.
+    * **Cohort.** Every completed stay that did not end in death is a sample,
+      including a patient's last stay (negative unless the patient dies within
+      the window), and ``require_full_followup`` gives the ETHOS-ARES
+      "Reduced" cohort. ``ReadmissionPredictionMIMIC4`` only makes samples for
+      admissions followed by another admission, skips visits missing any of
+      the three code types, and drops patients under 18.
+    * **Window.** 30 days by default, inclusive, from discharge to the next
+      admission of another stay at or after discharge, as in ETHOS-ARES.
+      ``ReadmissionPredictionMIMIC4`` uses 15 days by default, exclusive.
 
     Args:
         window_days (float): Outcome window after discharge, inclusive.
