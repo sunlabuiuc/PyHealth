@@ -32,8 +32,18 @@ NUM_PAPER_SPLITS = 10
 _PARTS: tuple[str, ...] = ("train", "valid", "test")
 # The source files store time as months / 365.25 (see ``prepare_metabric``).
 _SOURCE_TIME_SCALE = 365.25
-_SURVIVAL_MDN_URL = (
-    "https://raw.githubusercontent.com/XintianHan/Survival-MDN/master/data/metabric"
+#: Byte-identical copies of the released split files, tried in order. Both are
+#: pinned to a commit so the download cannot change: the Survival MDN
+#: repository, then SODEN's (MIT licensed), whose files the paper reuses.
+_SOURCE_URLS: tuple[str, ...] = (
+    (
+        "https://raw.githubusercontent.com/XintianHan/Survival-MDN/"
+        "71c61f649f3c8784fe13b092b38e0cbb3a184dbd/data/metabric"
+    ),
+    (
+        "https://raw.githubusercontent.com/jiaqima/SODEN/"
+        "3d10ba6c8f4526ecf8ed2e04937518d1820332aa/data/metabric"
+    ),
 )
 _CSV_NAME = "metabric.csv"
 
@@ -44,12 +54,24 @@ def _npz_name(part: str, split_id: int) -> str:
 
 def _read_npz(source: Path | str, name: str, download: bool) -> dict[str, np.ndarray]:
     if download:
-        url = f"{_SURVIVAL_MDN_URL}/{name}"
-        logger.info("Downloading %s", url)
-        with urllib.request.urlopen(url, timeout=60) as response:
-            payload = io.BytesIO(response.read())
-        with np.load(payload) as data:
-            return {key: data[key] for key in data.files}
+        errors = []
+        for base in _SOURCE_URLS:
+            url = f"{base}/{name}"
+            try:
+                logger.info("Downloading %s", url)
+                with urllib.request.urlopen(url, timeout=60) as response:
+                    payload = io.BytesIO(response.read())
+            except OSError as error:  # URLError and HTTPError are OSErrors
+                logger.warning("Could not download %s: %s", url, error)
+                errors.append(f"{url}: {error}")
+                continue
+            with np.load(payload) as data:
+                return {key: data[key] for key in data.files}
+        raise OSError(
+            f"Could not download {name} from any source:\n  "
+            + "\n  ".join(errors)
+            + "\nDownload the METABRIC split files manually and put them in root."
+        )
     path = Path(source) / name
     if not path.exists():
         raise FileNotFoundError(

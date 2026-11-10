@@ -4,6 +4,7 @@ All data are synthetic: four patients written as Survival MDN style ``.npz``
 split files in a temporary directory.
 """
 
+import io
 import shutil
 import tempfile
 import unittest
@@ -89,6 +90,45 @@ class TestPrepareMetabric(unittest.TestCase):
         np.savez(self.root / "test_4.npz", RAW[:1], LABELS[:1] + 1, RAW[:1] + 1)
         with self.assertRaises(ValueError):
             prepare_metabric(str(self.root))
+
+    def test_download_falls_back_to_mirror(self):
+        """The first source fails; every file comes from the second one."""
+        from unittest import mock
+        from urllib.error import HTTPError
+
+        from pyhealth.datasets import metabric
+
+        local = self.root
+        out = Path(tempfile.mkdtemp())
+        first, second = metabric._SOURCE_URLS
+        requested = []
+
+        def fake_urlopen(url, timeout=None):
+            requested.append(url)
+            if url.startswith(first):
+                raise HTTPError(url, 404, "Not Found", None, None)
+            return io.BytesIO((local / url.rsplit("/", 1)[1]).read_bytes())
+
+        try:
+            with mock.patch.object(metabric.urllib.request, "urlopen", fake_urlopen):
+                table = pd.read_csv(prepare_metabric(str(out), download=True))
+            self.assertEqual(len(table), 4)
+            self.assertEqual(sum(u.startswith(second) for u in requested), 30)
+        finally:
+            shutil.rmtree(out)
+
+    def test_download_fails_on_all_sources(self):
+        from unittest import mock
+        from urllib.error import URLError
+
+        from pyhealth.datasets import metabric
+
+        def fail(url, timeout=None):
+            raise URLError("offline")
+
+        with mock.patch.object(metabric.urllib.request, "urlopen", fail):
+            with self.assertRaisesRegex(OSError, "any source"):
+                prepare_metabric(str(self.root), download=True)
 
     def test_fractional_event_rejected(self):
         # 0.4 must not be rounded to a censored observation.
@@ -248,6 +288,9 @@ class TestMetabricSurvivalPrediction(unittest.TestCase):
             {"horizon_months": 0},
             {"min_duration_months": 0},
             {"horizon_months": 0.005},
+            {"horizon_months": float("inf")},
+            {"min_duration_months": float("inf")},
+            {"min_duration_months": float("nan")},
             {"horizon_months": 1.0, "min_duration_months": 2.0},
         ):
             with self.assertRaises(ValueError):

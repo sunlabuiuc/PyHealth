@@ -463,6 +463,8 @@ def main() -> None:
 
     with tempfile.TemporaryDirectory() as tmp:
         if args.synthetic:
+            if args.download or args.root is not None:
+                parser.error("--synthetic cannot be combined with --root or --download")
             args.root = Path(tmp)
             write_synthetic(args.root)
             args.epochs = min(args.epochs, 5)

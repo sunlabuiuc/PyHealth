@@ -120,10 +120,10 @@ class MetabricSurvivalPrediction(BaseTask):
                 f"time_unit must be one of {sorted(self._TIME_SCALES)}, "
                 f"got {time_unit!r}"
             )
-        if horizon_months is not None and not horizon_months > 0:
-            raise ValueError("horizon_months must be positive or None")
-        if not min_duration_months > 0:
-            raise ValueError("min_duration_months must be positive")
+        if horizon_months is not None and not 0 < horizon_months < math.inf:
+            raise ValueError("horizon_months must be positive and finite, or None")
+        if not 0 < min_duration_months < math.inf:
+            raise ValueError("min_duration_months must be positive and finite")
         if horizon_months is not None and min_duration_months >= horizon_months:
             raise ValueError(
                 "min_duration_months must be smaller than horizon_months, or "
