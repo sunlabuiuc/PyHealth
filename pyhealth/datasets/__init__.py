@@ -76,7 +76,6 @@ from .support2 import Support2Dataset
 from .synthea_csv import SyntheaCSVDataset as SyntheaCSVDataset
 from .tcga_prad import TCGAPRADDataset
 from .splitter import (
-    GoldTestSplit as GoldTestSplit,
     PatientSplit as PatientSplit,
     Split as Split,
     SubjectSplit as SubjectSplit,
@@ -94,6 +93,8 @@ from .splitter import (
     split_by_visit,
     split_by_visit_conformal,
 )
+from .gold_test_split import GoldTestSplit as GoldTestSplit
+from .mimic4_imagenome import MIMIC4ImaGenomeDataset as MIMIC4ImaGenomeDataset
 from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
 from .iiic import IIICDataset as IIICDataset
 from .tuab import TUABDataset
