@@ -59,8 +59,8 @@ def _get_clones(module: nn.Module, n: int) -> nn.ModuleList:
     return nn.ModuleList([copy.deepcopy(module) for _ in range(n)])
 
 
-class TransformerEncoder(nn.Module):
-    """Stack of criss-cross encoder layers (from CBraMod ``criss_cross_transformer``)."""
+class _TransformerEncoder(nn.Module):
+    """Stack of criss-cross encoder layers (CBraMod internal)."""
 
     def __init__(
         self,
@@ -89,8 +89,8 @@ class TransformerEncoder(nn.Module):
         return output
 
 
-class TransformerEncoderLayer(nn.Module):
-    """Criss-cross self-attention over channels and patches."""
+class _TransformerEncoderLayer(nn.Module):
+    """Criss-cross self-attention over channels and patches (CBraMod internal)."""
 
     __constants__: ClassVar[list[str]] = ["norm_first"]
 
@@ -186,8 +186,8 @@ class TransformerEncoderLayer(nn.Module):
         return self.dropout2(x)
 
 
-class PatchEmbedding(nn.Module):
-    """1 s patch embedding with spectral and depthwise positional branches."""
+class _PatchEmbedding(nn.Module):
+    """1 s patch embedding with spectral and depthwise positional branches (CBraMod internal)."""
 
     def __init__(self, in_dim: int, d_model: int) -> None:
         super().__init__()
@@ -261,8 +261,8 @@ class PatchEmbedding(nn.Module):
         return patch_emb + positional
 
 
-class CBraModBackbone(nn.Module):
-    """CBraMod encoder (``models/cbramod.py``)."""
+class _CBraModBackbone(nn.Module):
+    """CBraMod encoder (CBraMod internal, ``models/cbramod.py``)."""
 
     def __init__(
         self,
@@ -274,8 +274,8 @@ class CBraModBackbone(nn.Module):
         nhead: int = 8,
     ) -> None:
         super().__init__()
-        self.patch_embedding = PatchEmbedding(in_dim, d_model)
-        encoder_layer = TransformerEncoderLayer(
+        self.patch_embedding = _PatchEmbedding(in_dim, d_model)
+        encoder_layer = _TransformerEncoderLayer(
             d_model=d_model,
             nhead=nhead,
             dim_feedforward=dim_feedforward,
@@ -283,7 +283,7 @@ class CBraModBackbone(nn.Module):
             norm_first=True,
             activation=F.gelu,
         )
-        self.encoder = TransformerEncoder(encoder_layer, num_layers=n_layer)
+        self.encoder = _TransformerEncoder(encoder_layer, num_layers=n_layer)
         self.proj_out: nn.Module = nn.Sequential(nn.Linear(d_model, out_dim))
         self.apply(_weights_init)
 
@@ -293,7 +293,7 @@ class CBraModBackbone(nn.Module):
         return self.proj_out(feats)
 
 
-def build_classifier_head(
+def _build_classifier_head(
     classifier: str,
     n_channels: int,
     n_patches: int,
@@ -301,7 +301,7 @@ def build_classifier_head(
     num_classes: int,
     dropout: float,
 ) -> nn.Module:
-    """Build a downstream head matching the CBraMod reference scripts."""
+    """Build a downstream head matching the CBraMod reference scripts (internal)."""
     flat = n_channels * n_patches * d_model
     if classifier == "avgpooling_patch_reps":
         return nn.Sequential(
@@ -427,7 +427,7 @@ class CBraMod(BaseModel):
         self.hf_repo_id = hf_repo_id
         self.hf_filename = hf_filename
 
-        self.backbone = CBraModBackbone(
+        self.backbone = _CBraModBackbone(
             in_dim=patch_size,
             out_dim=d_model,
             d_model=d_model,
@@ -454,7 +454,7 @@ class CBraMod(BaseModel):
 
     def _build_classifier(self, n_patches: int) -> None:
         self._n_patches = n_patches
-        self.classifier = build_classifier_head(
+        self.classifier = _build_classifier_head(
             self.classifier_name,
             self.n_channels,
             n_patches,

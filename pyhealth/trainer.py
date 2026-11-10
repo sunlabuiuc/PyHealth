@@ -171,8 +171,8 @@ class Trainer:
         load_best_model_at_last: bool = True,
         patience=None,
         keep_best_in_memory: bool = True,
-        param_groups: Optional[List[Dict[str, object]]] = None,
-        lr_scheduler: Optional[Callable[[Optimizer, int], LRScheduler]] = None,
+        param_groups: list[dict[str, object]] | None = None,
+        lr_scheduler: Callable[[Optimizer, int], LRScheduler] | None = None,
     ):
         """Trains the model.
 
@@ -257,7 +257,7 @@ class Trainer:
             ]
             optimizer = optimizer_class(optimizer_grouped_parameters, **optimizer_params)
 
-        scheduler: Optional[LRScheduler] = None
+        scheduler: LRScheduler | None = None
         if lr_scheduler is not None:
             total_steps = epochs * n_steps_per_epoch
             scheduler = lr_scheduler(optimizer, total_steps)

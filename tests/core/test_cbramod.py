@@ -7,8 +7,8 @@ import torch
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models.cbramod import (
     CBraMod,
-    CBraModBackbone,
-    build_classifier_head,
+    _build_classifier_head,
+    _CBraModBackbone,
 )
 
 
@@ -213,7 +213,7 @@ class TestCBraMod(unittest.TestCase):
 
     def test_load_pretrained_local(self):
         dataset = self._multiclass_dataset()
-        backbone = CBraModBackbone(n_layer=2)
+        backbone = _CBraModBackbone(n_layer=2)
         with tempfile.NamedTemporaryFile(suffix=".pth") as tmp:
             wrapped = {f"module.{k}": v for k, v in backbone.state_dict().items()}
             torch.save(wrapped, tmp.name)
@@ -228,7 +228,7 @@ class TestCBraMod(unittest.TestCase):
 
     def test_load_pretrained_hf_mock(self):
         dataset = self._multiclass_dataset()
-        backbone = CBraModBackbone(n_layer=2)
+        backbone = _CBraModBackbone(n_layer=2)
         with tempfile.NamedTemporaryFile(suffix=".pth") as tmp:
             torch.save(backbone.state_dict(), tmp.name)
             model = CBraMod(
@@ -245,7 +245,7 @@ class TestCBraMod(unittest.TestCase):
                 model.load_pretrained_weights(checkpoint_path=None)
 
     def test_full_backbone_state_dict_keys(self):
-        backbone = CBraModBackbone(n_layer=12)
+        backbone = _CBraModBackbone(n_layer=12)
         keys = set(backbone.state_dict().keys())
         self.assertTrue(any(k.startswith("patch_embedding.") for k in keys))
         layer_ids = {
@@ -257,7 +257,7 @@ class TestCBraMod(unittest.TestCase):
         self.assertIn("proj_out.0.weight", keys)
 
     def test_build_classifier_head_shapes(self):
-        head = build_classifier_head(
+        head = _build_classifier_head(
             "all_patch_reps", 16, 5, 200, 6, dropout=0.1
         )
         feats = torch.randn(2, 16, 5, 200)
