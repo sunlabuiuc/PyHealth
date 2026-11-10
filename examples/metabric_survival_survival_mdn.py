@@ -17,14 +17,24 @@ Ablations (``--ablation``):
   features (model-level).
 - ``horizon``: administrative censoring of follow-up at 60 and 120 months
   vs full follow-up, evaluated on uncut test labels (task-level).
-- ``scale``: lower bound on the mixture standard deviations, 1e-8 vs 0.70
-  (model-level). The paper (Sec. 5.4) makes the scales positive with
-  ``exp``, so they are effectively unbounded below. The authors' released
-  code instead uses ``softplus(clamp(raw, 0.01, 100))``, which keeps every
-  scale at or above softplus(0.01), about 0.70, in the latent time space.
-  ``SurvivalMDN`` computes ``softplus(raw).clamp_min(min_scale)``, so
-  ``min_scale=0.70`` reproduces the code's floor and ``1e-8`` the paper's
-  description. The paper does not report this choice or its effect.
+- ``scale``: sensitivity of PyHealth's ``SurvivalMDN`` to a lower bound on
+  the mixture standard deviations (model-level). ``SurvivalMDN`` computes
+  ``softplus(raw).clamp_min(min_scale)``; the arms are ``min_scale=1e-8``
+  (no effective floor, the PyHealth default) and ``min_scale=softplus(0.01)``
+  (about 0.698). The second arm matches the floor of the authors' released
+  code, ``softplus(clamp(raw, 0.01, 100))`` in ``mdn_models.py``: for raw
+  values below 100 it gives the same scales and the same zero gradient below
+  the floor, but without the upper cap of 100. Neither arm reproduces the
+  ``exp`` parameterization the paper describes (Sec. 5.4), so this measures
+  how much the floor matters in PyHealth, not paper versus code.
+
+``--paper-metrics`` also scores each run with the paper's metrics: the
+IPCW time-dependent concordance C^td, the integrated Brier score (IBS) and
+the integrated binomial log-likelihood (IBLL), without truncation. It reuses
+``paper_metrics`` from ``examples/survival_mdn_metrics.py`` (PR #1279), which
+keeps the authors' evaluation conventions, so METABRIC is scored the same
+way as the SUPPORT reproduction there. Run the script from the repository
+root so that module is importable.
 
 Every configuration uses the same splits, seeds, optimizer and stopping rule,
 so only the ablated setting changes.
@@ -44,9 +54,9 @@ below once run; synthetic numbers carry no meaning.
 Findings (real METABRIC, ten published splits, one seed, no tuning):
     Hidden width 32, three layers, RMSprop lr 1e-3, batch 128, early stopping
     on validation NLL (patience 10). Mean ± standard error over splits.
-    C is Harrell's concordance of 1 - S(median event time), not the paper's
-    censoring-weighted C^td, and no hyperparameter search was run, so the
-    baseline (C = 0.643) sits below the paper's 0.667 (Table 3).
+    C is Harrell's concordance of 1 - S(median event time), used to compare
+    the ablation arms with each other. It is not the paper's metric; see
+    "Paper comparison" below for C^td.
 
     =========  ========  ==  =======  =============  =============
     ablation   features  K   horizon  C-index        mean Brier
@@ -69,23 +79,38 @@ Findings (real METABRIC, ten published splits, one seed, no tuning):
       full-follow-up test labels.
 
     Scale floor (all features, K = 10, ten splits x three seeds, paired by
-    split and seed; differences are 0.70 minus 1e-8, with standard errors
-    over the ten split-level means):
+    split and seed; differences are softplus(0.01) minus 1e-8, with standard
+    errors over the ten split-level means):
 
-    =========  =====  =====  ==========  ==========
-    min_scale  C      Brier  test NLL    best epoch
-    =========  =====  =====  ==========  ==========
-    1e-8       0.643  0.179  0.141       8.6
-    0.70       0.645  0.178  0.135       10.1
-    =========  =====  =====  ==========  ==========
+    ==============  =====  =====  ==========  ==========
+    min_scale       C      Brier  test NLL    best epoch
+    ==============  =====  =====  ==========  ==========
+    1e-8            0.643  0.179  0.141       8.6
+    softplus(0.01)  0.645  0.178  0.135       9.9
+    ==============  =====  =====  ==========  ==========
 
-    - The authors' floor of 0.70 helps slightly: C +0.002 (SE 0.001,
-      higher on 8 of 10 splits) and test NLL -0.006 (SE 0.002, lower on 8
-      of 10 splits), with no change in Brier score (-0.0004, SE 0.0004).
-      Models with the floor reach their best epoch about 1.5 epochs later.
-    - The effect is small next to the feature-set and K = 1 effects, so the
-      gap between the paper's description and its code is unlikely to
-      explain differences from the published METABRIC numbers.
+    - The floor helps slightly: C +0.002 (SE 0.001, higher on 8 of 10
+      splits) and test NLL -0.006 (SE 0.002, lower on 9 of 10 splits), with
+      no change in Brier score (-0.0004, SE 0.0004).
+    - The effect is small next to the feature-set and K = 1 effects. This
+      is a sensitivity analysis within PyHealth's parameterization; it does
+      not test the paper's ``exp`` scales.
+
+    Paper comparison (``--paper-metrics``, all features, K = 10, ten splits,
+    one seed, no hyperparameter search; mean ± standard error):
+
+    ========  =============  =============  ==============
+    features  C^td           IBS            IBLL
+    ========  =============  =============  ==============
+    all       0.654 ± 0.008  0.169 ± 0.003  -0.501 ± 0.008
+    clinical  0.642 ± 0.007  0.169 ± 0.002  -0.502 ± 0.006
+    genes     0.581 ± 0.006  0.185 ± 0.002  -0.545 ± 0.004
+    ========  =============  =============  ==============
+
+    - With the same metric, the untuned baseline's C^td of 0.654 is 0.013
+      below the paper's 0.667 ± 0.004 for Survival MDN on METABRIC
+      (Table 3), which used a 100-trial hyperparameter search per dataset.
+    - The feature-set ranking is the same under C^td as under Harrell's C.
 """
 
 from __future__ import annotations
@@ -106,6 +131,9 @@ from pyhealth.datasets import MetabricDataset
 from pyhealth.metrics.survival import concordance_index, ipcw_brier_score
 from pyhealth.models import SurvivalMDN
 from pyhealth.tasks import MetabricSurvivalPrediction
+
+#: Scale floor of the authors' released code: softplus(clamp(raw, 0.01, 100)).
+CODE_SCALE_FLOOR = math.log1p(math.exp(0.01))
 
 
 @dataclass
@@ -256,6 +284,18 @@ def evaluate(model: SurvivalMDN, train: Part, test: Part) -> dict[str, float]:
     return out
 
 
+def paper_scores(model: SurvivalMDN, test: Part) -> dict[str, float]:
+    """The paper's C^td, IBS and IBLL (no truncation) on the test part.
+
+    Uses the evaluator of the SUPPORT reproduction (PR #1279), which keeps the
+    authors' conventions, so the numbers are comparable with Table 3.
+    """
+    from survival_mdn_metrics import paper_metrics  # examples/, PR #1279
+
+    scores = paper_metrics(model, test)
+    return {"c_td": scores["c"], "ibs": scores["ibs"], "ibll": scores["ibll"]}
+
+
 def configurations(ablations: list[str]) -> list[dict]:
     """Lists the ablation arms; each changes one setting from the baseline."""
     arms = []
@@ -276,7 +316,7 @@ def configurations(ablations: list[str]) -> list[dict]:
                 }
             )
     if "scale" in ablations:
-        for min_scale in (1e-8, 0.70):
+        for min_scale in (1e-8, CODE_SCALE_FLOOR):
             arms.append(
                 {
                     "ablation": "scale",
@@ -334,6 +374,7 @@ def run(args: argparse.Namespace) -> list[dict]:
                     "best_epoch": epoch,
                     "train_seconds": round(seconds, 2),
                     **evaluate(model, full_train, test),
+                    **(paper_scores(model, test) if args.paper_metrics else {}),
                 }
                 results.append(row)
                 print(
@@ -359,19 +400,21 @@ def summarize(results: list[dict]) -> None:
     groups: dict[tuple, list[dict]] = {}
     for row in results:
         groups.setdefault(tuple(row[k] for k in keys), []).append(row)
-    print(
-        "\nablation   features  K   horizon  min_scale  "
-        "C-index        mean Brier     test NLL"
-    )
+    metrics = ["c_index", "brier_mean", "test_nll"]
+    header = "C-index        mean Brier     test NLL"
+    if "c_td" in results[0]:
+        metrics += ["c_td", "ibs", "ibll"]
+        header += "       C^td           IBS            IBLL"
+    print("\nablation   features  K   horizon  min_scale  " + header)
     for group, rows in groups.items():
         cells = []
-        for metric in ("c_index", "brier_mean", "test_nll"):
+        for metric in metrics:
             values = np.array([r[metric] for r in rows])
             se = values.std(ddof=1) / math.sqrt(len(values)) if len(values) > 1 else 0
             cells.append(f"{values.mean():.3f} ± {se:.3f}")
         print(
             f"{group[0]:10s} {group[1]:9s} {group[2]:<3d} {group[3]!s:8s} "
-            f"{group[4]:<10g} " + "  ".join(cells)
+            f"{group[4]:<10.3g} " + "  ".join(cells)
         )
 
 
@@ -399,6 +442,11 @@ def main() -> None:
     parser.add_argument("--weight-decay", type=float, default=1e-6)
     parser.add_argument("--hidden-dim", type=int, default=32)
     parser.add_argument("--num-layers", type=int, default=3)
+    parser.add_argument(
+        "--paper-metrics",
+        action="store_true",
+        help="Also report the paper's C^td, IBS and IBLL (slower)",
+    )
     parser.add_argument("--output", type=Path, help="Optional CSV of all runs")
     args = parser.parse_args()
 

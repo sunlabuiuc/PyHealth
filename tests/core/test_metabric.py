@@ -90,6 +90,30 @@ class TestPrepareMetabric(unittest.TestCase):
         with self.assertRaises(ValueError):
             prepare_metabric(str(self.root))
 
+    def test_fractional_event_rejected(self):
+        # 0.4 must not be rounded to a censored observation.
+        labels = LABELS[SPLIT_1["train"]].copy()
+        labels[0, 1] = 0.4
+        raw = RAW[SPLIT_1["train"]]
+        np.savez(self.root / "train_1.npz", raw, labels, raw)
+        with self.assertRaisesRegex(ValueError, "event"):
+            prepare_metabric(str(self.root))
+
+    def test_non_binary_indicator_rejected(self):
+        raw = RAW[SPLIT_1["train"]].copy()
+        raw[1, 6] = 0.5
+        np.savez(self.root / "train_1.npz", raw, LABELS[SPLIT_1["train"]], raw)
+        with self.assertRaisesRegex(ValueError, "exactly 0 or 1"):
+            prepare_metabric(str(self.root))
+
+    def test_negative_time_rejected(self):
+        labels = LABELS[SPLIT_1["train"]].copy()
+        labels[0, 0] = -0.1
+        raw = RAW[SPLIT_1["train"]]
+        np.savez(self.root / "train_1.npz", raw, labels, raw)
+        with self.assertRaisesRegex(ValueError, "non-negative"):
+            prepare_metabric(str(self.root))
+
     def test_wrong_feature_count(self):
         np.savez(self.root / "train_1.npz", RAW[:2, :5], LABELS[:2], RAW[:2, :5])
         with self.assertRaises(ValueError):

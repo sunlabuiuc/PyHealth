@@ -67,6 +67,26 @@ def _row_keys(raw: np.ndarray, labels: np.ndarray) -> list[bytes]:
     return [row.tobytes() for row in rows]
 
 
+def _validate_values(name: str, raw: np.ndarray, labels: np.ndarray) -> None:
+    """Checks one split file's values before they are converted.
+
+    Raises:
+        ValueError: If a value is not finite, a binary feature or an event is
+            not exactly 0 or 1, or a time is negative.
+    """
+    if not (np.isfinite(raw).all() and np.isfinite(labels).all()):
+        raise ValueError(f"{name}: features and labels must be finite")
+    binary = raw[:, len(METABRIC_FEATURES) - 4 :]
+    if not np.isin(binary, (0.0, 1.0)).all():
+        raise ValueError(
+            f"{name}: {', '.join(METABRIC_FEATURES[-4:])} must be exactly 0 or 1"
+        )
+    if not np.isin(labels[:, 1], (0.0, 1.0)).all():
+        raise ValueError(f"{name}: event values must be exactly 0 or 1")
+    if (labels[:, 0] < 0).any():
+        raise ValueError(f"{name}: times must be non-negative")
+
+
 def prepare_metabric(
     root: str,
     source_dir: str | None = None,
@@ -104,7 +124,9 @@ def prepare_metabric(
 
     Raises:
         FileNotFoundError: If a split file is missing.
-        ValueError: If the files are malformed, two patients cannot be told
+        ValueError: If the files are malformed, a value is invalid (a
+            non-finite value, a binary feature or event other than exactly 0
+            or 1, a negative time), two patients cannot be told
             apart, or a split does not cover the same patients as split 1.
 
     Examples:
@@ -137,6 +159,7 @@ def prepare_metabric(
                     f"{_npz_name(part, split_id)}: labels must have shape "
                     f"({raw.shape[0]}, 2), got {labels.shape}"
                 )
+            _validate_values(_npz_name(part, split_id), raw, labels)
             keys = _row_keys(raw, labels)
             for key in keys:
                 if key in membership[split_id]:
