@@ -12,6 +12,15 @@ models add separate recurrent modules and use ``sequence_hidden_dim``. If an
 ``ImageProcessor`` has no mode, the channel count is inferred from a processed
 sample; image processors must return tensors (``to_tensor=True``).
 
+Sequence reconstruction reuses ``TimeseriesMultiClassLabelProcessor`` to pack
+variable-length token targets and gather per-token predictions through the
+standard ``Trainer``. The processor's ordered positions represent token order,
+not elapsed clinical time. The autoregressive sequence decoder is teacher-forced
+during training, so it may rely less on the latent than intended (posterior
+collapse). Reconstruction quality alone does not establish that the latent is
+useful for generation; this implementation does not currently use KL annealing
+or word dropout.
+
 .. autoclass:: pyhealth.models.VAE
     :members:
     :undoc-members:

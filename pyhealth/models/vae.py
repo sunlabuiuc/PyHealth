@@ -54,8 +54,17 @@ class VAE(BaseModel):
     than predicting the dataset's output label. Its :attr:`label_processors`
     describe the reconstructed input, allowing the standard ``Trainer`` to
     return variable-length sequence predictions and compute token-level metrics.
+    The sequence output reuses ``TimeseriesMultiClassLabelProcessor`` for its
+    packing and gathering behavior; sequence positions represent token order,
+    not elapsed time.
     Each token probability is a dense vector over the fitted code vocabulary, so
     inference memory grows with the number of tokens times the vocabulary size.
+
+    The sequence decoder is teacher-forced during training: it sees the actual
+    preceding tokens. It may therefore learn to rely less on the latent vector
+    than intended (posterior collapse). Good reconstruction alone does not show
+    that changing the latent meaningfully changes generated sequences. The model
+    does not currently apply KL annealing or word dropout.
 
     Args:
         dataset: A fitted ``SampleDataset`` with one supported input feature.
@@ -124,19 +133,28 @@ class VAE(BaseModel):
         supported_keys = image_keys + sequence_keys
         if feature_key is None:
             if len(supported_keys) != 1:
-                raise ValueError(
-                    "VAE requires one ImageProcessor or SequenceProcessor input; "
-                    "specify feature_key when the dataset has multiple inputs."
-                )
-            feature_key = supported_keys[0]
-        if feature_key in image_keys:
+                if len(supported_keys) == 0 and len(self.feature_keys) == 1:
+                    feature_key = self.feature_keys[0]
+                else:
+                    raise ValueError(
+                        "VAE requires one ImageProcessor or SequenceProcessor input; "
+                        "specify feature_key when the dataset has multiple inputs."
+                    )
+            else:
+                feature_key = supported_keys[0]
+        if feature_key not in dataset.input_processors:
+            raise ValueError(
+                f"feature_key {feature_key!r} is not in the dataset's input_schema."
+            )
+        processor = dataset.input_processors[feature_key]
+        if isinstance(processor, ImageProcessor):
             self.modality = "image"
-        elif feature_key in sequence_keys:
+        elif isinstance(processor, SequenceProcessor):
             self.modality = "sequence"
         else:
-            raise ValueError(
+            raise TypeError(
                 f"feature_key {feature_key!r} must use ImageProcessor or "
-                "SequenceProcessor."
+                f"SequenceProcessor, got {type(processor).__name__}."
             )
 
         self.feature_key = feature_key
