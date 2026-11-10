@@ -49,8 +49,8 @@ Run on the real data (downloads the Survival MDN split files once)::
     python examples/metabric_survival_survival_mdn.py --root ~/data/metabric \\
         --download --ablation features components --splits 1 2 3 4 5 6 7 8 9 10
 
-Results on the real data are recorded in the docstring section "Findings"
-below once run; synthetic numbers carry no meaning.
+The "Findings" section below reports results on the real data. Synthetic
+numbers carry no meaning.
 
 Findings (real METABRIC, ten published splits, one seed, no tuning):
     Hidden width 32, three layers, RMSprop lr 1e-3, batch 128, early stopping

@@ -8,24 +8,36 @@ Mixture Density Networks (Han et al., 2022).
 
 from __future__ import annotations
 
-import hashlib
 import io
-import json
 import logging
 import urllib.request
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from ..tasks.survival_metabric import METABRIC_FEATURES
 from .base_dataset import BaseDataset
-from .splitter import Split
+from .splitter import SubjectSplit
 
 logger = logging.getLogger(__name__)
 
+#: Feature columns of ``metabric.csv``, in the order of the source ``.npz``
+#: arrays: four gene-expression values, age at diagnosis, then four binary
+#: clinical indicators. :class:`~pyhealth.tasks.MetabricSurvivalPrediction`
+#: keeps its own copy of these names, so the dataset and the task do not
+#: import from each other.
+METABRIC_FEATURES: tuple[str, ...] = (
+    "mki67",
+    "egfr",
+    "pgr",
+    "erbb2",
+    "age_at_diagnosis",
+    "hormone_treatment",
+    "radiotherapy",
+    "chemotherapy",
+    "er_positive",
+)
+_NUM_CONTINUOUS = 5
 
 #: Number of published train/validation/test splits.
 NUM_PAPER_SPLITS = 10
@@ -98,10 +110,11 @@ def _validate_values(name: str, raw: np.ndarray, labels: np.ndarray) -> None:
     """
     if not (np.isfinite(raw).all() and np.isfinite(labels).all()):
         raise ValueError(f"{name}: features and labels must be finite")
-    binary = raw[:, len(METABRIC_FEATURES) - 4 :]
+    binary = raw[:, _NUM_CONTINUOUS:]
     if not np.isin(binary, (0.0, 1.0)).all():
         raise ValueError(
-            f"{name}: {', '.join(METABRIC_FEATURES[-4:])} must be exactly 0 or 1"
+            f"{name}: {', '.join(METABRIC_FEATURES[_NUM_CONTINUOUS:])} must be "
+            "exactly 0 or 1"
         )
     if not np.isin(labels[:, 1], (0.0, 1.0)).all():
         raise ValueError(f"{name}: event values must be exactly 0 or 1")
@@ -131,8 +144,12 @@ def prepare_metabric(
     labels, which are unique in the released files. The split membership of
     every patient is kept as columns ``split_1`` ... ``split_10``.
 
-    Time is stored in months, the unit of the DeepSurv release: the source
-    files store months divided by 365.25.
+    Values are not rounded. The continuous features are written with the
+    shortest decimal that reads back as the same ``float32`` value of the
+    source files, and the binary indicators and events as integers. Time is
+    stored in months, the unit of the DeepSurv release: the source files
+    store months divided by 365.25, so ``duration_months`` is that value
+    times 365.25, in full ``float64`` precision.
 
     Args:
         root: Directory to write ``metabric.csv`` to.
@@ -203,15 +220,19 @@ def prepare_metabric(
     raw = np.vstack(raw_blocks)
     labels = np.vstack(label_blocks)
     keys = _row_keys(raw, labels)
-    table = pd.DataFrame(raw.astype(np.float64), columns=list(METABRIC_FEATURES))
-    table.insert(0, "patient_id", [ids[key] for key in keys])
-    for column in METABRIC_FEATURES[5:]:
-        table[column] = table[column].round().astype(int)
-    table["age_at_diagnosis"] = table["age_at_diagnosis"].round(2)
-    table["duration_months"] = (
-        labels[:, 0].astype(np.float64) * _SOURCE_TIME_SCALE
-    ).round(4)
-    table["event"] = labels[:, 1].round().astype(int)
+    raw = raw.astype(np.float32)
+    table = pd.DataFrame({"patient_id": [ids[key] for key in keys]})
+    for index, column in enumerate(METABRIC_FEATURES):
+        if index < _NUM_CONTINUOUS:
+            # Shortest decimal that round-trips the float32 source value.
+            table[column] = [
+                float(np.format_float_positional(value, unique=True))
+                for value in raw[:, index]
+            ]
+        else:
+            table[column] = raw[:, index].astype(int)
+    table["duration_months"] = labels[:, 0].astype(np.float64) * _SOURCE_TIME_SCALE
+    table["event"] = labels[:, 1].astype(int)
     for split_id in range(1, NUM_PAPER_SPLITS + 1):
         table[f"split_{split_id}"] = [membership[split_id][key] for key in keys]
 
@@ -220,73 +241,6 @@ def prepare_metabric(
     table.to_csv(out, index=False)
     logger.info("Wrote %d METABRIC patients to %s", len(table), out)
     return out
-
-
-@dataclass(frozen=True)
-class MetabricPaperSplit(Split):
-    """One of the ten published METABRIC splits, for ``set_task(split=...)``.
-
-    Returns the training, validation and test parts of split ``split_id``
-    as released with SODEN and Survival MDN, so results are comparable with
-    the papers' tables. With it, ``set_task`` fits every processor (for
-    example feature standardisation) on that split's training patients
-    only, as the authors did.
-
-    Build it with :meth:`MetabricDataset.paper_split` rather than directly.
-
-    Args:
-        split_id: The split number, 1 to 10.
-        membership: Patient ID to ``"train"``, ``"valid"`` or ``"test"``.
-
-    Examples:
-        >>> split = MetabricPaperSplit(1, {"MB0001": "train", "MB0002": "test"})
-        >>> split.split_indices({"MB0001": [0], "MB0002": [1]})
-        [array([0]), array([], dtype=int64), array([1])]
-    """
-
-    split_id: int
-    membership: Mapping[str, str] = field(repr=False)
-
-    def __post_init__(self) -> None:
-        if not 1 <= int(self.split_id) <= NUM_PAPER_SPLITS:
-            raise ValueError(
-                f"split_id must be between 1 and {NUM_PAPER_SPLITS}, "
-                f"got {self.split_id}"
-            )
-        unknown = set(self.membership.values()) - set(_PARTS)
-        if unknown:
-            raise ValueError(f"unknown split parts {sorted(unknown)}")
-
-    def split_indices(
-        self, patient_to_index: Mapping[str, Sequence[int]]
-    ) -> list[np.ndarray]:
-        """Returns the sample indices of the train, validation and test parts.
-
-        Args:
-            patient_to_index: Patient ID to the indices of its samples.
-
-        Returns:
-            Three sorted ``int64`` arrays: train, validation, test.
-
-        Raises:
-            KeyError: If a patient is not in the split membership.
-        """
-        parts: dict[str, list[int]] = {part: [] for part in _PARTS}
-        for patient_id, indices in patient_to_index.items():
-            part = self.membership.get(str(patient_id))
-            if part is None:
-                raise KeyError(
-                    f"patient {patient_id!r} is not in split {self.split_id}"
-                )
-            parts[part].extend(int(i) for i in indices)
-        return [np.array(sorted(parts[part]), dtype=np.int64) for part in _PARTS]
-
-    def to_dict(self) -> dict:
-        """JSON-serialisable description, used in cache keys and metadata."""
-        digest = hashlib.sha256(
-            json.dumps(sorted(self.membership.items())).encode()
-        ).hexdigest()[:16]
-        return {"kind": "metabric_paper", "split_id": int(self.split_id), "sha": digest}
 
 
 class MetabricDataset(BaseDataset):
@@ -362,19 +316,31 @@ class MetabricDataset(BaseDataset):
             **kwargs,
         )
 
-    def paper_split(self, split_id: int = 1) -> MetabricPaperSplit:
+    def paper_split(self, split_id: int = 1) -> SubjectSplit:
         """Returns one of the ten published train/validation/test splits.
+
+        The split is a :class:`~pyhealth.datasets.SubjectSplit` holding the
+        patient IDs of the training, validation and test parts of split
+        ``split_id``, as released with SODEN and Survival MDN, so results are
+        comparable with the papers' tables. With it, ``set_task`` fits every
+        processor (for example feature standardisation) on that split's
+        training patients only, as the authors did.
 
         Args:
             split_id: The split number, 1 to 10.
 
         Returns:
-            A :class:`MetabricPaperSplit` for ``set_task(task, split=...)``.
+            A :class:`~pyhealth.datasets.SubjectSplit` for
+            ``set_task(task, split=...)``.
 
         Raises:
-            ValueError: If ``split_id`` is out of range or ``metabric.csv``
-                has no column for it.
+            ValueError: If ``split_id`` is out of range, or ``metabric.csv``
+                has no column for it or an unknown part name in it.
         """
+        if not 1 <= int(split_id) <= NUM_PAPER_SPLITS:
+            raise ValueError(
+                f"split_id must be between 1 and {NUM_PAPER_SPLITS}, got {split_id}"
+            )
         column = f"split_{int(split_id)}"
         table = pd.read_csv(
             Path(self.root) / _CSV_NAME,
@@ -383,5 +349,11 @@ class MetabricDataset(BaseDataset):
         )
         if column not in table.columns:
             raise ValueError(f"metabric.csv has no column {column!r}")
-        membership = dict(zip(table["patient_id"], table[column]))
-        return MetabricPaperSplit(split_id=int(split_id), membership=membership)
+        unknown = set(table[column]) - set(_PARTS)
+        if unknown:
+            raise ValueError(f"{column} has unknown parts {sorted(unknown)}")
+        return SubjectSplit(
+            subjects=tuple(
+                tuple(table.loc[table[column] == part, "patient_id"]) for part in _PARTS
+            )
+        )

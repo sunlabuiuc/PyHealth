@@ -12,7 +12,9 @@ logger = logging.getLogger(__name__)
 
 #: Feature columns of ``metabric.csv``, in the order of the source ``.npz``
 #: arrays. Four gene-expression values, then age and four binary clinical
-#: indicators.
+#: indicators. :mod:`pyhealth.datasets.metabric` keeps its own copy, so the
+#: task and the dataset do not import from each other; a test checks that the
+#: two agree.
 METABRIC_FEATURES: tuple[str, ...] = (
     "mki67",
     "egfr",

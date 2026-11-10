@@ -1,4 +1,4 @@
-"""Tests for MetabricDataset, MetabricPaperSplit and MetabricSurvivalPrediction.
+"""Tests for MetabricDataset, its paper splits and MetabricSurvivalPrediction.
 
 All data are synthetic: four patients written as Survival MDN style ``.npz``
 split files in a temporary directory.
@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from pyhealth.datasets import MetabricDataset, MetabricPaperSplit
+from pyhealth.datasets import MetabricDataset, SubjectSplit
 from pyhealth.datasets.metabric import METABRIC_FEATURES, prepare_metabric
 from pyhealth.tasks import MetabricSurvivalPrediction
 
@@ -77,9 +77,15 @@ class TestPrepareMetabric(unittest.TestCase):
 
     def test_raw_features_kept(self):
         table = pd.read_csv(prepare_metabric(str(self.root)))
-        np.testing.assert_allclose(
-            table[list(METABRIC_FEATURES)].to_numpy(), RAW, atol=1e-2
+        np.testing.assert_array_equal(
+            table[list(METABRIC_FEATURES)].to_numpy().astype(np.float32),
+            RAW.astype(np.float32),
         )
+
+    def test_feature_names_match_task(self):
+        from pyhealth.tasks import survival_metabric
+
+        self.assertEqual(METABRIC_FEATURES, survival_metabric.METABRIC_FEATURES)
 
     def test_missing_file(self):
         (self.root / "test_5.npz").unlink()
@@ -199,7 +205,7 @@ class TestMetabricDataset(unittest.TestCase):
 
     def test_paper_split_membership(self):
         split = self.dataset.paper_split(1)
-        self.assertIsInstance(split, MetabricPaperSplit)
+        self.assertIsInstance(split, SubjectSplit)
         index = {
             pid: [i] for i, pid in enumerate(["MB0001", "MB0002", "MB0003", "MB0004"])
         }
@@ -210,12 +216,9 @@ class TestMetabricDataset(unittest.TestCase):
         self.assertNotEqual(split.to_dict(), self.dataset.paper_split(2).to_dict())
 
     def test_paper_split_validation(self):
-        with self.assertRaises(ValueError):
-            MetabricPaperSplit(11, {})
-        with self.assertRaises(ValueError):
-            MetabricPaperSplit(1, {"MB0001": "holdout"})
-        with self.assertRaises(KeyError):
-            MetabricPaperSplit(1, {}).split_indices({"MB0001": [0]})
+        for split_id in (0, 11):
+            with self.assertRaises(ValueError):
+                self.dataset.paper_split(split_id)
 
 
 class TestMetabricSurvivalPrediction(unittest.TestCase):

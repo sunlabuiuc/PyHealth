@@ -16,8 +16,9 @@ the `Survival MDN repository <https://github.com/XintianHan/Survival-MDN>`_
 (``data/metabric/{train,valid,test}_{1..10}.npz``). :func:`prepare_metabric`
 turns them into one ``metabric.csv`` with raw features and the split
 membership of every patient, and :meth:`MetabricDataset.paper_split` returns
-one of those splits for ``set_task(task, split=...)``, so that preprocessing
-is fitted on the training patients only, as in the papers.
+one of those splits as a :class:`~pyhealth.datasets.SubjectSplit` for
+``set_task(task, split=...)``, so that preprocessing is fitted on the training
+patients only, as in the papers.
 
 .. code-block:: python
 
@@ -35,10 +36,6 @@ Use with :class:`~pyhealth.tasks.MetabricSurvivalPrediction` and
 .. autoclass:: pyhealth.datasets.MetabricDataset
     :members:
     :undoc-members:
-    :show-inheritance:
-
-.. autoclass:: pyhealth.datasets.MetabricPaperSplit
-    :members:
     :show-inheritance:
 
 .. autofunction:: pyhealth.datasets.metabric.prepare_metabric
