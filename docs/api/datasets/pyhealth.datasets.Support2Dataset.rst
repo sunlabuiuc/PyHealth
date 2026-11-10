@@ -13,3 +13,11 @@ The dataset is commonly used for mortality prediction, length of stay prediction
     :undoc-members:
     :show-inheritance:
 
+The complete-case time-to-event task is
+:class:`~pyhealth.tasks.SurvivalTimeToEventSupport2`. It is separate from the
+existing fixed-horizon probability regression task. The released-split helpers
+map local reference arrays to source patient numbers without downloading data.
+
+.. autofunction:: pyhealth.datasets.support2_paper_time_transform
+.. autofunction:: pyhealth.datasets.support2_released_split_ids
+
