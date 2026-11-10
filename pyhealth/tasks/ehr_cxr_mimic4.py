@@ -20,37 +20,115 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from functools import lru_cache
 from math import ceil
-from typing import Any, ClassVar
+from typing import Any, ClassVar, NamedTuple
 
 import numpy as np
 import polars as pl
+import torch
 
 from pyhealth.medcode import CrossMap
+from pyhealth.processors import ImageProcessor
+from pyhealth.processors.base_processor import FeatureProcessor
 
 from .base_task import BaseTask
-from .yaib_mimic4 import (
-    _DYNAMIC_FEATURES,
-    _STATIC_CHART_FEATURES,
-    _chart,
-    _item_lookup,
-    _parse_time,
-)
 
-# feature: (min, max, items). The 12 continuous variables reuse the YAIB
-# definitions; the Glasgow scales are ordinal scores from ``valuenum``.
-_MEASURED_FEATURES = {
+
+class _Item(NamedTuple):
+    """Rows of one MIMIC-IV table that feed a feature.
+
+    ``scale``/``offset`` convert a value as ``value * scale + offset``, applied
+    only to rows whose unit matches ``unit_regex`` (case-insensitive).
+    """
+
+    table: str
+    itemids: tuple[int, ...]
+    unit_regex: str | None = None
+    scale: float = 1.0
+    offset: float = 0.0
+
+
+def _lab(*itemids: int, **kwargs: Any) -> _Item:
+    return _Item("labevents", itemids, **kwargs)
+
+
+def _chart(*itemids: int, **kwargs: Any) -> _Item:
+    return _Item("chartevents", itemids, **kwargs)
+
+
+# feature: (min, max, items). Out-of-range values are dropped. The item IDs,
+# units and bounds of the 12 continuous variables are copied from the YAIB
+# MIMIC-IV definitions (pyhealth/tasks/yaib_mimic4.py, ported from ricu), so
+# this task stays self-contained; the Glasgow scales are ordinal scores from
+# ``valuenum``.
+_MEASURED_FEATURES: dict[str, tuple[float | None, float | None, list[_Item]]] = {
     "crr": (0, 1, [_chart(223951, 224308)]),
     "gcs_eye": (1, 4, [_chart(220739)]),
     "gcs_motor": (1, 6, [_chart(223901)]),
     "gcs_verbal": (1, 5, [_chart(223900)]),
-    **{
-        name: _DYNAMIC_FEATURES[name]
-        for name in (
-            "dbp", "fio2", "glu", "hr", "map", "o2sat", "resp", "sbp", "temp", "ph",
-        )
-    },
-    **_STATIC_CHART_FEATURES,
+    "dbp": (0, 200, [_chart(220051, 220180)]),
+    "fio2": (21, 100, [_chart(223835), _lab(50816)]),
+    "glu": (0, 1000, [_lab(50809, 50931)]),
+    "hr": (0, 300, [_chart(220045)]),
+    "map": (0, 250, [_chart(220052, 220181, 225312)]),
+    "o2sat": (50, 100, [_chart(220277, 226253, 220227), _lab(50817)]),
+    "resp": (0, 120, [_chart(220210, 224688, 224689, 224690)]),
+    "sbp": (0, 300, [_chart(220050, 220179)]),
+    "temp": (
+        32,
+        42,
+        [
+            _chart(223762),
+            _chart(223761, 224027, unit_regex="f", scale=5 / 9, offset=-160 / 9),
+        ],
+    ),
+    "ph": (6.8, 8, [_lab(50820)]),
+    "height": (10, 230, [_chart(226707, unit_regex="^in", scale=2.54)]),
+    "weight": (1, 500, [_chart(226512)]),
 }
+
+_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def _item_lookup(
+    features: dict[str, tuple[float | None, float | None, list[_Item]]],
+) -> pl.DataFrame:
+    """Flattens feature definitions into one row per (table, itemid)."""
+    rows = [
+        {
+            "table": item.table,
+            "itemid": itemid,
+            "feature": index,
+            "unit_regex": (
+                None if item.unit_regex is None else "(?i)" + item.unit_regex
+            ),
+            "scale": item.scale,
+            "offset": item.offset,
+            "lower": None if lower is None else float(lower),
+            "upper": None if upper is None else float(upper),
+        }
+        for index, (lower, upper, items) in enumerate(features.values())
+        for item in items
+        for itemid in item.itemids
+    ]
+    return pl.DataFrame(
+        rows,
+        schema={
+            "table": pl.String,
+            "itemid": pl.Int64,
+            "feature": pl.Int64,
+            "unit_regex": pl.String,
+            "scale": pl.Float64,
+            "offset": pl.Float64,
+            "lower": pl.Float64,
+            "upper": pl.Float64,
+        },
+    )
+
+
+def _parse_time(column: str) -> pl.Expr:
+    return pl.col(column).str.strptime(pl.Datetime("ms"), _TIME_FORMAT, strict=False)
+
+
 _MEASURED_NAMES = list(_MEASURED_FEATURES)
 _ITEMS = _item_lookup(_MEASURED_FEATURES)
 # Capillary refill is charted as text only.
@@ -90,6 +168,54 @@ _PHENOTYPE_CCS = {
 }
 
 
+class _OptionalImageProcessor(FeatureProcessor):
+    """An image processor for the ``cxr`` input that accepts a missing image.
+
+    A stay without a paired image has ``cxr=None`` and ``cxr_mask=0``. The
+    missing image becomes a zero image of the output shape, as MedFuse expects
+    a tensor for every sample and ignores it where the mask is 0. A present
+    image goes through :class:`~pyhealth.processors.ImageProcessor` unchanged.
+
+    Args:
+        image_size: Output height and width.
+        mode: PIL mode to convert images to: 'L', 'RGB' or 'RGBA'.
+        **kwargs: Other :class:`~pyhealth.processors.ImageProcessor` options.
+
+    Examples:
+        >>> p = _OptionalImageProcessor(image_size=8, mode="L")
+        >>> p.process(None).shape
+        torch.Size([1, 8, 8])
+    """
+
+    stores_tensor = True
+    _CHANNELS: ClassVar[dict[str, int]] = {"L": 1, "RGB": 3, "RGBA": 4}
+
+    def __init__(self, image_size: int = 224, mode: str = "RGB", **kwargs: Any):
+        if mode not in self._CHANNELS:
+            raise ValueError(f"mode must be one of {list(self._CHANNELS)}.")
+        self.image = ImageProcessor(image_size=image_size, mode=mode, **kwargs)
+        if not self.image.stores_tensor:
+            raise ValueError("to_tensor must be True.")
+        self.shape = (self._CHANNELS[mode], image_size, image_size)
+
+    def process(self, value: Any) -> torch.Tensor:
+        if value is None:
+            return torch.zeros(self.shape)
+        return self.image.process(value)
+
+    def is_token(self) -> bool:
+        return False
+
+    def dim(self) -> tuple[int, ...]:
+        return self.image.dim()
+
+    def spatial(self) -> tuple[bool, ...]:
+        return self.image.spatial()
+
+    def __repr__(self) -> str:
+        return f"_OptionalImageProcessor({self.image!r})"
+
+
 def _input_schema(image_size: int) -> dict[str, Any]:
     """Schema of the MedFuse inputs.
 
@@ -104,14 +230,13 @@ def _input_schema(image_size: int) -> dict[str, Any]:
             {"normalization": "zscore", "impute_strategy": "zero"},
         ),
         "cxr": (
-            "image",
+            _OptionalImageProcessor,
             {
                 "image_size": image_size,
                 "mode": "RGB",
                 "normalize": True,
                 "mean": [0.485, 0.456, 0.406],
                 "std": [0.229, 0.224, 0.225],
-                "allow_missing": True,
             },
         ),
         "cxr_mask": "tensor",
@@ -505,7 +630,7 @@ class EHRCXRPhenotypingMIMIC4(BaseTask):
     FEATURES: ClassVar[list[str]] = [*_MEASURED_NAMES, "gcs_total"]
     PHENOTYPES: ClassVar[list[str]] = list(_PHENOTYPE_CCS.values())
     output_schema: ClassVar[dict[str, Any]] = {
-        "phenotypes": ("multilabel", {"classes": PHENOTYPES})
+        "phenotypes": ("multilabel", {"labels": PHENOTYPES})
     }
 
     def __init__(

@@ -1,3 +1,4 @@
+import pickle
 import tempfile
 import unittest
 from datetime import datetime, timedelta
@@ -14,8 +15,9 @@ from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import MedFuse
 from pyhealth.processors import ImageProcessor, MultiLabelProcessor
 from pyhealth.tasks import EHRCXRMortalityMIMIC4, EHRCXRPhenotypingMIMIC4
+from pyhealth.tasks.ehr_cxr_mimic4 import _OptionalImageProcessor
 
-T0 = datetime(2150, 1, 1, 8, 0, 0)
+T0 = datetime(2150, 1, 1, 8, 0, 0)  # noqa: DTZ001 - MIMIC times are naive
 FEATURES = EHRCXRMortalityMIMIC4.FEATURES
 N_FEATURES = len(FEATURES)
 HR = FEATURES.index("hr")
@@ -420,27 +422,35 @@ class TestMedFuseIntegration(unittest.TestCase):
             self.assertIsNotNone(model.layer.projection.weight.grad)
 
 
-class TestProcessorOptions(unittest.TestCase):
-    def test_image_processor_allow_missing(self):
-        processor = ImageProcessor(image_size=4, mode="RGB", allow_missing=True)
+class TestOptionalImageProcessor(unittest.TestCase):
+    def test_missing_image_is_a_zero_image(self):
+        processor = _OptionalImageProcessor(image_size=4, mode="RGB")
         self.assertEqual(processor.process(None).shape, (3, 4, 4))
         self.assertEqual(processor.process(None).sum(), 0)
+        self.assertEqual(
+            _OptionalImageProcessor(image_size=4, mode="L").process(None).shape,
+            (1, 4, 4),
+        )
 
-    def test_image_processor_needs_a_known_shape(self):
+    def test_present_image_matches_image_processor(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = str(Path(root) / "cxr.png")
+            Image.fromarray(np.full((6, 6), 200, dtype=np.uint8)).save(path)
+            ours = _OptionalImageProcessor(image_size=4, mode="RGB").process(path)
+            reference = ImageProcessor(image_size=4, mode="RGB").process(path)
+            self.assertTrue(torch.equal(ours, reference))
+
+    def test_shape_must_be_known(self):
         with self.assertRaises(ValueError):
-            ImageProcessor(image_size=4, allow_missing=True)
+            _OptionalImageProcessor(image_size=4, mode="P")
         with self.assertRaises(ValueError):
-            ImageProcessor(image_size=None, mode="L", allow_missing=True)
+            _OptionalImageProcessor(image_size=4, mode="RGB", to_tensor=False)
 
-    def test_image_processor_still_rejects_none_by_default(self):
-        with self.assertRaises(TypeError):
-            ImageProcessor(image_size=4, mode="RGB").process(None)
-
-    def test_multilabel_classes_fix_size_and_order(self):
-        processor = MultiLabelProcessor(classes=["b", "a"])
-        processor.fit([{"y": ["a"]}], "y")
-        self.assertEqual(processor.size(), 2)
-        self.assertEqual(processor.process(["b"]).tolist(), [1.0, 0.0])
+    def test_pickles(self):
+        processor = pickle.loads(
+            pickle.dumps(_OptionalImageProcessor(image_size=4, mode="RGB"))
+        )
+        self.assertEqual(processor.process(None).shape, (3, 4, 4))
 
 
 if __name__ == "__main__":
