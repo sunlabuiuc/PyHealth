@@ -57,6 +57,28 @@ from .length_of_stay_prediction import (
     LengthOfStayPredictionOMOP,
 )
 from .length_of_stay_stagenet_mimic4 import LengthOfStayStageNetMIMIC4
+from .length_of_stay_tpc import (
+    BaseLengthOfStayTPC as BaseLengthOfStayTPC,
+    BucketBatchSampler as BucketBatchSampler,
+    FastReservoirSampler as FastReservoirSampler,
+    MapDataset as MapDataset,
+    RawStayRecord as RawStayRecord,
+    StayDataMap as StayDataMap,
+    compute_cache_fingerprint as compute_cache_fingerprint,
+    compute_los_metrics as compute_los_metrics,
+    generate_tpc_tensors as generate_tpc_tensors,
+    length_of_stay_metrics_fn as length_of_stay_metrics_fn,
+)
+from .length_of_stay_tpc_eicu import (
+    LengthOfStayPredictionTPCeICU as LengthOfStayPredictionTPCeICU,
+    LengthOfStayTPCEICU as LengthOfStayTPCEICU,
+    LengthOfStayTPCeICU as LengthOfStayTPCeICU,
+    compute_empirical_training_stats as compute_empirical_training_stats,
+    get_valid_eicu_stay_ids as get_valid_eicu_stay_ids,
+    length_of_stay_tpc_eicu_fn as length_of_stay_tpc_eicu_fn,
+    load_eicu_vitals_cache as load_eicu_vitals_cache,
+    select_qualifying_labs as select_qualifying_labs,
+)
 from .medical_coding import MIMIC3ICD9Coding
 from .medical_transcriptions_classification import MedicalTranscriptionsClassification
 from .mortality_prediction import (
