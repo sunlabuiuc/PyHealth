@@ -21,6 +21,7 @@ import bisect
 import math
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -32,7 +33,6 @@ import torch
 
 from . import register_processor
 from .base_processor import FeatureProcessor
-from .cehr_processor import ConceptVocab
 
 DEATH_CODE = "MEDS_DEATH"
 DISCHARGE_PREFIX = "HOSPITAL_DISCHARGE"
@@ -69,6 +69,69 @@ TIME_INTERVALS: tuple[tuple[str, timedelta], ...] = (
     ("2mt-6mt", timedelta(days=60)),
     ("=6mt", timedelta(days=180)),
 )
+
+PAD_TOKEN = "<pad>"
+UNK_TOKEN = "<unk>"
+
+
+@dataclass
+class EthosVocab:
+    """Maps token strings to dense ids, with ``<pad>`` at 0 and ``<unk>`` at 1.
+
+    Unknown tokens map to ``unk_id``. :class:`EthosProcessor` keeps one as
+    ``vocab`` and saves it with :meth:`to_json`.
+
+    Examples:
+        >>> from pyhealth.processors.ethos_processor import EthosVocab
+        >>> vocab = EthosVocab()
+        >>> vocab.add_token("Q1")
+        2
+        >>> vocab["Q1"], vocab["unseen"], vocab.vocab_size
+        (2, 1, 3)
+    """
+
+    token_to_id: dict[str, int] = field(default_factory=dict)
+    pad_id: int = 0
+    unk_id: int = 1
+    _next_id: int = 2
+
+    def __post_init__(self) -> None:
+        if not self.token_to_id:
+            self.token_to_id = {PAD_TOKEN: self.pad_id, UNK_TOKEN: self.unk_id}
+            self._next_id = 2
+
+    def add_token(self, token: str) -> int:
+        """Returns the token's id, adding it first if it is new."""
+        if token not in self.token_to_id:
+            self.token_to_id[token] = self._next_id
+            self._next_id += 1
+        return self.token_to_id[token]
+
+    def __getitem__(self, token: str) -> int:
+        return self.token_to_id.get(token, self.unk_id)
+
+    @property
+    def vocab_size(self) -> int:
+        """Returns the number of ids, including ``<pad>`` and ``<unk>``."""
+        return self._next_id
+
+    def to_json(self) -> dict[str, Any]:
+        """Returns the vocabulary as a JSON-ready dict."""
+        return {
+            "token_to_id": self.token_to_id,
+            "next_id": self._next_id,
+            "pad_id": self.pad_id,
+            "unk_id": self.unk_id,
+        }
+
+    @classmethod
+    def from_json(cls, data: dict[str, Any]) -> "EthosVocab":
+        """Rebuilds a vocabulary from :meth:`to_json`'s output."""
+        vocab = cls(pad_id=int(data["pad_id"]), unk_id=int(data["unk_id"]))
+        vocab.token_to_id = dict(data["token_to_id"])
+        vocab._next_id = int(data["next_id"])
+        return vocab
+
 
 _MICROSECONDS = timedelta(microseconds=1)
 _INTERVAL_LABELS = [label for label, _ in TIME_INTERVALS]
@@ -231,7 +294,7 @@ class EthosProcessor(FeatureProcessor):
         )
         self.exclude_prefixes = tuple(exclude_prefixes)
         self.add_timeline_end = add_timeline_end
-        self.vocab: ConceptVocab | None = None
+        self.vocab: EthosVocab | None = None
         self.quantiles: dict[str, list[float]] = {}
 
     def _read(
@@ -306,7 +369,7 @@ class EthosProcessor(FeatureProcessor):
             code: _quantile_breaks(values, self.num_quantiles)
             for code, values in observed.items()
         }
-        self.vocab = ConceptVocab()
+        self.vocab = EthosVocab()
         for k in range(1, self.num_quantiles + 1):
             self.vocab.add_token(f"Q{k}")
         for label in _INTERVAL_LABELS:
@@ -410,7 +473,7 @@ class EthosProcessor(FeatureProcessor):
         self.exclude_prefixes = tuple(state["exclude_prefixes"])
         self.add_timeline_end = state["add_timeline_end"]
         vocab = state["vocab"]
-        self.vocab = None if vocab is None else ConceptVocab.from_json(vocab)
+        self.vocab = None if vocab is None else EthosVocab.from_json(vocab)
         self.quantiles = state["quantiles"]
 
     def size(self) -> int:
