@@ -381,6 +381,7 @@ class AutoImprover:
         self.seed = seed
         self.device = device
         self.run_dir = run_dir
+        self._results: dict[str, Any] = {}
         self.lessons_path = lessons_path
         self.cv_folds = cv_folds
         self.promote_se = promote_se if cv_folds else None
@@ -1125,10 +1126,7 @@ class AutoImprover:
                     y_true, probs[a], probs[b], self.metric,
                     groups=groups, n_boot=n_boot, seed=self.seed,
                 )
-        if self.run_dir:
-            os.makedirs(self.run_dir, exist_ok=True)
-            with open(os.path.join(self.run_dir, "test.json"), "w") as f:
-                json.dump(out, f, indent=1, default=float)
+        self._save_result("test.json", out, default=float)
         if return_predictions:
             out["predictions"] = {"y_true": y_true, "patient_ids": patient_ids, **probs}
         return out
@@ -1201,10 +1199,7 @@ class AutoImprover:
                     row.update(contribution=sign * (target.score - scored["score"]),
                                se=None, folds_better=None)
                 out["rows"].append(row)
-        if self.run_dir:
-            os.makedirs(self.run_dir, exist_ok=True)
-            with open(os.path.join(self.run_dir, "attribution.json"), "w") as f:
-                json.dump(out, f, indent=1, default=str)
+        self._save_result("attribution.json", out, default=str)
         return out
 
     def _run_config(
@@ -1304,17 +1299,15 @@ class AutoImprover:
                                             self.metric, self.seed, self.device)
                 tops.append([f["name"] for f in ranked(fold_model, part)["features"]])
             out["stability"] = top_overlap([f["name"] for f in out["features"]], tops)
-        if self.run_dir:
-            os.makedirs(self.run_dir, exist_ok=True)
-            with open(os.path.join(self.run_dir, "explain.json"), "w") as f:
-                json.dump(out, f, indent=1, default=float)
+        self._save_result("explain.json", out, default=float)
         return out
 
     def flags(self) -> list[dict[str, Any]]:
         """Items a clinician should decide on before the model is used.
 
-        Raised from the task card, :meth:`explain` and
-        :meth:`evaluate_on_test`: a missing task card, a top feature with no
+        Raised from the task card and the latest :meth:`explain` and
+        :meth:`evaluate_on_test` results (kept in memory, or read from
+        ``run_dir`` when resuming a saved run): a missing task card, a top feature with no
         entry in the card's dictionary, a learned effect opposite to the
         expected direction, poor calibration, and a large gap between
         subgroups. Each flag carries the decision recorded with
@@ -1429,7 +1422,22 @@ class AutoImprover:
             report.save(path)
         return report
 
+    def _save_result(self, name: str, out: dict[str, Any], default) -> None:
+        """Keeps a result in memory and, with a ``run_dir``, writes it there.
+
+        The in-memory copy is what :meth:`flags` and :meth:`report` read, so
+        they work without a ``run_dir``; it is the same JSON as the file.
+        """
+        text = json.dumps(out, indent=1, default=default)
+        self._results[name] = json.loads(text)
+        if self.run_dir:
+            os.makedirs(self.run_dir, exist_ok=True)
+            with open(os.path.join(self.run_dir, name), "w") as f:
+                f.write(text)
+
     def _read_json(self, name: str) -> Any:
+        if name in self._results:
+            return self._results[name]
         if not self.run_dir or not os.path.exists(os.path.join(self.run_dir, name)):
             return None
         with open(os.path.join(self.run_dir, name)) as f:
