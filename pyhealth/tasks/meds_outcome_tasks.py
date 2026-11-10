@@ -88,12 +88,13 @@ from typing import Any, ClassVar
 import polars as pl
 
 from .base_task import BaseTask
-from .in_hospital_mortality_meds import (
-    ADMISSION_PREFIX,
-    DEATH_CODE,
-    DIED_CODE,
-    DISCHARGE_PREFIX,
-)
+
+# The same MEDS codes as in_hospital_mortality_meds.py, kept here so these
+# tasks do not import another task's module.
+ADMISSION_PREFIX = "HOSPITAL_ADMISSION"
+DISCHARGE_PREFIX = "HOSPITAL_DISCHARGE"
+DIED_CODE = "HOSPITAL_DISCHARGE//DIED"
+DEATH_CODE = "MEDS_DEATH"
 
 ICU_ADMISSION_PREFIX = "ICU_ADMISSION"
 ICU_DISCHARGE_PREFIX = "ICU_DISCHARGE"
