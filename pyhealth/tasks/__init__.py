@@ -73,6 +73,9 @@ from .mortality_prediction import (
     MultimodalMortalityPredictionMIMIC3,
     MultimodalMortalityPredictionMIMIC4,
 )
+from .survival_metabric import (
+    MetabricSurvivalPrediction as MetabricSurvivalPrediction,
+)
 from .survival_mimic4 import InHospitalSurvivalMIMIC4 as InHospitalSurvivalMIMIC4
 from .acuity_mimic4 import ICUAcuityMIMIC4 as ICUAcuityMIMIC4
 from .survival_preprocess_support2 import SurvivalPreprocessSupport2
