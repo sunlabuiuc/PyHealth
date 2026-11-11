@@ -536,6 +536,13 @@ class GRASP(BaseModel):
 
         for feature_key in self.dynamic_feature_keys:
             x = embedded[feature_key]
+            if x.dim() == 2:
+                # One vector per sample (tensor, multi_hot): a length-1 sequence.
+                x = x.unsqueeze(1)
+            while x.dim() > 3:
+                # Nested codes (B, visits, codes, D): pool the codes within each
+                # visit (padded codes embed to zero), then run over the visits.
+                x = x.sum(dim=2)
             mask = (torch.abs(x).sum(dim=-1) != 0).int()
             x = self.grasp[feature_key](x, static=static, mask=mask)
             patient_emb.append(x)
