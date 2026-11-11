@@ -72,23 +72,23 @@ Notes:
      - ✓
      - ✓
      - ✓
-     - ✗
+     - ✓
      - ✓
      - ✓
    * - ``deep_nested_sequence``
      - ``nn.Embedding``
      - ✗
      - ✗
+     - ✓
      - ✗
-     - ✗
+     - ✓
+     - ✓
      - ✓
      - ✗
      - ✗
-     - ✗
-     - ✗
-     - ✗
-     - ✗
-     - ✗
+     - ✓
+     - ✓
+     - ✓
      - ✗
    * - ``multi_hot``
      - ``nn.Linear``
@@ -101,9 +101,9 @@ Notes:
      - ✓
      - ✗
      - ✗
-     - ✗
-     - ✗
-     - ✗
+     - ✓
+     - ✓
+     - ✓
      - ✗
    * - ``nested_multihot``
      - none (passed through)
@@ -131,9 +131,9 @@ Notes:
      - ✓
      - ✗
      - ✗
-     - ✗
-     - ✗
-     - ✗
+     - ✓
+     - ✓
+     - ✓
      - ✗
    * - ``nested_sequence_floats``
      - ``nn.Linear``
@@ -162,7 +162,7 @@ Notes:
      - ✓
      - ✗
      - ✓
-     - ✗
+     - ✓
      - ✓
      - ✗
    * - ``timeseries``
