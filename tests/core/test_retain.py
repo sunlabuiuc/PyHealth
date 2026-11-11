@@ -2,7 +2,7 @@ import unittest
 import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
-from pyhealth.models import RETAIN
+from pyhealth.models import RETAIN, RETAINLayer
 
 
 class TestRETAIN(unittest.TestCase):
@@ -130,6 +130,54 @@ class TestRETAIN(unittest.TestCase):
         self.assertEqual(ret["embed"].shape[0], 2)  # batch size
         expected_embed_dim = len(self.model.feature_keys) * self.model.embedding_dim
         self.assertEqual(ret["embed"].shape[1], expected_embed_dim)
+
+
+class TestRETAINAttention(unittest.TestCase):
+    """RETAINLayer's attention lines up with the visits and ignores padding."""
+
+    def test_attention_lines_up_with_the_visits(self):
+        # The GRUs read the visits from last to first, so the output for the
+        # last visit has seen only that visit. Changing the first visit must
+        # not change it, and must change the first visit's output.
+        torch.manual_seed(0)
+        layer = RETAINLayer(4, dropout=0.0).eval()
+        x = torch.randn(1, 3, 4)
+        lengths = torch.tensor([3])
+        changed = x.clone()
+        changed[0, 0] += 1.0
+        with torch.no_grad():
+            beta = layer.compute_beta(layer.reverse_x(x, lengths), lengths, 3)
+            beta2 = layer.compute_beta(layer.reverse_x(changed, lengths), lengths, 3)
+        torch.testing.assert_close(beta[0, -1], beta2[0, -1])
+        self.assertFalse(torch.allclose(beta[0, 0], beta2[0, 0]))
+
+    def test_padded_steps_get_no_attention(self):
+        torch.manual_seed(0)
+        layer = RETAINLayer(4, dropout=0.0).eval()
+        x = torch.randn(2, 3, 4)
+        lengths = torch.tensor([3, 1])
+        with torch.no_grad():
+            alpha = layer.compute_alpha(layer.reverse_x(x, lengths), lengths, 3)
+        self.assertEqual(float(alpha[1, 1:].sum()), 0.0)
+        torch.testing.assert_close(alpha.sum(dim=1).squeeze(-1), torch.ones(2))
+
+    def test_score_does_not_depend_on_the_batch(self):
+        # A short record scores the same alone as next to a longer one.
+        for key, codes in [("sequence", (["a", "b", "c", "d"], ["b"])),
+                           ("nested_sequence", ([["a", "b"], ["c"], ["d"]], [["b"]]))]:
+            samples = [{"patient_id": "p0", "label": 0, "codes": codes[0]},
+                       {"patient_id": "p1", "label": 1, "codes": codes[1]}]
+            dataset = create_sample_dataset(
+                samples=samples, input_schema={"codes": key},
+                output_schema={"label": "binary"}, dataset_name=key,
+            )
+            torch.manual_seed(0)
+            model = RETAIN(dataset=dataset, embedding_dim=8).eval()
+            with torch.no_grad(), self.subTest(input=key):
+                batch = next(iter(get_dataloader(dataset, batch_size=2)))
+                single = next(iter(get_dataloader(dataset.subset([1]), batch_size=1)))
+                torch.testing.assert_close(model(**batch)["y_prob"][1],
+                                           model(**single)["y_prob"][0])
 
 
 if __name__ == "__main__":
