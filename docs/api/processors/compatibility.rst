@@ -83,14 +83,14 @@ Notes:
      - ✓
      - ✗
      - ✓
-     - ✗
+     - ✓
      - ✓
      - ✗
      - ✗
-     - ✗
      - ✓
-     - ✗
-     - ✗
+     - ✓
+     - ✓
+     - ✓
    * - ``multi_hot``
      - ``nn.Linear``
      - ✓
@@ -102,10 +102,10 @@ Notes:
      - ✓
      - ✗
      - ✗
-     - ✗
      - ✓
-     - ✗
-     - ✗
+     - ✓
+     - ✓
+     - ✓
    * - ``nested_multihot``
      - none (passed through)
      - ✗
@@ -132,10 +132,10 @@ Notes:
      - ✓
      - ✗
      - ✗
-     - ✗
      - ✓
-     - ✗
-     - ✗
+     - ✓
+     - ✓
+     - ✓
    * - ``nested_sequence_floats``
      - ``nn.Linear``
      - ✗
@@ -150,7 +150,7 @@ Notes:
      - ✓
      - ✓
      - ✓
-     - ✗
+     - ✓
    * - ``deep_nested_sequence_floats``
      - ``nn.Linear``
      - ✗
@@ -165,7 +165,7 @@ Notes:
      - ✓
      - ✓
      - ✓
-     - ✗
+     - ✓
    * - ``timeseries``
      - ``nn.Linear``
      - ✗
@@ -180,7 +180,7 @@ Notes:
      - ✓
      - ✓
      - ✓
-     - ✗
+     - ✓
    * - ``temporal_timeseries``
      - none (passed through)
      - ✗
@@ -225,7 +225,7 @@ Notes:
      - ✓
      - ✗
      - ✗
-     - ✗
+     - ✓
    * - ``text``
      - error: NotImplementedError
      - ✗
