@@ -43,6 +43,11 @@ from pyhealth.metrics.segmentation import (
     remap_class_mask,
     segmentation_metrics_fn,
 )
+from pyhealth.processors import (
+    LabelProcessor,
+    SegmentationBinaryLabelProcessor,
+    SegmentationMultiClassLabelProcessor,
+)
 
 from .base_model import BaseModel
 
@@ -624,6 +629,11 @@ class UNet(BaseModel):
                 "convolutions with depth > 1."
             )
 
+        self._segmentation_label_processor = (
+            SegmentationMultiClassLabelProcessor(self.num_classes)
+            if self.num_classes > 1
+            else SegmentationBinaryLabelProcessor()
+        )
         self.loss_fn = SegmentationLoss(
             mode=self.mode,
             ce_weight=ce_weight,
@@ -643,18 +653,16 @@ class UNet(BaseModel):
         )
 
     @property
-    def mode(self) -> str:
-        """The segmentation label kind implied by ``num_classes``.
+    def label_processors(self) -> dict[str, LabelProcessor]:
+        """The mask label kind used by :class:`~pyhealth.trainer.Trainer`.
 
-        The mask output is read by an image processor, not a label processor,
-        so ``BaseModel.mode`` is None; this property gives the ``Trainer`` the
-        label kind it should use for metrics.
+        The mask is read by an image processor, which is not a label
+        processor. UNet supplies the segmentation label kind itself, the same
+        way :class:`~pyhealth.models.APN` supplies its forecast label, so the
+        Trainer can activate, gather and score variable-shaped masks without
+        changing the shared trainer code.
         """
-        return (
-            "segmentation_multiclass"
-            if self.num_classes > 1
-            else "segmentation_binary"
-        )
+        return {self.label_key: self._segmentation_label_processor}
 
     def _infer_spatial_dim(self) -> int:
         """Infer 2D vs 3D from the input processor or the first sample."""

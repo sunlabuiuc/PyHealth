@@ -72,12 +72,11 @@ def get_metrics_fn(mode: str) -> Callable:
 def _label_processor(model: nn.Module) -> LabelProcessor | None:
     """The label processor that scores ``model``'s outputs, or None.
 
-    A :class:`~pyhealth.models.BaseModel` has its single label processor; a
-    model whose output is not a label processor (for example a segmentation
-    mask read by an image processor) falls back to its ``mode`` attribute.
+    A :class:`~pyhealth.models.BaseModel` has its single label processor; any
+    other module with a ``mode`` attribute is scored as that label kind.
     """
     processors = getattr(model, "label_processors", None)
-    if processors:
+    if processors is not None:
         return next(iter(processors.values())) if len(processors) == 1 else None
     mode = getattr(model, "mode", None)
     if mode is None:
