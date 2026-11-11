@@ -22,6 +22,7 @@ from pyhealth.processors import (
 )
 
 from .embedding import EmbeddingModel
+from .utils import mask_lengths
 from .sequence_embedding import (
     LevelEmbedding,
     MaskMode,
@@ -117,7 +118,7 @@ class RNNLayer(nn.Module):
                 size=(batch_size,), fill_value=x.size(1), dtype=torch.int64
             )
         else:
-            lengths = torch.sum(mask.int(), dim=-1).cpu()
+            lengths = mask_lengths(mask).cpu()
         # Clamp lengths to at least 1 to handle empty sequences,
         # matching TCNLayer (tcn.py:186).
         lengths = torch.clamp(lengths, min=1)

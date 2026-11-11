@@ -9,6 +9,7 @@ from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 
 from .embedding import EmbeddingModel
+from .utils import mask_lengths
 
 
 # From TCN original paper https://github.com/locuslab/TCN
@@ -180,7 +181,7 @@ class TCNLayer(nn.Module):
         else:
             # Ensure mask is on the same device as x to avoid device mismatch
             mask = mask.to(x.device)
-            lengths = torch.sum(mask.int(), dim=-1)
+            lengths = mask_lengths(mask)
 
         # Clamp lengths to at least 1 to handle empty sequences
         lengths = torch.clamp(lengths, min=1)
