@@ -553,7 +553,7 @@ def segmentation_metrics_fn(
     threshold: float = 0.5,
     ignore_index: int | None = None,
     include_background: bool = False,
-    num_classes: int | None = None,
+    num_classes: int | Sequence[int] | None = None,
 ) -> dict[str, float]:
     """Compute segmentation metrics over one case or a list of cases.
 
@@ -566,8 +566,10 @@ def segmentation_metrics_fn(
         ignore_index: Optional label value excluded from the metrics.
         include_background: Whether class 0 is included in the multiclass
             average.
-        num_classes: Optional fixed number of classes, used for every case.
-            When omitted, each case infers its own class count.
+        num_classes: Optional fixed number of classes. A sequence gives one
+            count per case, which is needed when ``class_mask`` remaps cases
+            to different numbers of classes. When omitted, each case infers
+            its own class count.
 
     Returns:
         A dictionary whose values are averaged over cases.
@@ -597,8 +599,19 @@ def segmentation_metrics_fn(
     if not true_cases:
         return {}
 
+    per_case_classes = isinstance(num_classes, Sequence) and not isinstance(
+        num_classes, (str, bytes)
+    )
+    if per_case_classes and len(num_classes) != len(true_cases):
+        raise ValueError(
+            "num_classes must have one entry per case: "
+            f"{len(num_classes)} vs {len(true_cases)}."
+        )
     scores: dict[str, list[float]] = {name: [] for name in metrics}
-    for true, prob in zip(true_cases, prob_cases):
+    for index, (true, prob) in enumerate(zip(true_cases, prob_cases)):
+        case_num_classes = (
+            num_classes[index] if per_case_classes else num_classes
+        )
         if "dice" in scores:
             scores["dice"].append(
                 dice_score(
@@ -608,7 +621,7 @@ def segmentation_metrics_fn(
                     threshold=threshold,
                     ignore_index=ignore_index,
                     include_background=include_background,
-                    num_classes=num_classes,
+                    num_classes=case_num_classes,
                 )
             )
         if "iou" in scores:
@@ -620,7 +633,7 @@ def segmentation_metrics_fn(
                     threshold=threshold,
                     ignore_index=ignore_index,
                     include_background=include_background,
-                    num_classes=num_classes,
+                    num_classes=case_num_classes,
                 )
             )
     return {name: float(np.mean(values)) for name, values in scores.items()}
@@ -634,7 +647,7 @@ def case_level_segmentation_metrics(
     threshold: float = 0.5,
     ignore_index: int | None = None,
     include_background: bool = False,
-    num_classes: int | None = None,
+    num_classes: int | Sequence[int] | None = None,
 ) -> dict[str, float]:
     """Alias of :func:`segmentation_metrics_fn` for case-level evaluation.
 

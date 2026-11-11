@@ -141,36 +141,43 @@ class TestUNet(unittest.TestCase):
         self.assertIn("iou", scores)
 
     def test_evaluate_segmentation_with_class_mask(self):
-        samples = []
-        for index in range(3):
-            image = torch.randn(1, 16, 16, 16)
-            mask = torch.zeros(1, 16, 16, 16, dtype=torch.long)
-            mask[:, 2:5, 2:5, 2:5] = 1
-            mask[:, 8:11, 8:11, 8:11] = 2
-            samples.append(
-                {"patient_id": f"p{index}", "image": image, "mask": mask}
-            )
-        dataset = create_sample_dataset(
-            samples, {"image": "raw"}, {"mask": "raw"}
-        )
-        model = UNet3D(
-            dataset, in_channels=1, num_classes=3, base_channels=4, depth=2
-        )
+        probability = torch.zeros(1, 3, 8, 8)
+        probability[0, 0] = 0.5
+        probability[0, 1, 2, 2] = 1.0
+        probability[0, 1, 3, 3] = 1.0
+        probability[0, 1, 4, 4] = 1.0
+        target = torch.zeros(1, 8, 8, dtype=torch.long)
+        target[0, 2, 2] = 1
 
-        class MaskedView:
-            def __len__(self):
-                return len(dataset)
+        class FixedModel(torch.nn.Module):
+            feature_key = "image"
+            label_key = "mask"
+            num_classes = 3
+            segmentation_ignore_index = 255
+            mode = "segmentation_multiclass"
+            device = torch.device("cpu")
 
-            def __getitem__(self, index):
-                sample = dict(dataset[index])
-                sample["class_mask"] = torch.tensor([True, True, False])
-                return sample
+            def __init__(self, y_prob):
+                super().__init__()
+                self.y_prob = y_prob
 
+            def forward(self, **kwargs):
+                return {"y_prob": self.y_prob}
+
+        dataset = [
+            {
+                "image": torch.zeros(1, 8, 8),
+                "mask": target,
+                "class_mask": [True, True, False],
+            }
+        ]
         scores = evaluate_segmentation(
-            model, MaskedView(), patch_size=None
+            FixedModel(probability), dataset, patch_size=None
         )
-        self.assertIn("dice", scores)
-        self.assertIn("iou", scores)
+        # One true positive and two extra predicted pixels:
+        # Dice = 2 * 1 / (1 + 3) = 0.5, IoU = 1 / 3.
+        self.assertAlmostEqual(scores["dice"], 0.5, places=5)
+        self.assertAlmostEqual(scores["iou"], 1 / 3, places=5)
 
     def test_constructor_validation_errors(self):
         dataset = _make_3d_dataset()

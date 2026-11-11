@@ -1017,6 +1017,7 @@ def evaluate_segmentation(
     }
     true_cases = []
     prob_cases = []
+    case_classes: list[int] = []
     class_mask_used = False
     model.eval()
     for index in range(len(dataset)):
@@ -1052,10 +1053,14 @@ def evaluate_segmentation(
             )
             true_cases.append(target)
             prob_cases.append(probability)
+            case_classes.append(
+                int(torch.as_tensor(class_mask).sum().item())
+            )
             class_mask_used = True
         else:
             true_cases.append(target)
             prob_cases.append(probability.cpu())
+            case_classes.append(int(model.num_classes))
     if class_mask_used and ignore_index is None:
         ignore_index = 255
     return segmentation_metrics_fn(
@@ -1065,5 +1070,5 @@ def evaluate_segmentation(
         mode=model.mode,
         ignore_index=ignore_index,
         include_background=include_background,
-        num_classes=model.num_classes,
+        num_classes=case_classes if class_mask_used else model.num_classes,
     )
