@@ -5,7 +5,12 @@ import unittest
 import torch
 
 from pyhealth.datasets import PatchDataset, create_sample_dataset, get_dataloader
-from pyhealth.models import UNet2D, UNet3D, sliding_window_inference
+from pyhealth.models import (
+    UNet2D,
+    UNet3D,
+    evaluate_segmentation,
+    sliding_window_inference,
+)
 from pyhealth.sampler import PatchSampler
 from pyhealth.trainer import Trainer
 
@@ -103,6 +108,58 @@ class TestUNet(unittest.TestCase):
             model, dataset[0]["image"], patch_size=(8, 8, 8), overlap=0.5
         )
         self.assertEqual(tuple(probability.shape), (2, 16, 16, 16))
+
+    def test_evaluate_segmentation(self):
+        dataset = _make_3d_dataset()
+        model = UNet3D(
+            dataset, in_channels=1, num_classes=2, base_channels=4, depth=2
+        )
+        scores = evaluate_segmentation(model, dataset, patch_size=None)
+        self.assertIn("dice", scores)
+        self.assertIn("iou", scores)
+
+    def test_evaluate_segmentation_sliding_window(self):
+        dataset = _make_3d_dataset()
+        model = UNet3D(
+            dataset, in_channels=1, num_classes=2, base_channels=4, depth=2
+        )
+        scores = evaluate_segmentation(
+            model, dataset, patch_size=(8, 8, 8)
+        )
+        self.assertIn("dice", scores)
+        self.assertIn("iou", scores)
+
+    def test_evaluate_segmentation_with_class_mask(self):
+        samples = []
+        for index in range(3):
+            image = torch.randn(1, 16, 16, 16)
+            mask = torch.zeros(1, 16, 16, 16, dtype=torch.long)
+            mask[:, 2:5, 2:5, 2:5] = 1
+            mask[:, 8:11, 8:11, 8:11] = 2
+            samples.append(
+                {"patient_id": f"p{index}", "image": image, "mask": mask}
+            )
+        dataset = create_sample_dataset(
+            samples, {"image": "raw"}, {"mask": "raw"}
+        )
+        model = UNet3D(
+            dataset, in_channels=1, num_classes=3, base_channels=4, depth=2
+        )
+
+        class MaskedView:
+            def __len__(self):
+                return len(dataset)
+
+            def __getitem__(self, index):
+                sample = dict(dataset[index])
+                sample["class_mask"] = torch.tensor([True, True, False])
+                return sample
+
+        scores = evaluate_segmentation(
+            model, MaskedView(), patch_size=None
+        )
+        self.assertIn("dice", scores)
+        self.assertIn("iou", scores)
 
     def test_trainer_one_epoch(self):
         dataset = _make_3d_dataset()

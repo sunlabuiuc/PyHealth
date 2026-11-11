@@ -189,11 +189,26 @@ def remap_class_mask(
     return target, probability[valid]
 
 
-def _nanmean_or(values: torch.Tensor, default: float = 1.0) -> float:
-    """Mean of non-NaN values, or a fallback when every value is NaN."""
-    values = values.reshape(-1)
-    finite = values[~torch.isnan(values)]
-    return float(finite.mean()) if finite.numel() else default
+def _apply_empty_reference_rule(
+    scores: torch.Tensor,
+    prediction: torch.Tensor,
+    reference: torch.Tensor,
+) -> torch.Tensor:
+    """Replace MONAI's NaN for empty references with an explicit score.
+
+    An empty reference scores 1.0 when the prediction is also empty, and 0.0
+    when the prediction contains foreground, so a false positive cannot be
+    reported as a perfect Dice or IoU.
+    """
+    scores = scores.reshape(-1)
+    reference_has = reference.flatten(2).sum(-1).reshape(-1) > 0
+    prediction_has = prediction.flatten(2).sum(-1).reshape(-1) > 0
+    empty_reference = torch.where(
+        prediction_has,
+        torch.zeros_like(scores),
+        torch.ones_like(scores),
+    )
+    return torch.where(reference_has, scores, empty_reference)
 
 
 def dice_score(
@@ -220,7 +235,8 @@ def dice_score(
             smoothing.
 
     Returns:
-        The Dice score. Returns 1.0 when every foreground class is empty.
+        The Dice score. An empty reference scores 1.0 when the prediction is
+        also empty, and 0.0 when the prediction contains foreground.
 
     Examples:
         >>> import numpy as np
@@ -241,14 +257,25 @@ def dice_score(
         classes = 2
     elif classes <= 1:
         return 1.0
+    prediction_one_hot = _one_hot(prediction, classes)
+    target_one_hot = _one_hot(target, classes)
     compute_dice, _ = _require_monai_metrics()
     scores = compute_dice(
-        _one_hot(prediction, classes),
-        _one_hot(target, classes),
+        prediction_one_hot,
+        target_one_hot,
         include_background=include_background,
         ignore_empty=True,
     )
-    return _nanmean_or(scores)
+    if include_background:
+        selected_prediction = prediction_one_hot
+        selected_target = target_one_hot
+    else:
+        selected_prediction = prediction_one_hot[:, 1:]
+        selected_target = target_one_hot[:, 1:]
+    scores = _apply_empty_reference_rule(
+        scores, selected_prediction, selected_target
+    )
+    return float(scores.mean()) if scores.numel() else 1.0
 
 
 def iou_score(
@@ -271,7 +298,9 @@ def iou_score(
             average.
 
     Returns:
-        The mean IoU over foreground classes.
+        The mean IoU over foreground classes. An empty reference scores 1.0
+        when the prediction is also empty, and 0.0 when the prediction
+        contains foreground.
 
     Examples:
         >>> import numpy as np
@@ -291,14 +320,25 @@ def iou_score(
         classes = 2
     elif classes <= 1:
         return 1.0
+    prediction_one_hot = _one_hot(prediction, classes)
+    target_one_hot = _one_hot(target, classes)
     _, compute_iou = _require_monai_metrics()
     scores = compute_iou(
-        _one_hot(prediction, classes),
-        _one_hot(target, classes),
+        prediction_one_hot,
+        target_one_hot,
         include_background=include_background,
         ignore_empty=True,
     )
-    return _nanmean_or(scores)
+    if include_background:
+        selected_prediction = prediction_one_hot
+        selected_target = target_one_hot
+    else:
+        selected_prediction = prediction_one_hot[:, 1:]
+        selected_target = target_one_hot[:, 1:]
+    scores = _apply_empty_reference_rule(
+        scores, selected_prediction, selected_target
+    )
+    return float(scores.mean()) if scores.numel() else 1.0
 
 
 def _per_class_scores(
@@ -324,12 +364,19 @@ def _per_class_scores(
         }
     compute_dice, compute_iou = _require_monai_metrics()
     score_fn = compute_dice if metric == "dice" else compute_iou
+    prediction_one_hot = _one_hot(prediction, classes)
+    target_one_hot = _one_hot(target, classes)
     scores = score_fn(
-        _one_hot(prediction, classes),
-        _one_hot(target, classes),
+        prediction_one_hot,
+        target_one_hot,
         include_background=include_background,
         ignore_empty=True,
     ).reshape(-1)
+    scores = _apply_empty_reference_rule(
+        scores,
+        prediction_one_hot[:, start:],
+        target_one_hot[:, start:],
+    )
     return {
         cls: float(scores[index])
         for index, cls in enumerate(range(start, classes))
@@ -348,8 +395,8 @@ def per_class_dice_score(
 ) -> dict[int, float]:
     """Compute Dice separately for every class in one case.
 
-    Classes that are absent from both the target and the prediction get
-    ``nan`` so they do not bias a macro average.
+    Classes that are absent from both the target and the prediction score 1.0;
+    a class with an empty target but predicted foreground scores 0.0.
 
     Args:
         y_true: Integer mask of shape ``(*spatial)`` or ``(1, *spatial)``.
@@ -364,7 +411,7 @@ def per_class_dice_score(
         smooth: Unused; kept for API compatibility.
 
     Returns:
-        A mapping from class index to Dice score.
+        A mapping from class index to Dice score, including empty classes.
 
     Examples:
         >>> import numpy as np

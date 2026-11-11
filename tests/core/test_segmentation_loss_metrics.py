@@ -74,6 +74,37 @@ class TestSegmentationLoss(unittest.TestCase):
 
 
 class TestSegmentationMetrics(unittest.TestCase):
+    def test_empty_reference_with_false_positives_scores_zero(self):
+        target = np.zeros((4, 4), dtype=np.int64)
+        prob = np.zeros((4, 4), dtype=np.float32)
+        prob[1:3, 1:3] = 0.9
+        self.assertEqual(
+            dice_score(target, prob, mode="segmentation_binary"), 0.0
+        )
+        self.assertEqual(
+            iou_score(target, prob, mode="segmentation_binary"), 0.0
+        )
+
+    def test_empty_reference_and_prediction_scores_one(self):
+        target = np.zeros((4, 4), dtype=np.int64)
+        prob = np.zeros((4, 4), dtype=np.float32)
+        self.assertEqual(
+            dice_score(target, prob, mode="segmentation_binary"), 1.0
+        )
+        self.assertEqual(
+            iou_score(target, prob, mode="segmentation_binary"), 1.0
+        )
+
+    def test_per_class_empty_classes_follow_the_empty_reference_rule(self):
+        target = np.zeros((2, 2), dtype=np.int64)
+        prob = np.zeros((3, 2, 2), dtype=np.float32)
+        prob[2] = 0.9
+        scores = per_class_dice_score(
+            target, prob, num_classes=3, include_background=False
+        )
+        self.assertEqual(scores[1], 1.0)
+        self.assertEqual(scores[2], 0.0)
+
     def test_binary_perfect_prediction(self):
         target = np.array([[0, 1], [1, 1]])
         prob = np.array([[0.0, 0.9], [0.8, 0.7]])

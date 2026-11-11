@@ -102,6 +102,10 @@ def compute_foreground_intensity_stats(
     only voxels where ``mask > 0`` are used. Compute the statistics on the
     training split, not on validation or test data.
 
+    Lazy values are loaded through the dataset's own processors with their
+    public ``materialize()`` hook, the same hook ``PatchDataset`` uses, so the
+    statistics follow each processor's reader and normalization settings.
+
     Args:
         dataset: Iterable of sample dictionaries, typically a ``SampleDataset``.
         input_key: Key of the image tensor or array.

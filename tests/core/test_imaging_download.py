@@ -8,9 +8,11 @@ import zipfile
 from pathlib import Path
 
 from pyhealth.datasets.imaging.io import (
+    _absolute_path,
     _download_archives,
     _extract_zip,
     _resolve_metadata_dir,
+    _strip_nii_suffix,
 )
 
 
@@ -65,6 +67,21 @@ class TestImagingDownload(unittest.TestCase):
             _resolve_metadata_dir(self.root, "demo"),
             self.root / "metadata" / "demo",
         )
+
+    def test_absolute_path_resolves_relative_and_keeps_absolute(self):
+        self.assertEqual(
+            _absolute_path(self.root, "case.nii.gz"),
+            str((self.root / "case.nii.gz").resolve()),
+        )
+        absolute = str((self.root / "case.nii.gz").resolve())
+        self.assertEqual(_absolute_path(self.root, absolute), absolute)
+
+    def test_strip_nii_suffix(self):
+        self.assertEqual(_strip_nii_suffix("a/b/case.nii"), "case")
+        self.assertEqual(
+            _strip_nii_suffix(Path("a/b/case.nii.gz")), "case"
+        )
+        self.assertEqual(_strip_nii_suffix("case.mha"), "case")
 
     def test_unsupported_archive_type_is_rejected(self):
         with self.assertRaises(ValueError):
