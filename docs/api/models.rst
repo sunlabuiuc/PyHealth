@@ -181,6 +181,11 @@ segmentation; larger values select multiclass segmentation.
 from ``num_classes`` (or the mask processor's ``num_classes`` metadata), so the
 ``Trainer`` can score variable-shaped masks with Dice and IoU.
 
+A task can add a boolean ``class_mask`` vector to each sample to mark which
+classes are annotated. ``SegmentationLoss`` excludes unannotated classes from
+the loss, and ``evaluate_segmentation`` remaps the metrics to the kept classes.
+``PatchDataset`` does not create ``class_mask``; the task supplies it.
+
 Imbalanced outcomes
 ^^^^^^^^^^^^^^^^^^^
 

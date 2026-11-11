@@ -16,6 +16,7 @@ except ImportError:  # pragma: no cover - test env installs the extra
 
 from pyhealth.datasets import PatchDataset, create_sample_dataset, get_dataloader
 from pyhealth.models import (
+    UNet,
     UNet2D,
     UNet3D,
     evaluate_segmentation,
@@ -170,6 +171,137 @@ class TestUNet(unittest.TestCase):
         )
         self.assertIn("dice", scores)
         self.assertIn("iou", scores)
+
+    def test_constructor_validation_errors(self):
+        dataset = _make_3d_dataset()
+        base = {
+            "in_channels": 1,
+            "num_classes": 2,
+            "base_channels": 4,
+            "depth": 2,
+        }
+        cases = [
+            ({"num_classes": -1}, "num_classes"),
+            ({"depth": 0}, "depth"),
+            ({"base_channels": 0}, "base_channels"),
+            (
+                {"depth": 2, "bilinear": False, "base_channels": 1},
+                "base_channels",
+            ),
+            ({"norm": "layer"}, "norm"),
+        ]
+        for overrides, message in cases:
+            with self.subTest(overrides=overrides), self.assertRaisesRegex(
+                ValueError, message
+            ):
+                UNet3D(dataset, **{**base, **overrides})
+        with self.assertRaisesRegex(ValueError, "spatial dimension"):
+            UNet(
+                dataset,
+                spatial_dim=4,
+                in_channels=1,
+                num_classes=2,
+            )
+
+    def test_infers_shapes_and_classes_from_raw_dataset(self):
+        dataset = _make_3d_dataset()
+        model = UNet(dataset, base_channels=4, depth=2)
+        self.assertEqual(model.spatial_dim, 3)
+        self.assertEqual(model.in_channels, 1)
+        self.assertEqual(model.num_classes, 2)
+        self.assertEqual(model.mode, "segmentation_multiclass")
+
+    def test_infer_spatial_dim_rejects_unknown_rank(self):
+        samples = [
+            {
+                "patient_id": "p0",
+                "image": torch.zeros(16, 16),
+                "mask": torch.zeros(16, 16, dtype=torch.long),
+            }
+        ]
+        dataset = create_sample_dataset(
+            samples, {"image": "raw"}, {"mask": "raw"}
+        )
+        with self.assertRaisesRegex(ValueError, "Unable to infer spatial_dim"):
+            UNet(dataset, base_channels=4, depth=2)
+
+    def test_infer_num_classes_ignores_padding_only_mask(self):
+        samples = [
+            {
+                "patient_id": "p0",
+                "image": torch.zeros(1, 8, 8, 8),
+                "mask": torch.full(
+                    (1, 8, 8, 8), 255, dtype=torch.long
+                ),
+            }
+        ]
+        dataset = create_sample_dataset(
+            samples, {"image": "raw"}, {"mask": "raw"}
+        )
+        model = UNet3D(dataset, in_channels=1, base_channels=4, depth=2)
+        self.assertEqual(model.num_classes, 1)
+        self.assertEqual(model.mode, "segmentation_binary")
+
+    def test_bilinear_and_norm_variants(self):
+        dataset = _make_3d_dataset()
+        batch = next(iter(get_dataloader(dataset, batch_size=2)))
+        for bilinear, norm in (
+            (True, "batch"),
+            (True, "instance"),
+            (False, "batch"),
+            (False, "instance"),
+        ):
+            with self.subTest(bilinear=bilinear, norm=norm):
+                model = UNet3D(
+                    dataset,
+                    in_channels=1,
+                    num_classes=2,
+                    base_channels=4,
+                    depth=2,
+                    bilinear=bilinear,
+                    norm=norm,
+                )
+                output = model(**batch)
+                self.assertTrue(torch.isfinite(output["loss"]))
+                output["loss"].backward()
+        model = UNet3D(
+            dataset,
+            in_channels=1,
+            num_classes=2,
+            base_channels=1,
+            depth=2,
+            bilinear=True,
+        )
+        self.assertEqual(model.base_channels, 1)
+
+    def test_forward_rejects_wrong_rank(self):
+        dataset = _make_3d_dataset()
+        model = UNet3D(
+            dataset, in_channels=1, num_classes=2, base_channels=4, depth=2
+        )
+        with self.assertRaisesRegex(ValueError, "Expected a 5-D image"):
+            model(image=torch.zeros(1, 8, 8))
+
+    def test_sliding_window_validation_errors(self):
+        dataset = _make_3d_dataset()
+        model = UNet3D(
+            dataset, in_channels=1, num_classes=2, base_channels=4, depth=2
+        )
+        image = torch.zeros(1, 16, 16, 16)
+        with self.assertRaisesRegex(ValueError, "overlap"):
+            sliding_window_inference(
+                model, image, patch_size=(8, 8, 8), overlap=1.0
+            )
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            sliding_window_inference(model, image, patch_size=(8, 8))
+        with self.assertRaisesRegex(ValueError, "must be positive"):
+            sliding_window_inference(model, image, patch_size=(0, 8, 8))
+        with self.assertRaisesRegex(
+            ValueError, "Expected a 2D or 3D image"
+        ):
+            sliding_window_inference(
+                model, torch.zeros(8, 8), patch_size=(8, 8, 8)
+            )
 
     def test_nondivisible_input_is_cropped_not_resized(self):
         size = 15

@@ -73,6 +73,88 @@ class TestSegmentationLoss(unittest.TestCase):
         self.assertTrue(torch.isfinite(value))
 
 
+    def test_invalid_loss_modes(self):
+        with self.assertRaisesRegex(ValueError, "Unsupported Dice mode"):
+            DiceLoss("binary")
+        with self.assertRaisesRegex(
+            ValueError, "Unsupported segmentation mode"
+        ):
+            SegmentationLoss("binary")
+
+    def test_binary_loss_with_ignore_index_and_shape_error(self):
+        logits = torch.zeros(1, 1, 4, 4)
+        target = torch.zeros(1, 1, 4, 4, dtype=torch.long)
+        target[:, :, :2, :] = 1
+        target[:, :, 2:, :] = 255
+        value = SegmentationLoss("segmentation_binary", ignore_index=255)(
+            logits, target
+        )
+        self.assertTrue(torch.isfinite(value))
+        with self.assertRaisesRegex(ValueError, "Binary target shape"):
+            SegmentationLoss("segmentation_binary")(
+                logits, torch.zeros(1, 2, 4, 4, dtype=torch.long)
+            )
+
+    def test_dice_loss_class_mask_and_validation(self):
+        logits = torch.zeros(2, 3, 4, 4)
+        target = torch.zeros(2, 1, 4, 4, dtype=torch.long)
+        target[:, :, :2, :] = 1
+        target[0, :, 2:, :] = 2
+        mask = torch.tensor([[True, True, False], [True, True, True]])
+        value = DiceLoss("segmentation_multiclass")(
+            logits, target, class_mask=mask
+        )
+        self.assertTrue(torch.isfinite(value))
+        value = DiceLoss(
+            "segmentation_multiclass", include_background=True
+        )(logits, target, class_mask=mask)
+        self.assertTrue(torch.isfinite(value))
+        with self.assertRaisesRegex(
+            ValueError, "only supported for multiclass"
+        ):
+            DiceLoss("segmentation_binary")(
+                torch.zeros(1, 1, 4, 4),
+                torch.zeros(1, 1, 4, 4, dtype=torch.long),
+                class_mask=torch.ones(1, 1, dtype=torch.bool),
+            )
+        with self.assertRaisesRegex(ValueError, "class_mask must have shape"):
+            DiceLoss("segmentation_multiclass")(
+                logits,
+                target,
+                class_mask=torch.ones(2, 2, dtype=torch.bool),
+            )
+        empty = DiceLoss("segmentation_multiclass")(
+            logits, target, class_mask=torch.zeros(2, 3, dtype=torch.bool)
+        )
+        self.assertEqual(float(empty), 0.0)
+
+    def test_segmentation_loss_class_mask_validation(self):
+        logits = torch.zeros(1, 3, 4, 4)
+        target = torch.zeros(1, 1, 4, 4, dtype=torch.long)
+        with self.assertRaisesRegex(
+            ValueError, "only supported for multiclass"
+        ):
+            SegmentationLoss("segmentation_binary")(
+                torch.zeros(1, 1, 4, 4),
+                torch.zeros(1, 1, 4, 4, dtype=torch.long),
+                class_mask=torch.ones(1, 1, dtype=torch.bool),
+            )
+        with self.assertRaisesRegex(ValueError, "class_mask must have shape"):
+            SegmentationLoss()(
+                logits,
+                target,
+                class_mask=torch.ones(1, 2, dtype=torch.bool),
+            )
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            SegmentationLoss()(
+                logits, torch.zeros(1, 2, 4, 4, dtype=torch.long)
+            )
+        value = SegmentationLoss()(
+            logits, target, class_mask=torch.zeros(1, 3, dtype=torch.bool)
+        )
+        self.assertTrue(torch.isfinite(value))
+
+
 class TestSegmentationMetrics(unittest.TestCase):
     def test_empty_reference_with_false_positives_scores_zero(self):
         target = np.zeros((4, 4), dtype=np.int64)
