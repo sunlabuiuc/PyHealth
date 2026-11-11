@@ -30,6 +30,8 @@ from .label_processor import (
     MultiClassLabelProcessor,
     MultiLabelProcessor,
     RegressionLabelProcessor,
+)
+from .segmentation_label_processors import (
     SegmentationBinaryLabelProcessor,
     SegmentationMultiClassLabelProcessor,
 )
