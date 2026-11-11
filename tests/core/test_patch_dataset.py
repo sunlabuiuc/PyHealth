@@ -1,7 +1,6 @@
 """Tests for PatchDataset."""
 
 import multiprocessing
-import os
 import shutil
 import tempfile
 import unittest
@@ -143,36 +142,14 @@ class TestPatchDataset(unittest.TestCase):
             else:
                 self.assertEqual(len(batch["patch_slice"]), 2)
 
-    def test_fork_reset_replaces_inherited_cache(self):
-        dataset = _make_dataset(in_memory=False)
-        patches = PatchDataset(
-            dataset, PatchSampler((4, 4, 4)), mode="center"
-        )
-        try:
-            self.assertEqual(patches[0]["patient_id"], "p0")
-            inherited = dataset.cache
-            self.assertIsNotNone(inherited)
+    def test_forked_loader_reads_correct_samples(self):
+        """Forked patch workers read the samples they asked for.
 
-            # Simulate the pid change a forked DataLoader worker observes.
-            patches._cache_pid = os.getpid() + 1
-            self.assertEqual(patches[0]["patient_id"], "p0")
-            self.assertIsNot(dataset.cache, inherited)
-            self.assertEqual(patches._cache_pid, os.getpid())
-        finally:
-            dataset.close()
-
-    def test_forked_loader_does_not_share_cache(self):
-        """Patch workers must not read through the parent's inherited cache.
-
-        A forked worker inherits litdata's open chunk handle and its file
-        offset. Without a per-process reset, map-style patch workers can read
-        each other's samples, raising UnpicklingError or silently returning
-        the wrong sample.
+        ``litdata>=0.2.71`` uses mmap for map-style readers, so workers no
+        longer inherit a shared chunk handle from the parent.
         """
         if "fork" not in multiprocessing.get_all_start_methods():
-            self.skipTest(
-                "the shared chunk handle can only be inherited across fork"
-            )
+            self.skipTest("this regression needs the fork start method")
         image = torch.zeros((1, 8, 8, 8), dtype=torch.float32)
         mask = torch.zeros((1, 8, 8, 8), dtype=torch.long)
         mask[(0, 4, 4, 4)] = 1
@@ -198,9 +175,8 @@ class TestPatchDataset(unittest.TestCase):
                 mode="center",
                 num_patches=2,
             )
-            # Open the parent's cache and chunk handle before the workers fork.
+            # Open the parent's cache before the workers fork.
             self.assertEqual(patches[0]["patient_id"], "p0")
-            self.assertIsNotNone(getattr(dataset, "cache", None))
 
             loader = get_dataloader(
                 patches,
