@@ -16,6 +16,7 @@ from transformers import BertConfig, BertModel
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.interpret.methods import AttInGrad
+from pyhealth.interpret.methods.attingrad import METHODS
 from pyhealth.models import PLMCA
 from tests.core.test_plm_ca import (
     CHUNK_SIZE,
@@ -71,7 +72,7 @@ class TestAttInGrad(unittest.TestCase):
         )["text"]
 
     def test_shape_padding_and_normalization(self):
-        for method in ("attention", "inputxgrad", "attingrad"):
+        for method in METHODS:
             with self.subTest(method=method):
                 scores = self.explain(method)
                 self.assertEqual(scores.shape, self.mask.shape)
@@ -85,6 +86,32 @@ class TestAttInGrad(unittest.TestCase):
         product = attention * input_x_grad
         expected = product / product.sum(-1, keepdim=True)
         self.assertTrue(torch.allclose(self.explain("attingrad"), expected, atol=1e-6))
+
+    def test_att_ig_is_product_of_parts(self):
+        product = self.explain("attention") * self.explain("integrated_gradients")
+        expected = product / product.sum(-1, keepdim=True)
+        self.assertTrue(torch.allclose(self.explain("att_ig"), expected, atol=1e-6))
+
+    def test_integrated_gradients_completeness(self):
+        interpreter = AttInGrad(self.model, method="integrated_gradients", steps=64)
+        input_ids, mask = self.model.tokenize(self.batch["text"])
+        embed = self.model.get_input_embeddings()
+        x = embed(input_ids).detach()
+        baseline_ids = interpreter._baseline_ids(input_ids, mask)
+        x0 = embed(baseline_ids).detach()
+        targets = torch.tensor([1, 1])
+        raw = interpreter.integrated_gradients(x, x0, mask, targets)
+        with torch.no_grad():
+            gap = (
+                self.model.forward_from_embedding(x, mask)["logit"][:, 1]
+                - self.model.forward_from_embedding(x0, mask)["logit"][:, 1]
+            )
+        self.assertTrue(torch.allclose(raw.sum(dim=(1, 2)), gap, atol=1e-2))
+        # Special tokens and padding keep their ids in the baseline.
+        changed = baseline_ids != input_ids
+        self.assertFalse(changed[:, 0].any())
+        self.assertFalse(changed[mask == 0].any())
+        self.assertTrue(changed[mask == 1].any())
 
     def test_inputxgrad_matches_manual_gradient(self):
         input_ids, mask = self.model.tokenize(self.batch["text"][:1])
