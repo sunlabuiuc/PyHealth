@@ -34,6 +34,10 @@ while still forward-filling vitals. Never compute decay from filled values.
 one-factor sweep and its measured results. MSE vs. MSLE is a **Sanity Check**;
 dataset sizes are a **Compute-Constraint Demonstration**, not novel ablations.
 Synthetic results do not reproduce the paper's clinical benchmark performance.
+``examples/eicu_los_tpc.py`` prepares a clinical experiment plan using
+:class:`~pyhealth.tasks.tpc_day_one.TPCDayOne` and existing supported datasets.
+Clinical data access, experiments, and results are explicitly **pending**;
+see ``examples/tpc/README.md`` for placeholders and future execution commands.
 Standard BatchNorm uses running statistics at inference, unlike the released
 code's batch-statistics normalization. Only evaluation-mode predictions are
 strictly causal: training BatchNorm pools statistics over the time axis.

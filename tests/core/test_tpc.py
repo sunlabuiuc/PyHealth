@@ -1,11 +1,24 @@
 """Fast unit tests for the TPC model. All data is small and synthetic."""
 
+import json
+import tempfile
 import unittest
+from argparse import Namespace
+from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
 import torch
 
+from examples.eicu_los_tpc import (
+    main as clinical_main,
+)
+from examples.eicu_los_tpc import (
+    preflight,
+    results_markdown,
+    run_experiments,
+    train_configuration,
+)
 from examples.synthetic_icu_los_tpc import (
     build_dataset,
     los_metrics,
@@ -22,6 +35,16 @@ from pyhealth.models.tpc import (
     huber_log_loss,
     msle_loss,
     prepare_time_series,
+)
+from pyhealth.tasks import TPCDayOne
+from tests.core.test_yaib_eicu import _lab
+from tests.core.test_yaib_eicu import _patient as eicu_patient
+from tests.core.test_yaib_mimic4 import (
+    T0,
+    _admission,
+)
+from tests.core.test_yaib_mimic4 import (
+    _patient as mimic_patient,
 )
 
 STEPS, FEATS, STATIC, DIAG = 6, 3, 2, 5
@@ -418,6 +441,229 @@ class TestSyntheticExample(unittest.TestCase):
         first = train_and_eval(train, test, 1, 0.0023, 0, **params)
         second = train_and_eval(train, test, 1, 0.0023, 0, **params)
         self.assertEqual(first, second)
+
+
+class TestClinicalPreparation(unittest.TestCase):
+    def test_eicu_day_one_window_and_label(self):
+        task = TPCDayOne("eicu")
+        patient = eicu_patient(
+            hours=240,
+            extra=(
+                _lab(23 * 60 + 59, "creatinine", 1.0),
+                _lab(24 * 60 + 1, "creatinine", 10.0),
+            ),
+        )
+        sample = task(patient)[0]
+        crea = task.feature_names.index("crea")
+        self.assertEqual(sample["time_series"].shape, (24, 48))
+        self.assertEqual(sample["time_series"][23, crea], 1)
+        self.assertTrue(sample["observed"][23, crea])
+        self.assertFalse(sample["observed"][0, crea])
+        self.assertEqual(sample["los"], 9)
+        self.assertIn(crea, task.lab_indices)
+        self.assertNotIn(task.feature_names.index("hr"), task.lab_indices)
+
+    def test_mimic_day_one_window(self):
+        task = TPCDayOne("mimic4")
+        patient = mimic_patient(
+            stays=[(10, 1, T0, 48, range(48))], admissions=[_admission()]
+        )
+        sample = task(patient)[0]
+        self.assertEqual(sample["time_series"].shape, (24, 48))
+        self.assertEqual(sample["los"], 1)
+        self.assertEqual(sample["visit_id"], "10")
+
+    def test_short_stay_and_invalid_source(self):
+        self.assertEqual(TPCDayOne("eicu")(eicu_patient(hours=24)), [])
+        task = TPCDayOne("eicu")
+        for hours, expected in ((48.5, 24.5 / 24), (24.25, 1 / 48)):
+            with self.subTest(hours=hours):
+                self.assertAlmostEqual(
+                    task(eicu_patient(hours=hours))[0]["los"], expected
+                )
+        with self.assertRaises(ValueError):
+            TPCDayOne("unsupported")
+
+    def test_preparation_does_not_load_or_train(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "plan"
+            with (
+                patch("examples.eicu_los_tpc.eICUDataset") as dataset,
+                patch("examples.eicu_los_tpc.TPC") as model,
+            ):
+                clinical_main(
+                    ["--prepare-only", "--all-configs", "--output-dir", str(output)]
+                )
+            dataset.assert_not_called()
+            model.assert_not_called()
+            plan = json.loads((output / "plan.json").read_text())
+            self.assertEqual(plan["clinical_experiments"], "NOT_RUN")
+            self.assertEqual(plan["clinical_results"], "PENDING")
+            self.assertEqual(plan["results"], {})
+            self.assertEqual(len(plan["configurations"]), 45)
+            table = (output / "results.md").read_text()
+            self.assertIn("| baseline | PENDING", table)
+            self.assertNotIn("+/-", table)
+            with self.assertRaises(FileExistsError):
+                clinical_main(["--output-dir", str(output)])
+        self.assertFalse(output.exists())
+
+    def test_run_failure_is_explicit_and_persistent(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "failed"
+            with (
+                patch("examples.eicu_los_tpc.preflight"),
+                patch(
+                    "examples.eicu_los_tpc.run_experiments",
+                    side_effect=RuntimeError("synthetic unit-test failure"),
+                ),
+                self.assertRaisesRegex(RuntimeError, "synthetic unit-test failure"),
+            ):
+                clinical_main(
+                    [
+                        "--run",
+                        "--root",
+                        temporary,
+                        "--data-version",
+                        "unit-fixture",
+                        "--output-dir",
+                        str(output),
+                    ]
+                )
+            status = json.loads((output / "results.json").read_text())
+            self.assertEqual(status["status"], "FAILED")
+            self.assertEqual(status["clinical_experiments"], "INCOMPLETE")
+            self.assertEqual(status["clinical_results"], "PENDING")
+
+    def test_preflight_missing_files_and_join(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaisesRegex(FileNotFoundError, "no download"):
+                preflight(root, "eicu")
+            for name in (
+                "hosp/patients",
+                "hosp/admissions",
+                "icu/icustays",
+                "hosp/labevents",
+                "icu/chartevents",
+                "icu/outputevents",
+            ):
+                path = root / f"{name}.csv"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.touch()
+            with self.assertRaisesRegex(FileNotFoundError, "d_labitems"):
+                preflight(root, "mimic4")
+            (root / "hosp/d_labitems.csv").touch()
+            preflight(root, "mimic4")
+
+    def test_incomplete_results_stay_pending(self):
+        runs = [
+            {
+                "seed": seed,
+                "test": {
+                    **{
+                        metric: float(seed + 1)
+                        for metric in (
+                            "MAD",
+                            "MAPE",
+                            "MSLE",
+                            "R2",
+                            "Bias",
+                            "LongMAD",
+                            "LongBias",
+                        )
+                    },
+                    "LongN": 2,
+                },
+            }
+            for seed in range(3)
+        ]
+        incomplete = results_markdown({"base": runs[:2]}, ["base"], [0, 1, 2])
+        self.assertIn("| base | PENDING", incomplete)
+        complete = results_markdown({"base": runs}, ["base"], [0, 1, 2])
+        self.assertIn("2.000 +/- 1.000", complete)
+
+    def test_synthetic_checkpoint_round_trip(self):
+        task = TPCDayOne("eicu")
+        samples = []
+        for i, label in enumerate((1.0, 2.0, 6.0, 8.0)):
+            values = np.full((24, 48), float(i + 1), dtype=np.float32)
+            values[0, 0] = np.nan
+            samples.append(
+                {
+                    "patient_id": f"unit{i}",
+                    "visit_id": str(i),
+                    "time_series": values,
+                    "observed": np.isfinite(values),
+                    "static": [60 + i, 1, 180, 80],
+                    "los": label,
+                }
+            )
+        train = create_sample_dataset(samples, task.input_schema, task.output_schema)
+        heldout = [
+            {
+                **sample,
+                "patient_id": f"heldout{i}",
+                "visit_id": f"heldout{i}",
+                "time_series": sample["time_series"] + 1000,
+            }
+            for i, sample in enumerate(samples)
+        ]
+        test = create_sample_dataset(
+            heldout,
+            task.input_schema,
+            task.output_schema,
+            input_processors=train.input_processors,
+            output_processors=train.output_processors,
+        )
+        self.assertAlmostEqual(test.input_processors["time_series"].center[1], 2.5)
+        self.assertGreater(test[0]["time_series"][1, 1], 500)
+        self.assertTrue(torch.isnan(test[0]["time_series"][0, 0]))
+        self.assertFalse(test[0]["observed"][0, 0])
+        args = Namespace(epochs=1, batch_size=4, device="cpu")
+        with tempfile.TemporaryDirectory() as temporary:
+            checkpoint = Path(temporary) / "unit.pt"
+            result = train_configuration(
+                (train, test, test), task, {"num_layers": 1}, 0, args, checkpoint
+            )
+            self.assertTrue(checkpoint.is_file())
+            self.assertEqual(result["best_epoch"], 1)
+            self.assertEqual(result["samples"]["test"], 4)
+            self.assertTrue(np.isfinite(result["test"]["MSLE"]))
+            args = Namespace(
+                cpu_threads=1,
+                dataset="eicu",
+                root=Path(temporary),
+                cache_dir=Path(temporary) / "cache",
+                dev=False,
+                num_workers=1,
+                seeds=[0, 1, 2],
+                output_dir=Path(temporary),
+            )
+            plan = {"configurations": {"baseline": {}}, "results": {}}
+            with (
+                patch("examples.eicu_los_tpc.eICUDataset") as source,
+                patch(
+                    "examples.eicu_los_tpc.train_configuration",
+                    side_effect=[{**result, "seed": seed} for seed in args.seeds],
+                ),
+            ):
+                source.return_value.set_task.return_value = (train, test, test)
+                run_experiments(args, plan)
+                self.assertEqual(source.return_value.set_task.call_count, 3)
+                split = source.return_value.set_task.call_args.kwargs["split"]
+                self.assertEqual(split.seed, 2)
+            saved = json.loads((args.output_dir / "results.json").read_text())
+            self.assertEqual(saved["status"], "COMPLETED")
+            self.assertEqual(len(saved["results"]["baseline"]), 3)
+            self.assertIn("+/-", (args.output_dir / "results.md").read_text())
+            normalization = json.loads(
+                (args.output_dir / "preprocessing_seed2.json").read_text()
+            )
+            self.assertAlmostEqual(
+                normalization["inputs"]["time_series"]["center"][1], 2.5
+            )
+        self.assertFalse(checkpoint.exists())
 
 
 if __name__ == "__main__":

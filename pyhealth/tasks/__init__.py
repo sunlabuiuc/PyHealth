@@ -152,6 +152,7 @@ from .yaib_eicu import (
     YAIBMortalityEICU as YAIBMortalityEICU,
     YAIBSepsisEICU as YAIBSepsisEICU,
 )
+from .tpc_day_one import TPCDayOne as TPCDayOne
 
 
 def __getattr__(name: str):
