@@ -358,6 +358,8 @@ class CovariateLabel(SetPredictor):
         score_type: str = "threshold",
         random_state: int | None = None,
         debug: bool = False,
+        raps_lambda: float = 0.1,
+        raps_kreg: int = 1,
         **kwargs,
     ) -> None:
         super().__init__(model, **kwargs)
@@ -382,6 +384,8 @@ class CovariateLabel(SetPredictor):
         self.device = model.device
         self.debug = debug
         self.score_type = score_type
+        self.raps_lambda = raps_lambda
+        self.raps_kreg = raps_kreg
         self.rng = np.random.default_rng(random_state)
 
         # Store alpha
@@ -513,7 +517,12 @@ class CovariateLabel(SetPredictor):
 
         # Extract conformity scores (higher = more conforming)
         conformity_scores = true_class_conformity_scores(
-            y_prob, y_true, score_type=self.score_type, rng=self.rng
+            y_prob,
+            y_true,
+            score_type=self.score_type,
+            rng=self.rng,
+            raps_lambda=self.raps_lambda,
+            raps_kreg=self.raps_kreg,
         )
 
         # Compute weighted quantile thresholds
@@ -554,7 +563,11 @@ class CovariateLabel(SetPredictor):
         # Construct prediction set by thresholding conformity scores
         y_prob = pred["y_prob"].detach().cpu().numpy()
         conformity_scores = all_class_conformity_scores(
-            y_prob, score_type=self.score_type, rng=self.rng
+            y_prob,
+            score_type=self.score_type,
+            rng=self.rng,
+            raps_lambda=self.raps_lambda,
+            raps_kreg=self.raps_kreg,
         )
         conformity_scores = torch.as_tensor(
             conformity_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype
