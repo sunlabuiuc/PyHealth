@@ -20,7 +20,8 @@ Notes:
   usually surface as a shape or type error, not a clear message.
 - ``text`` and ``tuple_time_text`` are meant for text models such as
   :class:`~pyhealth.models.TransformersModel`, and ``cehr`` for
-  CEHR-style models. They do not go through ``EmbeddingModel``.
+  CEHR-style models. ``EmbeddingModel`` does not handle them, so every
+  model below fails on them.
 - Image, signal, audio and graph fields, and
   :class:`~pyhealth.processors.SequenceProcessorV2` fields, are read
   by the models built for them and are not listed. ``raw`` and
@@ -72,22 +73,22 @@ Notes:
      - ✓
      - ✓
      - ✓
-     - ✗
+     - ✓
      - ✓
      - ✓
    * - ``deep_nested_sequence``
      - ``nn.Embedding``
      - ✗
      - ✗
+     - ✓
      - ✗
+     - ✓
      - ✗
      - ✓
      - ✗
      - ✗
      - ✗
-     - ✗
-     - ✗
-     - ✗
+     - ✓
      - ✗
      - ✗
    * - ``multi_hot``
@@ -102,7 +103,7 @@ Notes:
      - ✗
      - ✗
      - ✗
-     - ✗
+     - ✓
      - ✗
      - ✗
    * - ``nested_multihot``
@@ -132,7 +133,7 @@ Notes:
      - ✗
      - ✗
      - ✗
-     - ✗
+     - ✓
      - ✗
      - ✗
    * - ``nested_sequence_floats``
@@ -162,7 +163,7 @@ Notes:
      - ✓
      - ✗
      - ✓
-     - ✗
+     - ✓
      - ✓
      - ✗
    * - ``timeseries``
