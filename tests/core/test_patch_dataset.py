@@ -3,7 +3,6 @@
 import multiprocessing
 import os
 import shutil
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -162,12 +161,6 @@ class TestPatchDataset(unittest.TestCase):
         finally:
             dataset.close()
 
-    @unittest.skipUnless(
-        sys.platform.startswith("linux")
-        and "fork" in multiprocessing.get_all_start_methods()
-        and multiprocessing.get_start_method(allow_none=True) in (None, "fork"),
-        "the shared chunk handle can only be inherited across fork",
-    )
     def test_forked_loader_does_not_share_cache(self):
         """Patch workers must not read through the parent's inherited cache.
 
@@ -176,6 +169,10 @@ class TestPatchDataset(unittest.TestCase):
         each other's samples, raising UnpicklingError or silently returning
         the wrong sample.
         """
+        if "fork" not in multiprocessing.get_all_start_methods():
+            self.skipTest(
+                "the shared chunk handle can only be inherited across fork"
+            )
         image = torch.zeros((1, 8, 8, 8), dtype=torch.float32)
         mask = torch.zeros((1, 8, 8, 8), dtype=torch.long)
         mask[(0, 4, 4, 4)] = 1
@@ -206,7 +203,11 @@ class TestPatchDataset(unittest.TestCase):
             self.assertIsNotNone(getattr(dataset, "cache", None))
 
             loader = get_dataloader(
-                patches, batch_size=16, num_workers=2, shuffle=True
+                patches,
+                batch_size=16,
+                num_workers=2,
+                shuffle=True,
+                multiprocessing_context="fork",
             )
             seen = set()
             for _ in range(3):
