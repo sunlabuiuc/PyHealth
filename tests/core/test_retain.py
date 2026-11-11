@@ -2,7 +2,7 @@ import unittest
 import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
-from pyhealth.models import RETAIN
+from pyhealth.models import RETAIN, MultimodalRETAIN
 
 
 class TestRETAIN(unittest.TestCase):
@@ -130,6 +130,34 @@ class TestRETAIN(unittest.TestCase):
         self.assertEqual(ret["embed"].shape[0], 2)  # batch size
         expected_embed_dim = len(self.model.feature_keys) * self.model.embedding_dim
         self.assertEqual(ret["embed"].shape[1], expected_embed_dim)
+
+
+MODELS = [RETAIN, MultimodalRETAIN]
+
+DEEP_SAMPLES = [
+    {"patient_id": "p0", "label": 0,
+     "codes": [[["a", "b"], ["c"]], [["a"]], [["d", "e"], ["b"], ["c"]]]},
+    {"patient_id": "p1", "label": 1, "codes": [[["b"]]]},
+]
+
+
+class TestDeepNestedCodes(unittest.TestCase):
+    """deep_nested_sequence fields embed to (batch, groups, visits, codes, D)."""
+
+    def test_models_run_on_deep_nested_codes(self):
+        dataset = create_sample_dataset(
+            samples=DEEP_SAMPLES, input_schema={"codes": "deep_nested_sequence"},
+            output_schema={"label": "binary"}, dataset_name="deep",
+        )
+        for cls in MODELS:
+            with self.subTest(model=cls.__name__):
+                torch.manual_seed(0)
+                model = cls(dataset=dataset, embedding_dim=8)
+                batch = next(iter(get_dataloader(dataset, batch_size=2)))
+                ret = model(**batch)
+                ret["loss"].backward()
+                self.assertEqual(tuple(ret["y_prob"].shape), (2, 1))
+                self.assertTrue(torch.isfinite(ret["loss"]))
 
 
 if __name__ == "__main__":

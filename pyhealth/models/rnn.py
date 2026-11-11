@@ -295,12 +295,17 @@ class RNN(BaseModel):
             x = embedded[feature_key]
 
             x_dim_orig = x.dim()
-            if x_dim_orig == 4:
-                # nested_sequence: (B, num_visits, num_codes, D)
+            if x_dim_orig >= 4:
+                # nested_sequence: (B, num_visits, num_codes, D), or deeper for
+                # deep_nested_sequence: (B, num_groups, num_visits, num_codes, D).
                 # @TODO: sum-pooling across codes is a simple baseline. May need to investigate better embeddings for nested codes.
-                x = x.sum(dim=2)  # (B, num_visits, D)
+                while x.dim() > 3:
+                    x = x.sum(dim=2)  # (B, num_outer, D)
                 if feature_key in masks:
-                    mask = (masks[feature_key].to(self.device).sum(dim=-1) > 0).int()  # (B, V)
+                    mask = masks[feature_key].to(self.device)
+                    while mask.dim() > 2:
+                        mask = mask.sum(dim=-1)
+                    mask = (mask > 0).int()  # (B, num_outer)
                 else:
                     mask = (torch.abs(x).sum(dim=-1) != 0).int()
             elif x_dim_orig == 2:
@@ -538,13 +543,19 @@ class MultimodalRNN(BaseModel):
             m = mask[feature_key]
 
             x_dim_orig = x.dim()
-            if x_dim_orig == 4:
-                # nested_sequence: (B, num_visits, num_codes, D)
-                # Pool codes within each visit, then run RNN over visits.
-                # Flattening visits*codes would produce length=0 when inner lists are empty.
-                x = x.sum(dim=2)  # (B, num_visits, D)
+            if x_dim_orig >= 4:
+                # nested_sequence: (B, num_visits, num_codes, D), or deeper for
+                # deep_nested_sequence: (B, num_groups, num_visits, num_codes, D).
+                # Pool everything inside each outer step, then run the RNN over
+                # the outer steps. Flattening would produce length=0 when inner
+                # lists are empty.
+                while x.dim() > 3:
+                    x = x.sum(dim=2)  # (B, num_outer, D)
                 if feature_key in masks:
-                    m = (masks[feature_key].to(self.device).sum(dim=-1) > 0).int()  # (B, V)
+                    m = masks[feature_key].to(self.device)
+                    while m.dim() > 2:
+                        m = m.sum(dim=-1)
+                    m = (m > 0).int()  # (B, num_outer)
                 else:
                     m = (torch.abs(x).sum(dim=-1) != 0).int()
             elif x_dim_orig == 2:
