@@ -46,6 +46,56 @@ def get_last_visit(hidden_states, mask):
         return last_hidden_state
 
 
+def get_step_mask(x: torch.Tensor) -> torch.Tensor:
+    """Marks the steps of a zero-padded numeric sequence that hold data.
+
+    Collate pads shorter sequences with all-zero steps, so a step is padding
+    when all its features are zero. Take the mask from the raw values: an
+    embedding with a bias maps a padded step to a nonzero vector. A row with
+    no nonzero step (an all-zero series) is all zero; the models' mean
+    pooling then averages it over all its steps.
+
+    Args:
+        x: ``[batch, seq_len, n_features]`` raw values.
+
+    Returns:
+        ``[batch, seq_len]`` float mask, 1 for a step with data.
+
+    Examples:
+        >>> x = torch.tensor([[[1.0, 2.0], [0.0, 0.0]], [[0.0, 0.0], [0.0, 0.0]]])
+        >>> get_step_mask(x)
+        tensor([[1., 0.],
+                [0., 0.]])
+    """
+    return (x != 0).any(dim=-1).float()
+
+
+def masked_mean_pooling(x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """Mean over the middle dimension, leaving out steps where ``mask`` is 0.
+
+    A row with no valid step (e.g. an all-zero series) is averaged over all
+    its steps, as without a mask, so the result is never NaN.
+
+    Args:
+        x: ``[batch, seq_len, embedding_dim]`` tensor.
+        mask: ``[batch, seq_len]`` tensor, nonzero for a valid step.
+
+    Returns:
+        ``[batch, embedding_dim]`` tensor.
+
+    Examples:
+        >>> x = torch.tensor([[[1.0], [3.0], [8.0]], [[2.0], [4.0], [6.0]]])
+        >>> mask = torch.tensor([[1.0, 1.0, 0.0], [0.0, 0.0, 0.0]])
+        >>> masked_mean_pooling(x, mask)
+        tensor([[2.],
+                [4.]])
+    """
+    mask = mask.to(x.dtype).unsqueeze(-1)
+    has_step = mask.sum(dim=1, keepdim=True) > 0
+    mask = torch.where(has_step, mask, torch.ones_like(mask))
+    return (x * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
+
+
 def get_rightmost_masked_timestep(hidden_states, mask):
     """Gather hidden state at the last True position in ``mask`` per row.
 
