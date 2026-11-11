@@ -678,6 +678,10 @@ class FeatureSpace:
         Returns:
             Spec name to ``None`` (passed) or the reason it failed.
 
+        Raises:
+            ValueError: If a declared ``known_at`` attribute holds a value
+                that is not a time, since the check could not blank it.
+
         Examples:
             >>> fs.future_blind(specs, train_ds)  # doctest: +SKIP
             {'count_365d__ed_visits': None}
@@ -985,7 +989,16 @@ def _truncated(patient: Patient, t: datetime, known_at: dict[str, str]) -> Patie
         if col not in df.columns:
             continue
         known = pl.col(col).cast(pl.Utf8).str.to_datetime(strict=False)
-        late = (pl.col("event_type") == et) & known.is_not_null() & (known >= t)
+        rows = pl.col("event_type") == et
+        # A value that is present but not a time would be treated as unknown,
+        # nothing would be blanked and a leak could pass, so refuse it.
+        unreadable = df.filter(rows & pl.col(col).is_not_null() & known.is_null())
+        if unreadable.height:
+            raise ValueError(
+                f"known_at column {col!r} has values that are not times, e.g. "
+                f"{unreadable[col][0]!r}; the future-blind check cannot use it"
+            )
+        late = rows & known.is_not_null() & (known >= t)
         values = [c for c in df.columns if c.startswith(f"{et}/")]
         df = df.with_columns([
             pl.when(late).then(None).otherwise(pl.col(c)).alias(c) for c in values

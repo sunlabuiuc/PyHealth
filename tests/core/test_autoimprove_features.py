@@ -2,12 +2,14 @@
 
 import math
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta
 
 import numpy as np
 import polars as pl
+import torch
 
-from pyhealth.autoimprove.evaluate import fold_parts
+from pyhealth.autoimprove.evaluate import fold_parts, run_config_cv
 from pyhealth.autoimprove.features import EngineeredDataset, FeatureSpace, FeatureSpec
 from pyhealth.data import Patient
 from pyhealth.datasets import create_sample_dataset, get_dataloader
@@ -212,6 +214,20 @@ class TestFutureBlind(unittest.TestCase):
         self.assertIn("known at or after", result[leak.name])
         self.assertIsNone(result[safe.name])
 
+    def test_unreadable_known_at_values_fail_loudly(self):
+        # An unparsable discharge time must not silently count as unknown,
+        # which would blank nothing and let the leak through.
+        fs = _space()
+        fs.dataset.df = fs.dataset.df.with_columns(
+            pl.when(pl.col("admissions/los") == "7").then(pl.lit("next week"))
+            .otherwise(pl.col("admissions/dischtime")).alias("admissions/dischtime"))
+        leak = fs.validate({"op": "stat", "agg": "max", "attr": "los", "window": 30,
+                            "select": {"event_type": "admissions"}, "rationale": "r"})
+        with self.assertRaisesRegex(ValueError, "admissions/dischtime.*next week"):
+            fs.future_blind([leak], _samples())
+        with self.assertRaisesRegex(ValueError, "not times"):
+            fs.augment(_samples(), [leak])
+
     def test_derived_event_built_from_all_events_is_caught(self):
         def all_events(patient, t):  # wrong: ignores t
             stays = patient.get_events("admissions", return_df=True)
@@ -348,6 +364,36 @@ class TestEngineeredDataset(unittest.TestCase):
         self.assertAlmostEqual(value, (2.0 - expected["mean"][0]) / expected["sd"][0],
                                places=5)
         self.assertEqual(held.raw[:, 0].tolist(), [100.0, 4.0])
+
+    def test_cross_validation_refits_statistics_on_each_fold(self):
+        # run_config_cv must hand each fold's model a training part and a
+        # held-out part scaled with statistics from that training part only.
+        raw = np.array([[1.0], [2.0], [np.nan], [3.0], [100.0], [4.0]])
+        fe = EngineeredDataset(_samples(6), raw, ["f"])
+        folds = [np.array([0, 1, 2]), np.array([3, 4, 5])]
+        seen = []
+
+        def fake_train(config, space, fit_part, val_part, *args):
+            seen.append({"fit": fit_part, "val": val_part})
+            return torch.nn.Linear(1, 1)
+
+        def fake_score(model, held_part, names):
+            seen[-1]["held"] = held_part
+            return {name: 0.5 for name in names}
+
+        with mock.patch("pyhealth.autoimprove.evaluate.train_pipeline", fake_train), \
+                mock.patch("pyhealth.autoimprove.evaluate.score", fake_score):
+            result = run_config_cv(None, None, fe, fe, "pr_auc", folds)
+        self.assertEqual(result["fold_scores"], [0.5, 0.5])
+        for held_out, parts in zip(folds, seen):
+            fit_idx = sorted(set(range(6)) - set(held_out.tolist()))
+            expected = fe.fit_stats(fit_idx)
+            self.assertEqual(parts["fit"].stats, expected)
+            self.assertEqual(parts["held"].stats, expected)
+            self.assertEqual(parts["val"].stats, expected)
+            np.testing.assert_array_equal(parts["held"].raw, raw[held_out])
+        # the two folds really were scaled differently
+        self.assertNotEqual(seen[0]["held"].stats, seen[1]["held"].stats)
 
 
 if __name__ == "__main__":
