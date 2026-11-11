@@ -453,5 +453,54 @@ class TestSegmentationMetrics(unittest.TestCase):
         self.assertAlmostEqual(scores["iou"], 1.0)
 
 
+class TestSegmentationLabelProcessors(unittest.TestCase):
+    def test_binary_activation_and_loss(self):
+        from pyhealth.processors import SegmentationBinaryLabelProcessor
+
+        processor = SegmentationBinaryLabelProcessor()
+        logits = torch.zeros(1, 1, 2, 2)
+        target = torch.zeros(1, 1, 2, 2)
+        self.assertAlmostEqual(float(processor.activation(logits).mean()), 0.5)
+        self.assertTrue(torch.isfinite(processor.loss(logits, target)))
+
+    def test_multiclass_activation_and_loss(self):
+        from pyhealth.processors import (
+            SegmentationMultiClassLabelProcessor,
+        )
+
+        processor = SegmentationMultiClassLabelProcessor(num_classes=3)
+        logits = torch.zeros(1, 3, 2, 2)
+        target = torch.zeros(1, 1, 2, 2, dtype=torch.long)
+        probs = processor.activation(logits)
+        self.assertTrue(
+            torch.allclose(probs.sum(dim=1), torch.ones(1, 2, 2))
+        )
+        self.assertTrue(torch.isfinite(processor.loss(logits, target)))
+
+    def test_size_requires_num_classes(self):
+        from pyhealth.processors import (
+            SegmentationMultiClassLabelProcessor,
+        )
+
+        with self.assertRaisesRegex(ValueError, "needs num_classes"):
+            SegmentationMultiClassLabelProcessor().size()
+
+    def test_to_numpy_and_gather_keep_per_sample_arrays(self):
+        from pyhealth.processors import (
+            SegmentationMultiClassLabelProcessor,
+        )
+
+        processor = SegmentationMultiClassLabelProcessor(num_classes=3)
+        true = torch.zeros(2, 1, 2, 2, dtype=torch.long)
+        prob = torch.zeros(2, 3, 2, 2)
+        true_list, prob_list = processor.to_numpy(true, prob)
+        self.assertEqual(len(true_list), 2)
+        self.assertEqual(true_list[0].shape, (1, 2, 2))
+        self.assertEqual(prob_list[0].shape, (3, 2, 2))
+        gathered_true, gathered_prob = processor.gather(true_list, prob_list)
+        self.assertIs(gathered_true, true_list)
+        self.assertIs(gathered_prob, prob_list)
+
+
 if __name__ == "__main__":
     unittest.main()

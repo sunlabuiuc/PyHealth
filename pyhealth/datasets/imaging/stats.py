@@ -105,8 +105,10 @@ def compute_foreground_intensity_stats(
     training split, not on validation or test data.
 
     Lazy values are loaded through the dataset's own processors with their
-    public ``materialize()`` hook, the same hook ``PatchDataset`` uses, so the
-    statistics follow each processor's reader and normalization settings.
+    public ``materialize()`` hook, the same hook ``PatchDataset`` uses. The
+    image processor must not normalize or clip intensities: these statistics
+    are meant for choosing CT normalization parameters, so they are computed
+    on raw intensities.
 
     Args:
         dataset: Iterable of sample dictionaries, typically a ``SampleDataset``.
@@ -125,7 +127,8 @@ def compute_foreground_intensity_stats(
         and ``std``.
 
     Raises:
-        ValueError: If no sample contains a foreground voxel.
+        ValueError: If the image processor normalizes or clips intensities, or
+            if no sample contains a foreground voxel.
 
     Examples:
         >>> import numpy as np
@@ -147,6 +150,17 @@ def compute_foreground_intensity_stats(
         **getattr(dataset, "input_processors", {}),
         **getattr(dataset, "output_processors", {}),
     }
+    image_processor = processors.get(input_key)
+    normalize = getattr(image_processor, "normalize", None)
+    clip = getattr(image_processor, "clip", None)
+    if normalize or clip is not None:
+        raise ValueError(
+            "compute_foreground_intensity_stats needs raw intensities, but "
+            "the image processor transforms them "
+            f"(normalize={normalize!r}, clip={clip!r}). Create the dataset "
+            "with normalize=None and clip=None, or materialise raw volumes "
+            "first."
+        )
     for sample in dataset:
         if max_cases is not None and seen >= max_cases:
             break

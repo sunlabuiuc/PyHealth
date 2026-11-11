@@ -59,7 +59,9 @@ class PatchSampler:
             foreground voxel when the mask has one. Defaults to 1/3.
         rng: Random source with ``random()`` and ``randrange()`` methods.
             Defaults to Python's global ``random`` module, which PyTorch
-            reseeds in each DataLoader worker.
+            reseeds in each DataLoader worker. ``get_dataloader(seed=...)``
+            does not reseed that module; pass an explicit ``random.Random``
+            for reproducible patch locations across runs.
 
     Examples:
         >>> import numpy as np

@@ -62,6 +62,65 @@ class TestForegroundStats(unittest.TestCase):
                 [{"image": np.array([1.0, 2.0]), "mask": np.array([0, 0])}]
             )
 
+    def test_normalized_or_clipped_processor_is_rejected(self):
+        class _Processor:
+            def __init__(self, normalize=None, clip=None):
+                self.normalize = normalize
+                self.clip = clip
+
+        class _Dataset:
+            def __init__(self, processor):
+                self.input_processors = {"image": processor}
+                self.output_processors = {}
+                self.samples = [
+                    {
+                        "image": np.zeros(2),
+                        "mask": np.array([0, 1]),
+                    }
+                ]
+
+            def __iter__(self):
+                return iter(self.samples)
+
+        for processor in (
+            _Processor(normalize="ct"),
+            _Processor(clip=(0, 100)),
+        ):
+            with self.subTest(
+                processor=processor.__dict__
+            ), self.assertRaisesRegex(ValueError, "raw intensities"):
+                compute_foreground_intensity_stats(_Dataset(processor))
+
+    @unittest.skipUnless(nib is not None, "nibabel is not installed")
+    def test_normalized_nifti_processor_is_rejected(self):
+        temp_dir = tempfile.mkdtemp()
+        try:
+            image_path = Path(temp_dir) / "image.nii.gz"
+            mask_path = Path(temp_dir) / "mask.nii.gz"
+            image = np.zeros((8, 8, 8), dtype=np.float32)
+            mask = np.zeros((8, 8, 8), dtype=np.int16)
+            mask[2:4, 2:4, 2:4] = 1
+            nib.save(nib.Nifti1Image(image, np.eye(4)), str(image_path))
+            nib.save(nib.Nifti1Image(mask, np.eye(4)), str(mask_path))
+            dataset = create_sample_dataset(
+                [
+                    {
+                        "patient_id": "p0",
+                        "image": str(image_path),
+                        "mask": str(mask_path),
+                    }
+                ],
+                {"image": ("nifti", {"lazy": True, "normalize": "ct"})},
+                {"mask": ("nifti", {"lazy": True, "is_mask": True})},
+            )
+            try:
+                with self.assertRaisesRegex(ValueError, "raw intensities"):
+                    compute_foreground_intensity_stats(dataset)
+            finally:
+                dataset.close()
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_lazy_value_without_processor_is_rejected(self):
         with self.assertRaisesRegex(TypeError, "Lazy image values"):
             compute_foreground_intensity_stats(
