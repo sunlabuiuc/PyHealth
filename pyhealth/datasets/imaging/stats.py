@@ -49,11 +49,13 @@ def _is_lazy_value(value: Any) -> bool:
 
 def _load_value(value: Any, processor: Any = None) -> np.ndarray:
     """Materialise a lazy value with its processor, or convert an array."""
-    if (
-        processor is not None
-        and hasattr(processor, "materialize")
-        and _is_lazy_value(value)
-    ):
+    if _is_lazy_value(value):
+        if processor is None or not hasattr(processor, "materialize"):
+            raise TypeError(
+                "Lazy image values need a dataset processor with "
+                "materialize(); pass a SampleDataset or materialise the "
+                "value first."
+            )
         value = processor.materialize(value)
     return _to_numpy(value)
 

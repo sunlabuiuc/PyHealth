@@ -186,6 +186,19 @@ classes are annotated. ``SegmentationLoss`` excludes unannotated classes from
 the loss, and ``evaluate_segmentation`` remaps the metrics to the kept classes.
 ``PatchDataset`` does not create ``class_mask``; the task supplies it.
 
+Classes that are absent from both the target and the prediction are left out
+of the Dice/IoU average, and a prediction with foreground on an empty
+reference scores 0.0.
+
+``Trainer.evaluate`` uses the model's label processor and does not read a
+per-sample ``class_mask``. For partially annotated data, evaluate with
+:func:`~pyhealth.models.evaluate_segmentation`, which remaps each case to its
+annotated classes before scoring.
+
+When ``in_channels``, ``num_classes`` or ``spatial_dim`` are omitted, ``UNet``
+reads them from the image and mask processors. Lazy values are materialised
+before their shape or labels are inspected.
+
 Imbalanced outcomes
 ^^^^^^^^^^^^^^^^^^^
 

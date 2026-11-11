@@ -167,14 +167,14 @@ class TestSegmentationMetrics(unittest.TestCase):
             iou_score(target, prob, mode="segmentation_binary"), 0.0
         )
 
-    def test_empty_reference_and_prediction_scores_one(self):
+    def test_empty_reference_and_prediction_is_nan(self):
         target = np.zeros((4, 4), dtype=np.int64)
         prob = np.zeros((4, 4), dtype=np.float32)
-        self.assertEqual(
-            dice_score(target, prob, mode="segmentation_binary"), 1.0
+        self.assertTrue(
+            np.isnan(dice_score(target, prob, mode="segmentation_binary"))
         )
-        self.assertEqual(
-            iou_score(target, prob, mode="segmentation_binary"), 1.0
+        self.assertTrue(
+            np.isnan(iou_score(target, prob, mode="segmentation_binary"))
         )
 
     def test_per_class_empty_classes_follow_the_empty_reference_rule(self):
@@ -184,7 +184,7 @@ class TestSegmentationMetrics(unittest.TestCase):
         scores = per_class_dice_score(
             target, prob, num_classes=3, include_background=False
         )
-        self.assertEqual(scores[1], 1.0)
+        self.assertTrue(np.isnan(scores[1]))
         self.assertEqual(scores[2], 0.0)
 
     def test_fixed_num_classes_scores_the_same_classes_for_every_case(self):
@@ -196,7 +196,22 @@ class TestSegmentationMetrics(unittest.TestCase):
             target, prob, mode="segmentation_multiclass", num_classes=4
         )
         self.assertAlmostEqual(inferred, 0.8)
-        self.assertAlmostEqual(fixed, (0.8 + 1.0 + 1.0) / 3)
+        self.assertAlmostEqual(fixed, 0.8)
+
+    def test_metrics_skip_cases_with_no_foreground_class(self):
+        target = [
+            np.array([[0, 1], [1, 1]]),
+            np.zeros((2, 2), dtype=np.int64),
+        ]
+        prob = [
+            np.array([[0.0, 0.9], [0.8, 0.7]]),
+            np.zeros((2, 2), dtype=np.float32),
+        ]
+        scores = segmentation_metrics_fn(
+            target, prob, mode="segmentation_binary"
+        )
+        self.assertAlmostEqual(scores["dice"], 1.0)
+        self.assertAlmostEqual(scores["iou"], 1.0)
 
     def test_segmentation_processor_metrics_use_its_options(self):
         from pyhealth.processors import SegmentationMultiClassLabelProcessor
@@ -206,7 +221,7 @@ class TestSegmentationMetrics(unittest.TestCase):
         prob[1] = np.array([[0.0, 0.9], [0.8, 0.9]])
         processor = SegmentationMultiClassLabelProcessor(num_classes=4)
         scores = processor.metrics_fn([target], [prob], metrics=["dice"])
-        self.assertAlmostEqual(scores["dice"], (0.8 + 1.0 + 1.0) / 3)
+        self.assertAlmostEqual(scores["dice"], 0.8)
 
     def test_segmentation_processor_metrics_ignore_padding(self):
         from pyhealth.processors import SegmentationMultiClassLabelProcessor
@@ -321,6 +336,31 @@ class TestSegmentationMetrics(unittest.TestCase):
             target, prob, mode="segmentation_multiclass", num_classes=2
         )
         self.assertEqual(sorted(all_classes), [0, 1])
+
+    def test_remap_class_mask_accepts_tensor_class_mask(self):
+        target = np.array([[0, 1]])
+        probability = np.zeros((3, 1, 2))
+        remapped, selected = remap_class_mask(
+            target,
+            probability,
+            torch.tensor([True, True, False]),
+        )
+        self.assertEqual(remapped.tolist(), [[0, 1]])
+        self.assertEqual(selected.shape, (2, 1, 2))
+
+    def test_binary_segmentation_processor_size(self):
+        from pyhealth.processors import SegmentationBinaryLabelProcessor
+
+        self.assertEqual(
+            SegmentationBinaryLabelProcessor(num_classes=2).size(), 1
+        )
+
+    def test_segmentation_processor_rejects_lazy_values(self):
+        from pyhealth.processors import SegmentationMultiClassLabelProcessor
+
+        processor = SegmentationMultiClassLabelProcessor(num_classes=2)
+        with self.assertRaisesRegex(TypeError, "materialised mask"):
+            processor.process("case.nii.gz")
 
     def test_remap_class_mask_non_prefix(self):
         target = np.array([[0, 1], [2, 2]])

@@ -683,6 +683,7 @@ class UNet(BaseModel):
         sample = self.dataset[0][self.feature_key]
         if isinstance(sample, tuple):
             sample = sample[0]
+        sample = _materialize(sample, processor)
         if sample.dim() == 3:
             return 2
         if sample.dim() == 4:
@@ -700,6 +701,7 @@ class UNet(BaseModel):
         sample = self.dataset[0][self.feature_key]
         if isinstance(sample, tuple):
             sample = sample[0]
+        sample = _materialize(sample, processor)
         return int(sample.shape[0])
 
     def _infer_num_classes(self) -> int:
@@ -711,6 +713,7 @@ class UNet(BaseModel):
         sample = self.dataset[0][self.label_key]
         if isinstance(sample, tuple):
             sample = sample[0]
+        sample = _materialize(sample, processor)
         values = sample
         if self.ignore_index is not None:
             values = sample[sample != int(self.ignore_index)]
@@ -1000,6 +1003,10 @@ def evaluate_segmentation(
     Returns:
         Case-level metrics averaged over the dataset.
 
+    Each sample may include a boolean ``class_mask`` to exclude unannotated
+    classes; the metrics are remapped per case. ``Trainer.evaluate`` does not
+    read ``class_mask``.
+
     Examples:
         >>> from pyhealth.models import UNet3D, evaluate_segmentation
         >>> model = UNet3D(...)  # doctest: +SKIP
@@ -1019,56 +1026,68 @@ def evaluate_segmentation(
     prob_cases = []
     case_classes: list[int] = []
     class_mask_used = False
+    was_training = model.training
     model.eval()
-    for index in range(len(dataset)):
-        sample = dataset[index]
-        image = _materialize(sample[input_key], processors.get(input_key))
-        target = _materialize(sample[label_key], processors.get(label_key))
-        if isinstance(image, tuple):
-            image = image[0]
-        image = image.to(model.device).float()
-        if patch_size is None:
-            with torch.no_grad():
-                output = model(**{input_key: image.unsqueeze(0)})
-            probability = output["y_prob"][0]
-        else:
-            probability = sliding_window_inference(
-                model,
-                image,
-                patch_size=patch_size,
-                overlap=overlap,
-                feature_key=input_key,
-                batch_size=batch_size,
+    try:
+        for index in range(len(dataset)):
+            sample = dataset[index]
+            image = _materialize(
+                sample[input_key], processors.get(input_key)
             )
-        class_mask = sample.get("class_mask") if hasattr(sample, "get") else None
-        if class_mask is not None:
-            mask_ignore_index = (
-                ignore_index if ignore_index is not None else 255
+            target = _materialize(
+                sample[label_key], processors.get(label_key)
             )
-            target, probability = remap_class_mask(
-                target,
-                probability,
-                class_mask,
-                ignore_index=mask_ignore_index,
+            if isinstance(image, tuple):
+                image = image[0]
+            image = image.to(model.device).float()
+            if patch_size is None:
+                with torch.no_grad():
+                    output = model(**{input_key: image.unsqueeze(0)})
+                probability = output["y_prob"][0]
+            else:
+                probability = sliding_window_inference(
+                    model,
+                    image,
+                    patch_size=patch_size,
+                    overlap=overlap,
+                    feature_key=input_key,
+                    batch_size=batch_size,
+                )
+            class_mask = (
+                sample.get("class_mask") if hasattr(sample, "get") else None
             )
-            true_cases.append(target)
-            prob_cases.append(probability)
-            case_classes.append(
-                int(torch.as_tensor(class_mask).sum().item())
-            )
-            class_mask_used = True
-        else:
-            true_cases.append(target)
-            prob_cases.append(probability.cpu())
-            case_classes.append(int(model.num_classes))
-    if class_mask_used and ignore_index is None:
-        ignore_index = 255
-    return segmentation_metrics_fn(
-        true_cases,
-        prob_cases,
-        metrics=metrics,
-        mode=model.mode,
-        ignore_index=ignore_index,
-        include_background=include_background,
-        num_classes=case_classes if class_mask_used else model.num_classes,
-    )
+            if class_mask is not None:
+                mask_ignore_index = (
+                    ignore_index if ignore_index is not None else 255
+                )
+                target, probability = remap_class_mask(
+                    target,
+                    probability,
+                    class_mask,
+                    ignore_index=mask_ignore_index,
+                )
+                true_cases.append(target)
+                prob_cases.append(probability)
+                case_classes.append(
+                    int(torch.as_tensor(class_mask).sum().item())
+                )
+                class_mask_used = True
+            else:
+                true_cases.append(target)
+                prob_cases.append(probability.cpu())
+                case_classes.append(int(model.num_classes))
+        if class_mask_used and ignore_index is None:
+            ignore_index = 255
+        return segmentation_metrics_fn(
+            true_cases,
+            prob_cases,
+            metrics=metrics,
+            mode=model.mode,
+            ignore_index=ignore_index,
+            include_background=include_background,
+            num_classes=(
+                case_classes if class_mask_used else model.num_classes
+            ),
+        )
+    finally:
+        model.train(was_training)

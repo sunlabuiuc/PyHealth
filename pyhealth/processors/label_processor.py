@@ -6,6 +6,7 @@ import math
 from abc import abstractmethod
 from collections.abc import Hashable, Iterable, Sequence
 from numbers import Real
+from pathlib import Path
 from typing import Any, ClassVar
 
 import numpy as np
@@ -723,6 +724,11 @@ class _SegmentationLabelProcessor(LabelProcessor):
             class set.
         ignore_index: Label value used for padding, excluded from the metrics.
             ``PatchDataset`` pads masks with 255 by default.
+
+    The classmethod :meth:`metrics_fn` is what ``get_metrics_fn(mode)``
+    returns and has no per-instance options. The ``Trainer`` uses the
+    instance attribute bound in ``__init__``, which adds ``ignore_index`` and
+    ``num_classes``.
     """
 
     stores_tensor = False
@@ -757,6 +763,12 @@ class _SegmentationLabelProcessor(LabelProcessor):
         return int(self.num_classes)
 
     def process(self, value: Any) -> torch.Tensor:
+        if isinstance(value, (str, Path, dict)):
+            raise TypeError(
+                "Segmentation label processors expect a materialised mask. "
+                "Use an image processor such as NiftiProcessor for the "
+                "output field, or materialise the value first."
+            )
         return torch.as_tensor(value)
 
     def to_numpy(
@@ -798,6 +810,10 @@ class SegmentationBinaryLabelProcessor(_SegmentationLabelProcessor):
     """
 
     mode = "segmentation_binary"
+
+    def size(self) -> int:
+        """Binary segmentation models have one output channel."""
+        return 1
 
     def activation(self, logits: torch.Tensor) -> torch.Tensor:
         return torch.sigmoid(logits)

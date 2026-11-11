@@ -389,6 +389,46 @@ class TestUNet(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_evaluate_segmentation_restores_training_mode(self):
+        dataset = _make_3d_dataset()
+        model = UNet3D(
+            dataset, in_channels=1, num_classes=2, base_channels=4, depth=2
+        )
+        model.train()
+        evaluate_segmentation(model, dataset, patch_size=None)
+        self.assertTrue(model.training)
+
+    @unittest.skipUnless(nib is not None, "nibabel is not installed")
+    def test_infers_in_channels_and_classes_from_lazy_nifti(self):
+        temp_dir = tempfile.mkdtemp()
+        try:
+            image_path = Path(temp_dir) / "image.nii.gz"
+            mask_path = Path(temp_dir) / "mask.nii.gz"
+            image = np.zeros((8, 8, 8), dtype=np.float32)
+            mask = np.zeros((8, 8, 8), dtype=np.int16)
+            mask[2:4, 2:4, 2:4] = 1
+            nib.save(nib.Nifti1Image(image, np.eye(4)), str(image_path))
+            nib.save(nib.Nifti1Image(mask, np.eye(4)), str(mask_path))
+            dataset = create_sample_dataset(
+                [
+                    {
+                        "patient_id": "p0",
+                        "image": str(image_path),
+                        "mask": str(mask_path),
+                    }
+                ],
+                {"image": ("nifti", {"lazy": True})},
+                {"mask": ("nifti", {"lazy": True, "is_mask": True})},
+            )
+            try:
+                model = UNet3D(dataset, base_channels=4, depth=2)
+                self.assertEqual(model.in_channels, 1)
+                self.assertEqual(model.num_classes, 2)
+            finally:
+                dataset.close()
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_trainer_evaluation_ignores_patch_padding(self):
         samples = []
         for index in range(2):

@@ -171,7 +171,7 @@ def remap_class_mask(
     """
     target = _spatial_target(y_true)
     probability = _to_numpy(y_prob)
-    mask = np.asarray(class_mask, dtype=bool)
+    mask = _to_numpy(class_mask).astype(bool)
     if probability.ndim < 2:
         raise ValueError("y_prob must have a class axis.")
     if mask.ndim != 1 or mask.size != probability.shape[0]:
@@ -200,9 +200,10 @@ def _apply_empty_reference_rule(
 ) -> torch.Tensor:
     """Replace MONAI's NaN for empty references with an explicit score.
 
-    An empty reference scores 1.0 when the prediction is also empty, and 0.0
-    when the prediction contains foreground, so a false positive cannot be
-    reported as a perfect Dice or IoU.
+    A class that is empty in both the reference and the prediction stays NaN,
+    so it is left out of the case average instead of earning a free 1.0. An
+    empty reference with predicted foreground scores 0.0, so a false positive
+    cannot be reported as a perfect Dice or IoU.
     """
     scores = scores.reshape(-1)
     reference_has = reference.flatten(2).sum(-1).reshape(-1) > 0
@@ -210,7 +211,7 @@ def _apply_empty_reference_rule(
     empty_reference = torch.where(
         prediction_has,
         torch.zeros_like(scores),
-        torch.ones_like(scores),
+        torch.full_like(scores, float("nan")),
     )
     return torch.where(reference_has, scores, empty_reference)
 
@@ -239,8 +240,10 @@ def dice_score(
             count is inferred from each case's target and prediction.
 
     Returns:
-        The Dice score. An empty reference scores 1.0 when the prediction is
-        also empty, and 0.0 when the prediction contains foreground.
+        The mean Dice over classes present in the reference. An empty
+        reference with predicted foreground scores 0.0; classes empty in both
+        the reference and the prediction are left out. Returns NaN when no
+        class is present in the reference.
 
     Examples:
         >>> import numpy as np
@@ -254,12 +257,12 @@ def dice_score(
         y_true, y_prob, mode, threshold, ignore_index, num_classes
     )
     if target.size == 0:
-        return 1.0
+        return float("nan")
     if mode == "segmentation_binary":
         include_background = False
         classes = 2
-    elif classes <= 1:
-        return 1.0
+    elif classes == 0:
+        return float("nan")
     prediction_one_hot = _one_hot(prediction, classes)
     target_one_hot = _one_hot(target, classes)
     compute_dice, _ = _require_monai_metrics()
@@ -278,7 +281,8 @@ def dice_score(
     scores = _apply_empty_reference_rule(
         scores, selected_prediction, selected_target
     )
-    return float(scores.mean()) if scores.numel() else 1.0
+    finite = scores[~torch.isnan(scores)]
+    return float(finite.mean()) if finite.numel() else float("nan")
 
 
 def iou_score(
@@ -304,9 +308,10 @@ def iou_score(
             count is inferred from each case's target and prediction.
 
     Returns:
-        The mean IoU over foreground classes. An empty reference scores 1.0
-        when the prediction is also empty, and 0.0 when the prediction
-        contains foreground.
+        The mean IoU over classes present in the reference. An empty
+        reference with predicted foreground scores 0.0; classes empty in both
+        the reference and the prediction are left out. Returns NaN when no
+        class is present in the reference.
 
     Examples:
         >>> import numpy as np
@@ -320,12 +325,12 @@ def iou_score(
         y_true, y_prob, mode, threshold, ignore_index, num_classes
     )
     if target.size == 0:
-        return 1.0
+        return float("nan")
     if mode == "segmentation_binary":
         include_background = False
         classes = 2
-    elif classes <= 1:
-        return 1.0
+    elif classes == 0:
+        return float("nan")
     prediction_one_hot = _one_hot(prediction, classes)
     target_one_hot = _one_hot(target, classes)
     _, compute_iou = _require_monai_metrics()
@@ -344,7 +349,8 @@ def iou_score(
     scores = _apply_empty_reference_rule(
         scores, selected_prediction, selected_target
     )
-    return float(scores.mean()) if scores.numel() else 1.0
+    finite = scores[~torch.isnan(scores)]
+    return float(finite.mean()) if finite.numel() else float("nan")
 
 
 def _per_class_scores(
@@ -400,8 +406,9 @@ def per_class_dice_score(
 ) -> dict[int, float]:
     """Compute Dice separately for every class in one case.
 
-    Classes that are absent from both the target and the prediction score 1.0;
-    a class with an empty target but predicted foreground scores 0.0.
+    Classes absent from both the target and the prediction are NaN and are
+    left out of macro averages; a class with an empty target but predicted
+    foreground scores 0.0.
 
     Args:
         y_true: Integer mask of shape ``(*spatial)`` or ``(1, *spatial)``.
@@ -415,7 +422,7 @@ def per_class_dice_score(
             should keep it False.
 
     Returns:
-        A mapping from class index to Dice score, including empty classes.
+        A mapping from class index to Dice score; empty classes are NaN.
 
     Examples:
         >>> import numpy as np
@@ -636,7 +643,14 @@ def segmentation_metrics_fn(
                     num_classes=case_num_classes,
                 )
             )
-    return {name: float(np.mean(values)) for name, values in scores.items()}
+    return {
+        name: (
+            float(np.mean([value for value in values if not np.isnan(value)]))
+            if any(not np.isnan(value) for value in values)
+            else float("nan")
+        )
+        for name, values in scores.items()
+    }
 
 
 def case_level_segmentation_metrics(

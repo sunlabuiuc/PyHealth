@@ -62,6 +62,12 @@ class TestForegroundStats(unittest.TestCase):
                 [{"image": np.array([1.0, 2.0]), "mask": np.array([0, 0])}]
             )
 
+    def test_lazy_value_without_processor_is_rejected(self):
+        with self.assertRaisesRegex(TypeError, "Lazy image values"):
+            compute_foreground_intensity_stats(
+                [{"image": "image.nii.gz", "mask": "mask.nii.gz"}]
+            )
+
     @unittest.skipUnless(nib is not None, "nibabel is not installed")
     def test_lazy_dataset_uses_raw_values(self):
         temp_dir = tempfile.mkdtemp()
