@@ -75,3 +75,24 @@ Utility Functions
 .. autofunction:: get_model_predictions
 
 .. autofunction:: create_validity_mask
+
+Plausibility
+------------
+
+Plausibility metrics compare token explanations with evidence spans that human
+coders marked (for example MDACE, Cheng et al. 2023), following Edin et al.
+(2024). Each explanation is one (note, code) pair. Tokens scoring above a
+threshold are the predicted evidence; precision, recall and F1 are pooled over
+all pairs, ``empty`` is the share of pairs with no predicted token, and
+``recall@k`` is the share of evidence tokens found among each pair's top-k
+tokens. Choose the threshold on a validation split with
+:func:`best_plausibility_threshold`. See
+``examples/mdace_icd9_coding_plm_ca_attingrad.py``.
+
+.. currentmodule:: pyhealth.metrics.interpretability.plausibility
+
+.. autofunction:: plausibility_metrics
+
+.. autofunction:: best_plausibility_threshold
+
+.. autofunction:: spans_to_token_ids
