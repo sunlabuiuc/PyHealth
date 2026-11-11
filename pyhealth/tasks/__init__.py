@@ -16,6 +16,7 @@ from .cardiology_detect import (
     cardiology_isCD_fn,
     cardiology_isWA_fn,
 )
+from .dsa_activity_classification import DSAActivityClassification
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
 from .chaos_segmentation import (

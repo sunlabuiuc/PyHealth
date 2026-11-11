@@ -1,5 +1,13 @@
 """Daily and Sports Activities (DSA) dataset.
 
+Authors: Joshua Gundersen (jgundersen3), Zachary Gundersen (zgundersen3)
+Paper: Zhang et al. (2024), "Daily Physical Activity Monitoring: Adaptive
+    Learning from Multi-source Motion Sensor Data", CHIL 2024.
+    https://proceedings.mlr.press/v248/zhang24a.html
+Description: Loads the DSA recordings as one event per 5-second segment and
+    provides helpers that split each segment into its five synchronized
+    sensor streams.
+
 Dataset: Barshan, B. and Altun, K. (2010). Daily and Sports Activities.
 UCI Machine Learning Repository. https://doi.org/10.24432/C5C59F
 
