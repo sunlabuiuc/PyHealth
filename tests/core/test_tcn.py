@@ -202,6 +202,46 @@ class TestTCN(unittest.TestCase):
         self.assertEqual(ret["logit"].shape[0], 2)
         self.assertEqual(ret["loss"].dim(), 0)
 
+    def _run(self, samples, schema):
+        dataset = create_sample_dataset(
+            samples=samples, input_schema=schema,
+            output_schema={"label": "binary"}, dataset_name="test_shapes",
+        )
+        model = TCN(dataset=dataset, embedding_dim=8, num_channels=8)
+        batch = next(iter(get_dataloader(dataset, batch_size=len(samples))))
+        ret = model(**batch)
+        ret["loss"].backward()
+        self.assertEqual(tuple(ret["y_prob"].shape), (len(samples), 1))
+        self.assertTrue(torch.isfinite(ret["loss"]))
+        return model, dataset
+
+    def test_one_vector_per_sample_inputs(self):
+        """tensor and multi_hot fields give 2-D embeddings (one step)."""
+        samples = [
+            {"patient_id": f"p{i}", "vitals": [float(i), 1.0, 2.0],
+             "flags": ["a", "b"][: 1 + i % 2], "label": i % 2}
+            for i in range(4)
+        ]
+        self._run(samples, {"vitals": "tensor", "flags": "multi_hot"})
+
+    def test_nested_codes_pool_each_visit(self):
+        """nested_sequence fields give 4-D embeddings: codes per visit."""
+        samples = [
+            {"patient_id": "p0", "visits": [["a", "b"], ["c"], ["a", "d"]],
+             "label": 0},
+            {"patient_id": "p1", "visits": [["b"]], "label": 1},
+        ]
+        model, dataset = self._run(samples, {"visits": "nested_sequence"})
+        # The short record scores the same alone as next to a longer one:
+        # padded visits come after it, and the convolutions are causal.
+        model.eval()
+        with torch.no_grad():
+            batch = next(iter(get_dataloader(dataset, batch_size=2)))
+            together = model(**batch)["y_prob"][1]
+            alone = model(**next(iter(get_dataloader(dataset.subset([1]),
+                                                     batch_size=1))))["y_prob"][0]
+        torch.testing.assert_close(together, alone)
+
 
 if __name__ == "__main__":
     unittest.main()
