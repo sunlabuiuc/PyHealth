@@ -21,6 +21,7 @@ reference includes the ECE definition and formula used by these helpers.
 
     metrics/pyhealth.metrics.multiclass
     metrics/pyhealth.metrics.multilabel
+    metrics/pyhealth.metrics.ranking
     metrics/pyhealth.metrics.binary
     metrics/pyhealth.metrics.calibration
     metrics/pyhealth.metrics.bootstrap

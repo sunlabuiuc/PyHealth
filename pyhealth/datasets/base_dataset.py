@@ -829,7 +829,10 @@ class BaseDataset(ABC):
                 with DaskClient(cluster) as client:
                     if self.dev:
                         logger.info("Dev mode enabled: limiting to 1000 patients")
-                        patients = df["patient_id"].unique().head(1000).tolist()
+                        # head() reads only the first partition unless told
+                        # otherwise, which gave far fewer than 1000 patients.
+                        unique = df["patient_id"].unique()
+                        patients = unique.head(1000, npartitions=-1).tolist()
                         filter = df["patient_id"].isin(patients)
                         df = df[filter]
 
