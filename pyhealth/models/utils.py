@@ -89,6 +89,12 @@ def get_rightmost_masked_timestep(hidden_states, mask):
 
     Returns:
         Tensor ``[batch, hidden_size]``.
+
+    Example:
+        >>> h = torch.tensor([[[1.0], [2.0], [0.0], [9.0]]])
+        >>> m = torch.tensor([[True, True, False, True]])
+        >>> get_rightmost_masked_timestep(h, m)
+        tensor([[9.]])
     """
     if mask is None:
         return hidden_states[:, -1, :]
