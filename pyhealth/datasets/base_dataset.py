@@ -1,12 +1,15 @@
+import contextlib
 import logging
 import os
 import pickle
 import posixpath
 from abc import ABC
 from pathlib import Path
+from collections.abc import Generator
 from typing import Dict, Iterator, Iterable, List, Optional, Any, Callable
 import functools
 import operator
+from unittest import mock
 from urllib.parse import urlparse, urlunparse
 import json
 import glob
@@ -21,6 +24,7 @@ import time
 
 from filelock import FileLock
 import litdata
+import litdata.streaming.writer as _litdata_writer
 from litdata.streaming.item_loader import ParquetLoader
 from litdata.processing.data_processor import in_notebook
 from litdata.streaming.writer import BinaryWriter
@@ -287,6 +291,62 @@ def _csv_tsv_gz_path(path: str) -> str:
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
 
 
+# set_task(compression=...) values, written with litdata's per-sample zstd
+# (compression_level "sample"): each item is its own zstd frame, so a read
+# inflates one item. litdata's default ("batch") shares a frame between up to
+# 256 items, and a patient split reads them out of order, so most reads
+# inflate a whole frame: 2-3x slower than "sample" on MIMIC-IV for ~30% less
+# space.
+_CACHE_COMPRESSIONS = ("zstd",)
+_CACHE_COMPRESSION_LEVEL = "sample"
+
+
+@contextlib.contextmanager
+def _litdata_pytree_layout() -> Generator[None]:
+    """Makes litdata writers inside the block use their per-item (pytree) layout.
+
+    litdata (checked up to 0.2.76) writes rows whose fields are all plain data
+    (str, int, bytes; no tensor), such as ``task_df.ld`` rows or samples of a
+    task without tensor fields, with an Arrow IPC footer instead. That layout
+    is buggy for PyHealth:
+
+    1. It cannot be read one item at a time (``batch_decode=0``) with
+       POSIX-fast off, which is how ``SampleDataset.subset()`` reads
+       (Lightning-AI/litData#954, fixed by #955).
+    2. The writer silently ignores ``compression="zstd"`` for it: it assumes
+       binary rows are already-compressed media and skips zstd.
+
+    The writer picks the footer with ``is_arrow_footer_type``; patching that
+    to return False keeps every chunk in the pytree layout. Only writing is
+    patched: readers detect the layout from each chunk. If a litdata release
+    removes the name, this raises; if it stops calling it, the footer check in
+    ``_litdata_merge`` raises.
+    """
+    if not hasattr(_litdata_writer, "is_arrow_footer_type"):
+        raise RuntimeError(
+            "litdata.streaming.writer.is_arrow_footer_type not found; "
+            "update _litdata_pytree_layout for this litdata version."
+        )
+    with mock.patch.object(
+        _litdata_writer, "is_arrow_footer_type", lambda schema: False
+    ):
+        yield
+
+
+def _check_no_arrow_footer(cache_dir: Path) -> None:
+    """Raises if a chunk in ``cache_dir`` uses litdata's Arrow-footer layout.
+
+    That means a writer ran outside ``_litdata_pytree_layout()``, or a litdata
+    release bypasses its patch.
+    """
+    magic = _litdata_writer._ARROW_FOOTER_MAGIC
+    for chunk in Path(cache_dir).glob("chunk-*.bin"):
+        with open(chunk, "rb") as f:
+            f.seek(max(0, chunk.stat().st_size - len(magic)))
+            if f.read() == magic:
+                raise RuntimeError(f"{chunk} uses litdata's Arrow-footer layout.")
+
+
 def _litdata_merge(cache_dir: Path) -> None:
     """
     Merges LitData binary writer index files in the given cache directory.
@@ -317,6 +377,9 @@ def _litdata_merge(cache_dir: Path) -> None:
         raise ValueError(
             "There are zero samples in the dataset, please check the task and processors."
         )
+
+    # Before the merge writes index.json, which marks the cache complete.
+    _check_no_arrow_footer(cache_dir)
 
     BinaryWriter(cache_dir=str(cache_dir), chunk_bytes="64MB").merge(
         num_workers=len(index_files)
@@ -391,7 +454,7 @@ def _task_transform_init(queue: multiprocessing.queues.Queue) -> None:
 
 
 def _task_transform_fn(
-    args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, Path],
+    args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, Path, str | None],
 ) -> None:
     """
     Worker function to apply task transformation on a chunk of patients.
@@ -403,9 +466,11 @@ def _task_transform_fn(
             patient_ids (Iterable[str]): The patient IDs to process.
             global_event_df (pl.LazyFrame): The global event dataframe.
             output_dir (Path): The output directory to save results.
+            compression (Optional[str]): One of ``_CACHE_COMPRESSIONS``,
+                or None to write uncompressed.
     """
     BATCH_SIZE = 128  # Use a batch size 128 can reduce runtime by 30%.
-    worker_id, task, patient_ids, global_event_df, output_dir = args
+    worker_id, task, patient_ids, global_event_df, output_dir, compression = args
     if isinstance(task, bytes):
         try:
             task = pickle.loads(task)
@@ -424,8 +489,14 @@ def _task_transform_fn(
     with (
         set_env(DATA_OPTIMIZER_GLOBAL_RANK=str(worker_id)),
         _ProgressContext(_task_transform_progress, total=total_patients) as progress,
+        _litdata_pytree_layout(),
     ):
-        writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
+        writer = BinaryWriter(
+            cache_dir=str(output_dir),
+            chunk_bytes="64MB",
+            compression=compression,
+            compression_level=_CACHE_COMPRESSION_LEVEL if compression else None,
+        )
 
         write_index = 0
         batches = itertools.batched(patient_ids, BATCH_SIZE)
@@ -463,7 +534,7 @@ def _proc_transform_init(queue: multiprocessing.queues.Queue) -> None:
     _proc_transform_progress = queue
 
 
-def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
+def _proc_transform_fn(args: tuple[int, Path, int, int, Path, str | None]) -> None:
     """
     Worker function to apply processors on a chunk of samples.
 
@@ -474,9 +545,11 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
             start_idx (int): The start index of samples to process.
             end_idx (int): The end index of samples to process.
             output_dir (Path): The output directory to save results.
+            compression (Optional[str]): One of ``_CACHE_COMPRESSIONS``,
+                or None to write uncompressed.
     """
     BATCH_SIZE = 128
-    worker_id, task_df, start_idx, end_idx, output_dir = args
+    worker_id, task_df, start_idx, end_idx, output_dir, compression = args
     total_samples = end_idx - start_idx
     logger.info(
         f"Worker {worker_id} started processing {total_samples} samples. ({start_idx} to {end_idx})"
@@ -485,8 +558,16 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
     with (
         set_env(DATA_OPTIMIZER_GLOBAL_RANK=str(worker_id)),
         _ProgressContext(_proc_transform_progress, total=total_samples) as progress,
+        _litdata_pytree_layout(),
     ):
-        writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
+        # Every worker writes with the same settings: merging checks that the
+        # per-worker index configs agree.
+        writer = BinaryWriter(
+            cache_dir=str(output_dir),
+            chunk_bytes="64MB",
+            compression=compression,
+            compression_level=_CACHE_COMPRESSION_LEVEL if compression else None,
+        )
 
         dataset = litdata.StreamingDataset(str(task_df))
         builder = SampleBuilder.load(f"{output_dir}/schema.pkl")
@@ -1161,7 +1242,11 @@ class BaseDataset(ABC):
         return None
 
     def _task_transform(
-        self, task: BaseTask, output_dir: Path, num_workers: int
+        self,
+        task: BaseTask,
+        output_dir: Path,
+        num_workers: int,
+        compression: str | None = None,
     ) -> None:
         self._main_guard(self._task_transform.__name__)
 
@@ -1197,7 +1282,14 @@ class BaseDataset(ABC):
                 if num_workers == 1:
                     logger.info("Single worker mode, processing sequentially")
                     _task_transform_fn(
-                        (0, task, patient_ids, global_event_df, output_dir)
+                        (
+                            0,
+                            task,
+                            patient_ids,
+                            global_event_df,
+                            output_dir,
+                            compression,
+                        )
                     )
                     _litdata_merge(output_dir)
                     return
@@ -1217,6 +1309,7 @@ class BaseDataset(ABC):
                         pids,
                         global_event_df,
                         output_dir,
+                        compression,
                     )
                     for worker_id, pids in enumerate(
                         itertools.batched(
@@ -1252,7 +1345,11 @@ class BaseDataset(ABC):
             raise e
 
     def _proc_transform(
-        self, task_df: Path, output_dir: Path, num_workers: int
+        self,
+        task_df: Path,
+        output_dir: Path,
+        num_workers: int,
+        compression: str | None = None,
     ) -> None:
         self._main_guard(self._proc_transform.__name__)
 
@@ -1270,7 +1367,9 @@ class BaseDataset(ABC):
             with set_env(DATA_OPTIMIZER_NUM_WORKERS=str(num_workers)):
                 if num_workers == 1:
                     logger.info("Single worker mode, processing sequentially")
-                    _proc_transform_fn((0, task_df, 0, num_samples, output_dir))
+                    _proc_transform_fn(
+                        (0, task_df, 0, num_samples, output_dir, compression)
+                    )
                     _litdata_merge(output_dir)
                     return
 
@@ -1286,6 +1385,7 @@ class BaseDataset(ABC):
                         start,
                         end,
                         output_dir,
+                        compression,
                     )
                     for worker_id, (start, end) in enumerate(linspace)
                 ]
@@ -1326,6 +1426,7 @@ class BaseDataset(ABC):
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
         split: Split | None = None,
+        compression: str | None = None,
     ) -> SampleDataset | tuple[SampleDataset, ...]:
         """Processes the base dataset to generate the task-specific sample dataset.
         The cache structure is as follows::
@@ -1354,6 +1455,18 @@ class BaseDataset(ABC):
                 nothing is loaded into memory beyond the per-sample index that
                 processing already keeps. Defaults to None: fit on all samples
                 and return one dataset, as before.
+            compression (Optional[str]): Compress the cached task samples
+                (``task_df.ld``) and processed samples on disk. ``"zstd"``
+                compresses each sample on its own, so random
+                reads (shuffling, split parts) stay close to uncompressed
+                speed. Measured on reads of a patient split: MIMIC-IV
+                ``YAIBMortalityMIMIC4`` samples were 4.9x smaller (412 MB to
+                84 MB) and an epoch 1.1x slower; COVID-19 CXR images were
+                10.9x smaller (12.7 GB to 1.2 GB) and an epoch 1.9x slower.
+                Applies when a cache is built: an existing cache is
+                reused as it was written, compressed or not, since both read
+                back the same. Delete it to rebuild with another setting.
+                Defaults to None (uncompressed).
 
         Returns:
             SampleDataset: The generated sample dataset, or, with ``split``, a
@@ -1368,8 +1481,15 @@ class BaseDataset(ABC):
 
         Raises:
             AssertionError: If no default task is found and task is None.
+            ValueError: If ``compression`` is not None or ``"zstd"``.
         """
         self._main_guard(self.set_task.__name__)
+
+        if compression is not None and compression not in _CACHE_COMPRESSIONS:
+            raise ValueError(
+                f"compression must be None or one of {sorted(_CACHE_COMPRESSIONS)}, "
+                f"got {compression!r}."
+            )
 
         if task is None:
             assert self.default_task is not None, "No default tasks found"
@@ -1463,6 +1583,7 @@ class BaseDataset(ABC):
                             task,
                             task_df_path,
                             num_workers,
+                            compression,
                         )
                     else:
                         logger.info(
@@ -1494,6 +1615,7 @@ class BaseDataset(ABC):
                         task_df_path,
                         samples_path,
                         num_workers,
+                        compression,
                     )
                     logger.info(f"Cached processed samples to {samples_path}")
         else:
@@ -1506,6 +1628,12 @@ class BaseDataset(ABC):
             dataset_name=self.dataset_name,
             task_name=task.task_name,
         )
+        if samples.compression != compression:
+            logger.info(
+                f"Reusing cached samples written with compression="
+                f"{samples.compression!r}; compression={compression!r} applies "
+                f"only when they are built. Delete {samples_path} to rebuild."
+            )
         if split is None:
             return samples
         with np.load(samples_path / "split.npz") as parts:

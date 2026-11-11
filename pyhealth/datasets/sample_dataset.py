@@ -15,7 +15,7 @@ import logging
 
 import numpy as np
 import torch
-from packaging.version import Version
+import json
 
 from ..processors import get_processor, IgnoreProcessor
 from ..processors.base_processor import FeatureProcessor
@@ -29,7 +29,10 @@ logger = logging.getLogger(__name__)
 # How processed samples are laid out in the disk (litdata) cache. Bump when
 # the layout changes; it is part of the processed-cache key, so caches written
 # with an older layout are rebuilt instead of misread.
-STORAGE_FORMAT = 2
+# 3: chunks always use litdata's pytree layout (see _litdata_pytree_layout in
+# base_dataset.py); format 2 caches without tensor fields used its
+# Arrow-footer layout, which subset() cannot read.
+STORAGE_FORMAT = 3
 # Record key holding one pickled payload with every non-tensor field.
 _OBJECTS_KEY = "_pyhealth_objects"
 _PICKLE_PROTOCOL = 5
@@ -503,6 +506,8 @@ class SampleDataset(litdata.StreamingDataset):
             sample indices associated with that record.
         dataset_name: Optional human friendly dataset name.
         task_name: Optional human friendly task name.
+        compression: How the cached samples are compressed on disk (e.g.
+            ``"zstd"``), or None. Read from the cache's ``index.json``.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset
@@ -563,6 +568,11 @@ class SampleDataset(litdata.StreamingDataset):
         self.fit_split: dict | None = metadata.get("fit_split")
         self.storage_format: int = metadata.get("storage_format", 1)
 
+        with open(f"{path}/index.json", "rb") as f:
+            config = json.load(f)["config"]
+        # How the cached samples were compressed on disk (e.g. "zstd"), or None.
+        self.compression: str | None = config.get("compression")
+
     def __getitem__(self, index: Any) -> Any:
         """Returns the sample(s) at ``index`` as the original Python objects.
 
@@ -622,10 +632,12 @@ class SampleDataset(litdata.StreamingDataset):
     def subset(self, indices: Union[Sequence[int], slice]) -> "SampleDataset":
         """Create a StreamingDataset restricted to the provided indices.
 
-        The subset reads with litdata's POSIX-fast mmap reads turned off
-        (litdata >= 0.2.68). They cache per index run, not per chunk file,
-        which makes a patient-level split ~20x slower to iterate. The full
-        dataset keeps them.
+        The subset reads with litdata's POSIX-fast mmap reads turned off.
+        They cache per index run, not per chunk file, which makes a
+        patient-level split ~20x slower to iterate. It also decodes only the
+        requested item instead of a window of neighbours, which makes a
+        split's scattered reads ~2.5x faster. The full dataset keeps
+        litdata's defaults.
         """
 
         new_dataset = deepcopy_dataset(self)
@@ -705,11 +717,17 @@ class SampleDataset(litdata.StreamingDataset):
         # indices, so a patient-level split has thousands of entries over a
         # few chunk files. POSIX-fast caches per entry, not per file: it
         # re-maps the file and re-parses its offset table for each entry.
-        # Batched decoding stays on: turning it off as well gains nothing,
-        # and with both off litdata <= 0.2.76 cannot random-access chunks
-        # stored in its Arrow-footer layout (Lightning-AI/litData#954).
-        if Version(litdata.__version__) >= Version("0.2.68"):
-            new_dataset.posix_fast = None  # type: ignore
+        new_dataset.posix_fast = None  # type: ignore
+
+        # Decode only the requested item. litdata's default decodes a window
+        # of neighbours around each miss, and a split's reads are scattered,
+        # so most of that work is thrown away: on a MIMIC-IV patient split an
+        # epoch took 3.7 s instead of 10.1 s (4.2 s instead of 13.5 s with
+        # zstd, which also inflates every item in the window). PyHealth writes
+        # every cache in litdata's pytree layout (_litdata_pytree_layout),
+        # which reads this way; litdata's Arrow-footer layout cannot
+        # (Lightning-AI/litData#954).
+        new_dataset.batch_decode = 0  # type: ignore
 
         return new_dataset
 
@@ -920,12 +938,15 @@ def _write_samples(builder: "SampleBuilder", samples: list[dict], path: Path) ->
     """
     from litdata.streaming.writer import BinaryWriter
 
-    from .base_dataset import _litdata_merge
+    from .base_dataset import _litdata_merge, _litdata_pytree_layout
 
-    writer = BinaryWriter(cache_dir=str(path), chunk_bytes="64MB")
-    for i, sample in enumerate(samples):
-        writer.add_item(i, builder.transform_for_storage({"sample": pickle.dumps(sample)}))
-    writer.done()
+    with _litdata_pytree_layout():
+        writer = BinaryWriter(cache_dir=str(path), chunk_bytes="64MB")
+        for i, sample in enumerate(samples):
+            writer.add_item(
+                i, builder.transform_for_storage({"sample": pickle.dumps(sample)})
+            )
+        writer.done()
     _litdata_merge(path)
 
 
