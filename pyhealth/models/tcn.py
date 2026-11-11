@@ -205,6 +205,13 @@ class TCN(BaseModel):
                 - Input format: (batch_size, sequence_length, num_features)
                 - Each timestep contains a fixed number of measurements
                 - TCN is applied directly on the timeseries data
+            - Nested codes (e.g., ``nested_sequence``: codes per visit)
+                - Input format: (batch_size, num_visits, num_codes)
+                - The codes of each visit are embedded and summed, and TCN is
+                  applied over the visits
+            - One vector per sample (e.g., ``tensor``, ``multi_hot``)
+                - Input format: (batch_size, num_features)
+                - Treated as a sequence of length one
 
     Args:
         dataset (SampleDataset): the dataset to train the model. It is used to query certain
@@ -329,6 +336,13 @@ class TCN(BaseModel):
         embedded = self.embedding_model(inputs, masks=masks)
         for feature_key in self.feature_keys:
             x = embedded[feature_key]
+            if x.dim() == 2:
+                # One vector per sample (tensor, multi_hot): a length-1 sequence.
+                x = x.unsqueeze(1)
+            while x.dim() > 3:
+                # Nested codes (B, visits, codes, D): pool the codes within each
+                # visit (padded codes embed to zero), then run over the visits.
+                x = x.sum(dim=2)
             mask = (x.sum(dim=-1) != 0).int()
             _, x = self.tcn[feature_key](x, mask)
             patient_emb.append(x)

@@ -60,14 +60,34 @@ class RETAINLayer(nn.Module):
 
     @staticmethod
     def reverse_x(input, lengths):
-        """Reverses the input."""
-        reversed_input = input.new(input.size())
+        """Reverses each sequence's first ``length`` steps; padding stays zero.
+
+        Examples:
+            >>> x = torch.tensor([[[1.0], [2.0], [3.0]], [[4.0], [5.0], [9.0]]])
+            >>> RETAINLayer.reverse_x(x, torch.tensor([3, 2]))[:, :, 0]
+            tensor([[3., 2., 1.],
+                    [5., 4., 0.]])
+        """
+        reversed_input = input.new_zeros(input.size())
         for i, length in enumerate(lengths):
             reversed_input[i, :length] = input[i, :length].flip(dims=[0])
         return reversed_input
 
     def compute_alpha(self, rx, lengths, total_length: int):
-        """Computes alpha attention."""
+        """Computes alpha attention, one weight per step of the input.
+
+        The GRU reads the reversed input ``rx``, so its outputs are flipped
+        back to line up with the original steps. Padded steps get no weight.
+
+        Examples:
+            >>> layer = RETAINLayer(4)
+            >>> x = torch.randn(2, 3, 4)
+            >>> lengths = torch.tensor([3, 1])
+            >>> rx = RETAINLayer.reverse_x(x, lengths)
+            >>> alpha = layer.compute_alpha(rx, lengths, 3)
+            >>> alpha.shape, float(alpha[1, 1:].sum())
+            (torch.Size([2, 3, 1]), 0.0)
+        """
         rx = rnn_utils.pack_padded_sequence(
             rx, lengths, batch_first=True, enforce_sorted=False
         )
@@ -75,11 +95,28 @@ class RETAINLayer(nn.Module):
         g, _ = rnn_utils.pad_packed_sequence(
             g, batch_first=True, total_length=total_length
         )
-        attn_alpha = torch.softmax(self.alpha_li(g), dim=1)
+        g = self.reverse_x(g, lengths)  # back to the original order
+        scores = self.alpha_li(g)
+        steps = torch.arange(total_length, device=scores.device)
+        padded = steps[None, :] >= lengths.to(scores.device)[:, None]
+        scores = scores.masked_fill(padded.unsqueeze(-1), float("-inf"))
+        attn_alpha = torch.softmax(scores, dim=1)
         return attn_alpha
 
     def compute_beta(self, rx, lengths, total_length: int):
-        """Computes beta attention."""
+        """Computes beta attention, one vector per step of the input.
+
+        As in :meth:`compute_alpha`, the outputs are flipped back to line up
+        with the original steps.
+
+        Examples:
+            >>> layer = RETAINLayer(4)
+            >>> x = torch.randn(2, 3, 4)
+            >>> lengths = torch.tensor([3, 1])
+            >>> rx = RETAINLayer.reverse_x(x, lengths)
+            >>> layer.compute_beta(rx, lengths, 3).shape
+            torch.Size([2, 3, 4])
+        """
         rx = rnn_utils.pack_padded_sequence(
             rx, lengths, batch_first=True, enforce_sorted=False
         )
@@ -87,6 +124,7 @@ class RETAINLayer(nn.Module):
         h, _ = rnn_utils.pad_packed_sequence(
             h, batch_first=True, total_length=total_length
         )
+        h = self.reverse_x(h, lengths)  # back to the original order
         attn_beta = torch.tanh(self.beta_li(h))
         return attn_beta
 
