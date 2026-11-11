@@ -286,8 +286,11 @@ class RETAIN(BaseModel):
             # Case 1: 4D tensor from NestedSequenceProcessor
             # (batch, visits, events, embedding_dim)
             # Need to sum across events to get (batch, visits, embedding_dim)
-            if len(x.shape) == 4:
-                x = torch.sum(x, dim=2)  # Sum across events within visit
+            if len(x.shape) >= 4:
+                # Sum across events within each visit; for deep nested
+                # sequences, also across the visits within each group.
+                while x.dim() > 3:
+                    x = torch.sum(x, dim=2)
 
             # Case 2: 3D tensor from SequenceProcessor or after summing
             # (batch, seq_len, embedding_dim) - already correct format
@@ -555,8 +558,11 @@ class MultimodalRETAIN(BaseModel):
             # Case 1: 4D tensor from NestedSequenceProcessor
             # (batch, visits, events, embedding_dim)
             # Need to sum across events to get (batch, visits, embedding_dim)
-            if x.dim() == 4:
-                x = torch.sum(x, dim=2)  # Sum across events within visit
+            if x.dim() >= 4:
+                # Sum across events within each visit; for deep nested
+                # sequences, also across the visits within each group.
+                while x.dim() > 3:
+                    x = torch.sum(x, dim=2)
 
             # Case 2: 3D tensor from SequenceProcessor or after summing
             # (batch, seq_len, embedding_dim) - already correct format
