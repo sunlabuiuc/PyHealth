@@ -3,6 +3,7 @@ from pyhealth.interpret.methods.baseline import RandomBaseline
 from pyhealth.interpret.methods.chefer import CheferRelevance
 from pyhealth.interpret.methods.attention_rollout import AttentionRollout
 from pyhealth.interpret.methods.raw_attention import RawAttention
+from pyhealth.interpret.methods.attingrad import AttInGrad
 from pyhealth.interpret.methods.basic_gradient import BasicGradientSaliencyMaps
 from pyhealth.interpret.methods.deeplift import DeepLift
 from pyhealth.interpret.methods.gim import GIM
@@ -21,6 +22,7 @@ __all__ = [
     "CheferRelevance",
     "AttentionRollout",
     "RawAttention",
+    "AttInGrad",
     "DeepLift",
     "GIM",
     "GradCAM",
