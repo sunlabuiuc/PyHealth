@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -789,7 +790,11 @@ class UNet(BaseModel):
                 pads.extend([0, padded - size])
             image = F.pad(image, pads, mode="replicate")
         logits = self.network(image)
-        logits = _interpolate(logits, original_shape, self.spatial_dim)
+        if tuple(logits.shape[2:]) != original_shape:
+            slices = (slice(None), slice(None)) + tuple(
+                slice(0, size) for size in original_shape
+            )
+            logits = logits[slices]
         if self.num_classes > 1:
             y_prob = F.softmax(logits, dim=1)
         else:
@@ -941,6 +946,18 @@ def sliding_window_inference(
     return probability[0]
 
 
+def _materialize(value: Any, processor: Any) -> Any:
+    """Load a lazy image or mask with its processor's ``materialize()``."""
+    if processor is None or not hasattr(processor, "materialize"):
+        return value
+    if isinstance(value, (str, Path, dict)) or (
+        isinstance(value, (list, tuple))
+        and all(isinstance(item, (str, Path)) for item in value)
+    ):
+        return processor.materialize(value)
+    return value
+
+
 def evaluate_segmentation(
     model: UNet,
     dataset: Any,
@@ -982,13 +999,18 @@ def evaluate_segmentation(
     label_key = label_key or model.label_key
     if ignore_index is None:
         ignore_index = getattr(model, "segmentation_ignore_index", None)
+    processors = {
+        **getattr(dataset, "input_processors", {}),
+        **getattr(dataset, "output_processors", {}),
+    }
     true_cases = []
     prob_cases = []
     class_mask_used = False
     model.eval()
     for index in range(len(dataset)):
         sample = dataset[index]
-        image = sample[input_key]
+        image = _materialize(sample[input_key], processors.get(input_key))
+        target = _materialize(sample[label_key], processors.get(label_key))
         if isinstance(image, tuple):
             image = image[0]
         image = image.to(model.device).float()
@@ -1011,7 +1033,7 @@ def evaluate_segmentation(
                 ignore_index if ignore_index is not None else 255
             )
             target, probability = remap_class_mask(
-                sample[label_key],
+                target,
                 probability,
                 class_mask,
                 ignore_index=mask_ignore_index,
@@ -1020,7 +1042,7 @@ def evaluate_segmentation(
             prob_cases.append(probability)
             class_mask_used = True
         else:
-            true_cases.append(sample[label_key])
+            true_cases.append(target)
             prob_cases.append(probability.cpu())
     if class_mask_used and ignore_index is None:
         ignore_index = 255

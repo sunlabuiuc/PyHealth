@@ -1,8 +1,18 @@
 """Smoke tests for U-Net models, Trainer integration and sliding windows."""
 
+import shutil
+import tempfile
 import unittest
+from pathlib import Path
 
+import numpy as np
 import torch
+from torch.nn import functional as F
+
+try:
+    import nibabel as nib
+except ImportError:  # pragma: no cover - test env installs the extra
+    nib = None
 
 from pyhealth.datasets import PatchDataset, create_sample_dataset, get_dataloader
 from pyhealth.models import (
@@ -160,6 +170,85 @@ class TestUNet(unittest.TestCase):
         )
         self.assertIn("dice", scores)
         self.assertIn("iou", scores)
+
+    def test_nondivisible_input_is_cropped_not_resized(self):
+        size = 15
+        samples = [
+            {
+                "patient_id": "p0",
+                "image": torch.randn(1, size, size, size),
+                "mask": torch.zeros(
+                    1, size, size, size, dtype=torch.long
+                ),
+            }
+        ]
+        dataset = create_sample_dataset(
+            samples, {"image": "raw"}, {"mask": "raw"}
+        )
+        model = UNet3D(
+            dataset, in_channels=1, num_classes=2, base_channels=4, depth=3
+        )
+        image = dataset[0]["image"].unsqueeze(0)
+        factor = 2 ** (model.depth - 1)
+        padded_shape = tuple(
+            max(factor, ((dim + factor - 1) // factor) * factor)
+            for dim in image.shape[2:]
+        )
+        pads = []
+        for dim, padded in zip(
+            reversed(image.shape[2:]), reversed(padded_shape)
+        ):
+            pads.extend([0, padded - dim])
+        padded_image = F.pad(image, pads, mode="replicate")
+        with torch.no_grad():
+            raw = model.network(padded_image)
+            output = model(image=image)
+        expected = raw[..., :size, :size, :size]
+        torch.testing.assert_close(output["logit"], expected)
+        self.assertEqual(
+            tuple(output["logit"].shape), (1, 2, size, size, size)
+        )
+
+    @unittest.skipUnless(nib is not None, "nibabel is not installed")
+    def test_evaluate_segmentation_with_lazy_nifti(self):
+        temp_dir = tempfile.mkdtemp()
+        try:
+            image_path = Path(temp_dir) / "image.nii.gz"
+            mask_path = Path(temp_dir) / "mask.nii.gz"
+            image = np.zeros((16, 16, 16), dtype=np.float32)
+            image[4:8, 4:8, 4:8] = 1.0
+            mask = np.zeros((16, 16, 16), dtype=np.int16)
+            mask[4:8, 4:8, 4:8] = 1
+            nib.save(nib.Nifti1Image(image, np.eye(4)), str(image_path))
+            nib.save(nib.Nifti1Image(mask, np.eye(4)), str(mask_path))
+            dataset = create_sample_dataset(
+                [
+                    {
+                        "patient_id": "p0",
+                        "image": str(image_path),
+                        "mask": str(mask_path),
+                    }
+                ],
+                {"image": ("nifti", {"lazy": True})},
+                {"mask": ("nifti", {"lazy": True, "is_mask": True})},
+            )
+            try:
+                model = UNet3D(
+                    dataset,
+                    in_channels=1,
+                    num_classes=2,
+                    base_channels=4,
+                    depth=2,
+                )
+                scores = evaluate_segmentation(
+                    model, dataset, patch_size=None
+                )
+                self.assertIn("dice", scores)
+                self.assertIn("iou", scores)
+            finally:
+                dataset.close()
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     def test_trainer_one_epoch(self):
         dataset = _make_3d_dataset()
