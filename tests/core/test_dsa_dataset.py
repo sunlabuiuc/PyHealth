@@ -96,12 +96,14 @@ class TestDSADataset(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.root = tempfile.mkdtemp()
+        cls.cache_dir = tempfile.mkdtemp()
         _write_synthetic_dsa(cls.root)
-        cls.dataset = DSADataset(root=cls.root)
+        cls.dataset = DSADataset(root=cls.root, cache_dir=cls.cache_dir)
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(cls.root)
+        shutil.rmtree(cls.root, ignore_errors=True)
+        shutil.rmtree(cls.cache_dir, ignore_errors=True)
 
     def test_metadata_csv_written(self):
         self.assertTrue(os.path.isfile(os.path.join(self.root, "dsa-pyhealth.csv")))

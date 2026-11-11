@@ -10,6 +10,7 @@ Learning from Multi-source Motion Sensor Data" (CHIL 2024).
 import logging
 import os
 import re
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -150,6 +151,10 @@ class DSADataset(BaseDataset):
         dataset_name: Optional name of the dataset. Defaults to ``"dsa"``.
         config_path: Optional path to a YAML config. Defaults to the bundled
             ``configs/dsa.yaml``.
+        cache_dir: Optional directory for PyHealth's processed cache. Defaults
+            to PyHealth's user cache directory.
+        num_workers: Number of worker processes used when processing data.
+        dev: Whether to run in dev mode (a small subset of patients).
 
     Examples:
         >>> from pyhealth.datasets import DSADataset
@@ -162,6 +167,9 @@ class DSADataset(BaseDataset):
         root: str,
         dataset_name: str | None = None,
         config_path: str | None = None,
+        cache_dir: str | Path | None = None,
+        num_workers: int = 1,
+        dev: bool = False,
     ) -> None:
         if config_path is None:
             logger.info("No config path provided, using default config")
@@ -178,6 +186,9 @@ class DSADataset(BaseDataset):
             tables=["dsa"],
             dataset_name=dataset_name or "dsa",
             config_path=config_path,
+            cache_dir=cache_dir,
+            num_workers=num_workers,
+            dev=dev,
         )
 
     @staticmethod
