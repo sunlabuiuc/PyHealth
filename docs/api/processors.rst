@@ -22,6 +22,10 @@ Processors are automatically applied based on the ``input_schema`` and ``output_
 Available Processors
 --------------------
 
+:doc:`processors/compatibility` shows which layer ``EmbeddingModel`` builds
+for each input processor, and which general-purpose models (RNN, Transformer,
+MLP and others) train on a field of that type.
+
 **Sequence Processors:**
 
 - :doc:`SequenceProcessorV2 <processors/pyhealth.processors.SequenceProcessorV2>`: Unified processor for hierarchical packed records (codes, continuous values, and timestamps at any nesting depth) without padding or truncation
@@ -561,6 +565,7 @@ API Reference
 .. toctree::
     :maxdepth: 3
 
+    processors/compatibility
     processors/pyhealth.processors.Processor
     processors/pyhealth.processors.FeatureProcessor
     processors/pyhealth.processors.TemporalFeatureProcessor
