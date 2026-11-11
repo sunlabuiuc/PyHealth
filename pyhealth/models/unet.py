@@ -630,9 +630,13 @@ class UNet(BaseModel):
             )
 
         self._segmentation_label_processor = (
-            SegmentationMultiClassLabelProcessor(self.num_classes)
+            SegmentationMultiClassLabelProcessor(
+                self.num_classes, ignore_index=ignore_index
+            )
             if self.num_classes > 1
-            else SegmentationBinaryLabelProcessor()
+            else SegmentationBinaryLabelProcessor(
+                num_classes=2, ignore_index=ignore_index
+            )
         )
         self.loss_fn = SegmentationLoss(
             mode=self.mode,
@@ -1061,4 +1065,5 @@ def evaluate_segmentation(
         mode=model.mode,
         ignore_index=ignore_index,
         include_background=include_background,
+        num_classes=model.num_classes,
     )

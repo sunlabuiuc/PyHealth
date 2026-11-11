@@ -89,6 +89,10 @@ def _metric_arrays(
     """Return filtered target/prediction label maps and the class count."""
     target = _spatial_target(y_true)
     prediction = _spatial_probability(y_prob, mode, threshold)
+    if mode == "segmentation_binary":
+        # Binary predictions are always 0/1; a declared class count would
+        # reject valid foreground pixels when it is 1.
+        num_classes = None
     valid = _valid_mask(target, ignore_index)
     if valid is not None:
         target = target[valid]
@@ -218,7 +222,7 @@ def dice_score(
     threshold: float = 0.5,
     ignore_index: int | None = None,
     include_background: bool = False,
-    smooth: float = 1e-6,
+    num_classes: int | None = None,
 ) -> float:
     """Compute Dice for one segmentation case.
 
@@ -231,8 +235,8 @@ def dice_score(
         ignore_index: Optional label value excluded from the score.
         include_background: Whether class 0 is included in the multiclass
             average. Defaults to False.
-        smooth: Unused; kept for API compatibility. MONAI uses its own
-            smoothing.
+        num_classes: Optional fixed number of classes. When omitted, the class
+            count is inferred from each case's target and prediction.
 
     Returns:
         The Dice score. An empty reference scores 1.0 when the prediction is
@@ -246,9 +250,8 @@ def dice_score(
         >>> round(dice_score(y, p, mode="segmentation_binary"), 3)
         1.0
     """
-    del smooth
     target, prediction, classes = _metric_arrays(
-        y_true, y_prob, mode, threshold, ignore_index, None
+        y_true, y_prob, mode, threshold, ignore_index, num_classes
     )
     if target.size == 0:
         return 1.0
@@ -285,6 +288,7 @@ def iou_score(
     threshold: float = 0.5,
     ignore_index: int | None = None,
     include_background: bool = False,
+    num_classes: int | None = None,
 ) -> float:
     """Compute intersection-over-union for one segmentation case.
 
@@ -296,6 +300,8 @@ def iou_score(
         ignore_index: Optional label value excluded from the score.
         include_background: Whether class 0 is included in the multiclass
             average.
+        num_classes: Optional fixed number of classes. When omitted, the class
+            count is inferred from each case's target and prediction.
 
     Returns:
         The mean IoU over foreground classes. An empty reference scores 1.0
@@ -311,7 +317,7 @@ def iou_score(
         1.0
     """
     target, prediction, classes = _metric_arrays(
-        y_true, y_prob, mode, threshold, ignore_index, None
+        y_true, y_prob, mode, threshold, ignore_index, num_classes
     )
     if target.size == 0:
         return 1.0
@@ -391,7 +397,6 @@ def per_class_dice_score(
     threshold: float = 0.5,
     ignore_index: int | None = None,
     include_background: bool = True,
-    smooth: float = 1e-6,
 ) -> dict[int, float]:
     """Compute Dice separately for every class in one case.
 
@@ -408,7 +413,6 @@ def per_class_dice_score(
         include_background: Whether class 0 is included. Defaults to True
             because this function reports every class; aggregate metrics
             should keep it False.
-        smooth: Unused; kept for API compatibility.
 
     Returns:
         A mapping from class index to Dice score, including empty classes.
@@ -423,7 +427,6 @@ def per_class_dice_score(
         >>> sorted(scores)
         [0, 1, 2]
     """
-    del smooth
     return _per_class_scores(
         y_true,
         y_prob,
@@ -550,6 +553,7 @@ def segmentation_metrics_fn(
     threshold: float = 0.5,
     ignore_index: int | None = None,
     include_background: bool = False,
+    num_classes: int | None = None,
 ) -> dict[str, float]:
     """Compute segmentation metrics over one case or a list of cases.
 
@@ -562,6 +566,8 @@ def segmentation_metrics_fn(
         ignore_index: Optional label value excluded from the metrics.
         include_background: Whether class 0 is included in the multiclass
             average.
+        num_classes: Optional fixed number of classes, used for every case.
+            When omitted, each case infers its own class count.
 
     Returns:
         A dictionary whose values are averaged over cases.
@@ -602,6 +608,7 @@ def segmentation_metrics_fn(
                     threshold=threshold,
                     ignore_index=ignore_index,
                     include_background=include_background,
+                    num_classes=num_classes,
                 )
             )
         if "iou" in scores:
@@ -613,6 +620,7 @@ def segmentation_metrics_fn(
                     threshold=threshold,
                     ignore_index=ignore_index,
                     include_background=include_background,
+                    num_classes=num_classes,
                 )
             )
     return {name: float(np.mean(values)) for name, values in scores.items()}
@@ -626,6 +634,7 @@ def case_level_segmentation_metrics(
     threshold: float = 0.5,
     ignore_index: int | None = None,
     include_background: bool = False,
+    num_classes: int | None = None,
 ) -> dict[str, float]:
     """Alias of :func:`segmentation_metrics_fn` for case-level evaluation.
 
@@ -646,4 +655,5 @@ def case_level_segmentation_metrics(
         threshold=threshold,
         ignore_index=ignore_index,
         include_background=include_background,
+        num_classes=num_classes,
     )

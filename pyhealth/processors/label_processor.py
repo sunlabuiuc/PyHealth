@@ -1,10 +1,11 @@
 """Output processors: what a label is, and how to train on and score it."""
 
+import functools
 import logging
 import math
-from numbers import Real
 from abc import abstractmethod
 from collections.abc import Hashable, Iterable, Sequence
+from numbers import Real
 from typing import Any, ClassVar
 
 import numpy as np
@@ -717,15 +718,35 @@ class _SegmentationLabelProcessor(LabelProcessor):
     :func:`~pyhealth.metrics.segmentation.segmentation_metrics_fn` expects.
 
     Args:
-        num_classes: Number of classes including background. It is only used
-            by :meth:`size`; the model carries the value it was built with.
+        num_classes: Number of classes including background. It is used by
+            :meth:`size` and by the metrics so every case scores the same
+            class set.
+        ignore_index: Label value used for padding, excluded from the metrics.
+            ``PatchDataset`` pads masks with 255 by default.
     """
 
     stores_tensor = False
 
-    def __init__(self, num_classes: int | None = None):
+    def __init__(
+        self,
+        num_classes: int | None = None,
+        ignore_index: int | None = 255,
+    ):
         super().__init__()
         self.num_classes = num_classes
+        self.ignore_index = ignore_index
+        # Trainer calls ``label.metrics_fn(...)`` on the instance. Bind the
+        # per-instance options here so padded masks and a fixed class count
+        # reach the metrics, while the classmethod below still serves
+        # ``get_metrics_fn(mode)``.
+        from pyhealth.metrics.segmentation import segmentation_metrics_fn
+
+        self.metrics_fn = functools.partial(
+            segmentation_metrics_fn,
+            mode=type(self).mode,
+            num_classes=num_classes,
+            ignore_index=ignore_index,
+        )
 
     def size(self) -> int:
         if self.num_classes is None:

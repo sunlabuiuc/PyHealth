@@ -105,6 +105,42 @@ class TestSegmentationMetrics(unittest.TestCase):
         self.assertEqual(scores[1], 1.0)
         self.assertEqual(scores[2], 0.0)
 
+    def test_fixed_num_classes_scores_the_same_classes_for_every_case(self):
+        target = np.array([[0, 1], [1, 0]])
+        prob = np.zeros((4, 2, 2), dtype=np.float32)
+        prob[1] = np.array([[0.0, 0.9], [0.8, 0.9]])
+        inferred = dice_score(target, prob, mode="segmentation_multiclass")
+        fixed = dice_score(
+            target, prob, mode="segmentation_multiclass", num_classes=4
+        )
+        self.assertAlmostEqual(inferred, 0.8)
+        self.assertAlmostEqual(fixed, (0.8 + 1.0 + 1.0) / 3)
+
+    def test_segmentation_processor_metrics_use_its_options(self):
+        from pyhealth.processors import SegmentationMultiClassLabelProcessor
+
+        target = np.array([[0, 1], [1, 0]])
+        prob = np.zeros((4, 2, 2), dtype=np.float32)
+        prob[1] = np.array([[0.0, 0.9], [0.8, 0.9]])
+        processor = SegmentationMultiClassLabelProcessor(num_classes=4)
+        scores = processor.metrics_fn([target], [prob], metrics=["dice"])
+        self.assertAlmostEqual(scores["dice"], (0.8 + 1.0 + 1.0) / 3)
+
+    def test_segmentation_processor_metrics_ignore_padding(self):
+        from pyhealth.processors import SegmentationMultiClassLabelProcessor
+
+        target = np.array([[0, 1], [255, 255]])
+        prob = np.array(
+            [
+                [[0.9, 0.1], [0.9, 0.9]],
+                [[0.1, 0.9], [0.1, 0.1]],
+            ],
+            dtype=np.float32,
+        )
+        processor = SegmentationMultiClassLabelProcessor(num_classes=2)
+        scores = processor.metrics_fn([target], [prob], metrics=["dice"])
+        self.assertTrue(np.isfinite(scores["dice"]))
+
     def test_binary_perfect_prediction(self):
         target = np.array([[0, 1], [1, 1]])
         prob = np.array([[0.0, 0.9], [0.8, 0.7]])

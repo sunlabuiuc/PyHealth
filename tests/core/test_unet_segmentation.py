@@ -250,6 +250,38 @@ class TestUNet(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_trainer_evaluation_ignores_patch_padding(self):
+        samples = []
+        for index in range(2):
+            image = torch.randn(1, 6, 6, 6)
+            mask = torch.zeros(1, 6, 6, 6, dtype=torch.long)
+            mask[:, 2:4, 2:4, 2:4] = 1
+            samples.append(
+                {"patient_id": f"p{index}", "image": image, "mask": mask}
+            )
+        dataset = create_sample_dataset(
+            samples, {"image": "raw"}, {"mask": "raw"}
+        )
+        # 6^3 volumes are padded to the 8^3 patch with 255.
+        patches = PatchDataset(
+            dataset, PatchSampler((8, 8, 8)), mode="center"
+        )
+        loader = get_dataloader(patches, batch_size=2)
+        model = UNet3D(
+            dataset, in_channels=1, num_classes=2, base_channels=4, depth=2
+        )
+        trainer = Trainer(
+            model,
+            device="cpu",
+            enable_logging=False,
+            metrics=["dice", "iou"],
+        )
+        scores = trainer.evaluate(loader)
+        self.assertIn("dice", scores)
+        self.assertIn("iou", scores)
+        self.assertTrue(np.isfinite(scores["dice"]))
+        self.assertTrue(np.isfinite(scores["iou"]))
+
     def test_trainer_one_epoch(self):
         dataset = _make_3d_dataset()
         sampler = PatchSampler((8, 8, 8), foreground_prob=1.0)
