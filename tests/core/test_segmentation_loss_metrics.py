@@ -198,6 +198,50 @@ class TestSegmentationMetrics(unittest.TestCase):
         self.assertAlmostEqual(inferred, 0.8)
         self.assertAlmostEqual(fixed, 0.8)
 
+    def test_out_of_range_label_raises_with_fixed_num_classes(self):
+        target = np.array([[0, 1], [7, 7]])
+        prob = np.zeros((3, 2, 2), dtype=np.float32)
+        with self.assertRaisesRegex(ValueError, "outside num_classes=3"):
+            dice_score(
+                target,
+                prob,
+                mode="segmentation_multiclass",
+                num_classes=3,
+            )
+        with self.assertRaisesRegex(ValueError, "outside num_classes=3"):
+            iou_score(
+                target,
+                prob,
+                mode="segmentation_multiclass",
+                num_classes=3,
+            )
+        with self.assertRaisesRegex(ValueError, "outside num_classes=3"):
+            per_class_dice_score(target, prob, num_classes=3)
+
+    def test_ignore_index_is_the_only_dropped_label(self):
+        target = np.array([[0, 1], [255, 255]])
+        prob = np.zeros((3, 2, 2), dtype=np.float32)
+        prob[1, 0, 1] = 0.9
+        scores = dice_score(
+            target,
+            prob,
+            mode="segmentation_multiclass",
+            num_classes=3,
+            ignore_index=255,
+        )
+        self.assertTrue(np.isfinite(scores))
+
+    def test_padding_without_ignore_index_raises(self):
+        target = np.array([[0, 1], [255, 255]])
+        prob = np.zeros((3, 2, 2), dtype=np.float32)
+        with self.assertRaisesRegex(ValueError, "outside num_classes=3"):
+            dice_score(
+                target,
+                prob,
+                mode="segmentation_multiclass",
+                num_classes=3,
+            )
+
     def test_metrics_skip_cases_with_no_foreground_class(self):
         target = [
             np.array([[0, 1], [1, 1]]),
@@ -381,7 +425,7 @@ class TestSegmentationMetrics(unittest.TestCase):
         np.testing.assert_allclose(remapped_prob[0], prob[0])
         np.testing.assert_allclose(remapped_prob[1], prob[2])
 
-    def test_per_class_metrics_ignore_out_of_range_padding(self):
+    def test_per_class_metrics_ignore_padding(self):
         target = np.array([[0, 1], [255, 255]])
         prob = np.array(
             [
@@ -395,6 +439,7 @@ class TestSegmentationMetrics(unittest.TestCase):
             [prob],
             mode="segmentation_multiclass",
             num_classes=3,
+            ignore_index=255,
         )
         self.assertAlmostEqual(scores["dice_class_1"], 1.0)
 

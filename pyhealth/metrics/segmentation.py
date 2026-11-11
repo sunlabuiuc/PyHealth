@@ -104,10 +104,17 @@ def _metric_arrays(
                 f"y_prob contains class index {int(prediction.max())}, "
                 f"which is outside num_classes={num_classes}."
             )
-        # Padding sentinels such as 255 are outside the declared class range.
-        in_range = (target >= 0) & (target < num_classes)
-        target = target[in_range]
-        prediction = prediction[in_range]
+        # ``ignore_index`` was already removed above. Any remaining
+        # out-of-range label is a data error, not padding; dropping it would
+        # silently inflate the metrics.
+        invalid = (target < 0) | (target >= num_classes)
+        if bool(invalid.any()):
+            bad = np.unique(target[invalid])
+            raise ValueError(
+                f"Target contains labels outside num_classes={num_classes}: "
+                f"{bad[:5].tolist()}. Pass ignore_index for padding values, "
+                "or fix the mask."
+            )
     if (
         num_classes is None
         and ignore_index is None
@@ -237,7 +244,8 @@ def dice_score(
         include_background: Whether class 0 is included in the multiclass
             average. Defaults to False.
         num_classes: Optional fixed number of classes. When omitted, the class
-            count is inferred from each case's target and prediction.
+            count is inferred from each case's target and prediction. Labels
+            outside the range raise unless they equal ``ignore_index``.
 
     Returns:
         The mean Dice over classes present in the reference. An empty
@@ -305,7 +313,8 @@ def iou_score(
         include_background: Whether class 0 is included in the multiclass
             average.
         num_classes: Optional fixed number of classes. When omitted, the class
-            count is inferred from each case's target and prediction.
+            count is inferred from each case's target and prediction. Labels
+            outside the range raise unless they equal ``ignore_index``.
 
     Returns:
         The mean IoU over classes present in the reference. An empty
