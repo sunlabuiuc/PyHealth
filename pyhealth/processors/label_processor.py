@@ -562,10 +562,22 @@ class MultiLabelProcessor(_WeightedBCE, LabelProcessor):
         return self._bce(logits, y_true, **kwargs)
 
     @classmethod
-    def metrics_fn(cls, y_true, y_prob, metrics=None):
+    def metrics_fn(cls, y_true, y_prob, metrics=None, **kwargs):
+        """Scores with :func:`~pyhealth.metrics.multilabel_metrics_fn`.
+
+        Extra keyword arguments (e.g. ``ddi_adj`` for the ``"ddi"`` metric)
+        are passed through.
+
+        Examples:
+            >>> import numpy as np
+            >>> MultiLabelProcessor.metrics_fn(
+            ...     np.array([[1, 0]]), np.array([[0.9, 0.2]]), metrics=["f1_micro"]
+            ... )
+            {'f1_micro': 1.0}
+        """
         from pyhealth.metrics.multilabel import multilabel_metrics_fn
 
-        return multilabel_metrics_fn(y_true, y_prob, metrics=metrics)
+        return multilabel_metrics_fn(y_true, y_prob, metrics=metrics, **kwargs)
 
 
 @register_processor("regression")
