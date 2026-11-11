@@ -81,6 +81,12 @@ from .generators.corgan import CorGAN as CorGAN
 from .survival_mdn import SurvivalMDN as SurvivalMDN
 from .trajsurv import TrajSurv as TrajSurv
 from .knowrare import KnowRare as KnowRare
+from .trace import (
+    TRACE as TRACE,
+    TRACEAttention as TRACEAttention,
+    TRACELayer as TRACELayer,
+    TRACETimeEmbedding as TRACETimeEmbedding,
+)
 from .apricotm import APRICOTM as APRICOTM
 from .selective_ssm import SelectiveSSM as SelectiveSSM
 from .heartlang import (

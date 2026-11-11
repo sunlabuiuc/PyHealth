@@ -6,6 +6,7 @@ import sklearn.metrics as sklearn_metrics
 from pyhealth.medcode import ATC
 import pyhealth.metrics.calibration as calib
 from pyhealth.metrics import ddi_rate_score
+from pyhealth.metrics.ranking import multilabel_ranking_at_k
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
 
 def _load_cached_ddi_adj() -> np.ndarray:
@@ -66,6 +67,14 @@ def multilabel_metrics_fn(
         - hamming_loss: Hamming loss
         - cwECE: classwise ECE (with 20 equal-width bins). Check :func:`pyhealth.metrics.calibration.ece_classwise`.
         - cwECE_adapt: classwise adaptive ECE (with 20 equal-size bins). Check :func:`pyhealth.metrics.calibration.ece_classwise`.
+        - precision@K: fraction of the K highest-scored labels that are true
+          (e.g. "precision@5")
+        - recall@K: fraction of a sample's true labels among its K
+          highest-scored labels
+        - ndcg@K: normalized discounted cumulative gain of the K
+          highest-scored labels (binary relevance). All three are averaged
+          over the samples with at least one true label; see
+          :func:`pyhealth.metrics.ranking.multilabel_ranking_at_k`.
 
     The following metrics related to the prediction sets are accepted as well, but will be ignored if y_predset is None:
         - fp: Number of false positives.
@@ -254,6 +263,18 @@ def multilabel_metrics_fn(
                 output[metric] = (y_true * y_predset).sum(1).mean()
             elif metric == 'fp':
                 output[metric] = ((1-y_true) * y_predset).sum(1).mean()
+        elif metric.split("@", 1)[0] in ("precision", "recall", "ndcg") and (
+            "@" in metric
+        ):
+            name, cutoff = metric.split("@", 1)
+            if not cutoff.isdigit() or int(cutoff) < 1:
+                raise ValueError(
+                    f"Invalid metric {metric!r}: expected '{name}@K' with K a "
+                    "positive integer (e.g. 'precision@5')."
+                )
+            output[metric] = multilabel_ranking_at_k(
+                y_true, y_prob, int(cutoff)
+            )[name]
         else:
             raise ValueError(f"Unknown metric for multilabel classification: {metric}")
 
