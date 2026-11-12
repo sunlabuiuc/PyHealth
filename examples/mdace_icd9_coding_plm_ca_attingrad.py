@@ -113,7 +113,7 @@ def write_synthetic_data(folder: Path, seed: int) -> None:
                     "note_id": str(note_id),
                     "subject_id": note_id,
                     "_id": note_id,
-                    "note_type": "synthetic",
+                    "note_type": "Discharge summary",
                     "text": text,
                     "diagnosis_codes": codes,
                     "diagnosis_code_spans": spans,
@@ -393,6 +393,8 @@ def evaluate(args: argparse.Namespace) -> None:
     pairs = {}
     for split in ("val", "test"):
         df = pl.read_parquet(processed / "mdace_icd9_inpatient" / f"{split}.parquet")
+        # The paper evaluates discharge summaries only (authors' eval_explanations.py).
+        df = df.filter(pl.col("note_type") == "Discharge summary")
         if args.max_eval_notes:
             df = df.head(args.max_eval_notes)
         pairs[split] = explain_split(model, df, args.ig_steps)
