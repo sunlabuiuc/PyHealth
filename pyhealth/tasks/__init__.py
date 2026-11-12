@@ -69,6 +69,7 @@ from .length_of_stay_prediction import (
 )
 from .length_of_stay_stagenet_mimic4 import LengthOfStayStageNetMIMIC4
 from .medical_coding import MIMIC3ICD9Coding
+from .msd_segmentation import MSDSegmentationTask as MSDSegmentationTask
 from .next_visit_diagnosis_prediction import (
     NextVisitDiagnosisPredictionMIMIC3 as NextVisitDiagnosisPredictionMIMIC3,
     NextVisitDiagnosisPredictionMIMIC4 as NextVisitDiagnosisPredictionMIMIC4,
