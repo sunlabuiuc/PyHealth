@@ -15,6 +15,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -50,6 +51,8 @@ VALUESET_COLUMNS = [
     "split",
 ]
 CODE_COLUMNS = ["oid", "code", "system", "display", "rank"]
+# Dotted digits with an optional -<yyyymmdd> version. OIDs become file names.
+_OID_PATTERN = re.compile(r"\d+(?:\.\d+)+(?:-\d{8})?")
 
 # From create_dataset/build_dataset.py in the RASC repository.
 _SYSTEM_TYPES = {
@@ -207,7 +210,7 @@ def _read_manifest(path: Path) -> dict[str, dict[str, Any]]:
         One row per OID with ``split`` and optionally ``type`` and ``publisher``.
 
     Raises:
-        ValueError: If a line is not JSON or has no ``oid``.
+        ValueError: If a line is not JSON or has no valid ``oid``.
     """
     if not path.exists():
         return {}
@@ -217,8 +220,10 @@ def _read_manifest(path: Path) -> dict[str, dict[str, Any]]:
             continue
         try:
             row = json.loads(line)
+            if not _OID_PATTERN.fullmatch(row["oid"]):
+                raise ValueError(row["oid"])
             rows[row["oid"]] = row
-        except (json.JSONDecodeError, KeyError, TypeError) as error:
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
             raise ValueError(f"{path}:{number}: invalid manifest row") from error
     return rows
 
@@ -397,7 +402,8 @@ class VSACDataset(BaseDataset):
             The OIDs that failed.
 
         Raises:
-            ValueError: If no API key is given or set and no session is passed.
+            ValueError: If an OID is malformed, or no API key is given or set
+                and no session is passed.
 
         Examples:
             >>> failed = VSACDataset.download_expansions(  # doctest: +SKIP
@@ -411,6 +417,9 @@ class VSACDataset(BaseDataset):
             session = requests.Session()
             session.auth = ("apikey", api_key)
             session.headers["Accept"] = "application/json"
+        invalid = [oid for oid in oids if not _OID_PATTERN.fullmatch(oid)]
+        if invalid:
+            raise ValueError(f"Not VSAC OIDs: {invalid}")
         exp_dir = Path(root) / "expansions"
         meta_dir = Path(root) / RESOURCES_DIR
         exp_dir.mkdir(parents=True, exist_ok=True)

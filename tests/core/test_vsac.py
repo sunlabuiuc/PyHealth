@@ -22,7 +22,7 @@ import polars as pl
 import requests
 
 from pyhealth.datasets import ValueSetSplit, VSACDataset
-from pyhealth.datasets.vsac import CODES_FILE, VALUESETS_FILE
+from pyhealth.datasets.vsac import CODES_FILE, MANIFEST_FILE, VALUESETS_FILE
 from pyhealth.tasks import ValueSetCompletion, build_retrieval_index
 from pyhealth.tasks.value_set_completion import FEATURES, normalize_code_system
 
@@ -141,7 +141,7 @@ class FakeSession:
 
     def get(self, url: str, params: dict | None = None, timeout: int = 0):
         self.calls.append((url, params))
-        if "missing" in url:
+        if "9.9" in url:
             return FakeResponse({}, 404)
         if not url.endswith("$expand"):
             return FakeResponse({"resourceType": "ValueSet", "purpose": "p"})
@@ -262,15 +262,27 @@ class TestVSACDataset(VSACFixture):
         (root / "expansions" / "bad.json").write_text("{not json")
         with self.assertRaisesRegex(ValueError, "bad.json"):
             VSACDataset.prepare_metadata(str(root))
+        (root / MANIFEST_FILE).write_text('{"oid": "../1.1", "split": "train"}\n')
+        with self.assertRaisesRegex(ValueError, "invalid manifest row"):
+            VSACDataset.prepare_metadata(str(root))
+
+    def test_download_rejects_path_like_oids(self):
+        session = FakeSession()
+        with self.assertRaisesRegex(ValueError, "Not VSAC OIDs"):
+            VSACDataset.download_expansions(
+                str(self.tmp / "unsafe"), ["2.1", "../2.1"], session=session
+            )
+        self.assertEqual(session.calls, [])
+        self.assertFalse((self.tmp / "unsafe").exists())
 
     def test_download_pages_and_metadata(self):
         root = self.tmp / "download"
         session = FakeSession()
         with mock.patch("pyhealth.datasets.vsac._REQUEST_DELAY", 0):
             failed = VSACDataset.download_expansions(
-                str(root), ["2.1", "missing"], session=session
+                str(root), ["2.1", "9.9"], session=session
             )
-            self.assertEqual(failed, ["missing"])
+            self.assertEqual(failed, ["9.9"])
             saved = json.loads((root / "expansions" / "2.1.json").read_text())
             self.assertEqual(len(saved["expansion"]["contains"]), 3)
             self.assertEqual([c[1]["offset"] for c in session.calls[:2]], [0, 2])
