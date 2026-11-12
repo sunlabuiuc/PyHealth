@@ -14,17 +14,23 @@ import unittest
 import zlib
 from collections.abc import Sequence
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest import mock
 
 import numpy as np
 import polars as pl
 import requests
+import torch
 
 from pyhealth.datasets import VSACDataset
 from pyhealth.datasets.vsac import CODES_FILE, MANIFEST_FILE, VALUESETS_FILE
 from pyhealth.tasks import ValueSetCompletion, build_retrieval_index
-from pyhealth.tasks.value_set_completion import FEATURES, normalize_code_system
+from pyhealth.tasks.value_set_completion import (
+    FEATURES,
+    normalize_code_system,
+    sapbert_encoder,
+)
 
 ICD10 = "http://hl7.org/fhir/sid/icd-10-cm"
 RXNORM = "http://www.nlm.nih.gov/research/umls/rxnorm"
@@ -152,6 +158,43 @@ class FakeSession:
         )
 
 
+class FakeBatch(dict):
+    """Tokenizer output with the ``.to(device)`` that ``BatchEncoding`` has."""
+
+    def to(self, device: str) -> "FakeBatch":
+        return self
+
+
+class FakeTokenizer:
+    """Encodes each text as its length and records each batch."""
+
+    def __init__(self) -> None:
+        self.batches: list[list[str]] = []
+
+    def __call__(self, texts: list[str], **kwargs: Any) -> FakeBatch:
+        self.batches.append(texts)
+        return FakeBatch(lengths=torch.tensor([float(len(t)) for t in texts]))
+
+
+class FakeModel:
+    """Returns a CLS vector of (length, 1, 0, 0) and noise for other tokens."""
+
+    hidden = 4
+    config = SimpleNamespace(hidden_size=hidden)
+
+    def to(self, device: str) -> "FakeModel":
+        return self
+
+    def eval(self) -> "FakeModel":
+        return self
+
+    def __call__(self, lengths: torch.Tensor) -> SimpleNamespace:
+        state = torch.rand(len(lengths), 3, self.hidden)
+        state[:, 0] = 0.0
+        state[:, 0, 0], state[:, 0, 1] = lengths, 1.0
+        return SimpleNamespace(last_hidden_state=state)
+
+
 # BaseDataset builds the event table on a Dask cluster of worker processes
 # (about 1 s to start); the threaded cluster it uses in notebooks keeps the
 # whole module setup under 1 s.
@@ -230,6 +273,14 @@ class TestVSACDataset(VSACFixture):
         split = self.dataset.manifest_split()
         parts = split.split_indices({oid: [i] for i, oid in enumerate(VALUE_SETS)})
         self.assertEqual([p.tolist() for p in parts], [[0], [1], [2]])
+
+    def test_manifest_split_needs_manifest(self):
+        root = self.tmp / "no_manifest"
+        write_fixture(root)
+        (root / MANIFEST_FILE).unlink()
+        VSACDataset.prepare_metadata(str(root))
+        with self.assertRaisesRegex(ValueError, MANIFEST_FILE):
+            VSACDataset.manifest_split(SimpleNamespace(root=str(root)))
 
     def test_description_falls_back_to_purpose(self):
         event = self.dataset.get_patient("1.1-20240101").get_events("valuesets")[0]
@@ -317,6 +368,18 @@ class TestVSACDataset(VSACFixture):
         self.assertEqual(failed, ["2.1"])
         self.assertFalse((root / "expansions" / "2.1.json").exists())
 
+    def test_interrupted_write_leaves_no_file(self):
+        root = self.tmp / "interrupted"
+        with (
+            mock.patch("pyhealth.datasets.vsac._REQUEST_DELAY", 0),
+            mock.patch("pyhealth.datasets.vsac.os.replace", side_effect=OSError),
+            self.assertRaises(OSError),
+        ):
+            VSACDataset.download_expansions(
+                str(root), ["2.1"], metadata=False, session=FakeSession()
+            )
+        self.assertFalse((root / "expansions" / "2.1.json").exists())
+
     def test_download_needs_key(self):
         with (
             mock.patch.dict("os.environ", {}, clear=True),
@@ -396,6 +459,23 @@ class TestValueSetCompletion(VSACFixture):
         self.assertEqual(normalize_code_system(ICD10), "ICD-10-CM")
         self.assertEqual(normalize_code_system("urn:x:rxnorm"), "RxNorm")
         self.assertEqual(normalize_code_system("urn:unknown"), "OTHER")
+
+    def test_sapbert_encoder_pools_cls_and_normalizes(self):
+        tokenizer = FakeTokenizer()
+        model = FakeModel()
+        with (
+            mock.patch("transformers.AutoTokenizer.from_pretrained", return_value=tokenizer),
+            mock.patch("transformers.AutoModel.from_pretrained", return_value=model),
+        ):
+            encode = sapbert_encoder(device="cpu", batch_size=2)
+        out = encode(["a", "bbb", "cc"])
+        self.assertEqual(out.shape, (3, FakeModel.hidden))
+        self.assertEqual(out.dtype, np.float32)
+        np.testing.assert_allclose(np.linalg.norm(out, axis=1), 1.0, rtol=1e-6)
+        # Row order survives batching: the CLS vector is (len(text), 1, 0, 0).
+        np.testing.assert_allclose(out[:, 0] / out[:, 1], [1.0, 3.0, 2.0], rtol=1e-6)
+        self.assertEqual(tokenizer.batches, [["a", "bbb"], ["cc"]])
+        self.assertEqual(encode([]).shape, (0, FakeModel.hidden))
 
     def test_source_splits_restrict_retrieval(self):
         index_dir = build_retrieval_index(

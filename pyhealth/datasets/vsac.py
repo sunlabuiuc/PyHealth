@@ -137,6 +137,20 @@ def _fetch_expansion(
     return resource
 
 
+def _write_json(path: Path, resource: dict[str, Any]) -> None:
+    """Writes JSON by renaming a temporary file into place.
+
+    An interrupted write leaves no partial file for a resumed download to skip.
+
+    Args:
+        path: Destination file.
+        resource: JSON-serializable object.
+    """
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(resource))
+    os.replace(tmp, path)
+
+
 def _read_manifest(path: Path) -> dict[str, dict[str, Any]]:
     """Reads ``split_manifest.jsonl`` into OID -> row; empty if the file is absent.
 
@@ -266,7 +280,8 @@ class VSACDataset(BaseDataset):
       its fields take precedence.
 
     The file name is the OID. The first run flattens these into two CSV files
-    under ``root``; delete them to rebuild.
+    under ``root``. They are not refreshed, so delete them to rebuild after
+    the expansions or the manifest change.
 
     Args:
         root: Directory with ``expansions/`` and an optional manifest.
@@ -367,12 +382,11 @@ class VSACDataset(BaseDataset):
             exp_path, meta_path = exp_dir / f"{oid}.json", meta_dir / f"{oid}.json"
             try:
                 if not exp_path.exists():
-                    resource = _fetch_expansion(session, oid, paginate)
-                    exp_path.write_text(json.dumps(resource))
+                    _write_json(exp_path, _fetch_expansion(session, oid, paginate))
                 if metadata and not meta_path.exists():
                     resource = _get_json(session, f"ValueSet/{oid}")
                     resource.pop("compose", None)
-                    meta_path.write_text(json.dumps(resource))
+                    _write_json(meta_path, resource)
             except (requests.RequestException, RuntimeError, ValueError) as error:
                 logger.warning(f"{oid}: download failed ({error})")
                 failed.append(oid)
@@ -469,6 +483,10 @@ class VSACDataset(BaseDataset):
             A :class:`~pyhealth.datasets.SubjectSplit` of OIDs for
             ``set_task(task, split=...)``.
 
+        Raises:
+            ValueError: If no value set has a split, i.e. the CSV files were
+                built without ``split_manifest.jsonl``.
+
         Examples:
             >>> train, val, test = dataset.set_task(  # doctest: +SKIP
             ...     task, split=dataset.manifest_split()
@@ -477,4 +495,9 @@ class VSACDataset(BaseDataset):
         frame = pd.read_csv(
             Path(self.root) / VALUESETS_FILE, dtype=str, keep_default_na=False
         )
+        if not frame["split"].astype(bool).any():
+            raise ValueError(
+                f"No value set in {VALUESETS_FILE} has a split. Add "
+                f"{MANIFEST_FILE} to root and delete the CSV files to rebuild."
+            )
         return SubjectSplit([frame.loc[frame["split"] == part, "oid"] for part in parts])
