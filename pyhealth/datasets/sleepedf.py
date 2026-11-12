@@ -28,8 +28,9 @@ class SleepEDFDataset(BaseDataset):
         - Source: https://physionet.org/content/sleep-edfx/1.0.0/
         - Access: open, no account needed.
         - Download: ``wget -r -N -c -np https://physionet.org/files/sleep-edfx/1.0.0/``
-        - ``root``: the ``sleep-cassette/`` or ``sleep-telemetry/`` folder of that
-          download.
+        - ``root``: the version folder holding ``SC-subjects.xls``,
+          ``sleep-cassette/`` and ``sleep-telemetry/``; ``subset`` picks which
+          half to load.
 
     Args:
         root: str, root directory of the raw data. *You can choose to use the path to Cassette portion or the Telemetry portion.*

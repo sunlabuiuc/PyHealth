@@ -75,6 +75,15 @@ class DrugRecommendationMIMIC3(BaseTask):
               visit excluded)
         output_schema (Dict[str, str]): The schema for output data:
             - drugs: List of drugs to predict for current visit
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.tasks import DrugRecommendationMIMIC3
+        >>> dataset = MIMIC3Dataset(
+        ...     root="/path/to/mimic-iii/1.4",
+        ...     tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+        ... )
+        >>> samples = dataset.set_task(DrugRecommendationMIMIC3())
     """
 
     task_name: str = "DrugRecommendationMIMIC3"
