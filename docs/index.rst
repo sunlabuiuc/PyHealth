@@ -220,7 +220,7 @@ Quick Navigation
    how_to_get_started
    install
    tutorials
-   .. advance_tutorials
+   faq
 
 
 .. toctree::
@@ -235,9 +235,11 @@ Quick Navigation
    api/tasks
    api/models
    api/processors
+   api/sampler
    api/interpret
    api/trainer
    api/autoimprove
+   api/benchmarks
    api/tokenizer
    api/metrics
    api/medcode

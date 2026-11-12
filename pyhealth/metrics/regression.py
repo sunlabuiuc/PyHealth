@@ -51,11 +51,10 @@ def regression_metrics_fn(
     output = {}
     for metric in metrics:
         if metric == "kl_divergence":
-            # Work on copies to avoid mutating x/x_rec for subsequent metrics
-            x_kl = x.copy()
-            x_rec_kl = x_rec.copy()
-            x_kl[x_kl < 1e-6] = 1e-6
-            x_rec_kl[x_rec_kl < 1e-6] = 1e-6
+            # Clip into copies without truncating the floor for integer inputs.
+            # Keep x/x_rec unchanged for subsequent metrics.
+            x_kl = np.clip(x, 1e-6, None)
+            x_rec_kl = np.clip(x_rec, 1e-6, None)
             x_kl = x_kl / np.sum(x_kl)
             x_rec_kl = x_rec_kl / np.sum(x_rec_kl)
             kl_divergence = np.sum(x_rec_kl * np.log(x_rec_kl / x_kl))

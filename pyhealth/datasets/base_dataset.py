@@ -1,6 +1,7 @@
 import logging
 import os
 import pickle
+import posixpath
 from abc import ABC
 from pathlib import Path
 from typing import Dict, Iterator, Iterable, List, Optional, Any, Callable
@@ -106,10 +107,21 @@ def is_url(path: str) -> bool:
 
 
 def clean_path(path: str) -> str:
-    """Clean a path string."""
+    """Clean a path string.
+
+    URL paths are normalised as POSIX paths on every OS; local paths are
+    expanded and resolved.
+
+    Examples:
+        >>> from pyhealth.datasets.base_dataset import clean_path
+        >>> clean_path("https://example.org/a/b/../c.csv")
+        'https://example.org/a/c.csv'
+    """
     if is_url(path):
         parsed = urlparse(path)
-        cleaned_path = os.path.normpath(parsed.path)
+        # A URL path is POSIX whatever the host OS: os.path.normpath would
+        # rewrite the separators as backslashes on Windows.
+        cleaned_path = posixpath.normpath(parsed.path)
         # Rebuild the full URL
         return urlunparse(parsed._replace(path=cleaned_path))
     else:
@@ -131,6 +143,78 @@ def path_exists(path: str) -> bool:
             return False
     else:
         return Path(path).exists()
+
+
+# Column holding each event's row number in its source table (see load_table),
+# stored as delta-encoded int32 to keep the cache small.
+SOURCE_ROW = "_source_row"
+# Layout of the cached event table; part of the dataset cache key, so caches
+# written with an older layout are rebuilt. 2: adds SOURCE_ROW.
+EVENT_FORMAT = 2
+_INT32_MAX = int(np.iinfo(np.int32).max)
+
+
+def _with_row_number(df: dd.DataFrame, column: str) -> dd.DataFrame:
+    """Adds ``column``: 0, 1, 2, ... in the frame's current row order.
+
+    A cumulative sum runs across partitions in order, unlike a per-partition
+    ``reset_index``, which restarts at 0 in every partition.
+    """
+    df = df.assign(**{column: 1})
+    return df.assign(**{column: df[column].cumsum() - 1})
+
+
+def _with_source_row(df: dd.DataFrame) -> dd.DataFrame:
+    """Adds ``SOURCE_ROW``: each row's position in the frame's current order."""
+    return _with_row_number(df, SOURCE_ROW)
+
+
+def _source_row_as_int32(df: dd.DataFrame) -> dd.DataFrame:
+    """Stores ``SOURCE_ROW`` as int32, which the cache writes delta-encoded.
+
+    The cast is the last step of loading a table, as an explicit partition map:
+    dask can change the column's declared type to float64 when other columns
+    are assigned, and the parquet writer follows the declared type.
+
+    Rows that a right or outer join adds without a match have no source row
+    and get -1.
+
+    Raises:
+        OverflowError: When the frame is computed (for example when the
+            cache is written), if a table has more than 2**31 - 1 rows,
+            rather than letting the numbers wrap around.
+    """
+
+    def cast(part: pd.DataFrame) -> pd.DataFrame:
+        rows = part[SOURCE_ROW].fillna(-1)
+        if len(part) and rows.max() > _INT32_MAX:
+            raise OverflowError(
+                f"A table has more than {_INT32_MAX:,} rows, more than the int32 "
+                f"{SOURCE_ROW} column can number."
+            )
+        return part.assign(**{SOURCE_ROW: rows.astype("int32")})
+
+    meta = {**df.dtypes.to_dict(), SOURCE_ROW: "int32"}
+    return df.map_partitions(cast, meta=meta)
+
+
+def _event_parquet_options(dtypes: pd.Series) -> dict[str, Any]:
+    """Parquet writer options for the cached event table, from its dtypes.
+
+    ``SOURCE_ROW`` has about one distinct value per row, so the default
+    dictionary encoding does not shrink it and int32 alone saves nothing.
+    Delta encoding stores the small differences between neighbouring rows
+    (a patient's rows of one table are close together in the source) and
+    takes about 1.8 bytes per event instead of about 4.5. It applies to
+    integer columns only, so a frame whose column is not an integer (e.g. a
+    subclass's own ``load_table`` without it) is written with the defaults.
+    """
+    if SOURCE_ROW not in dtypes or not pd.api.types.is_integer_dtype(dtypes[SOURCE_ROW]):
+        return {}
+    return {
+        "use_dictionary": [c for c in dtypes.index if c != SOURCE_ROW],
+        "column_encoding": {SOURCE_ROW: "DELTA_BINARY_PACKED"},
+    }
 
 
 def _source_fingerprint(path: str) -> list:
@@ -436,6 +520,10 @@ class BaseDataset(ABC):
         config (dict): Configuration loaded from a YAML file.
         global_event_df (pl.LazyFrame): The global event data frame.
         dev (bool): Whether to enable dev mode (limit to 1000 patients).
+        event_cache_lock_timeout (float): Seconds a process waits for another
+            process building the same event table before raising
+            ``filelock.Timeout`` (default 7200). Set it on the class or the
+            instance for longer builds; a negative value waits forever.
 
     Examples:
         >>> from pyhealth.datasets import BaseDataset
@@ -446,6 +534,8 @@ class BaseDataset(ABC):
         ... )
         >>> dataset.stats()
     """
+
+    event_cache_lock_timeout: float = 7200
 
     def __init__(
         self,
@@ -516,6 +606,9 @@ class BaseDataset(ABC):
             {dataset_uuid}/                         # Cache files for this dataset configuration
                 tmp/                                # Temporary files during processing
                 global_event_df.parquet/            # Cached global event dataframe
+                global_event_df.lock                # Held while the event table is built
+                global_event_df.*.building/         # An event table being built; left
+                                                    # behind only by a killed job
                 tasks/                              # Cached task-specific data
                     {task_name}_{task_uuid}/        # Cached data for specific task based on task name, schema, and args
                         task_df.ld/                 # Intermediate task dataframe based on schema
@@ -529,6 +622,7 @@ class BaseDataset(ABC):
             "tables": sorted(self.tables),
             "dataset_name": self.dataset_name,
             "dev": self.dev,
+            "event_format": EVENT_FORMAT,
         }
         if self.config is not None:
             # Editing the YAML or rewriting a source file must not reuse a stale
@@ -735,7 +829,10 @@ class BaseDataset(ABC):
                 with DaskClient(cluster) as client:
                     if self.dev:
                         logger.info("Dev mode enabled: limiting to 1000 patients")
-                        patients = df["patient_id"].unique().head(1000).tolist()
+                        # head() reads only the first partition unless told
+                        # otherwise, which gave far fewer than 1000 patients.
+                        unique = df["patient_id"].unique()
+                        patients = unique.head(1000, npartitions=-1).tolist()
                         filter = df["patient_id"].isin(patients)
                         df = df[filter]
 
@@ -744,6 +841,7 @@ class BaseDataset(ABC):
                         output_dir,
                         write_index=False,
                         compute=False,
+                        **_event_parquet_options(df.dtypes),
                     )
                     handle = client.compute(collection)
                     dask_progress(
@@ -785,6 +883,38 @@ class BaseDataset(ABC):
         finally:
             self.clean_tmpdir()
 
+    @staticmethod
+    def _event_cache_valid(path: Path) -> bool:
+        return path.is_dir() and any(path.glob("*.parquet"))
+
+    def _build_event_cache(self, ret_path: Path) -> None:
+        """Builds the event table and publishes it at ``ret_path`` when complete.
+
+        The table is written to a private folder next to ``ret_path`` and moved
+        into place with one ``os.replace``, so a folder at ``ret_path`` is always
+        a complete table: an interrupted build (Ctrl-C, an error) leaves nothing
+        there, and the next run builds again. A job killed outright (SIGKILL,
+        out of memory) can leave its ``global_event_df.*.building`` folder
+        behind; it is never read and can be deleted.
+        """
+        if ret_path.exists():
+            # e.g. a partial table left by a version without atomic publishing
+            logger.warning(
+                f"Incomplete parquet cache at {ret_path} (directory exists but "
+                "contains no parquet files). Removing and rebuilding."
+            )
+            shutil.rmtree(ret_path)
+        logger.info(f"No cached event dataframe found. Creating: {ret_path}")
+        build_path = ret_path.with_name(
+            f"global_event_df.{uuid.uuid4().hex}.building"
+        )
+        try:
+            self._event_transform(build_path)
+            os.replace(build_path, ret_path)
+        finally:
+            if build_path.exists():
+                shutil.rmtree(build_path, ignore_errors=True)
+
     @property
     def global_event_df(self) -> pl.LazyFrame:
         """Returns the path to the cached event dataframe.
@@ -796,17 +926,21 @@ class BaseDataset(ABC):
 
         if self._global_event_df is None:
             ret_path = self.cache_dir / "global_event_df.parquet"
-            cache_valid = ret_path.is_dir() and any(ret_path.glob("*.parquet"))
-            if not cache_valid:
-                if ret_path.exists():
-                    logger.warning(
-                        f"Incomplete parquet cache at {ret_path} (directory exists but contains no parquet files). Removing and rebuilding."
-                    )
-                    shutil.rmtree(ret_path)
-                logger.info(f"No cached event dataframe found. Creating: {ret_path}")
-                self._event_transform(ret_path)
-            else:
+            if self._event_cache_valid(ret_path):
                 logger.info(f"Found cached event dataframe: {ret_path}")
+            else:
+                # One process builds; others wait, then find the published table.
+                with FileLock(
+                    str(self.cache_dir / "global_event_df.lock"),
+                    timeout=self.event_cache_lock_timeout,
+                ):
+                    if self._event_cache_valid(ret_path):
+                        logger.info(
+                            f"Found cached event dataframe: {ret_path} "
+                            "(built by another process)"
+                        )
+                    else:
+                        self._build_event_cache(ret_path)
             self._global_event_df = ret_path
 
         return pl.scan_parquet(
@@ -851,6 +985,10 @@ class BaseDataset(ABC):
 
         # Convert column names to lowercase before calling preprocess_func
         df = df.rename(columns=str.lower)
+        # Number rows in source-file order. Patient uses this to order events
+        # that share a timestamp, so the order is the same on every cache build
+        # (the parallel build below does not preserve row order).
+        df = _with_source_row(df)
 
         # Check if there is a preprocessing function for this table
         preprocess_func: Optional[Callable[[nw.LazyFrame], nw.LazyFrame]]
@@ -860,6 +998,13 @@ class BaseDataset(ABC):
                 f"Preprocessing table: {table_name} with {preprocess_func.__name__}"
             )
             df = preprocess_func(nw.from_native(df)).to_native()  # type: ignore
+            # A hook should keep SOURCE_ROW. If it drops the column, rows are
+            # numbered again in the hook's output order, which is the same on
+            # every build only if the hook keeps (or deterministically sets)
+            # the row order; a hook that reorders or aggregates rows should
+            # carry SOURCE_ROW through.
+            if SOURCE_ROW not in df.columns:
+                df = _with_source_row(df)
 
         # Handle joins
         for join_cfg in table_cfg.join:
@@ -872,6 +1017,10 @@ class BaseDataset(ABC):
             columns = join_cfg.columns
             how = join_cfg.how
 
+            # A one-to-many join copies a row's SOURCE_ROW to every match;
+            # Patient orders the copies by their other columns. Rows a right
+            # or outer join adds without a match get -1 when the column is
+            # cast.
             df: dd.DataFrame = df.merge(
                 join_df[[join_key] + columns], on=join_key, how=how
             )
@@ -919,10 +1068,9 @@ class BaseDataset(ABC):
 
             # Dask applies reset_index independently across frames,
             # meaning partitions share indexes, and therefore merge patients.
-            # The trick is to use a cumsum which acts globally across partitions.
-            df: dd.DataFrame = df.assign(_one=1)
-            df: dd.DataFrame = df.assign(patient_id=(df["_one"].cumsum() - 1).astype("string"))
-            df: dd.DataFrame = df.drop(columns="_one")
+            # Number rows with a cumsum instead, which runs across partitions.
+            df: dd.DataFrame = _with_row_number(df, "patient_id")
+            df: dd.DataFrame = df.assign(patient_id=df["patient_id"].astype("string"))
 
         df: dd.DataFrame = df.assign(event_type=table_name)
 
@@ -930,8 +1078,8 @@ class BaseDataset(ABC):
         df: dd.DataFrame = df.rename(columns=rename_attr)
 
         attr_cols = [rename_attr[attr.lower()] for attr in attribute_cols]
-        final_cols = ["patient_id", "event_type", "timestamp"] + attr_cols
-        event_frame = df[final_cols]
+        final_cols = ["patient_id", "event_type", "timestamp", SOURCE_ROW] + attr_cols
+        event_frame = _source_row_as_int32(df[final_cols])
 
         return event_frame
 

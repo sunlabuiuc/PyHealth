@@ -9,6 +9,7 @@ import logging
 import tempfile
 import tracemalloc
 import unittest
+from unittest import mock
 import uuid
 from pathlib import Path
 
@@ -17,7 +18,7 @@ import torch
 
 from pyhealth.datasets import BaseDataset, PatientSplit, Split
 from pyhealth.datasets.sample_dataset import STORAGE_FORMAT, SampleBuilder
-from pyhealth.processors import SequenceProcessor
+from pyhealth.processors import MultiClassLabelProcessor, SequenceProcessor
 from pyhealth.processors.base_processor import FeatureProcessor
 from pyhealth.tasks import BaseTask
 
@@ -310,6 +311,68 @@ class TestSplitBuilder(unittest.TestCase):
         self.assertEqual(sum(len(p) for p in builder.split_indices), n)
         expected = float(np.mean([float(i) for i in train_idx]))
         self.assertAlmostEqual(builder.input_processors["value"].mean, expected)
+
+    def test_label_vocabulary_covers_every_split_part(self):
+        # Patients p4 and p5 form the test part and hold the only "c" labels.
+        samples = [
+            {
+                "patient_id": f"p{i}",
+                "codes": ["A"],
+                "cls": "c" if i >= 4 else "ab"[i % 2],
+                "drugs": ["c"] if i >= 4 else ["a", "b"][: 1 + i % 2],
+                "label": 1 if i >= 3 else 0,
+            }
+            for i in range(6)
+        ]
+        builder = SampleBuilder(
+            input_schema={"codes": "sequence"},
+            output_schema={
+                "cls": "multiclass",
+                "drugs": ("multilabel", {"pos_weight": "balanced"}),
+                "label": ("binary", {"pos_weight": "balanced"}),
+            },
+        )
+        with self.assertLogs("pyhealth.processors.label_processor", "WARNING"):
+            builder.fit(samples, split=HoldoutSplit(["p4", "p5"]))
+        out = builder.output_processors
+        self.assertEqual(out["cls"].label_vocab, {"a": 0, "b": 1, "c": 2})
+        self.assertEqual(out["drugs"].label_vocab, {"a": 0, "b": 1, "c": 2})
+        self.assertEqual(out["label"].label_vocab, {0: 0, 1: 1})
+        # Statistics still come from the training part (p0-p3) only: "c"
+        # never occurs there, so its weight is 1, and the binary weight is
+        # 3 negatives / 1 positive (all samples would give 3 / 3).
+        self.assertEqual(out["drugs"].weight.tolist(), [0.0, 1.0, 1.0])
+        self.assertEqual(out["label"].weight.tolist(), [3.0])
+
+    def test_label_vocabulary_does_not_depend_on_the_split(self):
+        samples = [
+            {"patient_id": f"p{i}", "codes": ["A"], "cls": "edcba"[i % 5], "drugs": ["xyz"[i % 3]]}
+            for i in range(10)
+        ]
+        vocabs = set()
+        for split in (None, *(PatientSplit(ratios=(0.5, 0.5), seed=seed) for seed in range(5))):
+            builder = SampleBuilder(
+                input_schema={"codes": "sequence"},
+                output_schema={"cls": "multiclass", "drugs": "multilabel"},
+            )
+            builder.fit(samples, split=split)
+            out = builder.output_processors
+            vocabs.add((tuple(out["cls"].label_vocab.items()), tuple(out["drugs"].label_vocab.items())))
+        self.assertEqual(
+            vocabs,
+            {((("a", 0), ("b", 1), ("c", 2), ("d", 3), ("e", 4)), (("x", 0), ("y", 1), ("z", 2)))},
+        )
+
+    def test_label_vocabulary_without_split(self):
+        builder = SampleBuilder(
+            input_schema={"codes": "sequence"},
+            output_schema={"label": "multiclass"},
+        )
+        # fit already sees every label, so the extra pass is skipped.
+        with mock.patch.object(MultiClassLabelProcessor, "fit_test") as fit_test:
+            builder.fit(self._samples())
+        fit_test.assert_not_called()
+        self.assertEqual(builder.output_processors["label"].label_vocab, {0: 0, 1: 1})
 
     def test_invalid_ratios(self):
         for ratios in ((0.5, 0.6), (1.0,), (0.5, -0.1, 0.6), (0.2, 0.2, 0.2, 0.3)):

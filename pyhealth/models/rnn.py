@@ -1,4 +1,5 @@
-from typing import Dict, Optional, Tuple
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, Literal, Optional, cast, get_args
 
 import torch
 import torch.nn as nn
@@ -13,14 +14,20 @@ from pyhealth.processors import (
     NestedFloatsProcessor,
     NestedSequenceProcessor,
     SequenceProcessor,
+    SequenceProcessorV2,
     StageNetProcessor,
     StageNetTensorProcessor,
-    TensorProcessor,
+    TimeseriesLabelProcessor,
     TimeseriesProcessor,
 )
 
 from .embedding import EmbeddingModel
-
+from .sequence_embedding import (
+    LevelEmbedding,
+    MaskMode,
+    PretrainedEmbedding,
+    SequenceEmbeddingModel,
+)
 
 class RNNLayer(nn.Module):
     """Recurrent neural network layer.
@@ -86,7 +93,7 @@ class RNNLayer(nn.Module):
         self,
         x: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Forward propagation.
 
         Args:
@@ -225,12 +232,11 @@ class RNN(BaseModel):
             raise ValueError("hidden_size is determined by hidden_dim")
         assert len(self.label_keys) == 1, "Only one label key is supported if RNN is initialized"
         self.label_key = self.label_keys[0]
-        # Per-step (timeseries) labels predict at every input step.
-        self._per_step = self.mode in ("timeseries_binary", "timeseries_regression")
-        if self._per_step and kwargs.get("bidirectional", False):
+        per_step = isinstance(self.label_processor, TimeseriesLabelProcessor)
+        if per_step:
             raise ValueError(
-                "A per-step label needs a causal model; bidirectional=True would "
-                "use future time steps."
+                "RNN does not support per-step (timeseries_*) labels; use "
+                "RNN_V2 with sequence_v2 inputs."
             )
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
@@ -240,10 +246,10 @@ class RNN(BaseModel):
             self.rnn[feature_key] = RNNLayer(
                 input_size=embedding_dim, hidden_size=hidden_dim, **kwargs
             )
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation.
 
         The label `kwargs[self.label_key]` is a list of labels for each patient.
@@ -253,7 +259,7 @@ class RNN(BaseModel):
                 all the feature keys and the label key.
 
         Returns:
-            Dict[str, torch.Tensor]: A dictionary with the following keys:
+            dict[str, torch.Tensor]: A dictionary with the following keys:
                 - loss: a scalar tensor representing the loss.
                 - y_prob: a tensor representing the predicted probabilities.
                 - y_true: a tensor representing the true labels.
@@ -289,12 +295,17 @@ class RNN(BaseModel):
             x = embedded[feature_key]
 
             x_dim_orig = x.dim()
-            if x_dim_orig == 4:
-                # nested_sequence: (B, num_visits, num_codes, D)
+            if x_dim_orig >= 4:
+                # nested_sequence: (B, num_visits, num_codes, D), or deeper for
+                # deep_nested_sequence: (B, num_groups, num_visits, num_codes, D).
                 # @TODO: sum-pooling across codes is a simple baseline. May need to investigate better embeddings for nested codes.
-                x = x.sum(dim=2)  # (B, num_visits, D)
+                while x.dim() > 3:
+                    x = x.sum(dim=2)  # (B, num_outer, D)
                 if feature_key in masks:
-                    mask = (masks[feature_key].to(self.device).sum(dim=-1) > 0).int()  # (B, V)
+                    mask = masks[feature_key].to(self.device)
+                    while mask.dim() > 2:
+                        mask = mask.sum(dim=-1)
+                    mask = (mask > 0).int()  # (B, num_outer)
                 else:
                     mask = (torch.abs(x).sum(dim=-1) != 0).int()
             elif x_dim_orig == 2:
@@ -309,33 +320,20 @@ class RNN(BaseModel):
                 else:
                     mask = (torch.abs(x).sum(dim=-1) != 0).int()
 
-            outputs, x = self.rnn[feature_key](x, mask)
-            # Per-step labels use the output at every step, else the last one.
-            patient_emb.append(outputs if self._per_step else x)
+            _, x = self.rnn[feature_key](x, mask)
+            patient_emb.append(x)
 
-        if self._per_step:
-            # Features without a time axis (one step) are repeated over time.
-            steps = max(emb.shape[1] for emb in patient_emb)
-            for i, emb in enumerate(patient_emb):
-                if emb.shape[1] == 1:
-                    patient_emb[i] = emb.expand(-1, steps, -1)
-                elif emb.shape[1] != steps:
-                    raise ValueError(
-                        "Per-step labels need all time series features on the "
-                        "same time grid."
-                    )
-        patient_emb = torch.cat(patient_emb, dim=-1)
-        # (patient, label_size), or (patient, steps, label_size) per step
+        patient_emb = torch.cat(patient_emb, dim=1)
+        # (patient, label_size)
         logits = self.fc(patient_emb)
         # obtain y_true, loss, y_prob
-        if self._per_step:
-            # (value, mask) per step; the loss averages over labeled steps.
-            y_true = tuple(t.to(self.device) for t in kwargs[self.label_key])
-        else:
+        y_prob = self.label_processor.activation(logits)
+        results = {"y_prob": y_prob, "logit": logits}
+        # The label is optional, so the model can predict without it.
+        if self.label_key in kwargs:
             y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
-        results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
+            results["loss"] = self.label_processor.loss(logits, y_true)
+            results["y_true"] = y_true
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results
@@ -443,6 +441,12 @@ class MultimodalRNN(BaseModel):
 
         assert len(self.label_keys) == 1, "Only one label key is supported"
         self.label_key = self.label_keys[0]
+        per_step = isinstance(self.label_processor, TimeseriesLabelProcessor)
+        if per_step:
+            raise ValueError(
+                "MultimodalRNN does not support per-step (timeseries_*) labels; "
+                "use RNN_V2 with sequence_v2 inputs."
+            )
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
 
@@ -467,7 +471,7 @@ class MultimodalRNN(BaseModel):
         # Calculate final concatenated dimension
         final_dim = (len(self.sequential_features) * hidden_dim +
                      len(self.non_sequential_features) * embedding_dim)
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(final_dim, output_size)
 
     def _is_sequential_processor(self, processor) -> bool:
@@ -496,7 +500,7 @@ class MultimodalRNN(BaseModel):
             TimeseriesProcessor,
         ))
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation handling mixed modalities.
 
         The label `kwargs[self.label_key]` is a list of labels for each patient.
@@ -506,7 +510,7 @@ class MultimodalRNN(BaseModel):
                 all the feature keys and the label key.
 
         Returns:
-            Dict[str, torch.Tensor]: A dictionary with the following keys:
+            dict[str, torch.Tensor]: A dictionary with the following keys:
                 - loss: a scalar tensor representing the loss.
                 - y_prob: a tensor representing the predicted probabilities.
                 - y_true: a tensor representing the true labels.
@@ -542,13 +546,19 @@ class MultimodalRNN(BaseModel):
             m = mask[feature_key]
 
             x_dim_orig = x.dim()
-            if x_dim_orig == 4:
-                # nested_sequence: (B, num_visits, num_codes, D)
-                # Pool codes within each visit, then run RNN over visits.
-                # Flattening visits*codes would produce length=0 when inner lists are empty.
-                x = x.sum(dim=2)  # (B, num_visits, D)
+            if x_dim_orig >= 4:
+                # nested_sequence: (B, num_visits, num_codes, D), or deeper for
+                # deep_nested_sequence: (B, num_groups, num_visits, num_codes, D).
+                # Pool everything inside each outer step, then run the RNN over
+                # the outer steps. Flattening would produce length=0 when inner
+                # lists are empty.
+                while x.dim() > 3:
+                    x = x.sum(dim=2)  # (B, num_outer, D)
                 if feature_key in masks:
-                    m = (masks[feature_key].to(self.device).sum(dim=-1) > 0).int()  # (B, V)
+                    m = masks[feature_key].to(self.device)
+                    while m.dim() > 2:
+                        m = m.sum(dim=-1)
+                    m = (m > 0).int()  # (B, num_outer)
                 else:
                     m = (torch.abs(x).sum(dim=-1) != 0).int()
             elif x_dim_orig == 2:
@@ -578,16 +588,460 @@ class MultimodalRNN(BaseModel):
         logits = self.fc(patient_emb)
 
         # Calculate loss and predictions
-        y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
-
-        results = {
-            "loss": loss,
-            "y_prob": y_prob,
-            "y_true": y_true,
-            "logit": logits
-        }
+        y_prob = self.label_processor.activation(logits)
+        results = {"y_prob": y_prob, "logit": logits}
+        # The label is optional, so the model can predict without it.
+        if self.label_key in kwargs:
+            y_true = kwargs[self.label_key].to(self.device)
+            results["loss"] = self.label_processor.loss(logits, y_true)
+            results["y_true"] = y_true
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
+        return results
+
+
+# ----------------------------------------------------------------------------
+# RNN_V2: RNNs over the packed records of SequenceProcessorV2 fields
+# ----------------------------------------------------------------------------
+
+RNNType = Literal["RNN", "LSTM", "GRU"]
+
+
+def _per_field[T](
+    name: str,
+    value: T | Mapping[str, T],
+    fields: Sequence[str],
+    default: T,
+    valid: Callable[[T], bool],
+) -> dict[str, T]:
+    """One value per field, from a single value or a ``{field: value}`` dict.
+
+    Fields a dict leaves out get ``default``.
+    """
+    if isinstance(value, Mapping):
+        unknown = set(value) - set(fields)
+        if unknown:
+            raise ValueError(
+                f"{name} names {sorted(unknown)}, which are not among {sorted(fields)}."
+            )
+        # T is never itself a Mapping here, so the dict holds T values.
+        values = {field: cast(T, value.get(field, default)) for field in fields}
+    else:
+        values = {field: cast(T, value) for field in fields}
+    for field, item in values.items():
+        if not valid(item):
+            raise ValueError(f"{name} for '{field}' is invalid: {item!r}.")
+    return values
+
+
+def _groups(offsets: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """The group of each row and its position in the group, from CSR offsets."""
+    counts = offsets.diff()
+    group = torch.repeat_interleave(
+        torch.arange(len(counts), device=offsets.device), counts
+    )
+    return group, torch.arange(len(group), device=offsets.device) - offsets[:-1][group]
+
+
+def _pool(x: torch.Tensor, offsets: torch.Tensor) -> torch.Tensor:
+    """Mean-pools the rows of each group; an empty group gives zeros."""
+    counts = offsets.diff()
+    group, _ = _groups(offsets)
+    out = x.new_zeros(len(counts), x.shape[1])
+    out = out.index_add(0, group, x)
+    return out / counts.clamp(min=1).unsqueeze(1).to(x.dtype)
+
+
+def _gaps(time: torch.Tensor, offsets: torch.Tensor) -> torch.Tensor:
+    """Time since the previous row of the same group (0 for a group's first).
+
+    ``time`` is ``[N]`` or ``[N, k]`` (one column per timed level).
+    """
+    _, position = _groups(offsets)
+    gaps = torch.diff(time, dim=0, prepend=time[:1])
+    first = position == 0
+    return gaps.masked_fill(first.unsqueeze(1) if time.dim() > 1 else first, 0.0)
+
+
+def _rnn_over_groups(
+    layer: RNNLayer, x: torch.Tensor, offsets: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Runs ``layer`` over each group of rows.
+
+    Returns each group's last output ``[G, H]`` (zeros for an empty group,
+    which is skipped) and every row's output ``[N, H]``.
+    """
+    counts = offsets.diff()
+    hidden = layer.hidden_size
+    summary = x.new_zeros(len(counts), hidden)
+    filled = counts > 0
+    if not bool(filled.any()):
+        return summary, x.new_zeros(len(x), hidden)
+    group, position = _groups(offsets)
+    rank = torch.cumsum(filled.long(), dim=0) - 1  # index among non-empty groups
+    lengths = counts[filled]
+    padded = x.new_zeros(len(lengths), int(lengths.max()), x.shape[1])
+    padded[rank[group], position] = x
+    steps = torch.arange(padded.shape[1], device=x.device)
+    outputs, last = layer(padded, (steps < lengths.unsqueeze(1)).int())
+    summary[filled] = last
+    return summary, outputs[rank[group], position]
+
+
+class _FieldRNN(nn.Module):
+    """Encodes one V2 field's level embeddings into one summary per sample."""
+
+    def __init__(
+        self,
+        field: str,
+        processor: SequenceProcessorV2,
+        level_dims: Sequence[int],
+        hidden_dim: int,
+        rnn_type: RNNType,
+        num_layers: int,
+        dropout: float,
+        bidirectional: bool,
+        time_feature: bool,
+    ):
+        super().__init__()
+        self.depth = processor.depth
+        orderings = processor.ordering()
+        # A level runs an RNN unless it is a set.
+        self.is_rnn = [orderings[level] != "set" for level in range(self.depth + 1)]
+        timed = {level for level, role in processor.schema() if role == "time"}
+        self.gap_levels = sorted(timed) if time_feature else []
+
+        def rnn(input_size: int) -> nn.Module:
+            return RNNLayer(
+                input_size,
+                hidden_dim,
+                rnn_type=rnn_type,
+                num_layers=num_layers,
+                dropout=dropout,
+                bidirectional=bidirectional,
+            )
+
+        self.encoders = nn.ModuleList()
+        below = 0  # the summary size of the level below
+        for level in range(self.depth + 1):
+            width = level_dims[level] + below + (level in self.gap_levels)
+            if width == 0:
+                raise ValueError(
+                    f"'{field}' level {level} has nothing to encode: no embedding, "
+                    "and nothing below it."
+                )
+            self.encoders.append(rnn(width) if self.is_rnn[level] else nn.Identity())
+            below = hidden_dim if self.is_rnn[level] else width
+        self.output_dim = below
+
+    # -- inputs --------------------------------------------------------------
+
+    def _inputs(
+        self, level: int, out: dict[Any, Any], parts: list[torch.Tensor]
+    ) -> torch.Tensor:
+        """A level's input rows: its embedding, the given parts, and its gaps."""
+        embedding = out[level]["embedding"]
+        rows = [embedding] if embedding is not None else []
+        rows += parts
+        if level in self.gap_levels:
+            rows.append(_gaps(out[level]["time"], out[level]["offsets"]).unsqueeze(1))
+        return torch.cat(rows, dim=1)
+
+    # -- bottom-up -------------------------------------------------------------
+
+    def _bottom_up(
+        self, out: dict[Any, Any]
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        summary: torch.Tensor | None = None
+        states = None
+        for level in range(self.depth + 1):
+            x = self._inputs(level, out, [summary] if summary is not None else [])
+            offsets = out[level]["offsets"]
+            if self.is_rnn[level]:
+                encoder = cast(RNNLayer, self.encoders[level])
+                summary, states = _rnn_over_groups(encoder, x, offsets)
+            else:
+                summary, states = _pool(x, offsets), None
+        assert summary is not None
+        return summary, states  # states: the top level's per-record outputs
+
+    # -- forward -----------------------------------------------------------------
+
+    def forward(
+        self, out: dict[Any, Any]
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
+        """Encodes a batch of the field.
+
+        Returns the summary per sample ``[B, S]``, the states of the
+        top-level records (None if the top level is pooled) and their times
+        (None if the top level has no time column).
+        """
+        summary, states = self._bottom_up(out)
+        return summary, states, out[self.depth]["time"]
+
+
+class RNN_V2(BaseModel):
+    """RNN model over :class:`~pyhealth.processors.SequenceProcessorV2` fields.
+
+    Each V2 field is embedded by :class:`SequenceEmbeddingModel` and encoded
+    into one summary per sample, independently of the other fields. The
+    summaries are concatenated and a linear layer predicts the label. Every
+    input field must be ``"sequence_v2"``: sequences, sets and tokens are
+    expressed with it, and so are static values, as a ``series`` with one
+    record at ``t = 0`` (known before the first event), which goes through its
+    own RNN like any other field.
+
+    Each V2 field is encoded bottom-up, level by level, from level 0 up.
+    A level's input is its records' embeddings concatenated with the summary
+    of each record's children. A ``set`` level mean-pools each group; a
+    ``sequence`` / ``series`` level runs its RNN over each group and keeps
+    the last output, giving one summary per parent record, up to one per sample.
+    So a record and everything below it are encoded as one unit. Following
+    :class:`~pyhealth.processors.SequenceProcessorV2`, each level's time has
+    its own unit and origin, and only orders the records of a group.
+
+    A group without records (e.g. a stay without labs) is skipped by the RNN
+    and summarized as zeros. With ``time_feature``, each record of a timed
+    (``series``) level also gets the time since the previous record of its
+    group.
+
+    Per-step labels (``"timeseries_binary"`` / ``"timeseries_regression"``,
+    a :class:`~pyhealth.processors.TimeseriesLabelProcessor`): the model
+    predicts once per label record. The label's times are in the unit of the
+    fields' top level, with the same origin, and a label at time ``t`` uses
+    each field's top-level state after its last top-level record with time
+    ``<= t`` (zeros before the first), so it never sees a later top-level
+    record. That state covers everything the record contains:
+    lower levels' times are not on the label's timeline and are not compared
+    to it, so data that must be cut at label times belongs at the top level.
+    Every V2 field must have a ``series`` top level, resampled or not (a
+    resampled one with ``align: "right"``, the default, keeps this causal:
+    a step holds no record later than its time). Wrap a ``set`` or
+    ``sequence`` top level in a ``series`` with ``t = 0``. Logits are ``[label records,
+    1]``, packed like the label.
+
+    Every per-field argument takes one value for all V2 fields, or a
+    ``{field: value}`` dict (unlisted fields get the default).
+
+    Args:
+        dataset: The dataset, with fitted processors.
+        embedding_dim: Per V2 field, one
+            :class:`~pyhealth.models.LevelEmbedding` per level.
+        hidden_dim: The hidden size of every RNN of a field.
+        rnn_type: ``"RNN"``, ``"LSTM"`` or ``"GRU"`` (default), per field.
+        num_layers: The layers of each level's RNN, per field.
+        dropout: Dropout before each RNN, per field.
+        bidirectional: Bidirectional RNNs, per field. Not with per-step labels.
+        time_feature: Whether timed levels get the time since the previous
+            record, per field.
+        mask: How :class:`SequenceEmbeddingModel` uses missing-value masks:
+            ``"ignore"`` (default) or ``"concat"``.
+        pretrain: :class:`~pyhealth.models.PretrainedEmbedding` entries.
+
+    Examples:
+        A static age is a series with one record at ``t = 0``:
+
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
+        >>> samples = [
+        ...     {"patient_id": f"p{i}", "age": {"time": [0.0], "values": [[50.0 + i]]},
+        ...      "visits": {"time": [0.0, 1.0], "children": [{"tokens": ["A", "B"]}, {"tokens": ["C"] * i}]},
+        ...      "label": i % 2}
+        ...     for i in range(4)
+        ... ]
+        >>> age = [{"ordering": "series", "values": [1]}]
+        >>> visits = [{"ordering": "set", "tokens": 1}, {"ordering": "series"}]
+        >>> dataset = create_sample_dataset(
+        ...     samples,
+        ...     {
+        ...         "age": ("sequence_v2", {"levels": age}),
+        ...         "visits": ("sequence_v2", {"levels": visits}),
+        ...     },
+        ...     {"label": "binary"},
+        ... )
+        >>> model = RNN_V2(
+        ...     dataset,
+        ...     embedding_dim={"age": [{"values": 4}], "visits": [{"tokens": (8,)}, {}]},
+        ...     hidden_dim=16,
+        ... )
+        >>> out = model(**next(iter(get_dataloader(dataset, batch_size=4))))
+        >>> out["logit"].shape
+        torch.Size([4, 1])
+    """
+
+    def __init__(
+        self,
+        dataset: SampleDataset,
+        embedding_dim: Mapping[str, Sequence[LevelEmbedding]],
+        hidden_dim: int | Mapping[str, int] = 128,
+        rnn_type: RNNType | Mapping[str, RNNType] = "GRU",
+        num_layers: int | Mapping[str, int] = 1,
+        dropout: float | Mapping[str, float] = 0.5,
+        bidirectional: bool | Mapping[str, bool] = False,
+        time_feature: bool | Mapping[str, bool] = False,
+        mask: MaskMode = "ignore",
+        pretrain: Sequence[PretrainedEmbedding] | None = None,
+    ):
+        super().__init__(dataset)
+        if len(self.label_keys) != 1:
+            raise ValueError("RNN_V2 supports exactly one label.")
+        self.label_key = self.label_keys[0]
+        self.per_step = isinstance(self.label_processor, TimeseriesLabelProcessor)
+
+        for field in self.feature_keys:
+            processor = dataset.input_processors[field]
+            if not isinstance(processor, SequenceProcessorV2):
+                raise TypeError(
+                    f"Field '{field}': {type(processor).__name__} is not supported. "
+                    "RNN_V2 takes only 'sequence_v2' fields: express sequences, "
+                    "sets and tokens with it, and static values as a 'series' "
+                    "with one record at t = 0."
+                )
+        self.sequence_fields: list[str] = list(self.feature_keys)
+
+        fields = self.sequence_fields
+        hidden = _per_field(
+            "hidden_dim",
+            hidden_dim,
+            fields,
+            128,
+            lambda v: isinstance(v, int) and v > 0,
+        )
+        rnn_types: dict[str, RNNType] = _per_field(
+            "rnn_type", rnn_type, fields, "GRU", lambda v: v in get_args(RNNType)
+        )
+        layers = _per_field(
+            "num_layers", num_layers, fields, 1, lambda v: isinstance(v, int) and v > 0
+        )
+        dropouts = _per_field(
+            "dropout",
+            dropout,
+            fields,
+            0.5,
+            lambda v: isinstance(v, (int, float)) and 0 <= v < 1,
+        )
+        bidirectionals = _per_field(
+            "bidirectional", bidirectional, fields, False, lambda v: isinstance(v, bool)
+        )
+        time_features = _per_field(
+            "time_feature", time_feature, fields, False, lambda v: isinstance(v, bool)
+        )
+
+        for field in fields:
+            if bidirectionals[field] and self.per_step:
+                raise ValueError(
+                    "A per-step label needs a causal model; bidirectional=True "
+                    "would use future time steps."
+                )
+        self.processors = {
+            field: cast(SequenceProcessorV2, dataset.input_processors[field])
+            for field in fields
+        }
+        if self.per_step:
+            for field, processor in self.processors.items():
+                top = processor.levels[processor.depth]
+                if top.get("ordering", "sequence") != "series":
+                    raise ValueError(
+                        f"'{field}': per-step labels need a 'series' top level, so each "
+                        "step can use the records before it. Wrap a 'set' or "
+                        "'sequence' top level in a 'series' with t = 0."
+                    )
+
+        self.embedding = SequenceEmbeddingModel(
+            dataset,
+            embedding_dim=embedding_dim,
+            pretrain=pretrain,
+            mask=mask,
+        )
+        self.encoders = nn.ModuleDict(
+            {
+                field: _FieldRNN(
+                    field,
+                    self.processors[field],
+                    self.embedding.embedding_dim_per_level(field),
+                    hidden[field],
+                    rnn_types[field],
+                    layers[field],
+                    dropouts[field],
+                    bidirectionals[field],
+                    time_features[field],
+                )
+                for field in fields
+            }
+        )
+        width = sum(
+            cast(_FieldRNN, self.encoders[field]).output_dim for field in fields
+        )
+        self.fc = nn.Linear(width, self.label_processor.output_size())
+
+    def _at_labels(
+        self,
+        states: torch.Tensor,
+        time: torch.Tensor,
+        batch: torch.Tensor,
+        label_time: torch.Tensor,
+        label_sample: torch.Tensor,
+    ) -> torch.Tensor:
+        """The top-level state of ``field`` at each label record ``[ΣN, H]``.
+
+        That is the state after the sample's last top-level record with time
+        ``<=`` the label's time, or zeros before the first.
+        """
+        counts = batch.diff()
+        n, width = len(counts), int(counts.max()) if len(counts) else 0
+        padded = time.new_full((n, max(width, 1)), float("inf"))
+        group, position = _groups(batch)
+        padded[group, position] = time.to(padded.dtype)
+        seen = torch.searchsorted(
+            padded[label_sample],
+            label_time.to(padded.dtype).unsqueeze(1),
+            right=True,
+        )[:, 0]
+        index = (batch[:-1][label_sample] + seen - 1).clamp(min=0)
+        if len(states) == 0:
+            return states.new_zeros(len(label_time), states.shape[1])
+        picked = states[index]
+        return torch.where((seen > 0).unsqueeze(1), picked, torch.zeros_like(picked))
+
+    def forward(self, **batch: Any) -> dict[str, torch.Tensor]:
+        """Predicts the label of a batch of :func:`~pyhealth.datasets.get_dataloader`.
+
+        Returns:
+            ``loss``, ``y_prob``, ``y_true`` and ``logit``; also ``embed``, the
+            concatenated summaries, if the batch has ``embed=True``.
+        """
+        embedded = self.embedding(
+            {field: batch[field] for field in self.sequence_fields}
+        )
+        label: tuple[torch.Tensor, ...] = ()
+        label_time = label_sample = torch.zeros(0, dtype=torch.long)
+        if self.per_step:
+            # Packed label records: (values [ΣN, 1], time [ΣN], offsets [B + 1]).
+            label = tuple(t.to(self.device) for t in batch[self.label_key])
+            label_time = label[1]
+            label_sample, _ = _groups(label[2])
+        parts = []
+        for field in self.sequence_fields:
+            encoder = cast(_FieldRNN, self.encoders[field])
+            summary, states, time = encoder(embedded[field])
+            if not self.per_step:
+                parts.append(summary)
+                continue
+            # __init__ requires a series top level, which has states and time.
+            assert states is not None and time is not None
+            out = embedded[field]
+            offsets = out[encoder.depth]["offsets"]
+            parts.append(
+                self._at_labels(states, time, offsets, label_time, label_sample)
+            )
+        embed = torch.cat(parts, dim=-1)
+        logits = self.fc(embed)
+        y_true = label if self.per_step else batch[self.label_key].to(self.device)
+        results = {
+            "loss": self.label_processor.loss(logits, y_true),
+            "y_prob": self.label_processor.activation(logits),
+            "y_true": y_true,
+            "logit": logits,
+        }
+        if batch.get("embed", False):
+            results["embed"] = embed
         return results

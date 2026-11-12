@@ -17,24 +17,52 @@ Please read it before opening a pull request. It covers:
 - Test case requirements, including how to write fast tests with synthetic data
 - How to format your pull request description
 
+For a quick overview of what makes a good pull request, see
+[pyhealth.dev](https://pyhealth.dev/how_to_contribute.html).
+
 ## Quick Start
 
-1. [Fork the PyHealth repository](https://github.com/sunlabuiuc/PyHealth/fork)
-2. Clone your fork and install it in editable mode:
+1. [Fork PyHealth](https://github.com/sunlabuiuc/PyHealth/fork).
+2. Set up your
+   [development environment](https://pyhealth.readthedocs.io/en/latest/how_to_contribute.html#setting-up-your-development-environment),
+   make your change, and
+   [submit a pull request](https://github.com/sunlabuiuc/PyHealth/pulls)
+   against the `master` branch with "Allow edits by maintainers" enabled.
+3. Wait for your pull request to be labeled for AI review, or ask for a review on
+   [Discord](https://discord.gg/mpb835EHaX).
+4. Check your label:
+   - `status: manual`: wait for a maintainer to review and approve your pull
+     request.
+   - `status: automatic`: comment `/review` to get an AI review. Push your fixes
+     and comment `/review` again whenever you want another review. **Once the AI
+     approves your latest commit, comment `/merge` to merge your pull request
+     into PyHealth yourself.**
 
-   ```bash
-   git clone https://github.com/your_username/PyHealth.git
-   cd PyHealth
-   pip install -e .
-   ```
+A pull request switches to `status: manual`:
 
-3. Implement your change with tests and documentation
-4. Push to your fork and
-   [open a pull request](https://github.com/sunlabuiuc/PyHealth/pulls)
-   against the `master` branch, with "Allow edits by maintainers" enabled
+- right away, if the AI review finds text aimed at reviewers or AI models
+  (prompt injection);
+- when you've used up your 10 AI reviews. The limit counts the reviews you
+  request since the `status: automatic` label was last added; reviews a
+  maintainer starts don't count;
+- after one warning, if it:
+  - changes any file outside `docs/`, `examples/`, `pyhealth/`,
+    `test-resources/` and `tests/`,
+  - changes the core of the library: base classes such as `BaseModel` or
+    `BaseDataset`, the Trainer, or other shared code. Changing the API of your
+    own model, dataset or task is not a core change, but state any breaking
+    change clearly in the description and docs, or
+  - has a high-severity problem on a change that would otherwise be approved.
 
-For trivial changes you can open a pull request directly. For non-trivial
-changes, please discuss them in an issue first.
+  The first time, the review asks for changes and warns you. If a later
+  review finds the same problem, the pull request switches to manual.
+
+It never switches to manual because it is too large for AI review (clear
+notebook outputs or split the pull request, then comment `/review` again),
+because you pushed during a review (the new commit is reviewed instead), or
+because a review couldn't finish (comment `/review` to try again).
+
+For non-trivial changes, please discuss them in an issue first.
 
 ## Submit an Issue
 

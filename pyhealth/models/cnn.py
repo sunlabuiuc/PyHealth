@@ -31,6 +31,14 @@ class CNNBlock(nn.Module):
     Args:
         in_channels: number of input channels.
         out_channels: number of output channels.
+        spatial_dim: number of spatial dimensions of the input (1, 2 or 3).
+
+    Example:
+        >>> import torch
+        >>> from pyhealth.models.cnn import CNNBlock
+        >>> block = CNNBlock(4, 8, spatial_dim=1)
+        >>> block(torch.randn(1, 4, 1)).shape
+        torch.Size([1, 8, 1])
     """
 
     def __init__(self, in_channels: int, out_channels: int, spatial_dim: int):
@@ -61,6 +69,23 @@ class CNNBlock(nn.Module):
             )
         self.relu = nn.ReLU()
 
+    @staticmethod
+    def _apply_layers(layers: nn.Sequential, x: torch.Tensor) -> torch.Tensor:
+        for layer in layers:
+            if (
+                isinstance(layer, nn.BatchNorm1d)
+                and layer.training
+                and x.size(0) * x.size(2) == 1
+            ):
+                # Use running statistics without changing the layer's mode.
+                x = nn.functional.batch_norm(
+                    x, layer.running_mean, layer.running_var,
+                    layer.weight, layer.bias, training=False, eps=layer.eps,
+                )
+            else:
+                x = layer(x)
+        return x
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward propagation.
 
@@ -71,10 +96,10 @@ class CNNBlock(nn.Module):
             output tensor of shape [batch size, out_channels, *].
         """
         residual = x
-        out = self.conv1(x)
-        out = self.conv2(out)
+        out = self._apply_layers(self.conv1, x)
+        out = self._apply_layers(self.conv2, out)
         if self.downsample is not None:
-            residual = self.downsample(x)
+            residual = self._apply_layers(self.downsample, x)
         out += residual
         out = self.relu(out)
         return out
@@ -223,7 +248,7 @@ class CNN(BaseModel):
                 **kwargs,
             )
 
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
 
     @staticmethod
@@ -348,16 +373,13 @@ class CNN(BaseModel):
         patient_emb = torch.cat(patient_emb, dim=1)
         logits = self.fc(patient_emb)
 
-        y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
-
-        results = {
-            "loss": loss,
-            "y_prob": y_prob,
-            "y_true": y_true,
-            "logit": logits,
-        }
+        y_prob = self.label_processor.activation(logits)
+        results = {"y_prob": y_prob, "logit": logits}
+        # The label is optional, so the model can predict without it.
+        if self.label_key in kwargs:
+            y_true = kwargs[self.label_key].to(self.device)
+            results["loss"] = self.label_processor.loss(logits, y_true)
+            results["y_true"] = y_true
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results
