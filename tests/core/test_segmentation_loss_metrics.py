@@ -474,6 +474,12 @@ class TestSegmentationMetrics(unittest.TestCase):
 
 
 class TestSegmentationLabelProcessors(unittest.TestCase):
+    def test_segmentation_label_kinds_are_not_registered(self):
+        from pyhealth.processors import PROCESSOR_REGISTRY
+
+        self.assertNotIn("segmentation_binary", PROCESSOR_REGISTRY)
+        self.assertNotIn("segmentation_multiclass", PROCESSOR_REGISTRY)
+
     def test_binary_activation_and_loss(self):
         from pyhealth.processors import SegmentationBinaryLabelProcessor
 

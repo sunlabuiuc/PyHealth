@@ -18,7 +18,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from . import register_processor
 from .label_processor import LabelProcessor
 
 __all__ = [
@@ -51,10 +50,12 @@ class _SegmentationLabelProcessor(LabelProcessor):
         ignore_index: Label value used for padding, excluded from the metrics.
             ``PatchDataset`` pads masks with 255 by default.
 
-    The classmethod :meth:`metrics_fn` is what ``get_metrics_fn(mode)``
-    returns and has no per-instance options. The ``Trainer`` uses the
-    instance attribute bound in ``__init__``, which adds ``ignore_index`` and
-    ``num_classes``.
+    These label kinds are supplied by the model through
+    :attr:`~pyhealth.models.UNet.label_processors`; they are intentionally not
+    registered for string schemas or ``get_metrics_fn``. Use the model, or
+    call :func:`~pyhealth.metrics.segmentation.segmentation_metrics_fn`
+    directly. The ``Trainer`` uses the instance attribute bound in
+    ``__init__``, which adds ``ignore_index`` and ``num_classes``.
     """
 
     stores_tensor = False
@@ -118,7 +119,6 @@ class _SegmentationLabelProcessor(LabelProcessor):
         )
 
 
-@register_processor("segmentation_binary")
 class SegmentationBinaryLabelProcessor(_SegmentationLabelProcessor):
     """Binary segmentation labels, one mask channel.
 
@@ -150,7 +150,6 @@ class SegmentationBinaryLabelProcessor(_SegmentationLabelProcessor):
         return F.binary_cross_entropy_with_logits(logits, y_true, **kwargs)
 
 
-@register_processor("segmentation_multiclass")
 class SegmentationMultiClassLabelProcessor(_SegmentationLabelProcessor):
     """Multi-class segmentation labels: one integer class per voxel.
 
