@@ -6,6 +6,8 @@ outputs, not label-processor fields, so the model computes its own Cox loss.
 """
 
 from typing import Any, ClassVar
+import json
+import numpy as np
 
 from pyhealth.data import Patient
 from pyhealth.tasks import BaseTask
@@ -55,24 +57,24 @@ class TCGASurvivalPrediction(BaseTask):
         self.cohort_to_int = cohort_to_int or COHORT_TO_INT
 
     def __call__(self, patient: Patient) -> list[dict[str, Any]]:
-        clinical = patient.get_events(event_type="clinical")
-        expression = patient.get_events(event_type="expression")
-        if not clinical or not expression:
+        events = patient.get_events(event_type="tcga_rna_seq")
+        if not events:
             return []
+        e = events[0]
 
-        clin = clinical[0]
-        survival_time = float(clin["survival_time"])
-        event = int(clin["event"])
-        cohort_name = str(clin["cohort"])
+        survival_time = float(e["survival_time"])
+        event = int(float(e["event"]))
+        cohort_name = str(e["cohort"])
         if cohort_name.startswith("TCGA-"):
             cohort_name = cohort_name[5:]
         if cohort_name not in self.cohort_to_int:
             raise ValueError(f"Unknown TCGA cohort: {cohort_name!r}")
         cohort_int = self.cohort_to_int[cohort_name]
 
+        embedding = np.asarray(json.loads(e["embedding"]), dtype=np.float32)
         return [{
             "patient_id": patient.patient_id,
-            "gene_expression": expression[0]["gene_expression"],
+            "gene_expression": embedding,
             "survival_time": [survival_time],
             "event": [float(event)],
             "cohort": [float(cohort_int)],

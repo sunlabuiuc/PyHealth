@@ -32,6 +32,10 @@ NUM_LAYERS = 4
 LAYER_NORM_EPS = 1e-5
 TCGA_NORMALIZATION_FACTOR = 5.547176906585117
 
+def _unpack(v):
+    if isinstance(v, (tuple, list)):
+        return v[0]
+    return v
 
 def tokenize(tpm: np.ndarray, normalization_factor: float = TCGA_NORMALIZATION_FACTOR) -> np.ndarray:
     """Discretize TPM into 64 expression bins (matches the paper's tokenizer)."""
@@ -302,12 +306,12 @@ class BulkRNABert(BaseModel):
         out: dict[str, torch.Tensor] = {"logit": logit, "y_prob": logit}
 
         if "survival_time" in kwargs and "event" in kwargs:
-            time = kwargs["survival_time"].squeeze(-1).float()
-            event = kwargs["event"].squeeze(-1).float()
+            time = _unpack(kwargs["survival_time"]).squeeze(-1).float()
+            event = _unpack(kwargs["event"]).squeeze(-1).float()
             cohort = kwargs.get("cohort")
             if cohort is not None:
-                cohort = cohort.squeeze(-1).long()
+                cohort = _unpack(cohort).squeeze(-1).long()
             out["loss"] = cox_loss(logit.squeeze(-1), time, event, cohort)
-            out["y_true"] = kwargs["survival_time"]
+            out["y_true"] = _unpack(kwargs["survival_time"])
 
         return out
