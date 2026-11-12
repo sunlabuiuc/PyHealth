@@ -40,6 +40,7 @@ class CHAOSDataset(BaseDataset):
         num_workers: Number of workers for dataset processing.
         dev: Whether to limit the dataset to 1000 patients.
         download: Download and extract CHAOS when it is missing.
+            Archive checksums are not verified automatically.
         refresh_metadata: Regenerate the metadata CSV.
 
     Examples:
@@ -82,7 +83,7 @@ class CHAOSDataset(BaseDataset):
             download: Download and extract CHAOS when it is missing.
             refresh_metadata: Regenerate the metadata CSV.
         """
-        source_root = Path(root).resolve()
+        source_root = Path(root).expanduser().resolve()
         if download and not (source_root / "Train_Sets").is_dir():
             _download_archives(
                 self.download_urls,
@@ -99,7 +100,7 @@ class CHAOSDataset(BaseDataset):
         name = dataset_name or self.default_dataset_name
         self.source_root = source_root
         self.metadata_dir = (
-            Path(metadata_dir)
+            Path(metadata_dir).expanduser()
             if metadata_dir is not None
             else _resolve_metadata_dir(cache_dir, name)
         )
