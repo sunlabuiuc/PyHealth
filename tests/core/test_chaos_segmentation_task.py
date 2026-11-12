@@ -20,7 +20,12 @@ from pyhealth.tasks.chaos_segmentation import _CHAOSSegmentationBase
 
 
 def _write_slice(
-    path: Path, z: float, study_uid: str, series_uid: str
+    path: Path,
+    z: float,
+    study_uid: str,
+    series_uid: str,
+    modality: str = "CT",
+    patient_id: str = "ct_1",
 ) -> None:
     file_meta = FileMetaDataset()
     file_meta.MediaStorageSOPClassUID = CTImageStorage
@@ -33,10 +38,10 @@ def _write_slice(
     )
     dataset.SOPClassUID = CTImageStorage
     dataset.SOPInstanceUID = file_meta.MediaStorageSOPInstanceUID
-    dataset.PatientID = "ct_1"
+    dataset.PatientID = patient_id
     dataset.StudyInstanceUID = study_uid
     dataset.SeriesInstanceUID = series_uid
-    dataset.Modality = "CT"
+    dataset.Modality = modality
     dataset.Rows = 8
     dataset.Columns = 8
     dataset.BitsAllocated = 16
@@ -175,9 +180,10 @@ class TestCHAOSTasks(unittest.TestCase):
                         0: 0,
                         1: 1,
                         63: 1,
-                        126: 2,
-                        189: 3,
-                        252: 4,
+                        126: 3,
+                        189: 4,
+                        252: 2,
+                        255: 1,
                     },
                     "strict_mask_names": False,
                 },
@@ -226,6 +232,95 @@ class TestCHAOSTasks(unittest.TestCase):
 
         phase_task = CHAOSLiverSegmentationCTonly(phase="InPhase")
         self.assertEqual(phase_task(patient), [])
+
+    def test_mr_organ_label_mapping_and_ct_255_mask(self):
+        from pyhealth.tasks import CHAOSAbdominalSegmentationCTMRI
+
+        root = Path(self.temp_dir) / "CHAOS_MR"
+        ct_series = root / "Train_Sets/CT/1/DICOM_anon"
+        ct_ground = root / "Train_Sets/CT/1/Ground"
+        mr_series = root / "Train_Sets/MR/2/T2SPIR/DICOM_anon"
+        mr_ground = root / "Train_Sets/MR/2/T2SPIR/Ground"
+        for directory in (ct_series, ct_ground, mr_series, mr_ground):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        ct_study, ct_series_uid = generate_uid(), generate_uid()
+        _write_slice(ct_series / "slice_0.dcm", 0.0, ct_study, ct_series_uid)
+        _write_slice(ct_series / "slice_1.dcm", 2.0, ct_study, ct_series_uid)
+        ct_mask_0 = np.zeros((8, 8), dtype=np.uint8)
+        ct_mask_0[1, 2] = 255  # 8-bit binary CT liver mask
+        Image.fromarray(ct_mask_0).save(ct_ground / "slice_0.png")
+        Image.fromarray(np.zeros((8, 8), dtype=np.uint8)).save(
+            ct_ground / "slice_1.png"
+        )
+
+        mr_study, mr_series_uid = generate_uid(), generate_uid()
+        _write_slice(
+            mr_series / "slice_0.dcm",
+            0.0,
+            mr_study,
+            mr_series_uid,
+            modality="MR",
+            patient_id="mr_2",
+        )
+        _write_slice(
+            mr_series / "slice_1.dcm",
+            2.0,
+            mr_study,
+            mr_series_uid,
+            modality="MR",
+            patient_id="mr_2",
+        )
+        # Official CHAOS MR pixel values with distinct voxel counts:
+        # 63 (1 voxel) -> liver, 126 (2 voxels) -> right kidney,
+        # 189 (3 voxels) -> left kidney, 252 (4 voxels) -> spleen
+        mr_mask_0 = np.zeros((8, 8), dtype=np.uint8)
+        mr_mask_0[0, :1] = 63
+        mr_mask_0[1, :2] = 126
+        mr_mask_0[2, :3] = 189
+        mr_mask_0[3, :4] = 252
+        Image.fromarray(mr_mask_0).save(mr_ground / "slice_0.png")
+        Image.fromarray(np.zeros((8, 8), dtype=np.uint8)).save(
+            mr_ground / "slice_1.png"
+        )
+
+        dataset = CHAOSDataset(
+            root=str(root),
+            cache_dir=str(Path(self.temp_dir) / "cache_mr"),
+            metadata_dir=str(Path(self.temp_dir) / "metadata_mr"),
+        )
+        task = CHAOSAbdominalSegmentationCTMRI()
+        samples = dataset.set_task(task, num_workers=1)
+        by_record = {
+            samples[i]["record_id"]: samples[i] for i in range(len(samples))
+        }
+
+        ct_sample = by_record["ct_1"]
+        self.assertEqual(ct_sample["class_mask"], [1, 1, 0, 0, 0])
+        ct_mask = samples.output_processors["mask"].materialize(
+            ct_sample["mask"]
+        )
+        self.assertEqual(int((ct_mask == 1).sum()), 1)
+        self.assertEqual(task.class_names[0], "liver")
+
+        mr_sample = by_record["mr_2_t2spir"]
+        self.assertEqual(mr_sample["class_mask"], [1, 1, 1, 1, 1])
+        mr_mask = samples.output_processors["mask"].materialize(
+            mr_sample["mask"]
+        )
+        organ_counts = {
+            task.class_names[class_idx - 1]: int((mr_mask == class_idx).sum())
+            for class_idx in range(1, task.num_classes)
+        }
+        self.assertEqual(
+            organ_counts,
+            {
+                "liver": 1,
+                "right kidney": 2,
+                "left kidney": 3,
+                "spleen": 4,
+            },
+        )
 
 
 if __name__ == "__main__":

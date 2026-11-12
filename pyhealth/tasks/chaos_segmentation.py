@@ -22,9 +22,9 @@ from typing import Any, ClassVar
 
 from .base_task import BaseTask
 
-# Raw CHAOS label conventions:
-#   CT:    0 background, 1 liver.
-#   MRI:   0 background, 63 liver, 126 spleen, 189 right kidney, 252 left kidney.
+# Raw CHAOS label conventions (see Train_Sets/NOTES_PLEASE_READ.txt):
+#   CT:  1-bit PNGs (0 background, 1 liver via np.asarray; 255 if 8-bit).
+#   MRI: 0 background, 63 liver, 126 right kidney, 189 left kidney, 252 spleen.
 _LIVER_LABEL_MAP = {
     0: 0,
     1: 1,
@@ -32,14 +32,16 @@ _LIVER_LABEL_MAP = {
     126: 0,
     189: 0,
     252: 0,
+    255: 1,
 }
 _ORGAN_LABEL_MAP = {
     0: 0,
     1: 1,
     63: 1,
-    126: 2,
-    189: 3,
-    252: 4,
+    126: 3,
+    189: 4,
+    252: 2,
+    255: 1,
 }
 
 

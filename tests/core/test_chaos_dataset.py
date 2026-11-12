@@ -128,6 +128,15 @@ class TestCHAOSDataset(unittest.TestCase):
             mocked.assert_called_once()
             self.assertEqual(set(dataset.unique_patient_ids), {"ct_1"})
 
+        # Collision between Train_Sets and Test_Sets case IDs must raise
+        _touch(missing_root / "Test_Sets/CT/1/DICOM_anon/slice_0.dcm")
+        with self.assertRaises(ValueError):
+            CHAOSDataset(
+                root=str(missing_root),
+                cache_dir=str(self.cache_dir),
+                refresh_metadata=True,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

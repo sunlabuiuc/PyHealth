@@ -133,6 +133,18 @@ class CHAOSDataset(BaseDataset):
             rows.extend(self._ct_rows(split, split_root / "CT"))
             rows.extend(self._mr_rows(split, split_root / "MR"))
 
+        train_patients = {
+            row["patient_id"] for row in rows if row["split"] == "Train_Sets"
+        }
+        test_patients = {
+            row["patient_id"] for row in rows if row["split"] == "Test_Sets"
+        }
+        overlap = sorted(train_patients & test_patients)
+        if overlap:
+            raise ValueError(
+                f"CHAOS Train_Sets and Test_Sets share patient IDs: {overlap}."
+            )
+
         pd.DataFrame(rows).to_csv(self.metadata_path, index=False)
         logger.info(
             "Wrote %d CHAOS series to %s", len(rows), self.metadata_path
