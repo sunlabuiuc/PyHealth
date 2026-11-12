@@ -20,7 +20,10 @@ from pyhealth.calib.predictionset.scores import (
     all_class_nc_scores,
     true_class_nc_scores,
 )
-from pyhealth.calib.utils import prepare_numpy_dataset
+from pyhealth.calib.utils import (
+    binary_to_two_columns,
+    prepare_numpy_dataset,
+)
 from pyhealth.models import BaseModel
 
 __all__ = ["LABEL"]
@@ -29,7 +32,7 @@ __all__ = ["LABEL"]
 class LABEL(SetPredictor):
     """LABEL: Least ambiguous set-valued classifiers with bounded error levels.
 
-    This is a prediction-set constructor for multi-class classification problems.
+    This is a prediction-set constructor for binary and multiclass classification problems.
     It controls either :math:`\\mathbb{P}\\{Y \\not \\in C(X) | Y=k\\}\\leq \\alpha_k`
     (when ``alpha`` is an array), or :math:`\\mathbb{P}\\{Y \\not \\in C(X)\\}\\leq \\alpha` (when ``alpha`` is a float).
     Here, :math:`C(X)` denotes the final prediction set.
@@ -98,14 +101,14 @@ class LABEL(SetPredictor):
         **kwargs,
     ) -> None:
         super().__init__(model, **kwargs)
-        if model.mode != "multiclass":
+        if model.mode not in {"multiclass", "binary"}:
             raise NotImplementedError()
         if score_type not in SUPPORTED_SCORE_TYPES:
             raise ValueError(
                 f"Unknown score_type: {score_type!r}. Supported: "
                 f"{SUPPORTED_SCORE_TYPES}."
             )
-        self.mode = self.model.mode  # multiclass
+        self.mode = self.model.mode
         for param in model.parameters():
             param.requires_grad = False
         self.model.eval()
@@ -131,8 +134,11 @@ class LABEL(SetPredictor):
         )
         y_prob = cal_dataset["y_prob"]
         y_true = cal_dataset["y_true"]
+        if self.mode == "binary":
+            y_prob = binary_to_two_columns(y_prob)
+            y_true = y_true.reshape(-1).astype(int)
 
-        N, K = cal_dataset["y_prob"].shape
+        K = y_prob.shape[1]
         # NC scores: higher = less conforming
         nc_scores = true_class_nc_scores(
             y_prob, y_true, score_type=self.score_type, rng=self.rng
@@ -156,6 +162,8 @@ class LABEL(SetPredictor):
         """
         pred = self.model(**kwargs)
         y_prob = pred["y_prob"].detach().cpu().numpy()
+        if self.mode == "binary":
+            y_prob = binary_to_two_columns(y_prob)
         nc_scores = all_class_nc_scores(
             y_prob, score_type=self.score_type, rng=self.rng
         )

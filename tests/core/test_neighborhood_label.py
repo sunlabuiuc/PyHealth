@@ -75,7 +75,7 @@ class TestNeighborhoodLabel(unittest.TestCase):
         with self.assertRaises(ValueError):
             NeighborhoodLabel(model=self.model, alpha=0.1, k_neighbors=2.5)
 
-    def test_initialization_non_multiclass_raises(self):
+    def test_initialization_accepts_binary(self):
         binary_samples = [
             {"patient_id": "a", "visit_id": "a", "conditions": ["c"], "procedures": [1.0], "label": 0},
             {"patient_id": "b", "visit_id": "b", "conditions": ["d"], "procedures": [2.0], "label": 1},
@@ -89,8 +89,8 @@ class TestNeighborhoodLabel(unittest.TestCase):
         binary_model = MLP(
             dataset=binary_ds, feature_keys=["conditions"], label_key="label", mode="binary"
         )
-        with self.assertRaises(NotImplementedError):
-            NeighborhoodLabel(model=binary_model, alpha=0.1, k_neighbors=2)
+        predictor = NeighborhoodLabel(model=binary_model, alpha=0.1, k_neighbors=2)
+        self.assertEqual(predictor.mode, "binary")
 
     def test_calibrate_and_forward_returns_predset(self):
         ncp = NeighborhoodLabel(model=self.model, alpha=0.2, k_neighbors=3, lambda_L=50.0)

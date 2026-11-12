@@ -1,10 +1,10 @@
 from collections.abc import Sequence
-from typing import Dict, List, Optional
 
 import numpy as np
 import sklearn.metrics as sklearn_metrics
 
 import pyhealth.metrics.calibration as calib
+import pyhealth.metrics.prediction_set as pset
 
 
 def _logit(y_prob: np.ndarray) -> np.ndarray:
@@ -46,9 +46,10 @@ def _calibration_intercept(y_true: np.ndarray, y_prob: np.ndarray) -> float:
 def binary_metrics_fn(
     y_true: np.ndarray,
     y_prob: np.ndarray,
-    metrics: Optional[List[str]] = None,
+    metrics: list[str] | None = None,
     threshold: float = 0.5,
-) -> Dict[str, float]:
+    y_predset: np.ndarray | None = None,
+) -> dict[str, float | np.ndarray]:
     """Computes metrics for binary classification.
 
     User can specify which metrics to compute by passing a list of metric names.
@@ -72,6 +73,20 @@ def binary_metrics_fn(
         - calibration_intercept: calibration-in-the-large, a in
           y ~ a + offset(logit(y_prob)); ideal 0, above 0 means risks are
           underestimated
+
+    Prediction-set metrics are also accepted when y_predset is provided:
+        - set_size: Mean number of included labels.
+        - rejection_rate: Fraction of sets whose size is not one.
+        - miscoverage_ps: Per-class miss rates.
+        - miscoverage_mean_ps: Mean of the defined class miss rates.
+        - miscoverage_overall_ps: Fraction of sets omitting the true label.
+        - error_ps: Per-class miss rates among singleton predictions.
+        - error_mean_ps: Mean of the defined per-class singleton error rates.
+        - error_overall_ps: Overall miss rate among singleton predictions.
+
+    See :mod:`pyhealth.metrics.prediction_set` for denominators and NaN handling.
+    Prediction-set metrics are skipped when y_predset is None.
+
     If no metrics are specified, pr_auc, roc_auc and f1 are computed by default.
 
     This function calls sklearn.metrics functions to compute the metrics. For
@@ -79,10 +94,12 @@ def binary_metrics_fn(
     corresponding sklearn.metrics functions.
 
     Args:
-        y_true: True target values of shape (n_samples,).
-        y_prob: Predicted probabilities of shape (n_samples,).
+        y_true: Encoded 0/1 labels of shape (n_samples,) or (n_samples, 1).
+        y_prob: Positive-class probabilities of shape (n_samples,) or (n_samples, 1).
         metrics: List of metrics to compute. Default is ["pr_auc", "roc_auc", "f1"].
         threshold: Threshold for binary classification. Default is 0.5.
+        y_predset: Optional binary membership mask of shape (n_samples, 2).
+            Column 0 represents label 0; column 1 represents label 1.
 
     Returns:
         Dictionary of metrics whose keys are the metric names and values are
@@ -94,9 +111,40 @@ def binary_metrics_fn(
         >>> y_prob = np.array([0.1, 0.4, 0.35, 0.8])
         >>> binary_metrics_fn(y_true, y_prob, metrics=["accuracy"])
         {'accuracy': 0.75}
+        >>> result = binary_metrics_fn(
+        ...     np.array([[0.], [1.]]), np.array([[0.2], [0.8]]),
+        ...     metrics=["miscoverage_overall_ps"], y_predset=np.array([[1, 0], [1, 0]])
+        ... )
+        >>> float(result["miscoverage_overall_ps"])
+        0.5
     """
     if metrics is None:
         metrics = ["pr_auc", "roc_auc", "f1"]
+
+    prediction_set_metrics = [
+        "set_size",
+        "rejection_rate",
+        "miscoverage_ps",
+        "miscoverage_mean_ps",
+        "miscoverage_overall_ps",
+        "error_ps",
+        "error_mean_ps",
+        "error_overall_ps",
+    ]
+    if y_predset is not None and any(m in prediction_set_metrics for m in metrics):
+        labels = np.asarray(y_true)
+        if not (labels.ndim == 1 or (labels.ndim == 2 and labels.shape[1] == 1)):
+            raise ValueError("binary targets must have shape (N,) or (N, 1)")
+
+        if not np.isin(labels, [0, 1]).all():
+            raise ValueError("binary targets must contain labels 0 or 1")
+
+        y_true_set = labels.reshape(-1).astype(int)
+        y_predset = np.asarray(y_predset)
+        if y_predset.shape != (len(y_true_set), 2):
+            raise ValueError("binary prediction sets must have shape (N, 2)")
+
+        pset._validate_prediction_targets(y_predset, y_true_set)
 
     y_pred = y_prob.copy()
     y_pred[y_pred >= threshold] = 1
@@ -143,6 +191,25 @@ def binary_metrics_fn(
             output[metric] = calib.ece_confidence_binary(
                 y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt")
             )
+        elif metric in prediction_set_metrics:
+            if y_predset is None:
+                continue
+            if metric == "set_size":
+                output[metric] = pset.size(y_predset)
+            elif metric == "rejection_rate":
+                output[metric] = pset.rejection_rate(y_predset)
+            elif metric == "miscoverage_ps":
+                output[metric] = pset.miscoverage_ps(y_predset, y_true_set)
+            elif metric == "miscoverage_mean_ps":
+                output[metric] = pset.miscoverage_mean_ps(y_predset, y_true_set)
+            elif metric == "miscoverage_overall_ps":
+                output[metric] = pset.miscoverage_overall_ps(y_predset, y_true_set)
+            elif metric == "error_ps":
+                output[metric] = pset.error_ps(y_predset, y_true_set)
+            elif metric == "error_mean_ps":
+                output[metric] = pset.error_mean_ps(y_predset, y_true_set)
+            elif metric == "error_overall_ps":
+                output[metric] = pset.error_overall_ps(y_predset, y_true_set)
         else:
             raise ValueError(f"Unknown metric for binary classification: {metric}")
     return output

@@ -35,7 +35,10 @@ from pyhealth.calib.predictionset.scores import (
     all_class_conformity_scores,
     true_class_conformity_scores,
 )
-from pyhealth.calib.utils import prepare_numpy_dataset
+from pyhealth.calib.utils import (
+    binary_to_two_columns,
+    prepare_numpy_dataset,
+)
 from pyhealth.datasets import get_dataloader
 from pyhealth.models import BaseModel
 
@@ -230,7 +233,7 @@ def _query_weighted_quantile(
 
 
 class CovariateLabel(SetPredictor):
-    """Covariate shift adaptive conformal prediction for multiclass.
+    """Covariate shift adaptive conformal prediction for binary and multiclass classification.
 
     This extends the LABEL method to handle covariate shift between
     calibration and test distributions using likelihood ratio weighting.
@@ -362,9 +365,9 @@ class CovariateLabel(SetPredictor):
     ) -> None:
         super().__init__(model, **kwargs)
 
-        if model.mode != "multiclass":
+        if model.mode not in {"multiclass", "binary"}:
             raise NotImplementedError(
-                "CovariateLabel only supports multiclass classification"
+                "CovariateLabel only supports binary and multiclass classification"
             )
         if score_type not in SUPPORTED_SCORE_TYPES:
             raise ValueError(
@@ -462,6 +465,9 @@ class CovariateLabel(SetPredictor):
 
         y_prob = cal_dataset_dict["y_prob"]
         y_true = cal_dataset_dict["y_true"]
+        if self.mode == "binary":
+            y_prob = binary_to_two_columns(y_prob)
+            y_true = y_true.reshape(-1).astype(int)
         N, K = y_prob.shape
 
         # Determine weights: either custom or KDE-based
@@ -553,6 +559,8 @@ class CovariateLabel(SetPredictor):
 
         # Construct prediction set by thresholding conformity scores
         y_prob = pred["y_prob"].detach().cpu().numpy()
+        if self.mode == "binary":
+            y_prob = binary_to_two_columns(y_prob)
         conformity_scores = all_class_conformity_scores(
             y_prob, score_type=self.score_type, rng=self.rng
         )

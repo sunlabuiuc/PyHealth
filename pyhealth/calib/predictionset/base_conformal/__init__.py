@@ -1,7 +1,7 @@
 """
 Base Conformal Prediction (Split Conformal)
 
-Standard split conformal prediction for multiclass classification without
+Standard split conformal prediction for binary and multiclass classification without
 covariate shift correction. 
 
 This method constructs prediction sets with coverage guarantees by calibrating
@@ -34,7 +34,10 @@ from pyhealth.calib.predictionset.scores import (
     all_class_nc_scores,
     true_class_nc_scores,
 )
-from pyhealth.calib.utils import prepare_numpy_dataset
+from pyhealth.calib.utils import (
+    binary_to_two_columns,
+    prepare_numpy_dataset,
+)
 from pyhealth.models import BaseModel
 
 __all__ = ["BaseConformal"]
@@ -116,7 +119,7 @@ def _query_weighted_quantile(
 
 
 class BaseConformal(SetPredictor):
-    """Base Conformal Prediction for multiclass classification.
+    """Base Conformal Prediction for binary and multiclass classification.
 
     This implements standard split conformal prediction, which constructs
     prediction sets with distribution-free coverage guarantees. The method
@@ -215,9 +218,9 @@ class BaseConformal(SetPredictor):
     ) -> None:
         super().__init__(model, **kwargs)
 
-        if model.mode != "multiclass":
+        if model.mode not in {"multiclass", "binary"}:
             raise NotImplementedError(
-                "BaseConformal only supports multiclass classification"
+                "BaseConformal only supports binary and multiclass classification"
             )
         if score_type not in SUPPORTED_SCORE_TYPES:
             raise ValueError(
@@ -277,6 +280,9 @@ class BaseConformal(SetPredictor):
 
         y_prob = cal_dataset_dict["y_prob"]
         y_true = cal_dataset_dict["y_true"]
+        if self.mode == "binary":
+            y_prob = binary_to_two_columns(y_prob)
+            y_true = y_true.reshape(-1).astype(int)
         N, K = y_prob.shape
 
         # Compute non-conformity scores (higher = less conforming)
@@ -330,6 +336,8 @@ class BaseConformal(SetPredictor):
         pred = self.model(**kwargs)
 
         y_prob = pred["y_prob"].detach().cpu().numpy()
+        if self.mode == "binary":
+            y_prob = binary_to_two_columns(y_prob)
         nc_scores = all_class_nc_scores(
             y_prob, score_type=self.score_type, rng=self.rng
         )

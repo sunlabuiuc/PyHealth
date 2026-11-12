@@ -473,7 +473,7 @@ class TestLabelShift(unittest.TestCase):
         with self.assertRaises(ValueError):
             LabelShift(model=self.model, alpha=0.1, score_type="nope")
 
-    def test_initialization_non_multiclass_raises_error(self):
+    def test_initialization_accepts_binary(self):
         binary_samples = [
             {
                 "patient_id": "patient-0",
@@ -502,8 +502,8 @@ class TestLabelShift(unittest.TestCase):
             label_key="label",
             mode="binary",
         )
-        with self.assertRaises(NotImplementedError):
-            LabelShift(model=binary_model, alpha=0.1)
+        predictor = LabelShift(model=binary_model, alpha=0.1)
+        self.assertEqual(predictor.mode, "binary")
 
     def test_calibrate_sets_per_class_thresholds(self):
         cal_model = LabelShift(model=self.model, alpha=0.3)

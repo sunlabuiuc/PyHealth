@@ -17,7 +17,7 @@ from torch.utils.data import Subset
 from pyhealth.calib.predictionset.base_conformal import _query_quantile
 from pyhealth.calib.predictionset.label import LABEL
 from pyhealth.calib.predictionset.scores import true_class_nc_scores
-from pyhealth.calib.utils import prepare_numpy_dataset
+from pyhealth.calib.utils import binary_to_two_columns, prepare_numpy_dataset
 from pyhealth.models import BaseModel
 
 __all__ = ["RC3P"]
@@ -121,7 +121,7 @@ class RC3P(LABEL):
     subset falls back to threshold +inf and cutoff K, so it is always
     included, which preserves coverage at the cost of larger sets.
 
-    This is a prediction-set constructor for multi-class
+    This is a prediction-set constructor for binary and multiclass
     classification problems. It targets class-wise miscoverage at
     level alpha, but its finite-sample coverage depends on the
     accuracy of the estimated top-k errors and is not guaranteed by
@@ -244,6 +244,9 @@ class RC3P(LABEL):
             raise ValueError("calibration dataset is empty.")
         score_y_prob = score_data["y_prob"]
         score_y_true = score_data["y_true"].astype(np.int64)
+        if self.mode == "binary":
+            score_y_prob = binary_to_two_columns(score_y_prob)
+            score_y_true = score_y_true.reshape(-1)
         num_classes = score_y_prob.shape[1]
         if rank_cal_dataset is not None:
             rank_data = prepare_numpy_dataset(
@@ -256,6 +259,9 @@ class RC3P(LABEL):
                 raise ValueError("rank calibration dataset is empty.")
             rank_y_prob = rank_data["y_prob"]
             rank_y_true = rank_data["y_true"].astype(np.int64)
+            if self.mode == "binary":
+                rank_y_prob = binary_to_two_columns(rank_y_prob)
+                rank_y_true = rank_y_true.reshape(-1)
         else:
             rank_idx, score_idx = self._split_calibration(score_y_true)
             rank_y_prob = score_y_prob[rank_idx]
@@ -314,6 +320,8 @@ class RC3P(LABEL):
             raise RuntimeError("RC3P must be calibrated before forward.")
         pred = super().forward(**kwargs)
         y_prob = pred["y_prob"].detach().cpu().numpy()
+        if self.mode == "binary":
+            y_prob = binary_to_two_columns(y_prob)
         ranks = _candidate_ranks(y_prob)
         rank_pass = torch.as_tensor(
             ranks <= self.k_hat,
