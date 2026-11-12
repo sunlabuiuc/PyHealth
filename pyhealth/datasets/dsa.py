@@ -18,6 +18,7 @@ Learning from Multi-source Motion Sensor Data" (CHIL 2024).
 import logging
 import os
 import re
+from collections.abc import Iterable
 from pathlib import Path
 
 import numpy as np
@@ -138,6 +139,43 @@ def split_sensors(segment: np.ndarray) -> np.ndarray:
     n_sensors = len(SENSOR_NAMES)
     stacked = segment.reshape(segment.shape[0], n_sensors, CHANNELS_PER_SENSOR)
     return stacked.transpose(1, 0, 2)
+
+
+def compute_channel_ranges(
+    signal_files: Iterable[str],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Finds the minimum and maximum of every sensor channel.
+
+    The paper rescales each time-series dimension to [-1, 1]; these ranges
+    are what that rescaling needs.
+
+    Args:
+        signal_files: Paths of the segment files to scan.
+
+    Returns:
+        ``(mins, maxs)``, each of shape ``(5, 9)`` (sensor, channel).
+
+    Raises:
+        ValueError: If no files are given.
+
+    Examples:
+        >>> mins, maxs = compute_channel_ranges(
+        ...     ["/data/dsa/a01/p1/s01.txt"]
+        ... )  # doctest: +SKIP
+        >>> mins.shape  # doctest: +SKIP
+        (5, 9)
+    """
+    mins = np.full((len(SENSOR_NAMES), CHANNELS_PER_SENSOR), np.inf)
+    maxs = np.full((len(SENSOR_NAMES), CHANNELS_PER_SENSOR), -np.inf)
+    seen = 0
+    for path in signal_files:
+        sensors = split_sensors(load_dsa_segment(path))
+        mins = np.minimum(mins, sensors.min(axis=1))
+        maxs = np.maximum(maxs, sensors.max(axis=1))
+        seen += 1
+    if seen == 0:
+        raise ValueError("signal_files is empty")
+    return mins, maxs
 
 
 class DSADataset(BaseDataset):

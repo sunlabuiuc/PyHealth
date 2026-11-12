@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from pyhealth.datasets.dsa import compute_channel_ranges
 from pyhealth.tasks.dsa_activity_classification import DSAActivityClassification
 
 
@@ -72,6 +73,21 @@ class TestDSAActivityClassification(unittest.TestCase):
         np.testing.assert_array_equal(sample["source_torso"], raw[:, 0:9])
         np.testing.assert_array_equal(sample["signal"], raw[:, 9:18])
 
+    def test_minmax_scales_every_channel_to_unit_range(self):
+        files = [e.signal_file for e in self.patient._events]
+        ranges = compute_channel_ranges(files)
+        task = DSAActivityClassification(channel_ranges=ranges)
+        samples = task(self.patient)
+        for key in ("signal", "source_torso"):
+            stacked = np.concatenate([s[key] for s in samples])
+            self.assertAlmostEqual(float(stacked.min()), -1.0, places=5)
+            self.assertAlmostEqual(float(stacked.max()), 1.0, places=5)
+        self.assertNotEqual(task.task_name, DSAActivityClassification().task_name)
+
+    def test_bad_channel_ranges_shape_raises(self):
+        with self.assertRaises(ValueError):
+            DSAActivityClassification(channel_ranges=(np.zeros(3), np.ones(3)))
+
     def test_target_only_has_no_source_keys(self):
         task = DSAActivityClassification(target_sensor="torso", source_sensors=[])
         self.assertEqual(list(task.input_schema), ["signal"])
@@ -82,6 +98,12 @@ class TestDSAActivityClassification(unittest.TestCase):
         a = DSAActivityClassification(target_sensor="torso")
         b = DSAActivityClassification(target_sensor="left_leg")
         self.assertNotEqual(a.task_name, b.task_name)
+
+    def test_task_name_is_short_and_depends_on_sources(self):
+        full = DSAActivityClassification()
+        fewer = DSAActivityClassification(source_sensors=["torso"])
+        self.assertNotEqual(full.task_name, fewer.task_name)
+        self.assertLess(len(full.task_name), 40)
 
     def test_invalid_configs_raise(self):
         with self.assertRaises(ValueError):
