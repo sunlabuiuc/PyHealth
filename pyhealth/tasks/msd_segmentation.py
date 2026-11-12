@@ -15,8 +15,10 @@ class MSDSegmentationTask(BaseTask):
     Examples:
         >>> from pyhealth.datasets import MSDHippocampusDataset
         >>> from pyhealth.tasks import MSDSegmentationTask
-        >>> dataset = MSDHippocampusDataset(root="/path/to/Task04_Hippocampus")
-        >>> samples = dataset.set_task(MSDSegmentationTask())
+        >>> dataset = MSDHippocampusDataset(
+        ...     root="/path/to/Task04_Hippocampus"
+        ... )  # doctest: +SKIP
+        >>> samples = dataset.set_task(MSDSegmentationTask())  # doctest: +SKIP
     """
 
     task_name: str = "MSDSegmentation"

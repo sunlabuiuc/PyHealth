@@ -5,10 +5,12 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from pyhealth.datasets import (
     MSDHippocampusDataset,
     MSDProstateDataset,
+    MSDSegmentationDataset,
     MSDSpleenDataset,
 )
 
@@ -125,6 +127,86 @@ class TestMSDDatasets(unittest.TestCase):
             {"0": "background", "1": "spleen"},
             1,
         )
+
+    def test_missing_dataset_json_raises(self):
+        empty_root = self.root / "empty_msd"
+        empty_root.mkdir(parents=True, exist_ok=True)
+        with self.assertRaises(FileNotFoundError):
+            MSDHippocampusDataset(
+                root=str(empty_root),
+                cache_dir=str(self.cache_dir),
+                metadata_dir=str(self.root / "metadata" / "empty"),
+            )
+
+    def test_download_calls_helper_and_base_without_url_raises(self):
+        dl_root = self.root / "download_hippo"
+        dl_root.mkdir(parents=True, exist_ok=True)
+        with self.assertRaises(ValueError):
+            MSDSegmentationDataset(
+                root=str(dl_root),
+                cache_dir=str(self.cache_dir),
+                metadata_dir=str(self.root / "metadata" / "base_dl"),
+                download=True,
+            )
+
+        def _populate_on_download(*_args, **_kwargs):
+            _make_msd_root(
+                self.root,
+                "download_hippo",
+                {"0": "MRI"},
+                {"0": "background", "1": "Anterior"},
+                "3D",
+            )
+
+        with mock.patch(
+            "pyhealth.datasets.msd._download_archives",
+            side_effect=_populate_on_download,
+        ) as mocked:
+            MSDHippocampusDataset(
+                root=str(dl_root),
+                cache_dir=str(self.cache_dir),
+                metadata_dir=str(self.root / "metadata" / "dl"),
+                download=True,
+            )
+            mocked.assert_called_once()
+
+    def test_default_metadata_dir_and_channel_names_and_string_train_item(self):
+        root = self.root / "channel_names_msd"
+        for directory in ("imagesTr", "labelsTr", "imagesTs"):
+            (root / directory).mkdir(parents=True, exist_ok=True)
+        for rel in (
+            "imagesTr/case_001.nii.gz",
+            "labelsTr/case_001.nii.gz",
+            "imagesTr/case_003.nii.gz",
+            "imagesTs/case_002.nii.gz",
+        ):
+            (root / rel).write_bytes(b"")
+
+        spec = {
+            "name": "CustomMSD",
+            "tensorImageSize": "3D",
+            "channel_names": {"0": "T2"},
+            "labels": ["background", "foreground"],
+            "training": [
+                {
+                    "image": "./imagesTr/case_001.nii.gz",
+                    "label": "./labelsTr/case_001.nii.gz",
+                },
+                "./imagesTr/case_003.nii.gz",
+                {"image": "", "label": ""},
+            ],
+            "test": [{"image": "./imagesTs/case_002.nii.gz"}],
+        }
+        with open(root / "dataset.json", "w") as handle:
+            json.dump(spec, handle)
+
+        dataset = MSDSegmentationDataset(
+            root=str(root),
+            cache_dir=str(self.cache_dir),
+        )
+        self.assertEqual(dataset.num_classes, 2)
+        self.assertEqual(dataset.default_normalization, "mri")
+        self.assertIn("case_003", set(dataset.unique_patient_ids))
 
 
 if __name__ == "__main__":
