@@ -731,7 +731,8 @@ jobs:
             or shared code it touches. Use the repository to check what the
             changed code affects. If the change edits shared code and you are
             unsure whether that touches the core, answer "yes"; a change that
-            only edits self-contained components is "no".
+            only edits self-contained components, and registers them as
+            described below, is "no".
 
             What the core part of the codebase is. Judge the effect of the
             change, not just which files it touches:
@@ -768,8 +769,18 @@ jobs:
               description and docs. For example, reworking the VAE model's
               constructor and generate method, where only the VAE's own
               example and tests use them, does not touch the core.
-              Registering a new component by adding an entry does not touch
-              the core; changing what an existing entry means does.
+            - Registering a component does not touch the core. That includes
+              adding the import and export of a new or changed component to a
+              package __init__.py, such as pyhealth/datasets/__init__.py,
+              pyhealth/models/__init__.py or pyhealth/tasks/__init__.py (a line
+              like "from .my_model import MyModel" or a new __all__ entry), and
+              adding an entry to a registry or config list. Don't treat such
+              an edit as a change to shared code, even though the file is
+              shared. It does touch the core if it changes what existing code
+              gets: removing or renaming an existing export, binding an
+              existing name to something else, or adding import-time behavior
+              beyond the import itself, such as code that patches or
+              configures other modules.
             - A change that only edits comments, docstrings, tests, docs or
               examples does not touch the core, even in a base-class file.
           HAIKU_SCHEMA: >-
@@ -953,7 +964,10 @@ jobs:
               task that no other library code uses, is not part of the core,
               even when its own public API changes; breaking that API without
               stating it clearly in the description and docs is a blocking
-              problem, not a core change. A manual "yes" counts as a core
+              problem, not a core change. Adding a new component's import and
+              export to a package __init__.py, or an entry to a registry, is
+              registration, not a core change, unless it removes, renames or
+              rebinds an existing export. A manual "yes" counts as a core
               change whatever you answer.
             - test coverage from the CI run: the whole repository's total, and
               each changed file under pyhealth/ marked as added or modified; or
