@@ -178,6 +178,13 @@ class TestUNet(unittest.TestCase):
         # Dice = 2 * 1 / (1 + 3) = 0.5, IoU = 1 / 3.
         self.assertAlmostEqual(scores["dice"], 0.5, places=5)
         self.assertAlmostEqual(scores["iou"], 1 / 3, places=5)
+        binary_model = FixedModel(torch.zeros(1, 1, 8, 8))
+        binary_model.num_classes = 1
+        binary_model.mode = "segmentation_binary"
+        with self.assertRaisesRegex(
+            ValueError, "only supported for multiclass"
+        ):
+            evaluate_segmentation(binary_model, dataset, patch_size=None)
 
     def test_constructor_validation_errors(self):
         dataset = _make_3d_dataset()

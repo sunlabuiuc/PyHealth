@@ -366,6 +366,16 @@ class SegmentationLoss(nn.Module):
 
         ignore_index = -100
         in_range = (target_long >= 0) & (target_long < num_classes)
+        invalid = ~in_range
+        if self.ignore_index is not None:
+            invalid = invalid & (target_long != int(self.ignore_index))
+        if bool(invalid.any()):
+            bad = torch.unique(target_long[invalid]).detach().cpu().tolist()
+            raise ValueError(
+                f"Target contains labels outside num_classes={num_classes}: "
+                f"{bad[:5]}. Pass ignore_index for padding values, or fix the "
+                "mask."
+            )
         safe_target = target_long.clamp(0, num_classes - 1)
         target_valid = in_range & mask.gather(
             1, safe_target.reshape(batch_size, -1)
@@ -1066,6 +1076,11 @@ def evaluate_segmentation(
                 sample.get("class_mask") if hasattr(sample, "get") else None
             )
             if class_mask is not None:
+                if model.mode != "segmentation_multiclass":
+                    raise ValueError(
+                        "class_mask is only supported for multiclass "
+                        "segmentation."
+                    )
                 mask_ignore_index = (
                     ignore_index if ignore_index is not None else 255
                 )

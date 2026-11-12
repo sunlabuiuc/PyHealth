@@ -154,6 +154,15 @@ class TestSegmentationLoss(unittest.TestCase):
             logits, target, class_mask=torch.zeros(1, 3, dtype=torch.bool)
         )
         self.assertTrue(torch.isfinite(value))
+        bad_target = torch.zeros(1, 1, 4, 4, dtype=torch.long)
+        bad_target[0, 0, 0, 0] = 7
+        bad_target[0, 0, 0, 1] = 255
+        with self.assertRaisesRegex(ValueError, "outside num_classes=3"):
+            SegmentationLoss(ignore_index=255)(
+                logits,
+                bad_target,
+                class_mask=torch.tensor([[True, True, False]]),
+            )
 
 
 class TestSegmentationMetrics(unittest.TestCase):
