@@ -6,6 +6,7 @@ Getting Started
 
 New to PyHealth datasets? Start here:
 
+- **Browse datasets**: `pyhealth.dev/datasets <https://pyhealth.dev/datasets.html>`_ has a card per dataset with a quick-start snippet, how to get the data, and its tasks
 - **Tutorial**: `Introduction to pyhealth.datasets <https://colab.research.google.com/drive/1vI_oljc7rU5ocsC26ITM7HUgD5SGZkFE?usp=sharing>`_ | `Video (PyHealth 1.6) <https://www.youtube.com/watch?v=c1InKqFJbsI&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=3>`_
 
 This tutorial covers:

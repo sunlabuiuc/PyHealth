@@ -18,6 +18,7 @@ Getting Started
 
 New to PyHealth tasks? Start here:
 
+- **Browse tasks**: `pyhealth.dev/tasks <https://pyhealth.dev/tasks.html>`_ lists every task with the dataset it runs on. Each task page below also links to its dataset, and each dataset page lists its tasks
 - **Tutorial**: `Introduction to pyhealth.tasks <https://colab.research.google.com/drive/1QB0acnGb-wOuK53UNSgHxjCW74QeYjUl?usp=sharing>`_ - Learn the basics of defining and using tasks
 - **Code Examples**: Browse all examples online at https://github.com/sunlabuiuc/PyHealth/tree/master/examples
 - **Pipeline Examples**: Check out our :doc:`../tutorials` page for complete end-to-end examples including:
