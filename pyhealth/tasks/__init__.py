@@ -4,6 +4,8 @@ from .task_card import (
     FeatureInfo as FeatureInfo,
     TaskCard as TaskCard,
 )
+from .competing_risks import CompetingRisksPreprocessor as CompetingRisksPreprocessor
+from .competing_risks_pbc import CompetingRisksPBC as CompetingRisksPBC
 from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
