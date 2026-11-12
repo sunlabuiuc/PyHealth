@@ -89,6 +89,7 @@ from .generators.medgan import MedGAN
 from .generators.synthea import Synthea as Synthea
 from .generators.corgan import CorGAN as CorGAN
 from .survival_mdn import SurvivalMDN as SurvivalMDN
+from .cet import CET as CET
 from .trajsurv import TrajSurv as TrajSurv
 from .knowrare import KnowRare as KnowRare
 from .trace import (
