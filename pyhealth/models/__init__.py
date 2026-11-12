@@ -85,3 +85,4 @@ from .heartlang import (
     HeartLangBackbone as HeartLangBackbone,
     ecg_to_heartbeat_sentence as ecg_to_heartbeat_sentence,
 )
+from .mas import MAS as MAS
