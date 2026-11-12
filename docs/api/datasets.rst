@@ -298,6 +298,7 @@ Available Datasets
     datasets/pyhealth.datasets.MSDHippocampusDataset
     datasets/pyhealth.datasets.MSDProstateDataset
     datasets/pyhealth.datasets.MSDSpleenDataset
+    datasets/pyhealth.datasets.CHAOSDataset
     datasets/pyhealth.datasets.MIMIC3Dataset
     datasets/pyhealth.datasets.MIMIC4Dataset
     datasets/pyhealth.datasets.MIMIC4EDDataset
