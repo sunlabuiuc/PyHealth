@@ -21,7 +21,7 @@ import numpy as np
 import polars as pl
 import requests
 
-from pyhealth.datasets import ValueSetSplit, VSACDataset
+from pyhealth.datasets import VSACDataset
 from pyhealth.datasets.vsac import CODES_FILE, MANIFEST_FILE, VALUESETS_FILE
 from pyhealth.tasks import ValueSetCompletion, build_retrieval_index
 from pyhealth.tasks.value_set_completion import FEATURES, normalize_code_system
@@ -306,17 +306,23 @@ class TestVSACDataset(VSACFixture):
         self.assertEqual(len(saved["expansion"]["contains"]), 2)
         self.assertFalse((root / "resources").exists())
 
+    def test_download_fails_on_empty_page(self):
+        root = self.tmp / "short"
+        session = FakeSession()
+        session.codes = session.codes[:2]  # total stays 3
+        with mock.patch("pyhealth.datasets.vsac._REQUEST_DELAY", 0):
+            failed = VSACDataset.download_expansions(
+                str(root), ["2.1"], metadata=False, session=session
+            )
+        self.assertEqual(failed, ["2.1"])
+        self.assertFalse((root / "expansions" / "2.1.json").exists())
+
     def test_download_needs_key(self):
         with (
             mock.patch.dict("os.environ", {}, clear=True),
             self.assertRaises(ValueError),
         ):
             VSACDataset.download_expansions(str(self.tmp / "nokey"), ["2.1"])
-
-    def test_split_key_tracks_assignments(self):
-        a = ValueSetSplit({"x": "train"}).to_dict()
-        b = ValueSetSplit({"x": "test"}).to_dict()
-        self.assertNotEqual(a, b)
 
 
 class TestValueSetCompletion(VSACFixture):

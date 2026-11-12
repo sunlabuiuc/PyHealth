@@ -11,24 +11,21 @@ Description: Loads value sets downloaded from the NLM Value Set Authority
     from the authors' code (https://github.com/mukhes3/RASC).
 """
 
-import hashlib
 import json
 import logging
 import os
 import re
 import time
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pandas as pd
 import requests
 
 from ..tasks.value_set_completion import normalize_code_system
 from .base_dataset import BaseDataset
-from .splitter import Split
+from .splitter import SubjectSplit
 
 logger = logging.getLogger(__name__)
 
@@ -138,66 +135,6 @@ def _fetch_expansion(
         contains.extend(batch)
     expansion["offset"] = 0
     return resource
-
-
-@dataclass(frozen=True)
-class ValueSetSplit(Split):
-    """Splits value sets by a fixed OID-to-split assignment.
-
-    Used with ``BaseDataset.set_task(task, split=...)`` to keep the published
-    benchmark splits instead of drawing random ones. Value sets whose split is
-    not one of ``parts`` are left out.
-
-    Args:
-        assignments: Value set OID to split name.
-        parts: Split names in output order, training part first.
-
-    Examples:
-        >>> split = ValueSetSplit({"a": "train", "b": "test"}, parts=("train", "test"))
-        >>> split.split_indices({"a": [0, 1], "b": [2]})
-        [array([0, 1]), array([2])]
-    """
-
-    assignments: Mapping[str, str]
-    parts: Sequence[str] = ("train", "val", "test")
-    _digest: str = field(init=False, repr=False, compare=False)
-
-    def __post_init__(self) -> None:
-        """Hashes the assignments once for :meth:`to_dict`."""
-        payload = json.dumps(sorted(self.assignments.items())).encode()
-        object.__setattr__(self, "_digest", hashlib.sha256(payload).hexdigest())
-
-    def to_dict(self) -> dict[str, Any]:
-        """Describes the split for cache keys and metadata.
-
-        Returns:
-            A JSON-serializable dict with the parts and a SHA-256 digest of
-            the assignments.
-        """
-        return {
-            "kind": "value_set",
-            "parts": list(self.parts),
-            "assignments_sha256": self._digest,
-        }
-
-    def split_indices(
-        self, patient_to_index: Mapping[str, Sequence[int]]
-    ) -> list[np.ndarray]:
-        """Groups sample indices by each value set's assigned split.
-
-        Args:
-            patient_to_index: Value set OID to the indices of its samples.
-
-        Returns:
-            One sorted ``int64`` array of sample indices per part.
-        """
-        position = {name: i for i, name in enumerate(self.parts)}
-        buckets: list[list[int]] = [[] for _ in self.parts]
-        for oid, indices in patient_to_index.items():
-            part = position.get(self.assignments.get(oid, ""))
-            if part is not None:
-                buckets[part].extend(indices)
-        return [np.array(sorted(b), dtype=np.int64) for b in buckets]
 
 
 def _read_manifest(path: Path) -> dict[str, dict[str, Any]]:
@@ -520,14 +457,17 @@ class VSACDataset(BaseDataset):
 
     def manifest_split(
         self, parts: Sequence[str] = ("train", "val", "test")
-    ) -> ValueSetSplit:
+    ) -> SubjectSplit:
         """Returns the split recorded in the ``valuesets`` table.
+
+        Value sets whose split is not in ``parts`` are left out.
 
         Args:
             parts: Split names to keep, training part first.
 
         Returns:
-            A :class:`ValueSetSplit` for ``set_task(task, split=...)``.
+            A :class:`~pyhealth.datasets.SubjectSplit` of OIDs for
+            ``set_task(task, split=...)``.
 
         Examples:
             >>> train, val, test = dataset.set_task(  # doctest: +SKIP
@@ -537,4 +477,4 @@ class VSACDataset(BaseDataset):
         frame = pd.read_csv(
             Path(self.root) / VALUESETS_FILE, dtype=str, keep_default_na=False
         )
-        return ValueSetSplit(dict(zip(frame["oid"], frame["split"])), tuple(parts))
+        return SubjectSplit([frame.loc[frame["split"] == part, "oid"] for part in parts])

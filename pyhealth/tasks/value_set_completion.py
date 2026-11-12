@@ -536,6 +536,8 @@ class ValueSetCompletion(BaseTask):
         ]
         if len(true_codes) < self.min_codes:
             return []
+        # Labels match on the code alone, ignoring the system, as the
+        # authors' build_dataset.py does, so the benchmark labels are kept.
         true_set = set(true_codes)
 
         # Neighbors are sorted by score, so the first sighting is the maximum.
