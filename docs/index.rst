@@ -235,6 +235,7 @@ Quick Navigation
    api/tasks
    api/models
    api/processors
+   api/sampler
    api/interpret
    api/trainer
    api/autoimprove

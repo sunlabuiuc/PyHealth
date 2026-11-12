@@ -45,6 +45,9 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.StageNet`
      - You have time-stamped vital signs with irregular measurement intervals
      - Requires ``StageNetProcessor`` or ``StageNetTensorProcessor`` in the task schema
+   * - :doc:`models/pyhealth.models.UNet`
+     - Your task is pixel/voxel-level segmentation with an image and a mask
+     - ``UNet2D``/``UNet3D``; pair with ``PatchDataset``, ``PatchSampler`` and Dice/IoU metrics
    * - :doc:`models/pyhealth.models.GNN`
      - Features include graph-structured data
      - Works with ``GraphProcessor``; see :doc:`graph` for setup
@@ -148,6 +151,58 @@ and which metrics to compute. A model that scores something other than its
 dataset's label (for example a reconstruction) overrides
 ``label_processors``.
 
+Segmentation
+^^^^^^^^^^^^
+
+For pixel/voxel-level tasks, use :doc:`models/pyhealth.models.UNet` together
+with :class:`~pyhealth.datasets.PatchDataset` and
+:class:`~pyhealth.sampler.PatchSampler`. ``num_classes=1`` selects binary
+segmentation; larger values select multiclass segmentation.
+
+.. code-block:: python
+
+    from pyhealth.datasets import PatchDataset, PatientSplit, get_dataloader
+    from pyhealth.models import UNet3D
+    from pyhealth.sampler import PatchSampler
+
+    train, val = dataset.set_task(
+        dataset.default_task,
+        split=PatientSplit((0.8, 0.2), seed=42),
+    )
+    patches = PatchDataset(
+        train,
+        PatchSampler((64, 64, 64), foreground_prob=1 / 3),
+        mode="train",
+    )
+    model = UNet3D(train)  # original U-Net defaults: 64 channels, depth 5
+    loader = get_dataloader(patches, batch_size=2, shuffle=True)
+
+``UNet`` reports ``"segmentation_binary"`` or ``"segmentation_multiclass"``
+from ``num_classes`` (or the mask processor's configured ``num_classes``), so the
+``Trainer`` can score variable-shaped masks with Dice and IoU.
+
+A task can add a boolean ``class_mask`` vector to each sample to mark which
+classes are annotated. ``SegmentationLoss`` excludes unannotated classes from
+the loss, and ``evaluate_segmentation`` remaps the metrics to the kept classes.
+``PatchDataset`` does not create ``class_mask``; the task supplies it.
+
+A class is included in the Dice/IoU average when either the target or the
+prediction has foreground. If the target is empty but the prediction has
+foreground, that class scores 0.0; classes empty in both are left out. The
+case score is NaN only when no class has foreground in either the target or
+the prediction.
+
+``Trainer.evaluate`` uses the model's label processor and does not read a
+per-sample ``class_mask``. For partially annotated data, evaluate with
+:func:`~pyhealth.models.evaluate_segmentation`, which remaps each case to its
+annotated classes before scoring.
+
+When ``in_channels``, ``num_classes`` or ``spatial_dim`` are omitted, ``UNet``
+reads them from the image and mask processors or the first materialised sample
+(a ``{0, 1}`` mask without ``num_classes`` infers ``num_classes=2`` multiclass;
+pass ``num_classes=1`` for single-channel binary segmentation). Lazy values are
+materialised before their shape or labels are inspected.
+
 Imbalanced outcomes
 ^^^^^^^^^^^^^^^^^^^
 
@@ -231,6 +286,7 @@ API Reference
     models/pyhealth.models.LogisticRegression
     models/pyhealth.models.MLP
     models/pyhealth.models.CNN
+    models/pyhealth.models.UNet
     models/pyhealth.models.RNN
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
