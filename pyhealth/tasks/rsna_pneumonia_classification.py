@@ -15,8 +15,12 @@ class RSNAPneumoniaClassification(BaseTask):
     Examples:
         >>> from pyhealth.datasets import RSNAPneumoniaDataset
         >>> from pyhealth.tasks import RSNAPneumoniaClassification
-        >>> dataset = RSNAPneumoniaDataset(root="/path/to/rsna")
-        >>> samples = dataset.set_task(RSNAPneumoniaClassification())
+        >>> dataset = RSNAPneumoniaDataset(
+        ...     root="/path/to/rsna"
+        ... )  # doctest: +SKIP
+        >>> samples = dataset.set_task(
+        ...     RSNAPneumoniaClassification()
+        ... )  # doctest: +SKIP
     """
 
     task_name: str = "RSNAPneumoniaClassification"

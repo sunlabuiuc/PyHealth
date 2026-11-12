@@ -191,6 +191,50 @@ class TestRSNAPneumoniaDataset(unittest.TestCase):
         self.assertEqual(event.view_position, "PA")
         self.assertEqual(int(event.rows), 8)
 
+    def test_error_branches_and_cached_marker_reuse(self):
+        with self.assertRaises(FileNotFoundError):
+            RSNAPneumoniaDataset(
+                root=str(self.root),
+                image_dir=str(self.root / "missing_images"),
+                cache_dir=str(self.cache_dir),
+            )
+
+        with self.assertRaises(FileNotFoundError):
+            RSNAPneumoniaDataset(
+                root=str(self.root),
+                mapping_file=str(self.root / "missing_mapping.json"),
+                cache_dir=str(self.cache_dir),
+            )
+
+        with self.assertRaises(ValueError):
+            RSNAPneumoniaDataset(
+                root=str(self.root),
+                label_source="invalid",
+                cache_dir=str(self.cache_dir),
+            )
+
+        with self.assertRaises(FileNotFoundError):
+            RSNAPneumoniaDataset(
+                root=str(self.root),
+                annotations_file=str(self.root / "missing_annotations.json"),
+                label_source="annotations",
+                cache_dir=str(self.cache_dir),
+            )
+
+        # Default metadata_dir=None and subsequent reuse of existing marker
+        dataset1 = RSNAPneumoniaDataset(
+            root=str(self.root),
+            cache_dir=str(self.cache_dir),
+        )
+        dataset2 = RSNAPneumoniaDataset(
+            root=str(self.root),
+            cache_dir=str(self.cache_dir),
+        )
+        self.assertEqual(
+            set(dataset1.unique_patient_ids),
+            set(dataset2.unique_patient_ids),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
