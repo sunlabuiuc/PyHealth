@@ -10,7 +10,18 @@ MIMIC-III discharge summaries of the paper's ``mdace_icd9_inpatient_code``
 split (MIMIC-III full + MDACE train), using only the ICD-9 codes that occur
 in MDACE so a laptop GPU can fit it.
 
-Data: run the authors' preparation scripts first (github.com/JoakimEdin/
+Stage 2, ``--evaluate``: explains every (MDACE note, gold code) pair with
+Attention, InputXGrad, AttInGrad, Integrated Gradients and attention x IG,
+picks each method's threshold on MDACE val and reports token precision,
+recall, F1, Empty and recall@5 on MDACE test.
+
+No credentials? ``--synthetic`` runs both stages in about a minute on CPU:
+fake notes where each code is signalled by a known keyword phrase (its
+evidence span), plus filler and distractor words, and a tiny local encoder.
+
+    python examples/mdace_icd9_coding_plm_ca_attingrad.py --synthetic
+
+Real data: run the authors' preparation scripts first (github.com/JoakimEdin/
 explainable-medical-coding: ``make mimiciii`` and ``make mdace``) and pass
 their ``data/processed`` folder as ``--processed``. MIMIC-III needs
 PhysioNet credentialed access; never commit the files.
@@ -18,6 +29,10 @@ PhysioNet credentialed access; never commit the files.
     python examples/mdace_icd9_coding_plm_ca_attingrad.py --train \\
         --processed /path/to/data/processed \\
         --model_name /path/to/roberta-base-pm-m3-voc-hf --device mps
+    python examples/mdace_icd9_coding_plm_ca_attingrad.py --evaluate \\
+        --processed /path/to/data/processed \\
+        --model_name /path/to/roberta-base-pm-m3-voc-hf --device mps \\
+        --checkpoint output/mdace/plm_ca_mdace/best.ckpt
 
 Deviations from the paper (for compute): label space restricted to MDACE
 codes, notes truncated to 4096 tokens instead of 6000, 2 epochs instead of
@@ -26,11 +41,14 @@ codes, notes truncated to 4096 tokens instead of 6000, 2 epochs instead of
 
 import argparse
 import random
+import tempfile
 from pathlib import Path
 
 import polars as pl
 import torch
+from tokenizers import Tokenizer, models, normalizers, pre_tokenizers, processors
 from tqdm import tqdm
+from transformers import BertConfig, BertModel, PreTrainedTokenizerFast
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.interpret.methods import AttInGrad
@@ -52,6 +70,109 @@ EXPLANATION_METHODS = (
     "integrated_gradients",
     "att_ig",
 )
+
+# Synthetic demo: each fake code is signalled by one phrase (its evidence).
+SYNTHETIC_CODES = {
+    "428.0": "heart failure",
+    "571.2": "alcoholic cirrhosis",
+    "276.1": "low sodium",
+    "038.9": "septic shock",
+    "584.9": "kidney injury",
+    "54.91": "paracentesis done",
+}
+# Clinical-sounding words that never decide a code, plus plain filler.
+DISTRACTORS = ["edema", "fever", "dyspnea", "lasix", "crackles", "lactate"]
+FILLER = (
+    "patient was admitted with and the on day stable plan continue seen by "
+    "team family at home no new pain review labs".split()
+)
+
+
+def write_synthetic_data(folder: Path, seed: int) -> None:
+    """Writes fake notes in the same layout as the authors' processed data."""
+    rng = random.Random(seed)
+    sizes = {"train": 400, "val": 60, "test": 60}
+    note_id = 0
+    for split, size in sizes.items():
+        rows = []
+        for _ in range(size):
+            codes = rng.sample(sorted(SYNTHETIC_CODES), k=rng.randint(1, 3))
+            pieces = [rng.choice(FILLER + DISTRACTORS) for _ in range(40)]
+            for code in codes:
+                pieces.insert(rng.randrange(len(pieces) + 1), SYNTHETIC_CODES[code])
+            text = " ".join(pieces) + " ."
+            spans = []
+            for code in codes:
+                start = text.index(SYNTHETIC_CODES[code])
+                spans.append([[start, start + len(SYNTHETIC_CODES[code])]])
+            note_id += 1
+            rows.append(
+                {
+                    "note_id": str(note_id),
+                    "subject_id": note_id,
+                    "_id": note_id,
+                    "note_type": "synthetic",
+                    "text": text,
+                    "diagnosis_codes": codes,
+                    "diagnosis_code_spans": spans,
+                    "procedure_codes": [],
+                    "procedure_code_spans": [],
+                }
+            )
+        df = pl.DataFrame(rows)
+        for name in ("mdace_icd9_inpatient", "mdace_icd9_inpatient_code"):
+            (folder / name).mkdir(parents=True, exist_ok=True)
+            df.write_parquet(folder / name / f"{split}.parquet")
+
+
+def build_tiny_encoder(folder: Path) -> str:
+    """Saves a small random BERT with a word-level vocabulary for the demo."""
+    words = {w for p in SYNTHETIC_CODES.values() for w in p.split()}
+    vocab = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]", "."]
+    vocab += sorted(words | set(FILLER) | set(DISTRACTORS))
+    ids = {token: index for index, token in enumerate(vocab)}
+    backend = Tokenizer(models.WordPiece(vocab=ids, unk_token="[UNK]"))
+    backend.normalizer = normalizers.BertNormalizer(lowercase=True)
+    backend.pre_tokenizer = pre_tokenizers.BertPreTokenizer()
+    backend.post_processor = processors.TemplateProcessing(
+        single="[CLS] $A [SEP]",
+        special_tokens=[("[CLS]", ids["[CLS]"]), ("[SEP]", ids["[SEP]"])],
+    )
+    PreTrainedTokenizerFast(
+        tokenizer_object=backend,
+        unk_token="[UNK]",
+        pad_token="[PAD]",
+        cls_token="[CLS]",
+        sep_token="[SEP]",
+        mask_token="[MASK]",
+    ).save_pretrained(folder)
+    config = BertConfig(
+        vocab_size=len(vocab),
+        hidden_size=32,
+        num_hidden_layers=2,
+        num_attention_heads=2,
+        intermediate_size=64,
+        max_position_embeddings=128,
+    )
+    torch.manual_seed(0)
+    BertModel(config).save_pretrained(folder)
+    return str(folder)
+
+
+def run_synthetic(args: argparse.Namespace) -> None:
+    """Trains and evaluates on fake notes in a temporary folder."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        write_synthetic_data(root / "processed", args.seed)
+        args.processed = str(root / "processed")
+        args.model_name = build_tiny_encoder(root / "encoder")
+        args.output_dir = str(root / "output")
+        args.device = args.device or "cpu"
+        args.max_length, args.chunk_size, args.batch_size = 128, 32, 16
+        args.epochs, args.lr, args.ig_steps = 15, 1e-3, 8
+        train(args)
+        args.checkpoint = str(root / "output" / "plm_ca_mdace" / "best.ckpt")
+        evaluate(args)
 
 
 def note_codes(row: dict) -> list[str]:
@@ -273,8 +394,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", type=str, default=None)
     parser.add_argument("--ig_steps", type=int, default=20)
     parser.add_argument("--max_eval_notes", type=int, default=None)
-    parser.add_argument("--processed", type=str, required=True)
-    parser.add_argument("--model_name", type=str, required=True)
+    parser.add_argument("--synthetic", action="store_true")
+    parser.add_argument("--processed", type=str, default=None)
+    parser.add_argument("--model_name", type=str, default=None)
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--output_dir", type=str, default="output/mdace")
     parser.add_argument("--max_length", type=int, default=4096)
@@ -284,11 +406,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--max_train", type=int, default=None)
     parser.add_argument("--seed", type=int, default=42)
-    return parser.parse_args()
+    args = parser.parse_args()
+    if not args.synthetic and (args.train or args.evaluate):
+        if not (args.processed and args.model_name):
+            parser.error("--processed and --model_name are required with real data")
+        if args.evaluate and not args.checkpoint:
+            parser.error("--evaluate needs --checkpoint")
+    return args
 
 
 def main() -> None:
     args = parse_args()
+    if args.synthetic:
+        run_synthetic(args)
+        return
     if args.train:
         train(args)
     if args.evaluate:
