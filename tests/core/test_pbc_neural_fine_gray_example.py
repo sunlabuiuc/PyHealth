@@ -13,7 +13,7 @@ import unittest
 from argparse import Namespace
 from pathlib import Path
 from types import ModuleType
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 import pandas as pd
@@ -153,6 +153,139 @@ class TestPBCExample(unittest.TestCase):
             self.assertRaisesRegex(ValueError, "bug"),
         ):
             example.evaluate(prediction, train, test, 0, "original", 0.0)
+
+    def test_historical_metrics_preserve_reference_inputs_and_rows(self) -> None:
+        example = self.example
+        train = [
+            {"time": 2.0, "event": 1},
+            {"time": 6.0, "event": 2},
+            {"time": 10.0, "event": 0},
+        ]
+        test = [
+            {"time": 1.0, "event": 1},
+            {"time": 3.0, "event": 2},
+            {"time": 12.0, "event": 1},
+            {"time": 12.0, "event": 2},
+            {"time": 12.0, "event": 0},
+        ]
+        predictions = np.arange(40).reshape(5, 4, 2) / 100
+        metrics = ModuleType("sksurv.metrics")
+        metrics.brier_score = Mock(return_value=(np.array([0.0]), np.array([0.125])))
+        metrics.concordance_index_ipcw = Mock(return_value=(0.75, 1, 0, 0, 0))
+        with patch.dict(
+            "sys.modules",
+            {"sksurv": ModuleType("sksurv"), "sksurv.metrics": metrics},
+        ):
+            rows = example.historical_metrics(predictions, train, test, fold=3)
+        self.assertEqual(len(rows), 12)
+        self.assertTrue(all(row["status"] == "ok" for row in rows))
+        self.assertTrue(all(row["lane"] == "paper_binary_cause" for row in rows))
+        self.assertTrue(all(row["fold"] == 3 for row in rows))
+        self.assertEqual({row["horizon"] for row in rows}, {3.19, 4.95, 7.45})
+        for row in rows:
+            self.assertEqual(row["value"], 0.125 if row["metric"] == "brier" else 0.75)
+        selections = {1: [0, 1, 3, 4], 2: [0, 1, 2, 4]}
+        for index, call in enumerate(metrics.brier_score.call_args_list):
+            risk = 1 + index // 3
+            horizon = (3.19, 4.95, 7.45)[index % 3]
+            selected = selections[risk]
+            train_labels, test_labels, survival, times = call.args
+            np.testing.assert_array_equal(train_labels["event"], [risk == 1, risk == 2, False])
+            np.testing.assert_array_equal(train_labels["time"], [2.0, 6.0, 10.0])
+            np.testing.assert_array_equal(
+                test_labels["event"], [test[i]["event"] == risk for i in selected]
+            )
+            np.testing.assert_array_equal(
+                test_labels["time"], [test[i]["time"] for i in selected]
+            )
+            cif = predictions[selected, example.HORIZONS.index(horizon), risk - 1]
+            np.testing.assert_array_equal(survival, (1 - cif)[:, None])
+            self.assertEqual(times, [horizon])
+            concordance = metrics.concordance_index_ipcw.call_args_list[index]
+            np.testing.assert_array_equal(concordance.args[0], train_labels)
+            np.testing.assert_array_equal(concordance.args[1], test_labels)
+            np.testing.assert_array_equal(concordance.args[2], cif)
+            self.assertEqual(concordance.kwargs, {"tau": horizon})
+
+    def test_historical_metrics_report_known_support_errors_independently(self) -> None:
+        metrics = ModuleType("sksurv.metrics")
+        metrics.brier_score = Mock(return_value=(np.array([0.0]), np.array([0.125])))
+        metrics.concordance_index_ipcw = Mock(return_value=(0.75, 1, 0, 0, 0))
+        train = [{"time": 10.0, "event": 1}]
+        test = [{"time": 1.0, "event": 2}]
+        with patch.dict(
+            "sys.modules",
+            {"sksurv": ModuleType("sksurv"), "sksurv.metrics": metrics},
+        ):
+            for name, metric in (
+                ("brier_score", "brier"),
+                ("concordance_index_ipcw", "concordance"),
+            ):
+                function = getattr(metrics, name)
+                for message in (
+                    "time must be smaller than largest observed time point",
+                    "censoring survival function is zero at one or more time points",
+                    "all samples are censored",
+                    "all times must be within follow-up time of test data",
+                    "No comparable pairs, cannot estimate concordant index.",
+                ):
+                    with self.subTest(metric=metric, message=message):
+                        function.side_effect = ValueError(message)
+                        rows = self.example.historical_metrics(
+                            np.zeros((1, 4, 2)), train, test, fold=0
+                        )
+                        unsupported = [row for row in rows if row["metric"] == metric]
+                        self.assertEqual(len(unsupported), 6)
+                        self.assertTrue(
+                            all(row["status"] == "unsupported" for row in unsupported)
+                        )
+                        self.assertTrue(
+                            all(row["reason"] == message for row in unsupported)
+                        )
+                        self.assertTrue(all("value" not in row for row in unsupported))
+                        supported = [row for row in rows if row["metric"] != metric]
+                        self.assertEqual(len(supported), 6)
+                        self.assertTrue(all(row["status"] == "ok" for row in supported))
+                function.side_effect = None
+
+    def test_historical_metrics_propagate_unexpected_errors_and_nonfinite_scores(
+        self,
+    ) -> None:
+        metrics = ModuleType("sksurv.metrics")
+        metrics.brier_score = Mock(return_value=(np.array([0.0]), np.array([0.125])))
+        metrics.concordance_index_ipcw = Mock(return_value=(0.75, 1, 0, 0, 0))
+        train = [{"time": 10.0, "event": 1}]
+        test = [{"time": 1.0, "event": 2}]
+        with patch.dict(
+            "sys.modules",
+            {"sksurv": ModuleType("sksurv"), "sksurv.metrics": metrics},
+        ):
+            for name in ("brier_score", "concordance_index_ipcw"):
+                function = getattr(metrics, name)
+                with self.subTest(function=name, failure="unexpected ValueError"):
+                    error = ValueError("unexpected prediction shape")
+                    function.side_effect = error
+                    with self.assertRaises(ValueError) as raised:
+                        self.example.historical_metrics(
+                            np.zeros((1, 4, 2)), train, test, fold=0
+                        )
+                    self.assertIs(raised.exception, error)
+                    function.side_effect = None
+                original = function.return_value
+                for value in (np.nan, np.inf):
+                    with self.subTest(function=name, nonfinite=value):
+                        function.return_value = (
+                            (np.array([0.0]), np.array([value]))
+                            if name == "brier_score"
+                            else (value, 1, 0, 0, 0)
+                        )
+                        with self.assertRaisesRegex(
+                            FloatingPointError, "Nonfinite historical score"
+                        ):
+                            self.example.historical_metrics(
+                                np.zeros((1, 4, 2)), train, test, fold=0
+                            )
+                function.return_value = original
 
     def test_checkpoint_resume_validates_identity_and_content(self) -> None:
         example = self.example

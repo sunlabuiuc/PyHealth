@@ -66,7 +66,6 @@ class CompetingRisksPreprocessor:
             where=count > 0,
         )
         imputed = np.where(np.isnan(features), mean, features)
-        # Scaling after imputation preserves the proposal's preprocessing order.
         scale = imputed.std(axis=0)
         scale[scale < 1e-12] = 1.0
         if not np.isfinite(mean).all() or not np.isfinite(scale).all():

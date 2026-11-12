@@ -4,6 +4,13 @@ Competing-risk metrics
 .. automodule:: pyhealth.metrics.competing_risks
     :members:
 
+Unlike the binary-event metrics in ``pyhealth.metrics.survival``, these
+functions consume cause-specific CIFs and retain competing events as known
+outcomes. They use separately fitted training censoring weights and
+horizon-specific IPCW concordance rather than Harrell's concordance.
+A separate module preserves the single-event functions' label, prediction,
+and censoring-estimation contracts.
+
 Fit censoring weights on training patients. The primary Brier score treats an
 observed competing first event as a known negative for the target first event,
 not ordinary censoring. Concordance is horizon-specific and includes earlier
