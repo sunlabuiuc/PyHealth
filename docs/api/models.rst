@@ -186,9 +186,11 @@ classes are annotated. ``SegmentationLoss`` excludes unannotated classes from
 the loss, and ``evaluate_segmentation`` remaps the metrics to the kept classes.
 ``PatchDataset`` does not create ``class_mask``; the task supplies it.
 
-Classes that are absent from both the target and the prediction are left out
-of the Dice/IoU average, and a prediction with foreground on an empty
-reference scores 0.0.
+A class is included in the Dice/IoU average when either the target or the
+prediction has foreground. If the target is empty but the prediction has
+foreground, that class scores 0.0; classes empty in both are left out. The
+case score is NaN only when no class has foreground in either the target or
+the prediction.
 
 ``Trainer.evaluate`` uses the model's label processor and does not read a
 per-sample ``class_mask``. For partially annotated data, evaluate with

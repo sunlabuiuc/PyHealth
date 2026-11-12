@@ -263,10 +263,11 @@ def dice_score(
             outside the range raise unless they equal ``ignore_index``.
 
     Returns:
-        The mean Dice over classes present in the reference. An empty
-        reference with predicted foreground scores 0.0; classes empty in both
-        the reference and the prediction are left out. Returns NaN when no
-        class is present in the reference.
+        The mean Dice over classes with foreground in either the reference or
+        the prediction. A class with an empty reference but predicted
+        foreground is averaged in as 0.0; classes empty in both are left out.
+        Returns NaN only when no class has foreground in either the reference
+        or the prediction.
 
     Examples:
         >>> import numpy as np
@@ -332,10 +333,11 @@ def iou_score(
             outside the range raise unless they equal ``ignore_index``.
 
     Returns:
-        The mean IoU over classes present in the reference. An empty
-        reference with predicted foreground scores 0.0; classes empty in both
-        the reference and the prediction are left out. Returns NaN when no
-        class is present in the reference.
+        The mean IoU over classes with foreground in either the reference or
+        the prediction. A class with an empty reference but predicted
+        foreground is averaged in as 0.0; classes empty in both are left out.
+        Returns NaN only when no class has foreground in either the reference
+        or the prediction.
 
     Examples:
         >>> import numpy as np
