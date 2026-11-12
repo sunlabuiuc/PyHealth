@@ -4,39 +4,38 @@
     python examples/support2_survival_personalized_moe.py --root data/support2
     python examples/support2_survival_personalized_moe.py --synthetic --epochs 2
 
-Downloads missing data from UCI; loads patients through Support2Dataset in CSV
-order. Uses the reference's 42 features, physiological/median imputation, missing
-indicators, scaling, categorical embeddings and 20-quantile hday buckets. All
-preprocessing fits the fixed seed-42 80/10/10 training split only.
+Downloads missing UCI data and loads patients through Support2Dataset in CSV order.
+Uses the reference's 42 features, physiological/median imputation, missing
+indicators, scaling, categorical embeddings and 20-quantile hday buckets.
+Preprocessing fits only the fixed seed-42 80/10/10 training split.
 
-Defaults: seeds 42–46, one 128-unit layer, eight experts, 4-dimensional embeddings,
-Adam (lr=0.0005, eps=1e-7), batch 64, up to 1,000 epochs with patience 10 on
-validation negative log-likelihood (NLL). Each run keeps the checkpoint with the
-lowest validation NLL. Each seed pairs initialization and batch order across dropout
-0/0.1/0.3/0.5. The grid has 100 training-range points plus a final overflow point.
+Defaults: one 128-unit layer, eight experts, 4-dimensional embeddings, Adam
+(lr=0.0005, eps=1e-7), batch 64, up to 1,000 epochs, patience 10. Each run keeps the
+lowest validation negative log-likelihood (NLL) checkpoint. Seeds 42–46 vary model
+initialization and dropout randomness; batch order is fixed at seed 42 in all
+runs. Initialization is paired across dropout 0/0.1/0.3/0.5. These repeats measure
+training randomness on one split, not population uncertainty.
 
-Reports median-survival Harrell C-index, grid-averaged IPCW Brier/ECE (ten equal-
-mass risk bins, reverse KM floored at 0.01), train/validation/test NLL and NLL gaps,
-mean/sample SD and paired changes from dropout=0. Synthetic mode checks execution
-only. Repeated training
-seeds measure optimization variability on one split, not population uncertainty.
+Reports median-survival Harrell C-index, IPCW Brier/ECE (ten equal-mass risk bins,
+reverse KM floored at 0.01), NLL, mean/sample SD and paired changes from dropout=0.
+Brier/ECE average over 100 training-range grid points plus one overflow point.
+Synthetic mode checks execution only.
+
 SUPPORT2 results (7283/911/911 patients; mean +/- sample SD over five seeds):
-    Dropout  C-index          IPCW Brier       IPCW ECE         NLL gap
-    0.0      0.8085+/-0.0025  0.1433+/-0.0031  0.0444+/-0.0043  0.1949+/-0.0403
-    0.1      0.8105+/-0.0027  0.1409+/-0.0027  0.0413+/-0.0029  0.1881+/-0.0069
-    0.3      0.8075+/-0.0037  0.1424+/-0.0017  0.0426+/-0.0059  0.2046+/-0.0411
-    0.5      0.8043+/-0.0022  0.1431+/-0.0016  0.0473+/-0.0034  0.1871+/-0.0204
-Early stopping ended runs after 14–38 epochs. Dropout 0.1 had the best mean
-discrimination and calibration; larger dropout did not consistently improve them.
-Mean NLL at each run's selected checkpoint (lower is better):
+    Dropout  C-index          IPCW Brier       IPCW ECE
+    0.0      0.8085+/-0.0025  0.1433+/-0.0031  0.0444+/-0.0043
+    0.1      0.8105+/-0.0027  0.1409+/-0.0027  0.0413+/-0.0029
+    0.3      0.8075+/-0.0037  0.1424+/-0.0017  0.0426+/-0.0059
+    0.5      0.8043+/-0.0022  0.1431+/-0.0016  0.0473+/-0.0034
+Mean NLL at selected checkpoints (excludes the balancing penalty):
     Dropout  Training  Validation  Test    Validation - training
     0.0      2.0034    2.1984      2.1801  0.1949
     0.1      2.0016    2.1896      2.1662  0.1881
     0.3      1.9885    2.1932      2.1695  0.2046
     0.5      2.0144    2.2015      2.1729  0.1871
-Dropout 0.1 also had the lowest mean validation and test NLL. Dropout 0.5 had the
-smallest gap, showing that a smaller gap alone does not imply better predictions.
-NLL excludes the expert-balancing penalty; test NLL does not select checkpoints.
+Runs stopped after 14–38 epochs. Dropout 0.1 had the best mean C-index, Brier, ECE,
+validation NLL and test NLL. Dropout 0.5 had the smallest training-validation gap,
+which alone does not imply better predictions. Test data never select checkpoints.
 Reference: https://github.com/ToddMorrill/survival-moe (7ce58fa).
 """
 
@@ -147,7 +146,12 @@ def preprocess(frame: pd.DataFrame, train: np.ndarray):
 
 
 def censoring_km(time: np.ndarray, event: np.ndarray):
-    """Reverse KM: tied events leave the risk set before censoring; floor at .01."""
+    """Match the reference's reverse KM, with probabilities floored at .01.
+
+    Unlike survival_mdn_metrics.km_fit, remove tied observed events from the
+    risk set before counting censoring. This matches the reference's torchsurv
+    censoring estimator; using the MDN convention would change IPCW Brier/ECE.
+    """
     grid, probabilities, current = np.unique(time), [], 1.0
     for t in grid:
         censored = np.sum((time == t) & (event == 0))
@@ -210,7 +214,12 @@ def ensure_support2(path: Path) -> None:
 
 
 def load_data(root: str | None, synthetic: bool, seed: int) -> pd.DataFrame:
-    """Load baseline fields via PyHealth, or generate independent synthetic data."""
+    """Load raw baseline fields, or generate independent synthetic data.
+
+    survival_mdn_data.read_support2 returns a filtered, sorted, encoded
+    27-feature cohort. This reproduction needs all 42 raw features and CSV
+    order to preserve the reference's cohort, preprocessing and seeded split.
+    """
     if synthetic:
         rng = np.random.default_rng(seed)
         frame = pd.DataFrame(
@@ -338,7 +347,7 @@ def run(args: argparse.Namespace) -> dict:
                 model.eval()
                 with torch.no_grad():
                     score = float(predict(val)["nll"])
-                if score < best:
+                if np.isfinite(score) and score < best:
                     best, state, best_epoch, stale = (
                         score,
                         copy.deepcopy(model.state_dict()),
@@ -349,6 +358,10 @@ def run(args: argparse.Namespace) -> dict:
                     stale += 1
                     if stale >= args.patience:
                         break
+            if state is None:
+                raise RuntimeError(
+                    f"No finite validation NLL for seed={seed}, dropout={dropout}"
+                )
             model.load_state_dict(state)
             model.eval()
             with torch.no_grad():

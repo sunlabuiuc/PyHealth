@@ -169,6 +169,8 @@ class PersonalizedSurvivalMoE(BaseModel):
         if not torch.isfinite(x).all():
             raise ValueError("features must be finite; impute missing values first")
         if self.embeddings:
+            if "categories" not in kwargs:
+                raise ValueError("categories are required for categorical embeddings")
             categories = torch.as_tensor(kwargs["categories"], device=self.device)
             if categories.shape != (len(x), len(self.embeddings)):
                 raise ValueError("categories must have one column per embedding")

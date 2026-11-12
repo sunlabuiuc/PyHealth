@@ -195,6 +195,8 @@ def test_categorical_embeddings_and_gradients():
         embedding_dim=4,
     )
     features = torch.randn(4, 3)
+    with pytest.raises(ValueError, match="categories are required"):
+        model(features=features)
     categories = torch.tensor([[0, 0], [1, 1], [2, 0], [1, 1]])
     out = model(
         features=features,
