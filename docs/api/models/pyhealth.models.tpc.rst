@@ -36,8 +36,9 @@ dataset sizes are a **Compute-Constraint Demonstration**, not novel ablations.
 Synthetic results do not reproduce the paper's clinical benchmark performance.
 ``examples/eicu_los_tpc.py`` prepares a clinical experiment plan using
 :class:`~pyhealth.tasks.tpc_day_one.TPCDayOne` and existing supported datasets.
-Clinical data access, experiments, and results are explicitly **pending**;
-see ``examples/tpc/README.md`` for placeholders and future execution commands.
+The MIMIC-IV Clinical Database Demo 2.2 sweep is measured and documented in
+``examples/tpc/README.md``. Full-dataset eICU/MIMIC-IV experiments and results
+remain **pending**; small-demo results do not reproduce the paper's benchmarks.
 Standard BatchNorm uses running statistics at inference, unlike the released
 code's batch-statistics normalization. Only evaluation-mode predictions are
 strictly causal: training BatchNorm pools statistics over the time axis.

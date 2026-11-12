@@ -1,19 +1,19 @@
 """Prepare or run TPC day-one experiments on authorized local ICU data.
 
-Clinical status: DATA ACCESS PENDING; EXPERIMENTS NOT RUN; RESULTS PENDING.
-No clinical results are bundled. See examples/tpc/README.md for the protocol,
-pending results table, limitations, and commands. This script never downloads
-data. Without --run, it only writes a plan and PENDING table; no dataset is
-instantiated and no training is performed.
+MIMIC-IV Clinical Database Demo 2.2: a measured three-seed, 45-configuration
+sweep is documented in examples/tpc/README.md. Full-dataset eICU/MIMIC-IV
+experiments remain PENDING; demo results are not paper benchmark reproduction.
+This script never downloads data. Without --run, it only writes a plan and
+PENDING table; no dataset is instantiated and no training is performed.
 
     python -m examples.eicu_los_tpc --prepare-only --all-configs
     python -m examples.eicu_los_tpc --run --dataset eicu \
         --root /authorized/eicu/2.0 --data-version 2.0 \
         --output-dir output/tpc_eicu_baseline
 
-MIMIC-IV is also supported with --dataset mimic4. All clinical-data execution
-remains unverified until authorized data are available. Synthetic unit tests
-exercise the adapter and runner separately; they are not clinical experiments.
+MIMIC-IV is also supported with --dataset mimic4. The MIMIC-IV demo has run
+end to end; eICU and full MIMIC-IV execution remain unverified. Unit tests use
+only synthetic fixtures, not clinical or demo records.
 """
 
 import argparse
