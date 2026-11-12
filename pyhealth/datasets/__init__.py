@@ -126,6 +126,7 @@ from .tuev import TUEVDataset
 from .chbmit import CHBMITDataset as CHBMITDataset
 from .helsinki_neonatal import HelsinkiNeonatalDataset as HelsinkiNeonatalDataset
 from .eesm23 import EESM23Dataset as EESM23Dataset
+from .tcga_rna_seq import TCGARNASeqDataset
 from .utils import (
     collate_fn_dict,
     collate_fn_dict_with_padding,
