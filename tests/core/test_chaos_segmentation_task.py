@@ -16,7 +16,7 @@ except ImportError:  # pragma: no cover - test env installs the extra
     pydicom = None
 
 from pyhealth.datasets import CHAOSDataset, get_dataloader
-from pyhealth.processors.image_io.types import ImageRef
+from pyhealth.tasks.chaos_segmentation import _CHAOSSegmentationBase
 
 
 def _write_slice(
@@ -184,18 +184,48 @@ class TestCHAOSTasks(unittest.TestCase):
             ),
         )
 
-        # The processed cache must store references, not the full 3D masks.
-        samples._resolve_refs = False
-        raw = samples[0]
-        self.assertIsInstance(raw["image"], ImageRef)
-        self.assertIsInstance(raw["mask"], ImageRef)
-        self.assertEqual(raw["mask"].reader, "image_mask")
-        samples._resolve_refs = True
+        # The processed cache stores lazy file paths/dicts, not full 3D tensors.
+        self.assertIsInstance(sample["image"], list)
+        self.assertIsInstance(sample["mask"], dict)
+        self.assertIn("mask_dir", sample["mask"])
 
         loader = get_dataloader(samples, batch_size=1)
         batch = next(iter(loader))
         self.assertEqual(tuple(batch["image"].shape), (1, 1, 2, 8, 8))
         self.assertEqual(tuple(batch["mask"].shape), (1, 1, 2, 8, 8))
+
+    def test_task_validation_and_filtering(self):
+        from pyhealth.tasks import (
+            CHAOSAbdominalSegmentationCTMRI,
+            CHAOSLiverSegmentationCTonly,
+        )
+
+        with self.assertRaises(TypeError):
+            _CHAOSSegmentationBase()
+
+        with self.assertRaises(ValueError):
+            CHAOSLiverSegmentationCTonly(
+                num_classes=2, label_map={0: 0, 1: 5}
+            )
+
+        with self.assertRaises(ValueError):
+            CHAOSAbdominalSegmentationCTMRI(
+                num_classes=3, label_map={0: 0, 1: 1, 63: 2}
+            )
+
+        spaced_task = CHAOSLiverSegmentationCTonly(
+            target_spacing=(2.0, 1.0, 1.0),
+            sequence="T2SPIR",
+        )
+        self.assertEqual(
+            spaced_task.input_schema["image"][1]["target_spacing"],
+            (2.0, 1.0, 1.0),
+        )
+        patient = self.dataset.get_patient(self.dataset.unique_patient_ids[0])
+        self.assertEqual(spaced_task(patient), [])
+
+        phase_task = CHAOSLiverSegmentationCTonly(phase="InPhase")
+        self.assertEqual(phase_task(patient), [])
 
 
 if __name__ == "__main__":

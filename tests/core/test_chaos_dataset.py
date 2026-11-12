@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from pyhealth.datasets import CHAOSDataset
 
@@ -97,6 +98,35 @@ class TestCHAOSDataset(unittest.TestCase):
             (metadata_dir / "chaos-metadata-pyhealth.csv").exists()
         )
         self.assertFalse((self.root / "chaos-metadata-pyhealth.csv").exists())
+
+    def test_missing_train_sets_and_download_and_default_metadata_dir(self):
+        missing_root = Path(self.temp_dir) / "missing_chaos"
+        missing_root.mkdir(parents=True, exist_ok=True)
+        with self.assertRaises(FileNotFoundError):
+            CHAOSDataset(
+                root=str(missing_root),
+                cache_dir=str(self.cache_dir),
+            )
+
+        def _populate_on_download(*_args, **_kwargs):
+            _touch(
+                missing_root / "Train_Sets/CT/1/DICOM_anon/slice_0.dcm"
+            )
+            _touch(
+                missing_root / "Train_Sets/CT/1/Ground/mask_0.png"
+            )
+
+        with mock.patch(
+            "pyhealth.datasets.chaos._download_archives",
+            side_effect=_populate_on_download,
+        ) as mocked:
+            dataset = CHAOSDataset(
+                root=str(missing_root),
+                cache_dir=str(self.cache_dir),
+                download=True,
+            )
+            mocked.assert_called_once()
+            self.assertEqual(set(dataset.unique_patient_ids), {"ct_1"})
 
 
 if __name__ == "__main__":
