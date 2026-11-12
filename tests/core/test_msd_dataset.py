@@ -185,7 +185,7 @@ class TestMSDDatasets(unittest.TestCase):
         spec = {
             "name": "CustomMSD",
             "tensorImageSize": "3D",
-            "channel_names": {"0": "T2"},
+            "channel_names": ["T2", "ADC"],
             "labels": ["background", "foreground"],
             "training": [
                 {
@@ -205,8 +205,12 @@ class TestMSDDatasets(unittest.TestCase):
             cache_dir=str(self.cache_dir),
         )
         self.assertEqual(dataset.num_classes, 2)
+        self.assertEqual(dataset.modality, "T2,ADC")
         self.assertEqual(dataset.default_normalization, "mri")
         self.assertIn("case_003", set(dataset.unique_patient_ids))
+        event = dataset.get_patient("case_001").get_events()[0]
+        self.assertEqual(event.modality, "T2,ADC")
+        self.assertEqual(int(event.channels), 2)
 
 
 if __name__ == "__main__":

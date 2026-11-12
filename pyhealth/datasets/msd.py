@@ -38,6 +38,7 @@ class MSDSegmentationDataset(BaseDataset):
         num_workers: Number of workers for dataset processing.
         dev: Whether to limit the dataset to 1000 patients.
         download: Download and extract the MSD task when it is missing.
+            Archive checksums are not verified automatically.
         refresh_metadata: Regenerate the metadata CSV even if it exists.
 
     Examples:
@@ -77,7 +78,7 @@ class MSDSegmentationDataset(BaseDataset):
             download: Download and extract the MSD task when it is missing.
             refresh_metadata: Regenerate the metadata CSV.
         """
-        source_root = Path(root).resolve()
+        source_root = Path(root).expanduser().resolve()
         if download and not (source_root / "dataset.json").exists():
             if self.download_url is None:
                 raise ValueError("This MSD task has no download URL.")
@@ -98,7 +99,7 @@ class MSDSegmentationDataset(BaseDataset):
         name = dataset_name or self.default_dataset_name
         self.source_root = source_root
         self.metadata_dir = (
-            Path(metadata_dir)
+            Path(metadata_dir).expanduser()
             if metadata_dir is not None
             else _resolve_metadata_dir(cache_dir, name)
         )
@@ -123,13 +124,25 @@ class MSDSegmentationDataset(BaseDataset):
             dev=dev,
         )
 
+    @staticmethod
+    def _modality_values(specification: dict) -> list[str]:
+        """Return ordered channel modality names from ``dataset.json``."""
+        modalities = specification.get("channel_names") or specification.get(
+            "modality", {}
+        )
+        if isinstance(modalities, dict):
+            values = list(modalities.values())
+        else:
+            values = list(modalities)
+        return [str(value) for value in values]
+
     def prepare_metadata(self) -> None:
         """Create the MSD metadata CSV from ``dataset.json``."""
         with open(self.source_root / "dataset.json") as handle:
             specification = json.load(handle)
 
-        modalities = list(specification.get("modality", {}).values())
-        modality = ",".join(str(item) for item in modalities)
+        modalities = self._modality_values(specification)
+        modality = ",".join(modalities)
         channels = len(modalities) if modalities else 1
         labels = json.dumps(
             specification.get("labels", {}), ensure_ascii=False
@@ -181,15 +194,7 @@ class MSDSegmentationDataset(BaseDataset):
     @property
     def modality(self) -> str:
         """Return the dataset modality declared in ``dataset.json``."""
-        specification = self._specification
-        modalities = specification.get("channel_names") or specification.get(
-            "modality", {}
-        )
-        if isinstance(modalities, dict):
-            values = list(modalities.values())
-        else:
-            values = list(modalities)
-        return ",".join(str(value) for value in values)
+        return ",".join(self._modality_values(self._specification))
 
     @property
     def default_normalization(self) -> str:
