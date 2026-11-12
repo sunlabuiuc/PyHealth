@@ -220,7 +220,7 @@ Quick Navigation
    how_to_get_started
    install
    tutorials
-   .. advance_tutorials
+   faq
 
 
 .. toctree::
