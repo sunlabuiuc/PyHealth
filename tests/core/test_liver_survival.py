@@ -9,6 +9,7 @@ import pandas as pd
 
 from pyhealth.tasks.liver_survival import (
     DAYS_PER_YEAR,
+    build_binary_horizon_samples,
     build_counting_process_samples,
     build_landmark_samples,
     counting_process_samples_from_frame,
@@ -173,6 +174,31 @@ class TestLandmarkSamples(unittest.TestCase):
         self.assertEqual(rows[0]["survival"][1], 0)
         with self.assertRaises(ValueError):
             build_landmark_samples("2", [0, 100], [[1.0], [2.0]], futime=100, status=0)
+
+
+class TestBinaryHorizonSamples(unittest.TestCase):
+    """Labels an event within the horizon and drops unknown labels."""
+
+    def test_labels_and_drop_rule(self):
+        rows = build_binary_horizon_samples(
+            "1", [0, 182, 365, 730], [[1.0]] * 4, futime=913, status=2, horizon=1.0
+        )
+        # Years left: 2.50, 2.00, 1.50, 0.50 -> only the last is within 1 year.
+        self.assertEqual([r["label"] for r in rows], [0, 0, 0, 1])
+        censored = build_binary_horizon_samples(
+            "2", [0, 365], [[1.0]] * 2, futime=500, status=0, horizon=1.0
+        )
+        self.assertEqual([r["visit_id"] for r in censored], ["2_0"])
+
+    def test_rejects_non_positive_horizon(self):
+        with self.assertRaises(ValueError):
+            build_binary_horizon_samples("1", [0], [[1.0]], 100, 2, horizon=0)
+
+    def test_ffill_switch(self):
+        rows = build_counting_process_samples(
+            "1", [0, 100], [[1.0], [NAN]], futime=300, status=0, ffill=False
+        )
+        self.assertTrue(math.isnan(rows[1]["features"][0]))
 
 
 class TestBuildCountingProcessValidation(unittest.TestCase):

@@ -25,7 +25,11 @@ from .survival import (
     concordance_index,
     cumulative_dynamic_auc,
     ipcw_brier_score,
+    mean_tdci_bootstrap_ci,
+    mean_tdci_paired_bootstrap_diff,
+    outcomes_from_labels,
     survival_metrics_fn,
+    time_dependent_concordance_index,
 )
 
 __all__ = [
@@ -52,7 +56,11 @@ __all__ = [
     "paired_bootstrap_diff",
     "ranking_metrics_fn",
     "regression_metrics_fn",
+    "mean_tdci_bootstrap_ci",
+    "mean_tdci_paired_bootstrap_diff",
+    "outcomes_from_labels",
     "survival_metrics_fn",
+    "time_dependent_concordance_index",
     "timeseries_binary_metrics_fn",
     "timeseries_regression_metrics_fn",
 ]

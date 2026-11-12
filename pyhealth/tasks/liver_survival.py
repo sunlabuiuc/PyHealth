@@ -24,7 +24,9 @@ years.
 """
 
 import math
-from collections.abc import Sequence
+import zlib
+from collections.abc import Mapping, Sequence
+from functools import partial
 from typing import Any
 
 import numpy as np
@@ -98,12 +100,13 @@ def _validated_visits(
     futime: float,
     status: int,
     event: str,
+    ffill: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, int]:
     """Checks one patient's visits and forward-fills their labs.
 
     Returns:
-        The visit days, the forward-filled ``(K, F)`` labs, and the patient's
-        event indicator.
+        The visit days, the ``(K, F)`` labs (forward-filled if ``ffill``), and
+        the patient's event indicator.
 
     Raises:
         ValueError: If the visits are empty, non-finite, unsorted, negative,
@@ -126,6 +129,8 @@ def _validated_visits(
             f"futime (day {futime})."
         )
     filled = forward_fill(features)
+    if not ffill:
+        filled = np.array(features, dtype=np.float64)
     if filled.shape[0] != days.size:
         raise ValueError(
             f"Patient {patient_id}: {days.size} visits but {filled.shape[0]} "
@@ -142,6 +147,7 @@ def build_counting_process_samples(
     futime: float,
     status: int,
     event: str = "death",
+    ffill: bool = True,
 ) -> list[dict[str, Any]]:
     """Builds one ``[start, stop, event]`` sample per visit of a patient.
 
@@ -155,6 +161,8 @@ def build_counting_process_samples(
         futime: Days from enrollment to the event or censoring.
         status: 0 (censored), 1 (transplant), or 2 (death).
         event: Event definition passed to :func:`event_indicator`.
+        ffill: Forward-fill missing labs from earlier visits (default). If
+            False, missing labs stay NaN for the feature processor to impute.
 
     Returns:
         A list of ``K`` sample dicts with keys ``patient_id``, ``visit_id``
@@ -174,7 +182,7 @@ def build_counting_process_samples(
         [[0.0, 1.0, 0], [1.0, 2.0, 1]]
     """
     days, filled, final_event = _validated_visits(
-        patient_id, visit_days, features, futime, status, event
+        patient_id, visit_days, features, futime, status, event, ffill
     )
     stops = np.append(days[1:], futime)
     samples = []
@@ -203,6 +211,7 @@ def build_landmark_samples(
     futime: float,
     status: int,
     event: str = "death",
+    ffill: bool = True,
 ) -> list[dict[str, Any]]:
     """Builds one ``[duration, event]`` landmark sample per visit of a patient.
 
@@ -220,6 +229,8 @@ def build_landmark_samples(
         futime: Days from enrollment to the event or censoring.
         status: 0 (censored), 1 (transplant), or 2 (death).
         event: Event definition passed to :func:`event_indicator`.
+        ffill: Forward-fill missing labs from earlier visits (default). If
+            False, missing labs stay NaN for the feature processor to impute.
 
     Returns:
         A list of ``K`` sample dicts with keys ``patient_id``, ``visit_id``,
@@ -238,7 +249,7 @@ def build_landmark_samples(
         [[2.0, 1], [1.0, 1]]
     """
     days, filled, final_event = _validated_visits(
-        patient_id, visit_days, features, futime, status, event
+        patient_id, visit_days, features, futime, status, event, ffill
     )
     return [
         {
@@ -250,6 +261,76 @@ def build_landmark_samples(
         }
         for k, day in enumerate(days)
     ]
+
+
+def build_binary_horizon_samples(
+    patient_id: str,
+    visit_days: Sequence[float],
+    features: Sequence[Sequence[float]],
+    futime: float,
+    status: int,
+    horizon: float,
+    event: str = "death",
+    ffill: bool = True,
+) -> list[dict[str, Any]]:
+    """Builds fixed-horizon binary samples: an event within ``horizon`` years?
+
+    Each visit gets ``label`` 1 if the patient has the event within
+    ``horizon`` years after it, and 0 if they are followed for longer than
+    ``horizon`` years. Visits whose follow-up ends sooner without the event
+    (censored, or a competing transplant) are **dropped**, because their label
+    is unknown; counting them as 0 would bias the label.
+
+    Args:
+        patient_id: The patient identifier.
+        visit_days: Visit times in days since enrollment, strictly increasing,
+            starting at 0 or later and ending before ``futime``.
+        features: Lab values per visit, shape ``(K, F)``.
+        futime: Days from enrollment to the event or censoring.
+        status: 0 (censored), 1 (transplant), or 2 (death).
+        horizon: Prediction horizon in years (positive).
+        event: Event definition passed to :func:`event_indicator`.
+        ffill: Forward-fill missing labs from earlier visits.
+
+    Returns:
+        Sample dicts with keys ``patient_id``, ``visit_id``,
+        ``landmark_time``, ``features``, and ``label`` (0 or 1).
+
+    Raises:
+        ValueError: If ``horizon`` is not positive, or the visits are invalid
+            (see :func:`build_counting_process_samples`).
+
+    Examples:
+        >>> rows = build_binary_horizon_samples(
+        ...     "1", [0, 365.25], [[1.0], [2.0]], futime=730.5, status=2,
+        ...     horizon=1.5)
+        >>> [(row["visit_id"], row["label"]) for row in rows]
+        [('1_0', 0), ('1_1', 1)]
+    """
+    if not horizon > 0:
+        raise ValueError(f"horizon must be positive, got {horizon}.")
+    days, filled, final_event = _validated_visits(
+        patient_id, visit_days, features, futime, status, event, ffill
+    )
+    samples = []
+    for k, day in enumerate(days):
+        remaining = (futime - day) / DAYS_PER_YEAR
+        if remaining > horizon:
+            label = 0
+        elif final_event == 1:
+            label = 1
+        else:
+            continue
+        samples.append(
+            {
+                "patient_id": str(patient_id),
+                "visit_id": f"{patient_id}_{k}",
+                "landmark_time": float(day / DAYS_PER_YEAR),
+                "features": filled[k].tolist(),
+                "label": label,
+            }
+        )
+    return samples
 
 
 def counting_process_samples_from_frame(
@@ -333,7 +414,7 @@ FEATURE_SETS: dict[str, tuple[str, ...]] = {
   over time and is used to define the distribution-shift split.
 """
 
-MODES = ("counting_process", "landmark")
+MODES = ("counting_process", "landmark", "binary_horizon")
 
 LOG_SCALE_FEATURES = frozenset(
     {"bili", "albumin", "ast", "protime", "alk_phos", "chol", "platelet"}
@@ -353,6 +434,9 @@ class LongitudinalLiverSurvival(BaseTask):
       ``[start, stop, event]`` in years, for time-varying Cox models (MAS).
     - ``mode="landmark"``: label ``survival`` = ``[duration, event]`` in years
       from the visit, for models such as DeepSurv (DeepMAS).
+    - ``mode="binary_horizon"``: binary ``label`` = event within ``horizon``
+      years of the visit, for standard classifiers. Visits censored before the
+      horizon are dropped (see :func:`build_binary_horizon_samples`).
 
     Features are z-scored by ``TensorProcessor`` with statistics learned in
     ``fit()``, and missing values become the training mean. Fit on training
@@ -364,7 +448,8 @@ class LongitudinalLiverSurvival(BaseTask):
     stage-shift experiment).
 
     Args:
-        mode: ``"counting_process"`` (default) or ``"landmark"``.
+        mode: ``"counting_process"`` (default), ``"landmark"``, or
+            ``"binary_horizon"``.
         feature_set: A name in :data:`FEATURE_SETS` (default ``"mas4"``) or a
             sequence of ``pbcseq`` column names.
         event: ``"death"`` (default; transplant is censored at the transplant
@@ -376,6 +461,15 @@ class LongitudinalLiverSurvival(BaseTask):
             missing. Logging is applied before
             z-scoring and tames the heavy right tails of bilirubin, AST, and
             prothrombin time.
+        horizon: Years for ``mode="binary_horizon"`` (required there).
+        forward_fill: Forward-fill missing labs from earlier visits (default;
+            the MAS paper's imputation). If False, missing labs are filled
+            with the training mean by the feature processor.
+        inject_missing: Missing-data ablation: ``{feature: rate}`` sets each
+            follow-up value (not day 0) of that feature to missing with
+            probability ``rate``, independently, before imputation.
+        inject_seed: Seed for ``inject_missing``. The same seed and patient
+            always give the same mask.
         missing_indicators: Append a 0/1 column per feature marking values that
             were missing before imputation (for missingness ablations).
 
@@ -408,6 +502,10 @@ class LongitudinalLiverSurvival(BaseTask):
         event: str = "death",
         log_transform: bool | Sequence[str] = False,
         missing_indicators: bool = False,
+        horizon: float | None = None,
+        forward_fill: bool = True,
+        inject_missing: Mapping[str, float] | None = None,
+        inject_seed: int = 0,
     ) -> None:
         if mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}, got {mode!r}.")
@@ -450,10 +548,27 @@ class LongitudinalLiverSurvival(BaseTask):
                 },
             )
         }
+        if mode == "binary_horizon":
+            if horizon is None or not horizon > 0:
+                raise ValueError("mode='binary_horizon' needs a positive horizon.")
+        elif horizon is not None:
+            raise ValueError("horizon is only used with mode='binary_horizon'.")
+        self.horizon = horizon
+        self.forward_fill = forward_fill
+        injection = dict(inject_missing or {})
+        unknown = [name for name in injection if name not in feature_names]
+        if unknown:
+            raise ValueError(f"inject_missing names unknown features {unknown}.")
+        if any(not 0 <= rate < 1 for rate in injection.values()):
+            raise ValueError("inject_missing rates must be in [0, 1).")
+        self.inject_missing = injection
+        self.inject_seed = inject_seed
         if mode == "counting_process":
             self.output_schema = {"survival_interval": "survival_interval"}
-        else:
+        elif mode == "landmark":
             self.output_schema = {"survival": "survival"}
+        else:
+            self.output_schema = {"label": "binary"}
         super().__init__()
 
     def __call__(self, patient: Any) -> list[dict[str, Any]]:
@@ -501,29 +616,61 @@ class LongitudinalLiverSurvival(BaseTask):
                 f"Patient {patient.patient_id}: status must be 0, 1, or 2, "
                 f"got {status}."
             )
-        build = (
-            build_counting_process_samples
-            if self.mode == "counting_process"
-            else build_landmark_samples
-        )
+        features = values.select(
+            [
+                _log_positive(name) if name in self.log_features else pl.col(name)
+                for name in self.feature_names
+            ]
+        ).to_numpy()
+        if self.inject_missing:
+            features = _inject_missing(
+                features,
+                values["day"].to_numpy(),
+                [self.inject_missing.get(n, 0.0) for n in self.feature_names],
+                self.inject_seed,
+                str(patient.patient_id),
+            )
+        if self.mode == "counting_process":
+            build = build_counting_process_samples
+        elif self.mode == "landmark":
+            build = build_landmark_samples
+        else:
+            build = partial(build_binary_horizon_samples, horizon=self.horizon)
         samples = build(
             patient_id=str(patient.patient_id),
             visit_days=values["day"].to_numpy(),
-            features=values.select(
-                [
-                    _log_positive(name) if name in self.log_features else pl.col(name)
-                    for name in self.feature_names
-                ]
-            ).to_numpy(),
+            features=features,
             futime=float(futimes[0]),
             status=int(status),
             event=self.event,
+            ffill=self.forward_fill,
         )
         stage = values["stage"][0]
         baseline_stage = None if stage is None or math.isnan(stage) else int(stage)
         for sample in samples:
             sample["baseline_stage"] = baseline_stage
         return samples
+
+
+def _inject_missing(
+    features: np.ndarray,
+    days: np.ndarray,
+    rates: Sequence[float],
+    seed: int,
+    patient_id: str,
+) -> np.ndarray:
+    """Sets follow-up values to NaN at random, reproducibly per patient.
+
+    Day-0 values are kept. Each other value of feature ``f`` is removed with
+    probability ``rates[f]``, using a generator seeded by ``seed`` and the
+    patient id, so a patient's mask does not depend on the other patients.
+    """
+    rng = np.random.default_rng([seed, zlib.crc32(patient_id.encode())])
+    drop = rng.random(features.shape) < np.asarray(rates, dtype=float)
+    drop &= (np.asarray(days) > 0)[:, None]
+    features = features.copy()
+    features[drop] = np.nan
+    return features
 
 
 def _log_positive(column: str) -> pl.Expr:

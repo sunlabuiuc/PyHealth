@@ -18,6 +18,8 @@ Features only use labs measured at or before the visit.
 
 .. autofunction:: build_landmark_samples
 
+.. autofunction:: build_binary_horizon_samples
+
 .. autofunction:: counting_process_samples_from_frame
 
 .. autodata:: FEATURE_SETS

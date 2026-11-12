@@ -247,6 +247,61 @@ class TestTaskOptions(_FixtureCase):
             task(self.dataset.get_patient("1"))
 
 
+class TestAblationOptions(_FixtureCase):
+    """Options used by the E1 (missingness) and E3 (binary label) ablations."""
+
+    def _rows(self, pid, **kwargs):
+        return LongitudinalLiverSurvival(**kwargs)(self.dataset.get_patient(pid))
+
+    def test_binary_horizon_labels_and_censoring_drop(self):
+        task = LongitudinalLiverSurvival(mode="binary_horizon", horizon=1.5)
+        self.assertEqual(task.output_schema, {"label": "binary"})
+        died = self._rows("1", mode="binary_horizon", horizon=1.5)
+        # Years left after each visit: 2.50, 2.00, 1.50 (548 days), 0.50 (died).
+        self.assertEqual([r["label"] for r in died], [0, 0, 0, 1])
+        transplanted = self._rows("3", mode="binary_horizon", horizon=1.5)
+        # Only the day-0 visit is followed past 1.5 years; the rest are dropped.
+        self.assertEqual([r["visit_id"] for r in transplanted], ["3_0"])
+        self.assertEqual(transplanted[0]["label"], 0)
+        censored = self._rows("2", mode="binary_horizon", horizon=1.5)
+        self.assertEqual([r["label"] for r in censored], [0, 0, 0])  # last dropped
+
+    def test_horizon_argument_checks(self):
+        with self.assertRaises(ValueError):
+            LongitudinalLiverSurvival(mode="binary_horizon")
+        with self.assertRaises(ValueError):
+            LongitudinalLiverSurvival(mode="binary_horizon", horizon=0)
+        with self.assertRaises(ValueError):
+            LongitudinalLiverSurvival(horizon=2.0)
+
+    def test_forward_fill_off_leaves_missing_values(self):
+        filled = self._rows("5")
+        unfilled = self._rows("5", forward_fill=False)
+        self.assertEqual(filled[1]["features"][2], 90.0)  # AST carried forward
+        self.assertTrue(np.isnan(unfilled[1]["features"][2]))
+
+    def test_inject_missing_masks_follow_up_values_reproducibly(self):
+        kwargs = {"inject_missing": {"ast": 0.99}, "inject_seed": 3}
+        masked = self._rows("1", forward_fill=False, **kwargs)
+        ast = [r["features"][2] for r in masked]
+        self.assertEqual(ast[0], 100.0)  # day 0 is never masked
+        self.assertTrue(all(np.isnan(v) for v in ast[1:]))
+        bili = [r["features"][0] for r in masked]
+        self.assertEqual(bili, [1.0, 1.5, 2.0, 3.0])  # other labs untouched
+        again = [
+            r["features"][2] for r in self._rows("1", forward_fill=False, **kwargs)
+        ]
+        np.testing.assert_array_equal(ast, again)
+        filled = [r["features"][2] for r in self._rows("1", **kwargs)]
+        self.assertEqual(filled, [100.0] * 4)  # forward-filled from day 0
+
+    def test_inject_missing_argument_checks(self):
+        with self.assertRaises(ValueError):
+            LongitudinalLiverSurvival(inject_missing={"creatinine": 0.5})
+        with self.assertRaises(ValueError):
+            LongitudinalLiverSurvival(inject_missing={"ast": 1.0})
+
+
 class TestSetTaskWithSplit(_FixtureCase):
     """Processors are fitted on the training patients only."""
 
