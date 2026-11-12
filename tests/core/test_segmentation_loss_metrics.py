@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 from pyhealth.metrics import (
+    case_level_segmentation_metrics,
     dice_score,
     iou_score,
     per_class_dice_score,
@@ -471,6 +472,10 @@ class TestSegmentationMetrics(unittest.TestCase):
         )
         self.assertAlmostEqual(scores["dice"], 1.0)
         self.assertAlmostEqual(scores["iou"], 1.0)
+        alias_scores = case_level_segmentation_metrics(
+            target, prob, mode="segmentation_binary"
+        )
+        self.assertEqual(alias_scores, scores)
 
 
 class TestSegmentationLabelProcessors(unittest.TestCase):

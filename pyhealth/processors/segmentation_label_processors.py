@@ -70,8 +70,8 @@ class _SegmentationLabelProcessor(LabelProcessor):
         self.ignore_index = ignore_index
         # Trainer calls ``label.metrics_fn(...)`` on the instance. Bind the
         # per-instance options here so padded masks and a fixed class count
-        # reach the metrics, while the classmethod below still serves
-        # ``get_metrics_fn(mode)``.
+        # reach the metrics, while the classmethod below satisfies the
+        # ``LabelProcessor`` interface.
         from pyhealth.metrics.segmentation import segmentation_metrics_fn
 
         self.metrics_fn = functools.partial(
@@ -124,7 +124,9 @@ class SegmentationBinaryLabelProcessor(_SegmentationLabelProcessor):
 
     The mask is already read by an image processor; this processor defines the
     label kind so models and the ``Trainer`` know how to activate, score and
-    gather variable-shaped masks.
+    gather variable-shaped masks. Supplied by
+    :attr:`~pyhealth.models.UNet.label_processors`; not available as a string
+    schema or through ``get_metrics_fn``.
 
     Examples:
         >>> import torch
@@ -152,6 +154,9 @@ class SegmentationBinaryLabelProcessor(_SegmentationLabelProcessor):
 
 class SegmentationMultiClassLabelProcessor(_SegmentationLabelProcessor):
     """Multi-class segmentation labels: one integer class per voxel.
+
+    Supplied by :attr:`~pyhealth.models.UNet.label_processors`; not available
+    as a string schema or through ``get_metrics_fn``.
 
     Examples:
         >>> import torch

@@ -198,8 +198,10 @@ per-sample ``class_mask``. For partially annotated data, evaluate with
 annotated classes before scoring.
 
 When ``in_channels``, ``num_classes`` or ``spatial_dim`` are omitted, ``UNet``
-reads them from the image and mask processors. Lazy values are materialised
-before their shape or labels are inspected.
+reads them from the image and mask processors or the first materialised sample
+(a ``{0, 1}`` mask without ``num_classes`` infers ``num_classes=2`` multiclass;
+pass ``num_classes=1`` for single-channel binary segmentation). Lazy values are
+materialised before their shape or labels are inspected.
 
 Imbalanced outcomes
 ^^^^^^^^^^^^^^^^^^^

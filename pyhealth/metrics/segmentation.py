@@ -696,9 +696,11 @@ def case_level_segmentation_metrics(
         >>> from pyhealth.metrics import case_level_segmentation_metrics
         >>> y = [np.array([[0, 1]])]
         >>> p = [np.array([[0.0, 0.9]])]
-        >>> score = case_level_segmentation_metrics(  # doctest: +SKIP
+        >>> score = case_level_segmentation_metrics(
         ...     y, p, mode="segmentation_binary"
         ... )
+        >>> round(score["dice"], 3)
+        1.0
     """
     return segmentation_metrics_fn(
         y_true,

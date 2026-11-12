@@ -547,9 +547,11 @@ class UNet(BaseModel):
             omitted.
         num_classes: Number of output classes. ``1`` selects binary
             segmentation; values above 1 select multiclass segmentation.
-            Inferred from the mask processor or the first sample when omitted.
-        spatial_dim: ``2`` or ``3``. Inferred from the input processor or the
-            first sample when omitted.
+            Inferred from the mask processor or as ``max(mask) + 1`` from the
+            first sample when omitted (so a ``{0, 1}`` mask defaults to 2-class
+            multiclass unless ``num_classes=1`` is passed).
+        spatial_dim: ``2`` or ``3``. Inferred from the first materialised
+            sample when omitted.
         base_channels: Number of channels after the first convolution.
             Defaults to 64, matching the original U-Net paper.
         depth: Number of resolution levels. Defaults to 5, matching the
@@ -611,9 +613,23 @@ class UNet(BaseModel):
         self.label_key = self.label_keys[0]
         self.ignore_index = ignore_index
         self.segmentation_ignore_index = ignore_index
-        self.spatial_dim = spatial_dim or self._infer_spatial_dim()
-        self.in_channels = in_channels or self._infer_in_channels()
-        self.num_classes = num_classes or self._infer_num_classes()
+        self.spatial_dim = (
+            self._infer_spatial_dim()
+            if spatial_dim is None
+            else int(spatial_dim)
+        )
+        self.in_channels = (
+            self._infer_in_channels()
+            if in_channels is None
+            else int(in_channels)
+        )
+        self.num_classes = (
+            self._infer_num_classes()
+            if num_classes is None
+            else int(num_classes)
+        )
+        if self.in_channels < 1:
+            raise ValueError("in_channels must be at least 1.")
         if self.num_classes < 1:
             raise ValueError("num_classes must be at least 1.")
         self.base_channels = int(base_channels)
@@ -711,7 +727,9 @@ class UNet(BaseModel):
         inferred = int(values.max().item()) + 1 if values.numel() else 1
         logger.warning(
             "num_classes was inferred from the first mask as %d; pass "
-            "num_classes explicitly if the dataset contains rarer labels.",
+            "num_classes explicitly if the dataset contains rarer labels "
+            "(or num_classes=1 for single-channel binary segmentation on "
+            "{0, 1} masks).",
             inferred,
         )
         return inferred

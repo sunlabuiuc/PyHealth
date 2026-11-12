@@ -188,6 +188,8 @@ class TestUNet(unittest.TestCase):
             "depth": 2,
         }
         cases = [
+            ({"in_channels": 0}, "in_channels"),
+            ({"num_classes": 0}, "num_classes"),
             ({"num_classes": -1}, "num_classes"),
             ({"depth": 0}, "depth"),
             ({"base_channels": 0}, "base_channels"),
@@ -514,6 +516,29 @@ class TestUNet(unittest.TestCase):
         self.assertIn("dice", scores)
         self.assertIn("iou", scores)
         self.assertIn("loss", scores)
+
+    def test_trainer_binary_one_epoch(self):
+        dataset = _make_3d_dataset()
+        sampler = PatchSampler((8, 8, 8), foreground_prob=1.0)
+        patches = PatchDataset(dataset, sampler, mode="train")
+        loader = get_dataloader(patches, batch_size=2, shuffle=True)
+        model = UNet3D(
+            dataset, in_channels=1, num_classes=1, base_channels=4, depth=2
+        )
+        self.assertEqual(model.mode, "segmentation_binary")
+        trainer = Trainer(
+            model,
+            device="cpu",
+            enable_logging=False,
+            metrics=["dice", "iou"],
+        )
+        trainer.train(loader, epochs=1)
+        scores = trainer.evaluate(loader)
+        self.assertIn("dice", scores)
+        self.assertIn("iou", scores)
+        self.assertIn("loss", scores)
+        self.assertTrue(np.isfinite(scores["dice"]))
+        self.assertTrue(np.isfinite(scores["iou"]))
 
 
 if __name__ == "__main__":
