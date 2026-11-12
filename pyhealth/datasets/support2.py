@@ -27,6 +27,10 @@ class Support2Dataset(BaseDataset):
         Objective estimates of survival for seriously ill hospitalized adults. 
         Ann Intern Med. 1995;122(3):191-203.
 
+    Getting the data:
+        - Access: open, no account needed. Any of the sources above works.
+        - ``root``: the folder holding ``support2.csv``.
+
     Args:
         root (str): The root directory where the dataset CSV file is stored.
         tables (List[str]): A list of tables to be included (typically ["support2"]).

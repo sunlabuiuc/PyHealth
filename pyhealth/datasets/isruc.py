@@ -76,12 +76,17 @@ def _download_ISRUC_group1(data_dir: str, dev: bool, exclude_subjects: List[int]
 class ISRUCDataset(BaseSignalDataset):
     """Base EEG dataset for ISRUC Group I.
 
-    Dataset is available at https://sleeptight.isr.uc.pt/
-
         - The EEG signals are sampled at 200 Hz.
         - There are 100 subjects in the orignal dataset.
         - Each subject's data is about a night's sleep.
 
+
+    Getting the data:
+        - Source: https://sleeptight.isr.uc.pt/ (subgroup I)
+        - Access: open, no account needed.
+        - Download: pass ``download=True`` to fetch and extract the subject
+          archives into ``root/raw`` (needs ``7z`` on Linux).
+        - ``root``: a folder whose ``raw/`` subfolder holds the extracted files.
 
     Args:
         dataset_name: name of the dataset.

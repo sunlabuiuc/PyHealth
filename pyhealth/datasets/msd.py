@@ -29,6 +29,17 @@ class MSDSegmentationDataset(BaseDataset):
     directory. It never reads NIfTI pixels and never writes into the source
     dataset directory.
 
+    Getting the data:
+        - Source: http://medicaldecathlon.com/ (Simpson et al., 2019,
+          https://arxiv.org/abs/1902.09063)
+        - Access: open, licensed CC-BY-SA 4.0.
+        - Download: pass ``download=True`` to fetch and extract the task's
+          ``TaskXX_<Name>.tar`` from the MONAI mirror
+          (https://msd-for-monai.s3-us-west-2.amazonaws.com/). The site also
+          offers the same archives via AWS and Google Drive.
+        - ``root``: the extracted task folder holding ``dataset.json``,
+          ``imagesTr/``, and ``labelsTr/``.
+
     Args:
         root: Root directory of one MSD task, containing ``dataset.json``.
         dataset_name: Optional dataset name.
@@ -224,6 +235,10 @@ class MSDHippocampusDataset(MSDSegmentationDataset):
     The dataset contains one T1-weighted MRI volume and a left/right
     hippocampus mask per training case.
 
+    Open data (CC-BY-SA 4.0) from http://medicaldecathlon.com/. Pass
+    ``download=True`` to fetch it; see :class:`MSDSegmentationDataset` for
+    details.
+
     Examples:
         >>> from pyhealth.datasets import MSDHippocampusDataset
         >>> dataset = MSDHippocampusDataset(  # doctest: +SKIP
@@ -244,6 +259,10 @@ class MSDProstateDataset(MSDSegmentationDataset):
 
     Prostate cases contain two MRI channels (T2 and ADC).
 
+    Open data (CC-BY-SA 4.0) from http://medicaldecathlon.com/. Pass
+    ``download=True`` to fetch it; see :class:`MSDSegmentationDataset` for
+    details.
+
     Examples:
         >>> from pyhealth.datasets import MSDProstateDataset
         >>> dataset = MSDProstateDataset(  # doctest: +SKIP
@@ -263,6 +282,10 @@ class MSDSpleenDataset(MSDSegmentationDataset):
     """MSD Task09 Spleen CT segmentation dataset.
 
     Spleen cases contain one abdominal CT volume and a spleen mask.
+
+    Open data (CC-BY-SA 4.0) from http://medicaldecathlon.com/. Pass
+    ``download=True`` to fetch it; see :class:`MSDSegmentationDataset` for
+    details.
 
     Examples:
         >>> from pyhealth.datasets import MSDSpleenDataset
