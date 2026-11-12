@@ -272,6 +272,17 @@ class MIMIC4EDDataset(BaseDataset):
     ``admissions``, ``icustays``), use :class:`MIMIC4Dataset` with both
     ``ehr_root`` and ``ed_root``.
 
+    Getting the data:
+        - Source: https://physionet.org/content/mimic-iv-ed/ (latest is 2.2)
+        - Access: credentialed, with the same PhysioNet credentialing and
+          CITI training as MIMIC-IV, plus this dataset's own data use
+          agreement.
+        - Download: ``wget -r -N -c -np --user <username> --ask-password
+          https://physionet.org/files/mimic-iv-ed/2.2/``
+        - ``root``: the version folder holding ``ed/``.
+        - No access yet? The open demo has the same layout and works with
+          this class: https://physionet.org/content/mimic-iv-ed-demo/
+
     Args:
         root: The folder that holds ``ed/``.
         tables: ED tables to load besides ``edstays``.

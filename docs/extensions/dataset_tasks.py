@@ -41,8 +41,8 @@ def tasks_by_dataset():
     found = defaultdict(set)
     for path in sorted(TASKS_DIR.glob("*.py")):
         try:
-            tree = ast.parse(path.read_text())
-        except SyntaxError as err:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError) as err:
             # Its tasks would silently vanish from every dataset page.
             logger.warning("dataset_tasks: skipped %s, could not parse it: %s", path.name, err)
             continue

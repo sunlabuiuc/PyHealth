@@ -28,7 +28,9 @@ class Support2Dataset(BaseDataset):
         Ann Intern Med. 1995;122(3):191-203.
 
     Getting the data:
-        - Access: open, no account needed. Any of the sources above works.
+        - Source: https://archive.ics.uci.edu/dataset/880/support2 (or any of
+          the sources listed above)
+        - Access: open, no account needed.
         - ``root``: the folder holding ``support2.csv``.
 
     Args:

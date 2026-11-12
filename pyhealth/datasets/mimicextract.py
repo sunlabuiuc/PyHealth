@@ -34,6 +34,15 @@ class MIMICExtractDataset(BaseEHRDataset):
     This class can be used to read that dataset (mainly the `all_hourly_data.h5` file). Consult the MIMIC-Extract
     documentation for all the options available for dataset generation (cohort selection, aggregation level, etc.).
 
+    Getting the data:
+        - Source: MIMIC-III on PhysioNet,
+          https://physionet.org/content/mimiciii/1.4/, processed with
+          MIMIC-Extract (https://github.com/MLforHealth/MIMIC_Extract).
+        - Access: credentialed, the same as :class:`MIMIC3Dataset`.
+        - Download: build the HDF5 files with one of the routes above.
+        - ``root``: the folder holding ``all_hourly_data.h5`` (or
+          ``all_hourly_data_<pop_size>.h5`` when ``pop_size`` is set).
+
     Args:
         dataset_name: name of the dataset.
         root: root directory of the raw data (should contain one or more HDF5 files).

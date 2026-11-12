@@ -235,9 +235,13 @@ class MSDHippocampusDataset(MSDSegmentationDataset):
     The dataset contains one T1-weighted MRI volume and a left/right
     hippocampus mask per training case.
 
-    Open data (CC-BY-SA 4.0) from http://medicaldecathlon.com/. Pass
-    ``download=True`` to fetch it; see :class:`MSDSegmentationDataset` for
-    details.
+    Getting the data:
+        - Source: http://medicaldecathlon.com/ (``Task04_Hippocampus``)
+        - Access: open, licensed CC-BY-SA 4.0.
+        - Download: pass ``download=True`` to fetch and extract
+          ``Task04_Hippocampus.tar``; see :class:`MSDSegmentationDataset` for details.
+        - ``root``: the extracted ``Task04_Hippocampus`` folder holding
+          ``dataset.json``.
 
     Examples:
         >>> from pyhealth.datasets import MSDHippocampusDataset
@@ -259,9 +263,13 @@ class MSDProstateDataset(MSDSegmentationDataset):
 
     Prostate cases contain two MRI channels (T2 and ADC).
 
-    Open data (CC-BY-SA 4.0) from http://medicaldecathlon.com/. Pass
-    ``download=True`` to fetch it; see :class:`MSDSegmentationDataset` for
-    details.
+    Getting the data:
+        - Source: http://medicaldecathlon.com/ (``Task05_Prostate``)
+        - Access: open, licensed CC-BY-SA 4.0.
+        - Download: pass ``download=True`` to fetch and extract
+          ``Task05_Prostate.tar``; see :class:`MSDSegmentationDataset` for details.
+        - ``root``: the extracted ``Task05_Prostate`` folder holding
+          ``dataset.json``.
 
     Examples:
         >>> from pyhealth.datasets import MSDProstateDataset
@@ -283,9 +291,13 @@ class MSDSpleenDataset(MSDSegmentationDataset):
 
     Spleen cases contain one abdominal CT volume and a spleen mask.
 
-    Open data (CC-BY-SA 4.0) from http://medicaldecathlon.com/. Pass
-    ``download=True`` to fetch it; see :class:`MSDSegmentationDataset` for
-    details.
+    Getting the data:
+        - Source: http://medicaldecathlon.com/ (``Task09_Spleen``)
+        - Access: open, licensed CC-BY-SA 4.0.
+        - Download: pass ``download=True`` to fetch and extract
+          ``Task09_Spleen.tar``; see :class:`MSDSegmentationDataset` for details.
+        - ``root``: the extracted ``Task09_Spleen`` folder holding
+          ``dataset.json``.
 
     Examples:
         >>> from pyhealth.datasets import MSDSpleenDataset
