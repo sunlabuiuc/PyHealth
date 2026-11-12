@@ -162,7 +162,9 @@ def remap_class_mask(
 
     Raises:
         ValueError: If the mask length does not match the probabilities, is
-            all false, or does not include background.
+            all false, does not include background, or the target contains
+            labels outside the probability classes other than
+            ``ignore_index``.
 
     Examples:
         >>> import numpy as np
@@ -195,6 +197,19 @@ def remap_class_mask(
     mapping = np.full(probability.shape[0], int(ignore_index), dtype=np.int64)
     mapping[valid] = np.arange(valid.size)
     in_range = (target >= 0) & (target < probability.shape[0])
+    invalid = ~in_range
+    if invalid.any():
+        unexpected = [
+            int(value)
+            for value in np.unique(target[invalid])
+            if int(value) != int(ignore_index)
+        ]
+        if unexpected:
+            raise ValueError(
+                "Target contains labels outside the "
+                f"{probability.shape[0]} probability classes: "
+                f"{unexpected[:5]}."
+            )
     clipped = np.clip(target, 0, probability.shape[0] - 1)
     target = np.where(in_range, mapping[clipped], int(ignore_index))
     return target, probability[valid]

@@ -392,6 +392,26 @@ class TestSegmentationMetrics(unittest.TestCase):
         self.assertEqual(remapped.tolist(), [[0, 1]])
         self.assertEqual(selected.shape, (2, 1, 2))
 
+    def test_remap_class_mask_rejects_out_of_range_labels(self):
+        target = np.array([[0, 1], [7, 7]])
+        probability = np.zeros((3, 1, 2))
+        with self.assertRaisesRegex(
+            ValueError, "outside the 3 probability classes"
+        ):
+            remap_class_mask(target, probability, [True, True, False])
+
+    def test_remap_class_mask_keeps_ignore_index_padding(self):
+        target = np.array([[0, 1], [255, 255]])
+        probability = np.zeros((3, 1, 2))
+        remapped, selected = remap_class_mask(
+            target,
+            probability,
+            [True, True, False],
+            ignore_index=255,
+        )
+        self.assertEqual(remapped.tolist(), [[0, 1], [255, 255]])
+        self.assertEqual(selected.shape, (2, 1, 2))
+
     def test_binary_segmentation_processor_size(self):
         from pyhealth.processors import SegmentationBinaryLabelProcessor
 

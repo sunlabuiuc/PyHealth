@@ -429,6 +429,40 @@ class TestUNet(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    @unittest.skipUnless(nib is not None, "nibabel is not installed")
+    def test_infers_spatial_dim_from_lazy_2d_nifti(self):
+        temp_dir = tempfile.mkdtemp()
+        try:
+            image_path = Path(temp_dir) / "image.nii.gz"
+            mask_path = Path(temp_dir) / "mask.nii.gz"
+            image = np.zeros((8, 8), dtype=np.float32)
+            mask = np.zeros((8, 8), dtype=np.int16)
+            mask[2:4, 2:4] = 1
+            nib.save(nib.Nifti1Image(image, np.eye(4)), str(image_path))
+            nib.save(nib.Nifti1Image(mask, np.eye(4)), str(mask_path))
+            dataset = create_sample_dataset(
+                [
+                    {
+                        "patient_id": "p0",
+                        "image": str(image_path),
+                        "mask": str(mask_path),
+                    }
+                ],
+                {"image": ("nifti", {"lazy": True})},
+                {"mask": ("nifti", {"lazy": True, "is_mask": True})},
+            )
+            try:
+                model = UNet(dataset, base_channels=4, depth=2)
+                self.assertEqual(model.spatial_dim, 2)
+                output = model(image=torch.zeros(1, 1, 8, 8))
+                self.assertEqual(
+                    tuple(output["logit"].shape), (1, 2, 8, 8)
+                )
+            finally:
+                dataset.close()
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_trainer_evaluation_ignores_patch_padding(self):
         samples = []
         for index in range(2):

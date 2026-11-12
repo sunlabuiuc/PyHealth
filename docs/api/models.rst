@@ -178,7 +178,7 @@ segmentation; larger values select multiclass segmentation.
     loader = get_dataloader(patches, batch_size=2, shuffle=True)
 
 ``UNet`` reports ``"segmentation_binary"`` or ``"segmentation_multiclass"``
-from ``num_classes`` (or the mask processor's ``num_classes`` metadata), so the
+from ``num_classes`` (or the mask processor's configured ``num_classes``), so the
 ``Trainer`` can score variable-shaped masks with Dice and IoU.
 
 A task can add a boolean ``class_mask`` vector to each sample to mark which

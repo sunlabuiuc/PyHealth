@@ -669,17 +669,8 @@ class UNet(BaseModel):
         return {self.label_key: self._segmentation_label_processor}
 
     def _infer_spatial_dim(self) -> int:
-        """Infer 2D vs 3D from the input processor or the first sample."""
+        """Infer 2D vs 3D from the first materialised sample."""
         processor = self.dataset.input_processors.get(self.feature_key)
-        if processor is not None and hasattr(processor, "dim"):
-            try:
-                rank = processor.dim()[0]
-            except (NotImplementedError, TypeError, IndexError):
-                rank = None
-            if rank == 3:
-                return 2
-            if rank == 4:
-                return 3
         sample = self.dataset[0][self.feature_key]
         if isinstance(sample, tuple):
             sample = sample[0]
