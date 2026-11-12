@@ -13,7 +13,7 @@ class MIMICExtractDataset(BaseEHRDataset):
     """Base dataset for MIMIC-Extract dataset.
 
     Reads the HDF5 data produced by
-    `MIMIC-Extract <https://github.com/MLforHealth/MIMIC_Extract#step-4-set-cohort-selection-and-extraction-criteria>`_.
+    `MIMIC-Extract <https://github.com/MLforHealth/MIMIC_Extract#step-4-set-cohort-selection-and-extraction-criteria>`__.
     Works with files created with or without LEVEL2 grouping and with restricted cohort population
     sizes, other optional parameter values, and should work with many customized versions of the pipeline.
 
@@ -22,12 +22,12 @@ class MIMICExtractDataset(BaseEHRDataset):
     (https://physionet.org/content/mimiciii/1.4/; see :class:`MIMIC3Dataset`).
     You can create or obtain a MIMIC-Extract dataset in several ways:
 
-    * The default cohort dataset is `available on GCP <https://console.cloud.google.com/storage/browser/mimic_extract>`_
+    * The default cohort dataset is `available on GCP <https://console.cloud.google.com/storage/browser/mimic_extract>`__
       (requires PhysioNet access provisioned in GCP).
-    * Follow the `step-by-step instructions <https://github.com/MLforHealth/MIMIC_Extract#step-by-step-instructions>`_
+    * Follow the `step-by-step instructions <https://github.com/MLforHealth/MIMIC_Extract#step-by-step-instructions>`__
       on the MIMIC_Extract github site, which includes setting up a PostgreSQL database and loading
       the MIMIC-III data files.
-    * Use the instructions at `MIMICExtractEasy <https://github.com/SphtKr/MIMICExtractEasy>`_ which uses DuckDB
+    * Use the instructions at `MIMICExtractEasy <https://github.com/SphtKr/MIMICExtractEasy>`__ which uses DuckDB
       instead and should be a good bit simpler.
     
     Any of these methods will provide you with a set of HDF5 files containing a cleaned subset of the MIMIC-III dataset.
