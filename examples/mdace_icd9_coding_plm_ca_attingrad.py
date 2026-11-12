@@ -40,6 +40,8 @@ codes, notes truncated to 4096 tokens instead of 6000, 2 epochs instead of
 """
 
 import argparse
+import math
+import os
 import random
 import tempfile
 from pathlib import Path
@@ -169,7 +171,7 @@ def run_synthetic(args: argparse.Namespace) -> None:
         args.output_dir = str(root / "output")
         args.device = args.device or "cpu"
         args.max_length, args.chunk_size, args.batch_size = 128, 32, 16
-        args.epochs, args.lr, args.ig_steps = 15, 1e-3, 8
+        args.epochs, args.lr, args.ig_steps, args.accum = 15, 1e-3, 8, 1
         train(args)
         args.checkpoint = str(root / "output" / "plm_ca_mdace" / "best.ckpt")
         evaluate(args)
@@ -260,6 +262,11 @@ def train(args: argparse.Namespace) -> None:
         max_length=args.max_length,
         dropout=0.2,
     )
+    # Trainer is used for evaluation only. The training loop below follows
+    # the authors' recipe, which Trainer lacks: gradient accumulation to an
+    # effective batch of batch_size * accum, 10% linear warmup then linear
+    # decay, and gradient clipping at 1. Without warmup the encoder collapsed
+    # to predicting code frequencies.
     trainer = Trainer(
         model=model,
         metrics=["f1_micro", "f1_macro", "pr_auc_micro"],
@@ -267,18 +274,43 @@ def train(args: argparse.Namespace) -> None:
         output_path=args.output_dir,
         exp_name="plm_ca_mdace",
     )
-    trainer.train(
-        train_dataloader=get_dataloader(
-            train_ds, args.batch_size, shuffle=True, seed=args.seed
-        ),
-        val_dataloader=get_dataloader(val_ds, args.batch_size),
-        epochs=args.epochs,
-        optimizer_class=torch.optim.AdamW,
-        optimizer_params={"lr": args.lr},
-        max_grad_norm=1.0,
-        monitor="pr_auc_micro",
-        monitor_criterion="max",
+    train_loader = get_dataloader(
+        train_ds, args.batch_size, shuffle=True, seed=args.seed
     )
+    val_loader = get_dataloader(val_ds, args.batch_size)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.0)
+    updates = args.epochs * math.ceil(len(train_loader) / args.accum)
+    warmup = max(1, int(args.warmup * updates))
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer,
+        lambda step: min(
+            (step + 1) / warmup, max(0.0, (updates - step) / (updates - warmup))
+        ),
+    )
+    best = -1.0
+    for epoch in range(args.epochs):
+        model.train()
+        running = 0.0
+        for step, batch in enumerate(tqdm(train_loader, desc=f"epoch {epoch}")):
+            loss = model(**batch)["loss"] / args.accum
+            loss.backward()
+            running += loss.item()
+            last = step + 1 == len(train_loader)
+            if (step + 1) % args.accum == 0 or last:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+            if (step + 1) % (args.accum * 50) == 0:
+                avg = running * args.accum / (args.accum * 50)
+                print(f"step {step + 1}: train loss {avg:.4f}", flush=True)
+                running = 0.0
+        scores = trainer.evaluate(val_loader)
+        print(f"epoch {epoch} val: {scores}", flush=True)
+        trainer.save_ckpt(os.path.join(trainer.exp_path, "last.ckpt"))
+        if scores["pr_auc_micro"] > best:
+            best = scores["pr_auc_micro"]
+            trainer.save_ckpt(os.path.join(trainer.exp_path, "best.ckpt"))
 
 
 def load_trained_model(args: argparse.Namespace) -> PLMCA:
@@ -405,6 +437,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--max_train", type=int, default=None)
+    parser.add_argument("--accum", type=int, default=8)
+    parser.add_argument("--warmup", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
     if not args.synthetic and (args.train or args.evaluate):
