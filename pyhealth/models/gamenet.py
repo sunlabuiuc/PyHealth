@@ -4,7 +4,6 @@ import os
 
 import torch
 import torch.nn as nn
-import numpy as np
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import (
@@ -16,6 +15,7 @@ from pyhealth.models.utils import (
 )
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
 from pyhealth.models.embedding import EmbeddingModel
+from pyhealth.models.utils import save_ddi_adj
 
 class GCNLayer(nn.Module):
     """GCN layer.
@@ -431,7 +431,9 @@ class GAMENet(BaseModel):
         )
         
         # save ddi adj
-        np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj.numpy())
+        self.ddi_adj_matrix = save_ddi_adj(
+            ddi_adj, os.path.join(CACHE_PATH, "ddi_adj.npy")
+        )
 
     def generate_ehr_adj(self) -> torch.tensor:
         """Generates the EHR graph adjacency matrix."""

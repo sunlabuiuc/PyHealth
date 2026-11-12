@@ -293,6 +293,7 @@ Available Datasets
 
     datasets/pyhealth.datasets.BaseDataset
     datasets/pyhealth.datasets.SampleDataset
+    datasets/pyhealth.datasets.PatchDataset
     datasets/pyhealth.datasets.MIMIC3Dataset
     datasets/pyhealth.datasets.MIMIC4Dataset
     datasets/pyhealth.datasets.MIMIC4EDDataset
@@ -311,6 +312,7 @@ Available Datasets
     datasets/pyhealth.datasets.SleepEDFDataset
     datasets/pyhealth.datasets.EHRShotDataset
     datasets/pyhealth.datasets.Support2Dataset
+    datasets/pyhealth.datasets.MetabricDataset
     datasets/pyhealth.datasets.BMDHSDataset
     datasets/pyhealth.datasets.COVID19CXRDataset
     datasets/pyhealth.datasets.ChestXray14Dataset

@@ -1,6 +1,8 @@
 """Output processors: what a label is, and how to train on and score it."""
 
 import logging
+import math
+from numbers import Real
 from abc import abstractmethod
 from collections.abc import Hashable, Iterable, Sequence
 from typing import Any, ClassVar
@@ -11,6 +13,7 @@ import torch.nn.functional as F
 
 from . import register_processor
 from .base_processor import FeatureProcessor
+from .utils import NORMALIZATIONS, Normalization, fit_normalization
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +58,50 @@ class LabelProcessor(FeatureProcessor):
 
     mode: ClassVar[str]
     stores_tensor = True
+    need_fit_test: bool = False
+    """Whether :meth:`fit_test` has anything to learn: True for a label
+    vocabulary learned from the data (``labels`` not given)."""
+
+    def fit_test(self, samples: Iterable[dict[str, Any]], field: str) -> None:
+        """Adds the labels that only occur outside the training samples.
+
+        This is the only fitting step that sees validation and test samples.
+        It exists because a label vocabulary (the classes, and so
+        :meth:`size` and the model's output layer) has to cover the test
+        labels too: a class seen only in validation or test, common for rare
+        drugs in drug recommendation, would otherwise have no output and fail
+        in :meth:`process`.
+
+        Call it after :meth:`fit`: :meth:`fit` learns from the training
+        samples, then this adds the labels of all samples to the vocabulary.
+        :class:`~pyhealth.datasets.sample_dataset.SampleBuilder` does this for
+        every processor with :attr:`need_fit_test` when it is given a split;
+        without one, ``fit`` already saw every label. Calling it again, or on
+        the samples ``fit`` saw, changes nothing.
+
+        .. warning::
+
+           **Learn only which label values exist here, nothing else.**
+           Anything computed from the label values (label frequencies, class
+           weights such as ``pos_weight="balanced"``, means, scales, ...)
+           must be learned in :meth:`fit`, from the training samples only.
+           Learning it here leaks test labels into training.
+
+        The default learns nothing: labels without a vocabulary to learn
+        (binary, regression, given ``labels``) need none.
+
+        Args:
+            samples: Samples of every split, test included.
+            field: The label field.
+
+        Examples:
+            >>> from pyhealth.processors import MultiClassLabelProcessor
+            >>> p = MultiClassLabelProcessor()
+            >>> p.fit([{"y": "a"}, {"y": "b"}], "y")  # training split
+            >>> p.fit_test([{"y": "a"}, {"y": "b"}, {"y": "c"}], "y")  # all splits
+            >>> p.label_vocab
+            {'a': 0, 'b': 1, 'c': 2}
+        """
 
     @abstractmethod
     def size(self) -> int:
@@ -139,6 +186,24 @@ def _learned_vocab(seen: set) -> dict[Any, int]:
     return {label: i for i, label in enumerate(sorted(seen))}
 
 
+def _add_labels(processor: Any, seen: set, field: str) -> dict[Any, int] | None:
+    """Rebuilds ``label_vocab`` over its labels and ``seen``, in the order of
+    :func:`_learned_vocab`, so the indices do not depend on the split.
+
+    Returns the old vocabulary when labels were added, else None.
+    """
+    old = processor.label_vocab
+    new = seen - old.keys()
+    if not new:
+        return None
+    processor.label_vocab = _learned_vocab(set(old) | seen)
+    logger.info(
+        f"Label {field}: added {len(new)} labels that occur only outside the "
+        f"fitted samples; vocab: {processor.label_vocab}"
+    )
+    return old
+
+
 def _index(vocab: dict[Any, int], label: Any) -> int:
     try:
         return vocab[label]
@@ -185,6 +250,25 @@ class _WeightedBCE:
             )
         self._weight = torch.where(
             positives > 0, (len(stacked) - positives) / positives.clamp(min=1), 1.0
+        )
+
+    def _remap_pos_weight(self, old_vocab: dict[Any, int]) -> None:
+        """Moves a ``"balanced"`` weight to the indices of a grown vocabulary.
+
+        Labels new to the vocabulary had no positives in the fitted samples,
+        so their weight is 1, as for any label without positives.
+        """
+        if self.pos_weight != "balanced" or self._weight is None:
+            return
+        vocab = self.label_vocab  # type: ignore[attr-defined]
+        weight = torch.ones(len(vocab))
+        for label, i in old_vocab.items():
+            weight[vocab[label]] = self._weight[i]
+        self._weight = weight
+        logger.warning(
+            "pos_weight='balanced': %d labels occur only outside the fitted "
+            "(training) samples; their weight is set to 1.",
+            len(vocab) - len(old_vocab),
         )
 
     @property
@@ -310,6 +394,12 @@ class MultiClassLabelProcessor(LabelProcessor):
         super().__init__()
         self.labels = labels
         self.label_vocab: dict[Any, int] = {} if labels is None else _fixed_vocab(labels)
+        self.need_fit_test = labels is None
+
+    def fit_test(self, samples: Iterable[dict[str, Any]], field: str) -> None:
+        """Adds the classes of all samples, see :meth:`LabelProcessor.fit_test`."""
+        if self.need_fit_test:
+            _add_labels(self, {sample[field] for sample in samples}, field)
 
     def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
         seen = {sample[field] for sample in samples}
@@ -364,8 +454,9 @@ class MultiLabelProcessor(_WeightedBCE, LabelProcessor):
             When omitted, they are learned in ``fit``: ``0..K-1`` as is, any
             other set in sorted order.
         pos_weight: Weight of positive examples in the loss: a number for all
-            labels, one number per label, ``"balanced"`` (negatives /
-            positives of each label in the fitted samples) or None.
+            labels, one number per label (in the order of ``labels``, which
+            must then be given), ``"balanced"`` (negatives / positives of
+            each label in the fitted samples) or None.
 
     Examples:
         >>> from pyhealth.processors import MultiLabelProcessor
@@ -386,7 +477,49 @@ class MultiLabelProcessor(_WeightedBCE, LabelProcessor):
         super().__init__()
         self.labels = labels
         self.label_vocab: dict[Any, int] = {} if labels is None else _fixed_vocab(labels)
+        self.need_fit_test = labels is None
         self._init_pos_weight(pos_weight)
+        self._check_per_label_weight()
+
+    def _check_per_label_weight(self) -> None:
+        """A per-label ``pos_weight`` needs given ``labels``, one weight each.
+
+        Weights are matched to labels by position, and a learned vocabulary's
+        order is only known after fitting, so without ``labels`` a user
+        cannot know which weight goes to which label.
+        """
+        pos_weight = self.pos_weight
+        if pos_weight is None or isinstance(pos_weight, str):
+            return
+        if isinstance(pos_weight, Real) or (
+            isinstance(pos_weight, torch.Tensor) and pos_weight.dim() == 0
+        ):
+            return  # one number for every label
+        if self.labels is None:
+            raise ValueError(
+                "A per-label pos_weight needs labels=[...], which fixes the "
+                "label order the weights are matched to; without labels, the "
+                "order is learned from the data. Pass labels, or use one "
+                "number or 'balanced' for every label."
+            )
+        weight = self._weight
+        if weight is not None and len(weight) != len(self.label_vocab):
+            raise ValueError(
+                f"pos_weight has {len(weight)} weights for "
+                f"{len(self.label_vocab)} labels; give one weight per label."
+            )
+
+    def fit_test(self, samples: Iterable[dict[str, Any]], field: str) -> None:
+        """Adds the labels of all samples, see :meth:`LabelProcessor.fit_test`.
+
+        A ``"balanced"`` weight keeps its training values; added labels get 1.
+        """
+        if not self.need_fit_test:
+            return
+        seen = {label for sample in samples for label in sample[field]}
+        old_vocab = _add_labels(self, seen, field)
+        if old_vocab is not None:
+            self._remap_pos_weight(old_vocab)
 
     def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
         values = [sample[field] for sample in samples]
@@ -429,26 +562,117 @@ class MultiLabelProcessor(_WeightedBCE, LabelProcessor):
         return self._bce(logits, y_true, **kwargs)
 
     @classmethod
-    def metrics_fn(cls, y_true, y_prob, metrics=None):
+    def metrics_fn(cls, y_true, y_prob, metrics=None, **kwargs):
+        """Scores with :func:`~pyhealth.metrics.multilabel_metrics_fn`.
+
+        Extra keyword arguments (e.g. ``ddi_adj`` for the ``"ddi"`` metric)
+        are passed through.
+
+        Examples:
+            >>> import numpy as np
+            >>> MultiLabelProcessor.metrics_fn(
+            ...     np.array([[1, 0]]), np.array([[0.9, 0.2]]), metrics=["f1_micro"]
+            ... )
+            {'f1_micro': 1.0}
+        """
         from pyhealth.metrics.multilabel import multilabel_metrics_fn
 
-        return multilabel_metrics_fn(y_true, y_prob, metrics=metrics)
+        return multilabel_metrics_fn(y_true, y_prob, metrics=metrics, **kwargs)
 
 
 @register_processor("regression")
 class RegressionLabelProcessor(LabelProcessor):
     """Real-valued labels. The model has one output; the loss is MSE.
 
+    Labels in large units (e.g. hours) can stall training, so
+    ``normalization`` rescales them to ``(label - center) / scale``, as
+    :class:`~pyhealth.processors.TensorProcessor` does for inputs.
+    :meth:`process` is the only place that does: like the index of a class,
+    the processed label is what the model sees, so ``y_true``, logits,
+    ``y_prob`` and the loss, including a model's own loss, are all in
+    normalized units. :meth:`to_numpy`, which turns model outputs into metric
+    inputs, maps ``y_true`` and ``y_prob`` back together, so
+    :meth:`~pyhealth.trainer.Trainer.inference` and metrics are in the
+    original units.
+
+    Args:
+        normalization: ``"minmax"`` (to 0..1 on the fitted range) or
+            ``"zscore"`` (zero mean, unit variance), learned in ``fit`` (so
+            fit on a training split); a fixed ``(low, high)`` range, mapped to
+            0..1; or None. Labels are never clipped.
+
+    Attributes:
+        center: The label that maps to 0, or None without normalization.
+        scale: The label distance that maps to 1, or None without
+            normalization.
+
     Examples:
         >>> from pyhealth.processors import RegressionLabelProcessor
         >>> RegressionLabelProcessor().process(2.5)
         tensor([2.5000])
+        >>> p = RegressionLabelProcessor(normalization="minmax")
+        >>> p.fit([{"y": 10.0}, {"y": 30.0}], "y")
+        >>> p.center, p.scale
+        (10.0, 20.0)
+        >>> y_true = p.process(20.0)
+        >>> y_true
+        tensor([0.5000])
+        >>> p.to_numpy(y_true, y_true + 0.25)
+        ([array([20.], dtype=float32)], [array([25.], dtype=float32)])
     """
 
     mode = "regression"
+    normalization: Normalization | Sequence[float] = None
+    center: float | None = None
+    scale: float | None = None
+
+    def __init__(self, normalization: Normalization | Sequence[float] = None):
+        super().__init__()
+        if normalization is None or isinstance(normalization, str):
+            if normalization not in NORMALIZATIONS:
+                raise ValueError(
+                    f"normalization must be one of {NORMALIZATIONS} or "
+                    f"(low, high), not {normalization!r}."
+                )
+        else:
+            low, high = (float(end) for end in normalization)
+            if not (math.isfinite(low) and math.isfinite(high) and low < high):
+                raise ValueError(
+                    f"A fixed range needs finite low < high, got {normalization!r}."
+                )
+            self.center, self.scale = low, high - low
+        self.normalization = normalization
+        self.learns_statistics = isinstance(normalization, str)
+
+    def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
+        if not isinstance(self.normalization, str):
+            return
+        values = np.array([float(sample[field]) for sample in samples]).reshape(-1, 1)
+        if values.size == 0:
+            raise ValueError(
+                f"normalization={self.normalization!r} got no samples to fit on."
+            )
+        (self.center,), (self.scale,) = fit_normalization([values], self.normalization)
+        if np.nanmin(values) == np.nanmax(values):
+            logger.warning("Label %s is constant; its scale is set to 1.", field)
+        logger.info(f"Label {field} center {self.center}, scale {self.scale}")
+
+    def _center_scale(self) -> tuple[float, float] | None:
+        if self.normalization is None:
+            return None
+        if self.center is None or self.scale is None:
+            raise ValueError(
+                f"normalization={self.normalization!r} is learned in fit(); "
+                "fit first."
+            )
+        return self.center, self.scale
 
     def process(self, value: Any) -> torch.Tensor:
-        return torch.tensor([float(value)], dtype=torch.float32)
+        value = float(value)
+        if (center_scale := self._center_scale()) is not None:
+            center, scale = center_scale
+            value = (value - center) / scale
+        return torch.tensor([value], dtype=torch.float32)
 
     def size(self) -> int:
         return 1
@@ -469,6 +693,16 @@ class RegressionLabelProcessor(LabelProcessor):
 
     def loss(self, logits: torch.Tensor, y_true: Any, **kwargs: Any) -> torch.Tensor:
         return F.mse_loss(logits, y_true, **kwargs)
+
+    def to_numpy(
+        self, y_true: Any, y_prob: torch.Tensor
+    ) -> tuple[list[np.ndarray], list[np.ndarray]]:
+        """Labels and predictions in the original units."""
+        (true,), (prob,) = super().to_numpy(y_true, y_prob)
+        if (center_scale := self._center_scale()) is None:
+            return [true], [prob]
+        center, scale = center_scale
+        return [true * scale + center], [prob * scale + center]
 
     @classmethod
     def metrics_fn(cls, y_true, y_prob, metrics=None):

@@ -15,7 +15,6 @@ from __future__ import annotations
 import math
 import os
 
-import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -24,11 +23,13 @@ from pyhealth import BASE_CACHE_PATH as CACHE_PATH
 from pyhealth.datasets import SampleDataset
 from pyhealth.models.base_model import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
+from pyhealth.models.selective_ssm import SelectiveSSM
 from pyhealth.models.utils import (
     ddi_adjacency,
     ehr_cooccurrence_adjacency,
     gcn_normalize_adjacency,
     history_to_label_index,
+    save_ddi_adj,
 )
 
 
@@ -47,71 +48,6 @@ def _reverse_padded(x: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
     lengths = lengths.unsqueeze(1)
     idx = torch.where(pos < lengths, lengths - 1 - pos, pos)
     return x.gather(1, idx.unsqueeze(-1).expand_as(x))
-
-
-class SelectiveSSM(nn.Module):
-    """A Mamba block (selective state-space model) in pure PyTorch.
-
-    Paper: Albert Gu and Tri Dao. "Mamba: Linear-Time Sequence Modeling with
-    Selective State Spaces." 2023. The scan is a plain loop over time, which
-    is fast enough for visit sequences (tens of steps).
-
-    This differs from :class:`pyhealth.models.ehrmamba.MambaBlock`: there the
-    step size and the ``B`` and ``C`` matrices are fixed per channel (a
-    time-invariant SSM computed as a convolution), while here they are
-    computed from each input step (Mamba's selection mechanism), which ARMR's
-    Eq. 2 relies on. Hence the separate block.
-
-    Args:
-        dim: input and output size.
-        state_size: SSM state size per channel. Default is 16.
-        expand: inner width as a multiple of ``dim``. Default is 2.
-        conv_size: width of the causal depthwise convolution. Default is 4.
-
-    Examples:
-        >>> block = SelectiveSSM(dim=8)
-        >>> block(torch.randn(2, 5, 8)).shape
-        torch.Size([2, 5, 8])
-    """
-
-    def __init__(
-        self, dim: int, state_size: int = 16, expand: int = 2, conv_size: int = 4
-    ):
-        super().__init__()
-        inner = expand * dim
-        self.dt_rank = math.ceil(dim / 16)
-        self.state_size = state_size
-        self.in_proj = nn.Linear(dim, 2 * inner)
-        self.conv = nn.Conv1d(
-            inner, inner, conv_size, groups=inner, padding=conv_size - 1
-        )
-        self.x_proj = nn.Linear(inner, self.dt_rank + 2 * state_size, bias=False)
-        self.dt_proj = nn.Linear(self.dt_rank, inner)
-        a = torch.arange(1, state_size + 1, dtype=torch.float).repeat(inner, 1)
-        self.a_log = nn.Parameter(torch.log(a))
-        self.d = nn.Parameter(torch.ones(inner))
-        self.out_proj = nn.Linear(inner, dim)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Runs the block over ``x`` of shape [batch, steps, dim]."""
-        steps = x.size(1)
-        u, gate = self.in_proj(x).chunk(2, dim=-1)
-        u = self.conv(u.transpose(1, 2))[..., :steps].transpose(1, 2)
-        u = F.silu(u)
-        dt, b, c = self.x_proj(u).split(
-            [self.dt_rank, self.state_size, self.state_size], dim=-1
-        )
-        dt = F.softplus(self.dt_proj(dt))  # [batch, steps, inner]
-        a = -torch.exp(self.a_log)  # [inner, state]
-        da = torch.exp(dt.unsqueeze(-1) * a)  # [batch, steps, inner, state]
-        dbu = dt.unsqueeze(-1) * b.unsqueeze(2) * u.unsqueeze(-1)
-        h = torch.zeros_like(da[:, 0])
-        ys = []
-        for t in range(steps):
-            h = da[:, t] * h + dbu[:, t]
-            ys.append((h * c[:, t].unsqueeze(1)).sum(-1))
-        y = torch.stack(ys, dim=1) + u * self.d
-        return self.out_proj(y * F.silu(gate))
 
 
 class PiecewiseTemporalLearning(nn.Module):
@@ -338,11 +274,12 @@ class ARMR(BaseModel):
             self.register_buffer("ddi_adj_norm", gcn_normalize_adjacency(ddi_adj))
             self.gcn_ehr = nn.ModuleList([nn.Linear(dim, dim), nn.Linear(dim, dim)])
             self.gcn_ddi = nn.ModuleList([nn.Linear(dim, dim), nn.Linear(dim, dim)])
-        # the "ddi" metric (pyhealth.metrics.multilabel) reads this file, as
-        # for GAMENet, SafeDrug, MICRON and MoleRec; written with or without
-        # the graphs so that metric works either way
-        os.makedirs(CACHE_PATH, exist_ok=True)
-        np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj.numpy())
+        # Trainer.evaluate passes ddi_adj_matrix to the "ddi" metric; the file
+        # is the fallback for callers of the metric that don't pass a matrix,
+        # as for GAMENet, SafeDrug, MICRON and MoleRec
+        self.ddi_adj_matrix = save_ddi_adj(
+            ddi_adj, os.path.join(CACHE_PATH, "ddi_adj.npy")
+        )
 
         # Joint recommendation (Eq. 16-19)
         patient_size = 4 * n_recent * dim

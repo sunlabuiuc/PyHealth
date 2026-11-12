@@ -47,6 +47,10 @@ class SampleSignalDataset:
 
 
 from .base_dataset import BaseDataset
+from .imaging.patches import PatchDataset as PatchDataset
+from .imaging.stats import (
+    compute_foreground_intensity_stats as compute_foreground_intensity_stats,
+)
 from .cardiology import CardiologyDataset
 from .chestxray14 import ChestXray14Dataset
 from .clinvar import ClinVarDataset
@@ -60,6 +64,7 @@ from .eicu import eICUDataset
 from .isruc import ISRUCDataset
 from .medical_transcriptions import MedicalTranscriptionsDataset
 from .meds import MEDSDataset as MEDSDataset
+from .metabric import MetabricDataset as MetabricDataset
 from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
 from .mimic4 import MIMIC4EDDataset as MIMIC4EDDataset
