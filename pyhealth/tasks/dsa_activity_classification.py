@@ -9,8 +9,11 @@ Description: Turns each 5-second DSA segment into one sample. The target
     are exposed as synchronized source streams for transfer learning.
 """
 
+import hashlib
 from collections.abc import Sequence
 from typing import Any, ClassVar
+
+import numpy as np
 
 from .base_task import BaseTask
 
@@ -28,9 +31,13 @@ class DSAActivityClassification(BaseTask):
             ``"right_arm"``, ``"left_arm"``, ``"right_leg"``, ``"left_leg"``.
         source_sensors: Sensors used as source domains. Defaults to every
             sensor except the target. May be empty for target-only training.
+        channel_ranges: Optional ``(mins, maxs)``, each of shape ``(5, 9)``,
+            from :func:`~pyhealth.datasets.dsa.compute_channel_ranges`. When
+            given, every channel is rescaled to [-1, 1] as in the paper.
 
     Attributes:
-        task_name (str): Name of the task, including the sensor setup.
+        task_name (str): Short name made from the target sensor and a hash
+            of the source sensors and the normalization setting.
         input_schema (dict[str, str]): ``"signal"`` plus one
             ``"source_<name>"`` entry per source sensor, all ``"tensor"``.
         output_schema (dict[str, str]): ``"label"`` as ``"multiclass"``.
@@ -54,6 +61,7 @@ class DSAActivityClassification(BaseTask):
         self,
         target_sensor: str = "right_arm",
         source_sensors: Sequence[str] | None = None,
+        channel_ranges: tuple[np.ndarray, np.ndarray] | None = None,
     ) -> None:
         # Imported here to avoid a datasets <-> tasks import cycle.
         from pyhealth.datasets.dsa import SENSOR_NAMES
@@ -76,11 +84,24 @@ class DSAActivityClassification(BaseTask):
         if len(set(sources)) != len(sources):
             raise ValueError("Duplicate source sensors.")
 
+        if channel_ranges is not None:
+            lows, highs = (np.asarray(r, dtype=np.float64) for r in channel_ranges)
+            expected = (len(SENSOR_NAMES), 9)
+            if lows.shape != expected or highs.shape != expected:
+                raise ValueError(f"channel_ranges must have shape {expected}")
+            self._lows = lows[:, None, :]
+            self._spans = np.where(highs > lows, highs - lows, 1.0)[:, None, :]
+        self.channel_ranges = channel_ranges
+
         self.target_sensor = target_sensor
         self.source_sensors = sources
-        self.task_name = f"DSAActivityClassification-{target_sensor}-" + (
-            "+".join(sources) or "none"
-        )
+        # Kept short: PyHealth puts the task name in cache paths, which can
+        # exceed the Windows path-length limit.
+        signature = "|".join(sources)
+        if channel_ranges is not None:
+            signature += "|minmax"
+        digest = hashlib.sha256(signature.encode()).hexdigest()[:6]
+        self.task_name = f"DSAActivity-{target_sensor}-{digest}"
         self.input_schema = {
             "signal": "tensor",
             **{f"source_{name}": "tensor" for name in sources},
@@ -119,6 +140,10 @@ class DSAActivityClassification(BaseTask):
         samples = []
         for event in patient.get_events(event_type="dsa"):
             sensors = split_sensors(load_dsa_segment(event.signal_file))
+            if self.channel_ranges is not None:
+                sensors = (2.0 * (sensors - self._lows) / self._spans - 1.0).astype(
+                    np.float32
+                )
             sample: dict[str, Any] = {
                 "patient_id": patient.patient_id,
                 "segment": int(event.segment),

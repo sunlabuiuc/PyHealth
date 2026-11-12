@@ -10,6 +10,7 @@ import numpy as np
 from pyhealth.datasets.dsa import (
     DSADataset,
     build_dsa_metadata,
+    compute_channel_ranges,
     load_dsa_segment,
     split_sensors,
 )
@@ -76,6 +77,20 @@ class TestDSAHelpers(unittest.TestCase):
         # Every sensor view covers the same 125 time steps.
         np.testing.assert_array_equal(sensors[0, :, 0], segment[:, 0])
         np.testing.assert_array_equal(sensors[4, :, 8], segment[:, 44])
+
+    def test_channel_ranges_cover_all_segments(self):
+        meta = build_dsa_metadata(self.root)
+        mins, maxs = compute_channel_ranges(meta["signal_file"])
+        self.assertEqual(mins.shape, (5, 9))
+        self.assertTrue(np.all(maxs > mins))
+        segment = load_dsa_segment(meta["signal_file"].iloc[0])
+        sensors = split_sensors(segment)
+        self.assertTrue(np.all(sensors.min(axis=1) >= mins))
+        self.assertTrue(np.all(sensors.max(axis=1) <= maxs))
+
+    def test_channel_ranges_empty_raises(self):
+        with self.assertRaises(ValueError):
+            compute_channel_ranges([])
 
     def test_missing_root_raises(self):
         with self.assertRaises(FileNotFoundError):
