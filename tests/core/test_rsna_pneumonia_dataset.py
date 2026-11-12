@@ -4,6 +4,7 @@ import json
 import shutil
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 
 try:
@@ -22,8 +23,9 @@ _MAPPING = "pneumonia-challenge-dataset-mappings_2018.json"
 def _write_dicom(path: Path, patient_id: str, view_position: str = "AP") -> None:
     file_meta = FileMetaDataset()
     file_meta.MediaStorageSOPClassUID = SecondaryCaptureImageStorage
+    uid_suffix = zlib.crc32(str(path).encode("utf-8"))
     file_meta.MediaStorageSOPInstanceUID = (
-        "1.2.826.0.1.3680043.8.498." + str(abs(hash(str(path))))
+        f"1.2.826.0.1.3680043.8.498.{uid_suffix}"
     )
     file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
     dataset = FileDataset(
@@ -233,6 +235,119 @@ class TestRSNAPneumoniaDataset(unittest.TestCase):
         self.assertEqual(
             set(dataset1.unique_patient_ids),
             set(dataset2.unique_patient_ids),
+        )
+
+    def test_marker_regeneration_and_ambiguous_annotations_and_refresh(self):
+        shared_meta = Path(self.temp_dir) / "shared_metadata"
+        ds_mapping = RSNAPneumoniaDataset(
+            root=str(self.root),
+            cache_dir=str(Path(self.temp_dir) / "cache_map"),
+            metadata_dir=str(shared_meta),
+            label_source="mapping",
+        )
+        initial_labels = {
+            pid: int(ds_mapping.get_patient(pid).get_events()[0].label)
+            for pid in ds_mapping.unique_patient_ids
+        }
+        self.assertEqual(
+            initial_labels, {"study_1": 1, "study_2": 0, "study_3": 0}
+        )
+
+        # Calculated group with sop_1=Normal (0), sop_2=Lung Opacity (1),
+        # and sop_3 having conflicting positive+negative annotations (falls
+        # back to mapping label 0).
+        annotations = {
+            "labelGroups": [
+                {
+                    "name": "Calculated",
+                    "labels": [
+                        {"id": "L_pos", "name": "Lung Opacity"},
+                        {"id": "L_norm", "name": "Normal"},
+                    ],
+                }
+            ],
+            "datasets": [
+                {
+                    "annotations": [
+                        {
+                            "SOPInstanceUID": "sop_1",
+                            "labelId": "L_norm",
+                            "data": None,
+                        },
+                        {
+                            "SOPInstanceUID": "sop_2",
+                            "labelId": "L_pos",
+                            "data": {"x": 1, "y": 1, "width": 2, "height": 2},
+                        },
+                        {
+                            "SOPInstanceUID": "sop_3",
+                            "labelId": "L_pos",
+                            "data": {"x": 1, "y": 1, "width": 2, "height": 2},
+                        },
+                        {
+                            "SOPInstanceUID": "sop_3",
+                            "labelId": "L_norm",
+                            "data": None,
+                        },
+                    ]
+                }
+            ],
+        }
+        annotations_path = self.root / "calc_annotations.json"
+        with open(annotations_path, "w") as handle:
+            json.dump(annotations, handle)
+
+        # Rebuilding on the SAME metadata_dir with label_source="annotations"
+        # must detect the marker change and regenerate the CSV automatically.
+        ds_ann = RSNAPneumoniaDataset(
+            root=str(self.root),
+            cache_dir=str(Path(self.temp_dir) / "cache_ann"),
+            metadata_dir=str(shared_meta),
+            annotations_file=str(annotations_path),
+            label_source="annotations",
+        )
+        updated_labels = {
+            pid: int(ds_ann.get_patient(pid).get_events()[0].label)
+            for pid in ds_ann.unique_patient_ids
+        }
+        self.assertEqual(
+            updated_labels, {"study_1": 0, "study_2": 1, "study_3": 0}
+        )
+
+        # Changing image_dir on the same metadata_dir must also regenerate
+        alt_images = Path(self.temp_dir) / "alt_images"
+        for entry in self.mapping:
+            path = (
+                alt_images
+                / entry["StudyInstanceUID"]
+                / entry["SeriesInstanceUID"]
+                / f"{entry['SOPInstanceUID']}.dcm"
+            )
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"")
+        ds_alt = RSNAPneumoniaDataset(
+            root=str(self.root),
+            image_dir=str(alt_images),
+            cache_dir=str(Path(self.temp_dir) / "cache_alt"),
+            metadata_dir=str(shared_meta),
+            label_source="mapping",
+        )
+        first_event = ds_alt.get_patient("study_1").get_events()[0]
+        self.assertTrue(
+            first_event.image_path.startswith(str(alt_images.resolve()))
+        )
+
+        # Explicit refresh_metadata=True
+        ds_refreshed = RSNAPneumoniaDataset(
+            root=str(self.root),
+            cache_dir=str(Path(self.temp_dir) / "cache_ref"),
+            metadata_dir=str(shared_meta),
+            label_source="mapping",
+            refresh_metadata=True,
+        )
+        refreshed_event = ds_refreshed.get_patient("study_1").get_events()[0]
+        self.assertTrue(
+            refreshed_event.image_path.startswith(str(self.image_dir.resolve()))
         )
 
 

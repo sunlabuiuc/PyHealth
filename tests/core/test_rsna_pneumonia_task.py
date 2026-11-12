@@ -4,6 +4,7 @@ import json
 import shutil
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 
 import torch
@@ -24,8 +25,9 @@ _MAPPING = "pneumonia-challenge-dataset-mappings_2018.json"
 def _write_dicom(path: Path) -> None:
     file_meta = FileMetaDataset()
     file_meta.MediaStorageSOPClassUID = SecondaryCaptureImageStorage
+    uid_suffix = zlib.crc32(str(path).encode("utf-8"))
     file_meta.MediaStorageSOPInstanceUID = (
-        "1.2.826.0.1.3680043.8.498." + str(abs(hash(str(path))))
+        f"1.2.826.0.1.3680043.8.498.{uid_suffix}"
     )
     file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
     dataset = FileDataset(

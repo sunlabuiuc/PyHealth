@@ -39,8 +39,10 @@ def _load_annotation_labels(
     consensus labels ``Normal``, ``No Lung Opacity / Not Normal`` and
     ``Lung Opacity``. That group is the official adjudicated label source; the
     other groups contain raw reader annotations. A case is positive when the
-    calculated label is ``Lung Opacity``, and negative for the other two
-    calculated labels. Missing or ambiguous cases fall back to the mapping
+    calculated label is ``Lung Opacity`` (with bounding-box ``data``), and
+    negative for the other two calculated labels. Cases with no usable
+    annotation or with conflicting positive and negative annotations are
+    omitted from the returned dictionary so callers fall back to the mapping
     label.
     """
     with open(path) as handle:
@@ -73,9 +75,10 @@ def _load_annotation_labels(
                 positive.add(sop)
             elif name in ("Normal", "No Lung Opacity / Not Normal"):
                 negative.add(sop)
-    labels = {sop: 1 for sop in positive}
-    for sop in negative:
-        labels.setdefault(sop, 0)
+    conflict = positive & negative
+    labels = {sop: 1 for sop in positive - conflict}
+    for sop in negative - conflict:
+        labels[sop] = 0
     return labels
 
 
@@ -213,7 +216,10 @@ class RSNAPneumoniaDataset(BaseDataset):
             else "mapping"
         )
         self._label_source_key = (
-            f"{source_tag}|read_dicom_patient_id={int(self.read_dicom_patient_id)}"
+            f"{source_tag}"
+            f"|image_dir={self.image_dir}"
+            f"|mapping={self.mapping_path}"
+            f"|read_dicom_patient_id={int(self.read_dicom_patient_id)}"
         )
 
         name = dataset_name or self.default_dataset_name
@@ -316,9 +322,19 @@ class RSNAPneumoniaDataset(BaseDataset):
             rows.append(row)
 
         pd.DataFrame(rows).to_csv(self.metadata_path, index=False)
-        logger.info(
-            "Wrote %d RSNA images to %s", len(rows), self.metadata_path
-        )
+        if self.annotation_labels is not None:
+            matched = sum(1 for row in rows if row["annotation_label"] != "")
+            logger.info(
+                "Wrote %d RSNA images to %s (annotations matched %d/%d)",
+                len(rows),
+                self.metadata_path,
+                matched,
+                len(rows),
+            )
+        else:
+            logger.info(
+                "Wrote %d RSNA images to %s", len(rows), self.metadata_path
+            )
 
     @property
     def default_task(self):
@@ -352,7 +368,10 @@ class RSNAPneumoniaDataset(BaseDataset):
                     "Columns",
                 ],
             )
-        except (OSError, ValueError, pydicom.errors.InvalidDicomError):
+        except (OSError, ValueError, pydicom.errors.InvalidDicomError) as exc:
+            logger.warning(
+                "Could not read DICOM header from %s: %s", image_path, exc
+            )
             return {}
 
         return {
