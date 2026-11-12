@@ -85,7 +85,10 @@ class ISRUCDataset(BaseSignalDataset):
         - Source: https://sleeptight.isr.uc.pt/ (subgroup I)
         - Access: open, no account needed.
         - Download: pass ``download=True`` to fetch and extract the subject
-          archives into ``root/raw`` (needs ``7z`` on Linux).
+          archives into ``root/raw``. Extracting the ``.rar`` files needs the
+          standalone 7-Zip binary ``7zzs`` on ``PATH`` on Linux and macOS
+          (https://www.7-zip.org/download.html; a plain ``7z`` install is not
+          enough), or ``patool`` plus a RAR extractor on Windows.
         - ``root``: a folder whose ``raw/`` subfolder holds the extracted files.
 
     Args:

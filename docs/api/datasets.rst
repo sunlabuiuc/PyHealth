@@ -414,7 +414,7 @@ PyHealth does not ship any data: you download each dataset from its source and p
    * - :doc:`ISRUC-Sleep <datasets/pyhealth.datasets.ISRUCDataset>`
      - Open
      - `ISRUC <https://sleeptight.isr.uc.pt/>`__
-     - Yes
+     - Yes (needs ``7zzs``)
      - —
    * - :doc:`EESM23 (ear-EEG) <datasets/pyhealth.datasets.EESM23Dataset>`
      - Open

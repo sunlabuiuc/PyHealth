@@ -13,6 +13,10 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
+from sphinx.util import logging
+
+logger = logging.getLogger(__name__)
+
 TASKS_DIR = Path(__file__).resolve().parents[2] / "pyhealth" / "tasks"
 DATASET_REF = re.compile(r":class:`~?pyhealth\.datasets\.(\w+)`")
 PAGE = re.compile(r"^api/datasets/pyhealth\.datasets\.(\w+)$")
@@ -38,7 +42,9 @@ def tasks_by_dataset():
     for path in sorted(TASKS_DIR.glob("*.py")):
         try:
             tree = ast.parse(path.read_text())
-        except SyntaxError:
+        except SyntaxError as err:
+            # Its tasks would silently vanish from every dataset page.
+            logger.warning("dataset_tasks: skipped %s, could not parse it: %s", path.name, err)
             continue
         for node in tree.body:
             if not isinstance(node, ast.ClassDef) or node.name.startswith("_"):

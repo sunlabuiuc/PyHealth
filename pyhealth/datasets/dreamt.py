@@ -38,7 +38,7 @@ class DREAMTDataset(BaseDataset):
     Note: 
     ---------
     Dataset follows file and folder structure of dataset version, looks for participant_info.csv and data folders, 
-    so root path should be version downloaded, example: root = ".../dreamt/1.0.0/" or ".../dreamt/2.0.0/"
+    so root path should be version downloaded, example: root = ".../dreamt/2.1.0/" (or an older version folder such as ".../dreamt/1.0.0/")
 
     Getting the data:
         - Source: https://physionet.org/content/dreamt/
@@ -46,7 +46,8 @@ class DREAMTDataset(BaseDataset):
           agreement on the dataset page (no credentialing or CITI course needed).
         - Download: ``wget -r -N -c -np --user <username> --ask-password
           https://physionet.org/files/dreamt/2.1.0/``
-        - ``root``: the version folder of that download.
+        - ``root``: the version folder of that download (``.../dreamt/2.1.0/``;
+          the older versions listed above also work).
 
     Args:
         root: root directory containing the dataset files
