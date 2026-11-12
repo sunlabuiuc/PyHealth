@@ -176,7 +176,8 @@ Building a Custom Model
 If none of the built-in models fit your architecture, you can subclass
 ``BaseModel`` directly. The skeleton below shows the typical structure: build
 an ``EmbeddingModel`` in ``__init__``, unpack processor schemas in
-``forward``, pool or aggregate the embeddings, and return the four-key dict.
+``forward``, pool or aggregate the embeddings, and return ``logit`` and
+``y_prob``, plus ``loss`` and ``y_true`` when the batch has a label.
 
 .. code-block:: python
 
@@ -208,13 +209,17 @@ an ``EmbeddingModel`` in ``__init__``, unpack processor schemas in
             pooled = [embedded[k].mean(dim=1) for k in self.feature_keys]
             logits = self.fc(torch.cat(pooled, dim=1))
 
-            y_true = kwargs[self.label_key].to(self.device)
-            return {
-                "loss":   self.label_processor.loss(logits, y_true),
+            results = {
                 "y_prob": self.label_processor.activation(logits),
-                "y_true": y_true,
-                "logit":  logits,
+                "logit": logits,
             }
+            # The label is absent at inference time; add the loss only when
+            # it is present, as the built-in models do.
+            if self.label_key in kwargs:
+                y_true = kwargs[self.label_key].to(self.device)
+                results["loss"] = self.label_processor.loss(logits, y_true)
+                results["y_true"] = y_true
+            return results
 
 API Reference
 -------------
