@@ -21,6 +21,8 @@ from .yaib_mimic4 import _parse_time, _YAIBMIMIC4Task
 class InHospitalSurvivalMIMIC4(_YAIBMIMIC4Task):
     """Time to in-hospital death after the first 36 ICU hours, on MIMIC-IV.
 
+    Works with :class:`~pyhealth.datasets.MIMIC4EHRDataset`.
+
     Cohort: the YAIB base cohort (adults, ICU stays of 6 hours or more with
     enough measurements; see :class:`~pyhealth.tasks.YAIBMortalityMIMIC4`),
     restricted to ICU stays of at least ``observation_hours`` hours and to

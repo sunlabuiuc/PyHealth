@@ -480,6 +480,11 @@ def icd_versions(patient: Any) -> dict[str, str]:
 class EHRTextSerializationTask(BaseTask):
     """Wraps a task so each sample carries its record as Markdown text.
 
+    Works with the dataset of the wrapped task, e.g.
+    :class:`~pyhealth.datasets.MIMIC4EHRDataset`,
+    :class:`~pyhealth.datasets.MIMIC3Dataset` or
+    :class:`~pyhealth.datasets.EHRShotDataset`.
+
     Every sample of ``base_task`` keeps its label; its code fields become
     one ``text`` field (:func:`serialize_ehr`): the unique codes of each
     field, most recent first, with descriptions from PyHealth's vocabularies

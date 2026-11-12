@@ -81,6 +81,8 @@ _VALID_WINDOWS = (_FULL_STAY, _FIRST_HOURS)
 class InHospitalMortalityMEDS(BaseTask):
     """In-hospital mortality prediction for MEDS datasets.
 
+    Works with :class:`~pyhealth.datasets.MEDSDataset`.
+
     One sample per completed hospital stay. The observation window is the
     half-open interval ``[admission, prediction_time)`` and the binary label
     is whether the stay ended in death (discharge code

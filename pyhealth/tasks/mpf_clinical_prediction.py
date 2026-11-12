@@ -215,6 +215,8 @@ def infer_mortality_label(patient: Patient) -> int:
 class MPFClinicalPredictionTask(BaseTask):
     """Binary mortality prediction from FHIR CEHR sequences with optional MPF tokens.
 
+    Works with :class:`~pyhealth.datasets.FHIRDataset`.
+
     The task does timeline extraction and emits **raw** per-event lists,
     including concept keys as strings. Tokenization is the
     :class:`~pyhealth.processors.CehrProcessor`'s job, fit during the

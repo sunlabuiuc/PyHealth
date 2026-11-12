@@ -8,6 +8,8 @@ from pyhealth.tasks import BaseTask
 class SleepStagingSleepEDF(BaseTask):
     """Multi-class classification task for sleep staging on Sleep EDF dataset.
 
+    Works with :class:`~pyhealth.datasets.SleepEDFDataset`.
+
     This task predicts sleep stages (Awake, REM, N1, N2, N3, N4) based on
     multichannel EEG signals. The task is defined as a multi-class classification.
 
