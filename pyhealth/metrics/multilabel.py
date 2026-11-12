@@ -5,9 +5,9 @@ import sklearn.metrics as sklearn_metrics
 
 import pyhealth.metrics.calibration as calib
 import pyhealth.metrics.prediction_set as pset
-from pyhealth.metrics.ranking import multilabel_ranking_at_k
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
 from pyhealth.metrics import ddi_rate_score
+from pyhealth.metrics.ranking import multilabel_ranking_at_k
 
 
 def _load_cached_ddi_adj() -> np.ndarray:
@@ -148,6 +148,11 @@ def multilabel_metrics_fn(
         ... )
         {'ddi_score': 0.0}
     """
+    y_true = np.asarray(y_true)
+    y_prob = np.asarray(y_prob)
+    if y_predset is not None:
+        y_predset = np.asarray(y_predset)
+
     if metrics is None:
         metrics = ["pr_auc_samples"]
     prediction_set_metrics = [
@@ -162,6 +167,8 @@ def multilabel_metrics_fn(
         "miscoverage_overall_ps",
     ]
 
+    # Reuse prediction_set validation and empty averages so direct helper calls
+    # and this scorer enforce the same mask and undefined-denominator rules.
     if y_predset is not None and any(
         metric in prediction_set_metrics for metric in metrics
     ):

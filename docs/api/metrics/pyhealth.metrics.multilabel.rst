@@ -108,17 +108,14 @@ an empty batch returns NaN. All prediction-set metrics are skipped if
 ``y_predset`` is absent. Missing or undefined measurements are not converted
 into zero or JSON null here: serialization belongs to the caller.
 
-For FavMac evaluation, pass the same ``cost_weights`` and ``value_weights`` used
-when constructing the predictor, defaulting to 1.0 when omitted.
-
 Cost-limit violation probability
 --------------------------------
 
-FavMac with delta specified controls the probability that cost exceeds target_cost,
-which cannot be recovered from the mean cost alone. ``fp_cost_violation_rate``
-uses each sample's weighted false-positive cost and counts strictly greater costs;
-values equal to the limit are not violations. It uses all samples, even when true
-label sets are empty, and returns NaN for an empty batch. Supply a finite,
+The probability of exceeding a cost limit cannot be recovered from the mean cost
+alone. ``fp_cost_violation_rate`` uses each sample's weighted false-positive cost
+and counts strictly greater costs; values equal to the limit are not violations.
+It uses all samples, even when true label sets are empty, and returns NaN for an
+empty batch. Supply a finite,
 non-negative target_cost explicitly; omitted limits are rejected when the metric
 is requested with prediction sets::
 
@@ -136,7 +133,3 @@ is requested with prediction sets::
         target_cost=1.0,
     )
     assert result == {"fp_cost": 1.0, "fp_cost_violation_rate": 0.5}
-
-For FavMac, use the predictor's original cost weights and target_cost, without
-normalizing either. Compare the violation rate with delta; delta itself is not
-needed to compute the metric. Other metrics ignore target_cost.

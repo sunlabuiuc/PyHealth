@@ -69,7 +69,8 @@ def multiclass_metrics_fn(
     Empty batches and singleton error with no singleton predictions return NaN.
 
     Args:
-        y_true: True target values of shape (n_samples,).
+        y_true: True target values of shape (n_samples,). Prediction-set metrics
+            require integer labels: label k refers to column k of y_predset.
         y_prob: Predicted probabilities of shape (n_samples, n_classes).
         metrics: List of metrics to compute. Default is ["accuracy", "f1_macro",
             "f1_micro"].
