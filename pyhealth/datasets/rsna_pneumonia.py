@@ -60,15 +60,19 @@ def _load_annotation_labels(
     }
     positive: set[str] = set()
     negative: set[str] = set()
-    for annotation in data.get("datasets", [{}])[0].get("annotations", []):
-        sop = str(annotation.get("SOPInstanceUID", "") or "")
-        if not sop:
-            continue
-        name = label_names.get(annotation.get("labelId"), "")
-        if name.startswith("Lung Opacity") and annotation.get("data") is not None:
-            positive.add(sop)
-        elif name in ("Normal", "No Lung Opacity / Not Normal"):
-            negative.add(sop)
+    for dataset_entry in data.get("datasets", []):
+        for annotation in dataset_entry.get("annotations", []):
+            sop = str(annotation.get("SOPInstanceUID", "") or "")
+            if not sop:
+                continue
+            name = label_names.get(annotation.get("labelId"), "")
+            if (
+                name.startswith("Lung Opacity")
+                and annotation.get("data") is not None
+            ):
+                positive.add(sop)
+            elif name in ("Normal", "No Lung Opacity / Not Normal"):
+                negative.add(sop)
     labels = {sop: 1 for sop in positive}
     for sop in negative:
         labels.setdefault(sop, 0)
@@ -153,15 +157,15 @@ class RSNAPneumoniaDataset(BaseDataset):
             read_dicom_patient_id: Read DICOM PatientID and geometry fields.
             refresh_metadata: Regenerate the metadata CSV.
         """
-        source_root = Path(root).resolve()
+        source_root = Path(root).expanduser().resolve()
         self.source_root = source_root
         self.image_dir = (
-            Path(image_dir).resolve()
+            Path(image_dir).expanduser().resolve()
             if image_dir is not None
             else (source_root / _DEFAULT_IMAGE_DIR).resolve()
         )
         self.mapping_path = (
-            Path(mapping_file).resolve()
+            Path(mapping_file).expanduser().resolve()
             if mapping_file is not None
             else (source_root / _DEFAULT_MAPPING).resolve()
         )
@@ -182,7 +186,7 @@ class RSNAPneumoniaDataset(BaseDataset):
                 "label_source must be 'auto', 'mapping' or 'annotations'."
             )
         self.annotations_path = (
-            Path(annotations_file).resolve()
+            Path(annotations_file).expanduser().resolve()
             if annotations_file is not None
             else (source_root / _DEFAULT_ANNOTATIONS).resolve()
         )
@@ -202,16 +206,19 @@ class RSNAPneumoniaDataset(BaseDataset):
             else None
         )
         self.label_source = "annotations" if self.use_annotations else "mapping"
-        self._label_source_key = (
-            f"annotations:{self.annotation_label_group}"
+        self.read_dicom_patient_id = bool(read_dicom_patient_id)
+        source_tag = (
+            f"annotations:{self.annotation_label_group}:{self.annotations_path}"
             if self.use_annotations
             else "mapping"
         )
+        self._label_source_key = (
+            f"{source_tag}|read_dicom_patient_id={int(self.read_dicom_patient_id)}"
+        )
 
-        self.read_dicom_patient_id = bool(read_dicom_patient_id)
         name = dataset_name or self.default_dataset_name
         self.metadata_dir = (
-            Path(metadata_dir)
+            Path(metadata_dir).expanduser()
             if metadata_dir is not None
             else _resolve_metadata_dir(cache_dir, name)
         )
@@ -227,22 +234,11 @@ class RSNAPneumoniaDataset(BaseDataset):
             if self._label_source_marker.exists()
             else None
         )
-        if marker_source is None:
-            # Metadata written before label-source tracking lacks the
-            # annotation_label column expected by the current config.
-            needs_refresh = True
-        elif self.use_annotations:
-            needs_refresh = (
-                refresh_metadata
-                or not self.metadata_path.exists()
-                or marker_source != self._label_source_key
-            )
-        else:
-            needs_refresh = (
-                refresh_metadata
-                or not self.metadata_path.exists()
-                or marker_source != self._label_source_key
-            )
+        needs_refresh = (
+            refresh_metadata
+            or not self.metadata_path.exists()
+            or marker_source != self._label_source_key
+        )
         if needs_refresh:
             self.prepare_metadata()
         self._label_source_marker.write_text(self._label_source_key)
