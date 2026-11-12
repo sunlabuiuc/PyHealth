@@ -13,7 +13,10 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-from sphinx.util import logging
+try:
+    from sphinx.util import logging
+except ImportError:  # imported outside a docs build, e.g. by the unit test
+    import logging
 
 logger = logging.getLogger(__name__)
 
