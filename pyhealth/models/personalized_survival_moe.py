@@ -78,7 +78,6 @@ class PersonalizedSurvivalMoE(BaseModel):
             raise ValueError("dropout must be in [0, 1)")
         if hidden_dim % num_experts:
             raise ValueError("hidden_dim must be divisible by num_experts")
-        self.mode = None
         self.input_dim, self.num_time_bins = input_dim, num_time_bins
         self.num_experts = num_experts
         self.embeddings = nn.ModuleList(
