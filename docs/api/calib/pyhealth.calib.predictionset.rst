@@ -5,6 +5,12 @@ Prediction set constructors that provide set-valued predictions with statistical
 coverage guarantees. These methods are based on conformal prediction and related
 techniques for uncertainty quantification.
 
+These methods support binary and multiclass classification, except ``FavMac``,
+which supports multilabel classification. Binary models retain ``y_prob`` with
+shape ``(N, 1)`` and return ``y_predset`` with shape ``(N, 2)`` for labels 0 and 1.
+Score these sets with :func:`pyhealth.metrics.binary_metrics_fn`; see
+``examples/conformal_label_binary.py`` for a complete example.
+
 ``BaseConformal``, ``LABEL``, ``ClusterLabel``, ``CovariateLabel``,
 ``LabelShift``, ``RC3P``, and ``NeighborhoodLabel`` all accept a ``score_type`` argument selecting the
 nonconformity/conformity score used for calibration and set construction:
@@ -14,21 +20,6 @@ adapts the prediction set size to the model's per-input confidence. See
 :mod:`pyhealth.calib.predictionset.scores` for the exact score formulas.
 ``SCRIB`` and ``FavMac`` are not included since their calibration
 procedures aren't a score-then-quantile pattern.
-
-Binary classification
----------------------
-
-BaseConformal, LABEL, ClusterLabel, CovariateLabel, NeighborhoodLabel, RC3P,
-LabelShift and SCRIB support binary models. A binary model's single probability
-column is expanded internally to ``[1 - p, p]`` when constructing prediction sets.
-The returned ``y_prob`` stays binary, with shape ``(N, 1)``; ``y_predset`` has
-shape ``(N, 2)``, with columns for encoded labels 0 and 1. Native labels and other
-model outputs are preserved. FavMac remains multilabel-only.
-
-Score these sets with :func:`pyhealth.metrics.binary_metrics_fn`, passing
-``y_predset`` explicitly. ``examples/conformal_label_binary.py`` demonstrates
-training, calibration and evaluation for threshold and APS scores on synthetic
-samples. SCRIB uses its own threshold search rather than the score_type API.
 
 Available Methods
 -----------------

@@ -25,7 +25,7 @@ from pyhealth.calib.predictionset.base_conformal import (
     _query_weighted_quantile,
 )
 from pyhealth.calib.predictionset.scores import true_class_nc_scores
-from pyhealth.calib.utils import binary_to_two_columns, prepare_numpy_dataset
+from pyhealth.calib.utils import prepare_numpy_dataset
 from pyhealth.models import BaseModel
 
 __all__ = ["LabelShift"]
@@ -285,10 +285,6 @@ class LabelShift(BaseConformal):
         debug: bool = False,
         **kwargs,
     ) -> None:
-        if model.mode not in {"multiclass", "binary"}:
-            raise NotImplementedError(
-                "LabelShift only supports binary and multiclass classification"
-            )
         if not isinstance(alpha, (float, np.floating)) or not 0.0 < alpha < 1.0:
             raise ValueError(
                 "LabelShift controls marginal coverage under the target "
@@ -357,9 +353,6 @@ class LabelShift(BaseConformal):
 
         y_prob = cal_dataset_dict["y_prob"]
         y_true = np.asarray(cal_dataset_dict["y_true"])
-        if self.mode == "binary":
-            y_prob = binary_to_two_columns(y_prob)
-            y_true = y_true.reshape(-1).astype(int)
         num_rows, num_classes = y_prob.shape
         y_true = _validate_calibration_labels(y_true, num_rows, num_classes)
 

@@ -22,7 +22,8 @@ Papers:
     https://arxiv.org/abs/2310.12033
 """
 
-from typing import Callable, Dict, Optional, Union
+from collections.abc import Callable
+from typing import Optional, Union
 
 import numpy as np
 import torch
@@ -35,10 +36,7 @@ from pyhealth.calib.predictionset.scores import (
     all_class_conformity_scores,
     true_class_conformity_scores,
 )
-from pyhealth.calib.utils import (
-    binary_to_two_columns,
-    prepare_numpy_dataset,
-)
+from pyhealth.calib.utils import prepare_numpy_dataset
 from pyhealth.datasets import get_dataloader
 from pyhealth.models import BaseModel
 
@@ -365,7 +363,7 @@ class CovariateLabel(SetPredictor):
     ) -> None:
         super().__init__(model, **kwargs)
 
-        if model.mode not in {"multiclass", "binary"}:
+        if self.model.mode != "multiclass":
             raise NotImplementedError(
                 "CovariateLabel only supports binary and multiclass classification"
             )
@@ -375,7 +373,6 @@ class CovariateLabel(SetPredictor):
                 f"{SUPPORTED_SCORE_TYPES}."
             )
 
-        self.mode = self.model.mode
 
         # Freeze model parameters
         for param in model.parameters():
@@ -465,9 +462,6 @@ class CovariateLabel(SetPredictor):
 
         y_prob = cal_dataset_dict["y_prob"]
         y_true = cal_dataset_dict["y_true"]
-        if self.mode == "binary":
-            y_prob = binary_to_two_columns(y_prob)
-            y_true = y_true.reshape(-1).astype(int)
         N, K = y_prob.shape
 
         # Determine weights: either custom or KDE-based
@@ -547,7 +541,7 @@ class CovariateLabel(SetPredictor):
 
         self.t = torch.tensor(t, device=self.device)
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def _predict(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation with prediction set construction.
 
         Returns:
@@ -559,8 +553,6 @@ class CovariateLabel(SetPredictor):
 
         # Construct prediction set by thresholding conformity scores
         y_prob = pred["y_prob"].detach().cpu().numpy()
-        if self.mode == "binary":
-            y_prob = binary_to_two_columns(y_prob)
         conformity_scores = all_class_conformity_scores(
             y_prob, score_type=self.score_type, rng=self.rng
         )

@@ -4,7 +4,7 @@ Neighborhood Conformal Prediction (NCP).
 """
 
 import warnings
-from typing import Dict, Optional, Union
+from typing import Optional
 
 import numpy as np
 import torch
@@ -19,7 +19,6 @@ from pyhealth.calib.predictionset.scores import (
     true_class_conformity_scores,
 )
 from pyhealth.calib.utils import (
-    binary_to_two_columns,
     extract_embeddings,
     prepare_numpy_dataset,
 )
@@ -124,7 +123,7 @@ class NeighborhoodLabel(SetPredictor):
     ) -> None:
         super().__init__(model, **kwargs)
 
-        if model.mode not in {"multiclass", "binary"}:
+        if self.model.mode != "multiclass":
             raise NotImplementedError(
                 "NeighborhoodLabel only supports binary and multiclass classification"
             )
@@ -134,7 +133,6 @@ class NeighborhoodLabel(SetPredictor):
                 f"{SUPPORTED_SCORE_TYPES}."
             )
 
-        self.mode = self.model.mode
 
         for param in model.parameters():
             param.requires_grad = False
@@ -190,9 +188,6 @@ class NeighborhoodLabel(SetPredictor):
         )
         y_prob = cal_dict["y_prob"]
         y_true = cal_dict["y_true"]
-        if self.mode == "binary":
-            y_prob = binary_to_two_columns(y_prob)
-            y_true = y_true.reshape(-1).astype(int)
         N = y_prob.shape[0]
 
         if cal_embeddings is None:
@@ -287,7 +282,7 @@ class NeighborhoodLabel(SetPredictor):
                     stacklevel=2,
                 )
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def _predict(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward with NCP: per-sample weighted quantile threshold."""
         if (
             self.cal_embeddings_ is None
@@ -327,8 +322,6 @@ class NeighborhoodLabel(SetPredictor):
         )
 
         y_prob_np = pred["y_prob"].detach().cpu().numpy()
-        if self.mode == "binary":
-            y_prob_np = binary_to_two_columns(y_prob_np)
         conformity_scores = all_class_conformity_scores(
             y_prob_np, score_type=self.score_type, rng=self.rng
         )

@@ -20,10 +20,7 @@ from pyhealth.calib.predictionset.scores import (
     all_class_nc_scores,
     true_class_nc_scores,
 )
-from pyhealth.calib.utils import (
-    binary_to_two_columns,
-    prepare_numpy_dataset,
-)
+from pyhealth.calib.utils import prepare_numpy_dataset
 from pyhealth.models import BaseModel
 
 __all__ = ["LABEL"]
@@ -101,14 +98,13 @@ class LABEL(SetPredictor):
         **kwargs,
     ) -> None:
         super().__init__(model, **kwargs)
-        if model.mode not in {"multiclass", "binary"}:
+        if self.model.mode != "multiclass":
             raise NotImplementedError()
         if score_type not in SUPPORTED_SCORE_TYPES:
             raise ValueError(
                 f"Unknown score_type: {score_type!r}. Supported: "
                 f"{SUPPORTED_SCORE_TYPES}."
             )
-        self.mode = self.model.mode
         for param in model.parameters():
             param.requires_grad = False
         self.model.eval()
@@ -134,9 +130,6 @@ class LABEL(SetPredictor):
         )
         y_prob = cal_dataset["y_prob"]
         y_true = cal_dataset["y_true"]
-        if self.mode == "binary":
-            y_prob = binary_to_two_columns(y_prob)
-            y_true = y_true.reshape(-1).astype(int)
 
         K = y_prob.shape[1]
         # NC scores: higher = less conforming
@@ -152,7 +145,7 @@ class LABEL(SetPredictor):
             ]
         self.t = torch.tensor(t, device=self.device)
 
-    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
+    def _predict(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation (just like the original model).
 
         :return: A dictionary with all results from the base model, with the following updates:
@@ -162,8 +155,6 @@ class LABEL(SetPredictor):
         """
         pred = self.model(**kwargs)
         y_prob = pred["y_prob"].detach().cpu().numpy()
-        if self.mode == "binary":
-            y_prob = binary_to_two_columns(y_prob)
         nc_scores = all_class_nc_scores(
             y_prob, score_type=self.score_type, rng=self.rng
         )

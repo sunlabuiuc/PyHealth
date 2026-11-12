@@ -10,7 +10,7 @@ This serves as a baseline approach for future personalized/dynamic conformal
 prediction methods that use patient similarity for calibration set construction.
 """
 
-from typing import Dict, Optional, Union
+from typing import Optional, Union
 
 import numpy as np
 import torch
@@ -25,7 +25,6 @@ from pyhealth.calib.predictionset.scores import (
     true_class_nc_scores,
 )
 from pyhealth.calib.utils import (
-    binary_to_two_columns,
     extract_embeddings,
     prepare_numpy_dataset,
 )
@@ -127,7 +126,7 @@ class ClusterLabel(SetPredictor):
     ) -> None:
         super().__init__(model, **kwargs)
 
-        if model.mode not in {"multiclass", "binary"}:
+        if self.model.mode != "multiclass":
             raise NotImplementedError(
                 "ClusterLabel only supports binary and multiclass classification"
             )
@@ -137,7 +136,6 @@ class ClusterLabel(SetPredictor):
                 f"{SUPPORTED_SCORE_TYPES}."
             )
 
-        self.mode = self.model.mode
 
         # Freeze model parameters
         for param in model.parameters():
@@ -206,9 +204,6 @@ class ClusterLabel(SetPredictor):
 
         y_prob = cal_dataset_dict["y_prob"]
         y_true = cal_dataset_dict["y_true"]
-        if self.mode == "binary":
-            y_prob = binary_to_two_columns(y_prob)
-            y_true = y_true.reshape(-1).astype(int)
         N, K = y_prob.shape
 
         # Extract embeddings if not provided
@@ -302,7 +297,7 @@ class ClusterLabel(SetPredictor):
         if self.debug:
             print(f"Cluster thresholds: {self.cluster_thresholds}")
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def _predict(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation with cluster-specific prediction set construction.
 
         Returns:
@@ -349,8 +344,6 @@ class ClusterLabel(SetPredictor):
 
         # Include class y if its NC score <= NC threshold
         y_prob_np = pred["y_prob"].detach().cpu().numpy()
-        if self.mode == "binary":
-            y_prob_np = binary_to_two_columns(y_prob_np)
         nc_scores = all_class_nc_scores(
             y_prob_np, score_type=self.score_type, rng=self.rng
         )

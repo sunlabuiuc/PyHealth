@@ -118,7 +118,7 @@ def _assert_equivalent(method, score_type, alpha=0.3, rank_samples=None):
     with torch.no_grad():
         actual = binary(**batch)
         expected = reference(**batch)
-        native = binary.model(**batch)
+        native = binary.model.model(**batch)
 
     assert binary.mode == "binary"
     assert actual["y_predset"].dtype == torch.bool
@@ -350,3 +350,87 @@ def test_binary_label_with_real_model_and_label_processor(score_type):
             assert set(result) == set(SET_METRICS)
         finally:
             dataset.close()
+
+
+@pytest.mark.parametrize("mode", ["binary", "multiclass"])
+@pytest.mark.parametrize("with_labels", [False, True])
+def test_shared_prediction_boundary_preserves_native_outputs(mode, with_labels):
+    from pyhealth.calib.base_classes import SetPredictor
+
+    class Model(_ProbabilityModel):
+        def __init__(self):
+            super().__init__(mode)
+            self.calls = 0
+            self.feature_keys = ["p", "p0", "p1"]
+
+        def forward(self, **kwargs):
+            self.calls += 1
+            output = super().forward(**kwargs)
+            output["loss"] = torch.tensor(0.125)
+            output["logit"] = torch.logit(output["y_prob"])
+            self.last_output = output
+            return output
+
+    class Predictor(SetPredictor):
+        def _predict(self, **kwargs):
+            output = self.model(**kwargs)
+            assert self.model.mode == "multiclass"
+            assert output["y_prob"].shape == (2, 2)
+            if "y_true" in output:
+                assert output["y_true"].shape == (2,)
+                assert output["y_true"].dtype == torch.int64
+            output["y_predset"] = output["y_prob"] >= 0.5
+            return output
+
+    model = Model()
+    predictor = Predictor(model)
+    batch = {"p": [0.25, 0.75], "p0": [0.75, 0.25], "p1": [0.25, 0.75]}
+    if with_labels:
+        batch["label"] = [0, 1]
+    output = predictor.forward(**batch)
+
+    assert model.calls == 1
+    assert predictor.mode == mode
+    assert predictor.model.feature_keys == model.feature_keys
+    assert set(output) == set(model.last_output) | {"y_predset"}
+    assert "_binary_outputs" not in model.last_output
+    for key in model.last_output:
+        assert output[key] is model.last_output[key]
+    torch.testing.assert_close(output["y_predset"], torch.eye(2, dtype=torch.bool))
+
+
+def test_shared_forward_preserves_favmac_multilabel_behavior():
+    from pyhealth.calib.predictionset import FavMac
+
+    class Model(torch.nn.Module):
+        mode = "multilabel"
+        device = torch.device("cpu")
+
+        def forward(self, x, label=None):
+            logits = torch.as_tensor(x, dtype=torch.float64)
+            output = {"logit": logits, "y_prob": logits.sigmoid()}
+            if label is not None:
+                output["y_true"] = torch.as_tensor(label, dtype=torch.float32)
+            return output
+
+    rng = np.random.default_rng(18)
+    logits = rng.normal(size=(40, 3))
+    labels = rng.integers(0, 2, size=(40, 3))
+    samples = [{"x": x.tolist(), "label": y.tolist()} for x, y in zip(logits, labels)]
+    model = Model()
+    predictor = FavMac(model, target_cost=1.0)
+    predictor.calibrate(samples[:32])
+    batch = next(iter(get_dataloader(samples[32:], 8, shuffle=False)))
+    with torch.no_grad():
+        output = predictor(**batch)
+        native = model(**batch)
+
+    assert predictor.model is model
+    assert predictor.mode == "multilabel"
+    assert output["y_predset"].shape == (8, 3)
+    # FavMac returns integer membership masks; the shared boundary preserves them.
+    assert output["y_predset"].dtype == torch.int64
+    assert torch.isin(output["y_predset"], torch.tensor([0, 1])).all()
+    assert set(output) == set(native) | {"y_predset"}
+    for key in native:
+        torch.testing.assert_close(output[key], native[key])

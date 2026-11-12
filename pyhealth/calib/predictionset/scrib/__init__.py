@@ -6,17 +6,14 @@ Implementation based on https://github.com/zlin7/scrib
 """
 
 import time
-from typing import Dict, Union
+from typing import Union
 
 import numpy as np
 import pandas as pd
 import torch
 
 from pyhealth.calib.base_classes import SetPredictor
-from pyhealth.calib.utils import (
-    binary_to_two_columns,
-    prepare_numpy_dataset,
-)
+from pyhealth.calib.utils import prepare_numpy_dataset
 from pyhealth.models import BaseModel
 from pyhealth.utils import preserve_rng_state
 
@@ -255,9 +252,8 @@ class SCRIB(SetPredictor):
         **kwargs,
     ) -> None:
         super().__init__(model, **kwargs)
-        if model.mode not in {"multiclass", "binary"}:
+        if self.model.mode != "multiclass":
             raise NotImplementedError()
-        self.mode = self.model.mode
         for param in model.parameters():
             param.requires_grad = False
         self.model.eval()
@@ -290,9 +286,6 @@ class SCRIB(SetPredictor):
             self.model, cal_dataset, ["y_prob", "y_true"], debug=self.debug
         )
         y_prob, y_true = cal_dataset["y_prob"], cal_dataset["y_true"]
-        if self.mode == "binary":
-            y_prob = binary_to_two_columns(y_prob)
-            y_true = y_true.reshape(-1).astype(int)
 
         if self.loss_name == CLASSPECIFIC_LOSSFUNC:
             assert len(self.risk) == y_prob.shape[1]
@@ -306,7 +299,7 @@ class SCRIB(SetPredictor):
         )
         self.t = torch.nn.Parameter(torch.tensor(best_ts, device=self.device))
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def _predict(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation (just like the original model).
 
         :return: A dictionary with all results from the base model, with the following updates:
@@ -316,8 +309,6 @@ class SCRIB(SetPredictor):
         """
         ret = self.model(**kwargs)
         y_prob = ret["y_prob"]
-        if self.mode == "binary":
-            y_prob = binary_to_two_columns(y_prob)
         y_predset = y_prob > self.t
         if self.fill_max:
             # Match the calibration-time assumption: when no class clears
