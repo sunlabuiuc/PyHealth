@@ -692,14 +692,38 @@ jobs:
             yourself, and never ask the author to copy code they chose to
             share.
 
+            Then skim the documentation of every component the pull request
+            adds or changes: its class and public method docstrings and its
+            page under docs/api/. Read it as a user who has never seen the
+            component, checking it against the code:
+            - A new dataset must cite where it comes from: a link to the
+              dataset's source site (such as its PhysioNet, Kaggle or project
+              page) or to the paper that introduced it, in the dataset class's
+              docstring or on its docs/api/ page. If there is none, report a
+              medium-severity finding on the class definition and ask for the
+              link. Don't ask for one for an existing dataset the pull request
+              only changes; mention it as low severity at most.
+            - Documentation for a new dataset should say briefly what the
+              data is, how to get access to it, and what root (folder and
+              files) the class expects.
+            - Documentation that contradicts the code, such as a wrong
+              argument name, default, file name or return value, is medium
+              severity.
+            - Documentation that is unclear, hard to follow, much longer than
+              it needs to be, or missing something from the list above, is low
+              severity: say what to cut or add. Keep these suggestions few and
+              concrete, and don't ask for more documentation than comparable
+              PyHealth components have.
+
             Severity, where high and medium should block the merge and low
             should not:
             - high: a likely bug, breakage, data corruption or security problem,
               or code that looks fabricated or placeholder
             - medium: another problem that should block the merge: a broken or
-              misleading API or documentation, behavior that doesn't match the
-              description, new behavior with no tests, or sharing between
-              components that the description doesn't explain
+              misleading API or documentation, a new dataset that doesn't cite
+              its source, behavior that doesn't match the description, new
+              behavior with no tests, or sharing between components that the
+              description doesn't explain
             - low: anything that would improve the change but needn't block it,
               including conventions in example scripts and limitations the pull
               request already states clearly
@@ -1033,6 +1057,13 @@ jobs:
                 author to either confirm the sharing is intended and say why
                 in the description, or keep the component self-contained,
                 offering both neutrally.
+              - Every new dataset in the diff cites its source: a link to the
+                dataset's source site or to the paper that introduced it, in
+                its class docstring or its docs/api/ page. If one doesn't, ask
+                for the link.
+              - The documentation in the diff matches the code. Suggest, as
+                optional, cuts or additions that would make it clearer or more
+                concise.
               - Test coverage meets the bar: generally at least 80% for each
                 added or modified file, and at least 60% for the whole
                 repository. This is a guideline, not a strict rule: a file with
