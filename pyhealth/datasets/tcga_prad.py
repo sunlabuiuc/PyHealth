@@ -30,10 +30,12 @@ class TCGAPRADDataset(BaseDataset):
           used here; no account needed.
         - Download: from the GDC portal repository (filter to TCGA-PRAD, data
           category "simple nucleotide variation" and "clinical") or the
-          ``gdc-client`` tool.
-        - ``root``: the folder holding the MAF (for example
-          ``TCGA.PRAD.mutect.maf.gz``) and clinical files. The class writes
-          ``tcga_prad_*-pyhealth.csv`` there on first load.
+          ``gdc-client`` tool. GDC serves one masked MAF per sample, so merge
+          them into a single tab-separated file with one header row (for
+          example ``PRAD.maf.gz``), or export one with the ``TCGAmutations``
+          R package.
+        - ``root``: the folder holding that merged MAF and the clinical files.
+          The class writes ``tcga_prad_*-pyhealth.csv`` there on first load.
 
     Args:
         root: Root directory of the raw data containing the TCGA-PRAD files.

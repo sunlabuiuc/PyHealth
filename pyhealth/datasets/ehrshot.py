@@ -19,7 +19,7 @@ class EHRShotDataset(BaseDataset):
         - Source: https://redivis.com/datasets/53gc-8rhx41kgt (docs:
           https://som-shahlab.github.io/ehrshot-website/)
         - Access: restricted. Sign in to Redivis and request access, which
-          requires accepting the EHRSHOT data use agreement.
+          requires signing the EHRSHOT research usage agreement.
         - Download: the ``EHRSHOT_ASSETS`` bundle from Redivis.
         - ``root``: the ``EHRSHOT_ASSETS`` folder, which holds ``data/``,
           ``splits/`` and ``benchmark/``.

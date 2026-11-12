@@ -369,7 +369,7 @@ PyHealth does not ship any data: you download each dataset from its source and p
    * - :doc:`VSAC <datasets/pyhealth.datasets.VSACDataset>`
      - Free UMLS license
      - `NLM <https://vsac.nlm.nih.gov>`__
-     - Yes (API key)
+     - Via ``download_expansions`` (API key)
      - —
    * - :doc:`COVID-19 Radiography <datasets/pyhealth.datasets.COVID19CXRDataset>`
      - Open (Kaggle account)
