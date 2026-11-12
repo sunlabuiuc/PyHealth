@@ -4,6 +4,10 @@
     python examples/support2_survival_personalized_moe.py --root data/support2
     python examples/support2_survival_personalized_moe.py --synthetic --epochs 2
 
+SurvivalEVAL is an optional example dependency, not installed with PyHealth.
+The --root command reproduces the tables below and writes per-run results and
+summaries to personalized_moe_results.json (override with --output).
+
 Downloads missing UCI data and loads patients through Support2Dataset in CSV order.
 Uses the reference's 42 features, physiological/median imputation, missing
 indicators, scaling, categorical embeddings and 20-quantile hday buckets.
@@ -236,17 +240,16 @@ def load_data(root: str | None, synthetic: bool, seed: int) -> pd.DataFrame:
     dataset = Support2Dataset(
         root=root, tables=["support2"], cache_dir=Path(root) / ".pyhealth_cache"
     )
+    fields = NUMERIC + CATEGORICAL + ["hday", "d.time", "death"]
     rows = []
     for pid in pd.read_csv(Path(root) / "support2.csv", dtype={"sno": str}).sno:
         events = dataset.get_patient(pid).get_events(event_type="support2")
         if len(events) != 1:
             raise ValueError(f"Expected exactly one SUPPORT2 row for {pid}")
-        rows.append(
-            {
-                key: getattr(events[0], key, None)
-                for key in NUMERIC + CATEGORICAL + ["hday", "d.time", "death"]
-            }
-        )
+        missing = [key for key in fields if key not in events[0]]
+        if missing:
+            raise ValueError(f"Missing SUPPORT2 fields for {pid}: {missing}")
+        rows.append({key: events[0][key] for key in fields})
     return pd.DataFrame(rows)
 
 
