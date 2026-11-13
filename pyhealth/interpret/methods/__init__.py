@@ -16,6 +16,10 @@ from pyhealth.interpret.methods.tree_shap import TreeSHAP
 from pyhealth.interpret.methods.ensemble_crh import CrhEnsemble
 from pyhealth.interpret.methods.ensemble_avg import AvgEnsemble
 from pyhealth.interpret.methods.ensemble_var import VarEnsemble
+from pyhealth.interpret.methods.token_masking import (
+    optimize_token_mask,
+    token_masking_loss,
+)
 
 __all__ = [
     "BaseInterpreter",
@@ -35,5 +39,7 @@ __all__ = [
     "TreeSHAP",
     "CrhEnsemble",
     "AvgEnsemble",
-    "VarEnsemble"
+    "VarEnsemble",
+    "optimize_token_mask",
+    "token_masking_loss",
 ]

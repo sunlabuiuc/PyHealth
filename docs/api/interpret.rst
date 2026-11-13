@@ -91,6 +91,14 @@ Attribution Methods
     interpret/pyhealth.interpret.methods.baseline
     interpret/pyhealth.interpret.methods.base_interpreter
 
+Explainability Training
+-----------------------
+
+.. toctree::
+    :maxdepth: 4
+
+    interpret/pyhealth.interpret.methods.token_masking
+
 Visualization Utilities
 -----------------------
 
