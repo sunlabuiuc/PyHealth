@@ -20,6 +20,8 @@ CODES: LevelConfig = {"tokens": 1}
 SCALARS: LevelConfig = {"values": [1]}
 NESTED: list[LevelConfig] = [{"ordering": "set", "tokens": 1}, {"ordering": "sequence"}]
 LAST: Resample = {"step": 1.0, "method": "last"}
+# A patient's (sex, insurance) and age: one record per sample.
+STATIC: LevelConfig = {"ordering": "single", "tokens": 2, "values": [1]}
 
 
 def _fit(levels: Sequence[LevelConfig], *records: Any) -> SequenceProcessorV2:
@@ -435,6 +437,7 @@ class TestCodeMapping(unittest.TestCase):
             [{"ordering": "set", "tokens": 1, "values": [1], "code_mapping": mapping}],
             [CODES, {"ordering": "set", "tokens": 1, "code_mapping": mapping}],
             [{"ordering": "set", "tokens": 2, "code_mapping": [mapping, None]}],
+            [{"ordering": "single", "tokens": 1, "code_mapping": mapping}],
         ]
         for levels in cases:
             with self.subTest(levels=levels), self.assertRaises(ValueError):
@@ -1180,6 +1183,122 @@ class TestCollateAndValidate(unittest.TestCase):
                 proc.validate(output)
 
 
+class TestSingle(unittest.TestCase):
+    """A ``single`` outermost level: exactly one record, the sample's own."""
+
+    def test_rejects_bad_configurations(self):
+        # Deliberately invalid, so typed Any rather than LevelConfig.
+        cases: list[tuple[str, list[Any], str]] = [
+            (
+                "below the outermost level",
+                [{"ordering": "single", "tokens": 1}, {"ordering": "sequence"}],
+                "only the outermost level",
+            ),
+            ("nothing at level 0", [{"ordering": "single"}], "needs 'tokens' or"),
+            ("nothing above level 0", [CODES, {"ordering": "single"}], "needs 'tokens' or"),
+            (
+                "resampled",
+                [{"ordering": "single", "values": [1], "resample": LAST}],
+                "resample requires ordering 'series'",
+            ),
+        ]
+        for method in ("forward_fill", "backward_fill", "linear"):
+            impute = {"method": method}
+            levels = [{"ordering": "single", "values": [1], "impute": impute}]
+            cases.append((method, levels, "works along time"))
+        for name, levels, message in cases:
+            with self.subTest(name), self.assertRaisesRegex(ValueError, message):
+                SequenceProcessorV2(levels=levels)
+
+    def test_metadata(self):
+        proc = SequenceProcessorV2(levels=[STATIC])
+        self.assertEqual(proc.schema(), ((0, "tokens"), (0, "values")))
+        self.assertEqual(
+            proc.batch_schema(), ((0, "tokens"), (0, "values"), (0, "offsets"))
+        )
+        self.assertEqual(proc.ordering(), {0: "single"})
+        nested = SequenceProcessorV2(levels=[*NESTED, {"ordering": "single", "values": [2]}])
+        self.assertEqual(
+            nested.schema(),
+            ((0, "tokens"), (0, "offsets"), (1, "offsets"), (2, "values")),
+        )
+        self.assertEqual(nested.ordering(), {0: "set", 1: "sequence", 2: "single"})
+
+    def test_process_reads_a_list_of_one_record(self):
+        raw: Records = {"tokens": [("F", "Medicare")], "values": [71.0]}  # a flat scalar
+        proc = _fit([STATIC], raw)
+        tokens, values = proc.process(raw)
+        self.assertEqual(tokens.tolist(), [[2, 2]])
+        self.assertEqual(values.tolist(), [[71.0]])
+        proc.validate((tokens, values))
+
+        proc = _fit([{"ordering": "single", "tokens": 1}], {"tokens": ["F"]})
+        (tokens,) = proc.process({"tokens": ["F"]})
+        self.assertEqual(tokens.tolist(), [2])
+
+    def test_process_needs_exactly_one_record(self):
+        proc = _fit([STATIC], {"tokens": [("F", "Medicare")], "values": [[71.0]]})
+        for n in (0, 2):
+            raw: Records = {"tokens": [("F", "Medicare")] * n, "values": [[71.0]] * n}
+            with (
+                self.subTest(records=n),
+                self.assertRaisesRegex(ValueError, f"length 1, got {n}"),
+            ):
+                proc.process(raw)
+
+        levels: list[LevelConfig] = [*NESTED, {"ordering": "single", "values": [1]}]
+        nested = _fit(levels, {"values": [[1.0]], "children": [_visits(["A"])]})
+        with self.assertRaisesRegex(ValueError, "different lengths"):
+            nested.process(
+                {"values": [[1.0]], "children": [_visits(["A"]), _visits(["B"])]}
+            )
+
+    def test_collate_has_one_record_per_sample(self):
+        visits = [_visits(["A", "B"], ["C"]), _visits(["C"])]
+        a: Records = {"values": [[1.0]], "children": [visits[0]]}
+        b: Records = {"values": [[2.0]], "children": [visits[1]]}
+        proc = _fit([*NESTED, {"ordering": "single", "values": [1]}], a, b)
+        batch = proc.collate([proc.process(a), proc.process(b)])
+        tokens, visit_offsets, patient_offsets, values, batch_offsets = batch
+        self.assertEqual(tokens.tolist(), [2, 3, 4, 4])
+        self.assertEqual(visit_offsets.tolist(), [0, 2, 3, 4])
+        self.assertEqual(patient_offsets.tolist(), [0, 2, 3])
+        self.assertEqual(values.tolist(), [[1.0], [2.0]])
+        self.assertEqual(batch_offsets.tolist(), [0, 1, 2])
+        proc.validate(batch, batched=True)
+
+        # The levels below are packed as without the single level, whose
+        # (1, "offsets") are that processor's batch offsets.
+        flat = _fit(NESTED, *visits)
+        for got, want in zip(batch, flat.collate([flat.process(v) for v in visits])):
+            torch.testing.assert_close(got, want)
+
+    def test_statistics_come_from_all_samples(self):
+        level: LevelConfig = {
+            "ordering": "single",
+            "values": [2],
+            "impute": {"method": "mean"},
+            "missing_indicator": True,
+            "normalize": {"method": "zscore"},
+        }
+        proc = _fit([level], {"values": [[60.0, 60.0]]}, {"values": [[80.0, 80.0]]})
+        self.assertTrue(proc.learns_statistics)
+        values, mask = proc.process({"values": [[75.0, NAN]]})
+        torch.testing.assert_close(values, torch.tensor([[0.5, 0.0]]))
+        self.assertEqual(mask.tolist(), [[False, True]])
+
+    def test_validate_needs_one_record_per_sample(self):
+        raw: Records = {"tokens": [("F", "Medicare")], "values": [[71.0]]}
+        proc = _fit([STATIC], raw)
+        tokens, values = proc.process(raw)
+        with self.assertRaisesRegex(ValueError, "exactly one record per sample"):
+            proc.validate((tokens.repeat(2, 1), values.repeat(2, 1)))
+        batch = proc.collate([(tokens, values)] * 2)
+        proc.validate(batch, batched=True)
+        with self.assertRaisesRegex(ValueError, "exactly one record per sample"):
+            proc.validate((*batch[:2], torch.tensor([0, 2, 2])), batched=True)
+
+
 class TestStorage(unittest.TestCase):
     def test_dataloader_uses_the_processor_collate(self):
         from pyhealth.datasets import create_sample_dataset, get_dataloader
@@ -1217,6 +1336,32 @@ class TestStorage(unittest.TestCase):
                 torch.testing.assert_close(got, want)
             proc.validate(batch[key], batched=True)
         self.assertEqual(batch["label"].shape[0], 2)  # other fields as before
+
+    def test_dataloader_stacks_a_single_level(self):
+        from pyhealth.datasets import create_sample_dataset, get_dataloader
+
+        samples = [
+            {
+                "patient_id": "p0",
+                "static": {"tokens": [("F", "Medicare")], "values": [[71.0]]},
+                "label": 0,
+            },
+            {
+                "patient_id": "p1",
+                "static": {"tokens": [("M", "Private")], "values": [[64.0]]},
+                "label": 1,
+            },
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"static": ("sequence_v2", {"levels": [STATIC]})},
+            output_schema={"label": "binary"},
+        )
+        batch = next(iter(get_dataloader(dataset, batch_size=2)))
+        tokens, values, batch_offsets = batch["static"]
+        self.assertEqual(tokens.tolist(), [[2, 2], [3, 3]])
+        self.assertEqual(values.tolist(), [[71.0], [64.0]])
+        self.assertEqual(batch_offsets.tolist(), [0, 1, 2])
 
     def test_pickle_round_trip(self):
         raw = _visits(["A", "B"], ["C"])

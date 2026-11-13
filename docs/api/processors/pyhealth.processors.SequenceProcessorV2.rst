@@ -54,9 +54,9 @@ Glossary
    * - Term
      - Definition
    * - **Level** (``l = 0 .. L``) & **depth** (``L``)
-     - Hierarchy tier within a sample, ordered innermost-first in ``levels``: level ``0`` holds atomic records (e.g., codes, lab readings, word tokens); level ``L`` (``proc.depth``) is the outermost grouping tier within a sample (e.g., visits or hospital admissions).
+     - Hierarchy tier within a sample, ordered innermost-first in ``levels``: level ``0`` holds atomic records (e.g., codes, lab readings, word tokens); level ``L`` (``proc.depth``) is the outermost grouping tier within a sample (e.g., visits or hospital admissions), or, when it is ``"single"``, the sample's own record (e.g., demographics).
    * - :class:`~pyhealth.processors.Records`
-     - Plain ``dict`` returned by a task for one level, holding columnar sequences: ``tokens``, ``values``, ``time``, and ``children`` (a list of child ``Records`` one level down; omitted at level ``0``).
+     - Plain ``dict`` returned by a task for one level, holding columnar sequences: ``tokens``, ``values``, ``time``, and ``children`` (a list of child ``Records`` one level down; omitted at level ``0``). On a ``"single"`` level every column has length 1.
    * - **Record count** (``N_l``)
      - Total number of records at level ``l`` packed across one sample (in :meth:`~pyhealth.processors.SequenceProcessorV2.process`) or across an entire batch (in :meth:`~pyhealth.processors.SequenceProcessorV2.collate`).
    * - **Group**
@@ -70,7 +70,7 @@ Glossary
    * - **Value shape** (``S_l``)
      - Trailing dimensions of continuous ``float32`` measurements per record (``[N_l, *S_l]``). Scalar values use ``S_l = [1]`` and emit shape ``[N_l, 1]``.
    * - ``ordering``
-     - Semantic order of records within each group: ``"set"`` (unordered; no ``time``), ``"sequence"`` (discrete step order; no ``time``), or ``"series"`` (explicit timestamps; ``time`` required).
+     - Semantic order of records within each group: ``"set"`` (unordered; no ``time``), ``"sequence"`` (discrete step order; no ``time``), ``"series"`` (explicit timestamps; ``time`` required), or ``"single"`` (exactly one record, the sample's own, so no order and no ``time``; outermost level only).
    * - ``spatial``
      - One ``bool`` per axis of ``S_l``: ``False`` marks unordered channel/feature axes; ``True`` marks ordered continuous spatial or high-frequency waveform axes.
    * - ``schema()`` vs. ``batch_schema()``
@@ -212,6 +212,84 @@ padding. Instead, it:
     patient_b_codes = b_tokens[c_start:c_end]  # tensor([3, 4])
     patient_b_visit_offsets = visit_offsets[v_start : v_end + 1] - c_start  # tensor([0, 1, 2])
 
+5. Per-Sample Attributes (``"single"``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A ``"single"`` outermost level holds exactly one record per sample: the
+sample's own, such as a patient's sex, insurance, and age. Its
+:class:`~pyhealth.processors.Records` columns have length 1, so each sample
+emits ``[1, ...]`` tensors, and
+:meth:`~pyhealth.processors.SequenceProcessorV2.collate` stacks them into
+``[B, ...]`` with batch offsets ``0 .. B``:
+
+.. code-block:: python
+
+    from pyhealth.processors import SequenceProcessorV2
+
+    # Level 0: (sex, insurance) and age, one record per patient
+    static_proc = SequenceProcessorV2(
+        levels=[{"ordering": "single", "tokens": 2, "values": [1]}]
+    )
+    static_proc.fit(
+        [
+            {"static": {"tokens": [("F", "Medicare")], "values": [[71.0]]}},
+            {"static": {"tokens": [("M", "Private")], "values": [[64.0]]}},
+        ],
+        "static",
+    )
+    static_proc.schema()
+    # ((0, 'tokens'), (0, 'values'))
+
+    s0 = static_proc.process({"tokens": [("F", "Medicare")], "values": [[71.0]]})
+    # s0 == (tensor([[2, 2]]), tensor([[71.]]))  — one record: [1, K] and [1, 1]
+    s1 = static_proc.process({"tokens": [("M", "Private")], "values": [[64.0]]})
+
+    b_tokens, b_values, batch_offsets = static_proc.collate([s0, s1])
+    # b_tokens:      tensor([[2, 2], [3, 3]])  — [B, K]
+    # b_values:      tensor([[71.], [64.]])    — [B, 1]
+    # batch_offsets: tensor([0, 1, 2])         — one record per patient
+
+The same attributes can sit above a hierarchy, as the record that contains a
+patient's visits. The levels below are packed as they would be without it, and
+``(1, "offsets")`` groups the visits under the patient's one record (in a
+batch, it is ``[B + 1]``, like the batch offsets of a processor without the
+``"single"`` level):
+
+.. code-block:: python
+
+    from pyhealth.processors import Records, SequenceProcessorV2
+
+    patient_proc = SequenceProcessorV2(
+        levels=[
+            {"ordering": "set", "tokens": 1},                    # Level 0: codes in a visit
+            {"ordering": "series"},                              # Level 1: timed visits
+            {"ordering": "single", "tokens": 2, "values": [1]},  # Level 2: the patient
+        ]
+    )
+    patient: Records = {
+        "tokens": [("F", "Medicare")],
+        "values": [[71.0]],
+        "children": [  # one record, containing the patient's visits
+            {
+                "time": [0.0, 30.0],
+                "children": [{"tokens": ["428.0", "401.9"]}, {"tokens": ["250.00"]}],
+            }
+        ],
+    }
+    patient_proc.fit([{"patient": patient}], "patient")
+    patient_proc.schema()
+    # ((0, 'tokens'), (0, 'offsets'), (1, 'time'), (1, 'offsets'), (2, 'tokens'), (2, 'values'))
+
+    tokens, visit_offsets, visit_time, patient_offsets, p_tokens, p_values = (
+        patient_proc.process(patient)
+    )
+    # tokens:          tensor([2, 3, 4])
+    # visit_offsets:   tensor([0, 2, 3])
+    # visit_time:      tensor([ 0., 30.])
+    # patient_offsets: tensor([0, 2])     — both visits belong to the patient's one record
+    # p_tokens:        tensor([[2, 2]])
+    # p_values:        tensor([[71.]])
+
 
 Configuration, Output Roles & Preprocessing Reference
 -----------------------------------------------------
@@ -232,10 +310,10 @@ validated at construction time:
      - Effect on Output
      - Constraints
    * - ``ordering``
-     - ``"set" | "sequence" | "series"``
+     - ``"set" | "sequence" | "series" | "single"``
      - ``"sequence"``
-     - ``"series"`` emits ``(l, "time")`` (resampled or not); reported via ``ordering()``.
-     - ``"series"`` requires finite, non-decreasing ``time`` in ``Records``; ``"set"`` and ``"sequence"`` omit ``time``. Level ``0`` must set ``tokens``, ``values``, or ``ordering="series"``.
+     - ``"series"`` emits ``(l, "time")`` (resampled or not); ``"single"`` holds one record per sample (``[1, ...]`` per sample, ``[B, ...]`` per batch); reported via ``ordering()``.
+     - ``"series"`` requires finite, non-decreasing ``time`` in ``Records``; ``"set"``, ``"sequence"``, and ``"single"`` omit ``time``. ``"single"`` is only allowed on the outermost level, needs ``tokens`` or ``values``, and its ``Records`` columns must have length 1. Level ``0`` must set ``tokens``, ``values``, or ``ordering="series"``.
    * - ``tokens``
      - ``int`` (``K >= 1``)
      - omitted
@@ -312,7 +390,7 @@ by **canonical role order**:
    * - ``"offsets"``
      - ``int64``
      - ``[N_{l+1} + 1]`` (or ``[B + 1]`` at ``L``)
-     - Every inner level ``l < L``; ``(L, "offsets")`` is appended in collated batches.
+     - Every inner level ``l < L``; ``(L, "offsets")`` is appended in collated batches (``0 .. B`` when level ``L`` is ``"single"``).
 
 Bind tensors by ``(level, role)`` key when needed:
 
@@ -416,6 +494,14 @@ Mapping Common Clinical Data Structures
      - ``[{"ordering": "series", "values": [C, H, W], "spatial": [False, True, True]}]``
      - ``((0, "values"), (0, "time"))``
      - Pre-loaded arrays with ``spatial`` marking channel vs. continuous axes.
+   * - **Static per-sample attributes** (e.g., sex and insurance with age)
+     - ``[{"ordering": "single", "tokens": 2, "values": [1]}]``
+     - ``((0, "tokens"), (0, "values"))``
+     - ``{0: "single"}``; one record per sample, ``[B, 2]`` and ``[B, 1]`` per batch.
+   * - **Patient attributes above timestamped visits of codes**
+     - ``[{"ordering": "set", "tokens": 1}, {"ordering": "series"}, {"ordering": "single", "tokens": 2}]``
+     - ``((0, "tokens"), (0, "offsets"), (1, "time"), (1, "offsets"), (2, "tokens"))``
+     - ``{0: "set", 1: "series", 2: "single"}``; ``(1, "offsets")`` groups each patient's visits under their one record.
 
 Constructing ``Records`` in a Task
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -470,6 +556,16 @@ standard Python collections and EHR query rows into
         "time": [t for t, _, _, _ in lab_rows],
         "tokens": [(test, unit) for _, test, unit, _ in lab_rows],
         "values": [[val] for _, _, _, val in lab_rows],
+    }
+
+    # 8. Static attributes for a "single" level: (sex, insurance) and age, columns of length 1
+    rec_static: Records = {"tokens": [("F", "Medicare")], "values": [[71.0]]}
+
+    # 9. The same attributes as a "single" level above the timestamped visits of (4.)
+    rec_patient: Records = {
+        "tokens": [("F", "Medicare")],
+        "values": [[71.0]],
+        "children": [rec_timed_visits],  # the patient's one record contains the visits
     }
 
 
@@ -863,8 +959,9 @@ Design Rationale
 - **Explicit semantic metadata on the processor:**
   - ``ordering()`` distinguishes unordered ``"set"`` levels (permutation-invariant
     pooling / self-attention without positional encoding), discrete
-    ``"sequence"`` steps (index-based positional encoding), and timestamped
-    ``"series"`` observations (continuous-time encoding).
+    ``"sequence"`` steps (index-based positional encoding), timestamped
+    ``"series"`` observations (continuous-time encoding), and a ``"single"``
+    record per sample (embedded as it is, with nothing to pool or order).
   - Multi-namespace ``tokens: K`` binds co-occurring ontology attributes at the
     same event—such as ``(analyte, unit)`` lab results, ``(drug, route)``
     medication administrations, ``(specimen_site, organism)`` microbiology
