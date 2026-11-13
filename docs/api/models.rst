@@ -54,6 +54,11 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.GraphCare`
      - You want to augment EHR codes with a medical knowledge graph
      - Combines code sequences with a :class:`~pyhealth.graph.KnowledgeGraph`
+   * - :doc:`models/pyhealth.models.TPC`
+     - Hourly ICU remaining length of stay prediction on irregularly
+       sampled time-series
+     - Causal dilated temporal convolutions with pointwise cross-feature
+       mixing and decay indicators; reproduces Rocheteau et al. (ACM CHIL 2021)
    * - :doc:`models/pyhealth.models.XGBoostModel`
      - Features are tabular (engineered labs, demographics) or bags of codes; you want the standard strong baseline
      - Gradient-boosted trees; fit with ``model.fit`` (not ``Trainer.train``); exact TreeSHAP; needs ``pip install "pyhealth[xgboost]"``
@@ -317,6 +322,7 @@ API Reference
     models/pyhealth.models.MedFuse
     models/pyhealth.models.MedLink
     models/pyhealth.models.TCN
+    models/pyhealth.models.TPC
     models/pyhealth.models.TFMTokenizer
     models/pyhealth.models.GAN
     models/pyhealth.models.VAE
