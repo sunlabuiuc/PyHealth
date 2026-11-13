@@ -66,17 +66,6 @@ def test_forward_with_labels_returns_loss():
     assert torch.isfinite(out["loss"])
 
 
-def test_gradients_only_in_head():
-    model = BulkRNABert(dataset=None, use_cached_embeddings=True)
-    out = model.forward(
-        embedding=torch.randn(4, 256),
-        duration=torch.tensor([[100.0], [200.0], [150.0], [50.0]]),
-        event=torch.tensor([[1.0], [0.0], [1.0], [1.0]]),
-    )
-    out["loss"].backward()
-    assert all(p.grad is not None for p in model.head.parameters())
-
-
 def test_gradients_flow_to_head_in_cached_mode():
     """With cached inputs, only the head should receive gradients."""
     model = BulkRNABert(dataset=None, use_cached_embeddings=True)
@@ -207,3 +196,100 @@ def test_cox_loss_mode_cohort_matches_explicit_call():
     )
     expected = cox_loss(out["logit"].squeeze(-1), dur, ev, co)
     assert torch.allclose(out["loss"], expected)
+
+def test_global_loss_ignores_cohort():
+    """Global mode: cohort labels must not change the loss."""
+    model = BulkRNABert(
+        dataset=None, use_cached_embeddings=True, cox_loss_mode="global",
+    )
+    embedding = torch.randn(8, 256)
+    duration = torch.arange(1, 9).float()
+    event = torch.tensor([1, 0, 1, 1, 0, 1, 0, 1]).float()
+    cohort = torch.tensor([0, 0, 1, 1, 2, 2, 2, 0]).float()
+
+    out_with = model(
+        embedding=embedding, duration=duration, event=event, cohort=cohort,
+    )
+    out_without = model(embedding=embedding, duration=duration, event=event)
+    assert torch.allclose(out_with["loss"], out_without["loss"])
+
+
+def test_cohort_loss_differs_from_global():
+    """Cohort mode changes the objective on data with uneven cohorts."""
+    torch.manual_seed(0)
+    m_global = BulkRNABert(
+        dataset=None, use_cached_embeddings=True, cox_loss_mode="global",
+    )
+    torch.manual_seed(0)
+    m_cohort = BulkRNABert(
+        dataset=None, use_cached_embeddings=True, cox_loss_mode="cohort",
+    )
+    embedding = torch.randn(30, 256)
+    duration = torch.arange(1, 31).float()
+    event = torch.randint(0, 2, (30,)).float()
+    cohort = torch.tensor([0] * 20 + [1] * 8 + [2] * 2)  # very uneven
+
+    with torch.no_grad():
+        l_global = m_global(
+            embedding=embedding, duration=duration, event=event, cohort=cohort,
+        )["loss"]
+        l_cohort = m_cohort(
+            embedding=embedding, duration=duration, event=event, cohort=cohort,
+        )["loss"]
+    assert not torch.allclose(l_global, l_cohort)
+
+
+def test_tokenize_rejects_invalid_normalization_factor():
+    x = np.ones((1, N_GENES))
+    with pytest.raises(ValueError, match="normalization_factor"):
+        tokenize(x, normalization_factor=0.0)
+    with pytest.raises(ValueError, match="normalization_factor"):
+        tokenize(x, normalization_factor=-1.0)
+def test_per_cohort_c_index_weighted_and_macro():
+    """Test the example's per_cohort_c_index helper."""
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "example_module",
+        Path(__file__).parents[2] / "examples"
+        / "tcga_rna_seq_tcga_survival_prediction_bulk_rna_bert.py",
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    # Cohort A: 4 samples, perfect (C=1.0). Cohort B: 2 samples, reversed (C=0.0).
+    duration = np.array([1.0, 2.0, 3.0, 4.0, 1.0, 2.0])
+    risk = np.array([4.0, 3.0, 2.0, 1.0, 1.0, 2.0])
+    event = np.ones(6)
+    cohort = np.array([0, 0, 0, 0, 1, 1])
+
+    result = mod.per_cohort_c_index(duration, risk, event, cohort)
+    assert result["per_cohort"][0] == 1.0
+    assert result["per_cohort"][1] == 0.0
+    assert abs(result["c_index_macro"] - 0.5) < 1e-9
+    assert abs(result["c_index_weighted"] - 4.0 / 6.0) < 1e-9
+
+
+def test_per_cohort_c_index_small_cohort_excluded():
+    """Cohorts with fewer than 2 samples are excluded from aggregates."""
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "example_module",
+        Path(__file__).parents[2] / "examples"
+        / "tcga_rna_seq_tcga_survival_prediction_bulk_rna_bert.py",
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    duration = np.array([1.0, 2.0, 3.0])
+    risk = np.array([3.0, 2.0, 1.0])
+    event = np.ones(3)
+    cohort = np.array([0, 0, 1])  # cohort 1 has only 1 sample
+
+    result = mod.per_cohort_c_index(duration, risk, event, cohort)
+    assert result["per_cohort"][0] == 1.0
+    assert np.isnan(result["per_cohort"][1])
+    assert result["c_index_macro"] == 1.0  # only cohort 0 included

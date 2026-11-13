@@ -93,14 +93,18 @@ def prepare_tcga_rna_seq(
         if len(frame) < before:
             logger.info("Dropped %d Solid Tissue Normal samples", before - len(frame))
 
-    # After filtering, each patient must have at most one sample.
-    dup = frame[frame.duplicated("patient_id", keep=False)]
-    if len(dup) > 0:
-        raise ValueError(
-            "Multiple RNA-seq samples per patient after filtering "
-            "(Tumor + Solid Tissue Normal is expected to be resolved by "
-            "the Solid Tissue Normal filter; investigate these patients): "
-            f"{sorted(dup.patient_id.unique())[:5].tolist()}"
+    # After dropping Solid Tissue Normal, some patients may still have
+    # multiple non-normal samples (Primary + Metastatic, Primary + Recurrent,
+    # etc.). The paper treats each patient as one input, so we keep the first
+    # sample (in source-file order, which matches the reference repo's rule).
+    n_before = len(frame)
+    frame = frame.drop_duplicates(subset="patient_id", keep="first")
+    n_deduped = n_before - len(frame)
+    if n_deduped > 0:
+        logger.info(
+            "Dropped %d duplicate samples from patients with multiple "
+            "non-normal specimens (kept first)",
+            n_deduped,
         )
 
     # Validate survival records.
@@ -110,10 +114,40 @@ def prepare_tcga_rna_seq(
         raise ValueError("Missing cohort in survival records")
     if not np.isfinite(frame.duration_days.astype(float)).all():
         raise ValueError("Survival times contain non-finite values")
-    if (frame.duration_days.astype(float) <= 0).any():
-        raise ValueError("Survival times must be positive")
     if not frame.event.isin([0, 1, True, False]).all():
         raise ValueError("Event must be 0 or 1")
+
+    # Negative durations are data errors; the reference repo already
+    # excludes these, but be defensive.
+    neg_mask = frame.duration_days.astype(float) < 0
+    if neg_mask.any():
+        logger.warning(
+            "Excluding %d patients with negative survival times",
+            int(neg_mask.sum()),
+        )
+        frame = frame[~neg_mask]
+
+    # Zero durations occur when death or last contact is on the diagnosis
+    # date. They break the Cox loss and contribute no comparable pairs to
+    # the C-index. Clamp to a small positive floor (1 day), matching the
+    # METABRIC task's min_duration_months=0.01 convention.
+    zero_mask = frame.duration_days.astype(float) == 0
+    if zero_mask.any():
+        logger.info(
+            "Clamping %d patients with zero survival time to 1 day",
+            int(zero_mask.sum()),
+        )
+        frame = frame.assign(
+            duration_days=np.where(
+                zero_mask, 1.0, frame.duration_days.astype(float),
+            )
+        )
+
+    # Final sanity check.
+    if (frame.duration_days.astype(float) <= 0).any():
+        raise ValueError(
+            "Survival times must be positive after clamping"
+        )
 
     vecs = embeddings[frame.row.to_numpy()].astype(np.float32)
 

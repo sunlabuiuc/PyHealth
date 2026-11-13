@@ -25,8 +25,11 @@ COHORT_TO_INT: dict[str, int] = {c: i for i, c in enumerate(TCGA_COHORTS)}
 class TCGASurvivalPrediction(BaseTask):
     """Survival prediction from TCGA bulk RNA-seq.
 
-    Input: ``gene_expression`` — a fixed-length vector (n_genes or 256-d cached
-    embedding, depending on the model mode).
+     Input: ``embedding`` — the **cached** 256-d BulkRNABert embedding of the
+    patient's bulk RNA-seq profile. This task does not accept raw
+    ~19,062-gene TPM vectors; see ``BulkRNABert(use_cached_embeddings=False)``
+    for the raw-expression path, which is not exercised by the reference
+    pipeline this task supports
 
     Outputs (all ``"tensor"``, so no ``LabelProcessor`` is created):
         - ``duration``: (1,) float tensor (days).
@@ -55,8 +58,14 @@ class TCGASurvivalPrediction(BaseTask):
     INT_TO_COHORT: ClassVar[dict[int, str]] = {i: c for c, i in COHORT_TO_INT.items()}
     def __init__(self, cohort_to_int: dict[str, int] | None = None) -> None:
         super().__init__()
-        self.cohort_to_int = cohort_to_int or COHORT_TO_INT
-
+        self.cohort_to_int = (
+            dict(COHORT_TO_INT)
+            if cohort_to_int is None
+            else dict(cohort_to_int)
+        )
+        self.int_to_cohort = {
+            idx: cohort for cohort, idx in self.cohort_to_int.items()
+        }
     def __call__(self, patient: Patient) -> list[dict[str, Any]]:
         events = patient.get_events(event_type="tcga_rna_seq")
         if not events:

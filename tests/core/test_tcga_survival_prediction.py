@@ -104,3 +104,12 @@ def test_cohort_int_is_stable_for_known_cohorts():
     assert idx["BRCA"] == 2
     assert idx["LUAD"] == 16
     assert idx["KIRC"] == 11
+    
+def test_int_to_cohort_instance_attribute():
+    task = TCGASurvivalPrediction()
+    assert task.int_to_cohort[2] == "BRCA"
+    assert task.int_to_cohort[16] == "LUAD"
+    # Custom mapping works too
+    custom = TCGASurvivalPrediction(cohort_to_int={"foo": 0, "bar": 1})
+    assert custom.int_to_cohort[0] == "foo"
+    assert custom.cohort_to_int == {"foo": 0, "bar": 1}

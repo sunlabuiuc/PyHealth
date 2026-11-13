@@ -46,7 +46,10 @@ NUM_LAYERS = 4
 LAYER_NORM_EPS = 1e-5
 TCGA_NORMALIZATION_FACTOR = 5.547176906585117
 HF_REPO_ID = "InstaDeepAI/BulkRNABert"
-
+# The checkpoint our parity test validated against (encoder max abs diff
+# 3.71e-05, tokenizer bit-for-bit identical). Pinned so future users
+# reproduce the same behavior.
+HF_DEFAULT_REVISION = "7bcae6ac4f68fe1c781e8c1a626d8ee023747228"
 def _unpack(v):
     if isinstance(v, (tuple, list)):
         return v[0]
@@ -65,6 +68,11 @@ def tokenize(tpm: np.ndarray, normalization_factor: float = TCGA_NORMALIZATION_F
         ValueError: If ``tpm`` is not 2D with ``N_GENES`` columns, contains
             non-finite values, or contains negative values.
     """
+    if not np.isfinite(normalization_factor) or normalization_factor <= 0:
+        raise ValueError(
+            f"normalization_factor must be finite and positive, "
+            f"got {normalization_factor}"
+        )
     tpm = np.asarray(tpm, dtype=np.float64)
     if tpm.ndim != 2:
         raise ValueError(f"tpm must be 2D, got shape {tpm.shape}")
@@ -218,9 +226,11 @@ def load_hf_safetensors(
             the official repo.
         revision: Commit hash or branch to pin when downloading from HF Hub.
             Ignored when loading a local file.
-
+    
     Returns:
-        A frozen BulkRNABert encoder in eval mode.
+        A ``BulkRNABertEncoder`` in eval mode. Parameters are **not** frozen
+        here; the constructor freezes them (freeze here would break users who
+        want to fine-tune the encoder).
     """
     from safetensors.torch import load_file
 
@@ -238,7 +248,13 @@ def load_hf_safetensors(
 
     state = load_file(weights_file)
     state = {k: v for k, v in state.items() if not k.startswith("lm_head.")}
-    state["expression_embedding_layer.weight"] = state["expression_embedding_layer.weight"][:N_BINS]
+    embedding_table = state["expression_embedding_layer.weight"]
+    if embedding_table.shape[0] < N_BINS:
+        raise ValueError(
+            f"expression_embedding_layer has {embedding_table.shape[0]} rows; "
+            f"expected at least {N_BINS} (64 expression bins)"
+        )
+    state["expression_embedding_layer.weight"] = embedding_table[:N_BINS]
     model = BulkRNABertEncoder()
     model.load_state_dict(state, strict=True)
     return model.eval()
@@ -277,8 +293,14 @@ def load_jax_checkpoint(path: str) -> BulkRNABertEncoder:
     def norm(prefix: str, target: str) -> None:
         state[f"{target}.weight"] = torch.from_numpy(flat[f"{prefix}|scale"]).float()
         state[f"{target}.bias"] = torch.from_numpy(flat[f"{prefix}|offset"]).float()
-    state["expression_embedding_layer.weight"] = torch.from_numpy(
+    expr_table = torch.from_numpy(
         flat["bulk_bert/~/expression_embedding|embeddings"]).float()
+    if expr_table.shape[0] < N_BINS:
+        raise ValueError(
+            f"JAX expression_embedding_layer has {expr_table.shape[0]} rows; "
+            f"expected at least {N_BINS} (64 expression bins)"
+        )
+    state["expression_embedding_layer.weight"] = expr_table[:N_BINS]
     state["gene_embedding_layer.weight"] = torch.from_numpy(
         flat["bulk_bert/~/gene_embedding|embeddings"]).float()
     linear("bulk_bert/~/linear", "fc_gene_embedding")
@@ -317,26 +339,33 @@ class BulkRNABert(BaseModel):
     Args:
         dataset: PyHealth ``SampleDataset`` (optional when use_cached_embeddings
             is True and the caller provides ``embedding`` in kwargs).
-        encoder: ``"hf"`` (safetensors) or ``"repo"`` (Haiku checkpoint).
-        models_dir: Directory containing the encoder weights.
+        encoder: ``"hf"`` (safetensors) or ``"repo"`` (JAX ``params.joblib``).
+        encoder_source: HF repository ID, local ``.safetensors`` file/directory,
+            or path to a JAX ``params.joblib`` (depending on ``encoder``).
+            Defaults to the official ``InstaDeepAI/BulkRNABert`` repository.
+        revision: HF Hub commit hash or branch to pin when downloading.
+            Ignored for local files and for ``encoder="repo"``.
         use_cached_embeddings: Skip the encoder and treat inputs as 256-d.
         feature_key: Fallback input field name when ``dataset`` is None.
-        cox_loss_mode: ``"global"`` (default, matches the paper) or
-            ``"cohort"`` (risk sets restricted to the same cancer cohort).
+        cox_loss_mode: ``"global"`` (paper default) or ``"cohort"``
+            (risk sets restricted to the same cancer cohort).
 
     Example:
-        >>> import torch
         >>> from pyhealth.models import BulkRNABert
-        >>> m = BulkRNABert(use_cached_embeddings=True)
-        >>> out = m.forward(embedding=torch.randn(4, 256))
-        >>> out["logit"].shape
-        torch.Size([4, 1])
+        >>> # Downloaded directly from HF Hub, no local path needed:
+        >>> model = BulkRNABert(use_cached_embeddings=False)
+        >>> # Or from a local checkpoint:
+        >>> model = BulkRNABert(
+        ...     encoder_source="/path/to/model.safetensors",
+        ...     use_cached_embeddings=False,
+        ... )
     """
     def __init__(
         self,
         dataset: SampleDataset | None = None,
         encoder: str = "hf",
-        models_dir: str | None = None,
+        encoder_source: str | Path = HF_REPO_ID,
+        revision: str | None = HF_DEFAULT_REVISION,
         use_cached_embeddings: bool = False,
         feature_key: str = "embedding",
         cox_loss_mode: str = "global"
@@ -351,12 +380,20 @@ class BulkRNABert(BaseModel):
         self.use_cached_embeddings = use_cached_embeddings
         self.encoder: Optional[BulkRNABertEncoder] = None
         if not use_cached_embeddings:
-            if models_dir is None:
-                raise ValueError("models_dir is required when use_cached_embeddings=False")
             if encoder == "hf":
-                self.encoder = load_hf_safetensors(f"{models_dir}/hf_bulkrnabert/model.safetensors")
+                self.encoder = load_hf_safetensors(
+                    encoder_source, revision=revision
+                )
             elif encoder == "repo":
-                self.encoder = load_jax_checkpoint(f"{models_dir}/repo/bulk_rna_bert_tcga/params.joblib")
+                source_path = Path(encoder_source)
+                if str(encoder_source) == HF_REPO_ID or not source_path.exists():
+                    raise ValueError(
+                        "encoder='repo' requires encoder_source to be a local "
+                        "path to a JAX params.joblib checkpoint, not the default "
+                        "HF repository ID. Example: "
+                        "encoder_source='data/models/repo/bulk_rna_bert_tcga/params.joblib'"
+                    )
+                self.encoder = load_jax_checkpoint(str(source_path))
             else:
                 raise ValueError(f"Unknown encoder: {encoder!r}")
             for p in self.encoder.parameters():

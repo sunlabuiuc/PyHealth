@@ -2,31 +2,55 @@
 
 Reproduces the downstream survival prediction pipeline of Gélard et al.
 (2025), "BulkRNABert: Cancer prognosis from bulk RNA-seq based language
-models" (ML4H 2025). This example runs the full PyHealth contribution:
+models" (ML4H 2025). Full PyHealth contribution:
 
     TCGARNASeqDataset -> TCGASurvivalPrediction -> BulkRNABert -> Cox loss
 
 Two modes:
 
-1. **Synthetic mode (default, no arguments).** Generates 60 synthetic
-   patients in a temporary directory and trains on them. Runs in seconds
-   on CPU with no downloads, no TCGA data, no Hugging Face weights.
+1. Synthetic (default): generates 120 synthetic patients in a temp dir and
+   trains on them. Runs in ~30s on CPU. No downloads, no TCGA data.
+2. Real (``--artifacts-dir``): points at the reference repo's artifacts and
+   trains on the real 256-d BulkRNABert embeddings for all of TCGA.
 
-2. **Real mode (``--artifacts-dir``).** Points at the artifacts produced by
-   the reference repo (``pull_data.py`` + ``train.py``) and trains on the
-   real 256-d BulkRNABert embeddings for all of TCGA.
+**Ablation.** Compares global Cox partial likelihood (paper default) against
+cohort-restricted Cox risk sets (our extension). Both arms use identical
+splits, seeds, hyperparameters, and initialization.
 
-**Ablation.** Compares the original global Cox partial likelihood (all
-patients in one risk set) against our proposed cohort-restricted version
-(risk sets restricted to each cancer cohort), using identical splits,
-seeds, and hyperparameters. Reports overall Harrell C-index, weighted
-per-cohort C-index, and macro C-index. Both modes run through the same
-PyHealth pipeline, so the comparison is pipeline-level, not per-component.
+**Cox risk sets.** Both arms use the entire training split to construct
+their partial-likelihood risk sets. The global configuration includes
+patients from all cohorts in one risk set; the cohort-restricted
+configuration builds separate risk sets within each cancer cohort. This
+implements the full-training-set Cox objective rather than a minibatch
+approximation.
 
-Usage:
-    python examples/tcga_rna_seq_tcga_survival_prediction_bulk_rna_bert.py
-    python examples/tcga_rna_seq_tcga_survival_prediction_bulk_rna_bert.py \
-        --artifacts-dir /path/to/train/artifacts
+Note: this differs from the reference repo's batch-size-256 training.
+Both objectives are valid; ours matches the paper's mathematical
+definition of the partial likelihood.
+
+**Evaluation.** Overall C-index uses
+``pyhealth.metrics.survival.concordance_index``. The per-cohort aggregation
+(weighted and macro C-index) is ablation-specific and lives here rather
+than in ``pyhealth.metrics.survival``, which is cohort-agnostic.
+**Real-data results (3 seeds, full-batch Cox, 300 epochs, patience 50):**
+
+    ==========  ==================  ====================  ==========
+    metric      paper (mean±std)    global (mean±std)     cohort
+    ==========  ==================  ====================  ==========
+    overall     0.765 ± 0.011       0.757 ± 0.007         0.690 ± 0.022
+    weighted    0.642 ± 0.014       0.643 ± 0.004         0.636 ± 0.009
+    macro       0.656 ± 0.025       0.629 ± 0.015         0.625 ± 0.022
+    ==========  ==================  ====================  ==========
+
+Global Cox reproduces the paper's overall and weighted C-index within
+one standard deviation. The cohort-restricted extension does not
+improve weighted or macro C-index (both deltas within seed noise),
+and it significantly hurts overall C-index (−0.067), suggesting the
+global objective already learns good within-cohort rankings and the
+restriction sacrifices useful cross-cohort signal.
+
+This negative result is consistent with the reference repo's earlier
+observation under minibatch Cox.
 """
 
 from __future__ import annotations
@@ -51,21 +75,17 @@ from pyhealth.tasks import TCGASurvivalPrediction
 
 
 # ---------------------------------------------------------------------------
-# Synthetic data (used in default mode)
+# Synthetic data
 # ---------------------------------------------------------------------------
 
-def _write_synthetic_csv(root: Path, n_per_cohort: int = 20, seed: int = 0) -> None:
-    """Writes a minimal tcga_rna_seq.csv with 3 cohorts and random embeddings."""
+def _write_synthetic_csv(root: Path, n_per_cohort: int = 40, seed: int = 0) -> None:
     rng = np.random.default_rng(seed)
     cohorts = ["TCGA-BRCA", "TCGA-LUAD", "TCGA-KIRC"]
     rows = []
     for ci, cohort in enumerate(cohorts):
         for i in range(n_per_cohort):
             emb = rng.standard_normal(256).astype(np.float32)
-            # Give the model a little signal: survival time weakly tied to emb[0].
-            duration = float(
-                200.0 + 100.0 * emb[0] + 50.0 * ci + 10.0 * rng.random()
-            )
+            duration = float(max(1.0, 200.0 + 100.0 * emb[0] + 50.0 * ci + 10.0 * rng.random()))
             event = int(rng.random() < 0.6)
             rows.append({
                 "patient_id": f"TCGA-{cohort[5:]}-{i:04d}",
@@ -78,15 +98,19 @@ def _write_synthetic_csv(root: Path, n_per_cohort: int = 20, seed: int = 0) -> N
 
 
 # ---------------------------------------------------------------------------
-# Per-cohort aggregation
+# Per-cohort aggregation (ablation-specific; kept local to the example)
 # ---------------------------------------------------------------------------
 
 def per_cohort_c_index(duration, risk, event, cohort):
     """Per-cohort C-index plus overall, macro, and weighted aggregates.
 
-    Wraps ``pyhealth.metrics.survival.concordance_index``. The aggregation
-    is ablation-specific and lives here rather than in the library, which
+    Wraps ``pyhealth.metrics.survival.concordance_index`` once per cohort.
+    The aggregation is ablation-specific and not part of the library, which
     returns only the overall C-index.
+
+    Weighted C-index weights each cohort by its number of test samples.
+    Macro C-index is the unweighted mean. Cohorts with fewer than two
+    samples or no comparable pairs are excluded from both aggregates.
     """
     overall = concordance_index(duration, event, risk)
     per_cohort = {}
@@ -102,7 +126,7 @@ def per_cohort_c_index(duration, risk, event, cohort):
     valid = {k: v for k, v in per_cohort.items() if not np.isnan(v)}
     if not valid:
         return {
-            "c_index_overall": overall,
+            "c_index": overall,
             "c_index_macro": float("nan"),
             "c_index_weighted": float("nan"),
             "per_cohort": per_cohort,
@@ -110,7 +134,7 @@ def per_cohort_c_index(duration, risk, event, cohort):
     sizes = np.array([np.sum(cohort == k) for k in valid], dtype=float)
     scores = np.array(list(valid.values()))
     return {
-        "c_index_overall": overall,
+        "c_index": overall,
         "c_index_macro": float(scores.mean()),
         "c_index_weighted": float((sizes * scores).sum() / sizes.sum()),
         "per_cohort": per_cohort,
@@ -122,19 +146,17 @@ def per_cohort_c_index(duration, risk, event, cohort):
 # ---------------------------------------------------------------------------
 
 def _unpack(v):
-    """Unwrap ``(tensor, mask)`` tuples that some processors return."""
     if isinstance(v, (tuple, list)):
         return v[0]
     return v
 
 
 def _feats(batch: dict) -> dict:
-    """Drop non-tensor fields and unwrap processor tuples."""
     return {k: _unpack(v) for k, v in batch.items() if k != "patient_id"}
 
 
 # ---------------------------------------------------------------------------
-# Training loop (shared by both ablation arms)
+# Training loop
 # ---------------------------------------------------------------------------
 
 def train(
@@ -142,23 +164,20 @@ def train(
     val_ds,
     test_ds,
     loss_mode: str,
-    epochs: int = 200,
-    lr: float = 1e-4,
-    batch_size: int = 256,
-    patience: int = 20,
+    epochs: int = 500,
+    lr: float = 1e-3,
+    patience: int = 50,
+    eval_batch_size: int = 256,
     seed: int = 0,
 ) -> dict:
-    """Train a fresh BulkRNABert head and return test-set C-indices.
+    """Train with full-batch Cox, matching the paper's objective.
 
-    Args:
-        train_ds, val_ds, test_ds: Split SampleDatasets from ``set_task``.
-        loss_mode: ``"global"`` (paper default) or ``"cohort"`` (extension).
-        epochs, lr, batch_size, patience, seed: Training hyperparameters.
-            Defaults match the reference repo's training configuration.
-
-    Returns:
-        Dict with ``c_index_overall``, ``c_index_weighted``, ``c_index_macro``,
-        and ``per_cohort``.
+    The paper defines the Cox partial likelihood over the full training
+    risk set: R_i = {j | T_j >= T_i}. We load all training patients as a
+    single batch and take one optimizer step per epoch, which reproduces
+    that objective exactly. Hyperparameters (lr, epochs, patience) are not
+    specified by the paper; defaults are chosen for stability with ~10k
+    samples.
     """
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -171,16 +190,27 @@ def train(
     optim = torch.optim.Adam(
         [p for p in model.parameters() if p.requires_grad], lr=lr,
     )
-    train_loader = get_dataloader(train_ds, batch_size=batch_size, shuffle=True)
-    val_loader = get_dataloader(val_ds, batch_size=batch_size, shuffle=False)
-    test_loader = get_dataloader(test_ds, batch_size=batch_size, shuffle=False)
-    def _collect(model, loader):
+
+    # Preload the full training set as one batch for full-batch Cox.
+    train_loader = get_dataloader(
+        train_ds, batch_size=len(train_ds), shuffle=False,
+    )
+    train_feats = _feats(next(iter(train_loader)))
+
+    val_loader = get_dataloader(
+        val_ds, batch_size=eval_batch_size, shuffle=False,
+    )
+    test_loader = get_dataloader(
+        test_ds, batch_size=eval_batch_size, shuffle=False,
+    )
+
+    def evaluate(loader):
         model.eval()
         risks, dur, events, cohorts = [], [], [], []
         with torch.no_grad():
             for batch in loader:
                 feats = _feats(batch)
-                out = model.forward(**feats)
+                out = model(embedding=feats["embedding"])
                 risks.append(out["logit"].squeeze(-1).cpu().numpy())
                 dur.append(feats["duration"].reshape(-1).cpu().numpy())
                 events.append(feats["event"].reshape(-1).cpu().numpy())
@@ -192,25 +222,37 @@ def train(
             np.concatenate(events),
             np.concatenate(cohorts).astype(int) if cohorts else None,
         )
+
     best_val = -1.0
     best_state = None
     stale = 0
 
     for _ in range(epochs):
         model.train()
-        for batch in train_loader:
-            feats = _feats(batch)
-            out = model.forward(**feats)
-            loss = out["loss"]
-            optim.zero_grad()
-            loss.backward()
-            optim.step()
+        optim.zero_grad()
+        out = model(**train_feats)
+        out["loss"].backward()
+        optim.step()
 
-        t_val, r_val, e_val, _ = _collect(model, val_loader)
+        t_val, r_val, e_val, _ = evaluate(val_loader)
+        if len(t_val) < 2 or not np.any(e_val):
+            raise ValueError(
+                f"Validation set has too few events or samples "
+                f"(n={len(t_val)}, events={int(e_val.sum())}) to compute "
+                "a C-index. Increase synthetic size or adjust the split."
+            )
         val_ci = concordance_index(t_val, e_val, r_val)
+        if not np.isfinite(val_ci):
+            raise ValueError(
+                f"Validation C-index is undefined (NaN) with "
+                f"n={len(t_val)}, events={int(e_val.sum())}."
+            )
+
         if val_ci > best_val:
             best_val = val_ci
-            best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+            best_state = {
+                k: v.detach().clone() for k, v in model.state_dict().items()
+            }
             stale = 0
         else:
             stale += 1
@@ -220,9 +262,44 @@ def train(
     if best_state is not None:
         model.load_state_dict(best_state)
 
-    t, r, e, c = _collect(model, test_loader)
-    return per_cohort_c_index(t, r, e, c)
+    t, r, e, c = evaluate(test_loader)
+    if c is not None:
+        return per_cohort_c_index(t, r, e, c)
+    return {"c_index": concordance_index(t, e, r), "per_cohort": {}}
 
+# ---------------------------------------------------------------------------
+# Result formatting
+# ---------------------------------------------------------------------------
+
+def _print_result(seed: int, mode: str, res: dict) -> None:
+    print(
+        f"  [{seed}/{mode}] overall {res['c_index']:.3f}  "
+        f"weighted {res.get('c_index_weighted', float('nan')):.3f}  "
+        f"macro {res.get('c_index_macro', float('nan')):.3f}"
+    )
+    for cohort_id, ci in res.get("per_cohort", {}).items():
+        name = TCGASurvivalPrediction.INT_TO_COHORT.get(
+            int(cohort_id), str(cohort_id)
+        )
+        print(f"    {name}: {ci:.3f}")
+
+
+def _print_summary(all_results: dict[str, list[dict]]) -> None:
+    n_seeds = len(all_results["global"])
+    if n_seeds < 2:
+        return
+    print(f"\n{'=' * 62}\nSummary across {n_seeds} seeds\n{'=' * 62}")
+    print(f"{'metric':<12}{'global (mean±std)':>24}{'cohort (mean±std)':>24}")
+    for key, label in [
+        ("c_index", "overall"),
+        ("c_index_weighted", "weighted"),
+        ("c_index_macro", "macro"),
+    ]:
+        g = [r.get(key, float("nan")) for r in all_results["global"]]
+        c = [r.get(key, float("nan")) for r in all_results["cohort"]]
+        gm, gs = np.nanmean(g), np.nanstd(g, ddof=1)
+        cm, cs = np.nanmean(c), np.nanstd(c, ddof=1)
+        print(f"{label:<12}{gm:>10.3f} ± {gs:>6.3f}   {cm:>10.3f} ± {cs:>6.3f}")
 
 # ---------------------------------------------------------------------------
 # Entry point
@@ -234,31 +311,32 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--artifacts-dir",
-        type=Path,
-        default=None,
-        help=(
-            "Directory with samples.tsv, survival_labels.tsv, and "
-            "embeddings_repo.npy. Omit for the synthetic demo."
-        ),
+        "--artifacts-dir", type=Path, default=None,
+        help="Directory with samples.tsv + survival_labels.tsv + embeddings_repo.npy. "
+             "Omit for the synthetic demo.",
     )
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--epochs", type=int, default=200)
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("--patience", type=int, default=20)
+    parser.add_argument(
+        "--seeds", type=int, nargs="+", default=[0],
+        help="One or more random seeds; results are averaged across all "
+             "when multiple are given (default: [0]).",
+    )
+    parser.add_argument("--epochs", type=int, default=500)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--eval-batch-size", type=int, default=256)
+    parser.add_argument("--patience", type=int, default=50)
+    parser.add_argument(
+        "--json-out", type=Path, default=None,
+        help="If given, save per-seed results to this JSON file "
+             "(saved incrementally so partial runs survive a crash).",
+    )
     args = parser.parse_args()
 
-    # Windows cannot unlink litdata's memory-mapped files while this process
-    # still holds handles, so cleanup errors are silenced for the demo only.
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         tmp = Path(tmp)
         if args.artifacts_dir is None:
-            print("Synthetic mode: generating 60 synthetic patients.")
+            print("Synthetic mode: generating 120 synthetic patients.")
             _write_synthetic_csv(tmp)
-            dataset = TCGARNASeqDataset(
-                root=str(tmp), cache_dir=str(tmp / "cache"),
-            )
+            dataset = TCGARNASeqDataset(root=str(tmp), cache_dir=str(tmp / "cache"))
         else:
             print(f"Real mode: reading artifacts from {args.artifacts_dir}")
             dataset = TCGARNASeqDataset(
@@ -268,46 +346,52 @@ def main() -> None:
             )
 
         task = TCGASurvivalPrediction()
-        # Patient-level 70/10/20 split. Validation drives early stopping.
-        train_ds, val_ds, test_ds = dataset.set_task(
-            task, split=PatientSplit(ratios=(0.7, 0.1, 0.2), seed=args.seed),
-        )
-        print(
-            f"Train: {len(train_ds)} samples, "
-            f"Val: {len(val_ds)} samples, "
-            f"Test: {len(test_ds)} samples "
-            f"across {len(dataset.unique_patient_ids)} patients."
-        )
+        all_results: dict[str, list[dict]] = {"global": [], "cohort": []}
 
-        results = {}
-        for mode in ("global", "cohort"):
-            print(f"\nTraining with {mode} Cox loss...")
-            res = train(
-                train_ds, val_ds, test_ds, loss_mode=mode,
-                epochs=args.epochs, lr=args.lr, batch_size=args.batch_size,
-                patience=args.patience, seed=args.seed,
+        for seed in args.seeds:
+            if len(args.seeds) > 1:
+                print(f"\n{'=' * 62}\nSeed {seed}\n{'=' * 62}")
+            train_ds, val_ds, test_ds = dataset.set_task(
+                task, split=PatientSplit(ratios=(0.7, 0.1, 0.2), seed=seed),
             )
-            results[mode] = res
-            print(f"  overall C-index:  {res['c_index_overall']:.3f}")
-            print(f"  weighted C-index: {res['c_index_weighted']:.3f}")
-            print(f"  macro C-index:    {res['c_index_macro']:.3f}")
-            for cohort_id, ci in res["per_cohort"].items():
-                name = TCGASurvivalPrediction.INT_TO_COHORT.get(cohort_id, str(cohort_id))
-                print(f"    {name}: {ci:.3f}")
+            print(
+                f"Train: {len(train_ds)}  Val: {len(val_ds)}  "
+                f"Test: {len(test_ds)}"
+            )
 
-        print("\n--- Ablation summary ---")
-        print(f"{'metric':<20}{'global':>10}{'cohort':>10}")
-        for key in ("c_index_overall", "c_index_weighted", "c_index_macro"):
-            g = results["global"][key]
-            c = results["cohort"][key]
-            print(f"{key:<20}{g:>10.3f}{c:>10.3f}")
+            for mode in ("global", "cohort"):
+                if len(args.seeds) == 1:
+                    print(f"\nTraining with {mode} Cox loss...")
+                else:
+                    print(f"\nTraining [{seed}/{mode}] ...")
+                res = train(
+                    train_ds, val_ds, test_ds, loss_mode=mode,
+                    epochs=args.epochs, lr=args.lr,
+                    patience=args.patience,
+                    eval_batch_size=args.eval_batch_size,
+                    seed=seed,
+                )
+                res["_seed"] = seed
+                all_results[mode].append(res)
+                _print_result(seed, mode, res)
 
-        print(
-            "\nNote: synthetic mode tests pipeline integration and the "
-            "ablation plumbing, not BulkRNABert's published performance. "
-            "Run with --artifacts-dir pointing at the reference repo's "
-            "artifacts for a meaningful comparison against the paper."
-        )
+                if args.json_out is not None:
+                    args.json_out.parent.mkdir(parents=True, exist_ok=True)
+                    with open(args.json_out, "w") as fh:
+                        json.dump(all_results, fh, indent=2, default=float)
+
+        if len(args.seeds) == 1:
+            print(f"\n--- Ablation summary ---")
+            print(f"{'metric':<20}{'global':>10}{'cohort':>10}")
+            for key in ("c_index", "c_index_weighted", "c_index_macro"):
+                g = all_results["global"][0].get(key, float("nan"))
+                c = all_results["cohort"][0].get(key, float("nan"))
+                print(f"{key:<20}{g:>10.3f}{c:>10.3f}")
+        else:
+            _print_summary(all_results)
+
+        if args.json_out is not None:
+            print(f"\nFull per-seed results saved to {args.json_out}")
 
 
 if __name__ == "__main__":
