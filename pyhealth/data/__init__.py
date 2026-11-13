@@ -19,6 +19,7 @@ class Visit:
     def __init__(self, *args, **kwargs):
         raise NotImplementedError(
             "Visit was removed in PyHealth 2.0; use "
-            "Patient.get_events(event_type=...) to read a patient's events, "
-            "e.g. event_type='admissions' for visits."
+            "Patient.get_events(event_type=...) to read a patient's events. "
+            "Event types are the dataset's table names, which differ by "
+            "dataset."
         )

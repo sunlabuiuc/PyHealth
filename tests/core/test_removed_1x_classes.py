@@ -40,6 +40,27 @@ class TestRemoved1xClasses(unittest.TestCase):
                 with self.assertRaises(NotImplementedError):
                     subclass()
 
+    def test_in_tree_legacy_datasets_name_themselves(self):
+        from pyhealth.datasets import (
+            CardiologyDataset,
+            ISRUCDataset,
+            MIMICExtractDataset,
+            SHHSDataset,
+        )
+
+        for cls in (CardiologyDataset, ISRUCDataset, SHHSDataset):
+            with self.subTest(cls=cls.__name__):
+                with self.assertRaises(NotImplementedError) as ctx:
+                    cls(root="data")
+                message = str(ctx.exception)
+                self.assertIn(f"{cls.__name__} is built on", message)
+                self.assertIn("does not work yet", message)
+        with self.assertRaises(NotImplementedError) as ctx:
+            MIMICExtractDataset(root="data", tables=["C"])
+        self.assertIn(
+            "MIMICExtractDataset is built on BaseEHRDataset", str(ctx.exception)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
