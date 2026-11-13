@@ -525,13 +525,25 @@ class FeatureSpace:
         return self._compute(self._vetted(specs), samples, indices, truncate)
 
     def _vetted(self, specs: Sequence[FeatureSpec]) -> list[FeatureSpec]:
-        """Re-validates specs, so none skips the checks in :meth:`validate`."""
-        out = []
+        """Re-validates specs, so none skips the checks in :meth:`validate`.
+
+        Names must be unique: they are the column names, and the
+        future-blind results are keyed by them, so a leaking spec could
+        otherwise hide behind a safe one with the same name.
+        """
+        out, names = [], set()
         for spec in specs:
             try:
-                out.append(self.validate(spec))
+                valid = self.validate(spec)
             except ValueError as e:
                 raise ValueError(f"{spec.name or spec.node}: {e}") from None
+            if valid.name in names:
+                raise ValueError(
+                    f"two specs are both named {valid.name}; feature names "
+                    "must be unique"
+                )
+            names.add(valid.name)
+            out.append(valid)
         return out
 
     def _compute(
