@@ -28,6 +28,7 @@ Role = Literal["tokens", "values", "mask", "time", "offsets"]
 FieldKey = tuple[int, Role]
 CodeMapping = tuple[str, str]
 ResampleMethod = Literal["first", "last", "min", "max", "avg", "merge"]
+ResampleAlign = Literal["left", "right"]
 ImputeMethod = Literal[
     "zero", "mean", "min", "max", "forward_fill", "backward_fill", "linear"
 ]
@@ -85,15 +86,30 @@ class Records(TypedDict, total=False):
     children: Sequence["Records"]
 
 
-class Resample(TypedDict):
+class Resample(TypedDict, total=False):
     """Resampling of a ``series`` level onto a time grid; a plain ``dict``.
 
-    Each grid step becomes one record, and the level becomes a ``sequence``
-    without time: record ``i`` is the step starting at ``i * step``. The grid
-    starts at the level's time 0, so negative time raises.
+    Each grid step becomes one record at time ``i * step``, and the level
+    stays a ``series`` with these times. Each group of records gets its own
+    grid, from step 0 to the step of its last record; the grid is anchored
+    at the level's time 0, so negative time raises.
 
     Keys:
         step: Grid step, in the level's time unit.
+        align: Which records a step at time ``T = i * step`` holds.
+
+            - ``"right"`` (default): ``(T - step, T]``, the records up to
+              and including ``T``. Causal: a step never holds a record
+              later than its time, so a label at time ``t`` that sees the
+              steps with time ``<= t`` sees no record after ``t``. Step 0
+              holds only the records at time 0.
+            - ``"left"``: ``[T, T + step)``, the records from ``T`` on. A
+              step holds records later than its time, so it looks ahead by
+              up to one step.
+
+            A record whose time equals a step boundary (compared in
+            float32, the dtype of time) is on it, so float rounding never
+            moves it to the neighboring step.
         method: How the records in one step become one record.
 
             - ``"first"`` / ``"last"``: keep the first / last record, with
@@ -111,20 +127,24 @@ class Resample(TypedDict):
             children; filling it is up to imputation.
 
     Examples:
-        Averaging irregular values per time unit:
+        Averaging irregular values per time unit, each step holding the
+        records up to its time:
 
         >>> resample: Resample = {"step": 1.0, "method": "avg"}
         >>> proc = SequenceProcessorV2(
         ...     levels=[{"ordering": "series", "values": [1], "resample": resample}]
         ... )
         >>> proc.fit([], "x")
-        >>> proc.process({"time": [0.0, 0.5, 1.2], "values": [[1.0], [3.0], [5.0]]})
-        (tensor([[2.],
-                [5.]]),)
+        >>> values, time = proc.process(
+        ...     {"time": [0.0, 0.5, 1.0, 1.2], "values": [[1.0], [3.0], [5.0], [7.0]]}
+        ... )
+        >>> values.reshape(-1), time
+        (tensor([1., 4., 7.]), tensor([0., 1., 2.]))
     """
 
-    step: float
-    method: ResampleMethod
+    step: Required[float]
+    method: Required[ResampleMethod]
+    align: ResampleAlign
 
 
 class Impute(TypedDict, total=False):
@@ -141,7 +161,7 @@ class Impute(TypedDict, total=False):
             - ``"forward_fill"`` / ``"backward_fill"``: the previous / next
               value along time.
             - ``"linear"``: linear interpolation along time, using ``time``
-              (or the step index on a resampled level).
+              (on a resampled level, the grid time).
 
             The last three need a ``sequence`` or ``series`` level, never
             cross into another group of records, work value position by
@@ -253,7 +273,8 @@ class LevelConfig(TypedDict, total=False):
             only allowed on a bottom-level ``set`` with one token namespace
             and no values.
         resample: A :class:`Resample` for a ``series`` level: puts its
-            records on a time grid, turning it into a ``sequence`` level.
+            records on a regular time grid; the level stays a ``series``,
+            with the grid's times.
         spatial: One bool per value axis; defaults to all False.
         impute: An :class:`Impute` step, or a list of them applied in order,
             run after resampling.
@@ -321,7 +342,8 @@ class _InternalLevelConfig:
     tokens: int
     values: tuple[int, ...]
     code_mapping: tuple[CodeMapping | None, ...] | None
-    resample: tuple[float, ResampleMethod] | None  # (step, method)
+    # (step, method, align)
+    resample: tuple[float, ResampleMethod, ResampleAlign] | None
     spatial: tuple[bool, ...] | None
     impute: tuple[_ImputeStep, ...]
     normalize: _NormalizeStep | None
@@ -459,12 +481,17 @@ class _InternalLevelConfig:
             )
         resample = config.get("resample")
         if resample is not None:
-            if not isinstance(resample, dict) or resample.keys() != {"step", "method"}:
+            if (
+                not isinstance(resample, dict)
+                or not {"step", "method"} <= resample.keys()
+                or not resample.keys() <= Resample.__annotations__.keys()
+            ):
                 raise ValueError(
                     f"Level {level}: resample must be a dict with 'step' and 'method', "
-                    f"got {resample!r}."
+                    f"and optionally 'align', got {resample!r}."
                 )
             step, method = resample["step"], resample["method"]
+            align = resample.get("align", "right")
             if (
                 isinstance(step, bool)
                 or not isinstance(step, (int, float))
@@ -478,6 +505,11 @@ class _InternalLevelConfig:
                     f"Level {level}: resample method must be one of "
                     f"{get_args(ResampleMethod)}, got {method!r}."
                 )
+            if align not in get_args(ResampleAlign):
+                raise ValueError(
+                    f"Level {level}: resample align must be one of "
+                    f"{get_args(ResampleAlign)}, got {align!r}."
+                )
             if ordering != "series":
                 raise ValueError(
                     f"Level {level}: resample requires ordering 'series', got {ordering!r}."
@@ -488,16 +520,18 @@ class _InternalLevelConfig:
                     "level needs values and no tokens or children (level 0 only)."
                 )
             if level == 0 and not tokens and not values:
+                # Every grid step is emitted, with or without records, so time
+                # alone would no longer say when the records were.
                 raise ValueError(
-                    "Level 0: a resampled level drops its time, so it needs "
-                    "'tokens' or 'values'."
+                    "Level 0: a resampled level has a record at every grid step, "
+                    "so it needs 'tokens' or 'values' to keep what the records were."
                 )
             if method == "merge" and (level == 0 or tokens or values):
                 raise ValueError(
                     f"Level {level}: resample method 'merge' combines children, so "
                     "the level needs children and no tokens or values."
                 )
-            resample = (float(step), method)
+            resample = (float(step), method, align)
 
         spatial = config.get("spatial")
         if spatial is not None:
@@ -603,8 +637,24 @@ class _InternalLevelConfig:
 class _Resampler:
     """Puts the records of one ``series`` level on a time grid; see :class:`Resample`."""
 
-    def __init__(self, level: int, step: float, method: ResampleMethod):
-        self.level, self.step, self.method = level, step, method
+    def __init__(
+        self, level: int, step: float, method: ResampleMethod, align: ResampleAlign
+    ):
+        self.level, self.step, self.method, self.align = level, step, method, align
+
+    def _step_index(self, time: np.ndarray) -> np.ndarray:
+        """The grid step of each record: ``floor`` (left) or ``ceil`` (right).
+
+        A record is on boundary ``k`` when its time equals ``k * step`` in
+        float32, the dtype of time. Dividing alone would misplace it: e.g.
+        ``float32(0.3) / 0.1`` is ``3.0000001``, whose ceil is 4, not 3.
+        """
+        position = time.astype(np.float64) / self.step
+        nearest = np.round(position)
+        on_boundary = (nearest * self.step).astype(np.float32) == time
+        position = np.where(on_boundary, nearest, position)
+        index = np.floor(position) if self.align == "left" else np.ceil(position)
+        return index.astype(np.int64)
 
     def __call__(
         self, columns: dict[Role, np.ndarray], children: list[list[Records]]
@@ -618,15 +668,16 @@ class _Resampler:
             children: One group of child ``Records`` per record.
 
         Returns:
-            The columns and children of the grid: one record per step, no
-            ``time``, and ``offsets`` holding each group's number of steps. A
-            step without records gets ``<pad>`` tokens, NaN values and no
-            children, for imputation to fill.
+            The columns and children of the grid: one record per step, its
+            ``time`` (``i * step`` for step ``i`` of each group), and
+            ``offsets`` holding each group's number of steps. A step without
+            records gets ``<pad>`` tokens, NaN values and no children, for
+            imputation to fill.
         """
         time, counts = columns["time"], columns["offsets"]
         if (time < 0).any():
             raise ValueError(f"Level {self.level}: resample needs non-negative time.")
-        steps = np.floor(time.astype(np.float64) / self.step).astype(np.int64)
+        steps = self._step_index(time)
 
         # A group's grid runs from step 0 to its last record's step. Each group
         # gets its own block of the level's grid, so `grid` never decreases.
@@ -641,7 +692,12 @@ class _Resampler:
         ends = np.flatnonzero(np.diff(grid, append=-1))
         filled = grid[starts]
 
-        resampled: dict[Role, np.ndarray] = {"offsets": sizes}
+        # Step i of each group is at time i * step.
+        position = np.arange(n) - np.repeat(np.cumsum(sizes) - sizes, sizes)
+        resampled: dict[Role, np.ndarray] = {
+            "offsets": sizes,
+            "time": (position * self.step).astype(np.float32),
+        }
         grid_children: list[list[Records]] = [[] for _ in range(n if self.level else 0)]
         if self.method == "merge":
             for i, kids in zip(grid.tolist(), children):
@@ -1122,7 +1178,7 @@ class SequenceProcessorV2(FeatureProcessor):
             "tokens": config.tokens > 0,
             "values": len(config.values) > 0,
             "mask": config.missing_indicator,
-            "time": config.ordering == "series" and config.resample is None,
+            "time": config.ordering == "series",
             "offsets": level < self.depth,
         }
         return tuple(role for role in get_args(Role) if present[role])
@@ -1143,11 +1199,8 @@ class SequenceProcessorV2(FeatureProcessor):
         return (*self.schema(), batch_offsets)
 
     def ordering(self) -> dict[int, OrderType]:
-        """Ordering of each output level; a resampled level becomes ``sequence``."""
-        return {
-            level: "sequence" if config.resample is not None else config.ordering
-            for level, config in enumerate(self._config)
-        }
+        """Ordering of each output level; a resampled level stays a ``series``."""
+        return {level: config.ordering for level, config in enumerate(self._config)}
 
     def vocab_size(self) -> dict[int, tuple[int, ...] | None]:
         """Vocabulary size per token namespace, including ``<pad>`` and ``<unk>``."""

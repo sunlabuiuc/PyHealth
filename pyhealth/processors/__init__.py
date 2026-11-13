@@ -19,11 +19,21 @@ def get_processor(name: str):
 
 # Import all processors so they register themselves
 from .image_processor import ImageProcessor
+from .dicom_processor import DicomProcessor
+from .dicom_series_processor import DicomSeriesProcessor
+from .nifti_processor import NiftiProcessor
+from .image_mask_processor import ImageMaskDirectoryProcessor
+from .image_io.metadata import read_image_metadata
 from .label_processor import (
     BinaryLabelProcessor,
+    LabelProcessor,
     MultiClassLabelProcessor,
     MultiLabelProcessor,
     RegressionLabelProcessor,
+)
+from .segmentation_label_processors import (
+    SegmentationBinaryLabelProcessor,
+    SegmentationMultiClassLabelProcessor,
 )
 from .multi_hot_processor import MultiHotProcessor
 from .nested_multihot_processor import NestedMultiHotProcessor
@@ -52,10 +62,12 @@ from .stagenet_processor import (
 )
 from .tensor_processor import TensorProcessor
 from .text_processor import TextProcessor
-from .timeseries_processor import (
+from .timeseries_processor import TimeseriesProcessor
+from .timeseries_label_processor import (
     TimeseriesBinaryLabelProcessor,
     TimeseriesLabelProcessor,
-    TimeseriesProcessor,
+    TimeseriesMultiClassLabelProcessor,
+    TimeseriesMultiLabelProcessor,
     TimeseriesRegressionLabelProcessor,
 )
 from .time_image_processor import TimeImageProcessor
@@ -78,8 +90,15 @@ __all__ = [
     "ModalityType",
     "TemporalFeatureProcessor",
     "ImageProcessor",
+    "DicomProcessor",
+    "DicomSeriesProcessor",
+    "NiftiProcessor",
+    "ImageMaskDirectoryProcessor",
+    "read_image_metadata",
     "LabelProcessor",
     "MultiHotProcessor",
+    "SegmentationBinaryLabelProcessor",
+    "SegmentationMultiClassLabelProcessor",
     "NestedFloatsProcessor",
     "NestedMultiHotProcessor",
     "NestedSequenceProcessor",
@@ -99,6 +118,8 @@ __all__ = [
     "TextProcessor",
     "TimeseriesBinaryLabelProcessor",
     "TimeseriesLabelProcessor",
+    "TimeseriesMultiClassLabelProcessor",
+    "TimeseriesMultiLabelProcessor",
     "TimeseriesProcessor",
     "TimeseriesRegressionLabelProcessor",
     "TimeImageProcessor",

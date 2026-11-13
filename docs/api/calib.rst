@@ -47,7 +47,6 @@ This example shows the complete pipeline from model training to uncertainty-awar
 Quick Links
 -----------
 
-- :doc:`calib/usage_guide` - Practical examples and best practices
 - :doc:`calib/pyhealth.calib.calibration` - Model calibration API reference
 - :doc:`calib/pyhealth.calib.predictionset` - Prediction set API reference
 
@@ -57,7 +56,6 @@ Module Contents
 .. toctree::
     :maxdepth: 3
 
-    calib/usage_guide
     calib/pyhealth.calib.calibration
     calib/pyhealth.calib.predictionset
 

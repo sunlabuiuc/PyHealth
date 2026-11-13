@@ -17,7 +17,7 @@ from pyhealth.datasets import SampleEHRDataset
 from pyhealth.medcode import ATC
 from pyhealth.metrics import ddi_rate_score
 from pyhealth.models import BaseModel
-from pyhealth.models.utils import ddi_adjacency, get_last_visit
+from pyhealth.models.utils import ddi_adjacency, get_last_visit, save_ddi_adj
 from pyhealth.models.embedding import EmbeddingModel
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
 
@@ -384,11 +384,6 @@ class SafeDrug(BaseModel):
         else:
             raise ValueError(f"SafeDrug requires exactly one label key, but got {self.label_keys}")
         
-        if not hasattr(self, 'mode') or not self.mode:
-            if self.label_key in self.dataset.output_schema:
-                self.mode = self._resolve_mode(self.dataset.output_schema[self.label_key])
-            else:
-                self.mode = "multilabel"
         
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
@@ -454,7 +449,9 @@ class SafeDrug(BaseModel):
         
         # save ddi adj
         ddi_adj = self.generate_ddi_adj()
-        np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj.numpy())
+        self.ddi_adj_matrix = save_ddi_adj(
+            ddi_adj, os.path.join(CACHE_PATH, "ddi_adj.npy")
+        )
 
     def generate_ddi_adj(self) -> torch.tensor:
         """Generates the DDI graph adjacency matrix."""

@@ -9,7 +9,6 @@ Available Methods
 -----------------
 
 .. autosummary::
-   :toctree: _autosummary
    :nosignatures:
 
    pyhealth.calib.calibration.TemperatureScaling

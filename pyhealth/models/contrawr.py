@@ -171,7 +171,7 @@ class ContraWR(BaseModel):
             ]
         )
 
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         # the fully connected layer
         self.fc = nn.Linear(emb_size, output_size)
 
@@ -295,8 +295,8 @@ class ContraWR(BaseModel):
         logits = self.fc(emb)
         # obtain y_true, loss, y_prob
         y_true = kwargs[self.label_keys[0]].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
+        loss = self.label_processor.loss(logits, y_true)
+        y_prob = self.label_processor.activation(logits)
 
         results = {
             "loss": loss,

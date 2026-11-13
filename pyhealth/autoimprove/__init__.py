@@ -3,7 +3,9 @@
 An :class:`AutoImprover` searches over model, argument and training choices,
 guided by an LLM (:class:`LLMProposer`) or at random (:class:`RandomProposer`),
 scoring every proposal on validation patients and keeping the test split for
-one final comparison.
+one final comparison. Among the configs that beat the starting pipeline, it
+selects the most interpretable one within noise of the best, and its report
+(:meth:`AutoImprover.report`) explains the choice and how the search got there.
 """
 
 from .evaluate import (
@@ -22,23 +24,28 @@ from .improver import (
     ImproveResult,
     Trial,
     paired_gain,
+    select_simplest,
     select_trial,
 )
 from .llm import LLM, ClaudeLLM
 from .proposers import STRATEGIES, LLMProposer, Proposer, RandomProposer
+from .report import Report, build_report, load_run, unverified_numbers
 from .space import (
     DEFAULT_MODELS,
+    LADDER,
     TRAIN_PARAMS,
     ModelSpec,
     Param,
     PipelineConfig,
     SearchSpace,
+    config_diff,
     with_xgboost,
 )
 
 __all__ = [
     "DEFAULT_METRIC",
     "DEFAULT_MODELS",
+    "LADDER",
     "LLM",
     "STRATEGIES",
     "TRAIN_PARAMS",
@@ -51,17 +58,23 @@ __all__ = [
     "PipelineConfig",
     "Proposer",
     "RandomProposer",
+    "Report",
     "SearchSpace",
     "Trial",
+    "build_report",
     "check_models",
+    "config_diff",
     "describe_error",
+    "load_run",
     "paired_gain",
     "patient_folds",
     "predict",
     "run_config",
     "run_config_cv",
     "score",
+    "select_simplest",
     "select_trial",
     "train_pipeline",
+    "unverified_numbers",
     "with_xgboost",
 ]

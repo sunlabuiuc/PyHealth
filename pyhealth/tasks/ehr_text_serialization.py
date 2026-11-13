@@ -352,6 +352,38 @@ def _events(patient: Any, event_type: str) -> list[Any]:
         return []
 
 
+def mimic4_age_at(person: Any, when: Any) -> int | None:
+    """MIMIC-IV age of a patient at a given time, or None if it can't be told.
+
+    MIMIC-IV gives ``anchor_age``, the age in the shifted ``anchor_year``, so
+    the age at a time is ``anchor_age + (year of that time - anchor_year)``.
+
+    Args:
+        person: The patient's ``patients`` event, with ``anchor_age`` and
+            ``anchor_year``.
+        when: A datetime, e.g. an admission or ED arrival time.
+
+    Returns:
+        The age in whole years, or None when ``anchor_age``, ``anchor_year``
+        or ``when`` is missing or not a number.
+
+    Examples:
+        >>> from datetime import datetime
+        >>> from types import SimpleNamespace
+        >>> person = SimpleNamespace(anchor_age="63", anchor_year="2150")
+        >>> mimic4_age_at(person, datetime(2155, 3, 1))
+        68
+        >>> mimic4_age_at(person, None) is None
+        True
+    """
+    try:
+        anchor_age = int(float(person.anchor_age))
+        anchor_year = int(float(person.anchor_year))
+        return anchor_age + when.year - anchor_year
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
 def _age_at_sample(person: Any, patient: Any, sample: Mapping[str, Any]) -> int | None:
     """MIMIC-IV age at the sample's admission, or None if it can't be told.
 
@@ -360,17 +392,12 @@ def _age_at_sample(person: Any, patient: Any, sample: Mapping[str, Any]) -> int 
     one whose ``hadm_id`` is the sample's ``hadm_id`` or ``visit_id``.
     """
     visit = sample.get("hadm_id", sample.get("visit_id"))
-    try:
-        anchor_age = int(float(person.anchor_age))
-        anchor_year = int(float(person.anchor_year))
-    except (AttributeError, TypeError, ValueError):
-        return None
     if visit is None:
         return None
     for admission in _events(patient, "admissions"):
         timestamp = getattr(admission, "timestamp", None)
         if str(getattr(admission, "hadm_id", None)) == str(visit) and timestamp:
-            return anchor_age + timestamp.year - anchor_year
+            return mimic4_age_at(person, timestamp)
     return None
 
 

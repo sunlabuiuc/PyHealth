@@ -145,6 +145,25 @@ class TestEveryMode(unittest.TestCase):
                 self.assertTrue(torch.equal(a["logit"], b["logit"]))
 
 
+class TestScaledRegression(unittest.TestCase):
+    def test_trains_on_scaled_labels_and_reports_original_units(self):
+        samples = _samples(label="regression")
+        for sample in samples:
+            sample["label"] = 100.0 + sample["labs"][0] * 50.0  # 100 .. 400
+        ds = create_sample_dataset(
+            samples, MIXED, {"label": ("regression", {"normalization": (100, 400)})}
+        )
+        loader = get_dataloader(ds, batch_size=32)
+        model = LinearBackend(ds, bag_of_codes=True).fit(loader)
+        out = model(**next(iter(loader)))
+        torch.testing.assert_close(out["y_prob"], out["y_true"], atol=1e-4, rtol=1e-4)
+        self.assertLess(out["loss"].item(), 1e-6)
+
+        y_true, y_prob, _ = Trainer(model=model, enable_logging=False).inference(loader)
+        self.assertEqual((y_true.min(), y_true.max()), (100.0, 400.0))
+        np.testing.assert_allclose(y_prob, y_true, atol=1e-2)
+
+
 class TestInputs(unittest.TestCase):
     def test_fixed_width_processors(self):
         samples = [

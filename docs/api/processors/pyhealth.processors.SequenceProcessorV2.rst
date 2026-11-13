@@ -234,7 +234,7 @@ validated at construction time:
    * - ``ordering``
      - ``"set" | "sequence" | "series"``
      - ``"sequence"``
-     - ``"series"`` emits ``(l, "time")`` (unless resampled); reported via ``ordering()``.
+     - ``"series"`` emits ``(l, "time")`` (resampled or not); reported via ``ordering()``.
      - ``"series"`` requires finite, non-decreasing ``time`` in ``Records``; ``"set"`` and ``"sequence"`` omit ``time``. Level ``0`` must set ``tokens``, ``values``, or ``ordering="series"``.
    * - ``tokens``
      - ``int`` (``K >= 1``)
@@ -257,10 +257,10 @@ validated at construction time:
      - Maps codes via :class:`~pyhealth.medcode.CrossMap` before vocabulary indexing; 1-to-many targets expand records.
      - Requires ``tokens`` (1 pair, or ``K`` entries). One-to-many mappings require level ``0``, ``ordering="set"``, ``tokens=1``, and no ``values``.
    * - ``resample``
-     - :class:`~pyhealth.processors.Resample` ``{"step", "method"}``
+     - :class:`~pyhealth.processors.Resample` ``{"step", "method", "align"}``
      - ``None``
-     - Bins ``t >= 0`` into steps :math:`\lfloor t / \text{step} \rfloor`, drops ``(l, "time")``, and sets ``ordering()[l] == "sequence"``.
-     - Requires ``ordering="series"`` and ``step > 0``. ``"min" | "max" | "avg"`` require level ``0`` with ``values`` only; ``"merge"`` requires ``children`` only with child ``ordering="set"``; resampled level ``0`` needs ``tokens`` or ``values``.
+     - Bins ``t >= 0`` onto a grid; step ``i`` is at time ``i * step`` and holds ``(T - step, T]`` (``align="right"``, the default; causal, step index :math:`\lceil t / \text{step} \rceil`) or ``[T, T + step)`` (``align="left"``; looks ahead, :math:`\lfloor t / \text{step} \rfloor`). The level stays a ``series``: ``(l, "time")`` holds the grid times.
+     - Requires ``ordering="series"`` and ``step > 0``; ``align`` is ``"right"`` or ``"left"``. ``"min" | "max" | "avg"`` require level ``0`` with ``values`` only; ``"merge"`` requires ``children`` only with child ``ordering="set"``; resampled level ``0`` needs ``tokens`` or ``values``.
    * - ``missing_indicator``
      - ``bool``
      - ``False``
@@ -308,7 +308,7 @@ by **canonical role order**:
    * - ``"time"``
      - ``float32``
      - ``[N_l]``
-     - ``ordering == "series"`` and ``resample`` is ``None``.
+     - ``ordering == "series"`` (on a resampled level, the grid times ``i * step``).
    * - ``"offsets"``
      - ``int64``
      - ``[N_{l+1} + 1]`` (or ``[B + 1]`` at ``L``)
@@ -394,8 +394,8 @@ Mapping Common Clinical Data Structures
      - Level-``0`` numeric vectors paired with visit-level ``(1, "time")``.
    * - **Regularly gridded multichannel time series**
      - ``[{"ordering": "sequence", "values": [F]}]`` (or ``"series"`` + ``resample``)
-     - ``((0, "values"),)`` (+ ``(0, "mask")``)
-     - ``{0: "sequence"}``; uniform grid steps ``[N_0, F]``.
+     - ``((0, "values"),)`` (+ ``(0, "mask")``; + ``(0, "time")`` when resampled)
+     - ``{0: "sequence"}`` (``{0: "series"}`` when resampled); uniform grid steps ``[N_0, F]``.
    * - **Irregular timestamped multichannel time series**
      - ``[{"ordering": "series", "values": [F]}]``
      - ``((0, "values"), (0, "time"))``

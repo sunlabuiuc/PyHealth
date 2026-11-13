@@ -200,7 +200,7 @@ class TestGCN(unittest.TestCase):
         self.assertIn("embed", ret)
         self.assertEqual(ret["embed"].shape[0], 2)  # batch size
         # Check embedding dimension (output of last GCN layer)
-        self.assertEqual(ret["embed"].shape[1], self.model.get_output_size())
+        self.assertEqual(ret["embed"].shape[1], self.model.label_processor.output_size())
 
     def test_custom_hyperparameters(self):
         """Test GCN model with custom hyperparameters."""
@@ -423,7 +423,7 @@ class TestGAT(unittest.TestCase):
         self.assertIn("embed", ret)
         self.assertEqual(ret["embed"].shape[0], 2)  # batch size
         # Check embedding dimension (output of last GAT layer)
-        self.assertEqual(ret["embed"].shape[1], self.model.get_output_size())
+        self.assertEqual(ret["embed"].shape[1], self.model.label_processor.output_size())
 
     def test_custom_hyperparameters(self):
         """Test GAT model with custom hyperparameters."""

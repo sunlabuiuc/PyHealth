@@ -1,7 +1,26 @@
 import unittest
 from pathlib import Path
 
+from torch.utils.data import IterableDataset
+
 from pyhealth.datasets.sample_dataset import SampleDataset, create_sample_dataset
+from pyhealth.datasets.utils import get_dataloader
+
+
+class _PlainIterableDataset(IterableDataset):
+    """Minimal non-SampleDataset iterable with a ``set_shuffle`` hook."""
+
+    def __init__(self):
+        self.shuffle = None
+
+    def set_shuffle(self, shuffle):
+        self.shuffle = shuffle
+
+    def __iter__(self):
+        return iter(
+            {"feature": [float(index)], "label": index % 2}
+            for index in range(4)
+        )
 
 
 class TestSampleDatasetParity(unittest.TestCase):
@@ -175,6 +194,48 @@ class TestSampleDatasetParity(unittest.TestCase):
         owner.close()
 
         self.assertFalse(path.exists())
+
+    def test_dataloader_forwards_loader_kwargs(self):
+        dataset, _ = self._get_datasets()
+        try:
+            loader = get_dataloader(
+                dataset,
+                batch_size=2,
+                num_workers=0,
+                pin_memory=False,
+            )
+            self.assertEqual(loader.num_workers, 0)
+            self.assertFalse(loader.pin_memory)
+        finally:
+            dataset.close()
+
+    def test_dataloader_forwards_kwargs_to_plain_dataset(self):
+        dataset = _PlainIterableDataset()
+        loader = get_dataloader(
+            dataset, batch_size=2, num_workers=0, pin_memory=False
+        )
+        self.assertEqual(loader.num_workers, 0)
+        self.assertFalse(loader.pin_memory)
+        self.assertFalse(dataset.shuffle)
+        features = sorted(
+            int(value[0]) for batch in loader for value in batch["feature"]
+        )
+        self.assertEqual(features, [0, 1, 2, 3])
+
+    def test_persistent_workers_with_shuffle_is_rejected(self):
+        dataset, _ = self._get_datasets()
+        try:
+            with self.assertRaisesRegex(ValueError, "persistent_workers"):
+                get_dataloader(
+                    dataset,
+                    batch_size=2,
+                    shuffle=True,
+                    num_workers=1,
+                    persistent_workers=True,
+                )
+        finally:
+            dataset.close()
+
 
 if __name__ == "__main__":
     unittest.main()

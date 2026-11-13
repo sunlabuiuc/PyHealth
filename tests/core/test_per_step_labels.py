@@ -10,6 +10,7 @@ from pyhealth.datasets import SampleDataset, create_sample_dataset, get_dataload
 from pyhealth.models import BaseModel, RNN_V2
 from pyhealth.processors import (
     LevelConfig,
+    LabelProcessor,
     SequenceProcessorV2,
     TimeseriesBinaryLabelProcessor,
     TimeseriesLabelProcessor,
@@ -20,6 +21,8 @@ from tests.core.label_record_model_utils import LabelRecordModel
 
 NAN = float("nan")
 DYNAMIC: list[LevelConfig] = [{"ordering": "series", "values": [2]}]
+# Static values: one record at t = 0, before the first label.
+STATIC: list[LevelConfig] = [{"ordering": "series", "values": [2]}]
 
 
 def _samples(label_fn) -> list[dict[str, Any]]:
@@ -31,7 +34,7 @@ def _samples(label_fn) -> list[dict[str, Any]]:
             {
                 "patient_id": f"p{i}",
                 "dynamic": {"time": hours, "values": rng.normal(size=(n, 2))},
-                "static": [float(i), 1.0],
+                "static": {"time": [0.0], "values": [[float(i), 1.0]]},
                 "label": {"time": hours, "values": [label_fn(i, h) for h in range(n)]},
             }
         )
@@ -43,7 +46,7 @@ def _dataset(output="timeseries_binary", label_fn=lambda i, h: float((i + h) % 2
         samples=_samples(label_fn),
         input_schema={
             "dynamic": ("sequence_v2", {"levels": DYNAMIC}),
-            "static": "tensor",
+            "static": ("sequence_v2", {"levels": STATIC}),
         },
         output_schema={"label": output},
         dataset_name="per_step",
@@ -51,14 +54,17 @@ def _dataset(output="timeseries_binary", label_fn=lambda i, h: float((i + h) % 2
 
 
 class TestTimeseriesLabelProcessors(unittest.TestCase):
-    def test_are_restricted_sequence_v2_fields(self):
+    def test_are_label_processors(self):
         processor = TimeseriesBinaryLabelProcessor()
-        self.assertIsInstance(processor, SequenceProcessorV2)
+        self.assertIsInstance(processor, LabelProcessor)
         self.assertIsInstance(processor, TimeseriesLabelProcessor)
-        self.assertEqual(processor.schema(), ((0, "values"), (0, "time")))
+        self.assertNotIsInstance(processor, SequenceProcessorV2)
+        self.assertEqual(processor.schema(), ("value", "time"))
         self.assertEqual(processor.size(), 1)
         self.assertFalse(processor.learns_statistics)
-        self.assertEqual(repr(processor), "TimeseriesBinaryLabelProcessor()")
+        self.assertEqual(
+            repr(processor), "TimeseriesBinaryLabelProcessor(label_vocab_size=2)"
+        )
 
     def test_values_and_time(self):
         values, time = TimeseriesRegressionLabelProcessor().process(
@@ -119,7 +125,9 @@ class TestPerStepEndToEnd(unittest.TestCase):
         models: dict[str, Callable[[SampleDataset], BaseModel]] = {
             "LabelRecordModel": LabelRecordModel,
             "RNN_V2": lambda dataset: RNN_V2(
-                dataset, embedding_dim={"dynamic": [{"values": 8}]}, hidden_dim=8
+                dataset,
+                embedding_dim={"dynamic": [{"values": 8}], "static": [{"values": 4}]},
+                hidden_dim=8,
             ),
         }
         for (mode, metric), (name, make_model) in product(

@@ -15,7 +15,7 @@ import numpy as np
 import torch
 
 from pyhealth.datasets import SampleDataset, get_dataloader
-from pyhealth.trainer import Trainer, get_metrics_fn
+from pyhealth.trainer import Trainer, get_metrics_fn, model_metrics_kwargs
 
 from .space import PipelineConfig, SearchSpace
 
@@ -80,8 +80,6 @@ def train_pipeline(
         if spec.trainer == "fit":
             return model.fit(train_dataset, val_dataset)
         tp = config.train_params
-        if tp.get("pos_weight") == "balanced":
-            model.set_pos_weight("balanced", train_dataset)
         batch_size = int(tp.get("batch_size", 64))
         trainer = Trainer(model, metrics=[metric], device=device, enable_logging=False)
         trainer.train(
@@ -128,7 +126,11 @@ def score(
         {'pr_auc': 0.41, 'roc_auc': 0.78}
     """
     y_true, y_prob, _ = predict(model, dataset)
-    values = get_metrics_fn(model.mode)(y_true, y_prob, metrics=list(metrics))
+    metrics_fn = get_metrics_fn(model.mode)
+    values = metrics_fn(
+        y_true, y_prob, metrics=list(metrics),
+        **model_metrics_kwargs(model, metrics_fn),
+    )
     return {k: float(v) for k, v in values.items()}
 
 

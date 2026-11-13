@@ -93,7 +93,22 @@ class TestConfiguration(unittest.TestCase):
                     "resample": {**LAST, "method": "sum"},
                 }
             ],
-            # A resampled level drops its time; level 0 then has nothing left.
+            [
+                {
+                    "ordering": "series",
+                    "values": [1],
+                    "resample": {**LAST, "align": "mid"},
+                }
+            ],
+            [
+                {
+                    "ordering": "series",
+                    "values": [1],
+                    "resample": {**LAST, "label": "left"},
+                }
+            ],
+            # A resampled level has a record at every grid step, so time alone
+            # would not say when the records were.
             [{"ordering": "series", "resample": LAST}],
             [{"values": [1, 1], "spatial": [1, 0]}],
             [{"tokens": 1, "spatial": [False]}],  # spatial without values
@@ -448,9 +463,11 @@ class TestCodeMapping(unittest.TestCase):
 
 class TestResample(unittest.TestCase):
     @staticmethod
-    def series(method: Any, **config: Any) -> LevelConfig:
-        # Typed Any: the tests also build invalid configurations.
-        level: Any = {"ordering": "series", "resample": {"step": 1.0, "method": method}}
+    def series(method: Any, align: Any = "left", **config: Any) -> LevelConfig:
+        # Typed Any: the tests also build invalid configurations. Left
+        # alignment by default: step i holds [i, i + 1).
+        resample = {"step": 1.0, "method": method, "align": align}
+        level: Any = {"ordering": "series", "resample": resample}
         level.update(config)
         return level
 
@@ -480,10 +497,11 @@ class TestResample(unittest.TestCase):
         ):
             with self.subTest(method=method):
                 proc = _fit([self.series(method, values=[2])], raw)
-                self.assertEqual(proc.schema(), ((0, "values"),))
-                self.assertEqual(proc.ordering(), {0: "sequence"})
-                (values,) = proc.process(raw)
+                self.assertEqual(proc.schema(), ((0, "values"), (0, "time")))
+                self.assertEqual(proc.ordering(), {0: "series"})
+                values, time = proc.process(raw)
                 self.assertEqual(values.tolist(), expected)
+                self.assertEqual(time.tolist(), [0.0, 1.0, 2.0])
 
     def test_last_keeps_tokens_and_children(self):
         raw: Records = {
@@ -492,12 +510,16 @@ class TestResample(unittest.TestCase):
             "children": [{"tokens": ["X"]}, {"tokens": ["Y", "Z"]}, {"tokens": []}],
         }
         proc = _fit([CODES, self.series("last", tokens=1)], raw)
-        self.assertEqual(proc.schema(), ((0, "tokens"), (0, "offsets"), (1, "tokens")))
-        child_tokens, offsets, tokens = proc.process(raw)
+        self.assertEqual(
+            proc.schema(),
+            ((0, "tokens"), (0, "offsets"), (1, "tokens"), (1, "time")),
+        )
+        child_tokens, offsets, tokens, time = proc.process(raw)
         self.assertEqual(tokens.tolist(), [3, 4])  # "b", "c"
         self.assertEqual(child_tokens.tolist(), [3, 4])  # "Y", "Z"
         self.assertEqual(offsets.tolist(), [0, 2, 2])
-        proc.validate((child_tokens, offsets, tokens))
+        self.assertEqual(time.tolist(), [0.0, 1.0])
+        proc.validate((child_tokens, offsets, tokens, time))
 
     def test_steps_without_records_are_left_for_imputation(self):
         raw: Records = {
@@ -506,11 +528,12 @@ class TestResample(unittest.TestCase):
             "children": [{"tokens": ["X"]}, {"tokens": ["Y"]}],
         }
         proc = _fit([CODES, self.series("first", tokens=1)], raw)
-        child_tokens, offsets, tokens = proc.process(raw)
+        child_tokens, offsets, tokens, time = proc.process(raw)
         self.assertEqual(tokens.tolist(), [2, 0, 3])  # step 1 is <pad>
         self.assertEqual(child_tokens.tolist(), [2, 3])
         self.assertEqual(offsets.tolist(), [0, 1, 1, 2])  # and has no children
-        proc.validate((child_tokens, offsets, tokens))
+        self.assertEqual(time.tolist(), [0.0, 1.0, 2.0])  # but has its time
+        proc.validate((child_tokens, offsets, tokens, time))
 
     def test_each_group_gets_its_own_grid(self):
         stay_a: Records = {"time": [0.0, 1.5], "values": [[1.0], [2.0]]}
@@ -518,8 +541,9 @@ class TestResample(unittest.TestCase):
         stay_c: Records = {"time": [0.2, 0.7], "values": [[3.0], [4.0]]}
         raw: Records = {"children": [stay_a, stay_b, stay_c]}
         proc = _fit([self.series("last", values=[1]), {}], raw)
-        values, offsets = proc.process(raw)
+        values, time, offsets = proc.process(raw)
         self.assertEqual(values.tolist(), [[1.0], [2.0], [4.0]])
+        self.assertEqual(time.tolist(), [0.0, 1.0, 0.0])  # each grid from 0
         self.assertEqual(offsets.tolist(), [0, 2, 2, 3])
 
     def test_min_max_avg_reduce_values(self):
@@ -554,7 +578,7 @@ class TestResample(unittest.TestCase):
                     "impute": {"method": "zero"},
                     "missing_indicator": True,
                 }
-                values, mask = _fit([level], raw).process(raw)
+                values, mask, _ = _fit([level], raw).process(raw)
                 self.assertEqual(values.tolist(), expected)
                 # Only a step without any reading in a channel is missing.
                 self.assertEqual(mask.tolist(), [[False, True], [False, False]])
@@ -565,11 +589,12 @@ class TestResample(unittest.TestCase):
             "children": [{"tokens": ["A"]}, {"tokens": ["B", "C"]}, {"tokens": ["D"]}],
         }
         proc = _fit([{"ordering": "set", "tokens": 1}, self.series("merge")], raw)
-        self.assertEqual(proc.schema(), ((0, "tokens"), (0, "offsets")))
-        tokens, offsets = proc.process(raw)
+        self.assertEqual(proc.schema(), ((0, "tokens"), (0, "offsets"), (1, "time")))
+        tokens, offsets, time = proc.process(raw)
         self.assertEqual(tokens.tolist(), [2, 3, 4, 5])
         self.assertEqual(offsets.tolist(), [0, 3, 3, 4])  # step 1 is an empty set
-        proc.validate((tokens, offsets))
+        self.assertEqual(time.tolist(), [0.0, 1.0, 2.0])
+        proc.validate((tokens, offsets, time))
 
     def test_merge_regroups_below_the_top_level(self):
         days: Records = {
@@ -579,11 +604,12 @@ class TestResample(unittest.TestCase):
         raw: Records = {"children": [days, days]}
         levels = [{"ordering": "set", "tokens": 1}, self.series("merge"), {}]
         proc = _fit(levels, raw)
-        tokens, day_offsets, stay_offsets = proc.process(raw)
+        tokens, day_offsets, day_time, stay_offsets = proc.process(raw)
         self.assertEqual(tokens.tolist(), [2, 3, 2, 3])
         self.assertEqual(day_offsets.tolist(), [0, 2, 4])  # one merged day per stay
+        self.assertEqual(day_time.tolist(), [0.0, 0.0])
         self.assertEqual(stay_offsets.tolist(), [0, 1, 2])
-        batch = proc.collate([(tokens, day_offsets, stay_offsets)] * 2)
+        batch = proc.collate([(tokens, day_offsets, day_time, stay_offsets)] * 2)
         proc.validate(batch, batched=True)
 
     def test_grid_starts_at_time_zero(self):
@@ -613,6 +639,51 @@ class TestResample(unittest.TestCase):
     def test_records_need_values(self):
         with self.assertRaises(ValueError):
             _fit([self.series("last", values=[1])]).process({"time": [0.0]})
+
+    def test_right_holds_records_up_to_the_step_time(self):
+        raw: Records = {
+            "time": [0.0, 0.5, 1.0, 1.2],
+            "values": [[1.0], [3.0], [5.0], [7.0]],
+        }
+        for align, expected, expected_time in (
+            # (T - 1, T]: only time 0 is in step 0, and 1.0 closes step 1.
+            ("right", [1.0, 4.0, 7.0], [0.0, 1.0, 2.0]),
+            # [T, T + 1): each step looks ahead to just before T + 1.
+            ("left", [2.0, 6.0], [0.0, 1.0]),
+        ):
+            with self.subTest(align=align):
+                proc = _fit([self.series("avg", align, values=[1])], raw)
+                values, time = proc.process(raw)
+                self.assertEqual(values.reshape(-1).tolist(), expected)
+                self.assertEqual(time.tolist(), expected_time)
+
+    def test_align_defaults_to_right(self):
+        level: LevelConfig = {
+            "ordering": "series",
+            "values": [1],
+            "resample": {"step": 1.0, "method": "last"},
+        }
+        raw: Records = {"time": [0.0, 0.5], "values": [[1.0], [2.0]]}
+        values, time = _fit([level], raw).process(raw)
+        self.assertEqual(values.reshape(-1).tolist(), [1.0, 2.0])
+        self.assertEqual(time.tolist(), [0.0, 1.0])
+
+    def test_records_on_a_boundary_stay_on_it(self):
+        # float32(0.3) / 0.1 is just above 3 and float32(0.7) / 0.1 just below
+        # 7, so dividing alone puts them in the neighboring step.
+        raw: Records = {"time": [0.0, 0.3, 0.7], "tokens": ["a", "b", "c"]}
+        for align in ("left", "right"):
+            with self.subTest(align=align):
+                level: LevelConfig = {
+                    "ordering": "series",
+                    "tokens": 1,
+                    "resample": {"step": 0.1, "method": "last", "align": align},
+                }
+                tokens, time = _fit([level], raw).process(raw)
+                self.assertEqual(tokens.tolist(), [2, 0, 0, 3, 0, 0, 0, 4])
+                torch.testing.assert_close(
+                    time, torch.arange(8, dtype=torch.float32) * 0.1
+                )
 
 
 class TestImpute(unittest.TestCase):
@@ -691,10 +762,10 @@ class TestImpute(unittest.TestCase):
             {"method": "max"},
             ordering="series",
             values=[1],
-            resample={"step": 1.0, "method": "avg"},
+            resample={"step": 1.0, "method": "avg", "align": "left"},
         )
         raw: Records = {"time": [0.0, 0.5, 2.0], "values": [[1.0], [5.0], [2.0]]}
-        (values,) = _fit([level], raw).process(raw)
+        values, _ = _fit([level], raw).process(raw)
         self.assertEqual(values.tolist(), [[3.0], [5.0], [2.0]])
 
     def test_token_without_finite_values_keeps_its_nan(self):
@@ -757,20 +828,21 @@ class TestImpute(unittest.TestCase):
             "tokens": ["A", "B"],
             "values": [[1.0], [2.0]],
         }
-        tokens, values = _fit([level], raw).process(raw)
+        tokens, values, _ = _fit([level], raw).process(raw)
         self.assertEqual(tokens.tolist(), [2, 2, 3])  # step 1 takes "A"
         self.assertEqual(values.reshape(-1).tolist(), [1.0, 1.0, 2.0])
 
-    def test_linear_on_a_resampled_grid_uses_steps(self):
+    def test_linear_on_a_resampled_grid_uses_grid_time(self):
         level = self.level(
             {"method": "linear"},
             ordering="series",
             values=[1],
-            resample={"step": 1.0, "method": "last"},
+            resample={"step": 1.0, "method": "last", "align": "left"},
         )
         raw: Records = {"time": [0.0, 3.5], "values": [[0.0], [3.0]]}
-        (values,) = _fit([level], raw).process(raw)
+        values, time = _fit([level], raw).process(raw)
         self.assertEqual(values.reshape(-1).tolist(), [0.0, 1.0, 2.0, 3.0])
+        self.assertEqual(time.tolist(), [0.0, 1.0, 2.0, 3.0])
 
     def test_levels_without_records(self):
         # A sample whose stays have no records at all, for every method.
@@ -936,10 +1008,10 @@ class TestNormalize(unittest.TestCase):
             {"method": "minmax"},
             ordering="series",
             values=[1],
-            resample={"step": 1.0, "method": "avg"},
+            resample={"step": 1.0, "method": "avg", "align": "left"},
         )
         raw: Records = {"time": [0.0, 0.5, 1.0], "values": [[0.0], [4.0], [1.0]]}
-        (values,) = _fit([level], raw).process(raw)
+        values, _ = _fit([level], raw).process(raw)
         self.assertEqual(values.reshape(-1).tolist(), [0.5, 0.25])
 
     def test_pickle_keeps_statistics(self):
@@ -997,7 +1069,7 @@ class TestMissingIndicator(unittest.TestCase):
             "missing_indicator": True,
         }
         raw: Records = {"time": [0.0, 2.0], "values": [[1.0], [3.0]]}
-        values, mask = _fit([level]).process(raw)
+        values, mask, _ = _fit([level]).process(raw)
         self.assertEqual(values.reshape(-1).tolist(), [1.0, 1.0, 3.0])
         self.assertEqual(mask.reshape(-1).tolist(), [False, True, False])
 

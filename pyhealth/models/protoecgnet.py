@@ -545,14 +545,14 @@ class ProtoECGNet(BaseModel):
         lam_l1: Weight of the L1 penalty of the classifier/fusion stages.
             Defaults to 0 (off).
         class_weights: Optional positive-class weights ``(num_labels,)``.
+            Defaults to the label processor's ``pos_weight``
+            (``MultiLabelProcessor(pos_weight=...)``), or ones.
         label_cooccurrence: Optional label co-occurrence matrix.
 
     Note:
         ``ProtoECGNet`` applies loss weighting via its own ``class_weights``
-        buffer. :meth:`set_pos_weight` is overridden to route the inherited
-        :class:`~pyhealth.models.BaseModel` argument into ``class_weights``
-        (including the ``"balanced"`` option), so callers like autoimprove
-        work unchanged.
+        buffer, which starts from the task's ``pos_weight`` unless
+        ``class_weights`` is given.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
@@ -653,8 +653,18 @@ class ProtoECGNet(BaseModel):
         self.register_buffer(
             "label_cooccurrence", torch.zeros(self.num_labels, self.num_labels)
         )
+        if class_weights is None:
+            class_weights = getattr(self.label_processor, "weight", None)
         if class_weights is not None:
-            self.class_weights = class_weights.float()
+            weight = class_weights.float().reshape(-1)
+            if weight.numel() == 1:
+                weight = weight.expand(self.num_labels).clone()
+            elif weight.numel() != self.num_labels:
+                raise ValueError(
+                    "class_weights / pos_weight must be a scalar or have one "
+                    f"entry per label ({self.num_labels}); got {weight.numel()}."
+                )
+            self.class_weights = weight
         if label_cooccurrence is not None:
             self.label_cooccurrence = label_cooccurrence.float()
         # Modules whose BN running stats must stay fixed after projection.
@@ -700,46 +710,6 @@ class ProtoECGNet(BaseModel):
         """Returns the global label indices owned by branch ``name``; used for scattering branch logits into the full label space and slicing the co-occurrence matrix."""
         return getattr(self, f"index_{name}")
 
-    def set_pos_weight(
-        self,
-        pos_weight,
-        dataset=None,
-    ) -> None:
-        """Honor :meth:`BaseModel.set_pos_weight` by routing it to ``class_weights``.
-
-        ``ProtoECGNet`` applies positive-class weighting through its own
-        ``class_weights`` buffer, so the inherited method would otherwise be a
-        no-op (silently dropping e.g. ``pos_weight="balanced"`` from
-        ``autoimprove``). This override delegates to the base implementation
-        to parse the argument (scalar, sequence, tensor, ``"balanced"``, or
-        ``None``) and then mirrors ``self._pos_weight`` into
-        ``self.class_weights`` so BCE picks it up. A scalar is broadcast to a
-        ``(num_labels,)`` tensor so the buffer's shape is stable across calls
-        (keeps strict ``load_state_dict`` working after a scalar
-        ``set_pos_weight``). ``None`` resets ``class_weights`` to ones.
-
-        Args:
-            pos_weight: Same semantics as :meth:`BaseModel.set_pos_weight`.
-            dataset: Required when ``pos_weight="balanced"``.
-
-        Raises:
-            ValueError: If the parsed weight is neither length-1 (broadcastable)
-                nor length-``num_labels``.
-        """
-        super().set_pos_weight(pos_weight, dataset)
-        if self._pos_weight is None:
-            self.class_weights = torch.ones(self.num_labels, device=self.device)
-            return
-        weight = self._pos_weight.to(self.device).float()
-        if weight.numel() == 1:
-            weight = weight.expand(self.num_labels).clone()
-        elif weight.numel() != self.num_labels:
-            raise ValueError(
-                "pos_weight must be a scalar / length-1 tensor or have one "
-                f"entry per label ({self.num_labels}); got {weight.numel()}."
-            )
-        self.class_weights = weight
-
     def set_label_statistics(
         self,
         class_weights: torch.Tensor | None = None,
@@ -777,12 +747,10 @@ class ProtoECGNet(BaseModel):
             sum of all per-label positive counts (``counts.sum()``).
 
         Note:
-            The ``total`` here differs from
-            :meth:`~pyhealth.models.BaseModel.set_pos_weight`'s ``"balanced"``
-            option, which uses the **sample count** instead of the label-count
-            total. Both paths end up in the same ``class_weights`` buffer, so
-            mix them deliberately (e.g. the model used autoimprove-style
-            ``"balanced"`` or the paper's reference weights, not both).
+            The ``total`` here differs from ``pos_weight="balanced"`` of
+            :class:`~pyhealth.processors.MultiLabelProcessor`, which uses the
+            **sample count** instead of the label-count total. Both end up in
+            the same ``class_weights`` buffer, so use one of them.
         """
         y = labels.float()
         counts = y.sum(dim=0).clamp_min(1.0)

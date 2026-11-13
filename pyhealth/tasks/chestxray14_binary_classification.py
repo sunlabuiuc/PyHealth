@@ -79,6 +79,7 @@ class ChestXray14BinaryClassification(BaseTask):
 
         Returns:
             List[Dict]: A list containing a dictionary for each patient visit with:
+                - 'patient_id': the patient identifier, for patient-level splits.
                 - 'image': path to the chest X-ray image.
                 - 'label': binary label for the specified disease.
         """
@@ -86,6 +87,12 @@ class ChestXray14BinaryClassification(BaseTask):
 
         samples = []
         for event in events:
-            samples.append({"image": event["path"], "label": int(event[self.disease])})
+            samples.append(
+                {
+                    "patient_id": patient.patient_id,
+                    "image": event["path"],
+                    "label": int(event[self.disease]),
+                }
+            )
 
         return samples

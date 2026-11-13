@@ -6,7 +6,21 @@ import sklearn.metrics as sklearn_metrics
 from pyhealth.medcode import ATC
 import pyhealth.metrics.calibration as calib
 from pyhealth.metrics import ddi_rate_score
+from pyhealth.metrics.ranking import multilabel_ranking_at_k
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
+
+def _load_cached_ddi_adj() -> np.ndarray:
+    """Loads the DDI matrix that a drug recommendation model cached."""
+    path = os.path.join(CACHE_PATH, "ddi_adj.npy")
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"The 'ddi' metric needs a drug-drug interaction matrix, but {path} "
+            "does not exist. Pass ddi_adj= (e.g. model.ddi_adj_matrix), or "
+            "build an ARMR, GAMENet, MICRON, MoleRec or SafeDrug model first, which "
+            "writes that file."
+        )
+    return np.load(path)
+
 
 def multilabel_metrics_fn(
     y_true: np.ndarray,
@@ -14,6 +28,7 @@ def multilabel_metrics_fn(
     metrics: Optional[List[str]] = None,
     threshold: float = 0.3,
     y_predset: Optional[np.ndarray] = None,
+    ddi_adj: np.ndarray | None = None,
 ) -> Dict[str, float]:
     """Computes metrics for multilabel classification.
 
@@ -52,6 +67,14 @@ def multilabel_metrics_fn(
         - hamming_loss: Hamming loss
         - cwECE: classwise ECE (with 20 equal-width bins). Check :func:`pyhealth.metrics.calibration.ece_classwise`.
         - cwECE_adapt: classwise adaptive ECE (with 20 equal-size bins). Check :func:`pyhealth.metrics.calibration.ece_classwise`.
+        - precision@K: fraction of the K highest-scored labels that are true
+          (e.g. "precision@5")
+        - recall@K: fraction of a sample's true labels among its K
+          highest-scored labels
+        - ndcg@K: normalized discounted cumulative gain of the K
+          highest-scored labels (binary relevance). All three are averaged
+          over the samples with at least one true label; see
+          :func:`pyhealth.metrics.ranking.multilabel_ranking_at_k`.
 
     The following metrics related to the prediction sets are accepted as well, but will be ignored if y_predset is None:
         - fp: Number of false positives.
@@ -69,6 +92,15 @@ def multilabel_metrics_fn(
         y_prob: Predicted probabilities of shape (n_samples, n_labels).
         metrics: List of metrics to compute. Default is ["pr_auc_samples"].
         threshold: Threshold to binarize the predicted probabilities. Default is 0.5.
+        y_predset: Optional prediction sets, used by the ``tp`` and ``fp``
+            metrics.
+        ddi_adj: Optional drug-drug interaction matrix of shape
+            (n_labels, n_labels) for the ``ddi`` metric, indexed like the
+            label columns. When it is None, ``ddi`` loads ``ddi_adj.npy`` from
+            the PyHealth cache directory, which holds the matrix of the drug
+            recommendation model built most recently in any process. Pass
+            the evaluated model's own matrix (``model.ddi_adj_matrix`` for
+            ARMR, GAMENet, MICRON, MoleRec and SafeDrug) to avoid that shared file.
 
     Returns:
         Dictionary of metrics whose keys are the metric names and values are
@@ -80,6 +112,11 @@ def multilabel_metrics_fn(
         >>> y_prob = np.array([[0.1, 0.9, 0.8], [0.05, 0.95, 0.6]])
         >>> multilabel_metrics_fn(y_true, y_prob, metrics=["accuracy"])
         {'accuracy': 0.5}
+        >>> ddi_adj = np.array([[0, 1, 0], [1, 0, 0], [0, 0, 0]])
+        >>> multilabel_metrics_fn(
+        ...     y_true, y_prob, metrics=["ddi"], threshold=0.5, ddi_adj=ddi_adj
+        ... )
+        {'ddi_score': 0.0}
     """
     if metrics is None:
         metrics = ["pr_auc_samples"]
@@ -206,7 +243,8 @@ def multilabel_metrics_fn(
             hamming_loss = sklearn_metrics.hamming_loss(y_true, y_pred)
             output["hamming_loss"] = hamming_loss
         elif metric == "ddi":
-            ddi_adj = np.load(os.path.join(CACHE_PATH, 'ddi_adj.npy'))
+            if ddi_adj is None:
+                ddi_adj = _load_cached_ddi_adj()
             # Use a separate name to avoid mutating y_pred for subsequent metrics
             y_pred_ddi = [np.where(item)[0] for item in y_pred]
             output["ddi_score"] = ddi_rate_score(y_pred_ddi, ddi_adj)
@@ -225,6 +263,18 @@ def multilabel_metrics_fn(
                 output[metric] = (y_true * y_predset).sum(1).mean()
             elif metric == 'fp':
                 output[metric] = ((1-y_true) * y_predset).sum(1).mean()
+        elif metric.split("@", 1)[0] in ("precision", "recall", "ndcg") and (
+            "@" in metric
+        ):
+            name, cutoff = metric.split("@", 1)
+            if not cutoff.isdigit() or int(cutoff) < 1:
+                raise ValueError(
+                    f"Invalid metric {metric!r}: expected '{name}@K' with K a "
+                    "positive integer (e.g. 'precision@5')."
+                )
+            output[metric] = multilabel_ranking_at_k(
+                y_true, y_prob, int(cutoff)
+            )[name]
         else:
             raise ValueError(f"Unknown metric for multilabel classification: {metric}")
 

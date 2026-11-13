@@ -18,15 +18,15 @@ class LabelRecordModel(BaseModel):
     def __init__(self, dataset: SampleDataset):
         super().__init__(dataset)
         self.label_key = self.label_keys[0]
-        self.fc = nn.Linear(1, 1)
+        self.fc = nn.Linear(1, self.label_processor.output_size())
 
     def forward(self, **batch: Any) -> dict[str, Any]:
-        # Packed label records: (values [ΣN, 1], time [ΣN], offsets [B + 1]).
+        # Packed label records: (values [ΣN, ...], time [ΣN], offsets [B + 1]).
         label = tuple(t.to(self.device) for t in batch[self.label_key])
         logits = self.fc(label[1].unsqueeze(1))
         return {
-            "loss": self.get_loss_function()(logits, label),
-            "y_prob": self.prepare_y_prob(logits),
+            "loss": self.label_processor.loss(logits, label),
+            "y_prob": self.label_processor.activation(logits),
             "y_true": label,
             "logit": logits,
         }
