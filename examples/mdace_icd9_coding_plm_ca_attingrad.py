@@ -1,11 +1,13 @@
-"""PLM-CA on MIMIC-III + MDACE: training and AttInGrad explanation ablation.
+"""PLM-CA or CAML on MIMIC-III + MDACE: training and AttInGrad explanation ablation.
 
 Contributors: Juri Moon (jmoon326)
 Paper: Edin et al., "An Unsupervised Approach to Achieve Supervised-Level
     Explainability in Healthcare Records", EMNLP 2024.
 Paper link: https://arxiv.org/abs/2406.08958
 
-Stage 1, ``--train``: trains :class:`pyhealth.models.PLMCA` on the
+Stage 1, ``--train``: trains :class:`pyhealth.models.PLMCA` (default) or,
+with ``--model caml``, :class:`pyhealth.models.CAML` (Mullenbach et al.,
+NAACL 2018) on the
 MIMIC-III discharge summaries of the paper's ``mdace_icd9_inpatient_code``
 split (MIMIC-III full + MDACE train), using only the ICD-9 codes that occur
 in MDACE so a laptop GPU can fit it.
@@ -34,9 +36,16 @@ PhysioNet credentialed access; never commit the files.
         --model_name /path/to/roberta-base-pm-m3-voc-hf --device mps \\
         --checkpoint output/mdace/plm_ca_mdace/best.ckpt
 
+Add ``--model caml`` to train or evaluate CAML instead. It uses the same
+tokenizer (so MDACE spans map to the same tokens), initialises its word
+embeddings from ``--model_name`` and saves under ``caml_mdace/`` instead of
+``plm_ca_mdace/``. Unless overridden, CAML uses the CAML paper's learning rate
+1e-4 and batch size 16 with no accumulation.
+
 Deviations from the paper (for compute): label space restricted to MDACE
 codes, notes truncated to 4096 tokens instead of 6000, 2 epochs instead of
-20, no learning-rate warmup or decay, fixed 0.5 decision threshold.
+20, fixed 0.5 decision threshold. Training uses 10% linear warmup then
+linear decay (``--warmup``) for both models.
 """
 
 import argparse
@@ -59,7 +68,7 @@ from pyhealth.metrics.interpretability import (
     plausibility_metrics,
     spans_to_token_ids,
 )
-from pyhealth.models import PLMCA
+from pyhealth.models import CAML, PLMCA
 from pyhealth.trainer import Trainer
 
 TEXT_KEY = "text"
@@ -173,8 +182,30 @@ def run_synthetic(args: argparse.Namespace) -> None:
         args.max_length, args.chunk_size, args.batch_size = 128, 32, 16
         args.epochs, args.lr, args.ig_steps, args.accum = 15, 1e-3, 8, 1
         train(args)
-        args.checkpoint = str(root / "output" / "plm_ca_mdace" / "best.ckpt")
+        args.checkpoint = str(root / "output" / exp_name(args) / "best.ckpt")
         evaluate(args)
+
+
+# Per-model defaults for options the user did not set: (lr, batch_size, accum).
+MODEL_DEFAULTS = {"plm_ca": (5e-5, 2, 8), "caml": (1e-4, 16, 1)}
+
+
+def exp_name(args: argparse.Namespace) -> str:
+    """Checkpoint folder name, separate per model so runs never overwrite."""
+    return f"{args.model}_mdace"
+
+
+def build_model(args: argparse.Namespace, dataset) -> PLMCA | CAML:
+    """Builds the model chosen with ``--model``."""
+    if args.model == "caml":
+        return CAML(dataset, model_name=args.model_name, max_length=args.max_length)
+    return PLMCA(
+        dataset,
+        model_name=args.model_name,
+        chunk_size=args.chunk_size,
+        max_length=args.max_length,
+        dropout=0.2,
+    )
 
 
 def note_codes(row: dict) -> list[str]:
@@ -255,13 +286,7 @@ def train(args: argparse.Namespace) -> None:
     val_ds = dataset.subset(range(n_train, len(dataset)))
 
     torch.manual_seed(args.seed)
-    model = PLMCA(
-        dataset,
-        model_name=args.model_name,
-        chunk_size=args.chunk_size,
-        max_length=args.max_length,
-        dropout=0.2,
-    )
+    model = build_model(args, dataset)
     # Trainer is used for evaluation only. The training loop below follows
     # the authors' recipe, which Trainer lacks: gradient accumulation to an
     # effective batch of batch_size * accum, 10% linear warmup then linear
@@ -272,7 +297,7 @@ def train(args: argparse.Namespace) -> None:
         metrics=["f1_micro", "f1_macro", "pr_auc_micro"],
         device=args.device,
         output_path=args.output_dir,
-        exp_name="plm_ca_mdace",
+        exp_name=exp_name(args),
     )
     train_loader = get_dataloader(
         train_ds, args.batch_size, shuffle=True, seed=args.seed
@@ -313,7 +338,7 @@ def train(args: argparse.Namespace) -> None:
             trainer.save_ckpt(os.path.join(trainer.exp_path, "best.ckpt"))
 
 
-def load_trained_model(args: argparse.Namespace) -> PLMCA:
+def load_trained_model(args: argparse.Namespace) -> PLMCA | CAML:
     """Rebuilds the training label vocabulary and loads the checkpoint.
 
     PyHealth sorts the multilabel vocabulary, so one dummy sample holding
@@ -328,18 +353,13 @@ def load_trained_model(args: argparse.Namespace) -> PLMCA:
         output_schema={LABEL_KEY: "multilabel"},
         dataset_name="mdace_label_space",
     )
-    model = PLMCA(
-        dataset,
-        model_name=args.model_name,
-        chunk_size=args.chunk_size,
-        max_length=args.max_length,
-    )
+    model = build_model(args, dataset)
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
     model.load_state_dict(state)
     return model.to(args.device or "cpu").eval()
 
 
-def explain_split(model: PLMCA, df: pl.DataFrame, steps: int) -> list[dict]:
+def explain_split(model: PLMCA | CAML, df: pl.DataFrame, steps: int) -> list[dict]:
     """Attention, InputXGrad and IG scores for every (note, gold code) pair.
 
     Special tokens are dropped and scores renormalized, as in the authors'
@@ -423,6 +443,7 @@ def evaluate(args: argparse.Namespace) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--model", choices=sorted(MODEL_DEFAULTS), default="plm_ca")
     parser.add_argument("--train", action="store_true")
     parser.add_argument("--evaluate", action="store_true")
     parser.add_argument("--checkpoint", type=str, default=None)
@@ -435,14 +456,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output_dir", type=str, default="output/mdace")
     parser.add_argument("--max_length", type=int, default=4096)
     parser.add_argument("--chunk_size", type=int, default=128)
-    parser.add_argument("--batch_size", type=int, default=2)
+    parser.add_argument("--batch_size", type=int, default=None)
     parser.add_argument("--epochs", type=int, default=2)
-    parser.add_argument("--lr", type=float, default=5e-5)
+    parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--max_train", type=int, default=None)
-    parser.add_argument("--accum", type=int, default=8)
+    parser.add_argument("--accum", type=int, default=None)
     parser.add_argument("--warmup", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
+    lr, batch_size, accum = MODEL_DEFAULTS[args.model]
+    args.lr = lr if args.lr is None else args.lr
+    args.batch_size = batch_size if args.batch_size is None else args.batch_size
+    args.accum = accum if args.accum is None else args.accum
     if not args.synthetic and (args.train or args.evaluate):
         if not (args.processed and args.model_name):
             parser.error("--processed and --model_name are required with real data")

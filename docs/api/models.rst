@@ -300,6 +300,7 @@ API Reference
     models/pyhealth.models.MEME
     models/pyhealth.models.TransformerDeID
     models/pyhealth.models.PLMCA
+    models/pyhealth.models.CAML
     models/pyhealth.models.RETAIN
     models/pyhealth.models.GAMENet
     models/pyhealth.models.GraphCare
