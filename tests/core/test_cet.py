@@ -204,3 +204,60 @@ def test_one_optimizer_step():
     model(**_batch(ds))["loss"].backward()
     optim.step()
     assert not torch.equal(before, model.occurrence_head.weight)
+
+
+def test_forward_from_embedding_matches_forward():
+    """Embedding entry point agrees with forward under matched RNG state."""
+    torch.manual_seed(41)
+    ds = _dataset()
+    model = CET(ds, hidden_dim=8, n_samples=6, dropout=0)
+    model.eval()
+    batch = _batch(ds)
+    torch.manual_seed(17)
+    expected = model(**batch)
+    torch.manual_seed(17)
+    actual = model.forward_from_embedding(
+        batch["features"], duration=batch["duration"], event=batch["event"]
+    )
+    for key in ("logit", "y_prob", "time_pred", "loss", "y_true"):
+        assert torch.allclose(actual[key], expected[key], atol=1e-7)
+
+
+def test_predict_event_time_known_constant_median():
+    """Predicted conditional median matches a fixed log-normal model."""
+    model = CET(_dataset(), hidden_dim=8, n_samples=5, dropout=0)
+    with torch.no_grad():
+        model.time_mean.weight.zero_()
+        model.time_mean.bias.fill_(math.log(3.5))
+    features = torch.zeros(3, model.input_dim)
+    predicted = model.predict_event_time(features, n_samples=7)
+    assert predicted.shape == (3, 2)
+    assert torch.allclose(predicted, torch.full_like(predicted, 3.5), atol=1e-5)
+
+
+def test_posterior_occurrence_matches_constant_time_case():
+    """Posterior is one for observed events and follows Bayes for censoring."""
+    model = CET(_dataset(), hidden_dim=8, n_samples=5, dropout=0)
+    model.eval()
+    with torch.no_grad():
+        model.occurrence_head.weight.zero_()
+        model.occurrence_head.bias.fill_(math.log(0.25 / 0.75))
+        model.time_mean.weight.zero_()
+        model.time_mean.bias.zero_()
+        model.time_logvar.weight.zero_()
+        model.time_logvar.bias.zero_()
+    x = torch.zeros(2, model.input_dim)
+    t = torch.ones(2, model.n_events)
+    observed = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
+    estimated = model.posterior_occurrence(x, t, observed, n_samples=5)
+    _, neg_log_surv = CET.lognormal_negative_terms(
+        torch.ones(1, 1), torch.zeros(1, 1), torch.zeros(1, 1)
+    )
+    surv = torch.exp(-neg_log_surv).item()
+    expected_censored = (0.25 * surv) / (0.25 * surv + 0.75)
+    assert torch.all(estimated[observed.bool()] == 1.0)
+    assert torch.allclose(
+        estimated[~observed.bool()],
+        torch.full_like(estimated[~observed.bool()], expected_censored),
+        atol=1e-6,
+    )

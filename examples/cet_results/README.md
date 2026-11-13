@@ -64,7 +64,7 @@ Each run evaluates all three configurations on the same synthetic train/validati
 Results can be aggregated across seeds using the accompanying summary script:
 
 ```bash
-python python examples/summarize_cet_ablation.py cet_larger_synthetic.json cet_ablation_seed8.json cet_ablation_seed9.json
+python examples/summarize_cet_ablation.py cet_larger_synthetic.json cet_ablation_seed8.json cet_ablation_seed9.json
 ```
 
 ### Synthetic Ablation Results
@@ -91,11 +91,9 @@ Increasing the sample count from 8 to 32 at temperature 0.3 reduced average test
 
 At 32 samples, increasing temperature from 0.3 to 1.0 increased average test NLL from 0.368 to 0.379 and slightly decreased mean occurrence AUC from 0.636 to 0.630. These differences are modest, and the three-seed experiment does not establish that one temperature is universally optimal.
 
-**3. Event predictability was affected by censoring.**
+**3. Occurrence discrimination differed between the synthetic targets.**
 
-For configuration B, Event 0 achieved a mean test AUC of approximately 0.711 across seeds, compared with 0.562 for Event 1.
-
-Event 1 experienced substantially greater artificial censoring, leaving fewer observed positive training examples. In a separate sensitivity experiment, increasing the censoring cutoff range from Uniform(0.2, 2.5) to Uniform(0.2, 10.0) improved Event 1's occurrence AUC on the smaller synthetic dataset. This suggests that event observability contributes to the difficulty of predicting eventual occurrence.
+For configuration B, Event 0 achieved a mean test AUC of approximately 0.711 across seeds, compared with 0.562 for Event 1. These results describe a difference in predictive performance between the two generated targets; the sampling-parameter ablation does not isolate its cause.
 
 **4. Censored likelihood and occurrence AUC capture different aspects of performance.**
 

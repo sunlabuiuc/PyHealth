@@ -366,6 +366,12 @@ class CET(BaseModel):
     def forward(self, **kwargs: Tensor | tuple[Tensor, ...]) -> dict[str, Tensor]:
         """Predict occurrence and conditional timing, computing loss if labeled.
 
+        The labeled loss is a Monte Carlo estimate: relaxed occurrence samples
+        are drawn in both training and evaluation modes. Repeated evaluation
+        calls can therefore produce different ``loss`` and ``time_pred``
+        values unless the random seed is controlled. In evaluation mode,
+        ``logit`` and ``y_prob`` do not depend on these samples.
+
         Args:
             **kwargs: PyHealth batch with ``features`` and optionally both
                 ``duration`` and ``event``.
