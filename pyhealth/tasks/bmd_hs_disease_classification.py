@@ -5,6 +5,8 @@ from .base_task import BaseTask
 class BMDHSDiseaseClassification(BaseTask):
     """Multi-label classification task for heart valve diseases.
 
+    Works with :class:`~pyhealth.datasets.BMDHSDataset`.
+
     This task classifies heart sound recordings into multiple disease categories:
     - AS (Aortic Stenosis)
     - AR (Aortic Regurgitation)

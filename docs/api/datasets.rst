@@ -6,6 +6,7 @@ Getting Started
 
 New to PyHealth datasets? Start here:
 
+- **Browse datasets**: `pyhealth.dev/datasets <https://pyhealth.dev/datasets.html>`_ has a card per dataset with a quick-start snippet, how to get the data, and its tasks
 - **Tutorial**: `Introduction to pyhealth.datasets <https://colab.research.google.com/drive/1vI_oljc7rU5ocsC26ITM7HUgD5SGZkFE?usp=sharing>`_ | `Video (PyHealth 1.6) <https://www.youtube.com/watch?v=c1InKqFJbsI&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=3>`_
 
 This tutorial covers:
@@ -16,7 +17,7 @@ This tutorial covers:
 - Accessing patient records, visits, and clinical events
 - Dataset splitting for train/validation/test sets
 
-**Data Access**: If you're new and need help accessing MIMIC datasets, check the :doc:`../how_to_contribute` guide's "Data Access for Testing" section for information on:
+**Data Access**: See `Accessing the Data`_ below for where to download every dataset and what access each one needs. For MIMIC specifically, the :doc:`../how_to_contribute` guide's "Data Access for Testing" section covers:
 
 - Getting MIMIC credentialing through PhysioNet
 - Using openly available demo datasets (MIMIC-III Demo, MIMIC-IV Demo)
@@ -285,6 +286,197 @@ before running a full training job.
 **Multiprocessing guard.** Scripts that call ``set_task()`` should wrap their
 top-level code in ``if __name__ == '__main__':``. See :doc:`tasks` for details.
 
+Accessing the Data
+------------------
+
+PyHealth does not ship any data: you download each dataset from its source and pass the folder as ``root``. The table shows what each source needs before you can download. Every dataset page also has a **Getting the data** section in its class docstring, covering the download command and the folder ``root`` should point to.
+
+- **Open**: download directly, sometimes after a free account.
+- **Restricted / request**: free, but you must sign a data use agreement or have a request approved.
+- **Credentialed**: needs `PhysioNet credentialing <https://physionet.org/settings/credentialing/>`_ (or the source's equivalent) plus CITI human-subjects training, then a signed DUA for each dataset. Approval usually takes days to weeks, so start with an open demo if one is listed.
+
+**Auto-download** means the class accepts ``download=True``.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 18 18 12 28
+
+   * - Dataset
+     - Access
+     - Source
+     - Auto-download
+     - Open demo / subset
+   * - :doc:`MIMIC-III <datasets/pyhealth.datasets.MIMIC3Dataset>`
+     - Credentialed
+     - `PhysioNet <https://physionet.org/content/mimiciii/1.4/>`__
+     - No
+     - `MIMIC-III demo <https://physionet.org/content/mimiciii-demo/1.4/>`__
+   * - :doc:`MIMIC-IV (EHR, note, CXR, ED) <datasets/pyhealth.datasets.MIMIC4Dataset>`
+     - Credentialed
+     - `PhysioNet <https://physionet.org/content/mimiciv/>`__
+     - No
+     - `MIMIC-IV demo <https://physionet.org/content/mimic-iv-demo/2.2/>`__, `ED demo <https://physionet.org/content/mimic-iv-ed-demo/>`__
+   * - :doc:`MIMIC-IV on FHIR <datasets/pyhealth.datasets.MIMIC4FHIR>`
+     - Credentialed
+     - `PhysioNet <https://physionet.org/content/mimic-iv-fhir/2.1/>`__
+     - No
+     - `FHIR demo <https://physionet.org/content/mimic-iv-fhir-demo/2.1.0/>`__
+   * - :doc:`MIMIC-Extract <datasets/pyhealth.datasets.MIMICExtractDataset>`
+     - Credentialed (MIMIC-III)
+     - `GitHub <https://github.com/MLforHealth/MIMIC_Extract>`__
+     - No
+     - —
+   * - :doc:`eICU-CRD <datasets/pyhealth.datasets.eICUDataset>`
+     - Credentialed
+     - `PhysioNet <https://physionet.org/content/eicu-crd/2.0/>`__
+     - No
+     - `eICU demo <https://physionet.org/content/eicu-crd-demo/2.0.1/>`__
+   * - :doc:`PhysioNet De-ID <datasets/pyhealth.datasets.PhysioNetDeIDDataset>`
+     - Credentialed
+     - `PhysioNet <https://physionet.org/content/deidentifiedmedicaltext/1.0/>`__
+     - No
+     - —
+   * - :doc:`IIIC (SPaRCNet) <datasets/pyhealth.datasets.IIICDataset>`
+     - Credentialed
+     - `BDSP <https://bdsp.io/content/bdsp-sparcnet/>`__
+     - No
+     - —
+   * - :doc:`DREAMT <datasets/pyhealth.datasets.DREAMTDataset>`
+     - Restricted (DUA)
+     - `PhysioNet <https://physionet.org/content/dreamt/>`__
+     - No
+     - —
+   * - :doc:`EHRSHOT <datasets/pyhealth.datasets.EHRShotDataset>`
+     - Restricted (DUA)
+     - `Redivis <https://redivis.com/datasets/53gc-8rhx41kgt>`__
+     - No
+     - —
+   * - :doc:`SHHS <datasets/pyhealth.datasets.SHHSDataset>`
+     - Restricted (request)
+     - `NSRR <https://sleepdata.org/datasets/shhs>`__
+     - No
+     - —
+   * - :doc:`TUAB / TUEV <datasets/pyhealth.datasets.TUABDataset>`
+     - Free, request form
+     - `TUH EEG <https://isip.piconepress.com/projects/nedc/html/tuh_eeg/>`__
+     - No
+     - —
+   * - :doc:`COSMIC <datasets/pyhealth.datasets.COSMICDataset>`
+     - Registration / license
+     - `Sanger <https://cancer.sanger.ac.uk/cosmic/download>`__
+     - No
+     - —
+   * - :doc:`VSAC <datasets/pyhealth.datasets.VSACDataset>`
+     - Free UMLS license
+     - `NLM <https://vsac.nlm.nih.gov>`__
+     - Via ``download_expansions`` (API key)
+     - —
+   * - :doc:`COVID-19 Radiography <datasets/pyhealth.datasets.COVID19CXRDataset>`
+     - Open (Kaggle account)
+     - `Kaggle <https://www.kaggle.com/datasets/tawsifurrahman/covid19-radiography-database>`__
+     - No
+     - —
+   * - :doc:`Medical Transcriptions <datasets/pyhealth.datasets.MedicalTranscriptionsDataset>`
+     - Open (Kaggle account)
+     - `Kaggle <https://www.kaggle.com/datasets/tboyle10/medicaltranscriptions>`__
+     - No
+     - —
+   * - :doc:`PhysioNet/CinC 2020 (Cardiology) <datasets/pyhealth.datasets.CardiologyDataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/challenge-2020/1.0.2/>`__
+     - No
+     - —
+   * - :doc:`PhysioNet/CinC 2012 <datasets/pyhealth.datasets.PhysioNet2012Dataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/challenge-2012/1.0.0/>`__
+     - Yes
+     - —
+   * - :doc:`PTB-XL <datasets/pyhealth.datasets.PTBXLDataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/ptb-xl/1.0.3/>`__
+     - No
+     - —
+   * - :doc:`Sleep-EDF <datasets/pyhealth.datasets.SleepEDFDataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/sleep-edfx/1.0.0/>`__
+     - No
+     - —
+   * - :doc:`CHB-MIT <datasets/pyhealth.datasets.CHBMITDataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/chbmit/1.0.0/>`__
+     - No
+     - —
+   * - :doc:`EEG Motor Movement/Imagery <datasets/pyhealth.datasets.EEGBCIDataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/eegmmidb/1.0.0/>`__
+     - Yes
+     - —
+   * - :doc:`ISRUC-Sleep <datasets/pyhealth.datasets.ISRUCDataset>`
+     - Open
+     - `ISRUC <https://sleeptight.isr.uc.pt/>`__
+     - Yes (needs ``7zzs``)
+     - —
+   * - :doc:`EESM23 (ear-EEG) <datasets/pyhealth.datasets.EESM23Dataset>`
+     - Open
+     - `OpenNeuro <https://openneuro.org/datasets/ds005178>`__
+     - No
+     - —
+   * - :doc:`NIH ChestX-ray14 <datasets/pyhealth.datasets.ChestXray14Dataset>`
+     - Open
+     - `NIH <https://nihcc.app.box.com/v/ChestXray-NIHCC>`__
+     - Yes
+     - —
+   * - :doc:`Medical Segmentation Decathlon <datasets/pyhealth.datasets.MSDSegmentationDataset>`
+     - Open
+     - `MSD <http://medicaldecathlon.com/>`__
+     - Yes
+     - —
+   * - :doc:`BMD-HS <datasets/pyhealth.datasets.BMDHSDataset>`
+     - Open
+     - `GitHub <https://github.com/sani002/BMD-HS-Dataset>`__
+     - No
+     - —
+   * - :doc:`SUPPORT2 <datasets/pyhealth.datasets.Support2Dataset>`
+     - Open
+     - `UCI <https://archive.ics.uci.edu/dataset/880/support2>`__
+     - No
+     - —
+   * - :doc:`METABRIC <datasets/pyhealth.datasets.MetabricDataset>`
+     - Open
+     - `GitHub <https://github.com/XintianHan/Survival-MDN>`__
+     - Yes
+     - —
+   * - :doc:`TCGA-PRAD <datasets/pyhealth.datasets.TCGAPRADDataset>`
+     - Open
+     - `GDC <https://portal.gdc.cancer.gov/projects/TCGA-PRAD>`__
+     - No
+     - —
+   * - :doc:`ClinVar <datasets/pyhealth.datasets.ClinVarDataset>`
+     - Open
+     - `NCBI <https://ftp.ncbi.nlm.nih.gov/pub/clinvar/>`__
+     - No
+     - —
+   * - :doc:`Synthea <datasets/pyhealth.datasets.SyntheaCSVDataset>`
+     - Open (synthetic)
+     - `Synthea <https://synthea.mitre.org/downloads>`__
+     - Generate locally
+     - —
+   * - :doc:`OMOP CDM (format) <datasets/pyhealth.datasets.OMOPDataset>`
+     - Depends on source
+     - `OHDSI <https://www.ohdsi.org/data-standardization/>`__
+     - —
+     - `MIMIC-IV demo in OMOP <https://physionet.org/content/mimic-iv-demo-omop/0.9/>`__
+   * - :doc:`MEDS (format) <datasets/pyhealth.datasets.MEDSDataset>`
+     - Depends on source
+     - `MEDS <https://medical-event-data-standard.github.io/>`__
+     - —
+     - EHRSHOT ships a MEDS release
+   * - :doc:`FHIR (format) <datasets/pyhealth.datasets.FHIRDataset>`
+     - Depends on source
+     - `HL7 <https://www.hl7.org/fhir/>`__
+     - —
+     - `MIMIC-IV FHIR demo <https://physionet.org/content/mimic-iv-fhir-demo/2.1.0/>`__
+
 Available Datasets
 ------------------
 
@@ -298,8 +490,13 @@ Available Datasets
     datasets/pyhealth.datasets.MSDHippocampusDataset
     datasets/pyhealth.datasets.MSDProstateDataset
     datasets/pyhealth.datasets.MSDSpleenDataset
+    datasets/pyhealth.datasets.CHAOSDataset
+    datasets/pyhealth.datasets.RSNAPneumoniaDataset
     datasets/pyhealth.datasets.MIMIC3Dataset
     datasets/pyhealth.datasets.MIMIC4Dataset
+    datasets/pyhealth.datasets.MIMIC4EHRDataset
+    datasets/pyhealth.datasets.MIMIC4NoteDataset
+    datasets/pyhealth.datasets.MIMIC4CXRDataset
     datasets/pyhealth.datasets.MIMIC4EDDataset
     datasets/pyhealth.datasets.FHIRDataset
     datasets/pyhealth.datasets.MEDSDataset

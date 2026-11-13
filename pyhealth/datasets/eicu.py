@@ -12,7 +12,20 @@ class eICUDataset(BaseDataset):
     A dataset class for handling eICU data.
 
     The eICU dataset is a large dataset of de-identified health records of ICU
-    patients. The dataset is available at https://eicu-crd.mit.edu/.
+    patients. See https://eicu-crd.mit.edu/ for documentation.
+
+    Getting the data:
+        - Source: https://physionet.org/content/eicu-crd/2.0/
+        - Access: credentialed. Create a PhysioNet account, complete
+          credentialing (https://physionet.org/settings/credentialing/) and
+          the CITI "Data or Specimens Only Research" course, then sign the
+          data use agreement on the dataset page.
+        - Download: ``wget -r -N -c -np --user <username> --ask-password
+          https://physionet.org/files/eicu-crd/2.0/``
+        - ``root``: the folder holding ``patient.csv.gz``,
+          ``diagnosis.csv.gz``, and so on (``.csv`` files also work).
+        - No access yet? The open demo (about 2,500 ICU stays) works with
+          this class: https://physionet.org/content/eicu-crd-demo/2.0.1/
 
     The basic information is stored in the following tables:
         - patient: defines a patient (uniquepid), a hospital admission

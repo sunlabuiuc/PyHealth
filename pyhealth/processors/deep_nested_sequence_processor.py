@@ -3,11 +3,11 @@ from typing import Any, Dict, List, Iterable
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor, TokenProcessorInterface, _warn_truncated
+from .base_processor import LegacyFeatureProcessor, TokenProcessorInterface, _warn_truncated
 
 
 @register_processor("deep_nested_sequence")
-class DeepNestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
+class DeepNestedSequenceProcessor(LegacyFeatureProcessor, TokenProcessorInterface):
     """
     Feature processor for deeply nested categorical sequences with vocabulary.
 
@@ -218,7 +218,7 @@ class DeepNestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
 
 
 @register_processor("deep_nested_sequence_floats")
-class DeepNestedFloatsProcessor(FeatureProcessor):
+class DeepNestedFloatsProcessor(LegacyFeatureProcessor):
     """
     Feature processor for 3-level nested numerical sequences without vocabulary.
 

@@ -3,11 +3,11 @@ from typing import Any, Dict, List, Iterable, Optional, Tuple
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor, TokenProcessorInterface
+from .base_processor import LegacyFeatureProcessor, TokenProcessorInterface
 
 
 @register_processor("sequence")
-class SequenceProcessor(FeatureProcessor, TokenProcessorInterface):
+class SequenceProcessor(LegacyFeatureProcessor, TokenProcessorInterface):
     """Feature processor for encoding categorical sequences.
 
     Encodes medical codes (e.g., diagnoses, procedures) into numerical

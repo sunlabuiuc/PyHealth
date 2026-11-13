@@ -12,8 +12,6 @@ logger = logging.getLogger(__name__)
 class TUEVDataset(BaseDataset):
     """Base EEG dataset for the TUH EEG Events Corpus
 
-    Dataset is available at https://isip.piconepress.com/projects/tuh_eeg/html/downloads.shtml
-
     This corpus is a subset of TUEG that contains annotations of EEG segments as one of six classes: (1) spike and sharp wave (SPSW), (2) generalized periodic epileptiform discharges (GPED), (3) periodic lateralized epileptiform discharges (PLED), (4) eye movement (EYEM), (5) artifact (ARTF) and (6) background (BCKG).
 
     Files are named in the form of bckg_032_a_.edf in the eval partition:
@@ -24,8 +22,19 @@ class TUEVDataset(BaseDataset):
         00002275: a reference to the train index. 
 		0000001: indicating that this is the first file associated with this patient.
 
+    Getting the data:
+        - Source: https://isip.piconepress.com/projects/nedc/html/tuh_eeg/
+          (corpus ``tuh_eeg_events``)
+        - Access: free, by request. Fill in the form at
+          https://isip.piconepress.com/projects/nedc/forms/tuh_eeg.pdf and email
+          the signed copy to help@nedcdata.org; you get a username and password.
+        - Download: ``rsync`` with those credentials, as described on the source
+          page.
+        - ``root``: the ``edf/`` folder of the release (for example
+          ``tuh_eeg_events/v2.0.0/edf/``), which holds ``train/`` and ``eval/``.
+
     Args:
-        root: root directory of the raw data. *You can choose to use the path to Cassette portion or the Telemetry portion.*
+        root: the release's ``edf/`` folder, which holds ``train/`` and ``eval/``.
         dataset_name: name of the dataset.
         config_path: Optional configuration file name, defaults to "tuev.yaml".
         dev: whether to enable dev mode (only use a small subset of the data).

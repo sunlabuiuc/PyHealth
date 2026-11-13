@@ -1,7 +1,7 @@
 ﻿pyhealth.datasets.TUEVDataset
 ===================================
 
-Dataset is available at https://isip.piconepress.com/projects/tuh_eeg/html/downloads.shtml
+Dataset is available at https://isip.piconepress.com/projects/nedc/html/tuh_eeg/ (free, but you must request access with a signed form; see the class docstring below).
 
 This corpus is a subset of TUEG that contains annotations of EEG segments as one of six classes: (1) spike and sharp wave (SPSW), (2) generalized periodic epileptiform discharges (GPED), (3) periodic lateralized epileptiform discharges (PLED), (4) eye movement (EYEM), (5) artifact (ARTF) and (6) background (BCKG).
 

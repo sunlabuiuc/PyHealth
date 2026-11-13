@@ -14,8 +14,6 @@ logger = logging.getLogger(__name__)
 class SleepEDFDataset(BaseDataset):
     """Base EEG dataset for SleepEDF
 
-    Dataset is available at https://www.physionet.org/content/sleep-edfx/1.0.0/
-
     For the Sleep Cassette Study portion:
         - The 153 SC* files (SC = Sleep Cassette) were obtained in a 1987-1991 study of age effects on sleep in healthy Caucasians aged 25-101, without any sleep-related medication [2]. Two PSGs of about 20 hours each were recorded during two subsequent day-night periods at the subjects homes. Subjects continued their normal activities but wore a modified Walkman-like cassette-tape recorder described in chapter VI.4 (page 92) of Bob's 1987 thesis.
         - Files are named in the form SC4ssNEO-PSG.edf where ss is the subject number, and N is the night. The first nights of subjects 36 and 52, and the second night of subject 13, were lost due to a failing cassette or laserdisk.
@@ -26,8 +24,18 @@ class SleepEDFDataset(BaseDataset):
         - The 44 ST* files (ST = Sleep Telemetry) were obtained in a 1994 study of temazepam effects on sleep in 22 Caucasian males and females without other medication. Subjects had mild difficulty falling asleep but were otherwise healthy. The PSGs of about 9 hours were recorded in the hospital during two nights, one of which was after temazepam intake, and the other of which was after placebo intake. Subjects wore a miniature telemetry system with very good signal quality.
         - Files are named in the form ST7ssNJ0-PSG.edf where ss is the subject number, and N is the night.
         - EOG, EMG and EEG signals were sampled at 100 Hz, and the event marker at 1 Hz. The physical marker dimension ID+M-E relates to the fact that pressing the marker (M) button generated two-second deflections from a baseline value that either identifies the telemetry unit (ID = 1 or 2 if positive) or marks an error (E) in the telemetry link if negative. Subjects and recordings are further described in the file headers, the descriptive spreadsheet ST-subjects.xls.
+
+    Getting the data:
+        - Source: https://physionet.org/content/sleep-edfx/1.0.0/
+        - Access: open, no account needed.
+        - Download: ``wget -r -N -c -np https://physionet.org/files/sleep-edfx/1.0.0/``
+        - ``root``: the version folder holding ``SC-subjects.xls``,
+          ``sleep-cassette/`` and ``sleep-telemetry/``; ``subset`` picks which
+          half to load.
+
     Args:
-        root: str, root directory of the raw data. *You can choose to use the path to Cassette portion or the Telemetry portion.*
+        root: str, the version folder holding ``SC-subjects.xls``,
+            ``sleep-cassette/`` and ``sleep-telemetry/``.
         dataset_name: Optional[str], name of the dataset. Default is None.
         config_path: Optional[str], path to the config file. Default is None.
         subset: Optional[str], subset of the SleepEDF dataset, either "cassette" or "telemetry". Default is "cassette".

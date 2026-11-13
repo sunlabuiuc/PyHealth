@@ -52,6 +52,7 @@ from .imaging.stats import (
     compute_foreground_intensity_stats as compute_foreground_intensity_stats,
 )
 from .cardiology import CardiologyDataset
+from .chaos import CHAOSDataset as CHAOSDataset
 from .chestxray14 import ChestXray14Dataset
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
@@ -78,6 +79,7 @@ from .fhir import FHIRDataset, MIMIC4FHIR
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
 from .physionet_deid import PhysioNetDeIDDataset
+from .rsna_pneumonia import RSNAPneumoniaDataset as RSNAPneumoniaDataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
