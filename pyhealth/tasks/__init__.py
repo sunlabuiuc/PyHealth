@@ -1,4 +1,9 @@
 from .base_task import BaseTask
+from .task_card import (
+    DIRECTIONS as DIRECTIONS,
+    FeatureInfo as FeatureInfo,
+    TaskCard as TaskCard,
+)
 from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
@@ -11,6 +16,13 @@ from .cardiology_detect import (
 )
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
+from .chaos_segmentation import (
+    CHAOSAbdominalSegmentationCTMRI as CHAOSAbdominalSegmentationCTMRI,
+    CHAOSAbdominalSegmentationMRIonly as CHAOSAbdominalSegmentationMRIonly,
+    CHAOSLiverSegmentationCTMRI as CHAOSLiverSegmentationCTMRI,
+    CHAOSLiverSegmentationCTonly as CHAOSLiverSegmentationCTonly,
+    CHAOSLiverSegmentationMRIonly as CHAOSLiverSegmentationMRIonly,
+)
 from .covid19_cxr_classification import COVID19CXRClassification
 from .covid19_cxr_generation import (
     COVID19CXRImageGeneration as COVID19CXRImageGeneration,
@@ -41,6 +53,10 @@ from .ed_disposition_mimic4 import (
     EDDispositionMIMIC4 as EDDispositionMIMIC4,
     EDOutcomesMIMIC4 as EDOutcomesMIMIC4,
 )
+from .ehr_cxr_mimic4 import (
+    EHRCXRMortalityMIMIC4 as EHRCXRMortalityMIMIC4,
+    EHRCXRPhenotypingMIMIC4 as EHRCXRPhenotypingMIMIC4,
+)
 from .ehr_text_serialization import (
     CodeDescriber as CodeDescriber,
     EHRTextSerializationTask as EHRTextSerializationTask,
@@ -50,6 +66,12 @@ from .in_hospital_mortality_meds import (
     InHospitalMortalityMEDS as InHospitalMortalityMEDS,
 )
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
+from .lab_nowcasting import (
+    LabNowcasting as LabNowcasting,
+    LabNowcastingMIMIC3 as LabNowcastingMIMIC3,
+    LabNowcastingMIMIC4 as LabNowcastingMIMIC4,
+    lab_flag as lab_flag,
+)
 from .length_of_stay_prediction import (
     LengthOfStayPredictioneICU,
     LengthOfStayPredictionMIMIC3,
@@ -58,6 +80,11 @@ from .length_of_stay_prediction import (
 )
 from .length_of_stay_stagenet_mimic4 import LengthOfStayStageNetMIMIC4
 from .medical_coding import MIMIC3ICD9Coding
+from .msd_segmentation import MSDSegmentationTask as MSDSegmentationTask
+from .next_visit_diagnosis_prediction import (
+    NextVisitDiagnosisPredictionMIMIC3 as NextVisitDiagnosisPredictionMIMIC3,
+    NextVisitDiagnosisPredictionMIMIC4 as NextVisitDiagnosisPredictionMIMIC4,
+)
 from .medical_transcriptions_classification import MedicalTranscriptionsClassification
 from .mortality_prediction import (
     MortalityPredictionEICU,
@@ -68,7 +95,11 @@ from .mortality_prediction import (
     MultimodalMortalityPredictionMIMIC3,
     MultimodalMortalityPredictionMIMIC4,
 )
+from .survival_metabric import (
+    MetabricSurvivalPrediction as MetabricSurvivalPrediction,
+)
 from .survival_mimic4 import InHospitalSurvivalMIMIC4 as InHospitalSurvivalMIMIC4
+from .acuity_mimic4 import ICUAcuityMIMIC4 as ICUAcuityMIMIC4
 from .survival_preprocess_support2 import SurvivalPreprocessSupport2
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
@@ -84,6 +115,9 @@ from .generate_ehr import (
     to_evaluation_dataframe,
 )
 from .patient_linkage import patient_linkage_mimic3_fn
+from .rsna_pneumonia_classification import (
+    RSNAPneumoniaClassification as RSNAPneumoniaClassification,
+)
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
     ReadmissionPredictionMIMIC3,
@@ -119,12 +153,33 @@ from .variant_classification import (
     VariantClassificationClinVar,
 )
 from .patient_linkage_mimic3 import PatientLinkageMIMIC3Task
+from .knowrare_mimic4 import (
+    KnowRareICUMortalityMIMIC4 as KnowRareICUMortalityMIMIC4,
+)
+from .value_set_completion import (
+    ValueSetCompletion as ValueSetCompletion,
+    build_retrieval_index as build_retrieval_index,
+)
+from .yaib_mimic3 import (
+    YAIBAKIMIMIC3 as YAIBAKIMIMIC3,
+    YAIBKidneyFunctionMIMIC3 as YAIBKidneyFunctionMIMIC3,
+    YAIBLengthOfStayMIMIC3 as YAIBLengthOfStayMIMIC3,
+    YAIBMortalityMIMIC3 as YAIBMortalityMIMIC3,
+    YAIBSepsisMIMIC3 as YAIBSepsisMIMIC3,
+)
 from .yaib_mimic4 import (
     YAIBAKIMIMIC4 as YAIBAKIMIMIC4,
     YAIBKidneyFunctionMIMIC4 as YAIBKidneyFunctionMIMIC4,
     YAIBLengthOfStayMIMIC4 as YAIBLengthOfStayMIMIC4,
     YAIBMortalityMIMIC4 as YAIBMortalityMIMIC4,
     YAIBSepsisMIMIC4 as YAIBSepsisMIMIC4,
+)
+from .yaib_eicu import (
+    YAIBAKIEICU as YAIBAKIEICU,
+    YAIBKidneyFunctionEICU as YAIBKidneyFunctionEICU,
+    YAIBLengthOfStayEICU as YAIBLengthOfStayEICU,
+    YAIBMortalityEICU as YAIBMortalityEICU,
+    YAIBSepsisEICU as YAIBSepsisEICU,
 )
 
 

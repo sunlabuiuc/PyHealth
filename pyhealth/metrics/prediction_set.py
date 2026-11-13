@@ -1,6 +1,7 @@
 """Prediction-set measurements. Undefined measurements return NaN."""
 
 import numpy as np
+import torch
 
 # --- Set size and singleton predictions ---
 
@@ -70,7 +71,8 @@ def miscoverage_ps(
 
     For class k, divide the number of samples omitting k from their prediction
     set by the number whose true labels contain k. This gives one result per
-    column of y_pred. Return NaN for classes with no applicable true labels.
+    column of y_pred. Multiclass labels must be integers: label k refers to
+    column k of y_pred. Return NaN for classes with no applicable true labels.
 
     Examples:
         >>> y_pred = np.array([[1, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]])
@@ -105,6 +107,7 @@ def error_ps(
 ) -> np.ndarray:
     """Miss rate per true class among samples whose prediction set has size one.
 
+    Multiclass labels must be integers: label k refers to column k of y_pred.
     Return NaN for classes with no true labels among singleton samples.
 
     Examples:
@@ -269,15 +272,14 @@ def fp_cost_violation_rate(
 
     Compute each sample's cost in the supplied weight units, then return the
     fraction with cost strictly greater than target_cost. Equal costs do not
-    count as violations. Floating-point ties use relative tolerance 1e-12 and
-    zero absolute tolerance. The denominator includes all samples, including those
+    count as violations. The relative tolerance is the larger of 1e-12 and
+    the floating-point precision of cost_weights and target_cost; the absolute
+    tolerance is zero. The denominator includes all samples, including those
     with no true labels. Return NaN for an empty batch.
 
     target_cost must be a finite non-negative scalar; zero-dimensional NumPy
     arrays and Torch tensors are accepted. cost_weights follows
     fp_cost: a finite non-negative scalar or one weight per encoded class.
-    For FavMac, use the same target_cost/cost_weights as the predictor and compare
-    this result with delta. delta is not an input to this metric.
 
     Examples:
         >>> y_true = np.zeros((2, 2), dtype=int)
@@ -292,12 +294,13 @@ def fp_cost_violation_rate(
         >>> fp_cost_violation_rate(y_pred, y_true, target_cost=1)
         0.0
     """
+    rtol = _comparison_rtol(target_cost, cost_weights)
     target_cost = _validate_target_cost(target_cost)
     costs = _weighted_label_counts(y_pred, 1 - y_true, cost_weights)
     if not len(costs):
         return float("nan")
 
-    at_limit = np.isclose(costs, target_cost, rtol=1e-12, atol=0.0)
+    at_limit = np.isclose(costs, target_cost, rtol=rtol, atol=0.0)
 
     return float(np.mean((costs > target_cost) & ~at_limit))
 
@@ -387,3 +390,18 @@ def _validate_target_cost(target_cost):
             return target_cost
 
     raise ValueError("target_cost must be a finite non-negative scalar")
+
+
+def _comparison_rtol(target_cost, cost_weights):
+    """Allow rounding at the precision of the original limit and weight dtypes."""
+    rtol = 1e-12
+    for values in (target_cost, cost_weights):
+        if isinstance(values, torch.Tensor):
+            if values.is_floating_point():
+                rtol = max(rtol, torch.finfo(values.dtype).eps)
+        else:
+            dtype = np.asarray(values).dtype
+            if np.issubdtype(dtype, np.floating):
+                rtol = max(rtol, np.finfo(dtype).eps)
+
+    return rtol

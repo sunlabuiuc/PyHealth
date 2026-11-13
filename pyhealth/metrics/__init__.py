@@ -1,5 +1,12 @@
 from .binary import binary_metrics_fn, timeseries_binary_metrics_fn
 from .bootstrap import bootstrap_ci, paired_bootstrap_diff
+from .clinical import (
+    alert_rate_metrics,
+    calibration_bins,
+    clinical_summary,
+    net_benefit,
+    subgroup_metrics,
+)
 from .drug_recommendation import ddi_rate_score
 from .fairness import fairness_metrics_fn
 from .generative import (
@@ -19,8 +26,17 @@ from .interpretability import (
 )
 from .multiclass import multiclass_metrics_fn
 from .multilabel import multilabel_metrics_fn
-from .ranking import ranking_metrics_fn
+from .ranking import multilabel_ranking_at_k, ranking_metrics_fn
 from .regression import regression_metrics_fn, timeseries_regression_metrics_fn
+from .segmentation import (
+    case_level_segmentation_metrics,
+    dice_score,
+    iou_score,
+    per_class_dice_score,
+    per_class_segmentation_metrics,
+    remap_class_mask,
+    segmentation_metrics_fn,
+)
 from .survival import (
     concordance_index,
     cumulative_dynamic_auc,
@@ -33,25 +49,38 @@ __all__ = [
     "Evaluator",
     "RemovalBasedMetric",
     "SufficiencyMetric",
+    "alert_rate_metrics",
     "binary_metrics_fn",
     "bootstrap_ci",
     "calc_membership_inference",
     "calc_nnaar",
+    "calibration_bins",
+    "case_level_segmentation_metrics",
+    "clinical_summary",
     "compute_discriminator_privacy",
     "compute_mle",
     "compute_prevalence_metrics",
     "concordance_index",
     "cumulative_dynamic_auc",
     "ddi_rate_score",
+    "dice_score",
     "evaluate_attribution",
     "evaluate_synthetic_ehr",
     "fairness_metrics_fn",
+    "iou_score",
     "ipcw_brier_score",
     "multiclass_metrics_fn",
     "multilabel_metrics_fn",
+    "multilabel_ranking_at_k",
+    "net_benefit",
     "paired_bootstrap_diff",
+    "per_class_dice_score",
+    "per_class_segmentation_metrics",
     "ranking_metrics_fn",
     "regression_metrics_fn",
+    "remap_class_mask",
+    "segmentation_metrics_fn",
+    "subgroup_metrics",
     "survival_metrics_fn",
     "timeseries_binary_metrics_fn",
     "timeseries_regression_metrics_fn",

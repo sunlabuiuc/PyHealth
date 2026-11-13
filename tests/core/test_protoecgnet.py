@@ -557,15 +557,23 @@ class TestProtoECGNet(unittest.TestCase):
         torch.testing.assert_close(clone.class_weights, model.class_weights)
 
         weights = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
-        per_label = make_dataset(label_spec=("multilabel", {"pos_weight": weights}))
+        per_label = make_dataset(
+            label_spec=("multilabel", {"labels": LABELS, "pos_weight": weights})
+        )
         model = ProtoECGNet(per_label, prototypes_per_label=1, **TINY)
         torch.testing.assert_close(
             model.class_weights.detach().cpu(), torch.tensor(weights)
         )
 
-        wrong = make_dataset(label_spec=("multilabel", {"pos_weight": [1.0, 2.0]}))
+        with self.assertRaises(ValueError):  # the processor checks the length
+            make_dataset(
+                label_spec=("multilabel", {"labels": LABELS, "pos_weight": [1.0, 2.0]})
+            )
         with self.assertRaises(ValueError):
-            ProtoECGNet(wrong, prototypes_per_label=1, **TINY)
+            ProtoECGNet(
+                self.dataset, prototypes_per_label=1,
+                class_weights=torch.tensor([1.0, 2.0]), **TINY,
+            )
 
         # No pos_weight: the ones default (identity for BCE pos_weight).
         model = ProtoECGNet(self.dataset, prototypes_per_label=1, **TINY)

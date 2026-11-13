@@ -543,6 +543,105 @@ class TestReviewRegressions(unittest.TestCase):
             pset.fp_cost_violation_rate(predictions, truth, 0, [1e-30, 0]), 1.0
         )
 
+    def test_float32_limits_treat_rounding_ties_as_equal(self):
+        import torch
+
+        truth = np.zeros((2, 2), dtype=int)
+        predictions = np.eye(2, dtype=int)
+        for limit in (
+            np.float32(0.7),
+            np.array(0.7, dtype=np.float32),
+            torch.tensor(0.7, dtype=torch.float32),
+            torch.tensor(0.7, dtype=torch.float32, requires_grad=True),
+        ):
+            with self.subTest(limit=limit):
+                result = multilabel_metrics_fn(
+                    truth,
+                    truth.astype(float),
+                    metrics=["fp_cost_violation_rate"],
+                    y_predset=predictions,
+                    target_cost=limit,
+                    cost_weights=0.7,
+                )
+                self.assertEqual(result["fp_cost_violation_rate"], 0.0)
+                self.assertEqual(
+                    pset.fp_cost_violation_rate(
+                        predictions, truth, limit, [0.7, 0.70001]
+                    ),
+                    0.5,
+                )
+
+    def test_bfloat16_scalar_limits_remain_supported(self):
+        import torch
+
+        truth = np.zeros((1, 1), dtype=int)
+        predictions = np.ones_like(truth)
+        self.assertEqual(
+            pset.fp_cost_violation_rate(
+                predictions, truth, torch.tensor(0.7, dtype=torch.bfloat16), 0.7
+            ),
+            0.0,
+        )
+
+    def test_float32_weights_treat_rounding_ties_as_equal(self):
+        truth = np.zeros((2, 2), dtype=int)
+        predictions = np.eye(2, dtype=int)
+        for weights in (
+            np.float32(0.1),
+            np.array([0.1, 0.1], dtype=np.float32),
+            [np.float32(0.1), np.float32(0.1)],
+        ):
+            with self.subTest(weights=weights):
+                self.assertEqual(
+                    pset.fp_cost_violation_rate(predictions, truth, 0.1, weights),
+                    0.0,
+                )
+                self.assertEqual(
+                    pset.fp_cost_violation_rate(predictions, truth, 0.09999, weights),
+                    1.0,
+                )
+                self.assertEqual(
+                    pset.fp_cost_violation_rate(predictions, truth, 0, weights),
+                    1.0,
+                )
+
+    def test_multilabel_scorer_accepts_lists_for_each_array_input(self):
+        from itertools import product
+
+        truth = np.array([[1, 1, 0], [0, 0, 1]])
+        probabilities = np.array([[0.8, 0.1, 0.7], [0.1, 0.2, 0.9]])
+        predictions = np.array([[1, 0, 1], [0, 0, 1]])
+        metrics = [
+            "accuracy", "tp", "fp", "tp_value", "fp_cost",
+            "fp_cost_violation_rate", "set_size", "miscoverage_ps",
+            "miscoverage_mean_ps", "miscoverage_overall_ps",
+        ]
+        expected = multilabel_metrics_fn(
+            truth, probabilities, metrics=metrics, y_predset=predictions, target_cost=1
+        )
+        for use_lists in product((False, True), repeat=3):
+            inputs = [
+                array.tolist() if as_list else array.copy()
+                for array, as_list in zip((truth, probabilities, predictions), use_lists)
+            ]
+            with self.subTest(use_lists=use_lists):
+                result = multilabel_metrics_fn(
+                    inputs[0], inputs[1], metrics=metrics,
+                    y_predset=inputs[2], target_cost=1,
+                )
+                self.assertEqual(result.keys(), expected.keys())
+                for name in metrics:
+                    np.testing.assert_allclose(result[name], expected[name])
+                for actual, original in zip(inputs, (truth, probabilities, predictions)):
+                    np.testing.assert_array_equal(actual, original)
+
+        for metric in metrics[1:]:
+            with self.subTest(metric=metric), self.assertRaises(ValueError):
+                multilabel_metrics_fn(
+                    truth.tolist(), probabilities.tolist(), metrics=[metric],
+                    y_predset=[[1, 0], [0, 1]], target_cost=1,
+                )
+
     def test_numpy_and_torch_scalar_limits(self):
         import torch
 
@@ -625,7 +724,10 @@ class TestReviewRegressions(unittest.TestCase):
             pset.error_overall_ps,
         )
         for function in functions:
-            for truth in (np.array([-1, 1]), np.array([0, 3]), np.array([0.0, 1.5])):
+            for truth in (
+                np.array([-1, 1]), np.array([0, 3]),
+                np.array([0.0, 1.0]), np.array([0.0, 1.5]),
+            ):
                 with self.subTest(function=function.__name__, truth=truth):
                     with self.assertRaises(ValueError):
                         function(masks, truth)

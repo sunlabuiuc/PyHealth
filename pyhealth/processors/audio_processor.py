@@ -3,11 +3,11 @@ from typing import Any, List, Optional, Union
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor
+from .base_processor import LegacyFeatureProcessor
 
 
 @register_processor("audio")
-class AudioProcessor(FeatureProcessor):
+class AudioProcessor(LegacyFeatureProcessor):
     """Feature processor for loading audio from disk and converting them to tensors.
 
     Args:

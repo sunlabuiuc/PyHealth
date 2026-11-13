@@ -7,6 +7,8 @@ from .base_task import BaseTask
 class MortalityPredictionMIMIC3(BaseTask):
     """Task for predicting mortality using MIMIC-III dataset with text data.
 
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
+
     This task aims to predict whether the patient will decease in the next
     hospital visit based on clinical information from the current visit.
 
@@ -85,6 +87,8 @@ class MortalityPredictionMIMIC3(BaseTask):
 
 class MultimodalMortalityPredictionMIMIC3(BaseTask):
     """Task for predicting mortality using MIMIC-III dataset with text data.
+
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
 
     This task aims to predict whether the patient will decease in the next
     hospital visit based on clinical information from the current visit.
@@ -171,6 +175,8 @@ class MultimodalMortalityPredictionMIMIC3(BaseTask):
 
 class MortalityPredictionMIMIC4(BaseTask):
     """Task for predicting mortality using MIMIC-IV EHR data only.
+
+    Works with :class:`~pyhealth.datasets.MIMIC4EHRDataset`.
 
     Examples:
         >>> from pyhealth.datasets import MIMIC4EHRDataset
@@ -301,6 +307,9 @@ class MortalityPredictionMIMIC4(BaseTask):
 
 class MultimodalMortalityPredictionMIMIC4(BaseTask):
     """Task for predicting patient-level mortality using MIMIC-IV multimodal data.
+
+    Works with :class:`~pyhealth.datasets.MIMIC4Dataset` loaded with its EHR,
+    note and CXR sources.
 
     This task combines multiple modalities for mortality prediction at the
     PATIENT LEVEL (not visit level). All core modalities are required for
@@ -799,6 +808,8 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
 class MortalityPredictionEICU(BaseTask):
     """Task for predicting mortality using eICU dataset.
 
+    Works with :class:`~pyhealth.datasets.eICUDataset`.
+
     This task aims to predict whether the patient will decease in the next hospital
     visit based on clinical information from the current visit.
 
@@ -908,6 +919,8 @@ class MortalityPredictionEICU(BaseTask):
 
 class MortalityPredictionEICU2(BaseTask):
     """Task for predicting mortality using eICU dataset with alternative coding.
+
+    Works with :class:`~pyhealth.datasets.eICUDataset`.
 
     This task aims to predict whether the patient will decease in the next hospital
     visit based on clinical information from the current visit.
@@ -1023,6 +1036,8 @@ class MortalityPredictionEICU2(BaseTask):
 
 class MortalityPredictionOMOP(BaseTask):
     """Task for predicting mortality using OMOP CDM dataset.
+
+    Works with :class:`~pyhealth.datasets.OMOPDataset`.
 
     This task predicts whether a patient has a death record (binary
     mortality prediction) based on clinical information from each visit.

@@ -18,6 +18,7 @@ from typing import Any, ClassVar, NamedTuple
 import numpy as np
 import polars as pl
 
+from ..processors import Records
 from .base_task import BaseTask
 
 
@@ -112,6 +113,8 @@ _DYNAMIC_FEATURES: dict[str, tuple[float | None, float | None, list[_Item]]] = {
     ),
     "wbc": (0, None, [_lab(51301)]),
 }
+
+_STATIC_FEATURES = ("age", "sex", "height", "weight")
 
 # Chart-based static features, aggregated by median over the whole stay.
 _STATIC_CHART_FEATURES: dict[str, tuple[float | None, float | None, list[_Item]]] = {
@@ -223,24 +226,27 @@ class _YAIBMIMIC4Task(BaseTask):
     measurement (or the last stay, for measurements after all stays), which is
     how ricu maps admission-level data onto ICU stays.
 
-    Each sample holds ``dynamic``, a ``sequence_v2`` series of the hourly
+    Each sample holds ``dynamic``, a ``jagged`` series of the hourly
     bins (``{"time": [0, 1, ..., T], "values": [T + 1, 48]}``, time in hours
     since ICU admission, ``NaN`` for bins without measurement), and
-    ``static`` (``[age, sex, height, weight]``, sex encoded as 1 for male and
-    0 for female, ``NaN`` when unavailable). Per-hour labels are
+    ``static``, a ``jagged`` series with one record at hour 0, known
+    before any hourly bin (``{"time": [0], "values": [[age, sex, height,
+    weight]]}``, sex encoded as 1 for male and 0 for female, ``NaN`` when
+    unavailable). Per-hour labels are
     ``timeseries_*`` labels on the same hours (``{"time": [...], "values":
     [...]}``), so a model predicts at hour ``h`` from the bins up to ``h``.
     Missing values are left to the processors, which apply YAIB's
     preprocessing: the dynamic features are forward-filled, with values
     before the first measurement set to the training mean (0 once
     standardized), standardized, and get a missing-value mask; the static
-    features get missing-value indicators, are standardized and zero-filled.
+    features get a missing-value mask, are standardized and set to the
+    training mean (0 once standardized) where missing.
     The statistics are learned when the processors are fitted, so use
     ``set_task(task, split=...)`` to learn them on the training patients
     only. Unlike YAIB, which label-encodes sex as a category, sex is
     standardized like the other static features.
 
-    Training needs a model that reads the ``sequence_v2`` input and the
+    Training needs a model that reads the ``jagged`` input and the
     per-hour label records, such as :class:`~pyhealth.models.RNN_V2`;
     :class:`~pyhealth.models.RNN` and :class:`~pyhealth.models.MultimodalRNN`
     do not.
@@ -270,7 +276,7 @@ class _YAIBMIMIC4Task(BaseTask):
         # (normalization leaves it as is): YAIB's preprocessing, with the
         # missing-value indicators as the mask.
         "dynamic": (
-            "sequence_v2",
+            "jagged",
             {
                 "levels": [
                     {
@@ -287,18 +293,30 @@ class _YAIBMIMIC4Task(BaseTask):
                 ]
             },
         ),
+        # The training mean (0 once standardized), then 0 for a feature never
+        # seen in training: YAIB's standardize-then-zero-fill, with the
+        # missing-value indicators as the mask.
         "static": (
-            "tensor",
+            "jagged",
             {
-                "normalization": "zscore",
-                "missing_indicators": True,
-                "impute_strategy": "zero",
+                "levels": [
+                    {
+                        "ordering": "series",
+                        "values": [len(_STATIC_FEATURES)],
+                        "impute": [
+                            {"method": "mean", "by_dims": ()},  # per feature
+                            {"method": "zero"},
+                        ],
+                        "normalize": {"method": "zscore"},
+                        "missing_indicator": True,
+                    }
+                ]
             },
         ),
     }
 
     DYNAMIC_FEATURES: ClassVar[list[str]] = list(_DYNAMIC_FEATURES)
-    STATIC_FEATURES: ClassVar[list[str]] = ["age", "sex", "height", "weight"]
+    STATIC_FEATURES: ClassVar[list[str]] = list(_STATIC_FEATURES)
 
     _DYNAMIC_ITEMS: ClassVar[pl.DataFrame] = _item_lookup(_DYNAMIC_FEATURES)
     _STATIC_ITEMS: ClassVar[pl.DataFrame] = _item_lookup(_STATIC_CHART_FEATURES)
@@ -362,9 +380,17 @@ class _YAIBMIMIC4Task(BaseTask):
         )
 
     def _measurements(
-        self, patient: Any, stays: pl.DataFrame, items: pl.DataFrame
+        self,
+        patient: Any,
+        stays: pl.DataFrame,
+        items: pl.DataFrame,
+        exact_hours: bool = False,
     ) -> pl.DataFrame:
-        """Returns valid measurements as (stay_id, hour, feature, value, is_sum)."""
+        """Returns valid measurements as (stay_id, hour, feature, value, is_sum).
+
+        With ``exact_hours``, a last column ``hours`` holds the fractional
+        hours since ICU admission (``hour`` is its floor).
+        """
         frames = []
         for table, value_column in _VALUE_COLUMNS.items():
             table_items = items.filter(pl.col("table") == table)
@@ -392,8 +418,11 @@ class _YAIBMIMIC4Task(BaseTask):
                 events = self._assign_stays(events, stays)
             frames.append(events.drop("hadm_id"))
 
+        schema = dict(_MEASUREMENT_SCHEMA)
+        if exact_hours:
+            schema["hours"] = pl.Float64
         if not frames:
-            return pl.DataFrame(schema=_MEASUREMENT_SCHEMA)
+            return pl.DataFrame(schema=schema)
 
         converted = pl.col("unit").str.contains(pl.col("unit_regex")).fill_null(False)
         return (
@@ -405,6 +434,10 @@ class _YAIBMIMIC4Task(BaseTask):
                 .otherwise(pl.col("value"))
                 .alias("value"),
                 _hours_since("intime").alias("hour"),
+                (
+                    (pl.col("timestamp") - pl.col("intime")).dt.total_seconds()
+                    / 3600
+                ).alias("hours"),
             )
             .filter(
                 pl.col("value").is_not_null()
@@ -412,7 +445,7 @@ class _YAIBMIMIC4Task(BaseTask):
                 & (pl.col("lower").is_null() | (pl.col("value") >= pl.col("lower")))
                 & (pl.col("upper").is_null() | (pl.col("value") <= pl.col("upper")))
             )
-            .select(list(_MEASUREMENT_SCHEMA))
+            .select(list(schema))
         )
 
     @staticmethod
@@ -533,6 +566,11 @@ class _YAIBMIMIC4Task(BaseTask):
         return {"time": [float(hour) for hour in range(end + 1)], "values": values}
 
     @staticmethod
+    def _static_series(values: list[float]) -> Records:
+        """The static features as one record at hour 0, before any bin."""
+        return {"time": [0.0], "values": [values]}
+
+    @staticmethod
     def _labels(time: list[float], labels: list[float]) -> dict[str, Any]:
         """A per-hour label series on the hours of ``dynamic``."""
         return {"time": time, "values": [[label] for label in labels]}
@@ -646,6 +684,8 @@ class _YAIBMIMIC4Task(BaseTask):
 class YAIBMortalityMIMIC4(_YAIBMIMIC4Task):
     """YAIB ICU mortality prediction after 24 hours on MIMIC-IV.
 
+    Works with :class:`~pyhealth.datasets.MIMIC4EHRDataset`.
+
     Predicts death in the ICU from the first 24 hours of the stay (hourly bins
     0 to 24 inclusive, as in YAIB). On top of the YAIB base cohort, stays are
     excluded if the patient died within 30 hours of ICU admission or the ICU
@@ -713,7 +753,7 @@ class YAIBMortalityMIMIC4(_YAIBMIMIC4Task):
                     "dynamic": self._dynamic(
                         hourly, stay_id, min(end, self.OBSERVATION_HOURS)
                     ),
-                    "static": static[stay_id],
+                    "static": self._static_series(static[stay_id]),
                     "mortality": int(death is not None),
                 }
             )
@@ -723,6 +763,8 @@ class YAIBMortalityMIMIC4(_YAIBMIMIC4Task):
 class YAIBKidneyFunctionMIMIC4(_YAIBMIMIC4Task):
     """YAIB kidney function prediction on MIMIC-IV.
 
+    Works with :class:`~pyhealth.datasets.MIMIC4EHRDataset`.
+
     Predicts the median creatinine (mg/dL) on the second day of the ICU stay
     from the first 24 hours (hourly bins 0 to 24 inclusive, as in YAIB). As in
     YAIB, the label is the median of the hourly creatinine bins after hour 24
@@ -730,6 +772,11 @@ class YAIBKidneyFunctionMIMIC4(_YAIBMIMIC4Task):
     median of its measurements. On top of the YAIB base cohort, stays are
     excluded if the ICU stay is shorter than 48 hours or has no creatinine in
     that window.
+
+    As in YAIB, the label is min-max scaled to 0..1 on the range of the
+    training labels (learned when the processors are fitted, so use
+    ``set_task(task, split=...)``; other splits are not clipped). The loss is
+    on the scaled label, and predictions and metrics are in mg/dL.
 
     Requires the ``labevents``, ``chartevents`` and ``outputevents`` tables.
 
@@ -744,7 +791,9 @@ class YAIBKidneyFunctionMIMIC4(_YAIBMIMIC4Task):
     """
 
     task_name: str = "YAIBKidneyFunctionMIMIC4"
-    output_schema: ClassVar[dict[str, Any]] = {"creatinine": "regression"}
+    output_schema: ClassVar[dict[str, Any]] = {
+        "creatinine": ("regression", {"normalization": "minmax"})
+    }
 
     OBSERVATION_HOURS: ClassVar[int] = 24
     MIN_STAY_HOURS: ClassVar[int] = 48
@@ -778,7 +827,7 @@ class YAIBKidneyFunctionMIMIC4(_YAIBMIMIC4Task):
                     "dynamic": self._dynamic(
                         hourly, stay_id, min(end, self.OBSERVATION_HOURS)
                     ),
-                    "static": static[stay_id],
+                    "static": self._static_series(static[stay_id]),
                     "creatinine": labels[stay_id],
                 }
             )
@@ -788,6 +837,8 @@ class YAIBKidneyFunctionMIMIC4(_YAIBMIMIC4Task):
 class YAIBLengthOfStayMIMIC4(_YAIBMIMIC4Task):
     """YAIB remaining length of stay prediction on MIMIC-IV.
 
+    Works with :class:`~pyhealth.datasets.MIMIC4EHRDataset`.
+
     Predicts, at every hour of the ICU stay, the remaining hours until ICU
     discharge, capped at 7 days. As in YAIB, the stay is observed for at most
     7 days (hourly bins 0 to ``min(end, 168)``, where ``end`` is the ICU
@@ -796,7 +847,11 @@ class YAIBLengthOfStayMIMIC4(_YAIBMIMIC4Task):
     exclusions.
 
     The label is a per-hour series on the hours of ``dynamic``
-    (``timeseries_regression``), so models predict at every hour.
+    (``timeseries_regression``), so models predict at every hour. As in
+    YAIB, it is min-max scaled to 0..1 on the range of all hourly training
+    labels (learned when the processors are fitted, so use
+    ``set_task(task, split=...)``; other splits are not clipped). The loss is
+    on the scaled label, and predictions and metrics are in hours.
 
     Requires the ``labevents``, ``chartevents`` and ``outputevents`` tables.
 
@@ -811,7 +866,9 @@ class YAIBLengthOfStayMIMIC4(_YAIBMIMIC4Task):
     """
 
     task_name: str = "YAIBLengthOfStayMIMIC4"
-    output_schema: ClassVar[dict[str, Any]] = {"los": "timeseries_regression"}
+    output_schema: ClassVar[dict[str, Any]] = {
+        "los": ("timeseries_regression", {"normalization": "minmax"})
+    }
 
     MAX_HOURS: ClassVar[int] = 7 * 24
 
@@ -833,7 +890,7 @@ class YAIBLengthOfStayMIMIC4(_YAIBMIMIC4Task):
                     "patient_id": patient.patient_id,
                     "stay_id": stay_id,
                     "dynamic": dynamic,
-                    "static": static[stay_id],
+                    "static": self._static_series(static[stay_id]),
                     "los": self._labels(dynamic["time"], remaining),
                 }
             )
@@ -842,6 +899,8 @@ class YAIBLengthOfStayMIMIC4(_YAIBMIMIC4Task):
 
 class YAIBAKIMIMIC4(_YAIBMIMIC4Task):
     """YAIB acute kidney injury (AKI) prediction on MIMIC-IV.
+
+    Works with :class:`~pyhealth.datasets.MIMIC4EHRDataset`.
 
     Predicts, at every hour of the ICU stay, AKI (KDIGO stage 1 or higher)
     within the next 6 hours, following YAIB-cohorts ``aki.R`` and its KDIGO
@@ -976,7 +1035,7 @@ class YAIBAKIMIMIC4(_YAIBMIMIC4Task):
                     "patient_id": patient.patient_id,
                     "stay_id": stay_id,
                     "dynamic": dynamic,
-                    "static": static[stay_id],
+                    "static": self._static_series(static[stay_id]),
                     "aki": self._labels(dynamic["time"], labels),
                 }
             )
@@ -985,6 +1044,8 @@ class YAIBAKIMIMIC4(_YAIBMIMIC4Task):
 
 class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
     """YAIB sepsis prediction on MIMIC-IV.
+
+    Works with :class:`~pyhealth.datasets.MIMIC4EHRDataset`.
 
     Predicts, at every hour of the ICU stay, Sepsis-3 onset within the next 6
     hours, following YAIB-cohorts ``sepsis.R`` with its ``sep3_alt``
@@ -1607,7 +1668,7 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
                     "patient_id": patient.patient_id,
                     "stay_id": stay_id,
                     "dynamic": dynamic,
-                    "static": static[stay_id],
+                    "static": self._static_series(static[stay_id]),
                     "sepsis": self._labels(dynamic["time"], labels),
                 }
             )

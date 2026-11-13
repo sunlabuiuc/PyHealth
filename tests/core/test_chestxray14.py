@@ -7,6 +7,7 @@ Author:
 from pathlib import Path
 import tempfile
 import unittest
+from types import SimpleNamespace
 
 import numpy as np
 from PIL import Image
@@ -14,6 +15,21 @@ from PIL import Image
 from pyhealth.datasets import ChestXray14Dataset
 from pyhealth.tasks import ChestXray14BinaryClassification
 from pyhealth.tasks import ChestXray14MultilabelClassification
+
+
+class TestChestXray14BinaryTask(unittest.TestCase):
+    def test_samples_include_patient_id_for_patient_level_splitting(self):
+        patient = SimpleNamespace(
+            patient_id="patient-1",
+            get_events=lambda event_type: [
+                {"path": "image.png", "infiltration": "1"}
+            ],
+        )
+        samples = ChestXray14BinaryClassification("infiltration")(patient)
+        self.assertEqual(
+            samples,
+            [{"patient_id": "patient-1", "image": "image.png", "label": 1}],
+        )
 
 class TestChestXray14Dataset(unittest.TestCase):
     @classmethod
@@ -125,6 +141,9 @@ class TestChestXray14Dataset(unittest.TestCase):
     def test_task_classify_cardiomegaly(self):
         self.assertEqual(len(self.samples_cardiomegaly), 10)
         self.assertEqual(sum(sample["label"] for sample in self.samples_cardiomegaly), 3)
+        self.assertTrue(
+            all(sample["patient_id"] for sample in self.samples_cardiomegaly)
+        )
 
     def test_task_classify_hernia(self):
         self.assertEqual(len(self.samples_hernia), 10)

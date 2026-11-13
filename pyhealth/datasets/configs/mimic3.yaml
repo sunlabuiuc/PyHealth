@@ -27,6 +27,7 @@ tables:
       - "ethnicity"
       - "edregtime"
       - "edouttime"
+      - "deathtime"
       - "diagnosis"
       - "discharge_location"
       - "dischtime"
@@ -37,11 +38,12 @@ tables:
     patient_id: "subject_id"
     timestamp: "intime"
     attributes:
+      - "hadm_id"
       - "icustay_id"
       - "first_careunit"
       - "dbsource"
       - "last_careunit"
-      - "outtime" 
+      - "outtime"
 
   diagnoses_icd:
     file_path: "DIAGNOSES_ICD.csv.gz"
@@ -100,6 +102,48 @@ tables:
       - "icd9_code"
       - "seq_num"
 
+  services:
+    file_path: "SERVICES.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "transfertime"
+    attributes:
+      - "hadm_id"
+      - "prev_service"
+      - "curr_service"
+
+  drgcodes:
+    file_path: "DRGCODES.csv.gz"
+    patient_id: "subject_id"
+    join:
+      - file_path: "ADMISSIONS.csv.gz"
+        "on": "hadm_id"
+        how: "inner"
+        columns:
+          - "dischtime"
+    timestamp: "dischtime"
+    attributes:
+      - "hadm_id"
+      - "drg_type"
+      - "drg_code"
+      - "description"
+      - "drg_severity"
+      - "drg_mortality"
+
+  cptevents:
+    file_path: "CPTEVENTS.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "chartdate"
+    attributes:
+      - "hadm_id"
+      - "costcenter"
+      - "cpt_cd"
+      - "cpt_number"
+      - "cpt_suffix"
+      - "ticket_id_seq"
+      - "sectionheader"
+      - "subsectionheader"
+      - "description"
+
   labevents:
     file_path: "LABEVENTS.csv.gz"
     patient_id: "subject_id"
@@ -113,6 +157,7 @@ tables:
           - "category"
     timestamp: "charttime"
     attributes:
+      - "hadm_id"
       - "itemid"
       - "label"
       - "fluid"
@@ -140,3 +185,98 @@ tables:
       - "category"
       - "description"
       - "storetime"
+
+  transfers:
+    file_path: "TRANSFERS.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "intime"
+    attributes:
+      - "hadm_id"
+      - "icustay_id"
+      - "dbsource"
+      - "eventtype"
+      - "prev_careunit"
+      - "curr_careunit"
+      - "outtime"
+
+  microbiologyevents:
+    file_path: "MICROBIOLOGYEVENTS.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "chartdate"
+    attributes:
+      - "hadm_id"
+      - "charttime"
+      - "spec_itemid"
+      - "spec_type_desc"
+      - "org_itemid"
+      - "org_name"
+
+  chartevents:
+    file_path: "CHARTEVENTS.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "charttime"
+    attributes:
+      - "hadm_id"
+      - "icustay_id"
+      - "itemid"
+      - "value"
+      - "valuenum"
+      - "valueuom"
+
+  outputevents:
+    file_path: "OUTPUTEVENTS.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "charttime"
+    attributes:
+      - "hadm_id"
+      - "icustay_id"
+      - "itemid"
+      - "value"
+      - "valueuom"
+
+  inputevents_cv:
+    file_path: "INPUTEVENTS_CV.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "charttime"
+    attributes:
+      - "hadm_id"
+      - "icustay_id"
+      - "itemid"
+      - "amount"
+      - "amountuom"
+      - "rate"
+      - "rateuom"
+      - "orderid"
+      - "linkorderid"
+
+  inputevents_mv:
+    file_path: "INPUTEVENTS_MV.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "starttime"
+    attributes:
+      - "hadm_id"
+      - "icustay_id"
+      - "itemid"
+      - "endtime"
+      - "amount"
+      - "amountuom"
+      - "rate"
+      - "rateuom"
+      - "patientweight"
+      - "orderid"
+      - "linkorderid"
+      - "ordercategoryname"
+      - "statusdescription"
+
+  procedureevents_mv:
+    file_path: "PROCEDUREEVENTS_MV.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "starttime"
+    attributes:
+      - "hadm_id"
+      - "icustay_id"
+      - "itemid"
+      - "endtime"
+      - "value"
+      - "valueuom"
+      - "statusdescription"

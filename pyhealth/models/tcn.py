@@ -205,6 +205,13 @@ class TCN(BaseModel):
                 - Input format: (batch_size, sequence_length, num_features)
                 - Each timestep contains a fixed number of measurements
                 - TCN is applied directly on the timeseries data
+            - Nested codes (e.g., ``nested_sequence``: codes per visit)
+                - Input format: (batch_size, num_visits, num_codes)
+                - The codes of each visit are embedded and summed, and TCN is
+                  applied over the visits
+            - One vector per sample (e.g., ``tensor``, ``multi_hot``)
+                - Input format: (batch_size, num_features)
+                - Treated as a sequence of length one
 
     Args:
         dataset (SampleDataset): the dataset to train the model. It is used to query certain
@@ -329,6 +336,13 @@ class TCN(BaseModel):
         embedded = self.embedding_model(inputs, masks=masks)
         for feature_key in self.feature_keys:
             x = embedded[feature_key]
+            if x.dim() == 2:
+                # One vector per sample (tensor, multi_hot): a length-1 sequence.
+                x = x.unsqueeze(1)
+            while x.dim() > 3:
+                # Nested codes (B, visits, codes, D): pool the codes within each
+                # visit (padded codes embed to zero), then run over the visits.
+                x = x.sum(dim=2)
             mask = (x.sum(dim=-1) != 0).int()
             _, x = self.tcn[feature_key](x, mask)
             patient_emb.append(x)
@@ -337,10 +351,13 @@ class TCN(BaseModel):
         # (patient, label_size)
         logits = self.fc(patient_emb)
         # obtain y_true, loss, y_prob
-        y_true = kwargs[self.label_key].to(self.device)
-        loss = self.label_processor.loss(logits, y_true)
         y_prob = self.label_processor.activation(logits)
-        results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
+        results = {"y_prob": y_prob, "logit": logits}
+        # The label is optional, so the model can predict without it.
+        if self.label_key in kwargs:
+            y_true = kwargs[self.label_key].to(self.device)
+            results["loss"] = self.label_processor.loss(logits, y_true)
+            results["y_true"] = y_true
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results

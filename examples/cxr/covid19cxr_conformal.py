@@ -25,6 +25,7 @@ from pyhealth.datasets import (
     split_by_sample_conformal,
 )
 from pyhealth.models import TorchvisionModel
+from pyhealth.metrics import multiclass_metrics_fn
 from pyhealth.trainer import Trainer, get_metrics_fn
 
 # Set random seed for reproducibility
@@ -123,7 +124,7 @@ y_true_label, y_prob_label, _, extra_label = Trainer(model=label_predictor).infe
     test_loader, additional_outputs=["y_predset"]
 )
 
-label_metrics = get_metrics_fn("multiclass")(
+label_metrics = multiclass_metrics_fn(
     y_true_label,
     y_prob_label,
     metrics=["accuracy", "miscoverage_mean_ps"],
@@ -183,7 +184,7 @@ y_true_cov, y_prob_cov, _, extra_cov = Trainer(model=covariate_predictor).infere
     test_loader, additional_outputs=["y_predset"]
 )
 
-cov_metrics = get_metrics_fn("multiclass")(
+cov_metrics = multiclass_metrics_fn(
     y_true_cov,
     y_prob_cov,
     metrics=["accuracy", "miscoverage_mean_ps"],

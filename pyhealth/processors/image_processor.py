@@ -6,11 +6,11 @@ import torchvision.transforms as transforms
 from PIL import Image
 
 from . import register_processor
-from .base_processor import FeatureProcessor
+from .base_processor import LegacyFeatureProcessor
 
 
 @register_processor("image")
-class ImageProcessor(FeatureProcessor):
+class ImageProcessor(LegacyFeatureProcessor):
     """Feature processor for loading images from disk and converting them to tensors.
 
     Args:

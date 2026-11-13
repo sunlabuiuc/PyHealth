@@ -12,6 +12,8 @@ from .base_task import BaseTask
 class DKAPredictionMIMIC4(BaseTask):
     """Task for predicting Diabetic Ketoacidosis (DKA) in the general patient population.
 
+    Works with :class:`~pyhealth.datasets.MIMIC4Dataset`.
+
     This task creates PATIENT-LEVEL samples from ALL patients in the dataset,
     predicting whether they will develop DKA. Features are collected from
     admissions BEFORE the first DKA event to prevent data leakage.
@@ -273,6 +275,8 @@ class DKAPredictionMIMIC4(BaseTask):
 
 class T1DDKAPredictionMIMIC4(BaseTask):
     """Task for predicting Diabetic Ketoacidosis (DKA) in Type 1 Diabetes patients.
+
+    Works with :class:`~pyhealth.datasets.MIMIC4Dataset`.
 
     This task creates PATIENT-LEVEL samples by identifying patients with Type 1
     Diabetes Mellitus (T1DM) and predicting whether they will develop DKA within

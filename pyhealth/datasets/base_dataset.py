@@ -46,7 +46,13 @@ from ..data import Patient
 from ..tasks import BaseTask
 from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
-from .sample_dataset import STORAGE_FORMAT, SampleDataset, SampleBuilder
+from .sample_dataset import (
+    STORAGE_FORMAT,
+    SampleBuilder,
+    SampleDataset,
+    _litdata_add,
+    _litdata_merge,
+)
 from .splitter import Split
 from ..utils import download_file, preserve_rng_state, set_env
 
@@ -287,42 +293,6 @@ def _csv_tsv_gz_path(path: str) -> str:
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
 
 
-def _litdata_merge(cache_dir: Path) -> None:
-    """
-    Merges LitData binary writer index files in the given cache directory.
-
-    Workers write contiguous sample ranges, each with its own
-    ``{rank}.index.json``. ``patient_to_index`` and ``record_to_index`` are
-    built before processing and assume merged sample ``i`` is input sample
-    ``i``, so the per-worker indexes must be joined in numeric rank order.
-    ``BinaryWriter.merge`` does this from litdata 0.2.64 on; earlier versions
-    sort the file names as strings (0, 1, 10, 11, ..., 2), which reorders
-    samples with more than 10 workers.
-
-    Args:
-        cache_dir (Path): The cache directory containing LitData binary writer files.
-    """
-    from litdata.streaming.writer import _INDEX_FILENAME
-
-    files = os.listdir(cache_dir)
-
-    # Return if the index already exists
-    if _INDEX_FILENAME in files:
-        return
-
-    index_files = [f for f in files if f.endswith(_INDEX_FILENAME)]
-
-    # Return if there are no index files to merge
-    if len(index_files) == 0:
-        raise ValueError(
-            "There are zero samples in the dataset, please check the task and processors."
-        )
-
-    BinaryWriter(cache_dir=str(cache_dir), chunk_bytes="64MB").merge(
-        num_workers=len(index_files)
-    )
-
-
 # Seconds between the progress updates dask's scheduler sends (dask's default).
 _DASK_PROGRESS_INTERVAL = 0.1
 
@@ -495,7 +465,7 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
         write_index = 0
         for i in range(start_idx, end_idx):
             transformed: dict[str, Any] = builder.transform_for_storage(dataset[i])
-            writer.add_item(write_index, transformed)
+            _litdata_add(writer, write_index, transformed)
             write_index += 1
             complete += 1
 
@@ -520,6 +490,10 @@ class BaseDataset(ABC):
         config (dict): Configuration loaded from a YAML file.
         global_event_df (pl.LazyFrame): The global event data frame.
         dev (bool): Whether to enable dev mode (limit to 1000 patients).
+        event_cache_lock_timeout (float): Seconds a process waits for another
+            process building the same event table before raising
+            ``filelock.Timeout`` (default 7200). Set it on the class or the
+            instance for longer builds; a negative value waits forever.
 
     Examples:
         >>> from pyhealth.datasets import BaseDataset
@@ -530,6 +504,8 @@ class BaseDataset(ABC):
         ... )
         >>> dataset.stats()
     """
+
+    event_cache_lock_timeout: float = 7200
 
     def __init__(
         self,
@@ -600,6 +576,9 @@ class BaseDataset(ABC):
             {dataset_uuid}/                         # Cache files for this dataset configuration
                 tmp/                                # Temporary files during processing
                 global_event_df.parquet/            # Cached global event dataframe
+                global_event_df.lock                # Held while the event table is built
+                global_event_df.*.building/         # An event table being built; left
+                                                    # behind only by a killed job
                 tasks/                              # Cached task-specific data
                     {task_name}_{task_uuid}/        # Cached data for specific task based on task name, schema, and args
                         task_df.ld/                 # Intermediate task dataframe based on schema
@@ -820,7 +799,10 @@ class BaseDataset(ABC):
                 with DaskClient(cluster) as client:
                     if self.dev:
                         logger.info("Dev mode enabled: limiting to 1000 patients")
-                        patients = df["patient_id"].unique().head(1000).tolist()
+                        # head() reads only the first partition unless told
+                        # otherwise, which gave far fewer than 1000 patients.
+                        unique = df["patient_id"].unique()
+                        patients = unique.head(1000, npartitions=-1).tolist()
                         filter = df["patient_id"].isin(patients)
                         df = df[filter]
 
@@ -871,6 +853,38 @@ class BaseDataset(ABC):
         finally:
             self.clean_tmpdir()
 
+    @staticmethod
+    def _event_cache_valid(path: Path) -> bool:
+        return path.is_dir() and any(path.glob("*.parquet"))
+
+    def _build_event_cache(self, ret_path: Path) -> None:
+        """Builds the event table and publishes it at ``ret_path`` when complete.
+
+        The table is written to a private folder next to ``ret_path`` and moved
+        into place with one ``os.replace``, so a folder at ``ret_path`` is always
+        a complete table: an interrupted build (Ctrl-C, an error) leaves nothing
+        there, and the next run builds again. A job killed outright (SIGKILL,
+        out of memory) can leave its ``global_event_df.*.building`` folder
+        behind; it is never read and can be deleted.
+        """
+        if ret_path.exists():
+            # e.g. a partial table left by a version without atomic publishing
+            logger.warning(
+                f"Incomplete parquet cache at {ret_path} (directory exists but "
+                "contains no parquet files). Removing and rebuilding."
+            )
+            shutil.rmtree(ret_path)
+        logger.info(f"No cached event dataframe found. Creating: {ret_path}")
+        build_path = ret_path.with_name(
+            f"global_event_df.{uuid.uuid4().hex}.building"
+        )
+        try:
+            self._event_transform(build_path)
+            os.replace(build_path, ret_path)
+        finally:
+            if build_path.exists():
+                shutil.rmtree(build_path, ignore_errors=True)
+
     @property
     def global_event_df(self) -> pl.LazyFrame:
         """Returns the path to the cached event dataframe.
@@ -882,17 +896,21 @@ class BaseDataset(ABC):
 
         if self._global_event_df is None:
             ret_path = self.cache_dir / "global_event_df.parquet"
-            cache_valid = ret_path.is_dir() and any(ret_path.glob("*.parquet"))
-            if not cache_valid:
-                if ret_path.exists():
-                    logger.warning(
-                        f"Incomplete parquet cache at {ret_path} (directory exists but contains no parquet files). Removing and rebuilding."
-                    )
-                    shutil.rmtree(ret_path)
-                logger.info(f"No cached event dataframe found. Creating: {ret_path}")
-                self._event_transform(ret_path)
-            else:
+            if self._event_cache_valid(ret_path):
                 logger.info(f"Found cached event dataframe: {ret_path}")
+            else:
+                # One process builds; others wait, then find the published table.
+                with FileLock(
+                    str(self.cache_dir / "global_event_df.lock"),
+                    timeout=self.event_cache_lock_timeout,
+                ):
+                    if self._event_cache_valid(ret_path):
+                        logger.info(
+                            f"Found cached event dataframe: {ret_path} "
+                            "(built by another process)"
+                        )
+                    else:
+                        self._build_event_cache(ret_path)
             self._global_event_df = ret_path
 
         return pl.scan_parquet(

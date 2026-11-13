@@ -4,12 +4,12 @@ from typing import Any, Literal
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor
+from .base_processor import LegacyFeatureProcessor
 from .utils import NORMALIZATIONS, Normalization, fit_normalization
 
 
 @register_processor("tensor")
-class TensorProcessor(FeatureProcessor):
+class TensorProcessor(LegacyFeatureProcessor):
     """
     Feature processor for converting numerical lists to tensors.
 

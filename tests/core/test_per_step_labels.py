@@ -11,7 +11,7 @@ from pyhealth.models import BaseModel, RNN_V2
 from pyhealth.processors import (
     LevelConfig,
     LabelProcessor,
-    SequenceProcessorV2,
+    JaggedFeatureProcessor,
     TimeseriesBinaryLabelProcessor,
     TimeseriesLabelProcessor,
     TimeseriesRegressionLabelProcessor,
@@ -21,6 +21,8 @@ from tests.core.label_record_model_utils import LabelRecordModel
 
 NAN = float("nan")
 DYNAMIC: list[LevelConfig] = [{"ordering": "series", "values": [2]}]
+# Static values: one record at t = 0, before the first label.
+STATIC: list[LevelConfig] = [{"ordering": "series", "values": [2]}]
 
 
 def _samples(label_fn) -> list[dict[str, Any]]:
@@ -32,7 +34,7 @@ def _samples(label_fn) -> list[dict[str, Any]]:
             {
                 "patient_id": f"p{i}",
                 "dynamic": {"time": hours, "values": rng.normal(size=(n, 2))},
-                "static": [float(i), 1.0],
+                "static": {"time": [0.0], "values": [[float(i), 1.0]]},
                 "label": {"time": hours, "values": [label_fn(i, h) for h in range(n)]},
             }
         )
@@ -43,8 +45,8 @@ def _dataset(output="timeseries_binary", label_fn=lambda i, h: float((i + h) % 2
     return create_sample_dataset(
         samples=_samples(label_fn),
         input_schema={
-            "dynamic": ("sequence_v2", {"levels": DYNAMIC}),
-            "static": "tensor",
+            "dynamic": ("jagged", {"levels": DYNAMIC}),
+            "static": ("jagged", {"levels": STATIC}),
         },
         output_schema={"label": output},
         dataset_name="per_step",
@@ -56,8 +58,7 @@ class TestTimeseriesLabelProcessors(unittest.TestCase):
         processor = TimeseriesBinaryLabelProcessor()
         self.assertIsInstance(processor, LabelProcessor)
         self.assertIsInstance(processor, TimeseriesLabelProcessor)
-        self.assertNotIsInstance(processor, SequenceProcessorV2)
-        self.assertEqual(processor.schema(), ("value", "time"))
+        self.assertNotIsInstance(processor, JaggedFeatureProcessor)
         self.assertEqual(processor.size(), 1)
         self.assertFalse(processor.learns_statistics)
         self.assertEqual(
@@ -123,7 +124,9 @@ class TestPerStepEndToEnd(unittest.TestCase):
         models: dict[str, Callable[[SampleDataset], BaseModel]] = {
             "LabelRecordModel": LabelRecordModel,
             "RNN_V2": lambda dataset: RNN_V2(
-                dataset, embedding_dim={"dynamic": [{"values": 8}]}, hidden_dim=8
+                dataset,
+                embedding_dim={"dynamic": [{"values": 8}], "static": [{"values": 4}]},
+                hidden_dim=8,
             ),
         }
         for (mode, metric), (name, make_model) in product(

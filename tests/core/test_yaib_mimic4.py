@@ -1,4 +1,5 @@
 import unittest
+from typing import cast
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -8,7 +9,13 @@ import torch
 from pyhealth.data import Patient
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import LevelEmbedding, RNN_V2
-from pyhealth.processors import LevelConfig, SequenceProcessorV2, TimeseriesProcessor
+from pyhealth.processors import (
+    LabelProcessor,
+    LevelConfig,
+    JaggedFeatureProcessor,
+    TensorProcessor,
+    TimeseriesProcessor,
+)
 from pyhealth.tasks import (
     YAIBAKIMIMIC4,
     YAIBKidneyFunctionMIMIC4,
@@ -151,7 +158,9 @@ class TestYAIBMortalityMIMIC4(unittest.TestCase):
         self.assertEqual(values[5, CREA], 1.5)
         self.assertEqual(np.isfinite(values[:, CREA]).sum(), 1)
 
-        age, sex, height, weight = sample["static"]
+        # One record at hour 0, before any hourly bin.
+        self.assertEqual(sample["static"]["time"], [0.0])
+        ((age, sex, height, weight),) = sample["static"]["values"]
         self.assertEqual((age, sex, weight), (60.0, 1.0, 80.0))
         self.assertAlmostEqual(height, 177.8)
 
@@ -608,7 +617,7 @@ class TestYAIBProcessing(unittest.TestCase):
         grids[0][:, 3] = np.nan  # a feature never seen in one sample
         yaib: LevelConfig = YAIBMortalityMIMIC4.input_schema["dynamic"][1]["levels"][0]
         levels: list[LevelConfig] = [{**yaib, "values": [4]}]  # 4 features here
-        v2 = SequenceProcessorV2(levels=levels)
+        v2 = JaggedFeatureProcessor(levels=levels)
         v2.fit([{"x": {"time": list(range(len(g))), "values": g}} for g in grids], "x")
         def hourly(grid):  # the previous input format: datetimes and values
             return [T0 + timedelta(hours=h) for h in range(len(grid))], grid
@@ -621,6 +630,85 @@ class TestYAIBProcessing(unittest.TestCase):
             torch.testing.assert_close(values, old[:, :4])
             torch.testing.assert_close(mask.float(), old[:, 4:])
 
+    def test_static_matches_the_previous_tensor_preprocessing(self):
+        # The t = 0 series reproduces TensorProcessor with z-score, missing
+        # indicators and zero fill.
+        rows = [
+            [60.0, 1.0, 170.0, np.nan],
+            [70.0, 0.0, np.nan, 80.0],
+            [50.0, np.nan, 160.0, 90.0],
+            [80.0, 1.0, 180.0, np.nan],
+        ]
+        schema = YAIBMortalityMIMIC4.input_schema["static"][1]
+        v2 = JaggedFeatureProcessor(**schema)
+        v2.fit([{"x": YAIBMortalityMIMIC4._static_series(r)} for r in rows], "x")
+        v1 = TensorProcessor(
+            normalization="zscore", missing_indicators=True, impute_strategy="zero"
+        )
+        v1.fit([{"x": r} for r in rows], "x")
+        for row in rows:
+            values, mask, time = v2.process(YAIBMortalityMIMIC4._static_series(row))
+            old = v1.process(row)
+            self.assertEqual(time.tolist(), [0.0])
+            torch.testing.assert_close(values[0], old[:4])
+            torch.testing.assert_close(mask[0].float(), old[4:])
+
+    def test_regression_labels_are_minmax_scaled_on_the_fitted_samples(self):
+        # As YAIB: min-max on the training labels, other splits not clipped,
+        # metrics back in the original units.
+        def kidney(stay_id, creatinine):
+            return _patient(
+                stays=[(stay_id, 1, T0, 60, range(60))],
+                admissions=[_admission(hours=70)],
+                extra=[_crea(T0 + timedelta(hours=30), creatinine)],
+            )
+
+        def los(stay_id, hours):
+            return _patient(
+                stays=[(stay_id, 1, T0, hours, range(int(hours)))],
+                admissions=[_admission(hours=hours + 10)],
+            )
+
+        for task, label, train, held_out, original in (
+            (
+                YAIBKidneyFunctionMIMIC4(),
+                "creatinine",
+                [kidney(10, 2.0), kidney(11, 4.0)],
+                kidney(12, 5.0),
+                5.0,
+            ),
+            (
+                YAIBLengthOfStayMIMIC4(),
+                "los",
+                [los(10, 10.5), los(11, 20.5)],
+                los(12, 30.5),
+                30.0,  # the label at hour 0
+            ),
+        ):
+            with self.subTest(task=task.task_name):
+                samples = [sample for patient in train for sample in task(patient)]
+                dataset = create_sample_dataset(
+                    samples, task.input_schema, task.output_schema
+                )
+                processor = cast(LabelProcessor, dataset.output_processors[label])
+                ys = torch.cat(
+                    [
+                        dataset[i][label][0] if label == "los" else dataset[i][label]
+                        for i in range(len(dataset))
+                    ]
+                )
+                self.assertEqual((float(ys.min()), float(ys.max())), (0.0, 1.0))
+
+                y_true = processor.process(task(held_out)[0][label])
+                if label == "los":
+                    batch = (y_true[0], y_true[1], torch.tensor([0, len(y_true[0])]))
+                    self.assertAlmostEqual(float(y_true[0][0]), 1.5)  # 30 on 0..20
+                    (values,), _ = processor.to_numpy(batch, y_true[0])
+                else:
+                    self.assertAlmostEqual(float(y_true[0]), 1.5)  # 5 on 2..4
+                    (values,), _ = processor.to_numpy(y_true, y_true)
+                self.assertAlmostEqual(float(values.reshape(-1)[0]), original, 5)
+
     def test_tasks_train_with_rnn_v2(self):
         patients = [
             _patient(
@@ -629,7 +717,10 @@ class TestYAIBProcessing(unittest.TestCase):
             )
             for i in range(2)
         ]
-        dims: dict[str, list[LevelEmbedding]] = {"dynamic": [{"values": 8}]}
+        dims: dict[str, list[LevelEmbedding]] = {
+            "dynamic": [{"values": 8}],
+            "static": [{"values": 4}],
+        }
         for task, label in (
             (YAIBMortalityMIMIC4(), "mortality"),
             (YAIBLengthOfStayMIMIC4(), "los"),

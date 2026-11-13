@@ -5,13 +5,13 @@ from typing import Any
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor
+from .base_processor import LegacyFeatureProcessor
 
 logger = logging.getLogger(__name__)
 
 
 @register_processor("multi_hot")
-class MultiHotProcessor(FeatureProcessor):
+class MultiHotProcessor(LegacyFeatureProcessor):
     """Processor for converting categorical variables into multi-hot encoded vectors.
 
     Use ``MultiHotProcessor`` for input features like patient demographics (e.g.,

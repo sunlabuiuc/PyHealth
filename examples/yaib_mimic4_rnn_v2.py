@@ -115,12 +115,16 @@ def run_task(base_dataset, name, args, output_dir):
     val_loader = get_dataloader(val_data, batch_size=args.batch_size, shuffle=False)
     test_loader = get_dataloader(test_data, batch_size=args.batch_size, shuffle=False)
 
-    # All tasks share hourly numeric dynamics and static demographics. The
+    # All tasks share hourly numeric dynamics and static demographics (a
+    # series with one record at hour 0), each encoded by its own RNN. The
     # model infers the label mode, including packed hourly labels for LOS,
     # AKI, and sepsis. Unidirectional states prevent future-hour leakage.
     model = RNN_V2(
         dataset=train_data,
-        embedding_dim={"dynamic": [{"values": args.embedding_dim}]},
+        embedding_dim={
+            "dynamic": [{"values": args.embedding_dim}],
+            "static": [{"values": args.embedding_dim}],
+        },
         hidden_dim=args.hidden_dim,
         rnn_type=args.rnn_type,
         dropout=0.3,

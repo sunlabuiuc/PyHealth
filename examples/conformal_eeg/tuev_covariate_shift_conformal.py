@@ -55,6 +55,7 @@ from pyhealth.calib.utils import extract_embeddings
 from pyhealth.datasets import TUEVDataset, get_dataloader, split_by_patient_conformal_tuh, split_by_sample_conformal_tuh, split_by_sample_conformal
 from pyhealth.models import ContraWR, TFMTokenizer
 from pyhealth.tasks import EEGEventsTUEV
+from pyhealth.metrics import multiclass_metrics_fn
 from pyhealth.trainer import Trainer, get_metrics_fn
 
 
@@ -249,7 +250,7 @@ def _run_one_seed(
         y_true, y_prob, _, extra = Trainer(model=cov_predictor).inference(
             test_loader, additional_outputs=["y_predset"]
         )
-        conf_metrics = get_metrics_fn("multiclass")(
+        conf_metrics = multiclass_metrics_fn(
             y_true, y_prob,
             metrics=["accuracy", "miscoverage_mean_ps"],
             y_predset=extra["y_predset"],
