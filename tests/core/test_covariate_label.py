@@ -131,8 +131,8 @@ class TestCovariateLabel(unittest.TestCase):
         self.assertIsInstance(cal_model.alpha, np.ndarray)
         np.testing.assert_array_equal(cal_model.alpha, alpha_per_class)
 
-    def test_initialization_non_multiclass_raises_error(self):
-        """Test that non-multiclass models raise an error."""
+    def test_initialization_accepts_binary(self):
+        """Binary models are supported alongside multiclass models."""
         # Create a binary classification dataset with both labels
         binary_samples = [
             {
@@ -163,13 +163,11 @@ class TestCovariateLabel(unittest.TestCase):
             mode="binary",
         )
 
-        with self.assertRaises(NotImplementedError):
-            CovariateLabel(
-                model=binary_model,
-                alpha=0.1,
-                kde_test=self.kde_test,
-                kde_cal=self.kde_cal,
-            )
+        predictor = CovariateLabel(
+            model=binary_model, alpha=0.1,
+            kde_test=self.kde_test, kde_cal=self.kde_cal,
+        )
+        self.assertEqual(predictor.mode, "binary")
 
     def test_calibrate_marginal(self):
         """Test calibration with marginal coverage (single alpha)."""

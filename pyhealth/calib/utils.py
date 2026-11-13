@@ -23,6 +23,34 @@ def one_hot_np(labels, K):
     return new_labels
 
 
+def binary_to_two_columns(y_prob: np.ndarray | torch.Tensor):
+    """Expand binary probabilities into columns for labels 0 and 1.
+
+    Accept shape (N,) or (N, 1), returning (N, 2) with columns [1 - p, p].
+    Preserve the input dtype and, for Torch tensors, the device.
+
+    Examples:
+        >>> binary_to_two_columns(np.array([[0.25], [0.75]]))
+        array([[0.75, 0.25],
+               [0.25, 0.75]])
+        >>> binary_to_two_columns(torch.tensor([0.25, 0.75])).tolist()
+        [[0.75, 0.25], [0.25, 0.75]]
+    """
+    if not isinstance(y_prob, torch.Tensor):
+        y_prob = np.asarray(y_prob)
+
+    if y_prob.ndim == 1:
+        y_prob = y_prob[:, None]
+
+    if y_prob.ndim != 2 or y_prob.shape[1] != 1:
+        raise ValueError("binary probabilities must have shape (N,) or (N, 1)")
+
+    if isinstance(y_prob, torch.Tensor):
+        return torch.cat((1 - y_prob, y_prob), dim=1)
+
+    return np.concatenate((1 - y_prob, y_prob), axis=1)
+
+
 class LogLoss(torch.nn.Module):
     """Cross entropy, but takes in the probability instead of the logits"""
 

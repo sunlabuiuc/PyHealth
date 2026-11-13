@@ -29,7 +29,7 @@ __all__ = ["LABEL"]
 class LABEL(SetPredictor):
     """LABEL: Least ambiguous set-valued classifiers with bounded error levels.
 
-    This is a prediction-set constructor for multi-class classification problems.
+    This is a prediction-set constructor for binary and multiclass classification problems.
     It controls either :math:`\\mathbb{P}\\{Y \\not \\in C(X) | Y=k\\}\\leq \\alpha_k`
     (when ``alpha`` is an array), or :math:`\\mathbb{P}\\{Y \\not \\in C(X)\\}\\leq \\alpha` (when ``alpha`` is a float).
     Here, :math:`C(X)` denotes the final prediction set.
@@ -98,14 +98,13 @@ class LABEL(SetPredictor):
         **kwargs,
     ) -> None:
         super().__init__(model, **kwargs)
-        if model.mode != "multiclass":
+        if self.model.mode != "multiclass":
             raise NotImplementedError()
         if score_type not in SUPPORTED_SCORE_TYPES:
             raise ValueError(
                 f"Unknown score_type: {score_type!r}. Supported: "
                 f"{SUPPORTED_SCORE_TYPES}."
             )
-        self.mode = self.model.mode  # multiclass
         for param in model.parameters():
             param.requires_grad = False
         self.model.eval()
@@ -132,7 +131,7 @@ class LABEL(SetPredictor):
         y_prob = cal_dataset["y_prob"]
         y_true = cal_dataset["y_true"]
 
-        N, K = cal_dataset["y_prob"].shape
+        K = y_prob.shape[1]
         # NC scores: higher = less conforming
         nc_scores = true_class_nc_scores(
             y_prob, y_true, score_type=self.score_type, rng=self.rng
@@ -146,7 +145,7 @@ class LABEL(SetPredictor):
             ]
         self.t = torch.tensor(t, device=self.device)
 
-    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
+    def _predict(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation (just like the original model).
 
         :return: A dictionary with all results from the base model, with the following updates:

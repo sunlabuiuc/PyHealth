@@ -10,7 +10,7 @@ This serves as a baseline approach for future personalized/dynamic conformal
 prediction methods that use patient similarity for calibration set construction.
 """
 
-from typing import Dict, Optional, Union
+from typing import Optional, Union
 
 import numpy as np
 import torch
@@ -24,14 +24,17 @@ from pyhealth.calib.predictionset.scores import (
     all_class_nc_scores,
     true_class_nc_scores,
 )
-from pyhealth.calib.utils import extract_embeddings, prepare_numpy_dataset
+from pyhealth.calib.utils import (
+    extract_embeddings,
+    prepare_numpy_dataset,
+)
 from pyhealth.models import BaseModel
 
 __all__ = ["ClusterLabel"]
 
 
 class ClusterLabel(SetPredictor):
-    """Cluster-based conformal prediction for multiclass classification.
+    """Cluster-based conformal prediction for binary and multiclass classification.
 
     This method uses K-means clustering on patient embeddings to group similar
     patients into clusters. Each cluster gets its own calibration threshold,
@@ -123,9 +126,9 @@ class ClusterLabel(SetPredictor):
     ) -> None:
         super().__init__(model, **kwargs)
 
-        if model.mode != "multiclass":
+        if self.model.mode != "multiclass":
             raise NotImplementedError(
-                "ClusterLabel only supports multiclass classification"
+                "ClusterLabel only supports binary and multiclass classification"
             )
         if score_type not in SUPPORTED_SCORE_TYPES:
             raise ValueError(
@@ -133,7 +136,6 @@ class ClusterLabel(SetPredictor):
                 f"{SUPPORTED_SCORE_TYPES}."
             )
 
-        self.mode = self.model.mode
 
         # Freeze model parameters
         for param in model.parameters():
@@ -295,7 +297,7 @@ class ClusterLabel(SetPredictor):
         if self.debug:
             print(f"Cluster thresholds: {self.cluster_thresholds}")
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def _predict(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation with cluster-specific prediction set construction.
 
         Returns:
@@ -334,14 +336,11 @@ class ClusterLabel(SetPredictor):
             cluster_thresholds, device=self.device, dtype=pred["y_prob"].dtype
         )
 
-        # Broadcast thresholds to match y_prob shape (batch_size, n_classes).
-        # Marginal: thresholds are (batch_size,) -> view to (batch_size, 1, ...).
+        # Broadcast marginal thresholds across the candidate class columns.
+        # Marginal: thresholds are (batch_size,) -> view to (batch_size, 1).
         # Class-conditional: thresholds are already (batch_size, K), no view.
-        if pred["y_prob"].ndim > 1 and cluster_thresholds.ndim == 1:
-            view_shape = (cluster_thresholds.shape[0],) + (1,) * (
-                pred["y_prob"].ndim - 1
-            )
-            cluster_thresholds = cluster_thresholds.view(view_shape)
+        if cluster_thresholds.ndim == 1:
+            cluster_thresholds = cluster_thresholds.view(-1, 1)
 
         # Include class y if its NC score <= NC threshold
         y_prob_np = pred["y_prob"].detach().cpu().numpy()

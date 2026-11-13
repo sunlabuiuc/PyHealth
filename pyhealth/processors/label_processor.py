@@ -343,10 +343,20 @@ class BinaryLabelProcessor(_WeightedBCE, LabelProcessor):
         return self._bce(logits, y_true, **kwargs)
 
     @classmethod
-    def metrics_fn(cls, y_true, y_prob, metrics=None):
+    def metrics_fn(cls, y_true, y_prob, metrics=None, **kwargs):
+        """Score binary outputs, forwarding options such as y_predset.
+
+        Examples:
+            >>> result = BinaryLabelProcessor.metrics_fn(
+            ...     np.array([0, 1]), np.array([0.2, 0.8]), metrics=["set_size"],
+            ...     y_predset=np.array([[1, 0], [1, 1]])
+            ... )
+            >>> float(result["set_size"])
+            1.5
+        """
         from pyhealth.metrics.binary import binary_metrics_fn
 
-        return binary_metrics_fn(y_true, y_prob, metrics=metrics)
+        return binary_metrics_fn(y_true, y_prob, metrics=metrics, **kwargs)
 
 
 @register_processor("multiclass")
