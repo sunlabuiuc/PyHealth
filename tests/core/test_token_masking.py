@@ -89,6 +89,23 @@ class TestTokenMasking(unittest.TestCase):
         # The mask shrank from its start, sigmoid(2), everywhere but sepsis.
         self.assertTrue((soft[~sepsis] < torch.sigmoid(torch.tensor(2.0))).all())
 
+    def test_authors_settings_stop_early_and_min_iter_fixes_it(self):
+        # With the authors' settings (lr 0.1, start 2, 3% check two steps
+        # back) the loop stops at update 3 and every mask value is still
+        # above 0.5, so rounding keeps every token. min_iter lets it run on.
+        model, ids, mask = self.toy_inputs()
+        baseline = model.embedding(torch.full_like(ids, model.tokenizer.mask_token_id))
+        soft, iterations = optimize_token_mask(
+            model, ids, mask, baseline, diet_constant=0.01, lr=0.1, max_iter=20
+        )
+        self.assertEqual(iterations, 3)
+        self.assertTrue((soft > 0.5).all())
+        soft, iterations = optimize_token_mask(
+            model, ids, mask, baseline, diet_constant=0.01, lr=1.0, max_iter=20, min_iter=20
+        )
+        self.assertEqual(iterations, 20)
+        self.assertTrue((soft < 0.5).any())
+
     def test_special_tokens_and_padding_never_masked(self):
         model, ids, mask = self.toy_inputs()
         teacher = model.forward_from_embedding(model.embedding(ids), mask)["logit"]

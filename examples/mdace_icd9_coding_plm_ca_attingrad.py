@@ -376,6 +376,8 @@ def train(args: argparse.Namespace) -> None:
                     lr=args.tm_mask_lr,
                     max_iter=args.tm_iters,
                     baseline_token_id=args.tm_baseline_id,
+                    min_iter=args.tm_min_iters,
+                    init=args.tm_mask_init,
                 )
                 mask_iters.append(out["iterations"])
                 kept.append(out["mask"][mask.bool()].mean().item())
@@ -604,6 +606,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tm_diet", type=float, default=0.01)
     parser.add_argument("--tm_mask_lr", type=float, default=0.1)
     parser.add_argument("--tm_iters", type=int, default=20)
+    parser.add_argument(
+        "--tm_min_iters",
+        type=int,
+        default=0,
+        help="mask updates before the convergence check may stop (authors: 0, "
+        "which stops at update 3 with every token still kept)",
+    )
+    parser.add_argument(
+        "--tm_mask_init", type=float, default=2.0, help="starting mask logit (authors: 2.0)"
+    )
     parser.add_argument(
         "--tm_baseline_id",
         type=int,
