@@ -197,7 +197,8 @@ operators over PyHealth's event log:
 - ``ratio``, ``diff``, ``band`` and ``ge`` thresholds, ``any``, ``cross``,
   and ``column`` for an existing task feature.
 
-Every spec must carry its clinical ``rationale`` and expected ``direction``.
+Every spec must carry its clinical ``rationale``, and may give its expected
+``direction``.
 Its column name and plain-language definition are generated from the spec
 itself, so the sentence a clinician reviews is exactly what was computed:
 

@@ -2,8 +2,8 @@
 
 import math
 import unittest
-from unittest import mock
 from datetime import datetime, timedelta
+from unittest import mock
 
 import numpy as np
 import polars as pl
@@ -281,6 +281,26 @@ class TestFutureBlind(unittest.TestCase):
         self.assertIn(None, screens)  # some one-sample screens pass
         with self.assertRaisesRegex(ValueError, "1 of 12 checked samples"):
             fs.augment(samples, [leak])
+
+    def test_same_named_specs_are_refused(self):
+        # Two different specs can slug to one name (e.g. where-values "A B"
+        # and "A_B"). The future-blind results are keyed by name, so a leak
+        # could hide behind a safe spec; compute, future_blind and augment
+        # refuse duplicate names instead.
+        fs = _space()
+        leak = fs.validate({"op": "stat", "agg": "max", "attr": "los", "window": 30,
+                            "select": {"event_type": "admissions"}, "rationale": "r"})
+        safe = fs.validate({"op": "count", "window": 365, "select": SABA,
+                            "rationale": "r"})
+        with mock.patch("pyhealth.autoimprove.features._name", return_value="same"):
+            for call in (
+                lambda: fs.augment(_samples(), [leak, safe]),
+                lambda: fs.augment(_samples(), [safe, leak]),
+                lambda: fs.compute([leak, safe], _samples()),
+                lambda: fs.future_blind([safe, leak], _samples()),
+            ):
+                with self.assertRaisesRegex(ValueError, "both named same"):
+                    call()
 
     def test_hand_built_specs_are_revalidated(self):
         # A spec built directly or from a dict skips validate(); compute,
