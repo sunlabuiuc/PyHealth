@@ -1,46 +1,86 @@
 class BaseEHRDataset:
-    """This class is deprecated and should not be used."""
+    """This class is deprecated and should not be used.
+
+    Examples:
+        >>> import warnings
+        >>> from pyhealth.datasets import BaseEHRDataset
+        >>> with warnings.catch_warnings(record=True) as caught:
+        ...     warnings.simplefilter("always")
+        ...     _ = BaseEHRDataset()
+        >>> caught[0].category.__name__
+        'DeprecationWarning'
+    """
 
     def __init__(self, *args, **kwargs):
-        import warnings
+        from pyhealth.utils import _warn_user
 
-        warnings.warn(
+        _warn_user(
             "The BaseEHRDataset class is deprecated and will be removed in a future version.",
             DeprecationWarning,
         )
 
 
 class BaseSignalDataset:
-    """This class is deprecated and should not be used."""
+    """This class is deprecated and should not be used.
+
+    Examples:
+        >>> import warnings
+        >>> from pyhealth.datasets import BaseSignalDataset
+        >>> with warnings.catch_warnings(record=True) as caught:
+        ...     warnings.simplefilter("always")
+        ...     _ = BaseSignalDataset()
+        >>> caught[0].category.__name__
+        'DeprecationWarning'
+    """
 
     def __init__(self, *args, **kwargs):
-        import warnings
+        from pyhealth.utils import _warn_user
 
-        warnings.warn(
+        _warn_user(
             "The BaseSignalDataset class is deprecated and will be removed in a future version.",
             DeprecationWarning,
         )
 
 
 class SampleEHRDataset:
-    """This class is deprecated and should not be used."""
+    """This class is deprecated and should not be used.
+
+    Examples:
+        >>> import warnings
+        >>> from pyhealth.datasets import SampleEHRDataset
+        >>> with warnings.catch_warnings(record=True) as caught:
+        ...     warnings.simplefilter("always")
+        ...     _ = SampleEHRDataset()
+        >>> caught[0].category.__name__
+        'DeprecationWarning'
+    """
 
     def __init__(self, *args, **kwargs):
-        import warnings
+        from pyhealth.utils import _warn_user
 
-        warnings.warn(
+        _warn_user(
             "The SampleEHRDataset class is deprecated and will be removed in a future version.",
             DeprecationWarning,
         )
 
 
 class SampleSignalDataset:
-    """This class is deprecated and should not be used."""
+    """This class is deprecated and should not be used.
+
+    Examples:
+        >>> import warnings
+        >>> from pyhealth.datasets import SampleSignalDataset
+        >>> with warnings.catch_warnings(record=True) as caught:
+        ...     warnings.simplefilter("always")
+        ...     _ = SampleSignalDataset()
+        >>> caught[0].category.__name__
+        'DeprecationWarning'
+    """
 
     def __init__(self, *args, **kwargs):
-        import warnings
+        from pyhealth.utils import _warn_user
 
-        warnings.warn(
+        _warn_user(
             "The SampleSignalDataset class is deprecated and will be removed in a future version.",
             DeprecationWarning,
         )

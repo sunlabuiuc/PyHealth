@@ -1,11 +1,11 @@
 import logging
-import warnings
 from pathlib import Path
 from typing import List, Optional
 
 import narwhals as pl
 
 from .base_dataset import BaseDataset
+from pyhealth.utils import _warn_user
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ class MIMIC3Dataset(BaseDataset):
         default_tables = ["patients", "admissions", "icustays"]
         tables = default_tables + tables
         if "prescriptions" in tables:
-            warnings.warn(
+            _warn_user(
                 "Events from prescriptions table only have date timestamp (no specific time). "
                 "This may affect temporal ordering of events.",
                 UserWarning,

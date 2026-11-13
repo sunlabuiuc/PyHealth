@@ -1,6 +1,5 @@
 import logging
 import os
-import warnings
 from typing import List, Optional
 
 import pandas as pd
@@ -14,6 +13,7 @@ except ImportError:
     HAS_PSUTIL = False
 
 from .base_dataset import BaseDataset
+from pyhealth.utils import _warn_user
 
 logger = logging.getLogger(__name__)
 
@@ -139,13 +139,13 @@ class MIMIC4NoteDataset(BaseDataset):
             )
             logger.info(f"Using default note config: {config_path}")
         if "discharge" in tables:
-            warnings.warn(
+            _warn_user(
                 "Events from discharge table only have date timestamp (no specific time). "
                 "This may affect temporal ordering of events.",
                 UserWarning,
             )
         if "discharge_detail" in tables:
-            warnings.warn(
+            _warn_user(
                 "Events from discharge_detail table only have date timestamp (no specific time). "
                 "This may affect temporal ordering of events.",
                 UserWarning,
