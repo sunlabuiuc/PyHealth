@@ -99,6 +99,50 @@ class TestSurvivalMetrics(unittest.TestCase):
         score = ipcw_brier_score([1, 2, 3], [1, 0, 1], [0.5, 0.3, 0.8], 2.5)
         self.assertAlmostEqual(score, (0.25 + 0.0 + 2 * 0.04) / 3)
 
+    def test_survival_metrics_numpy_horizons(self):
+        duration, event, risk = [1, 3, 4], [1, 0, 1], [3, 2, 1]
+        survival = np.array([[0.8, 0.0], [1.0, 0.7], [1.0, 0.9]])
+        for horizons in ([], [0.0], [1.0, 2.0]):
+            expected = survival_metrics_fn(
+                duration, event, risk, survival=survival,
+                time_grid=[0.5, 3.0], times=horizons,
+            )
+            for container in (tuple, np.array):
+                with self.subTest(horizons=horizons, container=container):
+                    actual = survival_metrics_fn(
+                        duration, event, risk, survival=survival,
+                        time_grid=[0.5, 3.0], times=container(horizons),
+                    )
+                    self.assertEqual(actual.keys(), expected.keys())
+                    np.testing.assert_allclose(
+                        list(actual.values()), list(expected.values()), equal_nan=True
+                    )
+
+    def test_survival_metrics_numpy_horizons_without_grid(self):
+        self.assertEqual(
+            survival_metrics_fn(
+                [1, 3, 4], [1, 0, 1], [3, 2, 1],
+                survival=np.array([[0.0], [1.0], [1.0]]), times=np.array([]),
+            ),
+            {"c_index": 1.0},
+        )
+        self.assertEqual(
+            survival_metrics_fn(
+                [1, 3, 4], [1, 0, 1], [3, 2, 1], times=np.array([1.0, 2.0])
+            ),
+            {"c_index": 1.0, "auc@1": 1.0, "auc@2": 1.0},
+        )
+        for horizons in ([0.0], [1.0, 2.0]):
+            with (
+                self.subTest(horizons=horizons),
+                self.assertRaisesRegex(ValueError, "time_grid is needed"),
+            ):
+                survival_metrics_fn(
+                    [1, 3, 4], [1, 0, 1], [3, 2, 1],
+                    survival=np.array([[0.0], [1.0], [1.0]]),
+                    times=np.array(horizons),
+                )
+
 
 class TestTrajSurvPieces(unittest.TestCase):
     def test_cox_loss_hand_checked(self):
