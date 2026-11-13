@@ -50,9 +50,9 @@ def cox_time_varying_loss(
     )
     # Stable log sum exp for each event's entire risk set.
     log_denominator = torch.logsumexp(
-        scores.unsqueeze(0).expand(event_times.numel(), -1).masked_fill(
-            ~risk_mask, float("-inf")
-        ),
+        scores.unsqueeze(0)
+        .expand(event_times.numel(), -1)
+        .masked_fill(~risk_mask, float("-inf")),
         dim=1,
     )
     return (log_denominator - scores[event_mask]).mean()
@@ -92,7 +92,6 @@ class MAS(BaseModel):
         if input_dim < 1:
             raise ValueError("input_dim must be positive")
         self.linear = nn.Linear(input_dim, 1, bias=False)
-        self.mode = None
 
     def forward(
         self,

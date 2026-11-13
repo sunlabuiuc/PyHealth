@@ -1,6 +1,7 @@
 """Fit MAS-4 on Mayo PBC and report enrollment concordance.
 
-Run with `python examples/pbcseq_liver_survival_mas.py --root /path/to/pbcseq-directory`.
+Run with
+`python examples/pbcseq_liver_survival_mas.py --root /path/to/pbcseq-directory`.
 Pass `--log-labs` to evaluate log-transformed labs on the same patient splits.
 """
 
@@ -37,8 +38,12 @@ def enrollment_concordance(model, dataset):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--root", required=True, help="Directory containing pbcseq.csv.")
-    parser.add_argument("--cache-dir", help="Directory for the processed dataset cache.")
+    parser.add_argument(
+        "--root", required=True, help="Directory containing pbcseq.csv."
+    )
+    parser.add_argument(
+        "--cache-dir", help="Directory for the processed dataset cache."
+    )
     parser.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4])
     parser.add_argument("--epochs", type=int, default=600)
     parser.add_argument("--lr", type=float, default=0.05)
