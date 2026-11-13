@@ -1,6 +1,6 @@
 """Fit MAS-4 on Mayo PBC and report enrollment concordance.
 
-Run with `python examples/pbcseq_mas.py --root /path/to/pbcseq-directory`.
+Run with `python examples/pbcseq_liver_survival_mas.py --root /path/to/pbcseq-directory`.
 Pass `--log-labs` to evaluate log-transformed labs on the same patient splits.
 """
 
