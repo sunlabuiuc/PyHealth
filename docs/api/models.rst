@@ -335,6 +335,7 @@ API Reference
     models/pyhealth.models.califorest
     models/pyhealth.models.XGBoostModel
     models/pyhealth.models.survival_mdn
+    models/pyhealth.models.personalized_survival_moe
     models/pyhealth.models.TrajSurv
     models/pyhealth.models.KnowRare
     models/pyhealth.models.APRICOTM
