@@ -9,6 +9,7 @@ import numpy as np
 
 from pyhealth.metrics import (
     concordance_td,
+    d_calibration,
     integrated_binomial_loglik_td,
     integrated_brier_score_td,
     survival_curve_metrics_fn,
@@ -35,6 +36,13 @@ class TestCensoringSurvival(unittest.TestCase):
         g = censoring_survival(times, events, [1.0, 2.0, 3.0, 5.0, 9.0])
         np.testing.assert_allclose(g, [1.0, 0.75, 0.75, 0.0, 0.0])
 
+    def test_unsorted_times_with_multiple_censorings_at_one_knot(self):
+        # Two of the four patients still at risk are censored at time 2.
+        g = censoring_survival(
+            [5.0, 2.0, 1.0, 3.0, 2.0], [1, 0, 1, 1, 0], [0, 1.5, 2, 3, 6]
+        )
+        np.testing.assert_allclose(g, [1.0, 0.75, 0.5, 0.5, 0.5])
+
     def test_linear_interpolation_between_knots(self):
         g = censoring_survival([1.0, 2.0, 3.0], [1, 0, 1], [0.5, 1.5, 2.5])
         np.testing.assert_allclose(g, [1.0, 0.75, 0.5])
@@ -45,6 +53,50 @@ class TestCensoringSurvival(unittest.TestCase):
         self.assertEqual(horizon(times, events, 0.7), 1.0)
         grid = integration_grid(times, events, 1e-8, num_points=5)
         np.testing.assert_allclose(grid, [1.0, 1.5, 2.0, 2.5, 3.0])
+
+
+class TestDCalibration(unittest.TestCase):
+    def test_observed_events_use_upper_inclusive_bins(self):
+        result = d_calibration([0.25, 0.5, 0.75, 1.0], [1, 1, 1, 1], num_bins=4)
+        self.assertEqual(result["bin_counts"], [1.0, 1.0, 1.0, 1.0])
+        self.assertEqual(result["bin_edges"], [0.0, 0.25, 0.5, 0.75, 1.0])
+        self.assertEqual(result["statistic"], 0.0)
+        self.assertEqual(result["p_value"], 1.0)
+
+    def test_censored_patients_contribute_fractional_counts(self):
+        # The p=0.4 patient contributes 0.25/0.4 and 0.15/0.4 to the
+        # first two bins. The p=1 patient contributes 0.25 to every bin.
+        result = d_calibration([0.4, 1.0], [0, 0], num_bins=4)
+        np.testing.assert_allclose(result["bin_counts"], [0.875, 0.625, 0.25, 0.25])
+        self.assertEqual(result["n_events"], 0)
+        self.assertEqual(result["n_censored"], 2)
+        self.assertAlmostEqual(result["statistic"], 0.5625)
+
+    def test_zero_probability_uses_floor(self):
+        result = d_calibration([0.0], [0], num_bins=4)
+        self.assertEqual(result["probability_floor"], 1e-5)
+        self.assertEqual(result["bin_counts"], [1.0, 0.0, 0.0, 0.0])
+        self.assertEqual(result["statistic"], 3.0)
+
+    def test_invalid_inputs(self):
+        cases = [
+            ([], [], 4, "nonempty aligned 1-D"),
+            ([0.5], [1, 0], 4, "nonempty aligned 1-D"),
+            ([[0.5]], [[1]], 4, "nonempty aligned 1-D"),
+            ([-0.1], [1], 4, "probabilities must be finite"),
+            ([1.1], [1], 4, "probabilities must be finite"),
+            ([np.nan], [1], 4, "probabilities must be finite"),
+            ([0.5], [2], 4, "events must be 0"),
+            ([0.5], [1], 1, "num_bins must be an integer"),
+            ([0.5], [1], 2.5, "num_bins must be an integer"),
+            ([0.5], [1], True, "num_bins must be an integer"),
+        ]
+        for probabilities, events, num_bins, message in cases:
+            with (
+                self.subTest(probabilities=probabilities, events=events, bins=num_bins),
+                self.assertRaisesRegex(ValueError, message),
+            ):
+                d_calibration(probabilities, events, num_bins=num_bins)
 
 
 class TestConcordanceTD(unittest.TestCase):

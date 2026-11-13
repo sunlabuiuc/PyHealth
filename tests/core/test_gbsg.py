@@ -6,9 +6,13 @@
 import csv
 import hashlib
 import json
+import sys
 import tempfile
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import numpy as np
 import polars as pl
@@ -206,6 +210,7 @@ class TestGBSGDataset(unittest.TestCase):
         for field, value in [
             ("source_id", ""),
             ("source_row", -1),
+            ("source_row", "unknown"),
             ("source_group", "other"),
             ("time", 0),
             ("event", 3),
@@ -265,6 +270,20 @@ class TestGBSGDataset(unittest.TestCase):
         )
         with (original / "gbsg.csv").open() as stream:
             rows = list(csv.DictReader(stream))
+        training_ids = set(membership["train"])
+        training_features = np.asarray(
+            [
+                [float(row[f"x{j}"]) for j in range(7)]
+                for row in rows
+                if row["source_id"] in training_ids
+            ]
+        )
+        np.testing.assert_allclose(
+            first["preprocessing"]["feature_mean"], training_features.mean(axis=0)
+        )
+        np.testing.assert_allclose(
+            first["preprocessing"]["feature_scale"], training_features.std(axis=0)
+        )
         heldout = set(membership["valid"] + membership["test"])
         for row in rows:
             if row["source_id"] in heldout:
@@ -298,6 +317,78 @@ class TestGBSGDataset(unittest.TestCase):
                 expected[sample["source_id"]]["features"],
                 rtol=0,
                 atol=0,
+            )
+
+
+class TestGBSGPreparationWithoutH5py(unittest.TestCase):
+    def test_missing_optional_dependency_reports_install_hint(self):
+        with (
+            patch.dict(sys.modules, {"h5py": None}),
+            self.assertRaisesRegex(ImportError, "install h5py"),
+        ):
+            prepare_gbsg_csv("source.h5", "prepared")
+
+    def test_converter_writes_source_rows_and_provenance(self):
+        groups = {
+            "train": {"x": [list(range(7))], "t": [12.5], "e": [1]},
+            "test": {"x": [list(range(7))], "t": [30.0], "e": [0]},
+        }
+        # Stand in for the HDF5 reader so CI exercises conversion and file
+        # output. The integration tests below exercise actual HDF5 files.
+        open_hdf5 = Mock(return_value=nullcontext(groups))
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.dict(sys.modules, {"h5py": SimpleNamespace(File=open_hdf5)}),
+        ):
+            root = Path(directory)
+            source = root / "source.h5"
+            source.write_bytes(b"source fixture")
+            out = root / "prepared"
+            metadata = prepare_gbsg_csv(source, out)
+            open_hdf5.assert_called_once_with(source, "r")
+
+            csv_path = out / "gbsg.csv"
+            with csv_path.open(newline="") as stream:
+                reader = csv.DictReader(stream)
+                self.assertEqual(
+                    reader.fieldnames,
+                    ["source_id", "source_group", "source_row"]
+                    + [f"x{i}" for i in range(7)]
+                    + ["time", "event"],
+                )
+                rows = list(reader)
+            self.assertEqual(
+                [
+                    (
+                        row["source_id"],
+                        row["source_group"],
+                        row["source_row"],
+                        row["time"],
+                        row["event"],
+                    )
+                    for row in rows
+                ],
+                [
+                    ("train_0", "train", "0", "12.5", "1"),
+                    ("test_0", "test", "0", "30.0", "0"),
+                ],
+            )
+            for row in rows:
+                self.assertEqual(
+                    [float(row[f"x{i}"]) for i in range(7)], list(range(7))
+                )
+            self.assertEqual(metadata["rows"], 2)
+            self.assertEqual(metadata["source_groups"], {"train": 1, "test": 1})
+            self.assertEqual(
+                metadata["source_sha256"],
+                hashlib.sha256(source.read_bytes()).hexdigest(),
+            )
+            self.assertEqual(
+                metadata["csv_sha256"],
+                hashlib.sha256(csv_path.read_bytes()).hexdigest(),
+            )
+            self.assertEqual(
+                metadata, json.loads((out / "gbsg-source.json").read_text())
             )
 
 

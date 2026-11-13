@@ -98,9 +98,11 @@ def censoring_survival(times, events, eval_times) -> np.ndarray:
     """
     times = _as_numpy(times)
     censored = 1.0 - _as_numpy(events)
-    knots = np.unique(times)
-    at_risk = (times[None, :] >= knots[:, None]).sum(axis=1)
-    n_censored = np.array([censored[times == k].sum() for k in knots])
+    knots, knot_index, counts = np.unique(
+        times, return_inverse=True, return_counts=True
+    )
+    at_risk = np.cumsum(counts[::-1])[::-1]
+    n_censored = np.bincount(knot_index, weights=censored, minlength=knots.size)
     g = np.cumprod(1.0 - n_censored / at_risk)
     return np.interp(
         _as_numpy(eval_times),
