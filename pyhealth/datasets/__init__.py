@@ -78,6 +78,7 @@ from .msd import (
     MSDSegmentationDataset as MSDSegmentationDataset,
     MSDSpleenDataset as MSDSpleenDataset,
 )
+from .mdace import MDACEDataset as MDACEDataset
 from .meds import MEDSDataset as MEDSDataset
 from .metabric import MetabricDataset as MetabricDataset
 from .mimic3 import MIMIC3Dataset

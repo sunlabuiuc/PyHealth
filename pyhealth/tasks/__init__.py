@@ -82,6 +82,7 @@ from .length_of_stay_prediction import (
     LengthOfStayPredictionOMOP,
 )
 from .length_of_stay_stagenet_mimic4 import LengthOfStayStageNetMIMIC4
+from .mdace_evidence_coding import MDACEEvidenceCoding as MDACEEvidenceCoding
 from .medical_coding import MIMIC3ICD9Coding
 from .meds_outcome_tasks import (
     HospitalReadmissionMEDS as HospitalReadmissionMEDS,
