@@ -319,6 +319,29 @@ class TestGBSGDataset(unittest.TestCase):
                 atol=0,
             )
 
+    @threaded_csv_loading()
+    def test_example_trains_and_reloads_checkpoint(self):
+        from examples.gbsg_survival_loading import main
+
+        output = self.root / "smoke-run"
+        args = ["gbsg_survival_loading.py", "--synthetic", "--epochs", "1"]
+        args += ["--output-dir", str(output)]
+        with patch.object(sys, "argv", args), torch.random.fork_rng(devices=[]):
+            main()
+
+        run = json.loads((output / "run.json").read_text())
+        self.assertEqual(run["validation"]["epochs"], 1)
+        self.assertEqual(run["validation"]["checkpoint_max_error"], 0.0)
+        self.assertTrue((output / "smoke/best.ckpt").is_file())
+        with np.load(output / "heldout-predictions.npz") as predictions:
+            self.assertCountEqual(
+                predictions["source_id"], run["split_source_ids"]["test"]
+            )
+            self.assertEqual(
+                predictions["survival"].shape,
+                (run["counts"]["test"], len(predictions["grid"])),
+            )
+
 
 class TestGBSGPreparationWithoutH5py(unittest.TestCase):
     def test_missing_optional_dependency_reports_install_hint(self):
