@@ -42,6 +42,11 @@ embeddings from ``--model_name`` and saves under ``caml_mdace/`` instead of
 ``plm_ca_mdace/``. Unless overridden, CAML uses the CAML paper's learning rate
 1e-4 and batch size 16 with no accumulation.
 
+Add ``--tm --init_checkpoint path/to/best.ckpt`` to fine-tune a trained model
+with token masking (:func:`pyhealth.interpret.methods.token_masking_loss`):
+one epoch at constant lr 1e-5, distilling from a frozen copy of the starting
+model. It saves under ``{model}_tm_mdace/``.
+
 Deviations from the paper (for compute): label space restricted to MDACE
 codes, notes truncated to 4096 tokens instead of 6000, 2 epochs instead of
 20, fixed 0.5 decision threshold. Training uses 10% linear warmup then
@@ -49,6 +54,7 @@ linear decay (``--warmup``) for both models.
 """
 
 import argparse
+import copy
 import math
 import os
 import random
@@ -62,7 +68,7 @@ from tqdm import tqdm
 from transformers import BertConfig, BertModel, PreTrainedTokenizerFast
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
-from pyhealth.interpret.methods import AttInGrad
+from pyhealth.interpret.methods import AttInGrad, token_masking_loss
 from pyhealth.metrics.interpretability import (
     best_plausibility_threshold,
     plausibility_metrics,
@@ -180,8 +186,15 @@ def run_synthetic(args: argparse.Namespace) -> None:
         args.output_dir = str(root / "output")
         args.device = args.device or "cpu"
         args.max_length, args.chunk_size, args.batch_size = 128, 32, 16
+        tm, tm_epochs, tm_lr = args.tm, args.epochs, args.lr
+        args.tm = False
         args.epochs, args.lr, args.ig_steps, args.accum = 15, 1e-3, 8, 1
         train(args)
+        if tm:
+            # TM fine-tunes the base model just trained, as in the paper.
+            args.init_checkpoint = str(root / "output" / exp_name(args) / "best.ckpt")
+            args.tm, args.epochs, args.lr = True, tm_epochs, tm_lr
+            train(args)
         args.checkpoint = str(root / "output" / exp_name(args) / "best.ckpt")
         evaluate(args)
 
@@ -192,7 +205,7 @@ MODEL_DEFAULTS = {"plm_ca": (5e-5, 2, 8), "caml": (1e-4, 16, 1)}
 
 def exp_name(args: argparse.Namespace) -> str:
     """Checkpoint folder name, separate per model so runs never overwrite."""
-    return f"{args.model}_mdace"
+    return f"{args.model}_tm_mdace" if args.tm else f"{args.model}_mdace"
 
 
 def build_model(args: argparse.Namespace, dataset) -> PLMCA | CAML:
@@ -275,18 +288,41 @@ def train(args: argparse.Namespace) -> None:
         f"val notes {len(val_samples)}"
     )
 
+    extra = []
+    if args.init_checkpoint:
+        # One unused sample holding every code of the full train + val split
+        # gives the starting model's label order, even with --max_train.
+        vocab = set()
+        for split in ("train", "val"):
+            df = pl.read_parquet(
+                processed / "mdace_icd9_inpatient_code" / f"{split}.parquet",
+                columns=["diagnosis_codes", "procedure_codes"],
+            )
+            for row in df.iter_rows(named=True):
+                vocab.update(note_codes(row))
+        extra = [
+            {
+                "patient_id": "vocab",
+                "note_id": "vocab",
+                TEXT_KEY: "",
+                LABEL_KEY: sorted(vocab & labels),
+            }
+        ]
     dataset = create_sample_dataset(
-        samples=train_samples + val_samples,
+        samples=train_samples + val_samples + extra,
         input_schema={TEXT_KEY: "text"},
         output_schema={LABEL_KEY: "multilabel"},
         dataset_name="mdace_icd9_coding",
     )
     n_train = len(train_samples)
     train_ds = dataset.subset(range(n_train))
-    val_ds = dataset.subset(range(n_train, len(dataset)))
+    val_ds = dataset.subset(range(n_train, n_train + len(val_samples)))
 
     torch.manual_seed(args.seed)
     model = build_model(args, dataset)
+    if args.init_checkpoint:
+        state = torch.load(args.init_checkpoint, map_location="cpu", weights_only=True)
+        model.load_state_dict(state)
     # Trainer is used for evaluation only. The training loop below follows
     # the authors' recipe, which Trainer lacks: gradient accumulation to an
     # effective batch of batch_size * accum, 10% linear warmup then linear
@@ -308,16 +344,44 @@ def train(args: argparse.Namespace) -> None:
     warmup = max(1, int(args.warmup * updates))
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer,
-        lambda step: min(
-            (step + 1) / warmup, max(0.0, (updates - step) / (updates - warmup))
-        ),
+        lambda step: 1.0  # TM: constant lr, as in the authors' TM config
+        if args.tm
+        else min((step + 1) / warmup, max(0.0, (updates - step) / (updates - warmup))),
     )
+    if args.tm:
+        # Token masking distils from the frozen starting model. Its logits are
+        # computed on the fly (one no-grad forward per batch, small next to
+        # the up to tm_iters mask updates) instead of the authors' pass over
+        # the whole dataset before training.
+        teacher = copy.deepcopy(model).eval().requires_grad_(False)
+        mask_iters, kept = [], []
     best = -1.0
     for epoch in range(args.epochs):
         model.train()
         running = 0.0
         for step, batch in enumerate(tqdm(train_loader, desc=f"epoch {epoch}")):
-            loss = model(**batch)["loss"] / args.accum
+            if args.tm:
+                ids, mask = model.tokenize(batch[TEXT_KEY])
+                with torch.no_grad():
+                    teacher_logits = teacher.forward_from_embedding(
+                        teacher.get_input_embeddings()(ids), mask
+                    )["logit"]
+                out = token_masking_loss(
+                    model,
+                    ids,
+                    mask,
+                    teacher_logits,
+                    lambda_1=args.tm_lambda,
+                    diet_constant=args.tm_diet,
+                    lr=args.tm_mask_lr,
+                    max_iter=args.tm_iters,
+                    baseline_token_id=args.tm_baseline_id,
+                )
+                mask_iters.append(out["iterations"])
+                kept.append(out["mask"][mask.bool()].mean().item())
+                loss = out["loss"] / args.accum
+            else:
+                loss = model(**batch)["loss"] / args.accum
             loss.backward()
             running += loss.item()
             last = step + 1 == len(train_loader)
@@ -330,6 +394,13 @@ def train(args: argparse.Namespace) -> None:
                 avg = running * args.accum / (args.accum * 50)
                 print(f"step {step + 1}: train loss {avg:.4f}", flush=True)
                 running = 0.0
+        if args.tm:
+            print(
+                f"epoch {epoch} TM: mean mask iterations "
+                f"{sum(mask_iters) / len(mask_iters):.2f}, tokens kept "
+                f"{sum(kept) / len(kept):.1%}",
+                flush=True,
+            )
         scores = trainer.evaluate(val_loader)
         print(f"epoch {epoch} val: {scores}", flush=True)
         trainer.save_ckpt(os.path.join(trainer.exp_path, "last.ckpt"))
@@ -419,6 +490,7 @@ def evaluate(args: argparse.Namespace) -> None:
             df = df.head(args.max_eval_notes)
         pairs[split] = explain_split(model, df, args.ig_steps)
         print(f"{split}: {len(pairs[split])} (note, code) pairs")
+    test_texts = dict(zip(df["note_id"], df["text"]))
 
     rows = []
     for method in EXPLANATION_METHODS:
@@ -433,6 +505,57 @@ def evaluate(args: argparse.Namespace) -> None:
             ks=(5,),
         )
         rows.append({"method": method, "threshold": threshold, **test})
+
+    if args.faithfulness:
+        # Comprehensiveness / sufficiency as in the authors' evaluation code:
+        # word-level (byte-level BPE tokenizers), mask-token baseline, K=100,
+        # step 2, only pairs whose code is predicted (p > 0.5).
+        from pyhealth.metrics.interpretability import faithfulness, word_feature_map
+
+        vocab = model.dataset.output_processors[LABEL_KEY].label_vocab
+        faith = {method: [] for method in EXPLANATION_METHODS}
+        for pair in tqdm(pairs["test"], desc="faithfulness"):
+            text = test_texts[pair["note_id"]]
+            input_ids, attention_mask = model.tokenize(text)
+            class_idx = vocab[pair["code"]]
+            with torch.no_grad():
+                embeds = model.get_input_embeddings()(input_ids)
+                logit = model.forward_from_embedding(embeds, attention_mask)["logit"]
+            if torch.sigmoid(logit[0, class_idx]) <= 0.5:
+                continue
+            offsets = model.tokenizer(
+                text,
+                truncation=True,
+                max_length=model.max_length,
+                return_offsets_mapping=True,
+            )["offset_mapping"]
+            positions = torch.tensor([i for i, (a, b) in enumerate(offsets) if b > a])
+            tokens = model.tokenizer.convert_ids_to_tokens(
+                input_ids[0, positions].tolist()
+            )
+            byte_level = any(t.startswith("Ġ") for t in tokens)
+            words = word_feature_map(tokens) if byte_level else None
+            for method in EXPLANATION_METHODS:
+                faith[method].append(
+                    faithfulness(
+                        model,
+                        input_ids[0],
+                        attention_mask[0],
+                        pair[method],
+                        class_idx,
+                        model.tokenizer.mask_token_id,
+                        positions=positions,
+                        feature_map=words,
+                    )
+                )
+        n_pairs = len(faith[EXPLANATION_METHODS[0]])
+        print(f"faithfulness: {n_pairs} test pairs with the code predicted")
+        for row in rows:
+            scores = faith[row["method"]]
+            for key in ("comprehensiveness", "sufficiency"):
+                values = [s[key] for s in scores]
+                row[key] = sum(values) / len(values) if values else float("nan")
+            row["faithfulness_pairs"] = n_pairs
     results = pl.DataFrame(rows)
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -449,6 +572,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", type=str, default=None)
     parser.add_argument("--ig_steps", type=int, default=20)
     parser.add_argument("--max_eval_notes", type=int, default=None)
+    parser.add_argument(
+        "--faithfulness",
+        action="store_true",
+        help="with --evaluate: add comprehensiveness and sufficiency (slow: "
+        "about 102 forward passes per method and predicted test pair)",
+    )
     parser.add_argument("--synthetic", action="store_true")
     parser.add_argument("--processed", type=str, default=None)
     parser.add_argument("--model_name", type=str, default=None)
@@ -457,14 +586,39 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max_length", type=int, default=4096)
     parser.add_argument("--chunk_size", type=int, default=128)
     parser.add_argument("--batch_size", type=int, default=None)
-    parser.add_argument("--epochs", type=int, default=2)
+    parser.add_argument("--epochs", type=int, default=None, help="2 (1 with --tm)")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--max_train", type=int, default=None)
     parser.add_argument("--accum", type=int, default=None)
     parser.add_argument("--warmup", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=42)
+    # Token masking (TM) fine-tuning; defaults are the authors' TM config.
+    parser.add_argument(
+        "--tm",
+        action="store_true",
+        help="fine-tune --init_checkpoint with token masking; saves to "
+        "{model}_tm_mdace (lr 1e-5 and 1 epoch unless set)",
+    )
+    parser.add_argument("--init_checkpoint", type=str, default=None)
+    parser.add_argument("--tm_lambda", type=float, default=1.0)
+    parser.add_argument("--tm_diet", type=float, default=0.01)
+    parser.add_argument("--tm_mask_lr", type=float, default=0.1)
+    parser.add_argument("--tm_iters", type=int, default=20)
+    parser.add_argument(
+        "--tm_baseline_id",
+        type=int,
+        default=None,
+        help="token id for masked tokens (default: the mask token; the "
+        "authors' TM runs used 50001, an unused RoBERTa-PM embedding row)",
+    )
     args = parser.parse_args()
     lr, batch_size, accum = MODEL_DEFAULTS[args.model]
+    if args.tm:
+        lr = 1e-5
+        if not (args.synthetic or args.init_checkpoint):
+            parser.error("--tm needs --init_checkpoint (the model to fine-tune)")
+    if args.epochs is None:
+        args.epochs = 1 if args.tm else 2
     args.lr = lr if args.lr is None else args.lr
     args.batch_size = batch_size if args.batch_size is None else args.batch_size
     args.accum = accum if args.accum is None else args.accum
