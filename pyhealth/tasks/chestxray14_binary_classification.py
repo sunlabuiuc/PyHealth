@@ -31,6 +31,8 @@ class ChestXray14BinaryClassification(BaseTask):
     A PyHealth task class for binary classification of a specific disease
     in the ChestXray14 dataset.
 
+    Works with :class:`~pyhealth.datasets.ChestXray14Dataset`.
+
     Attributes:
         task_name (str): The name of the task.
         input_schema (Dict[str, str]): The schema for the task input.

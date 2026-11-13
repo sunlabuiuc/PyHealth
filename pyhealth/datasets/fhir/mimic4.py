@@ -31,6 +31,17 @@ class MIMIC4FHIR(FHIRDataset):
     matches both the PhysioNet 2.1.0 demo and the full release. Override
     ``config_path=`` to point at a customised copy.
 
+    Getting the data:
+        - Source: https://physionet.org/content/mimic-iv-fhir/2.1/
+        - Access: credentialed. Create a PhysioNet account, complete credentialing
+          (https://physionet.org/settings/credentialing/) and the CITI course,
+          then sign the data use agreement on the dataset page.
+        - Download: ``wget -r -N -c -np --user <username> --ask-password
+          https://physionet.org/files/mimic-iv-fhir/2.1/``
+        - ``root``: the folder holding the ``*.ndjson.gz`` files.
+        - No access yet? The open demo has the same layout:
+          https://physionet.org/content/mimic-iv-fhir-demo/2.1.0/
+
     Examples:
         >>> ds = MIMIC4FHIR(root="/data/mimic-iv-fhir", max_patients=500)
         >>> sample_ds = ds.set_task(task, num_workers=4)

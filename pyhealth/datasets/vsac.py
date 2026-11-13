@@ -283,6 +283,16 @@ class VSACDataset(BaseDataset):
     under ``root``. They are not refreshed, so delete them to rebuild after
     the expansions or the manifest change.
 
+    Getting the data:
+        - Source: https://vsac.nlm.nih.gov
+        - Access: free UMLS license. Sign up at
+          https://uts.nlm.nih.gov/uts/signup-login, then copy your API key from
+          your UTS profile.
+        - Download: :meth:`download_expansions` with ``api_key`` (or the
+          ``UMLS_API_KEY`` environment variable set) writes the files ``root``
+          needs.
+        - ``root``: the folder holding ``expansions/``.
+
     Args:
         root: Directory with ``expansions/`` and an optional manifest.
         tables: Additional tables to load beyond ``valuesets`` and ``codes``.
