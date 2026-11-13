@@ -22,6 +22,15 @@ Description:
       (special tokens kept), reduced per token with the L2 norm.
     * ``"att_ig"``: attention times Integrated Gradients. Not in the paper;
       used to ablate whether AttInGrad's gain needs InputXGrad specifically.
+    * ``"deeplift"``: DeepLIFT on the embeddings from the same mask-token
+      baseline, reduced per token with the L2 norm. It reuses the Rescale
+      hooks of :class:`~pyhealth.interpret.methods.DeepLift`: ``nn.ReLU``,
+      ``nn.Sigmoid`` and ``nn.Tanh`` modules get the multiplier
+      ``delta_out / delta_in``; every other operation (functional
+      ``torch.tanh``, softmax, GELU, LayerNorm) uses the linear rule, i.e.
+      its gradient at the input. This is also what captum's ``DeepLift``,
+      used by the authors, does with operations it does not know.
+    * ``"att_deeplift"``: attention times DeepLIFT, for the same ablation.
 
     Following the authors' code, gradients are taken with respect to the
     logit (not the probability), and each explanation is L1-normalized so
@@ -33,8 +42,17 @@ from typing import Dict, Optional
 import torch
 
 from pyhealth.interpret.methods.base_interpreter import BaseInterpreter
+from pyhealth.interpret.methods.deeplift import _DeepLiftHookContext
 
-METHODS = ("attention", "inputxgrad", "attingrad", "integrated_gradients", "att_ig")
+METHODS = (
+    "attention",
+    "inputxgrad",
+    "attingrad",
+    "integrated_gradients",
+    "att_ig",
+    "deeplift",
+    "att_deeplift",
+)
 
 
 class AttInGrad(BaseInterpreter):
@@ -47,7 +65,8 @@ class AttInGrad(BaseInterpreter):
             returning ``logit`` ``[batch, J]`` and ``attention``
             ``[batch, J, N]``, for example :class:`~pyhealth.models.PLMCA`.
         method: One of ``"attention"``, ``"inputxgrad"``, ``"attingrad"``,
-            ``"integrated_gradients"`` or ``"att_ig"``.
+            ``"integrated_gradients"``, ``"att_ig"``, ``"deeplift"`` or
+            ``"att_deeplift"``.
         steps: Riemann steps for Integrated Gradients.
 
     Raises:
@@ -108,12 +127,17 @@ class AttInGrad(BaseInterpreter):
             with torch.enable_grad():
                 raw = self.integrated_gradients(embeddings, baseline, mask, targets)
             inputs = raw.norm(p=2, dim=-1)
+        elif self.method in ("deeplift", "att_deeplift"):
+            baseline = embed(self._baseline_ids(input_ids, mask)).detach()
+            with torch.enable_grad():
+                raw = self.deeplift(embeddings, baseline, mask, targets)
+            inputs = raw.norm(p=2, dim=-1)
         else:
             inputs = (embeddings * grad).norm(p=2, dim=-1)
 
         if self.method == "attention":
             scores = attention
-        elif self.method in ("inputxgrad", "integrated_gradients"):
+        elif self.method in ("inputxgrad", "integrated_gradients", "deeplift"):
             scores = inputs
         else:
             scores = attention * inputs
@@ -141,6 +165,30 @@ class AttInGrad(BaseInterpreter):
             _, grad = self._logit_gradient(point, mask, targets)
             total += grad
         return (embeddings - baseline) * total / self.steps
+
+    def deeplift(
+        self,
+        embeddings: torch.Tensor,
+        baseline: torch.Tensor,
+        mask: torch.Tensor,
+        targets: torch.Tensor,
+    ) -> torch.Tensor:
+        """DeepLIFT (Rescale rule) per embedding dimension, ``[batch, N, E]``.
+
+        A reference pass on ``baseline`` records the activations, then the
+        backward pass on ``embeddings`` swaps each hooked activation's
+        derivative for its secant multiplier. For a model whose only
+        nonlinearities are hooked modules, the attributions summed over all
+        tokens and dimensions equal ``logit(x) - logit(baseline)``. With no
+        hooked modules this is ``(x - baseline) * dlogit/dx`` at ``x``.
+        """
+        with _DeepLiftHookContext(self.model) as hooks:
+            hooks.start_baseline()
+            with torch.no_grad():
+                self.model.forward_from_embedding(baseline, mask)
+            hooks.start_actual()
+            _, grad = self._logit_gradient(embeddings, mask, targets)
+        return (embeddings - baseline) * grad
 
     def _logit_gradient(self, embeddings, mask, targets):
         """Gradient of each note's target logit w.r.t. its embeddings."""
