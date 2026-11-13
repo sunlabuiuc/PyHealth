@@ -38,7 +38,8 @@ def spans_to_token_ids(
             exclusive).
 
     Returns:
-        Sorted token indices. Spans past the truncated text give no tokens.
+        Sorted token indices. Spans past the truncated text, and empty or
+        inverted spans (``end <= start``), give no tokens.
 
     Example:
         >>> spans_to_token_ids([(0, 0), (0, 5), (6, 10), (0, 0)], [(6, 8)])
@@ -46,6 +47,8 @@ def spans_to_token_ids(
     """
     hits = set()
     for start, end in spans:
+        if end <= start:
+            continue  # empty or inverted span (e.g. left by trimming): no evidence
         for index, (tok_start, tok_end) in enumerate(offsets):
             if tok_end > tok_start and tok_start < end and tok_end > start:
                 hits.add(index)
