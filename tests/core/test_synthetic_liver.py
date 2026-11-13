@@ -10,6 +10,7 @@ from pyhealth.datasets import (
     create_synthetic_liver_dataset,
     generate_synthetic_pbcseq,
     get_dataloader,
+    write_synthetic_pbcseq_csv,
 )
 
 
@@ -131,6 +132,35 @@ class TestCreateSyntheticLiverDataset(unittest.TestCase):
             sorted({dataset[i]["patient_id"] for i in range(len(dataset))}),
             ["1", "2", "3"],
         )
+
+
+class TestWriteSyntheticPbcseqCsv(unittest.TestCase):
+    def test_writes_every_pbcseq_column(self):
+        import shutil
+        import tempfile
+
+        import pandas as pd
+
+        from pyhealth.datasets.pbcseq import REQUIRED_COLUMNS
+
+        directory = tempfile.mkdtemp()
+        try:
+            path = write_synthetic_pbcseq_csv(directory, n_patients=6, seed=1)
+            frame = pd.read_csv(path)
+            self.assertIn("alk.phos", frame.columns)
+            renamed = set(frame.columns) | {"alk_phos"}
+            self.assertTrue(set(REQUIRED_COLUMNS) <= renamed)
+            self.assertEqual(frame["id"].nunique(), 6)
+            per_patient = frame.groupby("id")[["futime", "status", "stage", "sex"]]
+            self.assertTrue((per_patient.nunique() == 1).all().all())
+            again = pd.read_csv(write_synthetic_pbcseq_csv(directory, 6, seed=1))
+            pd.testing.assert_frame_equal(frame, again)
+        finally:
+            shutil.rmtree(directory)
+
+    def test_rejects_feature_names(self):
+        with self.assertRaises(ValueError):
+            write_synthetic_pbcseq_csv("unused", feature_names=["bili"])
 
 
 if __name__ == "__main__":

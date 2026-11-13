@@ -19,6 +19,8 @@ survival models and to run the MAS example without real patient data.
 
 .. autofunction:: create_synthetic_liver_dataset
 
+.. autofunction:: write_synthetic_pbcseq_csv
+
 .. autodata:: MAS4_FEATURES
 
 .. autodata:: MAS6_FEATURES

@@ -92,6 +92,7 @@ from .synthetic_liver import (
     MAS6_FEATURES,
     create_synthetic_liver_dataset,
     generate_synthetic_pbcseq,
+    write_synthetic_pbcseq_csv,
 )
 from .tcga_prad import TCGAPRADDataset
 from .vsac import VSACDataset as VSACDataset

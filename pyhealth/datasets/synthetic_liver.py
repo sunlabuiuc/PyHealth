@@ -18,6 +18,7 @@ the sign in :data:`FEATURE_PROFILES`. Patients are censored at a uniform time,
 and a fraction are transplanted first (status 1), as in ``pbcseq``.
 """
 
+import pathlib
 from collections.abc import Sequence
 
 import numpy as np
@@ -182,6 +183,81 @@ def generate_synthetic_pbcseq(
 
     columns = ["id", "day", "futime", "status", *feature_names]
     return pd.DataFrame(rows, columns=columns)
+
+
+def write_synthetic_pbcseq_csv(
+    directory: str | pathlib.Path,
+    n_patients: int = 200,
+    seed: int = 0,
+    **generator_kwargs,
+) -> pathlib.Path:
+    """Writes a synthetic ``pbcseq.csv`` that :class:`PBCSeqDataset` can load.
+
+    The four MAS labs (``bili``, ``albumin``, ``ast``, ``protime``) and the
+    outcomes come from :func:`generate_synthetic_pbcseq`. The other ``pbcseq``
+    columns are filled with plausible, outcome-independent values: treatment,
+    age, sex, clinical signs, cholesterol, alkaline phosphatase, platelets, and
+    a histologic stage that is constant per patient. Columns use the R names
+    (``alk.phos``), as in a real export. Use it to run the full PBC pipeline
+    without the real data.
+
+    Args:
+        directory: Directory to write ``pbcseq.csv`` into (created if needed).
+        n_patients: Number of patients.
+        seed: Seed for the labs, outcomes, and filler columns.
+        **generator_kwargs: Extra arguments for
+            :func:`generate_synthetic_pbcseq` (not ``feature_names``).
+
+    Returns:
+        The path of the written CSV.
+
+    Raises:
+        ValueError: If ``feature_names`` is passed.
+
+    Examples:
+        >>> import tempfile
+        >>> path = write_synthetic_pbcseq_csv(tempfile.mkdtemp(), n_patients=3)
+        >>> path.name
+        'pbcseq.csv'
+    """
+    if "feature_names" in generator_kwargs:
+        raise ValueError("write_synthetic_pbcseq_csv always writes the MAS-4 labs.")
+    visits = generate_synthetic_pbcseq(
+        n_patients=n_patients,
+        feature_names=MAS4_FEATURES,
+        seed=seed,
+        **generator_kwargs,
+    )
+    rng = np.random.default_rng([seed, 1])
+    ids = visits["id"].unique()
+    per_patient = pd.DataFrame(
+        {
+            "id": ids,
+            "trt": rng.integers(1, 3, len(ids)),
+            "age": np.round(rng.normal(50.0, 10.0, len(ids)), 2),
+            "sex": np.where(rng.random(len(ids)) < 0.9, "f", "m"),
+            "stage": rng.integers(1, 5, len(ids)),
+        }
+    )
+    frame = visits.merge(per_patient, on="id", how="left")
+    n = len(frame)
+    frame["ascites"] = (rng.random(n) < 0.1).astype(int)
+    frame["hepato"] = (rng.random(n) < 0.5).astype(int)
+    frame["spiders"] = (rng.random(n) < 0.3).astype(int)
+    frame["edema"] = rng.choice([0.0, 0.5, 1.0], n, p=[0.85, 0.1, 0.05])
+    frame["chol"] = np.round(rng.lognormal(np.log(330.0), 0.4, n))
+    frame["alk.phos"] = np.round(rng.lognormal(np.log(1200.0), 0.6, n))
+    frame["platelet"] = np.round(rng.normal(250.0, 80.0, n).clip(30.0))
+    columns = [
+        "id", "futime", "status", "trt", "age", "sex", "day", "ascites", "hepato",
+        "spiders", "edema", "bili", "chol", "albumin", "alk.phos", "ast",
+        "platelet", "protime", "stage",
+    ]  # fmt: skip
+    directory = pathlib.Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / "pbcseq.csv"
+    frame[columns].to_csv(path, index=False)
+    return path
 
 
 def create_synthetic_liver_dataset(
