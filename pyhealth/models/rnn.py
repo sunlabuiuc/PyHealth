@@ -14,7 +14,7 @@ from pyhealth.processors import (
     NestedFloatsProcessor,
     NestedSequenceProcessor,
     SequenceProcessor,
-    SequenceProcessorV2,
+    JaggedFeatureProcessor,
     StageNetProcessor,
     StageNetTensorProcessor,
     TimeseriesLabelProcessor,
@@ -236,7 +236,7 @@ class RNN(BaseModel):
         if per_step:
             raise ValueError(
                 "RNN does not support per-step (timeseries_*) labels; use "
-                "RNN_V2 with sequence_v2 inputs."
+                "RNN_V2 with jagged inputs."
             )
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
@@ -445,7 +445,7 @@ class MultimodalRNN(BaseModel):
         if per_step:
             raise ValueError(
                 "MultimodalRNN does not support per-step (timeseries_*) labels; "
-                "use RNN_V2 with sequence_v2 inputs."
+                "use RNN_V2 with jagged inputs."
             )
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
@@ -601,7 +601,7 @@ class MultimodalRNN(BaseModel):
 
 
 # ----------------------------------------------------------------------------
-# RNN_V2: RNNs over the packed records of SequenceProcessorV2 fields
+# RNN_V2: RNNs over the packed records of JaggedFeatureProcessor fields
 # ----------------------------------------------------------------------------
 
 RNNType = Literal["RNN", "LSTM", "GRU"]
@@ -694,7 +694,7 @@ class _FieldRNN(nn.Module):
     def __init__(
         self,
         field: str,
-        processor: SequenceProcessorV2,
+        processor: JaggedFeatureProcessor,
         level_dims: Sequence[int],
         hidden_dim: int,
         rnn_type: RNNType,
@@ -781,12 +781,12 @@ class _FieldRNN(nn.Module):
 
 
 class RNN_V2(BaseModel):
-    """RNN model over :class:`~pyhealth.processors.SequenceProcessorV2` fields.
+    """RNN model over :class:`~pyhealth.processors.JaggedFeatureProcessor` fields.
 
     Each V2 field is embedded by :class:`SequenceEmbeddingModel` and encoded
     into one summary per sample, independently of the other fields. The
     summaries are concatenated and a linear layer predicts the label. Every
-    input field must be ``"sequence_v2"``: sequences, sets and tokens are
+    input field must be ``"jagged"``: sequences, sets and tokens are
     expressed with it, and so are static values, as a ``series`` with one
     record at ``t = 0`` (known before the first event), which goes through its
     own RNN like any other field.
@@ -797,7 +797,7 @@ class RNN_V2(BaseModel):
     ``sequence`` / ``series`` level runs its RNN over each group and keeps
     the last output, giving one summary per parent record, up to one per sample.
     So a record and everything below it are encoded as one unit. Following
-    :class:`~pyhealth.processors.SequenceProcessorV2`, each level's time has
+    :class:`~pyhealth.processors.JaggedFeatureProcessor`, each level's time has
     its own unit and origin, and only orders the records of a group.
 
     A group without records (e.g. a stay without labs) is skipped by the RNN
@@ -853,8 +853,8 @@ class RNN_V2(BaseModel):
         >>> dataset = create_sample_dataset(
         ...     samples,
         ...     {
-        ...         "age": ("sequence_v2", {"levels": age}),
-        ...         "visits": ("sequence_v2", {"levels": visits}),
+        ...         "age": ("jagged", {"levels": age}),
+        ...         "visits": ("jagged", {"levels": visits}),
         ...     },
         ...     {"label": "binary"},
         ... )
@@ -889,10 +889,10 @@ class RNN_V2(BaseModel):
 
         for field in self.feature_keys:
             processor = dataset.input_processors[field]
-            if not isinstance(processor, SequenceProcessorV2):
+            if not isinstance(processor, JaggedFeatureProcessor):
                 raise TypeError(
                     f"Field '{field}': {type(processor).__name__} is not supported. "
-                    "RNN_V2 takes only 'sequence_v2' fields: express sequences, "
+                    "RNN_V2 takes only 'jagged' fields: express sequences, "
                     "sets and tokens with it, and static values as a 'series' "
                     "with one record at t = 0."
                 )
@@ -933,7 +933,7 @@ class RNN_V2(BaseModel):
                     "would use future time steps."
                 )
         self.processors = {
-            field: cast(SequenceProcessorV2, dataset.input_processors[field])
+            field: cast(JaggedFeatureProcessor, dataset.input_processors[field])
             for field in fields
         }
         if self.per_step:
