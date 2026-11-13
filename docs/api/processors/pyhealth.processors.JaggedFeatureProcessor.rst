@@ -1,8 +1,8 @@
-pyhealth.processors.SequenceProcessorV2
-=======================================
+pyhealth.processors.JaggedFeatureProcessor
+===========================================
 
-:class:`~pyhealth.processors.SequenceProcessorV2` (registered as
-``"sequence_v2"``) processes sequential, hierarchical, and temporal clinical
+:class:`~pyhealth.processors.JaggedFeatureProcessor` (registered as
+``"jagged"``; the former name ``"sequence_v2"`` is deprecated) processes sequential, hierarchical, and temporal clinical
 records—categorical medical codes, continuous physiological measurements, and
 timestamps at any nesting depth—into packed tensors without padding or
 truncation.
@@ -11,7 +11,7 @@ Overview: Packed Records & Offsets at a Glance
 ----------------------------------------------
 
 Instead of padding variable-length clinical encounters into rectangular arrays,
-:class:`~pyhealth.processors.SequenceProcessorV2` packs all records at a level
+:class:`~pyhealth.processors.JaggedFeatureProcessor` packs all records at a level
 contiguously into 1D/ND payload tensors and tracks group boundaries with a 1D
 ``offsets`` tensor (Compressed Sparse Row / jagged layout):
 
@@ -34,11 +34,11 @@ from the innermost atomic level (level ``0``) outward to level ``L``:
 
     input_schema = {
         "diagnoses": (
-            "sequence_v2",
+            "jagged",
             {"levels": [{"ordering": "set", "tokens": 1}, {"ordering": "sequence"}]},
         ),
         "vitals": (
-            "sequence_v2",
+            "jagged",
             {"levels": [{"ordering": "series", "values": [2]}]},
         ),
     }
@@ -58,7 +58,7 @@ Glossary
    * - :class:`~pyhealth.processors.Records`
      - Plain ``dict`` returned by a task for one level, holding columnar sequences: ``tokens``, ``values``, ``time``, and ``children`` (a list of child ``Records`` one level down; omitted at level ``0``). On a ``"single"`` level every column has length 1.
    * - **Record count** (``N_l``)
-     - Total number of records at level ``l`` packed across one sample (in :meth:`~pyhealth.processors.SequenceProcessorV2.process`) or across an entire batch (in :meth:`~pyhealth.processors.SequenceProcessorV2.collate`).
+     - Total number of records at level ``l`` packed across one sample (in :meth:`~pyhealth.processors.JaggedFeatureProcessor.process`) or across an entire batch (in :meth:`~pyhealth.processors.JaggedFeatureProcessor.collate`).
    * - **Group**
      - The contiguous slice of level-``l`` records belonging to a single parent record ``j`` at level ``l + 1``.
    * - **Role**
@@ -74,7 +74,7 @@ Glossary
    * - ``spatial``
      - One ``bool`` per axis of ``S_l``: ``False`` marks unordered channel/feature axes; ``True`` marks ordered continuous spatial or high-frequency waveform axes.
    * - ``schema()`` vs. ``batch_schema()``
-     - Tuple of ``(level, role)`` keys matching the positional tensor tuple returned by :meth:`~pyhealth.processors.SequenceProcessorV2.process` vs. :meth:`~pyhealth.processors.SequenceProcessorV2.collate` (which appends batch boundaries ``(L, "offsets")`` of shape ``[B + 1]``).
+     - Tuple of ``(level, role)`` keys matching the positional tensor tuple returned by :meth:`~pyhealth.processors.JaggedFeatureProcessor.process` vs. :meth:`~pyhealth.processors.JaggedFeatureProcessor.collate` (which appends batch boundaries ``(L, "offsets")`` of shape ``[B + 1]``).
 
 
 Minimal Examples & Batching
@@ -93,9 +93,9 @@ during ``fit()`` map to ``1`` (``<unk>``) without truncation:
 
 .. code-block:: python
 
-    from pyhealth.processors import SequenceProcessorV2
+    from pyhealth.processors import JaggedFeatureProcessor
 
-    flat_proc = SequenceProcessorV2(levels=[{"ordering": "sequence", "tokens": 1}])
+    flat_proc = JaggedFeatureProcessor(levels=[{"ordering": "sequence", "tokens": 1}])
     flat_proc.fit([{"diagnoses": {"tokens": ["428.0", "401.9"]}}], "diagnoses")
 
     flat_proc.vocab(0)
@@ -115,9 +115,9 @@ visits (level ``1``) adds ``(0, "offsets")``:
 
 .. code-block:: python
 
-    from pyhealth.processors import Records, SequenceProcessorV2
+    from pyhealth.processors import Records, JaggedFeatureProcessor
 
-    visit_proc = SequenceProcessorV2(
+    visit_proc = JaggedFeatureProcessor(
         levels=[
             {"ordering": "set", "tokens": 1},  # Level 0: codes within a visit
             {"ordering": "sequence"},          # Level 1: sequence of visits
@@ -154,9 +154,9 @@ in the task's chosen relative unit (e.g., hours since ICU admission):
 
 .. code-block:: python
 
-    from pyhealth.processors import SequenceProcessorV2
+    from pyhealth.processors import JaggedFeatureProcessor
 
-    ts_proc = SequenceProcessorV2(levels=[{"ordering": "series", "values": [2]}])
+    ts_proc = JaggedFeatureProcessor(levels=[{"ordering": "series", "values": [2]}])
     ts_proc.fit([], "vitals")  # No tokens or dataset statistics -> nothing to learn
     ts_proc.schema()
     # ((0, 'values'), (0, 'time'))
@@ -175,7 +175,7 @@ in the task's chosen relative unit (e.g., hours since ICU admission):
 4. Batching & Offset Shifting (``collate()``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-When batching ``B`` patients, :meth:`~pyhealth.processors.SequenceProcessorV2.collate`
+When batching ``B`` patients, :meth:`~pyhealth.processors.JaggedFeatureProcessor.collate`
 (called automatically by :func:`~pyhealth.datasets.get_dataloader`) inserts zero
 padding. Instead, it:
 
@@ -219,15 +219,15 @@ A ``"single"`` outermost level holds exactly one record per sample: the
 sample's own, such as a patient's sex, insurance, and age. Its
 :class:`~pyhealth.processors.Records` columns have length 1, so each sample
 emits ``[1, ...]`` tensors, and
-:meth:`~pyhealth.processors.SequenceProcessorV2.collate` stacks them into
+:meth:`~pyhealth.processors.JaggedFeatureProcessor.collate` stacks them into
 ``[B, ...]`` with batch offsets ``0 .. B``:
 
 .. code-block:: python
 
-    from pyhealth.processors import SequenceProcessorV2
+    from pyhealth.processors import JaggedFeatureProcessor
 
     # Level 0: (sex, insurance) and age, one record per patient
-    static_proc = SequenceProcessorV2(
+    static_proc = JaggedFeatureProcessor(
         levels=[{"ordering": "single", "tokens": 2, "values": [1]}]
     )
     static_proc.fit(
@@ -257,9 +257,9 @@ batch, it is ``[B + 1]``, like the batch offsets of a processor without the
 
 .. code-block:: python
 
-    from pyhealth.processors import Records, SequenceProcessorV2
+    from pyhealth.processors import Records, JaggedFeatureProcessor
 
-    patient_proc = SequenceProcessorV2(
+    patient_proc = JaggedFeatureProcessor(
         levels=[
             {"ordering": "set", "tokens": 1},                    # Level 0: codes in a visit
             {"ordering": "series"},                              # Level 1: timed visits
@@ -359,7 +359,7 @@ Output Roles & Positional Binding
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Schema metadata lives once on the processor and is never repeated inside cached
-samples. :meth:`~pyhealth.processors.SequenceProcessorV2.process` returns a
+samples. :meth:`~pyhealth.processors.JaggedFeatureProcessor.process` returns a
 ``tuple[torch.Tensor, ...]`` ordered by **increasing level** (``0 .. L``), then
 by **canonical role order**:
 
@@ -403,7 +403,7 @@ Bind tensors by ``(level, role)`` key when needed:
     outer_batch_offsets = batch_fields[(visit_proc.depth, "offsets")]
 
 Because ``len(proc.schema())`` is fixed by configuration,
-:class:`~pyhealth.processors.SequenceProcessorV2` sets ``stores_tensor = True``
+:class:`~pyhealth.processors.JaggedFeatureProcessor` sets ``stores_tensor = True``
 so :class:`~pyhealth.datasets.SampleDataset` writes every tensor natively via
 ``litdata`` instead of pickling per-sample objects. Undeclared extra keys in
 :class:`~pyhealth.processors.Records` are ignored.
@@ -411,7 +411,7 @@ so :class:`~pyhealth.datasets.SampleDataset` writes every tensor natively via
 Preprocessing Order
 ~~~~~~~~~~~~~~~~~~~
 
-Within each level, :meth:`~pyhealth.processors.SequenceProcessorV2.process`
+Within each level, :meth:`~pyhealth.processors.JaggedFeatureProcessor.process`
 runs configured transformations in fixed order:
 
 1. ``code_mapping`` (before vocabulary lookup; unmapped codes are kept as-is).
@@ -581,9 +581,9 @@ Classifications Software (``CCSCM``) categories (level ``0``):
 
 .. code-block:: python
 
-    from pyhealth.processors import Records, SequenceProcessorV2
+    from pyhealth.processors import Records, JaggedFeatureProcessor
 
-    adm_proc = SequenceProcessorV2(
+    adm_proc = JaggedFeatureProcessor(
         levels=[
             {"ordering": "set", "tokens": 1, "code_mapping": ("ICD9CM", "CCSCM")},
             {"ordering": "sequence"},  # Encounters within an admission
@@ -627,9 +627,9 @@ normalization:
 
 .. code-block:: python
 
-    from pyhealth.processors import Records, SequenceProcessorV2
+    from pyhealth.processors import Records, JaggedFeatureProcessor
 
-    lab_proc = SequenceProcessorV2(
+    lab_proc = JaggedFeatureProcessor(
         levels=[
             {
                 "ordering": "series",
@@ -696,9 +696,9 @@ flagged in ``mask``, forward-filled, and z-score normalized per channel:
 
 .. code-block:: python
 
-    from pyhealth.processors import SequenceProcessorV2
+    from pyhealth.processors import JaggedFeatureProcessor
 
-    vitals_proc = SequenceProcessorV2(
+    vitals_proc = JaggedFeatureProcessor(
         levels=[
             {
                 "ordering": "series",
@@ -746,9 +746,9 @@ Pre-tokenized clinical notes over an ICU stay combine a level-``0`` token
 .. code-block:: python
 
     import numpy as np
-    from pyhealth.processors import Records, SequenceProcessorV2
+    from pyhealth.processors import Records, JaggedFeatureProcessor
 
-    notes_proc = SequenceProcessorV2(
+    notes_proc = JaggedFeatureProcessor(
         levels=[
             {"ordering": "sequence", "tokens": 1},  # Level 0: word tokens in a note
             {"ordering": "series"},                 # Level 1: timestamped notes
@@ -768,7 +768,7 @@ Pre-tokenized clinical notes over an ICU stay combine a level-``0`` token
     # note_time:    tensor([0.0000, 8.5000])
 
     # 12-lead ECG windows (12 leads x 1000 samples at 500 Hz)
-    ecg_proc = SequenceProcessorV2(
+    ecg_proc = JaggedFeatureProcessor(
         levels=[{"ordering": "series", "values": [12, 1000], "spatial": [False, True]}]
     )
     ecg_proc.fit([], "ecg")
@@ -807,7 +807,7 @@ Common ``values`` and ``spatial`` combinations across clinical modalities:
 5. Defining Reusable Configuration Subclasses
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Subclasses of :class:`~pyhealth.processors.SequenceProcessorV2` are pure
+Subclasses of :class:`~pyhealth.processors.JaggedFeatureProcessor` are pure
 configuration presets: their ``__init__`` passes a ``levels`` list to
 ``super().__init__(levels=...)`` without overriding ``fit()``, ``process()``,
 or ``collate()``. Registering them via
@@ -817,11 +817,11 @@ or ``collate()``. Registering them via
 .. code-block:: python
 
     from pyhealth.datasets import create_sample_dataset, get_dataloader
-    from pyhealth.processors import SequenceProcessorV2, register_processor
+    from pyhealth.processors import JaggedFeatureProcessor, register_processor
 
 
     @register_processor("visit_codes")
-    class VisitCodesProcessor(SequenceProcessorV2):
+    class VisitCodesProcessor(JaggedFeatureProcessor):
         """Unordered medical codes grouped into a sequence of clinical visits."""
 
         def __init__(self, code_mapping: tuple[str, str] | None = None):
@@ -834,7 +834,7 @@ or ``collate()``. Registering them via
 
 
     @register_processor("timed_visit_codes")
-    class TimedVisitCodesProcessor(SequenceProcessorV2):
+    class TimedVisitCodesProcessor(JaggedFeatureProcessor):
         """Unordered medical codes grouped into timestamped clinical visits."""
 
         def __init__(self):
@@ -844,7 +844,7 @@ or ``collate()``. Registering them via
 
 
     @register_processor("hourly_vitals")
-    class HourlyVitalsProcessor(SequenceProcessorV2):
+    class HourlyVitalsProcessor(JaggedFeatureProcessor):
         """Irregular multichannel vitals resampled hourly, imputed, and scaled."""
 
         def __init__(self, num_channels: int, step_hours: float = 1.0):
@@ -899,10 +899,10 @@ Using Packed Outputs in a Model
 .. note::
 
    Built-in adapters bridging packed records to dense padded inputs and
-   built-in PyHealth models native to :class:`~pyhealth.processors.SequenceProcessorV2`
+   built-in PyHealth models native to :class:`~pyhealth.processors.JaggedFeatureProcessor`
    are currently work in progress.
 
-When implementing a custom model over a collated ``"sequence_v2"`` batch tuple
+When implementing a custom model over a collated ``"jagged"`` batch tuple
 today, standard PyTorch operations consume ``(tokens, offsets)`` directly:
 
 .. code-block:: python
@@ -975,7 +975,7 @@ Design Rationale
 API Reference
 -------------
 
-.. autoclass:: pyhealth.processors.SequenceProcessorV2
+.. autoclass:: pyhealth.processors.JaggedFeatureProcessor
     :members:
     :undoc-members:
     :show-inheritance:
@@ -994,3 +994,6 @@ API Reference
 
 .. autoclass:: pyhealth.processors.Normalize
     :members:
+
+.. autoclass:: pyhealth.processors.sequence_processor_v2.SequenceProcessorV2
+    :show-inheritance:

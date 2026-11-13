@@ -226,10 +226,10 @@ class _YAIBMIMIC4Task(BaseTask):
     measurement (or the last stay, for measurements after all stays), which is
     how ricu maps admission-level data onto ICU stays.
 
-    Each sample holds ``dynamic``, a ``sequence_v2`` series of the hourly
+    Each sample holds ``dynamic``, a ``jagged`` series of the hourly
     bins (``{"time": [0, 1, ..., T], "values": [T + 1, 48]}``, time in hours
     since ICU admission, ``NaN`` for bins without measurement), and
-    ``static``, a ``sequence_v2`` series with one record at hour 0, known
+    ``static``, a ``jagged`` series with one record at hour 0, known
     before any hourly bin (``{"time": [0], "values": [[age, sex, height,
     weight]]}``, sex encoded as 1 for male and 0 for female, ``NaN`` when
     unavailable). Per-hour labels are
@@ -246,7 +246,7 @@ class _YAIBMIMIC4Task(BaseTask):
     only. Unlike YAIB, which label-encodes sex as a category, sex is
     standardized like the other static features.
 
-    Training needs a model that reads the ``sequence_v2`` input and the
+    Training needs a model that reads the ``jagged`` input and the
     per-hour label records, such as :class:`~pyhealth.models.RNN_V2`;
     :class:`~pyhealth.models.RNN` and :class:`~pyhealth.models.MultimodalRNN`
     do not.
@@ -276,7 +276,7 @@ class _YAIBMIMIC4Task(BaseTask):
         # (normalization leaves it as is): YAIB's preprocessing, with the
         # missing-value indicators as the mask.
         "dynamic": (
-            "sequence_v2",
+            "jagged",
             {
                 "levels": [
                     {
@@ -297,7 +297,7 @@ class _YAIBMIMIC4Task(BaseTask):
         # seen in training: YAIB's standardize-then-zero-fill, with the
         # missing-value indicators as the mask.
         "static": (
-            "sequence_v2",
+            "jagged",
             {
                 "levels": [
                     {
