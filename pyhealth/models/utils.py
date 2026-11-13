@@ -24,6 +24,28 @@ def batch_to_multihot(label: List[List[int]], num_labels: int) -> torch.tensor:
     return multihot
 
 
+def mask_lengths(mask: torch.Tensor) -> torch.Tensor:
+    """The length of each sequence: the position of its last valid step + 1.
+
+    A step in the middle with mask 0, such as a visit with no codes, is
+    part of the sequence; only the steps after the last valid one are
+    padding. Counting the valid steps instead would cut the sequence short
+    and drop its last visits.
+
+    Args:
+        mask: [batch size, seq len], nonzero for valid steps.
+
+    Returns:
+        A long tensor of shape [batch size]; 0 for a row with no valid step.
+
+    Examples:
+        >>> mask_lengths(torch.tensor([[1, 0, 1, 0], [1, 1, 0, 0], [0, 0, 0, 0]]))
+        tensor([3, 2, 0])
+    """
+    valid = mask.bool()
+    steps = torch.arange(1, mask.shape[-1] + 1, device=mask.device)
+    return (valid * steps).amax(dim=-1).long()
+
 # how many times save_array_atomically tries os.replace before giving up
 _REPLACE_ATTEMPTS = 5
 
@@ -149,18 +171,25 @@ def save_ddi_adj(ddi_adj: np.ndarray | torch.Tensor, path: str) -> np.ndarray:
 def get_last_visit(hidden_states, mask):
     """Gets the last visit from the sequence model.
 
+    The last visit is the last step with a nonzero mask, even if an
+    earlier step is masked (see :func:`mask_lengths`).
+
     Args:
         hidden_states: [batch size, seq len, hidden_size]
         mask: [batch size, seq len]
 
     Returns:
         last_visit: [batch size, hidden_size]
+
+    Examples:
+        >>> h = torch.arange(6.0).reshape(1, 3, 2)
+        >>> get_last_visit(h, torch.tensor([[1, 0, 1]]))
+        tensor([[4., 5.]])
     """
     if mask is None:
         return hidden_states[:, -1, :]
     else:
-        mask = mask.long()
-        last_visit = torch.sum(mask, 1) - 1
+        last_visit = mask_lengths(mask) - 1
         # Clamp to 0 so that samples with an all-zero mask (no valid
         # visits) fall back to the first timestep instead of producing
         # a negative index that would crash torch.gather.
@@ -226,9 +255,9 @@ def masked_mean_pooling(x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
 def get_rightmost_masked_timestep(hidden_states, mask):
     """Gather hidden state at the last True position in ``mask`` per row.
 
-    Unlike :func:`get_last_visit`, this does **not** assume valid tokens form a
-    contiguous prefix; it picks the maximum index where ``mask`` is True.
-    Use for MPF / CEHR layouts where padding can appear between boundary tokens.
+    It picks the maximum index where ``mask`` is True, so padding may appear
+    between valid tokens (as in MPF / CEHR layouts). :func:`get_last_visit`
+    gives the same result for any mask with at least one True entry.
 
     Args:
         hidden_states: ``[batch, seq_len, hidden_size]``.
@@ -236,6 +265,12 @@ def get_rightmost_masked_timestep(hidden_states, mask):
 
     Returns:
         Tensor ``[batch, hidden_size]``.
+
+    Example:
+        >>> h = torch.tensor([[[1.0], [2.0], [0.0], [9.0]]])
+        >>> m = torch.tensor([[True, True, False, True]])
+        >>> get_rightmost_masked_timestep(h, m)
+        tensor([[9.]])
     """
     if mask is None:
         return hidden_states[:, -1, :]

@@ -47,8 +47,8 @@ class TestEHRMambaCEHR(unittest.TestCase):
         m = torch.tensor([[True, True, False, True]])
         out = get_rightmost_masked_timestep(h, m)
         self.assertTrue(torch.allclose(out[0], torch.tensor([99.0, 0.0])))
-        wrong = get_last_visit(h, m)
-        self.assertFalse(torch.allclose(out[0], wrong[0]))
+        # get_last_visit also handles gaps in the mask now.
+        self.assertTrue(torch.allclose(out[0], get_last_visit(h, m)[0]))
 
     def test_end_to_end_fhir_pipeline(self) -> None:
         import tempfile

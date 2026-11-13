@@ -18,6 +18,7 @@ from pyhealth.processors import (
 )
 
 from .embedding import EmbeddingModel
+from .utils import mask_lengths
 
 
 class RETAINLayer(nn.Module):
@@ -153,7 +154,7 @@ class RETAINLayer(nn.Module):
                 size=(batch_size,), fill_value=total_length, dtype=torch.int64
             )
         else:
-            lengths = torch.sum(mask.int(), dim=-1).cpu()
+            lengths = mask_lengths(mask).cpu()
         lengths = lengths.clamp(min=1)  # prevent zero-length crash in GRU
         rx = self.reverse_x(x, lengths)
         attn_alpha = self.compute_alpha(rx, lengths, total_length)
