@@ -1,11 +1,26 @@
-"""Evaluate all interpretability methods on StageNet + MIMIC-IV dataset using comprehensiveness 
-and sufficiency metrics.
+"""Attribution faithfulness benchmark: Transformer, MIMIC-IV DKA prediction.
 
-This example demonstrates:
-1. Loading a pre-trained StageNet model with processors and MIMIC-IV dataset
-2. Computing attributions with various interpretability methods
-3. Evaluating attribution faithfulness with Comprehensiveness & Sufficiency for each method
-4. Presenting results in a summary table
+Loads a trained Transformer checkpoint for ``DKAPredictionMIMIC4``, computes
+attributions on a class-balanced 1% subsample (sample_balanced) with the
+methods chosen by ``--methods`` (random, ig, ig_gim, deeplift, gim, shap, lime,
+chefer, rollout), and scores each with comprehensiveness and sufficiency via
+``pyhealth.metrics.interpretability.evaluate_attribution``. Scores are printed
+and appended to ``WORK_DIR/output/dka_transformer_mimic4/results.csv``.
+
+Data: MIMIC-IV v2.2 hosp tables (credentialed PhysioNet access:
+https://physionet.org/content/mimiciv/2.2/). Prerequisite: train the model with
+``examples/clinical_tasks/dka_mimic4_transformer.py`` and copy its
+``input_processors.pkl``, ``output_processors.pkl`` and ``best.ckpt`` into
+``WORK_DIR/ckpts/dka_transformer_mimic4/``. The model arguments below must
+match training.
+
+Run (set MIMIC4_ROOT and WORK_DIR below first; ``--methods`` is required):
+    python examples/interpretability/dka_transformer_mimic4_interpret.py \\
+        --methods ig,lime --device cuda:0
+
+A GPU is recommended; SHAP and LIME are slow. Without credentials you can try
+the pipeline on ``test-resources/core/mimic4demo`` (train on it first), but the
+demo has only a few patients, so the scores are meaningless.
 """
 
 import datetime
@@ -20,8 +35,12 @@ from pyhealth.trainer import Trainer
 from pyhealth.datasets.utils import load_processors
 from pathlib import Path
 import pandas as pd
+import torch
 
-# python -u examples/interpretability/dka_transformer_mimic4_interpret.py --methods lime --device cuda:2 2>&1 | tee -a /shared/eng/pyhealth_dka/output/dka_transformer_mimic4/lime.log
+# Paths: edit before running.
+MIMIC4_ROOT = "/path/to/mimiciv/2.2/"
+WORK_DIR = Path("/path/to/pyhealth_dka")  # holds cache/, ckpts/, output/
+
 def main():
     parser = argparse.ArgumentParser(
         description="Comma separated list of interpretability methods to evaluate"
@@ -35,8 +54,8 @@ def main():
     parser.add_argument(
         "--device",
         type=str,
-        default="cuda:0",
-        help="Device to use for evaluation (default: cuda:0)",
+        default="cuda:0" if torch.cuda.is_available() else "cpu",
+        help="Device to use for evaluation (default: cuda:0 if available, else cpu)",
     )
     
     """Main execution function."""
@@ -48,9 +67,9 @@ def main():
     print(f"Start Time: {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
     # Set path
-    CACHE_DIR = Path("/shared/eng/pyhealth_dka/cache/dka_mimic4")
-    CKPTS_DIR = Path("/shared/eng/pyhealth_dka/ckpts/dka_transformer_mimic4")
-    OUTPUT_DIR = Path("/shared/eng/pyhealth_dka/output/dka_transformer_mimic4")
+    CACHE_DIR = WORK_DIR / "cache" / "dka_mimic4"
+    CKPTS_DIR = WORK_DIR / "ckpts" / "dka_transformer_mimic4"
+    OUTPUT_DIR = WORK_DIR / "output" / "dka_transformer_mimic4"
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     CKPTS_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -65,7 +84,7 @@ def main():
     # Load MIMIC-IV dataset
     print("\n Loading MIMIC-IV dataset...")
     base_dataset = MIMIC4Dataset(
-        ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
+        ehr_root=MIMIC4_ROOT,
         ehr_tables=[
             "patients",
             "admissions",

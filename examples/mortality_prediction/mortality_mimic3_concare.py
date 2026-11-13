@@ -1,3 +1,26 @@
+"""Mortality prediction on synthetic MIMIC-III with ConCare.
+
+Trains ConCare: per-feature GRUs plus multi-head self-attention across features
+(Ma et al., AAAI 2020).
+Task: MortalityPredictionMIMIC3, which predicts whether the patient dies in the
+next hospital visit from the diagnosis, procedure and drug codes of the current
+visit. The script trains for one epoch with dev=True, so it only shows the
+pipeline end to end. The small dev test split may contain no deaths, in which
+case ROC-AUC prints nan. For real results, set dev=False and train for more
+epochs.
+
+Data: the public synthetic MIMIC-III
+(https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III). It is
+downloaded on the first run and needs no credentials. To use real MIMIC-III
+v1.4 (credentialed access, https://physionet.org/content/mimiciii/1.4/), set
+``root`` to your local copy.
+
+Usage:
+    python examples/mortality_prediction/mortality_mimic3_concare.py
+
+Runs on a CPU in a few minutes, most of which is the download.
+"""
+
 import tempfile
 
 from pyhealth.datasets import MIMIC3Dataset

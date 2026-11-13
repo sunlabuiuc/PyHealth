@@ -1,5 +1,5 @@
 """
-Example of using StageNet for mortality prediction on MIMIC-IV.
+Mortality prediction on MIMIC-IV with StageNet, plus a processor robustness check.
 
 This example demonstrates:
 1. Loading MIMIC-IV data
@@ -18,6 +18,17 @@ admission instead of through discharge. This applies identically to both
 death and survivor cases, so neither class gets a systematically richer
 feature set than the other; earlier, already-resolved admissions are
 unaffected.
+
+Data: MIMIC-IV v2.2 (credentialed access, https://physionet.org/content/mimiciv/2.2/).
+Set ``ehr_root`` to your copy.
+To try it without credentials, set ``ehr_root`` to the open MIMIC-IV demo
+(https://physionet.org/content/mimic-iv-demo/2.2/, 100 patients). Fitted processors are saved to and reloaded from ``processor_dir``.
+
+Usage:
+    python examples/mortality_prediction/mortality_mimic4_stagenet_v2.py
+
+With dev=True, it runs on a CPU. ``device=None`` uses a GPU if one is
+available.
 """
 
 import os
@@ -28,6 +39,7 @@ from pyhealth.datasets import (
     get_dataloader,
     split_by_patient,
     SampleDataset,
+    create_sample_dataset,
 )
 from pyhealth.datasets.utils import save_processors, load_processors
 from pyhealth.models import StageNet
@@ -127,7 +139,7 @@ def generate_holdout_set(
         synthetic_samples.append(synthetic_sample)
 
     # Create a new SampleDataset with the FITTED processors
-    holdout_dataset = SampleDataset(
+    holdout_dataset = create_sample_dataset(
         samples=synthetic_samples,
         input_schema=sample_dataset.input_schema,
         output_schema=sample_dataset.output_schema,
@@ -230,7 +242,7 @@ if __name__ == "__main__":
     # STEP 5: Train the model
     trainer = Trainer(
         model=model,
-        device="cuda:2",  # or "cpu"
+        device=None,  # None: GPU if available, else CPU; or e.g. "cuda:0"
         metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
     )
 

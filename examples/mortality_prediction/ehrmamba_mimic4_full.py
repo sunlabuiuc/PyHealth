@@ -1,7 +1,13 @@
 """EHRMamba on full MIMIC-IV: in-hospital mortality benchmark.
 
-Run on full MIMIC-IV (dev=False) with caching. Requires MIMIC-IV 2.2 from PhysioNet.
-Set EHR_ROOT and optionally CACHE_BASE before running.
+Trains EHRMamba on InHospitalMortalityMIMIC4 (48-hour lab time series per
+adult admission; the label is in-hospital death). Runs on full MIMIC-IV
+(dev=False) with caching.
+
+Data: MIMIC-IV v2.2 (credentialed access, https://physionet.org/content/mimiciv/2.2/).
+Set EHR_ROOT, and optionally CACHE_BASE, before running. To try it without
+credentials, set EHR_ROOT to the open MIMIC-IV demo
+(https://physionet.org/content/mimic-iv-demo/2.2/) and pass --quick-test.
 
 Usage:
     python examples/mortality_prediction/ehrmamba_mimic4_full.py

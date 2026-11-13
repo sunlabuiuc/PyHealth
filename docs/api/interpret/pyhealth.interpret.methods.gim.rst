@@ -13,7 +13,7 @@ Use this interpreter with StageNet-style models that expose
 ``forward_from_embedding`` and ``embedding_model``.
 
 For a complete working example, see:
-``examples/gim_stagenet_mimic4.py``
+``examples/interpretability/gim_stagenet_mimic4.py``
 
 API Reference
 -------------

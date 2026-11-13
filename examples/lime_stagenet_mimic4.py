@@ -1,3 +1,19 @@
+"""LIME explanations for a StageNet mortality model on MIMIC-IV.
+
+Explains one held-out patient's ``MortalityPredictionStageNetMIMIC4``
+prediction with ``LimeExplainer``: top ICD codes and lab values for the mortality
+and survival classes, plus a consistency check of the callable interface.
+
+Data: the open-access MIMIC-IV demo (https://physionet.org/content/mimic-iv-demo/2.2/,
+no credentials) or full MIMIC-IV; a copy of the demo ships in
+``test-resources/core/mimic4demo``. Set MIMIC4_ROOT below. RESOURCES_DIR may
+hold a trained model (``input_processors.pkl``, ``output_processors.pkl``,
+``best.ckpt``); if it does not, a StageNet is trained for a few epochs first.
+
+Run (CPU is fine; a few minutes on the demo):
+    python examples/lime_stagenet_mimic4.py
+"""
+
 # %% Loading MIMIC-IV dataset with LIME explanations
 from pathlib import Path
 
@@ -13,6 +29,11 @@ from pyhealth.datasets import (
 from pyhealth.interpret.methods import LimeExplainer
 from pyhealth.models import StageNet
 from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
+from pyhealth.trainer import Trainer
+
+# Paths: edit before running.
+MIMIC4_ROOT = "~/data/physionet.org/files/mimic-iv-demo/2.2/"
+RESOURCES_DIR = Path("../resources/")  # optional pre-trained model
 
 
 def load_icd_description_map(dataset_root: str) -> dict:
@@ -153,9 +174,7 @@ def main():
     """Main function to run LIME analysis on MIMIC-IV StageNet model."""
     # Configure dataset location and load cached processors
     dataset = MIMIC4EHRDataset(
-        #root="/home/naveen-baskaran/physionet.org/files/mimic-iv-demo/2.2/",
-        #root="/Users/naveenbaskaran/data/physionet.org/files/mimic-iv-demo/2.2/",
-        root="~/data/physionet.org/files/mimic-iv-demo/2.2/",
+        root=MIMIC4_ROOT,
         tables=[
             "patients",
             "admissions",
@@ -166,7 +185,9 @@ def main():
     )
 
     # %% Setting StageNet Mortality Prediction Task
-    input_processors, output_processors = load_processors("../resources/")
+    input_processors = output_processors = None
+    if (RESOURCES_DIR / "input_processors.pkl").exists():
+        input_processors, output_processors = load_processors(str(RESOURCES_DIR))
 
     sample_dataset = dataset.set_task(
         MortalityPredictionStageNetMIMIC4(),
@@ -174,6 +195,7 @@ def main():
         output_processors=output_processors,
     )
     print(f"Total samples: {len(sample_dataset)}")
+    input_processors = sample_dataset.input_processors
 
     ICD_CODE_TO_DESC = load_icd_description_map(dataset.root)
 
@@ -187,8 +209,17 @@ def main():
         dropout=0.3,
     )
 
-    state_dict = torch.load("../resources/best.ckpt", map_location=device)
-    model.load_state_dict(state_dict)
+    ckpt_path = RESOURCES_DIR / "best.ckpt"
+    if ckpt_path.exists():
+        state_dict = torch.load(ckpt_path, map_location=device)
+        model.load_state_dict(state_dict)
+    else:
+        print(f"No checkpoint at {ckpt_path}; training StageNet for 5 epochs.")
+        train_data, _, _ = split_by_patient(sample_dataset, [0.7, 0.1, 0.2], seed=42)
+        Trainer(model=model, device=str(device), enable_logging=False).train(
+            train_dataloader=get_dataloader(train_data, batch_size=32, shuffle=True),
+            epochs=5,
+        )
     model = model.to(device)
     model.eval()
     print(model)

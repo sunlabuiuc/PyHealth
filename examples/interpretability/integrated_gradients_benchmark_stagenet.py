@@ -9,9 +9,19 @@ This example demonstrates:
 5. Benchmarking model performance on test set
 6. Computing Integrated Gradients attributions for test samples
 
-Processor Caching:
-    The script loads existing processors from:
-    ../../output/processors/stagenet_mortality_mimic4/
+If CHECKPOINT_PATH does not exist, a StageNet is trained first (25 epochs).
+Processors are loaded from PROCESSOR_DIR when present, otherwise fitted and
+saved there.
+
+Data: MIMIC-IV v2.2 hosp tables (credentialed PhysioNet access:
+https://physionet.org/content/mimiciv/2.2/).
+Run (set MIMIC4_ROOT, CACHE_DIR, CHECKPOINT_PATH and PROCESSOR_DIR below):
+    python examples/interpretability/integrated_gradients_benchmark_stagenet.py
+Training on full MIMIC-IV needs a GPU. The MIMIC-IV demo
+(``test-resources/core/mimic4demo``) is too small for this script as written:
+its 5 patients leave the 80/10/10 validation split empty and training fails.
+For a no-download version of the metrics, see
+``comprehensiveness_code_sequences.py``.
 """
 
 from pathlib import Path
@@ -32,10 +42,9 @@ from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
 from pyhealth.trainer import Trainer
 
 # Configuration
-CHECKPOINT_PATH = (
-    "/home/johnwu3/projects/PyHealth_Branch_Testing/PyHealth/output/"
-    "20260131-184735/best.ckpt"
-)
+MIMIC4_ROOT = "/path/to/mimiciv/2.2/"
+CACHE_DIR = "/path/to/cache/ig"
+CHECKPOINT_PATH = "/path/to/output/stagenet_mortality/best.ckpt"
 PROCESSOR_DIR = "../output/processors/stagenet_mortality_mimic4"
 
 
@@ -45,7 +54,7 @@ def main():
     # STEP 1: Load MIMIC-IV base dataset
     print("Loading MIMIC-IV dataset...")
     base_dataset = MIMIC4Dataset(
-        ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
+        ehr_root=MIMIC4_ROOT,
         ehr_tables=[
             "patients",
             "admissions",
@@ -54,7 +63,7 @@ def main():
             "labevents",
         ],
         num_workers=8,
-        cache_dir="/shared/eng/pyhealth/ig",
+        cache_dir=CACHE_DIR,
     )
 
     # STEP 2: Check for existing processors and load/create accordingly
@@ -127,7 +136,7 @@ def main():
 
     trainer = Trainer(
         model=model,
-        device="cuda:0",
+        device="cuda:0" if torch.cuda.is_available() else "cpu",
         metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
     )
 

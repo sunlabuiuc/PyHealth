@@ -8,6 +8,12 @@ See survival_mdn_results/README.md for full commands and the recorded 100-run
 study. Historical results used the standalone core; this uses native PyHealth.
 Both transforms include the inverse Jacobian. Width 64 is an optional separate
 hyperparameter demonstration, not part of the recorded 100-run study.
+
+Data: none needed for the default synthetic run. SUPPORT2 is public, no
+credentials (https://archive.ics.uci.edu/dataset/880/support2); pass the raw
+CSV with --data. Needs survival_mdn_data.py and survival_mdn_metrics.py from
+this folder. Quick try (CPU, under a minute):
+``python examples/support_survival_survival_mdn.py --epochs 2 --output /tmp/mdn``
 """
 
 from __future__ import annotations

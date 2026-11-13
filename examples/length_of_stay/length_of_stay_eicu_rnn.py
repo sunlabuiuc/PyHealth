@@ -17,10 +17,14 @@ Length of stay is categorized into 10 classes:
 - 8: 1-2 weeks
 - 9: > 2 weeks
 
-Features:
-- Uses the new BaseDataset-based eICUDataset with YAML configuration
-- Uses the LengthOfStayPredictioneICU BaseTask class
-- Demonstrates the standardized PyHealth workflow
+Data: by default ``root`` points at a public copy of the eICU-CRD demo
+(downloaded on the fly, no credentials). For the full eICU-CRD
+(https://physionet.org/content/eicu-crd/, credentialed) set ``root`` to your
+local folder and set ``dev=False``.
+
+Run: ``python examples/length_of_stay/length_of_stay_eicu_rnn.py`` (CPU, a
+few minutes; trains one epoch). Offline: set ``root`` to
+``test-resources/core/eicudemo``.
 """
 
 import tempfile

@@ -15,18 +15,25 @@ Patient-Level Aggregation:
 
 It also benchmarks memory usage and processing time.
 
-Data Sources:
-    - EHR data: MIMIC-IV hosp module (patients, admissions, diagnoses, etc.)
-    - Clinical notes: MIMIC-IV note module (discharge, radiology)
-    - Chest X-rays: MIMIC-CXR (images and metadata)
+Data (all credentialed, from PhysioNet):
+    - EHR: MIMIC-IV v2.2, hosp module (https://physionet.org/content/mimiciv/2.2/)
+    - Notes: MIMIC-IV-Note v2.2 (https://physionet.org/content/mimic-iv-note/2.2/)
+    - Chest X-rays: MIMIC-CXR-JPG v2.0.0 with the NegBio labels
+      (https://physionet.org/content/mimic-cxr-jpg/2.0.0/)
+    MultimodalMortalityPredictionMIMIC4 reads all three sources. The
+    --no-notes and --no-cxr switches currently fail inside the task, because it
+    queries the note and CXR tables unconditionally.
 
-Usage:
-    python multimodal_mimic4_demo.py
-    python multimodal_mimic4_demo.py --ehr-root /path/to/mimic-iv/hosp
-    python multimodal_mimic4_demo.py --note-root /path/to/mimic-iv/note
-    python multimodal_mimic4_demo.py --cxr-root /path/to/mimic-cxr
-    python multimodal_mimic4_demo.py --save-labs ./output
-    python multimodal_mimic4_demo.py --dev
+Outputs: by default it writes the sample's lab plot (HTML), lab CSV (with
+--save-labs) and a copy of its X-ray into the current directory. Set
+--plot-labs-dir and --copy-image-dir to change where they go.
+
+Usage (point the roots at your copies; the defaults are lab-server paths):
+    python multimodal_mimic4_demo.py --ehr-root /path/to/mimiciv/2.2
+        --note-root /path/to/mimic-iv-note/2.2 --cxr-root /path/to/mimic-cxr-jpg
+        --cache-dir /path/to/cache   (one command, wrapped here)
+    python multimodal_mimic4_demo.py --dev --skip-benchmark   # smaller, faster
+    python multimodal_mimic4_demo.py --save-labs ./labs
 """
 
 from __future__ import annotations
