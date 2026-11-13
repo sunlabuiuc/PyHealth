@@ -82,6 +82,14 @@ class IIICDataset(BaseDataset):
          ``val/``, ``test/`` directories of ``{key}.pkl`` files. ``prepare_metadata()``
          reads these directly and builds ``iiic-processed.csv`` without re-extracting.
 
+    Getting the data:
+        - Source: the BDSP project ``bdsp-sparcnet``,
+          https://bdsp.io/content/bdsp-sparcnet/
+        - Access: credentialed. Create a BDSP account, complete its credentialing,
+          and sign the project's data use agreement; that grants read access to
+          the S3 access point above.
+        - ``root``: the folder holding the downloaded IIIC files.
+
     Args:
         root: Root directory containing the IIIC dataset files.
         tables: List of tables to load. Default is ``["signal"]``.

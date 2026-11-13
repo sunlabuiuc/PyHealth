@@ -52,6 +52,7 @@ from .imaging.stats import (
     compute_foreground_intensity_stats as compute_foreground_intensity_stats,
 )
 from .cardiology import CardiologyDataset
+from .chaos import CHAOSDataset as CHAOSDataset
 from .chestxray14 import ChestXray14Dataset
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
@@ -63,6 +64,12 @@ from .ehrshot import EHRShotDataset
 from .eicu import eICUDataset
 from .isruc import ISRUCDataset
 from .medical_transcriptions import MedicalTranscriptionsDataset
+from .msd import (
+    MSDHippocampusDataset as MSDHippocampusDataset,
+    MSDProstateDataset as MSDProstateDataset,
+    MSDSegmentationDataset as MSDSegmentationDataset,
+    MSDSpleenDataset as MSDSpleenDataset,
+)
 from .meds import MEDSDataset as MEDSDataset
 from .metabric import MetabricDataset as MetabricDataset
 from .mimic3 import MIMIC3Dataset
@@ -72,6 +79,7 @@ from .fhir import FHIRDataset, MIMIC4FHIR
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
 from .physionet_deid import PhysioNetDeIDDataset
+from .rsna_pneumonia import RSNAPneumoniaDataset as RSNAPneumoniaDataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
@@ -79,6 +87,7 @@ from .bmd_hs import BMDHSDataset
 from .support2 import Support2Dataset
 from .synthea_csv import SyntheaCSVDataset as SyntheaCSVDataset
 from .tcga_prad import TCGAPRADDataset
+from .vsac import VSACDataset as VSACDataset
 from .splitter import (
     PatientSplit as PatientSplit,
     Split as Split,

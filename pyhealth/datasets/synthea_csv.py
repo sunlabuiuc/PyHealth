@@ -35,6 +35,15 @@ class SyntheaCSVDataset(BaseDataset):
     codes are SNOMED-CT, RxNorm, LOINC, and CVX rather than ICD and NDC, so
     MIMIC tasks and ICD code mappings do not apply directly.
 
+    Getting the data:
+        - Source: https://github.com/synthetichealth/synthea (prebuilt sample
+          CSVs: https://synthea.mitre.org/downloads)
+        - Access: open, synthetic data; no account or credentialing needed.
+        - Download: generate it with :class:`~pyhealth.models.Synthea`, or unzip
+          one of the sample CSV archives.
+        - ``root``: the folder holding ``patients.csv``, ``conditions.csv``, and
+          so on.
+
     Examples:
         >>> from pyhealth.datasets import SyntheaCSVDataset
         >>> from pyhealth.models import Synthea

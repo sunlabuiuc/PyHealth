@@ -47,14 +47,15 @@ from .deep_nested_sequence_processor import (
 )
 from .raw_processor import RawProcessor
 from .sequence_processor import SequenceProcessor
-from .sequence_processor_v2 import (
+from .jagged_processor import (
     Impute,
+    JaggedFeatureProcessor,
     LevelConfig,
     Normalize,
     Records,
     Resample,
-    SequenceProcessorV2,
 )
+from .sequence_processor_v2 import SequenceProcessorV2
 from .signal_processor import SignalProcessor
 from .stagenet_processor import (
     StageNetProcessor,
@@ -77,15 +78,18 @@ from .ignore_processor import IgnoreProcessor
 from .temporal_timeseries_processor import TemporalTimeseriesProcessor
 from .tuple_time_text_processor import TupleTimeTextProcessor
 from .cehr_processor import CehrProcessor, ConceptVocab
+from .ethos_processor import EthosProcessor
 
 # Expose public API
 from .base_processor import (
     FeatureProcessor,
+    LegacyFeatureProcessor,
     ModalityType,
     TemporalFeatureProcessor,
 )
 __all__ = [
     "FeatureProcessor",
+    "LegacyFeatureProcessor",
     "ModalityType",
     "TemporalFeatureProcessor",
     "ImageProcessor",
@@ -99,11 +103,14 @@ __all__ = [
     "SegmentationBinaryLabelProcessor",
     "SegmentationMultiClassLabelProcessor",
     "NestedFloatsProcessor",
+    "DeepNestedFloatsProcessor",
+    "DeepNestedSequenceProcessor",
     "NestedMultiHotProcessor",
     "NestedSequenceProcessor",
     "RawProcessor",
     "SequenceProcessor",
     "SequenceProcessorV2",
+    "JaggedFeatureProcessor",
     "Records",
     "LevelConfig",
     "Impute",
@@ -127,4 +134,5 @@ __all__ = [
     "TupleTimeTextProcessor",
     "CehrProcessor",
     "ConceptVocab",
+    "EthosProcessor",
 ]

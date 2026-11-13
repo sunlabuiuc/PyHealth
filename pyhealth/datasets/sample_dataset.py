@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from pathlib import Path
+import os
 import pickle
 import shutil
 import tempfile
@@ -368,7 +369,10 @@ class SampleBuilder:
         writes and expects every later sample to have the same structure, so a
         list whose length varies between samples cannot be written as-is.
         Fields whose processor declares ``stores_tensor`` stay tensors (or
-        tuples of tensors, one per ``schema()`` entry); every other field
+        tuples of tensors), so they must have the same structure (a tensor,
+        or the same number of tensors) in every sample: litdata fails to
+        write a sample that does not, which the writers report as a
+        ``ValueError``. Every other field
         (including keys not in the schema, such as ``patient_id``) goes into
         one pickled payload, which has the same structure in every sample
         whatever the values look like. :class:`SampleDataset` decodes it
@@ -382,8 +386,7 @@ class SampleBuilder:
 
         Raises:
             ValueError: If a field declared ``stores_tensor`` is not a tensor
-                or a tuple of tensors, one per entry of its processor's
-                ``schema()``.
+                or a tuple of tensors.
         """
         tensor_fields = self._tensor_fields()
         processors = {**self._input_processors, **self._output_processors}
@@ -401,14 +404,6 @@ class SampleBuilder:
                         f"stores_tensor=True but process() returned "
                         f"{type(value).__name__}. Set stores_tensor = False on the "
                         "processor, or return a torch.Tensor or a tuple of them."
-                    )
-                # litdata expects the same structure in every sample, and
-                # schema() fixes the tuple's length for all of them.
-                if is_tensors and len(value) != len(processor.schema()):
-                    raise ValueError(
-                        f"Field '{key}': {type(processor).__name__}.process() "
-                        f"returned {len(value)} tensors, but its schema() has "
-                        f"{len(processor.schema())} entries."
                     )
                 record[key] = value
             else:
@@ -908,6 +903,73 @@ class InMemorySampleDataset(SampleDataset):
         pass  # No temporary directories to clean up for in-memory dataset
 
 
+_STRUCTURE_ERROR = (
+    "Samples could not be written to the cache: every sample must have the "
+    "same structure, so a field whose processor sets stores_tensor must return "
+    "a tensor, or the same number of tensors, in every sample."
+)
+
+
+def _litdata_add(writer: Any, index: int, record: dict[str, Any]) -> None:
+    """``writer.add_item``, with litdata's error on a mismatched sample explained.
+
+    litdata takes each value's serializer from the first sample a writer
+    gets, so a later sample with another structure (say, a different number
+    of tensors) hands a value to the wrong serializer, which raises
+    ``TypeError``.
+    """
+    try:
+        writer.add_item(index, record)
+    except TypeError as e:
+        raise ValueError(_STRUCTURE_ERROR) from e
+
+
+def _litdata_merge(cache_dir: Path) -> None:
+    """
+    Merges LitData binary writer index files in the given cache directory.
+
+    Workers write contiguous sample ranges, each with its own
+    ``{rank}.index.json``. ``patient_to_index`` and ``record_to_index`` are
+    built before processing and assume merged sample ``i`` is input sample
+    ``i``, so the per-worker indexes must be joined in numeric rank order.
+    ``BinaryWriter.merge`` does this from litdata 0.2.64 on; earlier versions
+    sort the file names as strings (0, 1, 10, 11, ..., 2), which reorders
+    samples with more than 10 workers.
+
+    Each worker's writer takes its structure from its own first sample, so
+    workers whose samples differ (say, in the number of tensors of a field)
+    only conflict here; litdata's error is re-raised as a ``ValueError``
+    saying so. Other errors pass through.
+
+    Args:
+        cache_dir (Path): The cache directory containing LitData binary writer files.
+    """
+    from litdata.streaming.writer import _INDEX_FILENAME, BinaryWriter
+
+    files = os.listdir(cache_dir)
+
+    # Return if the index already exists
+    if _INDEX_FILENAME in files:
+        return
+
+    index_files = [f for f in files if f.endswith(_INDEX_FILENAME)]
+
+    # Return if there are no index files to merge
+    if len(index_files) == 0:
+        raise ValueError(
+            "There are zero samples in the dataset, please check the task and processors."
+        )
+
+    try:
+        BinaryWriter(cache_dir=str(cache_dir), chunk_bytes="64MB").merge(
+            num_workers=len(index_files)
+        )
+    except Exception as e:
+        if "isn't consistent between chunks" not in str(e):
+            raise
+        raise ValueError(_STRUCTURE_ERROR) from e
+
+
 def _write_samples(builder: "SampleBuilder", samples: list[dict], path: Path) -> None:
     """Writes transformed samples to a litdata directory in this process.
 
@@ -920,11 +982,9 @@ def _write_samples(builder: "SampleBuilder", samples: list[dict], path: Path) ->
     """
     from litdata.streaming.writer import BinaryWriter
 
-    from .base_dataset import _litdata_merge
-
     writer = BinaryWriter(cache_dir=str(path), chunk_bytes="64MB")
     for i, sample in enumerate(samples):
-        writer.add_item(i, builder.transform_for_storage({"sample": pickle.dumps(sample)}))
+        _litdata_add(writer, i, builder.transform_for_storage({"sample": pickle.dumps(sample)}))
     writer.done()
     _litdata_merge(path)
 

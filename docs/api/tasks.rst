@@ -18,6 +18,7 @@ Getting Started
 
 New to PyHealth tasks? Start here:
 
+- **Browse tasks**: `pyhealth.dev/tasks <https://pyhealth.dev/tasks.html>`_ lists every task with the dataset it runs on. Each task page below also links to its dataset, and each dataset page lists its tasks
 - **Tutorial**: `Introduction to pyhealth.tasks <https://colab.research.google.com/drive/1QB0acnGb-wOuK53UNSgHxjCW74QeYjUl?usp=sharing>`_ - Learn the basics of defining and using tasks
 - **Code Examples**: Browse all examples online at https://github.com/sunlabuiuc/PyHealth/tree/master/examples
 - **Pipeline Examples**: Check out our :doc:`../tutorials` page for complete end-to-end examples including:
@@ -222,6 +223,8 @@ Available Tasks
     PhysioNet 2012 Forecasting <tasks/pyhealth.tasks.PhysioNet2012Forecasting>
     DKA Prediction (MIMIC-IV) <tasks/pyhealth.tasks.dka>
     Drug Recommendation <tasks/pyhealth.tasks.drug_recommendation>
+    EHR + CXR In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.EHRCXRMortalityMIMIC4>
+    EHR + CXR Phenotyping (MIMIC-IV) <tasks/pyhealth.tasks.EHRCXRPhenotypingMIMIC4>
     EHR Generation <tasks/pyhealth.tasks.generate_ehr>
     Length of Stay Prediction <tasks/pyhealth.tasks.length_of_stay_prediction>
     Length of Stay Prediction (StageNet MIMIC-IV) <tasks/pyhealth.tasks.length_of_stay_stagenet_mimic4>
@@ -248,6 +251,9 @@ Available Tasks
     ChestX-ray14 Binary Classification <tasks/pyhealth.tasks.ChestXray14BinaryClassification>
     De-Identification NER <tasks/pyhealth.tasks.DeIDNERTask>
     ChestX-ray14 Multilabel Classification <tasks/pyhealth.tasks.ChestXray14MultilabelClassification>
+    MSD Segmentation <tasks/pyhealth.tasks.MSDSegmentationTask>
+    CHAOS Segmentation Tasks <tasks/pyhealth.tasks.CHAOSSegmentation>
+    RSNA Pneumonia Classification <tasks/pyhealth.tasks.RSNAPneumoniaClassification>
     Variant Classification (ClinVar) <tasks/pyhealth.tasks.VariantClassificationClinVar>
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>
@@ -257,3 +263,8 @@ Available Tasks
     Lab Nowcasting (MIMIC-III/IV) <tasks/pyhealth.tasks.LabNowcasting>
     ICU Acuity and Therapies (MIMIC-IV) <tasks/pyhealth.tasks.ICUAcuityMIMIC4>
     Cancer Mutation Burden (TCGA) <tasks/pyhealth.tasks.CancerMutationBurden>
+    Survival Preprocessing (SUPPORT2) <tasks/pyhealth.tasks.SurvivalPreprocessSupport2>
+    YAIB Tasks (MIMIC-IV) <tasks/pyhealth.tasks.yaib_mimic4>
+    YAIB Tasks (MIMIC-III) <tasks/pyhealth.tasks.yaib_mimic3>
+    YAIB Tasks (eICU) <tasks/pyhealth.tasks.yaib_eicu>
+    Value Set Completion (VSAC) <tasks/pyhealth.tasks.ValueSetCompletion>
