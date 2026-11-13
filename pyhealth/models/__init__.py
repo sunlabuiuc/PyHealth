@@ -89,6 +89,8 @@ from .generators.medgan import MedGAN
 from .generators.synthea import Synthea as Synthea
 from .generators.corgan import CorGAN as CorGAN
 from .survival_mdn import SurvivalMDN as SurvivalMDN
+from .neural_fine_gray import NeuralFineGray as NeuralFineGray
+from .neural_fine_gray import PositiveLinear as PositiveLinear
 from .trajsurv import TrajSurv as TrajSurv
 from .knowrare import KnowRare as KnowRare
 from .trace import (

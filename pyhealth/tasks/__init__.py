@@ -6,6 +6,9 @@ from .task_card import (
 )
 from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
+from .competing_risk_framingham import (
+    FraminghamCompetingRiskPrediction as FraminghamCompetingRiskPrediction,
+)
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
 from .cardiology_detect import (
     cardiology_isAD_fn,

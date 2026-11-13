@@ -1,7 +1,8 @@
 pyhealth.metrics.survival
 =========================
 
-Metrics for right-censored survival predictions: Harrell's concordance index,
+Metrics for right-censored and competing-risk survival predictions: Harrell's
+concordance index,
 the IPCW Brier score (Graf et al., 1999) and the cumulative/dynamic AUC
 (Uno et al., 2007). Censoring weights come from the Kaplan-Meier estimate of
 the censoring distribution on the evaluated data.
@@ -24,3 +25,7 @@ the censoring distribution on the evaluated data.
 .. autofunction:: cumulative_dynamic_auc
 
 .. autofunction:: survival_metrics_fn
+
+.. autofunction:: competing_risk_brier_score
+
+.. autofunction:: competing_risk_concordance_index
