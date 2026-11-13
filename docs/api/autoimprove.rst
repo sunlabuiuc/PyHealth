@@ -231,7 +231,9 @@ itself, so the sentence a clinician reviews is exactly what was computed:
   statistics from each fold's training part
   (:func:`~pyhealth.autoimprove.fold_parts`), so a held-out fold never informs
   its own medians and scales.
-- **Task hooks**, all optional, on :class:`~pyhealth.tasks.BaseTask`:
+- **Task hooks**, all optional attributes that
+  :meth:`~pyhealth.autoimprove.FeatureSpace.from_task` reads when a task
+  defines them (no base class change is needed):
 
   - ``time_key``: the sample field holding t;
   - ``feature_vocabulary()``: named code groups such as SABA;

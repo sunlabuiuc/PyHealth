@@ -218,9 +218,19 @@ class FeatureSpace:
     def from_task(cls, dataset: Any, task: Any, **kwargs: Any) -> FeatureSpace:
         """A space from a task's optional hooks and its task card.
 
-        Reads ``time_key``, ``feature_vocabulary()``, ``derived_events`` and
-        ``derived_event_types`` (see :class:`~pyhealth.tasks.BaseTask`) and
-        the card's named columns.
+        The task needs no base class or mixin: each hook is an optional
+        attribute, read only if the task defines it.
+
+        - ``time_key``: the sample field holding the prediction time t.
+        - ``feature_vocabulary()``: named code groups that features may count,
+          e.g. ``{"SABA": {"event_type": "med_orders", "attribute":
+          "drug_class", "values": ["SABA"], "noun": "SABA orders"}}``.
+        - ``derived_events(patient, t)`` with ``derived_event_types``:
+          clinical definitions, such as exacerbation episodes, built only
+          from events before t, as rows ``{"event_type", "timestamp",
+          attribute: value, ...}``; ``derived_event_types`` maps each event
+          type to its attributes.
+        - ``task_card()``: its named ``columns``.
 
         Examples:
             >>> fs = FeatureSpace.from_task(base_dataset, task)  # doctest: +SKIP
