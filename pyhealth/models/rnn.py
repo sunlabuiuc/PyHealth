@@ -14,7 +14,7 @@ from pyhealth.processors import (
     NestedFloatsProcessor,
     NestedSequenceProcessor,
     SequenceProcessor,
-    SequenceProcessorV2,
+    JaggedFeatureProcessor,
     StageNetProcessor,
     StageNetTensorProcessor,
     TimeseriesLabelProcessor,
@@ -236,7 +236,7 @@ class RNN(BaseModel):
         if per_step:
             raise ValueError(
                 "RNN does not support per-step (timeseries_*) labels; use "
-                "RNN_V2 with sequence_v2 inputs."
+                "RNN_V2 with jagged inputs."
             )
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
@@ -295,12 +295,17 @@ class RNN(BaseModel):
             x = embedded[feature_key]
 
             x_dim_orig = x.dim()
-            if x_dim_orig == 4:
-                # nested_sequence: (B, num_visits, num_codes, D)
+            if x_dim_orig >= 4:
+                # nested_sequence: (B, num_visits, num_codes, D), or deeper for
+                # deep_nested_sequence: (B, num_groups, num_visits, num_codes, D).
                 # @TODO: sum-pooling across codes is a simple baseline. May need to investigate better embeddings for nested codes.
-                x = x.sum(dim=2)  # (B, num_visits, D)
+                while x.dim() > 3:
+                    x = x.sum(dim=2)  # (B, num_outer, D)
                 if feature_key in masks:
-                    mask = (masks[feature_key].to(self.device).sum(dim=-1) > 0).int()  # (B, V)
+                    mask = masks[feature_key].to(self.device)
+                    while mask.dim() > 2:
+                        mask = mask.sum(dim=-1)
+                    mask = (mask > 0).int()  # (B, num_outer)
                 else:
                     mask = (torch.abs(x).sum(dim=-1) != 0).int()
             elif x_dim_orig == 2:
@@ -322,10 +327,13 @@ class RNN(BaseModel):
         # (patient, label_size)
         logits = self.fc(patient_emb)
         # obtain y_true, loss, y_prob
-        y_true = kwargs[self.label_key].to(self.device)
-        loss = self.label_processor.loss(logits, y_true)
         y_prob = self.label_processor.activation(logits)
-        results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
+        results = {"y_prob": y_prob, "logit": logits}
+        # The label is optional, so the model can predict without it.
+        if self.label_key in kwargs:
+            y_true = kwargs[self.label_key].to(self.device)
+            results["loss"] = self.label_processor.loss(logits, y_true)
+            results["y_true"] = y_true
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results
@@ -437,7 +445,7 @@ class MultimodalRNN(BaseModel):
         if per_step:
             raise ValueError(
                 "MultimodalRNN does not support per-step (timeseries_*) labels; "
-                "use RNN_V2 with sequence_v2 inputs."
+                "use RNN_V2 with jagged inputs."
             )
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
@@ -538,13 +546,19 @@ class MultimodalRNN(BaseModel):
             m = mask[feature_key]
 
             x_dim_orig = x.dim()
-            if x_dim_orig == 4:
-                # nested_sequence: (B, num_visits, num_codes, D)
-                # Pool codes within each visit, then run RNN over visits.
-                # Flattening visits*codes would produce length=0 when inner lists are empty.
-                x = x.sum(dim=2)  # (B, num_visits, D)
+            if x_dim_orig >= 4:
+                # nested_sequence: (B, num_visits, num_codes, D), or deeper for
+                # deep_nested_sequence: (B, num_groups, num_visits, num_codes, D).
+                # Pool everything inside each outer step, then run the RNN over
+                # the outer steps. Flattening would produce length=0 when inner
+                # lists are empty.
+                while x.dim() > 3:
+                    x = x.sum(dim=2)  # (B, num_outer, D)
                 if feature_key in masks:
-                    m = (masks[feature_key].to(self.device).sum(dim=-1) > 0).int()  # (B, V)
+                    m = masks[feature_key].to(self.device)
+                    while m.dim() > 2:
+                        m = m.sum(dim=-1)
+                    m = (m > 0).int()  # (B, num_outer)
                 else:
                     m = (torch.abs(x).sum(dim=-1) != 0).int()
             elif x_dim_orig == 2:
@@ -574,23 +588,20 @@ class MultimodalRNN(BaseModel):
         logits = self.fc(patient_emb)
 
         # Calculate loss and predictions
-        y_true = kwargs[self.label_key].to(self.device)
-        loss = self.label_processor.loss(logits, y_true)
         y_prob = self.label_processor.activation(logits)
-
-        results = {
-            "loss": loss,
-            "y_prob": y_prob,
-            "y_true": y_true,
-            "logit": logits
-        }
+        results = {"y_prob": y_prob, "logit": logits}
+        # The label is optional, so the model can predict without it.
+        if self.label_key in kwargs:
+            y_true = kwargs[self.label_key].to(self.device)
+            results["loss"] = self.label_processor.loss(logits, y_true)
+            results["y_true"] = y_true
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results
 
 
 # ----------------------------------------------------------------------------
-# RNN_V2: RNNs over the packed records of SequenceProcessorV2 fields
+# RNN_V2: RNNs over the packed records of JaggedFeatureProcessor fields
 # ----------------------------------------------------------------------------
 
 RNNType = Literal["RNN", "LSTM", "GRU"]
@@ -683,7 +694,7 @@ class _FieldRNN(nn.Module):
     def __init__(
         self,
         field: str,
-        processor: SequenceProcessorV2,
+        processor: JaggedFeatureProcessor,
         level_dims: Sequence[int],
         hidden_dim: int,
         rnn_type: RNNType,
@@ -770,12 +781,12 @@ class _FieldRNN(nn.Module):
 
 
 class RNN_V2(BaseModel):
-    """RNN model over :class:`~pyhealth.processors.SequenceProcessorV2` fields.
+    """RNN model over :class:`~pyhealth.processors.JaggedFeatureProcessor` fields.
 
     Each V2 field is embedded by :class:`SequenceEmbeddingModel` and encoded
     into one summary per sample, independently of the other fields. The
     summaries are concatenated and a linear layer predicts the label. Every
-    input field must be ``"sequence_v2"``: sequences, sets and tokens are
+    input field must be ``"jagged"``: sequences, sets and tokens are
     expressed with it, and so are static values, as a ``series`` with one
     record at ``t = 0`` (known before the first event), which goes through its
     own RNN like any other field.
@@ -786,7 +797,7 @@ class RNN_V2(BaseModel):
     ``sequence`` / ``series`` level runs its RNN over each group and keeps
     the last output, giving one summary per parent record, up to one per sample.
     So a record and everything below it are encoded as one unit. Following
-    :class:`~pyhealth.processors.SequenceProcessorV2`, each level's time has
+    :class:`~pyhealth.processors.JaggedFeatureProcessor`, each level's time has
     its own unit and origin, and only orders the records of a group.
 
     A group without records (e.g. a stay without labs) is skipped by the RNN
@@ -842,8 +853,8 @@ class RNN_V2(BaseModel):
         >>> dataset = create_sample_dataset(
         ...     samples,
         ...     {
-        ...         "age": ("sequence_v2", {"levels": age}),
-        ...         "visits": ("sequence_v2", {"levels": visits}),
+        ...         "age": ("jagged", {"levels": age}),
+        ...         "visits": ("jagged", {"levels": visits}),
         ...     },
         ...     {"label": "binary"},
         ... )
@@ -878,10 +889,10 @@ class RNN_V2(BaseModel):
 
         for field in self.feature_keys:
             processor = dataset.input_processors[field]
-            if not isinstance(processor, SequenceProcessorV2):
+            if not isinstance(processor, JaggedFeatureProcessor):
                 raise TypeError(
                     f"Field '{field}': {type(processor).__name__} is not supported. "
-                    "RNN_V2 takes only 'sequence_v2' fields: express sequences, "
+                    "RNN_V2 takes only 'jagged' fields: express sequences, "
                     "sets and tokens with it, and static values as a 'series' "
                     "with one record at t = 0."
                 )
@@ -922,7 +933,7 @@ class RNN_V2(BaseModel):
                     "would use future time steps."
                 )
         self.processors = {
-            field: cast(SequenceProcessorV2, dataset.input_processors[field])
+            field: cast(JaggedFeatureProcessor, dataset.input_processors[field])
             for field in fields
         }
         if self.per_step:

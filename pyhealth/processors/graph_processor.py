@@ -9,7 +9,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 import torch
 from . import register_processor
-from .base_processor import FeatureProcessor
+from .base_processor import LegacyFeatureProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ except ImportError:
     HAS_PYG = False
 
 @register_processor("graph")
-class GraphProcessor(FeatureProcessor):
+class GraphProcessor(LegacyFeatureProcessor):
     """Processor that converts medical codes into patient-level subgraphs.
 
     Takes a list of medical codes from a patient visit, looks them up

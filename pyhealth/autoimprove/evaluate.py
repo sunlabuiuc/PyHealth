@@ -15,7 +15,7 @@ import numpy as np
 import torch
 
 from pyhealth.datasets import SampleDataset, get_dataloader
-from pyhealth.trainer import Trainer, get_metrics_fn
+from pyhealth.trainer import Trainer, get_metrics_fn, model_metrics_kwargs
 
 from .space import PipelineConfig, SearchSpace
 
@@ -126,7 +126,11 @@ def score(
         {'pr_auc': 0.41, 'roc_auc': 0.78}
     """
     y_true, y_prob, _ = predict(model, dataset)
-    values = get_metrics_fn(model.mode)(y_true, y_prob, metrics=list(metrics))
+    metrics_fn = get_metrics_fn(model.mode)
+    values = metrics_fn(
+        y_true, y_prob, metrics=list(metrics),
+        **model_metrics_kwargs(model, metrics_fn),
+    )
     return {k: float(v) for k, v in values.items()}
 
 

@@ -12,6 +12,8 @@ from .base_task import BaseTask
 class CancerSurvivalPrediction(BaseTask):
     """Task for predicting cancer patient survival outcomes.
 
+    Works with :class:`~pyhealth.datasets.TCGAPRADDataset`.
+
     This task predicts whether a cancer patient is alive or deceased based on
     their mutation profile and clinical features from TCGA datasets.
 
@@ -150,6 +152,8 @@ class CancerSurvivalPrediction(BaseTask):
 
 class CancerMutationBurden(BaseTask):
     """Task for predicting high vs low tumor mutation burden.
+
+    Works with :class:`~pyhealth.datasets.TCGAPRADDataset`.
 
     This task classifies patients based on their tumor mutation burden (TMB),
     which is associated with immunotherapy response. TMB is approximated by

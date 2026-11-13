@@ -15,6 +15,8 @@ from .base_task import BaseTask
 class COVID19CXRImageGeneration(BaseTask):
     """A task for generating chest X-ray images.
 
+    Works with :class:`~pyhealth.datasets.COVID19CXRDataset`.
+
     Every X-ray becomes one sample holding only the image, so the output
     schema is empty. Images are loaded as single-channel grayscale, since the
     X-rays carry no color, and resized to 128 x 128.

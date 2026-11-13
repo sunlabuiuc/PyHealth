@@ -14,13 +14,9 @@ import numpy as np
 import torch
 from torch.utils.data import Subset
 
-from pyhealth.calib.base_classes import SetPredictor
 from pyhealth.calib.predictionset.base_conformal import _query_quantile
-from pyhealth.calib.predictionset.scores import (
-    SUPPORTED_SCORE_TYPES,
-    all_class_nc_scores,
-    true_class_nc_scores,
-)
+from pyhealth.calib.predictionset.label import LABEL
+from pyhealth.calib.predictionset.scores import true_class_nc_scores
 from pyhealth.calib.utils import prepare_numpy_dataset
 from pyhealth.models import BaseModel
 
@@ -91,7 +87,7 @@ def _predset_mask(
     return (nc_scores <= thresholds) & (candidate_ranks <= k_hat)
 
 
-class RC3P(SetPredictor):
+class RC3P(LABEL):
     """RC3P: Rank Calibrated Class-conditional Conformal Prediction.
 
     Standard class-conditional conformal prediction (CCP, the
@@ -184,14 +180,8 @@ class RC3P(SetPredictor):
         debug=False,
         **kwargs,
     ) -> None:
-        super().__init__(model, **kwargs)
-        if model.mode != "multiclass":
-            raise NotImplementedError()
-        if score_type not in SUPPORTED_SCORE_TYPES:
-            raise ValueError(
-                f"Unknown score_type: {score_type!r}. Supported: "
-                f"{SUPPORTED_SCORE_TYPES}."
-            )
+        # RC3P needs a single scalar alpha, unlike LABEL which also
+        # accepts per-class arrays, so validate before LABEL's init.
         if isinstance(alpha, bool) or not isinstance(alpha, (float, int)):
             raise TypeError("alpha must be a float in (0, 1).")
         alpha = float(alpha)
@@ -199,17 +189,15 @@ class RC3P(SetPredictor):
             raise ValueError("alpha must be a float in (0, 1).")
         if not 0 < rank_fraction < 1:
             raise ValueError("rank_fraction must be in (0, 1).")
-        self.mode = self.model.mode
-        for param in model.parameters():
-            param.requires_grad = False
-        self.model.eval()
-        self.device = model.device
-        self.debug = debug
-        self.score_type = score_type
-        self.rng = np.random.default_rng(random_state)
-        self.alpha = alpha
+        super().__init__(
+            model,
+            alpha,
+            score_type=score_type,
+            random_state=random_state,
+            debug=debug,
+            **kwargs,
+        )
         self.rank_fraction = rank_fraction
-        self.t = None
         self.k_hat = None
         self.alpha_hat = None
 
@@ -313,6 +301,10 @@ class RC3P(SetPredictor):
     def forward(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation (just like the original model).
 
+        LABEL's forward includes a label when its score passes its
+        class threshold; RC3P additionally requires the label's rank
+        to be within its class cutoff.
+
         :return: A dictionary with all results from the base model, with the following updates:
 
                     y_predset: a bool tensor representing the prediction for each class.
@@ -320,20 +312,13 @@ class RC3P(SetPredictor):
         """
         if self.t is None or self.k_hat is None:
             raise RuntimeError("RC3P must be calibrated before forward.")
-        pred = self.model(**kwargs)
+        pred = super().forward(**kwargs)
         y_prob = pred["y_prob"].detach().cpu().numpy()
-        nc_scores = all_class_nc_scores(
-            y_prob, score_type=self.score_type, rng=self.rng
-        )
-        nc_scores = torch.as_tensor(
-            nc_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype
-        )
         ranks = _candidate_ranks(y_prob)
-        thresholds = self.t.detach().cpu().numpy()
-        mask = _predset_mask(
-            nc_scores.detach().cpu().numpy(), thresholds, ranks, self.k_hat
+        rank_pass = torch.as_tensor(
+            ranks <= self.k_hat,
+            device=pred["y_prob"].device,
+            dtype=torch.bool,
         )
-        pred["y_predset"] = torch.as_tensor(
-            mask, device=pred["y_prob"].device, dtype=torch.bool
-        )
+        pred["y_predset"] = pred["y_predset"] & rank_pass
         return pred

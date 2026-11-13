@@ -10,6 +10,7 @@ Welcome to the PyHealth Newsletter! Here you'll find regular updates about new f
 
    newsletter/2026-01-pyhealth-2.0-release
    newsletter/2025-12-memory-optimization
+   newsletter/2025-12-ml4h-highlights
    newsletter/2025-12-research-initiative-call
    newsletter/2025-11-pyhealth-updates
 

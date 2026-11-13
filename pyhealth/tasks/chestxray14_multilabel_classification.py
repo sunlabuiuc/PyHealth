@@ -31,6 +31,8 @@ class ChestXray14MultilabelClassification(BaseTask):
     A PyHealth task class for multilabel classification of all fourteen diseases
     in the ChestXray14 dataset.
 
+    Works with :class:`~pyhealth.datasets.ChestXray14Dataset`.
+
     Attributes:
         task_name (str): The name of the task.
         input_schema (Dict[str, str]): The schema for the task input.
