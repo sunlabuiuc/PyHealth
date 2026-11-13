@@ -13,7 +13,7 @@ New to interpretability in PyHealth? Check out these complete examples:
 
 **Basic Gradient Example:**
 
-- ``examples/ChestXrayClassificationWithSaliency.ipynb`` - Interactive notebook demonstrating gradient-based saliency mapping for medical image classification. Shows how to:
+- ``examples/cxr/ChestXrayClassificationWithSaliency.ipynb`` - Interactive notebook demonstrating gradient-based saliency mapping for medical image classification. Shows how to:
 
   - Load and classify chest X-ray images using PyHealth's TorchvisionModel
   - Generate gradient saliency maps to visualize model attention
@@ -81,14 +81,11 @@ Attribution Methods
     interpret/pyhealth.interpret.methods.chefer
     interpret/pyhealth.interpret.methods.attention_rollout
     interpret/pyhealth.interpret.methods.deeplift
+    interpret/pyhealth.interpret.methods.lrp
     interpret/pyhealth.interpret.methods.integrated_gradients
     interpret/pyhealth.interpret.methods.shap
     interpret/pyhealth.interpret.methods.lime
     interpret/pyhealth.interpret.methods.tree_shap
-    interpret/pyhealth.interpret.methods.ig_gim
-    interpret/pyhealth.interpret.methods.ensemble
-    interpret/pyhealth.interpret.methods.baseline
-    interpret/pyhealth.interpret.methods.base_interpreter
 
 Visualization Utilities
 -----------------------
