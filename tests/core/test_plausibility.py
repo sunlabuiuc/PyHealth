@@ -21,6 +21,37 @@ class TestSpansToTokenIds(unittest.TestCase):
         self.assertEqual(spans_to_token_ids(offsets, [(40, 50)]), [])
         self.assertEqual(spans_to_token_ids(offsets, [(5, 6)]), [])
 
+    def test_empty_and_inverted_spans_give_no_evidence(self):
+        # Trimming a 1-character annotation (as the authors' preprocessing
+        # does) can leave start == end or start > end; even inside a token
+        # such a span is not evidence.
+        offsets = [(0, 0), (0, 7), (8, 13), (0, 0)]  # <s> patient fever </s>
+        self.assertEqual(spans_to_token_ids(offsets, [(10, 10)]), [])
+        self.assertEqual(spans_to_token_ids(offsets, [(11, 9)]), [])
+        self.assertEqual(spans_to_token_ids(offsets, [(10, 10), (0, 7)]), [1])
+
+    def test_end_is_exclusive_and_truncation_cuts_spans(self):
+        # <s> "type" " 2" " diabetes" </s>: (0, 4) ends where " 2" starts.
+        offsets = [(0, 0), (0, 4), (5, 6), (7, 15), (0, 0)]
+        self.assertEqual(spans_to_token_ids(offsets, [(0, 4)]), [1])
+        self.assertEqual(spans_to_token_ids(offsets, [(0, 6)]), [1, 2])
+        self.assertEqual(spans_to_token_ids(offsets, [(6, 7)]), [])
+        # Note truncated after "type 2": a span over "2 diabetes" keeps only
+        # the token that survived truncation.
+        truncated = [(0, 0), (0, 4), (5, 6), (0, 0)]
+        self.assertEqual(spans_to_token_ids(truncated, [(5, 15)]), [2])
+
+    def test_zero_width_tokens_and_duplicate_spans(self):
+        # A byte-level tokenizer can emit a whitespace token with an empty
+        # offset (12, 12) inside a span; <s> at (0, 0) must not match a span
+        # starting at 0; overlapping or repeated spans list each token once.
+        offsets = [(0, 0), (0, 5), (6, 10), (12, 12), (12, 20), (0, 0)]
+        self.assertEqual(spans_to_token_ids(offsets, [(0, 20)]), [1, 2, 4])
+        self.assertEqual(spans_to_token_ids(offsets, [(0, 3)]), [1])
+        self.assertEqual(
+            spans_to_token_ids(offsets, [(12, 20), (6, 15), (12, 20)]), [2, 4]
+        )
+
 
 class TestPlausibilityMetrics(unittest.TestCase):
     def setUp(self):
