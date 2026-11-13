@@ -36,6 +36,8 @@ def optimize_token_mask(
     diet_constant: float = 0.01,
     lr: float = 0.1,
     max_iter: int = 20,
+    min_iter: int = 0,
+    init: float = 2.0,
 ) -> tuple[torch.Tensor, int]:
     """Learns a soft token mask that keeps the predictions with few tokens.
 
@@ -55,6 +57,13 @@ def optimize_token_mask(
         diet_constant: Weight of the prediction-change term.
         lr: AdamW learning rate for the mask.
         max_iter: Maximum number of mask updates.
+        min_iter: Updates done before the convergence check may stop the
+            loop. The authors' code uses 0; with their settings the check
+            fires at the third update, while every mask value is still
+            about 0.85, so rounding keeps every token. A larger value (or a
+            larger ``lr``) lets the mask actually move.
+        init: Starting value of the mask logits (the authors use 2.0, i.e.
+            ``sigmoid = 0.88``).
 
     Returns:
         ``(mask, iterations)``: the soft mask ``sigmoid(m)`` of shape
@@ -67,7 +76,7 @@ def optimize_token_mask(
     with torch.no_grad():
         original = torch.sigmoid(_forward(model, embeds, attention_mask))
 
-    mask = torch.full((*input_ids.shape, 1), 2.0, device=embeds.device)
+    mask = torch.full((*input_ids.shape, 1), float(init), device=embeds.device)
     mask.requires_grad_(True)
     optimizer = torch.optim.AdamW([mask], lr=lr)
     prev_loss = prev_prev_loss = float("inf")
@@ -86,7 +95,7 @@ def optimize_token_mask(
         optimizer.step()
         optimizer.zero_grad()
         iterations += 1
-        if 0.97 * prev_prev_loss < value < 1.03 * prev_prev_loss:
+        if iterations >= min_iter and 0.97 * prev_prev_loss < value < 1.03 * prev_prev_loss:
             break
         prev_prev_loss, prev_loss = prev_loss, value
     model.train(was_training)
@@ -103,6 +112,8 @@ def token_masking_loss(
     lr: float = 0.1,
     max_iter: int = 20,
     baseline_token_id: int | None = None,
+    min_iter: int = 0,
+    init: float = 2.0,
 ) -> dict[str, torch.Tensor]:
     """Token-masking training loss with distillation from a frozen teacher.
 
@@ -126,6 +137,8 @@ def token_masking_loss(
         max_iter: Maximum mask updates per batch.
         baseline_token_id: Token that replaces masked tokens; defaults to
             the tokenizer's mask token.
+        min_iter: See :func:`optimize_token_mask` (0 = authors' behaviour).
+        init: See :func:`optimize_token_mask` (2.0 = authors' behaviour).
 
     Returns:
         A dict with ``loss`` (scalar), ``logit`` ``[batch, J]`` (unmasked
@@ -145,6 +158,8 @@ def token_masking_loss(
         diet_constant=diet_constant,
         lr=lr,
         max_iter=max_iter,
+        min_iter=min_iter,
+        init=init,
     )
     keep = soft.round().bool() | (attention_mask == 0)
     keep |= torch.isin(
