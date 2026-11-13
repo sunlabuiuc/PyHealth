@@ -21,7 +21,7 @@ from .base_dataset import BaseDataset
 logger = logging.getLogger(__name__)
 
 _CSV_NAME = "tcga_rna_seq.csv"
-
+_EMBED_DIM = 256
 
 def prepare_tcga_rna_seq(
     root: str,
@@ -67,26 +67,60 @@ def prepare_tcga_rna_seq(
     )
     labels = labels[labels.exclusion_reason.eq("")]
     embeddings = np.load(emb_path)
+    if embeddings.ndim != 2 or embeddings.shape[1] != _EMBED_DIM:
+        raise ValueError(
+            f"embeddings_{embedding}.npy must be (N, {_EMBED_DIM}), "
+            f"got {embeddings.shape}"
+        )
+    if embeddings.shape[0] != len(samples):
+        raise ValueError(
+            f"Embedding row count ({embeddings.shape[0]}) does not match "
+            f"samples.tsv row count ({len(samples)})"
+        )
+    if not np.isfinite(embeddings).all():
+        raise ValueError("Embeddings contain non-finite values")
+    
     samples = samples.assign(row=np.arange(len(samples)))
 
     frame = samples.merge(labels, on="patient_id", how="inner")
     if frame.empty:
         raise ValueError("No overlap between samples and survival labels")
 
-    # One representative sample per patient (first in file order).
-    if frame.patient_id.duplicated().any():
+    # Drop Solid Tissue Normal samples (matches the reference repo's training).
+    if "sample_type" in frame.columns:
         before = len(frame)
-        frame = frame.drop_duplicates(subset="patient_id", keep="first")
-        logger.info("Dropped %d duplicate samples", before - len(frame))
+        frame = frame[frame.sample_type != "Solid Tissue Normal"]
+        if len(frame) < before:
+            logger.info("Dropped %d Solid Tissue Normal samples", before - len(frame))
+
+    # After filtering, each patient must have at most one sample.
+    dup = frame[frame.duplicated("patient_id", keep=False)]
+    if len(dup) > 0:
+        raise ValueError(
+            "Multiple RNA-seq samples per patient after filtering "
+            "(Tumor + Solid Tissue Normal is expected to be resolved by "
+            "the Solid Tissue Normal filter; investigate these patients): "
+            f"{sorted(dup.patient_id.unique())[:5].tolist()}"
+        )
+
+    # Validate survival records.
+    if frame.patient_id.isna().any() or (frame.patient_id == "").any():
+        raise ValueError("Missing patient_id in survival records")
+    if frame.cohort.isna().any() or (frame.cohort == "").any():
+        raise ValueError("Missing cohort in survival records")
+    if not np.isfinite(frame.duration_days.astype(float)).all():
+        raise ValueError("Survival times contain non-finite values")
+    if (frame.duration_days.astype(float) <= 0).any():
+        raise ValueError("Survival times must be positive")
+    if not frame.event.isin([0, 1, True, False]).all():
+        raise ValueError("Event must be 0 or 1")
 
     vecs = embeddings[frame.row.to_numpy()].astype(np.float32)
-    if vecs.shape[1] != 256:
-        raise ValueError(f"Embeddings must be (N, 256), got {vecs.shape}")
 
     out = pd.DataFrame({
         "patient_id": frame.patient_id.to_numpy(),
         "cohort": frame.cohort.to_numpy(),
-        "survival_time": frame.duration_days.astype(float).to_numpy(),
+        "duration": frame.duration_days.astype(float).to_numpy(),
         "event": frame.event.astype(int).to_numpy(),
         "embedding": [json.dumps(vec.tolist()) for vec in vecs],
     })

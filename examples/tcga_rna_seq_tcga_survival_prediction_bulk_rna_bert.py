@@ -45,8 +45,8 @@ from pyhealth.datasets import (
     TCGARNASeqDataset,
     get_dataloader,
 )
+from pyhealth.metrics.survival import concordance_index
 from pyhealth.models import BulkRNABert
-from pyhealth.models.bulk_rna_bert import cox_loss
 from pyhealth.tasks import TCGASurvivalPrediction
 
 
@@ -63,14 +63,14 @@ def _write_synthetic_csv(root: Path, n_per_cohort: int = 20, seed: int = 0) -> N
         for i in range(n_per_cohort):
             emb = rng.standard_normal(256).astype(np.float32)
             # Give the model a little signal: survival time weakly tied to emb[0].
-            survival_time = float(
+            duration = float(
                 200.0 + 100.0 * emb[0] + 50.0 * ci + 10.0 * rng.random()
             )
             event = int(rng.random() < 0.6)
             rows.append({
                 "patient_id": f"TCGA-{cohort[5:]}-{i:04d}",
                 "cohort": cohort,
-                "survival_time": survival_time,
+                "duration": duration,
                 "event": event,
                 "embedding": json.dumps(emb.tolist()),
             })
@@ -78,54 +78,42 @@ def _write_synthetic_csv(root: Path, n_per_cohort: int = 20, seed: int = 0) -> N
 
 
 # ---------------------------------------------------------------------------
-# Minimal C-index (Harrell's). Higher risk -> shorter survival.
+# Per-cohort aggregation
 # ---------------------------------------------------------------------------
 
-def c_index(time: np.ndarray, risk: np.ndarray, event: np.ndarray) -> float:
-    """Harrell's concordance index. Returns nan if no comparable pairs."""
-    n = len(time)
-    concordant = 0
-    comparable = 0
-    for i in range(n):
-        if not event[i]:
-            continue
-        for j in range(n):
-            if i == j or time[j] < time[i]:
-                continue
-            comparable += 1
-            if time[j] == time[i]:
-                concordant += 0.5
-            elif risk[i] > risk[j]:
-                concordant += 1
-    return concordant / comparable if comparable else float("nan")
+def per_cohort_c_index(duration, risk, event, cohort):
+    """Per-cohort C-index plus overall, macro, and weighted aggregates.
 
-
-def cohort_c_indices(
-    time: np.ndarray,
-    risk: np.ndarray,
-    event: np.ndarray,
-    cohort: np.ndarray,
-) -> dict:
-    """Overall, weighted, and macro C-index across cohorts."""
-    overall = c_index(time, risk, event)
+    Wraps ``pyhealth.metrics.survival.concordance_index``. The aggregation
+    is ablation-specific and lives here rather than in the library, which
+    returns only the overall C-index.
+    """
+    overall = concordance_index(duration, event, risk)
     per_cohort = {}
     for c in np.unique(cohort):
-        m = cohort == c
-        if m.sum() >= 2:
-            per_cohort[str(c)] = c_index(time[m], risk[m], event[m])
+        mask = cohort == c
+        key = int(c)
+        if mask.sum() < 2:
+            per_cohort[key] = float("nan")
+            continue
+        per_cohort[key] = concordance_index(
+            duration[mask], event[mask], risk[mask]
+        )
     valid = {k: v for k, v in per_cohort.items() if not np.isnan(v)}
-    sizes = np.array(
-        [np.sum(cohort == int(k)) for k in valid], dtype=float
-    ) if valid else np.array([])
-    scores = np.array(list(valid.values())) if valid else np.array([])
+    if not valid:
+        return {
+            "c_index_overall": overall,
+            "c_index_macro": float("nan"),
+            "c_index_weighted": float("nan"),
+            "per_cohort": per_cohort,
+        }
+    sizes = np.array([np.sum(cohort == k) for k in valid], dtype=float)
+    scores = np.array(list(valid.values()))
     return {
         "c_index_overall": overall,
-        "c_index_weighted": (
-            float((sizes * scores).sum() / sizes.sum())
-            if sizes.sum() > 0 else float("nan")
-        ),
-        "c_index_macro": float(scores.mean()) if len(scores) else float("nan"),
-        "per_cohort": valid,
+        "c_index_macro": float(scores.mean()),
+        "c_index_weighted": float((sizes * scores).sum() / sizes.sum()),
+        "per_cohort": per_cohort,
     }
 
 
@@ -151,63 +139,89 @@ def _feats(batch: dict) -> dict:
 
 def train(
     train_ds,
+    val_ds,
     test_ds,
     loss_mode: str,
-    epochs: int = 40,
-    lr: float = 1e-3,
-    batch_size: int = 32,
+    epochs: int = 200,
+    lr: float = 1e-4,
+    batch_size: int = 256,
+    patience: int = 20,
     seed: int = 0,
 ) -> dict:
     """Train a fresh BulkRNABert head and return test-set C-indices.
 
     Args:
-        train_ds: Training SampleDataset.
-        test_ds: Test SampleDataset.
-        loss_mode: ``"global"`` or ``"cohort"``.
+        train_ds, val_ds, test_ds: Split SampleDatasets from ``set_task``.
+        loss_mode: ``"global"`` (paper default) or ``"cohort"`` (extension).
+        epochs, lr, batch_size, patience, seed: Training hyperparameters.
+            Defaults match the reference repo's training configuration.
+
+    Returns:
+        Dict with ``c_index_overall``, ``c_index_weighted``, ``c_index_macro``,
+        and ``per_cohort``.
     """
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    model = BulkRNABert(use_cached_embeddings=True)
-    optim = torch.optim.Adam(model.head.parameters(), lr=lr)
+    model = BulkRNABert(
+        dataset=train_ds,
+        use_cached_embeddings=True,
+        cox_loss_mode=loss_mode,
+    )
+    optim = torch.optim.Adam(
+        [p for p in model.parameters() if p.requires_grad], lr=lr,
+    )
     train_loader = get_dataloader(train_ds, batch_size=batch_size, shuffle=True)
+    val_loader = get_dataloader(val_ds, batch_size=batch_size, shuffle=False)
     test_loader = get_dataloader(test_ds, batch_size=batch_size, shuffle=False)
+    def _collect(model, loader):
+        model.eval()
+        risks, dur, events, cohorts = [], [], [], []
+        with torch.no_grad():
+            for batch in loader:
+                feats = _feats(batch)
+                out = model.forward(**feats)
+                risks.append(out["logit"].squeeze(-1).cpu().numpy())
+                dur.append(feats["duration"].reshape(-1).cpu().numpy())
+                events.append(feats["event"].reshape(-1).cpu().numpy())
+                if "cohort" in feats:
+                    cohorts.append(feats["cohort"].reshape(-1).cpu().numpy())
+        return (
+            np.concatenate(dur),
+            np.concatenate(risks),
+            np.concatenate(events),
+            np.concatenate(cohorts).astype(int) if cohorts else None,
+        )
+    best_val = -1.0
+    best_state = None
+    stale = 0
 
     for _ in range(epochs):
         model.train()
         for batch in train_loader:
             feats = _feats(batch)
             out = model.forward(**feats)
-            if loss_mode == "cohort":
-                loss = cox_loss(
-                    out["logit"].squeeze(-1),
-                    feats["survival_time"].squeeze(-1).float(),
-                    feats["event"].squeeze(-1).float(),
-                    feats["cohort"].squeeze(-1).long(),
-                )
-            else:
-                loss = out["loss"]
+            loss = out["loss"]
             optim.zero_grad()
             loss.backward()
             optim.step()
 
-    model.eval()
-    risks, times, events, cohorts = [], [], [], []
-    with torch.no_grad():
-        for batch in test_loader:
-            feats = _feats(batch)
-            out = model.forward(**feats)
-            risks.append(out["logit"].squeeze(-1).cpu().numpy())
-            times.append(feats["survival_time"].squeeze(-1).cpu().numpy())
-            events.append(feats["event"].squeeze(-1).cpu().numpy())
-            cohorts.append(feats["cohort"].squeeze(-1).cpu().numpy())
+        t_val, r_val, e_val, _ = _collect(model, val_loader)
+        val_ci = concordance_index(t_val, e_val, r_val)
+        if val_ci > best_val:
+            best_val = val_ci
+            best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+            stale = 0
+        else:
+            stale += 1
+            if stale >= patience:
+                break
 
-    return cohort_c_indices(
-        np.concatenate(times),
-        np.concatenate(risks),
-        np.concatenate(events),
-        np.concatenate(cohorts).astype(int),
-    )
+    if best_state is not None:
+        model.load_state_dict(best_state)
+
+    t, r, e, c = _collect(model, test_loader)
+    return per_cohort_c_index(t, r, e, c)
 
 
 # ---------------------------------------------------------------------------
@@ -229,7 +243,10 @@ def main() -> None:
         ),
     )
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--epochs", type=int, default=40)
+    parser.add_argument("--epochs", type=int, default=200)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument("--patience", type=int, default=20)
     args = parser.parse_args()
 
     # Windows cannot unlink litdata's memory-mapped files while this process
@@ -251,12 +268,13 @@ def main() -> None:
             )
 
         task = TCGASurvivalPrediction()
-        # Patient-level 70/10/20 split. The val split is unused here.
-        train_ds, _, test_ds = dataset.set_task(
+        # Patient-level 70/10/20 split. Validation drives early stopping.
+        train_ds, val_ds, test_ds = dataset.set_task(
             task, split=PatientSplit(ratios=(0.7, 0.1, 0.2), seed=args.seed),
         )
         print(
             f"Train: {len(train_ds)} samples, "
+            f"Val: {len(val_ds)} samples, "
             f"Test: {len(test_ds)} samples "
             f"across {len(dataset.unique_patient_ids)} patients."
         )
@@ -265,13 +283,17 @@ def main() -> None:
         for mode in ("global", "cohort"):
             print(f"\nTraining with {mode} Cox loss...")
             res = train(
-                train_ds, test_ds, loss_mode=mode,
-                epochs=args.epochs, seed=args.seed,
+                train_ds, val_ds, test_ds, loss_mode=mode,
+                epochs=args.epochs, lr=args.lr, batch_size=args.batch_size,
+                patience=args.patience, seed=args.seed,
             )
             results[mode] = res
             print(f"  overall C-index:  {res['c_index_overall']:.3f}")
             print(f"  weighted C-index: {res['c_index_weighted']:.3f}")
             print(f"  macro C-index:    {res['c_index_macro']:.3f}")
+            for cohort_id, ci in res["per_cohort"].items():
+                name = TCGASurvivalPrediction.INT_TO_COHORT.get(cohort_id, str(cohort_id))
+                print(f"    {name}: {ci:.3f}")
 
         print("\n--- Ablation summary ---")
         print(f"{'metric':<20}{'global':>10}{'cohort':>10}")

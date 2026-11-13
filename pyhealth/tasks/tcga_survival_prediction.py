@@ -29,7 +29,7 @@ class TCGASurvivalPrediction(BaseTask):
     embedding, depending on the model mode).
 
     Outputs (all ``"tensor"``, so no ``LabelProcessor`` is created):
-        - ``survival_time``: (1,) float tensor (days).
+        - ``duration``: (1,) float tensor (days).
         - ``event``: (1,) float tensor (1.0 = death, 0.0 = censored).
         - ``cohort``: (1,) float tensor — int-encoded via ``COHORT_TO_INT``,
           for cohort-restricted Cox loss and per-cohort C-index.
@@ -45,13 +45,14 @@ class TCGASurvivalPrediction(BaseTask):
     """
 
     task_name: str = "TCGASurvivalPrediction"
-    input_schema: ClassVar[dict[str, str]] = {"gene_expression": "tensor"}
+    input_schema: ClassVar[dict[str, str]] = {"embedding": "tensor"}
     output_schema: ClassVar[dict[str, str]] = {
-        "survival_time": "tensor",
+        "duration": "tensor",
         "event": "tensor",
         "cohort": "tensor",
     }
-
+    COHORT_TO_INT: ClassVar[dict[str, int]] = COHORT_TO_INT
+    INT_TO_COHORT: ClassVar[dict[int, str]] = {i: c for c, i in COHORT_TO_INT.items()}
     def __init__(self, cohort_to_int: dict[str, int] | None = None) -> None:
         super().__init__()
         self.cohort_to_int = cohort_to_int or COHORT_TO_INT
@@ -60,22 +61,68 @@ class TCGASurvivalPrediction(BaseTask):
         events = patient.get_events(event_type="tcga_rna_seq")
         if not events:
             return []
+        if len(events) > 1:
+            raise ValueError(
+                f"Expected exactly one tcga_rna_seq event for patient "
+                f"{patient.patient_id}, got {len(events)}"
+            )
         e = events[0]
 
-        survival_time = float(e["survival_time"])
-        event = int(float(e["event"]))
-        cohort_name = str(e["cohort"])
+        try:
+            raw_dur = e["duration"]
+            raw_ev = e["event"]
+            raw_co = e["cohort"]
+            raw_emb = e["embedding"]
+        except KeyError as err:
+            raise ValueError(
+                f"Missing field {err} in event for patient {patient.patient_id}"
+            ) from err
+
+        try:
+            duration = float(raw_dur)
+        except (TypeError, ValueError) as err:
+            raise ValueError(
+                f"Invalid duration for patient {patient.patient_id}: {raw_dur!r}"
+            ) from err
+        if not np.isfinite(duration) or duration <= 0:
+            raise ValueError(
+                f"duration must be finite and positive, got {duration}"
+            )
+
+        try:
+            event_val = float(raw_ev)
+        except (TypeError, ValueError) as err:
+            raise ValueError(
+                f"Invalid event indicator for patient {patient.patient_id}: {raw_ev!r}"
+            ) from err
+        if event_val not in (0.0, 1.0):
+            raise ValueError(f"Event must be 0 or 1, got {event_val}")
+
+        cohort_name = str(raw_co)
         if cohort_name.startswith("TCGA-"):
             cohort_name = cohort_name[5:]
         if cohort_name not in self.cohort_to_int:
             raise ValueError(f"Unknown TCGA cohort: {cohort_name!r}")
         cohort_int = self.cohort_to_int[cohort_name]
 
-        embedding = np.asarray(json.loads(e["embedding"]), dtype=np.float32)
+        # The dataset stores the embedding as a JSON list string in the CSV.
+        try:
+            embedding = np.asarray(json.loads(raw_emb), dtype=np.float32)
+        except (TypeError, ValueError) as err:
+            raise ValueError(
+                f"Invalid embedding for patient {patient.patient_id}: {err}"
+            ) from err
+        if embedding.shape != (256,):
+            raise ValueError(
+                f"Embedding must be shape (256,), got {embedding.shape}"
+            )
+        if not np.isfinite(embedding).all():
+            raise ValueError("Embedding contains non-finite values")
+
         return [{
             "patient_id": patient.patient_id,
-            "gene_expression": embedding,
-            "survival_time": [survival_time],
-            "event": [float(event)],
+            "embedding": embedding,
+            "duration": [duration],
+            "event": [event_val],
             "cohort": [float(cohort_int)],
         }]

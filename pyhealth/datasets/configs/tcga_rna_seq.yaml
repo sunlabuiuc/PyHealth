@@ -6,6 +6,6 @@ tables:
     timestamp: null
     attributes:
       - "cohort"
-      - "survival_time"
+      - "duration"
       - "event"
       - "embedding"

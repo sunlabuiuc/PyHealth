@@ -5,13 +5,26 @@ Reproduces the downstream survival prediction pipeline of Gélard et al. (2025),
 (ML4H 2025), using the authors' released frozen encoder and a newly initialized
 MLP survival head trained with Cox partial likelihood.
 
+
 Reference implementation:
     https://github.com/instadeepai/multiomics-open-research
+
+Two operating modes:
+
+- **Cached embeddings** (``use_cached_embeddings=True``): the input ``embedding``
+  field is a precomputed 256-dimensional patient representation, typically the
+  mean over genes of the frozen encoder's last transformer layer. This is the
+  fast path used by the example script and the ablation.
+
+- **Raw expression** (``use_cached_embeddings=False``): the model accepts
+  ``(batch, 19_062)`` TPM vectors in the model gene order, tokenizes them with
+  :func:`tokenize`, and runs the frozen encoder internally.
 """
 
 from __future__ import annotations
 
 import pickle
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -21,6 +34,7 @@ import torch.nn.functional as F
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
+from pyhealth.models.trajsurv import cox_partial_likelihood_loss
 
 N_GENES = 19_062
 N_BINS = 64
@@ -31,6 +45,7 @@ FFN_DIM = 512
 NUM_LAYERS = 4
 LAYER_NORM_EPS = 1e-5
 TCGA_NORMALIZATION_FACTOR = 5.547176906585117
+HF_REPO_ID = "InstaDeepAI/BulkRNABert"
 
 def _unpack(v):
     if isinstance(v, (tuple, list)):
@@ -38,8 +53,31 @@ def _unpack(v):
     return v
 
 def tokenize(tpm: np.ndarray, normalization_factor: float = TCGA_NORMALIZATION_FACTOR) -> np.ndarray:
-    """Discretize TPM into 64 expression bins (matches the paper's tokenizer)."""
-    x = np.log10(1.0 + np.asarray(tpm, dtype=np.float64)) / normalization_factor
+    """Discretize TPM into 64 expression bins (matches the paper's tokenizer).
+    Args:
+        tpm: Array of shape ``(n_samples, N_GENES)`` in model gene order.
+        normalization_factor: Max ``log10(1 + TPM)`` value from pre-training.
+
+    Returns:
+        int64 array of shape ``(n_samples, N_GENES)`` with bin ids in ``[0, 63]``.
+
+    Raises:
+        ValueError: If ``tpm`` is not 2D with ``N_GENES`` columns, contains
+            non-finite values, or contains negative values.
+    """
+    tpm = np.asarray(tpm, dtype=np.float64)
+    if tpm.ndim != 2:
+        raise ValueError(f"tpm must be 2D, got shape {tpm.shape}")
+    if tpm.shape[1] != N_GENES:
+        raise ValueError(
+            f"tpm must have {N_GENES} genes (model gene order), got {tpm.shape[1]}"
+        )
+    if not np.isfinite(tpm).all():
+        raise ValueError("tpm contains non-finite values (NaN or inf)")
+    if (tpm < 0).any():
+        raise ValueError("tpm contains negative values")
+
+    x = np.log10(1.0 + tpm) / normalization_factor
     edges = np.linspace(0.0, 1.0, N_BINS)
     ids = np.digitize(x, edges)
     ids[x == 0.0] = 0
@@ -121,43 +159,84 @@ class SurvivalHead(nn.Module):
         return self.out(self.norm(self.hidden(x))).squeeze(-1)
 
 
-def cox_loss(risk: torch.Tensor, time: torch.Tensor, event: torch.Tensor,
-             group: Optional[torch.Tensor] = None) -> torch.Tensor:
+def cox_loss(
+    risk: torch.Tensor,
+    duration: torch.Tensor,
+    event: torch.Tensor,
+    group: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
     """Mean negative Cox partial log-likelihood (Breslow ties).
 
+    Delegates to :func:`pyhealth.models.trajsurv.cox_partial_likelihood_loss`
+    for the global case. With ``group``, one risk set is built per cohort
+    and the per-cohort losses are combined by an event-count-weighted
+    average, so the result is still a mean over all observed events rather
+    than a mean of per-cohort means (which would weight small cohorts
+    equally with large ones).
+
     Args:
-        risk: (B,) risk scores.
-        time: (B,) survival times.
-        event: (B,) event indicators.
-        group: (B,) optional cohort ids. If set, risk sets are per-cohort.
+        risk: Risk scores, shape ``(batch,)``.
+        duration: Survival times, shape ``(batch,)``.
+        event: Event indicators, shape ``(batch,)``.
+        group: Optional cohort ids, shape ``(batch,)``.
 
     Returns:
-        Scalar loss (zero-valued if no events in the batch, still differentiable).
+        Scalar loss. If no events are present, returns a zero-valued tensor
+        that still propagates gradients (safe for minibatches).
     """
     if group is None:
-        group = torch.zeros_like(time, dtype=torch.long)
-    losses = []
+        return cox_partial_likelihood_loss(risk, duration, event)
+
+    total_weighted_loss = 0.0
+    total_events = 0.0
     for g in group.unique():
         mask = group == g
-        r, t, e = risk[mask], time[mask], event[mask]
-        if e.sum() == 0:
+        n_events = float(event[mask].sum().item())
+        if n_events == 0:
             continue
-        order = torch.argsort(t, descending=True)
-        r, t, e = r[order], t[order], e[order]
-        log_risk = torch.logcumsumexp(r, dim=0)
-        last_tied = torch.searchsorted(-t, -t, right=True) - 1
-        losses.append(-(r - log_risk[last_tied])[e.bool()])
-    if not losses:
+        per_group_loss = cox_partial_likelihood_loss(
+            risk[mask], duration[mask], event[mask]
+        )
+        total_weighted_loss = total_weighted_loss + per_group_loss * n_events
+        total_events += n_events
+    if total_events == 0:
         return risk.sum() * 0.0
-    return torch.cat(losses).mean()
-
+    return total_weighted_loss / total_events
 
 # --- Weight loaders ---
 
-def load_hf_safetensors(path: str) -> BulkRNABertEncoder:
-    """Load the Hugging Face safetensors weights for BulkRNABert."""
+def load_hf_safetensors(
+    path_or_repo: str | Path = HF_REPO_ID,
+    revision: str | None = None,
+) -> BulkRNABertEncoder:
+    """Load BulkRNABert weights from a safetensors file or the Hugging Face Hub.
+
+    Args:
+        path_or_repo: Either a path to a local ``.safetensors`` file (or a
+            directory containing ``model.safetensors``), or a Hugging Face
+            repository ID such as ``"InstaDeepAI/BulkRNABert"``. Defaults to
+            the official repo.
+        revision: Commit hash or branch to pin when downloading from HF Hub.
+            Ignored when loading a local file.
+
+    Returns:
+        A frozen BulkRNABert encoder in eval mode.
+    """
     from safetensors.torch import load_file
-    state = load_file(path)
+
+    p = Path(path_or_repo)
+    if p.is_file():
+        weights_file = str(p)
+    elif p.is_dir():
+        weights_file = str(p / "model.safetensors")
+    else:
+        from huggingface_hub import hf_hub_download
+        repo = str(path_or_repo) if path_or_repo else HF_REPO_ID
+        weights_file = hf_hub_download(
+            repo_id=repo, filename="model.safetensors", revision=revision,
+        )
+
+    state = load_file(weights_file)
     state = {k: v for k, v in state.items() if not k.startswith("lm_head.")}
     state["expression_embedding_layer.weight"] = state["expression_embedding_layer.weight"][:N_BINS]
     model = BulkRNABertEncoder()
@@ -222,36 +301,53 @@ def load_jax_checkpoint(path: str) -> BulkRNABertEncoder:
 class BulkRNABert(BaseModel):
     """BulkRNABert survival model (frozen encoder + trainable MLP head).
 
-    Follows the PyHealth 2.1 survival-task convention (see ``Metabric`` and
-    ``InHospitalSurvivalMIMIC4``): the Cox loss is computed inside ``forward``
-    and returned as ``output["loss"]``; no ``LabelProcessor`` is created.
+     Two modes for ``embedding`` inputs:
+
+    - **Cached embeddings** (``use_cached_embeddings=True``): ``embedding`` is
+      a precomputed ``(batch, 256)`` tensor (mean over genes of the frozen
+      encoder's last transformer layer). Skips the encoder entirely.
+    - **Raw expression** (``use_cached_embeddings=False``): ``embedding`` is
+      a ``(batch, 19_062)`` TPM tensor in the model gene order. The model
+      tokenizes and runs the frozen encoder to produce 256-d embeddings.
+
+    The Cox partial likelihood is computed inside ``forward()`` and returned
+    as ``out["loss"]``, following the ``MetabricSurvivalPrediction`` and
+    ``InHospitalSurvivalMIMIC4`` task conventions in this repo.
 
     Args:
-        dataset: PyHealth ``SampleDataset``. Required by ``BaseModel``.
-        encoder: ``"hf"`` (safetensors) or ``"repo"`` (Haiku ``params.joblib``).
+        dataset: PyHealth ``SampleDataset`` (optional when use_cached_embeddings
+            is True and the caller provides ``embedding`` in kwargs).
+        encoder: ``"hf"`` (safetensors) or ``"repo"`` (Haiku checkpoint).
         models_dir: Directory containing the encoder weights.
         use_cached_embeddings: Skip the encoder and treat inputs as 256-d.
+        feature_key: Fallback input field name when ``dataset`` is None.
+        cox_loss_mode: ``"global"`` (default, matches the paper) or
+            ``"cohort"`` (risk sets restricted to the same cancer cohort).
 
     Example:
-        >>> # with cached embeddings:
         >>> import torch
         >>> from pyhealth.models import BulkRNABert
-        >>> m = BulkRNABert(dataset=None, use_cached_embeddings=True)
-        >>> out = m.forward(gene_expression=torch.randn(4, 256))
+        >>> m = BulkRNABert(use_cached_embeddings=True)
+        >>> out = m.forward(embedding=torch.randn(4, 256))
         >>> out["logit"].shape
         torch.Size([4, 1])
     """
-    _feature_key: str = "gene_expression" 
     def __init__(
         self,
         dataset: SampleDataset | None = None,
         encoder: str = "hf",
         models_dir: str | None = None,
         use_cached_embeddings: bool = False,
-        feature_key: str = "gene_expression",
+        feature_key: str = "embedding",
+        cox_loss_mode: str = "global"
     ) -> None:
         super().__init__(dataset=dataset)
-        feature_key: str = "gene_expression",
+        self._feature_key = feature_key
+        if cox_loss_mode not in {"global", "cohort"}:
+            raise ValueError(
+                f"cox_loss_mode must be 'global' or 'cohort', got {cox_loss_mode!r}"
+            )
+        self.cox_loss_mode = cox_loss_mode
         self.use_cached_embeddings = use_cached_embeddings
         self.encoder: Optional[BulkRNABertEncoder] = None
         if not use_cached_embeddings:
@@ -276,6 +372,10 @@ class BulkRNABert(BaseModel):
 
     def _encode(self, x: torch.Tensor) -> torch.Tensor:
         if self.use_cached_embeddings:
+            if x.shape[-1] != EMBED_DIM:
+                raise ValueError(
+                    f"Cached embedding must have last dim {EMBED_DIM}, got {x.shape[-1]}"
+                )
             return x
         tokens = torch.from_numpy(tokenize(x.detach().cpu().numpy())).to(x.device)
         with torch.no_grad():
@@ -287,31 +387,28 @@ class BulkRNABert(BaseModel):
         Returns:
             logit: (B, 1) unbounded Cox risk scores.
             y_prob: same as logit (Cox scores are not calibrated probabilities).
-            loss: scalar Cox loss (only when ``survival_time`` and ``event``
+            loss: scalar Cox loss (only when ``duration`` and ``event``
                 are in ``kwargs``).
-            y_true: (B, 1) survival times (only when labels are present).
+            y_true: (B, 1) durations (only when labels are present).
         """
         key = self.feature_keys[0] if self.feature_keys else self._feature_key
-        raw = kwargs[key]
-        if isinstance(raw, torch.Tensor):
-            x = raw
-        elif isinstance(raw, (tuple, list)):
-            x = raw[0]
-        else:
-            raise TypeError(f"Unexpected feature type: {type(raw)}")
-
-        emb = self._encode(x)
+        raw = _unpack(kwargs[key])
+        emb = self._encode(raw)
         logit = self.head(emb).unsqueeze(-1)
 
-        out: dict[str, torch.Tensor] = {"logit": logit, "y_prob": logit}
+        out: dict[str, torch.Tensor] = {"logit": logit, "y_prob": logit, "risk_score": logit,}
 
-        if "survival_time" in kwargs and "event" in kwargs:
-            time = _unpack(kwargs["survival_time"]).squeeze(-1).float()
-            event = _unpack(kwargs["event"]).squeeze(-1).float()
-            cohort = kwargs.get("cohort")
-            if cohort is not None:
-                cohort = _unpack(cohort).squeeze(-1).long()
-            out["loss"] = cox_loss(logit.squeeze(-1), time, event, cohort)
-            out["y_true"] = _unpack(kwargs["survival_time"])
+        if "duration" in kwargs and "event" in kwargs:
+            duration = _unpack(kwargs["duration"]).reshape(-1).float()
+            event = _unpack(kwargs["event"]).reshape(-1).float()
+            group = None
+            if self.cox_loss_mode == "cohort":
+                if "cohort" not in kwargs:
+                    raise ValueError(
+                        "cox_loss_mode='cohort' requires cohort labels in the batch"
+                    )
+                group = _unpack(kwargs["cohort"]).reshape(-1).long()
+            out["loss"] = cox_loss(logit.squeeze(-1), duration, event, group)
+            out["y_true"] = _unpack(kwargs["duration"])
 
         return out
