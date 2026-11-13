@@ -1,0 +1,27 @@
+version: "1.0"
+tables:
+  framingham:
+    file_path: "framingham.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "sex"
+      - "current_smoker"
+      - "diabetes"
+      - "bp_meds"
+      - "education"
+      - "previous_chd"
+      - "previous_angina"
+      - "previous_mi"
+      - "previous_stroke"
+      - "previous_hypertension"
+      - "total_cholesterol"
+      - "age"
+      - "systolic_bp"
+      - "diastolic_bp"
+      - "cigarettes_per_day"
+      - "bmi"
+      - "heart_rate"
+      - "glucose"
+      - "duration_days"
+      - "event"

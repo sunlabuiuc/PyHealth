@@ -39,6 +39,8 @@ from .segmentation import (
 )
 from .survival import (
     concordance_index,
+    competing_risk_brier_score,
+    competing_risk_concordance_index,
     cumulative_dynamic_auc,
     ipcw_brier_score,
     survival_metrics_fn,
@@ -61,6 +63,8 @@ __all__ = [
     "compute_mle",
     "compute_prevalence_metrics",
     "concordance_index",
+    "competing_risk_brier_score",
+    "competing_risk_concordance_index",
     "cumulative_dynamic_auc",
     "ddi_rate_score",
     "dice_score",

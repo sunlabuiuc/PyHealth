@@ -14,11 +14,144 @@ from collections.abc import Sequence
 import numpy as np
 
 __all__ = [
+    "competing_risk_brier_score",
+    "competing_risk_concordance_index",
     "concordance_index",
     "cumulative_dynamic_auc",
     "ipcw_brier_score",
     "survival_metrics_fn",
 ]
+
+
+def _as_competing_arrays(duration, event) -> tuple[np.ndarray, np.ndarray]:
+    duration = np.asarray(duration, dtype=float).reshape(-1)
+    raw_event = np.asarray(event).reshape(-1)
+    if duration.shape != raw_event.shape:
+        raise ValueError("duration and event must have the same length")
+    if duration.size == 0:
+        raise ValueError("duration and event must not be empty")
+    if not np.isfinite(duration).all() or np.any(duration <= 0):
+        raise ValueError("duration must contain finite positive values")
+    if not np.isfinite(raw_event.astype(float)).all():
+        raise ValueError("event must contain finite integer causes")
+    if not np.equal(raw_event, np.asarray(raw_event, dtype=int)).all():
+        raise ValueError("event must contain integer causes")
+    event = np.asarray(raw_event, dtype=int)
+    if np.any(event < 0):
+        raise ValueError("event causes must be non-negative")
+    return duration, event
+
+
+def competing_risk_brier_score(
+    duration,
+    event,
+    cumulative_incidence,
+    time: float,
+    cause: int = 1,
+) -> float:
+    """IPCW Brier score for one cumulative-incidence function.
+
+    Observed target-cause events by ``time`` have target one. Competing events
+    by ``time`` and patients still event-free at ``time`` have target zero.
+    Patients censored before the horizon receive zero weight.
+
+    Args:
+        duration: Observed event or censoring times, shape ``[n]``.
+        event: Cause labels where zero denotes censoring, shape ``[n]``.
+        cumulative_incidence: Predicted ``F_cause(time | x)``, shape ``[n]``.
+        time: Positive evaluation horizon.
+        cause: Positive event cause to evaluate.
+
+    Returns:
+        IPCW Brier score; lower is better.
+
+    References:
+        Schoop, R., Beyersmann, J., Schumacher, M., and Binder, H.
+        Quantifying the predictive accuracy of time-to-event models in the
+        presence of competing risks. Biometrical Journal, 2011.
+    """
+    duration, event = _as_competing_arrays(duration, event)
+    prediction = np.asarray(cumulative_incidence, dtype=float).reshape(-1)
+    if prediction.shape != duration.shape:
+        raise ValueError("cumulative_incidence must have the same length as duration")
+    if not np.isfinite(prediction).all() or np.any((prediction < 0) | (prediction > 1)):
+        raise ValueError("cumulative_incidence must be finite and in [0, 1]")
+    if not np.isfinite(time) or time <= 0:
+        raise ValueError("time must be positive and finite")
+    if int(cause) != cause or cause <= 0:
+        raise ValueError("cause must be a positive integer")
+
+    censoring_survival = _censoring_survival(duration, event > 0)
+    observed_by_time = (duration <= time) & (event > 0)
+    event_free = duration > time
+    weights = np.zeros_like(duration, dtype=float)
+    weights[observed_by_time] = 1.0 / np.maximum(
+        censoring_survival(duration[observed_by_time], left=True), 1e-12
+    )
+    weights[event_free] = 1.0 / max(
+        float(censoring_survival(np.array([time]))[0]), 1e-12
+    )
+    truth = ((duration <= time) & (event == cause)).astype(float)
+    return float(np.mean(weights * (truth - prediction) ** 2))
+
+
+def competing_risk_concordance_index(
+    duration,
+    event,
+    cumulative_incidence,
+    time: float,
+    cause: int = 1,
+    tied_tolerance: float = 1e-8,
+) -> float:
+    """Truncated time-dependent concordance for a competing event.
+
+    A target-cause event at ``t_i <= time`` is compared with participants who
+    remain under observation beyond ``t_i`` and with participants who already
+    had a competing event. Pair weights use the censoring Kaplan-Meier curve.
+    Tied predictions count one half.
+
+    Args:
+        duration: Observed event or censoring times, shape ``[n]``.
+        event: Cause labels where zero denotes censoring, shape ``[n]``.
+        cumulative_incidence: Predicted target-cause CIF at ``time``.
+        time: Positive truncation horizon.
+        cause: Positive event cause to evaluate.
+        tied_tolerance: Absolute prediction difference counted as a tie.
+
+    Returns:
+        Concordance in ``[0, 1]``, or NaN when there is no comparable pair.
+    """
+    duration, event = _as_competing_arrays(duration, event)
+    risk = np.asarray(cumulative_incidence, dtype=float).reshape(-1)
+    if risk.shape != duration.shape:
+        raise ValueError("cumulative_incidence must have the same length as duration")
+    if not np.isfinite(risk).all() or np.any((risk < 0) | (risk > 1)):
+        raise ValueError("cumulative_incidence must be finite and in [0, 1]")
+    if not np.isfinite(time) or time <= 0:
+        raise ValueError("time must be positive and finite")
+    if int(cause) != cause or cause <= 0:
+        raise ValueError("cause must be a positive integer")
+    if tied_tolerance < 0 or not np.isfinite(tied_tolerance):
+        raise ValueError("tied_tolerance must be finite and non-negative")
+
+    censoring_survival = _censoring_survival(duration, event > 0)
+    g_left = np.maximum(censoring_survival(duration, left=True), 1e-12)
+    cases = np.flatnonzero((event == cause) & (duration <= time))
+    concordant = 0.0
+    comparable = 0.0
+    for index in cases:
+        after = duration > duration[index]
+        competing_before = (
+            (duration <= duration[index]) & (event != 0) & (event != cause)
+        )
+        weights = after.astype(float) / (g_left[index] ** 2)
+        weights += competing_before.astype(float) / (g_left[index] * g_left)
+        difference = risk[index] - risk
+        score = (difference > tied_tolerance).astype(float)
+        score[np.abs(difference) <= tied_tolerance] = 0.5
+        concordant += float(np.sum(weights * score))
+        comparable += float(np.sum(weights))
+    return concordant / comparable if comparable else float("nan")
 
 
 def _as_arrays(duration, event) -> tuple[np.ndarray, np.ndarray]:
