@@ -753,7 +753,7 @@ def _coerce_effect(effect: Any) -> dict[str, Any]:
 
     def number(x: Any) -> float:
         if isinstance(x, bool):
-            raise ValueError
+            raise TypeError("a boolean is not an effect size")
         value = float(x)
         if not math.isfinite(value):
             raise ValueError
