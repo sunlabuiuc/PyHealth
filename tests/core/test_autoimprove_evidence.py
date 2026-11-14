@@ -23,6 +23,7 @@ from pyhealth.autoimprove import (  # noqa: E402
 from pyhealth.autoimprove.proposers import (  # noqa: E402
     FEATURE_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
+    ProposalContext,
 )
 from pyhealth.tasks import TaskCard  # noqa: E402
 
@@ -124,6 +125,33 @@ class TestEvidence(unittest.TestCase):
                 self.assertNotIn("Published predictors", prompt)
         added = [t.added for t in improver.trials if t.added]
         self.assertIn(["count_90d__visits"], added)
+
+    def test_an_adapted_predictor_leaves_the_list(self):
+        # The LLM proposes the visits predictor with another window, keeping its
+        # citation; the original no longer appears as untried evidence.
+        adapted = {**VISITS, "window": 30, "citations": ["PMID:1"]}
+        llm = ScriptedLLM([adapted, LABS])
+        fs = FeatureSpace(self.world, time_key="t", min_patients=5)
+        proposer = EvidenceProposer(llm, self.kb)
+        context = ProposalContext("a0", "explore", SPACE, "task", "roc_auc", True,
+                                  kind="features", features=fs)
+        proposer.propose_features(context)
+        proposer.propose_features(context)
+        first, second = [p for s, p in llm.calls if s == FEATURE_SYSTEM_PROMPT]
+        self.assertIn("count_90d__visits", first.split("not tried yet")[1])
+        self.assertNotIn("count_90d__visits", second.split("not tried yet")[1])
+        self.assertIn("count_90d__labs", second.split("not tried yet")[1])
+
+    def test_accepted_features_are_not_listed(self):
+        llm = ScriptedLLM([LABS])
+        fs = FeatureSpace(self.world, time_key="t", min_patients=5)
+        accepted = [{"name": "count_90d__visits", "definition": "visits"}]
+        context = ProposalContext("a0", "explore", SPACE, "task", "roc_auc", True,
+                                  kind="features", features=fs, accepted=accepted)
+        EvidenceProposer(llm, self.kb).propose_features(context)
+        prompt = llm.calls[0][1]
+        self.assertNotIn("count_90d__visits", prompt.split("not tried yet")[1])
+        self.assertIn("count_90d__labs", prompt.split("not tried yet")[1])
 
     def test_literature_section_and_report(self):
         section = literature_section(self.kb)

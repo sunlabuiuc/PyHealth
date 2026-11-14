@@ -79,8 +79,10 @@ class EvidenceProposer(LLMProposer):
     :class:`~pyhealth.autoimprove.LLMProposer`. For each feature proposal,
     the prompt gains a list of the knowledge base's buildable predictors
     that have not been tried yet (by this run's feature trials, the
-    accepted features or this proposer's own earlier proposals). Once all
-    are tried, the prompt is the plain one.
+    accepted features or this proposer's own earlier proposals). A
+    predictor also counts as tried when one of those specs adapts it, for
+    example with another window: it cites the same source and selects the
+    same events. Once all are tried, the prompt is the plain one.
 
     Args:
         llm: Backend, e.g. :class:`~pyhealth.autoimprove.ClaudeLLM`, or any
@@ -108,14 +110,18 @@ class EvidenceProposer(LLMProposer):
         self.backend = llm
         self.knowledge = knowledge
         self.max_evidence = max_evidence
-        self.proposed: set[str] = set()
+        self.proposed: list[dict[str, Any]] = []
         self._evidence: list[str] = []
 
     def propose_features(self, context: ProposalContext) -> dict[str, Any]:
         """A feature group, from a prompt that also lists untried evidence."""
-        tried = set(self.proposed)
-        tried |= {name for t in context.feature_trials for name in t.added}
-        tried |= {s["name"] for s in context.accepted}
+        tried = {name for t in context.feature_trials for name in t.added}
+        tried |= {s["name"] for s in context.accepted if "name" in s}
+        # A predictor also counts as tried when a proposed or accepted spec
+        # adapts it (e.g. another window): same citation, same events.
+        used = [*self.proposed, *context.accepted]
+        tried |= {spec["name"] for spec in self.knowledge.ranked_specs()
+                  if any(_adapts(u, spec) for u in used)}
         self._evidence = evidence_lines(self.knowledge, tried, self.max_evidence)
         try:
             proposal = super().propose_features(context)
@@ -123,7 +129,7 @@ class EvidenceProposer(LLMProposer):
             self._evidence = []
         for spec in proposal.get("features") or []:
             try:
-                self.proposed.add(context.features.validate(spec).name)
+                self.proposed.append(context.features.validate(spec).to_dict())
             except (ValueError, TypeError, KeyError, AttributeError):
                 continue  # the improver reports invalid specs
         return proposal
@@ -138,6 +144,30 @@ class EvidenceProposer(LLMProposer):
                 + "\n".join(f"- {line}" for line in self._evidence)
             )
         return self.backend(system, prompt)
+
+
+def _selects(node: Any) -> set[tuple]:
+    """The ``(event_type, group)`` pairs a spec reads, at any depth."""
+    out: set[tuple] = set()
+    if isinstance(node, dict):
+        select = node.get("select")
+        if isinstance(select, dict):
+            out.add((select.get("event_type"), select.get("group")))
+        for value in node.values():
+            if isinstance(value, (dict, list)):
+                out |= _selects(value)
+    elif isinstance(node, list):
+        for value in node:
+            out |= _selects(value)
+    return out
+
+
+def _adapts(spec: dict[str, Any], listed: dict[str, Any]) -> bool:
+    """Whether ``spec`` is ``listed`` or a variant of it: same citation, same events."""
+    if spec.get("name") and spec.get("name") == listed.get("name"):
+        return True
+    cites = set(spec.get("citations") or ()) & set(listed.get("citations") or ())
+    return bool(cites) and bool(_selects(spec) & _selects(listed))
 
 
 def literature_section(
@@ -180,11 +210,11 @@ def literature_section(
               for b in knowledge.benchmark_range()
               if isinstance(b.get("value"), (int, float))]
     if values:
-        ours = (test or {}).get("best", {})
-        tail = (f" This model on test: {ours['estimate']:.3f} "
-                f"({test.get('metric', '')})." if "estimate" in ours else "")
-        blocks.append(("p", f"**Published discrimination:** {'; '.join(values)}."
-                       + tail))
+        text = f"**Published discrimination:** {'; '.join(values)}."
+        estimate = ((test or {}).get("best") or {}).get("estimate")
+        if estimate is not None:
+            text += f" This model on test: {estimate:.3f} ({test.get('metric', '')})."
+        blocks.append(("p", text))
     return Section("Literature", blocks)
 
 
