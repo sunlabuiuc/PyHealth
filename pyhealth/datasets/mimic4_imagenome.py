@@ -48,6 +48,12 @@ class MIMIC4ImaGenomeDataset(BaseDataset):
       (Wu et al., "Chest ImaGenome Dataset for Clinical Reasoning",
       NeurIPS Datasets and Benchmarks 2021)
 
+    The composite has no config of its own, so its cache key covers the
+    roots, tables, name and dev flag but not the source files. If files
+    under the same roots change, delete this dataset's cache directory
+    (:attr:`cache_dir`) to rebuild; the sub-datasets fingerprint their own
+    sources.
+
     Args:
         imagenome_root: Root directory of Chest ImaGenome 1.0.0.
         imagenome_tables: Chest ImaGenome tables to include, for example

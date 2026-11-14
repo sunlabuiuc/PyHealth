@@ -247,7 +247,12 @@ def _pair_labels(
         _vote(gold_votes, gold_regions, region, finding, comparison)
 
     labels = _agreed(gold_votes if gold else silver_votes)
-    return labels, {**_agreed(silver_regions), **_agreed(gold_regions)}
+    # Gold overrides silver for every (region, disease) it has a row for,
+    # including conflicting rows, which leave the region not mentioned.
+    regions = {key: status for key, status in _agreed(silver_regions).items()
+               if key not in gold_regions}
+    regions.update(_agreed(gold_regions))
+    return labels, regions
 
 
 class DiseaseProgressionMIMIC4(BaseTask):

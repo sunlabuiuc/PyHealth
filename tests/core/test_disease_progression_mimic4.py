@@ -366,6 +366,20 @@ class TestLabels(unittest.TestCase):
         self.assertEqual(self._region(sample, LUNG, OPACITY), 1)
         self.assertEqual(self._region(sample, "right lung", OPACITY), 0)
 
+    def test_conflicting_gold_rows_leave_the_region_not_mentioned(self):
+        # silver says worsened; gold has two rows for the same region and
+        # disease that disagree, so the region is not mentioned, not silver's
+        # (another gold disease keeps the pair, which would otherwise have
+        # no label and be dropped)
+        sample = self._sample(
+            _silver("a", "b"),
+            _gold("a", "b", status="improved"),
+            _gold("a", "b", status="no change"),
+            _gold("a", "b", finding="atelectasis", region="right lung"),
+        )
+        self.assertEqual(self._region(sample, LUNG, OPACITY), NOT_MENTIONED)
+        self.assertEqual(sample["progression"], _labels(("atelectasis", "improved")))
+
     def test_regions_outside_the_ten_are_not_in_region_labels(self):
         sample = self._sample(_silver("a", "b", region="trachea"))
         self.assertEqual(sample["progression"], _labels((OPACITY, "worsened")))
