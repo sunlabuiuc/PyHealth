@@ -141,7 +141,8 @@ Additional Examples
    (November 2026): each one was smoke-run end to end on demo or synthetic
    data, and its header says which dataset it needs and how to try it without
    credentials (usually by pointing it at the demo data in
-   ``test-resources/core/``). Examples added later may not follow this yet. Older examples that no longer run, or
+   ``test-resources/core/``). Exceptions are noted in the descriptions, and
+   examples added later may not follow this yet. Older examples that no longer run, or
    that duplicate a maintained one, are archived in ``examples/old/`` and are
    not listed here.
 
@@ -245,7 +246,8 @@ EEG and Sleep Analysis
    * - Example File
      - Description
    * - ``eeg/sleep_staging/sleep_staging_sleepEDF_contrawr.py``
-     - SparcNet for sleep staging on SleepEDF
+     - SparcNet for sleep staging on SleepEDF (despite the file name;
+       ContraWR is a drop-in swap)
    * - ``eeg/sleep_staging/contrawr_sleepedf.ipynb``
      - ContraWR for sleep staging on SleepEDF (notebook)
    * - ``eeg/eeg_models/SparcNet_eeg_events_classification.py``
@@ -265,7 +267,8 @@ These examples are located in ``examples/cxr/``.
    * - Example File
      - Description
    * - ``cxr/covid19cxr_tutorial.py``
-     - ViT training, conformal prediction & interpretability for COVID-19 CXR
+     - ViT training and conformal prediction for COVID-19 CXR (its Chefer
+       interpretability step currently fails; see the file's header)
    * - ``cxr/covid19cxr_conformal.py``
      - Conformal prediction for COVID-19 CXR classification
    * - ``cxr/cnn_cxr.ipynb``

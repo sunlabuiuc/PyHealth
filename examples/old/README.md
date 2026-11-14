@@ -22,7 +22,7 @@ or the [examples index](../README.md).
 | `clinical_tasks/dka_mimic4_stagenet.py` | duplicate of `clinical_tasks/dka_mimic4.py` | `clinical_tasks/dka_mimic4.py` |
 | `clinical_tasks/t1d_mimic4_stagenet.py` | duplicate of `clinical_tasks/t1dka_mimic4.py` | `clinical_tasks/t1dka_mimic4.py` |
 | `interpretability/interpret_playground.py` | scratch copy of the Transformer interpretation benchmark | `interpretability/mp_transformer_mimic4_interpret.py` |
-| `interpretability/interpret_demo.ipynb` | 1.x model arguments and removed dataset methods | `interpretability/*_transformer_mimic4_interpret.py`, `cxr/covid19cxr_tutorial.py` |
+| `interpretability/interpret_demo.ipynb` | 1.x model arguments and removed dataset methods | `interpretability/*_transformer_mimic4_interpret.py` (includes Chefer), `cxr/ChestXrayClassificationWithSaliency.ipynb` (image saliency) |
 | `interpretability/shap_stagenet_mimic4.ipynb` | Colab copy of the script; installs a personal fork | `interpretability/shap_stagenet_mimic4.py` |
 | `drug_recommendation/drug_recommendation_mimic3_micron.ipynb` | copy of the script; installs a personal fork | `drug_recommendation/drug_recommendation_mimic3_micron.py` |
 | `mortality_prediction/mortality_mimic3_rnn_baseline_cached.ipynb` | duplicate of the RNN mortality script | `mortality_prediction/mortality_mimic3_rnn.py` |

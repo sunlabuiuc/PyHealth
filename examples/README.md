@@ -8,7 +8,7 @@ The examples here are shorter and more specialised: one model, task, dataset or
 feature each. The examples listed below were updated for PyHealth 2.1 in the
 examples cleanup of November 2026 and smoke-run end to end on demo
 or synthetic data. Each one's header (the module docstring, or the first cell of
-a notebook) says:
+a notebook) says the following, and notes any step that doesn't run yet:
 
 - what it shows,
 - which dataset it needs, and whether that dataset is credentialed,
@@ -40,7 +40,7 @@ Older examples that no longer run, or that duplicated a maintained one, are in
 | [`drug_recommendation/`](drug_recommendation/) | GAMENet, SafeDrug, MoleRec, MICRON, RETAIN, AdaCare, Transformer on MIMIC-III/IV, eICU and OMOP; Optuna tuning |
 | [`clinical_tasks/`](clinical_tasks/) | Diabetic ketoacidosis prediction on MIMIC-IV (all diabetes and type 1 only) |
 | [`interpretability/`](interpretability/) | Integrated Gradients, DeepLift, GIM, SHAP, LIME, attention methods, and faithfulness metrics (comprehensiveness and sufficiency) |
-| [`cxr/`](cxr/) | Chest X-ray classification (ChestX-ray14, COVID-19), saliency maps, conformal prediction, ViT, VAE and GAN image generation |
+| [`cxr/`](cxr/) | Chest X-ray classification (ChestX-ray14, COVID-19), saliency maps, conformal prediction, ViT, VAE and GAN image generation. The COVID-19 ViT tutorial runs except for its Chefer step, which currently fails (see its header) |
 | [`eeg/`](eeg/) | EEG events and abnormality (TUEV, TUAB), sleep staging (Sleep-EDF), EEGBCI pattern discovery; SparcNet, ContraWR, BIOT, TFM-Tokenizer |
 | [`conformal_eeg/`](conformal_eeg/) | Conformal prediction on TUEV/TUAB: conventional, k-means cluster, neighbourhood (NCP), covariate shift |
 | [`ecg/`](ecg/) | PTB-XL multi-label ECG classification, including ProtoECGNet |
