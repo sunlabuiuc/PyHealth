@@ -188,7 +188,7 @@ class VAE(BaseModel):
             return {"reconstruction": RegressionLabelProcessor()}
         return {
             "reconstruction": TimeseriesMultiClassLabelProcessor(
-                labels=self.vocab_size
+                timeline=[self.feature_key], labels=self.vocab_size
             )
         }
 

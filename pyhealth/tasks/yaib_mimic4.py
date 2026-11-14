@@ -235,6 +235,8 @@ class _YAIBMIMIC4Task(BaseTask):
     unavailable). Per-hour labels are
     ``timeseries_*`` labels on the same hours (``{"time": [...], "values":
     [...]}``), so a model predicts at hour ``h`` from the bins up to ``h``.
+    They declare ``timeline=["dynamic"]``: ``dynamic`` is on the label's
+    timeline, and ``static`` holds for every hour.
     Missing values are left to the processors, which apply YAIB's
     preprocessing: the dynamic features are forward-filled, with values
     before the first measurement set to the training mean (0 once
@@ -867,7 +869,10 @@ class YAIBLengthOfStayMIMIC4(_YAIBMIMIC4Task):
 
     task_name: str = "YAIBLengthOfStayMIMIC4"
     output_schema: ClassVar[dict[str, Any]] = {
-        "los": ("timeseries_regression", {"normalization": "minmax"})
+        "los": (
+            "timeseries_regression",
+            {"normalization": "minmax", "timeline": ["dynamic"]},
+        )
     }
 
     MAX_HOURS: ClassVar[int] = 7 * 24
@@ -943,7 +948,9 @@ class YAIBAKIMIMIC4(_YAIBMIMIC4Task):
     """
 
     task_name: str = "YAIBAKIMIMIC4"
-    output_schema: ClassVar[dict[str, Any]] = {"aki": "timeseries_binary"}
+    output_schema: ClassVar[dict[str, Any]] = {
+        "aki": ("timeseries_binary", {"timeline": ["dynamic"]})
+    }
 
     MAX_HOURS: ClassVar[int] = 7 * 24
     HORIZON: ClassVar[int] = 6
@@ -1106,7 +1113,9 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
     """
 
     task_name: str = "YAIBSepsisMIMIC4"
-    output_schema: ClassVar[dict[str, Any]] = {"sepsis": "timeseries_binary"}
+    output_schema: ClassVar[dict[str, Any]] = {
+        "sepsis": ("timeseries_binary", {"timeline": ["dynamic"]})
+    }
 
     MAX_HOURS: ClassVar[int] = 7 * 24
     HORIZON: ClassVar[int] = 6

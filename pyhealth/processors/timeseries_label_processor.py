@@ -30,6 +30,13 @@ class TimeseriesLabelProcessor[B: LabelProcessor](LabelProcessor):
     which also gives the activation and loss of each label record, and is
     fitted on the values of all records.
 
+    ``timeline`` names the input fields on the label's timeline: their
+    top-level times are in the label's unit, with the same origin, so a label
+    at time ``t`` corresponds to their records at or before ``t``. Every other
+    input field is linked to the sample as a whole, i.e. to every label record.
+    It is required, so each per-step task states how its inputs line up with
+    its labels.
+
     A model predicts one output per label record, at its time, from the inputs
     at or before it (see :class:`~pyhealth.models.RNN_V2`).
 
@@ -47,7 +54,10 @@ class TimeseriesLabelProcessor[B: LabelProcessor](LabelProcessor):
 
     Examples:
         >>> from pyhealth.processors import TimeseriesRegressionLabelProcessor
-        >>> TimeseriesRegressionLabelProcessor().process({"time": [0.0, 3.0], "values": [2.5, 4.0]})
+        >>> p = TimeseriesRegressionLabelProcessor(timeline=["vitals"])
+        >>> p.timeline
+        ('vitals',)
+        >>> p.process({"time": [0.0, 3.0], "values": [2.5, 4.0]})
         (tensor([[2.5000],
                 [4.0000]]), tensor([0., 3.]))
     """
@@ -60,18 +70,66 @@ class TimeseriesLabelProcessor[B: LabelProcessor](LabelProcessor):
     """Whether :attr:`base` outputs a class index (a ``long`` scalar) per value,
     rather than a float vector of :meth:`size`."""
 
-    def __init__(self, base: B) -> None:
+    def __init__(self, base: B, *, timeline: Sequence[str]) -> None:
         super().__init__()
         self.base: B = base
         """The static label processor of each record, fitted on all records."""
+        self._timeline: tuple[str, ...] = self._check_timeline(timeline)
         self.learns_statistics = base.learns_statistics
         self.need_fit_test = base.need_fit_test
+
+    @property
+    def timeline(self) -> tuple[str, ...]:
+        """The input fields on the label's timeline, in declared order."""
+        return self._timeline
+
+    @staticmethod
+    def _check_timeline(timeline: Sequence[str]) -> tuple[str, ...]:
+        if timeline is None or isinstance(timeline, str):
+            raise TypeError(
+                "timeline is a list of the input fields on the label's "
+                'timeline, e.g. ("timeseries_binary", {"timeline": ["dynamic"]}), '
+                f"got {timeline!r}."
+            )
+        names = tuple(timeline)
+        if not names:
+            raise ValueError(
+                "timeline needs at least one input field: without one, every "
+                "label record of a sample sees the same inputs."
+            )
+        if not all(isinstance(name, str) for name in names):
+            raise TypeError(f"timeline holds field names, got {names!r}.")
+        if len(set(names)) != len(names):
+            raise ValueError(f"timeline has duplicate fields: {names!r}.")
+        return names
+
+    def _check_samples(self, samples: Iterable[dict[str, Any]], field: str) -> None:
+        """Checks that the :attr:`timeline` fields are fields of the samples.
+
+        Reads only the first sample: the dataset already checks that every
+        sample has the same fields, and ``samples`` may be a stream.
+        """
+        if field in self._timeline:
+            raise ValueError(
+                f"timeline lists the label field '{field}' itself; it names "
+                "input fields."
+            )
+        first = next(iter(samples), None)
+        if first is None:
+            return
+        missing = [name for name in self._timeline if name not in first]
+        if missing:
+            raise KeyError(
+                f"timeline fields {missing} of label '{field}' are not fields "
+                f"of the samples ({sorted(first)})."
+            )
 
     # ------------------------------------------------------------------
     # FeatureProcessor
     # ------------------------------------------------------------------
     def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
         """Fits :attr:`base` on the values of every label record."""
+        self._check_samples(samples, field)
         self.base.fit(self._records(samples, field), field)
 
     def fit_test(self, samples: Iterable[dict[str, Any]], field: str) -> None:
@@ -130,8 +188,10 @@ class TimeseriesLabelProcessor[B: LabelProcessor](LabelProcessor):
         return self.base.size()
 
     def __repr__(self) -> str:
-        inner = repr(self.base)
-        return type(self).__name__ + inner[inner.index("(") :]
+        base = repr(self.base)
+        inner = base[base.index("(") + 1 : -1]
+        args = ", ".join(filter(None, [f"timeline={list(self._timeline)!r}", inner]))
+        return f"{type(self).__name__}({args})"
 
     # ------------------------------------------------------------------
     # LabelProcessor
@@ -214,11 +274,14 @@ class TimeseriesBinaryLabelProcessor(TimeseriesLabelProcessor[BinaryLabelProcess
     """Binary (0/1) labels at time points, see :class:`TimeseriesLabelProcessor`.
 
     Args:
+        timeline: The input fields on the label's timeline, see
+            :class:`TimeseriesLabelProcessor`.
         pos_weight: As in :class:`BinaryLabelProcessor`.
 
     Examples:
         >>> from pyhealth.processors import TimeseriesBinaryLabelProcessor
-        >>> TimeseriesBinaryLabelProcessor().process({"time": [0.0, 1.0], "values": [0, 1]})
+        >>> p = TimeseriesBinaryLabelProcessor(timeline=["vitals"])
+        >>> p.process({"time": [0.0, 1.0], "values": [0, 1]})
         (tensor([[0.],
                 [1.]]), tensor([0., 1.]))
     """
@@ -226,12 +289,15 @@ class TimeseriesBinaryLabelProcessor(TimeseriesLabelProcessor[BinaryLabelProcess
     mode = "timeseries_binary"
     base_cls = BinaryLabelProcessor
 
-    def __init__(self, pos_weight: float | str | None = None) -> None:
-        super().__init__(BinaryLabelProcessor(pos_weight=pos_weight))
+    def __init__(
+        self, *, timeline: Sequence[str], pos_weight: float | str | None = None
+    ) -> None:
+        super().__init__(BinaryLabelProcessor(pos_weight=pos_weight), timeline=timeline)
         # The labels are 0 and 1: there is nothing to learn but the weight.
         self.base.label_vocab = {0: 0, 1: 1}
 
     def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
+        self._check_samples(samples, field)
         if self.base.pos_weight == "balanced":
             self.base._fit_pos_weight(
                 [
@@ -249,11 +315,15 @@ class TimeseriesMultiClassLabelProcessor(
     """One class per time point, see :class:`TimeseriesLabelProcessor`.
 
     Args:
+        timeline: The input fields on the label's timeline, see
+            :class:`TimeseriesLabelProcessor`.
         labels: As in :class:`MultiClassLabelProcessor`.
 
     Examples:
         >>> from pyhealth.processors import TimeseriesMultiClassLabelProcessor
-        >>> p = TimeseriesMultiClassLabelProcessor(labels=["awake", "light", "deep"])
+        >>> p = TimeseriesMultiClassLabelProcessor(
+        ...     timeline=["eeg"], labels=["awake", "light", "deep"]
+        ... )
         >>> p.process({"time": [0.0, 30.0], "values": ["light", "deep"]})
         (tensor([1, 2]), tensor([ 0., 30.]))
     """
@@ -262,8 +332,13 @@ class TimeseriesMultiClassLabelProcessor(
     base_cls = MultiClassLabelProcessor
     _index_values = True
 
-    def __init__(self, labels: int | Sequence[Hashable] | None = None) -> None:
-        super().__init__(MultiClassLabelProcessor(labels=labels))
+    def __init__(
+        self,
+        *,
+        timeline: Sequence[str],
+        labels: int | Sequence[Hashable] | None = None,
+    ) -> None:
+        super().__init__(MultiClassLabelProcessor(labels=labels), timeline=timeline)
 
 
 @register_processor("timeseries_multilabel")
@@ -271,12 +346,14 @@ class TimeseriesMultiLabelProcessor(TimeseriesLabelProcessor[MultiLabelProcessor
     """A set of labels per time point, see :class:`TimeseriesLabelProcessor`.
 
     Args:
+        timeline: The input fields on the label's timeline, see
+            :class:`TimeseriesLabelProcessor`.
         labels: As in :class:`MultiLabelProcessor`.
         pos_weight: As in :class:`MultiLabelProcessor`.
 
     Examples:
         >>> from pyhealth.processors import TimeseriesMultiLabelProcessor
-        >>> p = TimeseriesMultiLabelProcessor(labels=["a", "b"])
+        >>> p = TimeseriesMultiLabelProcessor(timeline=["vitals"], labels=["a", "b"])
         >>> p.process({"time": [0.0, 1.0], "values": [["a"], ["a", "b"]]})[0]
         tensor([[1., 0.],
                 [1., 1.]])
@@ -288,10 +365,15 @@ class TimeseriesMultiLabelProcessor(TimeseriesLabelProcessor[MultiLabelProcessor
 
     def __init__(
         self,
+        *,
+        timeline: Sequence[str],
         labels: int | Sequence[Hashable] | None = None,
         pos_weight: PosWeight = None,
     ) -> None:
-        super().__init__(MultiLabelProcessor(labels=labels, pos_weight=pos_weight))
+        super().__init__(
+            MultiLabelProcessor(labels=labels, pos_weight=pos_weight),
+            timeline=timeline,
+        )
 
 
 @register_processor("timeseries_regression")
@@ -301,15 +383,20 @@ class TimeseriesRegressionLabelProcessor(
     """Real-valued labels at time points, see :class:`TimeseriesLabelProcessor`.
 
     Args:
+        timeline: The input fields on the label's timeline, see
+            :class:`TimeseriesLabelProcessor`.
         normalization: As in :class:`RegressionLabelProcessor`; a learned
             one is fitted on the label records of all fitted samples.
 
     Examples:
         >>> from pyhealth.processors import TimeseriesRegressionLabelProcessor
-        >>> TimeseriesRegressionLabelProcessor().process({"time": [0.0, 2.0], "values": [2.5, 0.5]})
+        >>> p = TimeseriesRegressionLabelProcessor(timeline=["vitals"])
+        >>> p.process({"time": [0.0, 2.0], "values": [2.5, 0.5]})
         (tensor([[2.5000],
                 [0.5000]]), tensor([0., 2.]))
-        >>> p = TimeseriesRegressionLabelProcessor(normalization=(0, 10))
+        >>> p = TimeseriesRegressionLabelProcessor(
+        ...     timeline=["vitals"], normalization=(0, 10)
+        ... )
         >>> p.base.center, p.base.scale
         (0.0, 10.0)
     """
@@ -317,9 +404,18 @@ class TimeseriesRegressionLabelProcessor(
     mode = "timeseries_regression"
     base_cls = RegressionLabelProcessor
 
-    def __init__(self, normalization: Normalization | Sequence[float] = None) -> None:
-        super().__init__(RegressionLabelProcessor(normalization=normalization))
+    def __init__(
+        self,
+        *,
+        timeline: Sequence[str],
+        normalization: Normalization | Sequence[float] = None,
+    ) -> None:
+        super().__init__(
+            RegressionLabelProcessor(normalization=normalization), timeline=timeline
+        )
 
     def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
-        if self.base.learns_statistics:  # otherwise, no need to read the samples
+        if self.base.learns_statistics:
             super().fit(samples, field)
+        else:  # nothing to learn from the values, but check the timeline
+            self._check_samples(samples, field)
