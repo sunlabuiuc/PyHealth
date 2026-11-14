@@ -17,6 +17,19 @@ class MIMIC3Dataset(BaseDataset):
     This class is responsible for loading and managing the MIMIC-III dataset,
     which includes tables such as patients, admissions, and icustays.
 
+    Getting the data:
+        - Source: https://physionet.org/content/mimiciii/1.4/
+        - Access: credentialed. Create a PhysioNet account, complete
+          credentialing (https://physionet.org/settings/credentialing/) and
+          the CITI "Data or Specimens Only Research" course, then sign the
+          data use agreement on the dataset page.
+        - Download: ``wget -r -N -c -np --user <username> --ask-password
+          https://physionet.org/files/mimiciii/1.4/``
+        - ``root``: the folder holding ``PATIENTS.csv.gz``,
+          ``ADMISSIONS.csv.gz``, and so on (``.csv`` files also work).
+        - No access yet? The open 100-patient demo works with this class:
+          https://physionet.org/content/mimiciii-demo/1.4/
+
     Attributes:
         root (str): The root directory where the dataset is stored.
         tables (List[str]): A list of tables to be included in the dataset.

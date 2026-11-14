@@ -24,8 +24,18 @@ class TCGAPRADDataset(BaseDataset):
     clinical data, and survival outcomes. This dataset enables cancer
     survival prediction and mutation analysis tasks.
 
-    Dataset is available at:
-    https://portal.gdc.cancer.gov/projects/TCGA-PRAD
+    Getting the data:
+        - Source: https://portal.gdc.cancer.gov/projects/TCGA-PRAD
+        - Access: open for the masked somatic mutation (MAF) and clinical files
+          used here; no account needed.
+        - Download: from the GDC portal repository (filter to TCGA-PRAD, data
+          category "simple nucleotide variation" and "clinical") or the
+          ``gdc-client`` tool. GDC serves one masked MAF per sample, so merge
+          them into a single tab-separated file with one header row (for
+          example ``PRAD.maf.gz``), or export one with the ``TCGAmutations``
+          R package.
+        - ``root``: the folder holding that merged MAF and the clinical files.
+          The class writes ``tcga_prad_*-pyhealth.csv`` there on first load.
 
     Args:
         root: Root directory of the raw data containing the TCGA-PRAD files.

@@ -276,7 +276,12 @@ def _pair_labels(
         _vote(gold_votes, gold_regions, region, finding, comparison)
 
     labels = _agreed(gold_votes if gold else silver_votes)
-    return labels, {**_agreed(silver_regions), **_agreed(gold_regions)}
+    # Gold overrides silver for every (region, disease) it has a row for,
+    # including conflicting rows, which leave the region not mentioned.
+    regions = {key: status for key, status in _agreed(silver_regions).items()
+               if key not in gold_regions}
+    regions.update(_agreed(gold_regions))
+    return labels, regions
 
 
 def _region_boxes(patient: Any) -> dict[str, dict[str, list[float]]]:
@@ -392,7 +397,9 @@ class DiseaseProgressionMIMIC4(BaseTask):
     skipped, each other region gives its status to all its findings, and a
     disease whose regions disagree is dropped. Negated findings count, as in
     DiPro. If the gold comparisons cover the pair, the same rule runs on them
-    alone, disease by disease.
+    alone, disease by disease; a gold-covered pair whose gold rows name none
+    of the seven diseases (or no usable status) is dropped, without falling
+    back to silver.
 
     Extra fields, not model inputs: ``first_ehr_hour`` (hour of ``ehr``'s
     first bin), ``from_gold`` (1 for gold pairs), and ``region_progression``,
