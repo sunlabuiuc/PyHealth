@@ -9,7 +9,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from test_autoimprove_search import SPACE, BASELINE, World  # noqa: E402
+from test_autoimprove_search import BASELINE, SPACE, World  # noqa: E402
 
 from pyhealth.autoimprove import (  # noqa: E402
     AutoImprover,
@@ -21,6 +21,8 @@ from pyhealth.autoimprove import (  # noqa: E402
     parse_effect,
     pubmed_query,
 )
+from pyhealth.autoimprove.knowledge import _numbers  # noqa: E402
+from pyhealth.autoimprove.proposers import build_feature_prompt  # noqa: E402
 from pyhealth.tasks import TaskCard  # noqa: E402
 
 ABSTRACT = ("Children with two or more ED visits in the prior year had a higher "
@@ -95,6 +97,55 @@ class TestCitationCheck(unittest.TestCase):
             self.assertFalse(e.verified)
             self.assertIn(reason, e.reason)
 
+    def test_sign_percent_and_position_mismatches_are_rejected(self):
+        self.kb.add_documents([Document("PMID:3", (
+            "Symptom days fell (MD -0.37, 95% CI -0.8 to 0.06). "
+            "Night waking rose (MD 0.37, 95% CI 0.1 to 0.6)."))])
+        quote = "risk of exacerbation (OR 2.4, 95% CI 1.8-3.1)"
+        cases = [
+            # the "95%" confidence level is not an effect of 0.95
+            (Evidence("x", {"type": "OR", "value": 0.95}, "PMID:1", quote),
+             "effect size 0.95"),
+            # a CI bound cannot stand in for the estimate
+            (Evidence("x", {"type": "OR", "value": 1.8, "ci": [1.8, 3.1]}, "PMID:1",
+                      quote), "effect size 1.8"),
+            # signs must match, both ways
+            (Evidence("x", {"type": "MD", "value": 0.37}, "PMID:3",
+                      "(MD -0.37, 95% CI -0.8 to 0.06)"), "effect size 0.37"),
+            (Evidence("x", {"type": "MD", "value": -0.37}, "PMID:3",
+                      "(MD 0.37, 95% CI 0.1 to 0.6)"), "effect size -0.37"),
+        ]
+        for record, reason in cases:
+            e = self.verdicts(record)
+            self.assertFalse(e.verified, record.effect)
+            self.assertIn(reason, e.reason)
+
+    def test_non_numeric_llm_output_is_rejected_not_a_crash(self):
+        quote = "risk of exacerbation (OR 2.4, 95% CI 1.8-3.1)"
+        records = [
+            {"predictor": "string number", "quote": quote,
+             "effect": {"type": "OR", "value": "2.4", "ci": ["1.8", "3.1"]}},
+            {"predictor": "null value", "quote": quote,
+             "effect": {"type": "OR", "value": None}},
+            {"predictor": "bad ci", "quote": quote,
+             "effect": {"type": "OR", "value": 2.4, "ci": [1.8]}},
+            {"predictor": "words", "quote": quote,
+             "effect": {"type": "OR", "value": "about two"}},
+            {"predictor": "effect as text", "quote": quote, "effect": "OR 2.4"},
+        ]
+        kb = KnowledgeBase(llm=ScriptedLLM([_reply({"records": records})]))
+        kb.add_documents([Document("PMID:1", ABSTRACT)])
+        kb.extract(CARD)
+        reasons = {e.predictor: (e.verified, e.reason) for e in kb.verify()}
+        self.assertEqual(reasons["string number"], (True, ""))
+        self.assertEqual(reasons["null value"],
+                         (False, "the record has no effect size"))
+        for name in ("bad ci", "words"):
+            self.assertEqual(reasons[name],
+                             (False, "the effect size is not a number"))
+        self.assertEqual(reasons["effect as text"],
+                         (False, "the effect is not a record"))
+
     def test_extraction_cannot_choose_its_source(self):
         llm = ScriptedLLM([_reply({"records": [
             {"predictor": "prior ED visits", "effect": {"type": "OR", "value": 2.4,
@@ -131,6 +182,9 @@ class TestTablesAndQueries(unittest.TestCase):
                                                  "ci": [1.61, 2.32], "direction": "+"})
             self.assertEqual(records[1].effect["direction"], "-")
             self.assertEqual(kb.direction_of("prior exacerbation"), "+")
+            self.assertEqual(records[0].reference, "[3]")
+            self.assertEqual(records[0].population, ">=12 yrs")
+            self.assertIsNone(records[2].effect["value"])  # a range: no estimate
 
     def test_table_ids_from_spreadsheet_links(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -147,6 +201,17 @@ class TestTablesAndQueries(unittest.TestCase):
     def test_parse_effect(self):
         self.assertEqual(parse_effect("aHR 1.5 (1.1-2.0)")["type"], "aHR")
         self.assertEqual(parse_effect("AUROC 0.84")["type"], "AUC")
+
+    def test_parse_effect_keeps_signs_and_skips_the_confidence_level(self):
+        self.assertEqual(parse_effect("RR 1.9 (95% CI 1.6-2.3)")["ci"], [1.6, 2.3])
+        md = parse_effect("MD -0.37 (95% CI -0.8 to 0.06)")
+        self.assertEqual((md["value"], md["ci"]), (-0.37, [-0.8, 0.06]))
+        self.assertEqual(parse_effect("AUC 84%")["value"], 0.84)
+        crossing = parse_effect("OR 0.5–1.5")  # no point estimate, no direction
+        self.assertEqual((crossing["value"], crossing["direction"], crossing["range"]),
+                         (None, "", [0.5, 1.5]))
+        self.assertEqual([n for n, _, _ in _numbers("covid-19, 1.8 - 3.1, -2")],
+                         [19.0, 1.8, 3.1, -2.0])
 
     def test_pubmed_queries_hold_task_card_text_only(self):
         urls = []
@@ -245,9 +310,18 @@ class TestMapping(unittest.TestCase):
                 self.world.train, self.world.val, QueueProposer(ranked),
                 baseline=BASELINE, space=SPACE, cv_folds=5, features=fs,
                 run_dir=tmp, check=False, knowledge=kb, n_agents=1, n_cycles=2)
+            # Before any trial, the evidence prompt lists the untried
+            # predictor with its citation.
+            prompt = build_feature_prompt(
+                improver._context("a0", "evidence", None, kind="features"))
+            self.assertIn("count_90d__visits", prompt)
+            self.assertIn("PMID:1", prompt)
             result = improver.run()
             self.assertEqual([s["name"] for s in result.best.features],
                              ["count_90d__visits"])
+            # Once tried, it is no longer offered as evidence.
+            self.assertNotIn("count_90d__visits",
+                             "\n".join(improver._evidence_lines()))
             text = improver.report().to_markdown()
             self.assertIn("## Literature", text)
             self.assertIn("Gap report", text)

@@ -338,5 +338,27 @@ class TestConfirmedReport(unittest.TestCase):
         self.assertIn("not re-scored", text)
 
 
+    def test_baseline_kept_by_one_se_without_confirmation(self):
+        # A noisy trial clears a lenient search bound, but the simpler
+        # starting pipeline is within one SE of it; the report must not say
+        # that no trial beat it.
+        base = [0.47, 0.48, 0.46, 0.47, 0.47]
+        gain = [-0.01, 0.06, 0.001, 0.001, 0.001]
+        scores = [b + g for b, g in zip(base, gain)]
+        trials = [
+            Trial(0, 0, "baseline", "explore", PipelineConfig("LogisticRegression"),
+                  metric_name="pr_auc", score=sum(base) / 5, fold_scores=base),
+            Trial(1, 0, "agent0", "explore", PipelineConfig("XGBoost"),
+                  metric_name="pr_auc", score=sum(scores) / 5, fold_scores=scores),
+        ]
+        report = build_report(trials, metric="pr_auc", promote_se=0.0,
+                              space=with_xgboost(SPACE))
+        self.assertEqual(report.data["selected"], 0)
+        why = next(line for line in report.to_markdown().splitlines()
+                   if "Why this model" in line)
+        self.assertIn("1 trial(s) cleared the search bound", why)
+        self.assertIn("within one standard error", why)
+        self.assertNotIn("No trial beat", why)
+
 if __name__ == "__main__":
     unittest.main()

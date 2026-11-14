@@ -1142,6 +1142,12 @@ def _why(ctx) -> str:
                     f"but none kept a gain of {ctx['bound']:g} standard errors on the "
                     "confirmation folds (see *Confirmation*), so it stays selected. "
                     "*(measured)*")
+        if passed:
+            rule = ("it is simpler and scores within one standard error of the "
+                    "best of them" if ctx["one_se"] else
+                    "the selection rule kept it")
+            return (f"{passed} trial(s) cleared the search bound over the starting "
+                    f"pipeline, but it stays selected: {rule}. *(measured)*")
         return ("No trial beat the starting pipeline consistently across folds, so "
                 "it stays selected. *(measured)*")
     if not ctx["one_se"]:

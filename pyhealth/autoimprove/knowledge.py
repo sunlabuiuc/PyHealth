@@ -39,6 +39,7 @@ event types, groups and columns.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import re
@@ -51,8 +52,13 @@ from typing import Any
 
 from .proposers import parse_json
 
+logger = logging.getLogger(__name__)
+
 RATIO_TYPES = ("RR", "OR", "HR", "IRR", "aOR", "aRR", "aHR", "aIRR")
 """Effect types on a ratio scale: above 1 raises risk."""
+
+PROPORTION_TYPES = ("AUC", "C-statistic")
+"""Effect types on a 0-1 scale, which papers may write as a percentage."""
 
 EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
@@ -96,6 +102,8 @@ class Evidence:
         outcome: The outcome studied.
         horizon: The prediction horizon.
         curated: Whether it came from a curated table, not an LLM.
+        reference: For a curated row, the table's reference column (the
+            publications the row cites), if given.
         verified: Set by :meth:`KnowledgeBase.verify`.
         reason: Why it was rejected, if it was.
         mapping: Set by :meth:`KnowledgeBase.map`: ``{"status": "have" |
@@ -119,6 +127,7 @@ class Evidence:
     outcome: str = ""
     horizon: str = ""
     curated: bool = False
+    reference: str = ""
     verified: bool | None = None
     reason: str = ""
     mapping: dict[str, Any] = field(default_factory=dict)
@@ -199,6 +208,7 @@ class KnowledgeBase:
             if path.lower().endswith(".pdf"):
                 text = _pdf_text(path)
                 if text is None:
+                    logger.warning("skipping %s: install pypdf to read PDFs", path)
                     continue
             else:
                 with open(path, encoding="utf-8", errors="replace") as f:
@@ -285,11 +295,11 @@ class KnowledgeBase:
             self.documents[doc_id] = Document(doc_id, text, title=str(predictor))
             effect = parse_effect(str(effect_text))
             population = str(row.get(population_column, "")) if population_column else ""
-            if reference_column and _present(row.get(reference_column)):
-                population += f" (references {row[reference_column]})"
+            reference = (str(row[reference_column]).strip() if reference_column
+                         and _present(row.get(reference_column)) else "")
             self.evidence.append(Evidence(
                 str(predictor), effect, doc_id, str(effect_text),
-                population=population.strip(), curated=True))
+                population=population.strip(), curated=True, reference=reference))
             added += 1
         return added
 
@@ -372,9 +382,9 @@ class KnowledgeBase:
                 for r in data.get("records", []) or []:
                     if not isinstance(r, dict) or not r.get("predictor"):
                         continue
-                    effect = r.get("effect") or {}
+                    effect = _coerce_effect(r.get("effect"))
                     found.append(Evidence(
-                        str(r["predictor"]), dict(effect), doc.id, str(r.get("quote", "")),
+                        str(r["predictor"]), effect, doc.id, str(r.get("quote", "")),
                         operationalisation=str(r.get("operationalisation", "")),
                         population=str(r.get("population", "")),
                         outcome=str(r.get("outcome", "")),
@@ -465,7 +475,7 @@ class KnowledgeBase:
             spec["rationale"] = spec.get("rationale") or f"{group[0].predictor} predicts " \
                 f"the outcome in the literature"
             spec["direction"] = self.direction_of(group[0].predictor)
-            spec["citations"] = sorted({e.source for e in group})
+            spec["citations"] = sorted({_citation(e) for e in group})
             try:
                 valid = features.validate(spec)
             except ValueError as e:
@@ -536,7 +546,7 @@ class KnowledgeBase:
             status = m.get("status", "unmapped")
             row = {"predictor": group[0].predictor,
                    "direction": self.direction_of(group[0].predictor),
-                   "sources": sorted({e.source for e in group}),
+                   "sources": sorted({_citation(e) for e in group}),
                    "prior": max(e.prior for e in group)}
             if status == "have":
                 row["column"] = m["column"]
@@ -619,26 +629,35 @@ def pubmed_query(card: Any) -> str:
 
 
 def parse_effect(text: str) -> dict[str, Any]:
-    """Parses an effect such as ``"RR 1.94 (1.61-2.32)"`` or ``"OR 2.0-4.1"``.
+    """Parses an effect such as ``"RR 1.94 (1.61-2.32)"``.
+
+    Numbers keep their sign (``"MD -0.37"``), and a confidence level such
+    as ``"95% CI"`` is not read as a bound. Two numbers alone, such as
+    ``"OR 2.0-4.1"``, are a ``range`` with no point estimate, so the value
+    and direction stay empty.
 
     Examples:
         >>> parse_effect("RR 1.94 (1.61–2.32)")
         {'type': 'RR', 'value': 1.94, 'ci': [1.61, 2.32], 'direction': '+'}
-        >>> parse_effect("OR 2.0–4.1")["value"]
-        2.0
+        >>> parse_effect("MD -0.37 (95% CI -0.8 to 0.06)")["ci"]
+        [-0.8, 0.06]
+        >>> parse_effect("OR 0.5–1.5")
+        {'type': 'OR', 'value': None, 'ci': None, 'direction': '', 'range': [0.5, 1.5]}
     """
     text = _norm(text, lower=False)
     kind = re.search(r"\b(a?(?:RR|OR|HR|IRR)|AUROC|AUC|C-statistic)\b", text,
                      re.IGNORECASE)
-    numbers = [float(x) for x in re.findall(r"\d+(?:\.\d+)?", text)]
+    numbers = [n for n, percent, _ in _numbers(text) if not percent]
+    if not numbers:  # e.g. "AUC 84%": a proportion written as a percentage
+        numbers = [n / 100 for n, percent, _ in _numbers(text) if percent]
     effect: dict[str, Any] = {"type": _effect_type(kind.group(1)) if kind else "",
                               "value": None, "ci": None, "direction": ""}
-    if numbers:
-        effect["value"] = numbers[0]
-    if len(numbers) >= 3:
-        effect["ci"] = numbers[1:3]
-    elif len(numbers) == 2:
+    if len(numbers) == 2:
         effect["range"] = numbers[:2]
+    elif numbers:
+        effect["value"] = numbers[0]
+        if len(numbers) >= 3:
+            effect["ci"] = numbers[1:3]
     if effect["type"] in RATIO_TYPES and effect["value"] is not None:
         effect["direction"] = "+" if effect["value"] > 1 else "-" if effect[
             "value"] < 1 else ""
@@ -657,31 +676,107 @@ def _check(e: Evidence, doc: Document | None) -> tuple[bool, str]:
     quote = _norm(e.quote)
     if len(quote) < 8 or quote not in _norm(doc.text):
         return False, "the quote is not in the source"
-    value = e.effect.get("value")
-    if value is None and not e.effect.get("range"):
+    effect = _coerce_effect(e.effect)
+    if "invalid" in effect:
+        return False, effect["invalid"]
+    value = effect.get("value")
+    if value is None and not effect.get("range"):
         return False, "the record has no effect size"
     numbers = [value] if value is not None else []
-    numbers += list(e.effect.get("ci") or []) + list(e.effect.get("range") or [])
+    numbers += list(effect.get("ci") or []) + list(effect.get("range") or [])
+    tokens = _numbers(quote)
+    as_percent = effect.get("type") in PROPORTION_TYPES
+    # The numbers must appear in the quote in order (estimate, then the
+    # interval), each at its own position, so a CI bound cannot stand in
+    # for the estimate.
+    start = 0
     for number in numbers:
-        if not _number_in(number, quote):
+        pos = _find_number(number, tokens, start, as_percent)
+        if pos is None:
             return False, f"the effect size {number:g} is not in the quote"
+        start = pos + 1
     return True, ""
 
 
-def _number_in(number: float, text: str) -> bool:
-    """Whether the text states the number.
+def _numbers(text: str) -> list[tuple[float, bool, int]]:
+    """The numbers a text states: ``(signed value, is a percentage, position)``.
 
-    The sign is ignored, because a dash before a number may be a range
-    ("1.8-3.1") rather than a minus; a proportion may be written as a
-    percentage ("AUC 84%" for 0.84).
+    A dash after a number, a percent sign or a bracket is a range
+    ("1.8-3.1", "82%-85%") and one after a letter a hyphen ("COVID-19"),
+    not a minus; a confidence level ("95% CI", "95% confidence interval") is skipped.
     """
-    target = abs(number)
-    for digits, percent in re.findall(r"(\d+(?:\.\d+)?)\s*(%?)", text):
+    out = []
+    pattern = r"(?<![\d.])(-)?(\d+(?:\.\d+)?)\s*(%?)(\s*(?:ci\b|confidence))?"
+    for m in re.finditer(pattern, text, re.IGNORECASE):
+        minus, digits, percent, level = m.groups()
+        if percent and level:
+            continue
+        adjacent = text[m.start() - 1:m.start()]
+        before = text[:m.start()].rstrip()[-1:]
+        if minus and (adjacent.isalpha() or (before and (
+                before.isdigit() or before in "%)]"))):
+            minus = None  # a hyphen ("COVID-19") or a range ("82%-85%")
         x = float(digits)
-        if math.isclose(target, x, rel_tol=0, abs_tol=1e-9) or (
-                percent and math.isclose(100 * target, x, rel_tol=0, abs_tol=1e-6)):
-            return True
-    return False
+        out.append((-x if minus else x, bool(percent), m.start()))
+    return out
+
+
+def _find_number(
+    number: float, tokens: list[tuple[float, bool, int]], start: int,
+    as_percent: bool,
+) -> int | None:
+    """Index of the first token from ``start`` that states ``number``.
+
+    The sign must match. A percentage matches a proportion only for
+    proportion effects (``as_percent``), e.g. "AUC 84%" for 0.84.
+    """
+    for i in range(start, len(tokens)):
+        x, percent, _ = tokens[i]
+        if percent and not as_percent:
+            continue
+        target = 100 * number if percent else number
+        if math.isclose(target, x, rel_tol=0, abs_tol=1e-6):
+            return i
+    return None
+
+
+def _coerce_effect(effect: Any) -> dict[str, Any]:
+    """An effect with numeric fields as floats.
+
+    LLM output may give numbers as strings ("2.4"), nulls or a malformed
+    interval; anything that is not a number sets ``invalid`` to the reason,
+    so the record is rejected instead of crashing the check.
+    """
+    if not isinstance(effect, dict):
+        return {"invalid": "the effect is not a record"} if effect else {}
+    out = dict(effect)
+
+    def number(x: Any) -> float:
+        if isinstance(x, bool):
+            raise ValueError
+        value = float(x)
+        if not math.isfinite(value):
+            raise ValueError
+        return value
+
+    try:
+        if out.get("value") is not None:
+            out["value"] = number(out["value"])
+        for key in ("ci", "range"):
+            bounds = out.get(key)
+            if bounds is None:
+                continue
+            if not isinstance(bounds, (list, tuple)) or len(bounds) != 2:
+                raise ValueError
+            out[key] = [number(b) for b in bounds]
+    except (TypeError, ValueError):
+        out["invalid"] = "the effect size is not a number"
+    return out
+
+
+def _citation(e: Evidence) -> str:
+    """The source, with a curated row's references when given."""
+    return f"{e.source} (refs {e.reference})" if e.reference else e.source
 
 
 def _norm(text: str, lower: bool = True) -> str:
