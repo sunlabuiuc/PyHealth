@@ -5,6 +5,12 @@ Prediction set constructors that provide set-valued predictions with statistical
 coverage guarantees. These methods are based on conformal prediction and related
 techniques for uncertainty quantification.
 
+These methods support binary and multiclass classification, except ``FavMac``,
+which supports multilabel classification. Binary models retain ``y_prob`` with
+shape ``(N, 1)`` and return ``y_predset`` with shape ``(N, 2)`` for labels 0 and 1.
+Score these sets with :func:`pyhealth.metrics.binary_metrics_fn`; see
+``examples/conformal_label_binary.py`` for a complete example.
+
 ``BaseConformal``, ``LABEL``, ``ClusterLabel``, ``CovariateLabel``,
 ``LabelShift``, ``RC3P``, and ``NeighborhoodLabel`` all accept a ``score_type`` argument selecting the
 nonconformity/conformity score used for calibration and set construction:

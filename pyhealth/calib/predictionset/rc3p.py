@@ -121,7 +121,7 @@ class RC3P(LABEL):
     subset falls back to threshold +inf and cutoff K, so it is always
     included, which preserves coverage at the cost of larger sets.
 
-    This is a prediction-set constructor for multi-class
+    This is a prediction-set constructor for binary and multiclass
     classification problems. It targets class-wise miscoverage at
     level alpha, but its finite-sample coverage depends on the
     accuracy of the estimated top-k errors and is not guaranteed by
@@ -298,7 +298,7 @@ class RC3P(LABEL):
         self.k_hat = k_hat
         self.alpha_hat = alpha_hat
 
-    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
+    def _predict(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation (just like the original model).
 
         LABEL's forward includes a label when its score passes its
@@ -312,7 +312,7 @@ class RC3P(LABEL):
         """
         if self.t is None or self.k_hat is None:
             raise RuntimeError("RC3P must be calibrated before forward.")
-        pred = super().forward(**kwargs)
+        pred = super()._predict(**kwargs)
         y_prob = pred["y_prob"].detach().cpu().numpy()
         ranks = _candidate_ranks(y_prob)
         rank_pass = torch.as_tensor(

@@ -22,7 +22,8 @@ Papers:
     https://arxiv.org/abs/2310.12033
 """
 
-from typing import Callable, Dict, Optional, Union
+from collections.abc import Callable
+from typing import Optional, Union
 
 import numpy as np
 import torch
@@ -230,7 +231,7 @@ def _query_weighted_quantile(
 
 
 class CovariateLabel(SetPredictor):
-    """Covariate shift adaptive conformal prediction for multiclass.
+    """Covariate shift adaptive conformal prediction for binary and multiclass classification.
 
     This extends the LABEL method to handle covariate shift between
     calibration and test distributions using likelihood ratio weighting.
@@ -362,9 +363,9 @@ class CovariateLabel(SetPredictor):
     ) -> None:
         super().__init__(model, **kwargs)
 
-        if model.mode != "multiclass":
+        if self.model.mode != "multiclass":
             raise NotImplementedError(
-                "CovariateLabel only supports multiclass classification"
+                "CovariateLabel only supports binary and multiclass classification"
             )
         if score_type not in SUPPORTED_SCORE_TYPES:
             raise ValueError(
@@ -372,7 +373,6 @@ class CovariateLabel(SetPredictor):
                 f"{SUPPORTED_SCORE_TYPES}."
             )
 
-        self.mode = self.model.mode
 
         # Freeze model parameters
         for param in model.parameters():
@@ -541,7 +541,7 @@ class CovariateLabel(SetPredictor):
 
         self.t = torch.tensor(t, device=self.device)
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def _predict(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation with prediction set construction.
 
         Returns:
