@@ -196,6 +196,20 @@ class TestEvidence(unittest.TestCase):
         self.assertIn("recent visits", markdown)
         self.assertEqual(report.data["literature"]["verified"], 3)
         self.assertEqual(report.data["literature"]["rejected"], 1)
+        selected = improver.report().data["selected"]
+        matching = {"metric": "roc_auc", "best": {"trial_id": selected,
+                                                  "estimate": 0.8}}
+        stale = {"metric": "roc_auc", "best": {"trial_id": selected + 99,
+                                               "estimate": 0.9}}
+        self.assertIn("This model on test: 0.800",
+                      add_literature(improver.report(), self.kb,
+                                     matching).to_markdown())
+        self.assertNotIn("This model on test",  # another trial's result
+                         add_literature(improver.report(), self.kb,
+                                        stale).to_markdown())
+        pr = {"metric": "pr_auc", "best": {"trial_id": selected, "estimate": 0.4}}
+        self.assertIn("not on the same scale",
+                      add_literature(improver.report(), self.kb, pr).to_markdown())
 
 
 if __name__ == "__main__":

@@ -80,7 +80,10 @@ class EvidenceProposer(LLMProposer):
     :class:`~pyhealth.autoimprove.LLMProposer`. For each feature proposal,
     the prompt gains a list of the knowledge base's buildable predictors
     that have not been tried yet (by this run's feature trials, the
-    accepted features or this proposer's own earlier proposals). A
+    accepted features or this proposer's own earlier proposals; the
+    improver passes only the latest feature trials, and the proposer's own
+    memory is not saved, so after a resume an earlier predictor may be listed
+    again). A
     predictor also counts as tried when one of those specs adapts it, for
     example with another window: it cites the same source and selects the
     same events. Once all are tried, the prompt is the plain one.
@@ -191,8 +194,10 @@ def literature_section(
     Args:
         knowledge: A knowledge base, already verified (and mapped, for the
             gap report).
-        test: The result of :meth:`~pyhealth.autoimprove.AutoImprover.evaluate_on_test`,
-            to put this model's test score next to the published values.
+        test: The result of :meth:`~pyhealth.autoimprove.AutoImprover.evaluate_on_test`
+            for the model this section describes, to put its test score next
+            to the published values. The caller is responsible for the match;
+            :func:`add_literature` checks it against the report's selection.
 
     Examples:
         >>> literature_section(KnowledgeBase()).title
@@ -227,7 +232,12 @@ def literature_section(
         text = f"**Published discrimination:** {'; '.join(values)}."
         estimate = ((test or {}).get("best") or {}).get("estimate")
         if estimate is not None:
-            text += f" This model on test: {estimate:.3f} ({test.get('metric', '')})."
+            metric = test.get("metric", "")
+            text += f" This model on test: {estimate:.3f} ({metric})."
+            if metric and metric not in ("roc_auc", "auroc", "c_index"):
+                text += (" The published values are discrimination measures "
+                         "(AUROC or C-statistic), so they are not on the same "
+                         "scale as this metric.")
         blocks.append(("p", text))
     return Section("Literature", blocks)
 
@@ -244,9 +254,18 @@ def add_literature(
     also stored in ``report.data["literature"]``.
 
     :meth:`~pyhealth.autoimprove.AutoImprover.report` saves its files before
-    this runs, so pass ``path`` to write the report again with the section:
-    ``path`` (HTML) plus the ``.md`` and ``.json`` next to it, as
-    :meth:`~pyhealth.autoimprove.Report.save` does.
+    this runs, so pass ``path`` to write the report again with the section.
+
+    Args:
+        report: The run's report.
+        knowledge: A knowledge base, already verified and mapped.
+        test: The result of :meth:`~pyhealth.autoimprove.AutoImprover.evaluate_on_test`.
+            Its score is shown only if it is for the trial the report selected
+            (by ``trial_id``), as :func:`~pyhealth.autoimprove.build_report`
+            does: after pruning or confirmation the selection can change.
+        path: Where to write the report again: ``path`` (HTML) plus the
+            ``.md`` and ``.json`` next to it, as
+            :meth:`~pyhealth.autoimprove.Report.save` does.
 
     Examples:
         >>> from pyhealth.autoimprove import Report
@@ -254,6 +273,13 @@ def add_literature(
         >>> [s.title for s in report.sections]
         ['Literature']
     """
+    best = (test or {}).get("best")
+    selected = report.data.get("selected")
+    if test is not None and not (
+        isinstance(best, dict) and selected is not None
+        and best.get("trial_id") == selected
+    ):
+        test = None  # not this report's selected trial: show no score
     report.sections.append(literature_section(knowledge, test))
     report.data["literature"] = {
         "gap": knowledge.gap_report(),
