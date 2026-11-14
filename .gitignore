@@ -159,3 +159,11 @@ test-resources/meds_demo/
 # Generated Synthea outputs and dataset caches
 .artifacts/
 examples/.artifacts/
+
+
+# PyHealth cache
+.pyhealth_cache/
+test-resources/.pyhealth_cache/
+
+# parquet files
+*.parquet
