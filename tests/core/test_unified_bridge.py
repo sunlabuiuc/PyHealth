@@ -716,7 +716,7 @@ class TestTensor(unittest.TestCase):
         legacy = _fit(TensorProcessor(), [1.0, 2.0])
         bridge, got = _bridge_batch(TensorToUnifiedBridge, legacy, [1.0, 2.0], [0.0, 0.0])
         self.assertEqual(got, [[[1.0, 2.0]], [[0.0, 0.0]]])  # static zeros are kept
-        self.assertEqual(bridge.ordering(), {0: "set"})
+        self.assertEqual(bridge.ordering(), {0: "single"})
         self.assertEqual(bridge.value_dim(), {0: (2,)})
 
     def test_scalars(self):
@@ -778,7 +778,7 @@ class TestTensor(unittest.TestCase):
         self.assertEqual(
             got, [[[[1.0, 2.0], [3.0, 4.0]]], [[[0.0, 0.0], [0.0, 0.0]]]]
         )
-        self.assertEqual(bridge.ordering(), {0: "set"})
+        self.assertEqual(bridge.ordering(), {0: "single"})
         self.assertEqual(bridge.value_dim(), {0: (2, 2)})
         self.assertEqual(bridge.spatial(), {0: (False, False)})
 
@@ -906,7 +906,7 @@ class TestImage(_Images):
         self.assertEqual(values.shape, (2, 3, 4, 4))
         self.assertEqual(batch.tolist(), [0, 1, 2])
         torch.testing.assert_close(values[1], legacy.process(self.paths[1]))
-        self.assertEqual(bridge.ordering(), {0: "set"})
+        self.assertEqual(bridge.ordering(), {0: "single"})
         self.assertEqual(bridge.spatial(), {0: (False, True, True)})
 
     def test_channels_follow_the_mode(self):
@@ -1015,6 +1015,7 @@ def _audio(**options) -> AudioProcessor:
 class TestAudio(unittest.TestCase):
     def test_waveform(self):
         bridge = AudioToUnifiedBridge(_audio())
+        self.assertEqual(bridge.ordering(), {0: "single"})
         self.assertEqual(bridge.value_dim(), {0: (1, 200)})
         self.assertEqual(bridge.spatial(), {0: (False, True)})
         out = bridge.transform_batch(torch.randn(3, 1, 200))
