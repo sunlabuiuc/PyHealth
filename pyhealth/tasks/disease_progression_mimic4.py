@@ -291,7 +291,9 @@ class DiseaseProgressionMIMIC4(BaseTask):
     skipped, each other region gives its status to all its findings, and a
     disease whose regions disagree is dropped. Negated findings count, as in
     DiPro. If the gold comparisons cover the pair, the same rule runs on them
-    alone, disease by disease.
+    alone, disease by disease; a gold-covered pair whose gold rows name none
+    of the seven diseases (or no usable status) is dropped, without falling
+    back to silver.
 
     Extra fields, not model inputs: ``first_ehr_hour`` (hour of ``ehr``'s
     first bin), ``from_gold`` (1 for gold pairs), and ``region_progression``,

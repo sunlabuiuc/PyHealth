@@ -599,6 +599,15 @@ class TestComposite(unittest.TestCase):
         for sub in (mimic4, imagenome):
             self.assertEqual(sub.call_args.kwargs["cache_dir"], str(dataset.cache_dir))
 
+    def test_default_imagenome_tables_are_in_tables_and_passed_on(self):
+        # The cache key (tables) and the sub-dataset must agree on the
+        # default Chest ImaGenome tables.
+        dataset, _, imagenome = self._dataset(imagenome_root="genome")
+        defaults = ["silver_images", "silver_objects", "silver_comparisons",
+                    "gold_comparisons"]
+        self.assertEqual(imagenome.call_args.kwargs["tables"], defaults)
+        self.assertEqual(sorted(dataset.tables), sorted(defaults))
+
     def test_load_data_combines_both(self):
         dataset, mimic4, imagenome = self._dataset(imagenome_root="genome")
         frames = [

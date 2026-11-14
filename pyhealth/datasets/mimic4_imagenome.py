@@ -23,6 +23,13 @@ logger = logging.getLogger(__name__)
 # MIMIC4Dataset arguments that go into the cache key.
 _MIMIC4_ROOTS = ("ehr_root", "note_root", "cxr_root", "ed_root")
 _MIMIC4_TABLES = ("ehr_tables", "note_tables", "cxr_tables", "ed_tables")
+# The tables ChestImaGenomeDataset loads by default.
+_IMAGENOME_DEFAULT_TABLES = (
+    "silver_images",
+    "silver_objects",
+    "silver_comparisons",
+    "gold_comparisons",
+)
 
 
 class MIMIC4ImaGenomeDataset(BaseDataset):
@@ -33,10 +40,20 @@ class MIMIC4ImaGenomeDataset(BaseDataset):
     :class:`~pyhealth.datasets.ChestImaGenomeDataset`, for tasks such as
     :class:`~pyhealth.tasks.DiseaseProgressionMIMIC4` that need both.
 
+    The data come from PhysioNet and need credentialed access:
+
+    - MIMIC-IV: https://physionet.org/content/mimiciv/
+    - MIMIC-CXR-JPG: https://physionet.org/content/mimic-cxr-jpg/
+    - Chest ImaGenome: https://physionet.org/content/chest-imagenome/1.0.0/
+      (Wu et al., "Chest ImaGenome Dataset for Clinical Reasoning",
+      NeurIPS Datasets and Benchmarks 2021)
+
     Args:
         imagenome_root: Root directory of Chest ImaGenome 1.0.0.
         imagenome_tables: Chest ImaGenome tables to include, for example
             ``["silver_images", "silver_comparisons", "gold_comparisons"]``.
+            Defaults to the tables ChestImaGenomeDataset loads by default
+            (silver images, objects and comparisons, and gold comparisons).
         dataset_name: Name of the dataset.
         dev: Whether to enable dev mode (limit to 1000 patients).
         cache_dir: Directory for cached data, as in
@@ -70,7 +87,7 @@ class MIMIC4ImaGenomeDataset(BaseDataset):
         num_workers: int = 1,
         **mimic4_kwargs: Any,
     ) -> None:
-        imagenome_tables = list(imagenome_tables or [])
+        imagenome_tables = list(imagenome_tables or _IMAGENOME_DEFAULT_TABLES)
         roots = [str(mimic4_kwargs.get(name)) for name in _MIMIC4_ROOTS]
         tables = [
             table
