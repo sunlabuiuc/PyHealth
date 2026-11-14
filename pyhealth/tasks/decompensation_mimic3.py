@@ -575,7 +575,7 @@ class DecompensationMIMIC3(BaseTask):
         >>> dataset = MIMIC3Dataset(
         ...     root="/path/to/mimic-iii",
         ...     tables=["chartevents", "labevents"],
-        ...     config_path="/path/to/mimic3_icu.yaml",
+        ...     config_path="pyhealth/datasets/configs/mimic3_icu.yaml",
         ... )
         >>> samples = dataset.set_task(DecompensationMIMIC3(horizon=24))
     """
