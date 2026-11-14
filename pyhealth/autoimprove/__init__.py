@@ -19,6 +19,12 @@ from .evaluate import (
     score,
     train_pipeline,
 )
+from .evidence import (
+    EvidenceProposer,
+    add_literature,
+    evidence_lines,
+    literature_section,
+)
 from .features import EngineeredDataset, FeatureSpace, FeatureSpec
 from .improver import (
     DEFAULT_METRIC,
@@ -64,6 +70,7 @@ __all__ = [
     "Document",
     "EngineeredDataset",
     "Evidence",
+    "EvidenceProposer",
     "FeatureSpace",
     "FeatureSpec",
     "ImproveResult",
@@ -79,11 +86,14 @@ __all__ = [
     "Report",
     "SearchSpace",
     "Trial",
+    "add_literature",
     "build_report",
     "check_models",
     "config_diff",
     "describe_error",
+    "evidence_lines",
     "fold_parts",
+    "literature_section",
     "load_run",
     "paired_gain",
     "parse_effect",
