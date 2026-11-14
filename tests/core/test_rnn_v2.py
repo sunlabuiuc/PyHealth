@@ -208,7 +208,16 @@ class TestBottomUp(unittest.TestCase):
         self.assertEqual(result["logit"].shape, (4, 1))
 
 
-# Static values: a series with one record at t = 0.
+# Static values: a 'single' level, one record per sample.
+DEMO: list[LevelConfig] = [{"ordering": "single", "tokens": 1, "values": [1]}]
+DEMO_DIMS: dict[str, list[LevelEmbedding]] = {"demo": [{"tokens": (3,), "values": 2}]}
+
+
+def _demo(*rows: tuple[str, float]) -> list[dict[str, Any]]:
+    return [{"tokens": [sex], "values": [[age]]} for sex, age in rows]
+
+
+# Static values as a series with one record at t = 0.
 AGE: list[LevelConfig] = [{"ordering": "series", "values": [2]}]
 AGE_DIMS: dict[str, list[LevelEmbedding]] = {"age": [{"values": 3}]}
 
@@ -218,6 +227,68 @@ def _ages(*ages: tuple[float, float]) -> list[dict[str, Any]]:
 
 
 class TestStatics(unittest.TestCase):
+    def test_a_single_level_is_passed_on_without_an_rnn(self):
+        demo = _demo(("F", 60.0), ("M", 70.0), ("F", 50.0), ("M", 80.0))
+        dataset = _dataset(visits=(VISITS, VISIT_RECORDS), demo=(DEMO, demo))
+        model = _model(dataset, embedding_dim={**VISIT_DIMS, **DEMO_DIMS}, hidden_dim=5)
+        encoder = cast(Any, model.encoders["demo"])
+        self.assertEqual(encoder.is_rnn, [False])
+        self.assertIsInstance(encoder.encoders[0], torch.nn.Identity)
+        self.assertEqual(model.fc.in_features, 5 + 3 + 2)
+        batch = _batch(dataset)
+        out, (summary, states, time) = _encode(model, batch, "demo")
+        torch.testing.assert_close(summary, out[0]["embedding"])  # its one record
+        self.assertIsNone(states)
+        self.assertIsNone(time)
+        result = model(**batch, embed=True)
+        torch.testing.assert_close(result["embed"][:, 5:], summary)
+
+    def test_a_single_level_above_visits(self):
+        levels: list[LevelConfig] = [*VISITS, {"ordering": "single", "tokens": 1}]
+        records = [
+            {"tokens": [sex], "children": [visits]}
+            for sex, visits in zip("FMFM", VISIT_RECORDS)
+        ]
+        dataset = _dataset(x=(levels, records))
+        dims: list[LevelEmbedding] = [*VISIT_DIMS["visits"], {"tokens": (2,)}]
+        model = _model(dataset, embedding_dim={"x": dims}, hidden_dim=5)
+        encoder = cast(Any, model.encoders["x"])
+        self.assertEqual(encoder.is_rnn, [False, True, False])
+        self.assertEqual(encoder.output_dim, 2 + 5)  # its embedding and the visits'
+        out, (summary, states, _) = _encode(model, _batch(dataset), "x")
+        self.assertIsNone(states)
+        torch.testing.assert_close(summary[:, :2], out[2]["embedding"])
+        self.assertEqual(summary[2, 2:].tolist(), [0.0] * 5)  # no visits
+        self.assertTrue(torch.all(summary[[0, 1, 3], 2:] != 0))
+
+    def test_every_label_record_sees_the_single_record(self):
+        samples = [
+            {
+                "patient_id": f"p{i}",
+                "x": _visits((1.0, "er", ["A"])),
+                "demo": _demo(("F", 50.0 + 10 * i))[0],
+                "y": {"time": [0.0, 1.0, 2.0], "values": [0, 1, i % 2]},
+            }
+            for i in range(2)
+        ]
+        dataset = create_sample_dataset(
+            samples,
+            {
+                "x": ("jagged", {"levels": VISITS}),
+                "demo": ("jagged", {"levels": DEMO}),
+            },
+            {"y": "timeseries_binary"},
+        )
+        model = _model(
+            dataset,
+            embedding_dim={"x": VISIT_DIMS["visits"], **DEMO_DIMS},
+            hidden_dim=5,
+        )
+        batch = _batch(dataset)
+        embed = model(**batch, embed=True)["embed"][:, 5:]
+        _, (summary, _, _) = _encode(model, batch, "demo")
+        torch.testing.assert_close(embed, summary.repeat_interleave(3, dim=0))
+
     def test_a_static_series_is_encoded_like_any_field(self):
         ages = _ages((60.0, 1.0), (70.0, 0.0), (50.0, 1.0), (80.0, 0.0))
         dataset = _dataset(visits=(VISITS, VISIT_RECORDS), age=(AGE, ages))
@@ -304,6 +375,16 @@ class TestPerStep(unittest.TestCase):
             dataset = self.dataset(levels, [{"children": [{"tokens": ["A"]}]}] * 2)
             with self.subTest(top=top), self.assertRaisesRegex(ValueError, "Wrap"):
                 RNN_V2(dataset, embedding_dim={"x": [{"tokens": (4,)}, {}]})
+
+    def test_a_single_top_level_must_be_alone(self):
+        levels: list[LevelConfig] = [
+            {"ordering": "series", "tokens": 1},
+            {"ordering": "single", "tokens": 1},
+        ]
+        records = [{"tokens": ["F"], "children": [{"time": [0.0], "tokens": ["A"]}]}]
+        dataset = self.dataset(levels, records * 2)
+        with self.assertRaisesRegex(ValueError, "not above other levels"):
+            RNN_V2(dataset, embedding_dim={"x": [{"tokens": (4,)}, {"tokens": (2,)}]})
 
     def test_no_bidirectional(self):
         records = [_visits((0.0, "er", ["A"]))] * 2
@@ -531,6 +612,15 @@ class TestLegacyFields(unittest.TestCase):
         )
         model = _model(dataset, embedding_dim={"x": [{"values": 3}]}, hidden_dim=4)
         self.assertEqual(model.processors["x"].ordering(), {0: "series"})
+        result = model(**_batch(dataset))
+        self.assertEqual(result["logit"].shape, (4, 1))  # two labels per sample
+        self.assertTrue(torch.isfinite(result["loss"]))
+
+    def test_per_step_label_with_a_legacy_tensor(self):
+        # A fixed-shape tensor is a lone 'single' level, which every label sees.
+        dataset = self.per_step("tensor", [[1.0, 2.0], [3.0, 4.0]])
+        model = _model(dataset, embedding_dim={"x": [{"values": 3}]}, hidden_dim=4)
+        self.assertEqual(model.processors["x"].ordering(), {0: "single"})
         result = model(**_batch(dataset))
         self.assertEqual(result["logit"].shape, (4, 1))  # two labels per sample
         self.assertTrue(torch.isfinite(result["loss"]))
