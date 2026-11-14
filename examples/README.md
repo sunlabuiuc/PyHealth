@@ -6,7 +6,7 @@ contributing a dataset.
 
 The examples here are shorter and more specialised: one model, task, dataset or
 feature each. The examples listed below were updated for PyHealth 2.1 in the
-examples cleanup (#1479 to #1483, November 2026) and smoke-run end to end on demo
+examples cleanup of November 2026 and smoke-run end to end on demo
 or synthetic data. Each one's header (the module docstring, or the first cell of
 a notebook) says:
 

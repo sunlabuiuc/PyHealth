@@ -50,13 +50,11 @@ New to interpretability in PyHealth? Check out these complete examples:
   - Compare different baseline strategies for background sample generation
   - Decode attributions to human-readable medical codes and lab measurements
 
-**ViT/Chefer Attribution Example:**
+**Chefer Attribution Example:**
 
-- ``examples/cxr/covid19cxr_tutorial.py`` - Demonstrates Chefer's attention-based attribution for Vision Transformers:
+- ``examples/interpretability/mp_transformer_mimic4_interpret.py`` - Runs CheferRelevance (gradient-weighted attention relevance) on a PyHealth ``Transformer`` for MIMIC-IV mortality prediction with ``--methods chefer``, and scores it with comprehensiveness and sufficiency next to the other attribution methods.
 
-  - Train a ViT model on COVID-19 chest X-ray classification
-  - Use CheferRelevance for gradient-weighted attention attribution
-  - Visualize which image patches contribute to predictions
+- ``examples/cxr/covid19cxr_tutorial.py`` - Trains a ViT (``TorchvisionModel``) on COVID-19 chest X-rays with conformal prediction. Its Chefer step currently raises, because ``TorchvisionModel`` does not implement the ``CheferInterpretable`` interface; the file's header notes this.
 
 **LIME Example:**
 
