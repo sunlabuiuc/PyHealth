@@ -100,6 +100,7 @@ from .trace import (
 )
 from .apricotm import APRICOTM as APRICOTM
 from .selective_ssm import SelectiveSSM as SelectiveSSM
+from .ethos import ETHOS as ETHOS
 from .heartlang import (
     HeartLang as HeartLang,
     HeartLangBackbone as HeartLangBackbone,

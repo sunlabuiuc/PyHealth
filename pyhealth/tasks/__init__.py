@@ -85,6 +85,11 @@ from .meds_outcome_tasks import (
     ICUAdmissionMEDS as ICUAdmissionMEDS,
     ProlongedLengthOfStayMEDS as ProlongedLengthOfStayMEDS,
 )
+from .ethos_tasks import (
+    EthosOutcomeMEDS as EthosOutcomeMEDS,
+    EthosRolloutRule as EthosRolloutRule,
+    EthosTimelineMEDS as EthosTimelineMEDS,
+)
 from .msd_segmentation import MSDSegmentationTask as MSDSegmentationTask
 from .next_visit_diagnosis_prediction import (
     NextVisitDiagnosisPredictionMIMIC3 as NextVisitDiagnosisPredictionMIMIC3,
