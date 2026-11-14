@@ -319,6 +319,10 @@ ranked, justified candidate features. It reads two kinds of source:
     kb.map(fs, card)          # have / build / not in data, with priors
     print(kb.gap_report())    # the "not in data" list is a ready data request
     improver = AutoImprover(..., proposer=QueueProposer(kb.ranked_specs()), features=fs)
+    # or let the LLM see the published predictors, and report the literature:
+    improver = AutoImprover(..., proposer=EvidenceProposer(ClaudeLLM(), kb), features=fs)
+    # improver.report() saves its files first; path= saves them again with the section
+    report = add_literature(improver.report(), kb, path="runs/asthma/report.html")
 
 - **LLMs invent references, so every record is checked.** A record is kept
   only if its source is a gathered document, its quoted sentence appears in
@@ -335,6 +339,17 @@ ranked, justified candidate features. It reads two kinds of source:
   candidates are tried; the feature search decides what is kept. Specs
   from :meth:`~pyhealth.autoimprove.KnowledgeBase.ranked_specs` carry their
   citations.
+- **In the search** (:class:`~pyhealth.autoimprove.EvidenceProposer`), each
+  feature prompt also lists the untried published predictors with their
+  definitions, directions, priors and citations, until all are tried.
+  Model prompts are unchanged. A predictor counts as tried once proposed,
+  accepted or adapted (same citation and the same set of selections, e.g.
+  another window; a ratio of two selections adapts neither), so two
+  predictors from one paper that read exactly the same events count as one. After a resumed run, earlier predictors may be listed
+  again.
+- **In the report** (:func:`~pyhealth.autoimprove.add_literature`), a
+  *Literature* section gives the citation-check counts, the gap report and
+  the published discrimination values.
 - **Privacy.** The knowledge base never sees patient data. PubMed queries
   use only the task card's text, and every query is kept in ``kb.queries``.
   Mapping sees only the names of event types, groups and columns.
@@ -381,3 +396,6 @@ API Reference
 
 .. automodule:: pyhealth.autoimprove.knowledge
     :members: KnowledgeBase, Evidence, Document, parse_effect, pubmed_query
+
+.. automodule:: pyhealth.autoimprove.evidence
+    :members: EvidenceProposer, evidence_lines, literature_section, add_literature
