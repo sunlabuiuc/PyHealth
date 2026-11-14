@@ -4,11 +4,11 @@ from typing import Any
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor, TokenProcessorInterface
+from .base_processor import LegacyFeatureProcessor, TokenProcessorInterface
 
 
 @register_processor("nested_multihot")
-class NestedMultiHotProcessor(FeatureProcessor, TokenProcessorInterface):
+class NestedMultiHotProcessor(LegacyFeatureProcessor, TokenProcessorInterface):
     """Nested categorical sequences as per-visit multi-hot vectors.
 
     Same input as :class:`NestedSequenceProcessor` -- a list of visits, each a

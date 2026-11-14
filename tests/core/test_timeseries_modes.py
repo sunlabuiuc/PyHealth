@@ -54,8 +54,8 @@ def _dataset(
     return create_sample_dataset(
         samples=samples,
         input_schema={
-            "dynamic": ("sequence_v2", {"levels": DYNAMIC}),
-            "static": ("sequence_v2", {"levels": STATIC}),
+            "dynamic": ("jagged", {"levels": DYNAMIC}),
+            "static": ("jagged", {"levels": STATIC}),
         },
         output_schema={"label": mode},
         dataset_name="timeseries_modes",

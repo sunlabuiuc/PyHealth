@@ -14,17 +14,26 @@ logger = logging.getLogger(__name__)
 class TUABDataset(BaseDataset):
     """Base EEG dataset for the TUH Abnormal EEG Corpus
 
-    Dataset is available at https://isip.piconepress.com/projects/tuh_eeg/html/downloads.shtml
-
     The TUAB dataset (or Temple University Hospital EEG Abnormal Corpus) is a collection of EEG data acquired at the Temple University Hospital. 
     
     The dataset contains both normal and abnormal EEG readings.
 
     Files are named in the form aaaaamye_s001_t000.edf. This includes the subject identifier ("aaaaamye"), the session number ("s001") and a token number ("t000"). EEGs are split into a series of files starting with *t000.edf, *t001.edf, ...
 
+    Getting the data:
+        - Source: https://isip.piconepress.com/projects/nedc/html/tuh_eeg/
+          (corpus ``tuh_eeg_abnormal``)
+        - Access: free, by request. Fill in the form at
+          https://isip.piconepress.com/projects/nedc/forms/tuh_eeg.pdf and email
+          the signed copy to help@nedcdata.org; you get a username and password.
+        - Download: ``rsync`` with those credentials, as described on the source
+          page.
+        - ``root``: the ``edf/`` folder of the release (for example
+          ``tuh_eeg_abnormal/v3.0.0/edf/``), which holds ``train/`` and ``eval/``.
+
     Args:
         dataset_name: name of the dataset.
-        root: root directory of the raw data. *You can choose to use the path to Cassette portion or the Telemetry portion.*
+        root: the release's ``edf/`` folder, which holds ``train/`` and ``eval/``.
         dev: whether to enable dev mode (only use a small subset of the data).
             Default is False.
         refresh_cache: whether to refresh the cache; if true, the dataset will

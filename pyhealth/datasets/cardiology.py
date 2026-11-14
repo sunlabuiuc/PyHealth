@@ -11,7 +11,12 @@ from pyhealth.datasets import BaseSignalDataset
 class CardiologyDataset(BaseSignalDataset):
     """Base ECG dataset for Cardiology
 
-    Dataset is available at https://physionet.org/content/challenge-2020/1.0.2/
+    Getting the data:
+        - Source: https://physionet.org/content/challenge-2020/1.0.2/
+        - Access: open, no account needed.
+        - Download: ``wget -r -N -c -np https://physionet.org/files/challenge-2020/1.0.2/``
+        - ``root``: the ``training/`` folder of that download, which holds the
+          per-source subfolders (``cpsc_2018``, ``georgia``, ...).
 
     Args:
         dataset_name: name of the dataset.

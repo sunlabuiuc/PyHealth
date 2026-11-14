@@ -1029,6 +1029,24 @@ class TestClinicalReport(unittest.TestCase):
         # NaN alone raises no flag
         self.assertEqual(ids(test(float("nan"), None, float("nan"))), [])
 
+    def test_stability_refits_use_fold_parts(self):
+        # Each stability fold model goes through fold_parts, so engineered
+        # columns would be refitted on the fold, as in cross-validation.
+        from pyhealth.autoimprove import evaluate
+
+        improver = AutoImprover(
+            self.train, self.val, RandomProposer(seed=0),
+            baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16},
+                                    {"epochs": 2}),
+            space=SPACE, n_agents=1, n_cycles=1, cv_folds=3, task_card=CARD,
+        )
+        improver.run()
+        with mock.patch("pyhealth.autoimprove.improver.fold_parts",
+                        side_effect=evaluate.fold_parts) as spy:
+            out = improver.explain(top_k=3)
+        self.assertEqual(spy.call_count, 3)
+        self.assertEqual(out["stability"]["models"], 3)
+
     def test_selected_baseline_is_reported_once(self):
         # With only the baseline trial, it is the selected config: the test
         # output has `best` and no `baseline` or `difference`, and the

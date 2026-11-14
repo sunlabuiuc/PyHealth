@@ -37,6 +37,15 @@ logger = logging.getLogger(__name__)
 class ChestXray14Dataset(BaseDataset):
     """Dataset class for the NIH ChestX-ray14 dataset.
 
+    Getting the data:
+        - Source: https://nihcc.app.box.com/v/ChestXray-NIHCC (also mirrored at
+          https://www.kaggle.com/datasets/nih-chest-xrays/data)
+        - Access: open, no account needed.
+        - Download: pass ``download=True`` (``partial=True`` fetches only the first
+          of the 12 image archives).
+        - ``root``: the folder holding ``Data_Entry_2017_v2020.csv`` and
+          ``images/``.
+
     Attributes:
         root (str): Root directory of the raw data.
         dataset_name (str): Name of the dataset.

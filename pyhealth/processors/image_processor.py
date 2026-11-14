@@ -1,16 +1,17 @@
 from functools import partial
 from pathlib import Path
+from collections.abc import Iterable
 from typing import Any, List, Optional, Union
 
 import torchvision.transforms as transforms
 from PIL import Image
 
 from . import register_processor
-from .base_processor import FeatureProcessor
+from .base_processor import LegacyFeatureProcessor
 
 
 @register_processor("image")
-class ImageProcessor(FeatureProcessor):
+class ImageProcessor(LegacyFeatureProcessor):
     """Feature processor for loading images from disk and converting them to tensors.
 
     Args:
@@ -35,6 +36,10 @@ class ImageProcessor(FeatureProcessor):
         >>> p.process("chest_xray.png").shape  # doctest: +SKIP
         torch.Size([3, 224, 224])
     """
+
+    _shape: tuple[int, int, int] | None = None
+    """The widest ``(C, H, W)`` that ``fit()`` saw, or None if unknown (not
+    fitted, or fitted before this was recorded)."""
 
     @property
     def stores_tensor(self) -> bool:
@@ -87,6 +92,38 @@ class ImageProcessor(FeatureProcessor):
                 transforms.Normalize(mean=self.mean, std=self.std)
             )
         return transforms.Compose(transform_list)
+
+    def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
+        """Records the widest output shape ``(C, H, W)`` of the images.
+
+        ``C`` is the channel count of ``mode`` (or, without one, the most
+        bands of any image's own mode), and ``H``, ``W`` are ``image_size``
+        (or, without one, the largest height and width of any image). With
+        both ``mode`` and ``image_size`` the shape is known without reading
+        any image; otherwise every image's header is read (not its pixels).
+
+        Args:
+            samples: Sample dictionaries.
+            field: The field holding image paths.
+        """
+        if self.mode is not None and self.image_size is not None:
+            size = self.image_size
+            self._shape = (Image.getmodebands(self.mode), size, size)
+            return
+        channels = height = width = 0
+        for sample in samples:
+            path = sample.get(field)
+            if path is None:
+                continue
+            with Image.open(path) as img:  # lazy: reads the header only
+                channels = max(channels, Image.getmodebands(self.mode or img.mode))
+                w, h = (
+                    (self.image_size, self.image_size)
+                    if self.image_size is not None
+                    else img.size
+                )
+            height, width = max(height, h), max(width, w)
+        self._shape = (channels, height, width) if channels else None
 
     def process(self, value: Union[str, Path]) -> Any:
         """Process a single image path into a transformed tensor image.

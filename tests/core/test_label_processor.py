@@ -125,8 +125,7 @@ class TestStaticActivationAndLoss(unittest.TestCase):
 
 
 class TestStaticDetails(unittest.TestCase):
-    def test_schema_and_repr(self):
-        self.assertEqual(RegressionLabelProcessor().schema(), ("value",))
+    def test_repr(self):
         self.assertEqual(repr(RegressionLabelProcessor()), "RegressionLabelProcessor()")
 
     def test_other_binary_labels_are_sorted(self):
@@ -373,16 +372,6 @@ class TestTimeseriesLabels(unittest.TestCase):
         for processor, records in bad:
             with self.subTest(records=records), self.assertRaises(ValueError):
                 processor.process(records)
-
-    def test_shape_metadata_follows_the_base(self):
-        multiclass = TimeseriesMultiClassLabelProcessor(labels=3)
-        self.assertTrue(multiclass.is_token())
-        self.assertEqual(multiclass.dim(), (1, 1))
-        self.assertEqual(multiclass.spatial(), (True,))
-        multilabel = TimeseriesMultiLabelProcessor(labels=3)
-        self.assertFalse(multilabel.is_token())
-        self.assertEqual(multilabel.dim(), (2, 1))
-        self.assertEqual(multilabel.spatial(), (True, False))
 
     def test_collate_needs_a_sample(self):
         with self.assertRaisesRegex(ValueError, "at least one sample"):

@@ -411,6 +411,8 @@ def _one_hot(system: str) -> np.ndarray:
 class ValueSetCompletion(BaseTask):
     """Classifies retrieved candidate codes as in or out of a value set.
 
+    Works with :class:`~pyhealth.datasets.VSACDataset`.
+
     For each target value set, the ``k`` nearest value sets by title are
     retrieved from the index built by :func:`build_retrieval_index`, and the
     union of their codes, deduplicated on ``(code, system)`` with the highest

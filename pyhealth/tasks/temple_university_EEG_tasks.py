@@ -49,6 +49,8 @@ def read_edf_uv(
 class EEGEventsTUEV(BaseTask):
     """Multi-class classification task for EEG event detection on TUEV.
 
+    Works with :class:`~pyhealth.datasets.TUEVDataset`.
+
     For each EDF recording, this task:
       1) reads the EDF
       2) applies bandpass (0.1-75 Hz), notch (50 Hz), resamples to 256 Hz
@@ -243,6 +245,8 @@ class EEGEventsTUEV(BaseTask):
 
 class EEGAbnormalTUAB(BaseTask):
     """Binary classification task for abnormal EEG detection on TUAB.
+
+    Works with :class:`~pyhealth.datasets.TUABDataset`.
 
     For each EDF recording, this task:
       1) reads the EDF

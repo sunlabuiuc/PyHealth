@@ -53,6 +53,7 @@ from .imaging.stats import (
 )
 from .cardiology import CardiologyDataset
 from .chaos import CHAOSDataset as CHAOSDataset
+from .chest_imagenome import ChestImaGenomeDataset as ChestImaGenomeDataset
 from .chestxray14 import ChestXray14Dataset
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
@@ -114,6 +115,8 @@ from .splitter import (
     split_by_visit,
     split_by_visit_conformal,
 )
+from .gold_test_split import GoldTestSplit as GoldTestSplit
+from .mimic4_imagenome import MIMIC4ImaGenomeDataset as MIMIC4ImaGenomeDataset
 from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
 from .iiic import IIICDataset as IIICDataset
 from .tuab import TUABDataset
@@ -128,3 +131,14 @@ from .utils import (
     save_processors,
 )
 from .collate import collate_temporal
+
+from .gbsg import (
+    GBSGDataset as GBSGDataset,
+    prepare_gbsg_csv as prepare_gbsg_csv,
+    gbsg_paper_time_transform as gbsg_paper_time_transform,
+    gbsg_released_split_ids as gbsg_released_split_ids,
+)
+from .support2 import (
+    support2_paper_time_transform as support2_paper_time_transform,
+    support2_released_split_ids as support2_released_split_ids,
+)

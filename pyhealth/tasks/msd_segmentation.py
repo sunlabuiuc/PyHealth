@@ -8,6 +8,11 @@ from .base_task import BaseTask
 class MSDSegmentationTask(BaseTask):
     """Build image-mask samples from an MSD dataset.
 
+    Works with :class:`~pyhealth.datasets.MSDSegmentationDataset` and its
+    task-specific subclasses :class:`~pyhealth.datasets.MSDHippocampusDataset`,
+    :class:`~pyhealth.datasets.MSDProstateDataset` and
+    :class:`~pyhealth.datasets.MSDSpleenDataset`.
+
     The task uses NIfTI processors for both the image and the mask. The mask
     is an output target and is processed as an integer, nearest-neighbour
     volume.

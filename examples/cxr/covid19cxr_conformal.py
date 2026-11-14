@@ -25,6 +25,7 @@ from pyhealth.datasets import (
     split_by_sample_conformal,
 )
 from pyhealth.models import TorchvisionModel
+from pyhealth.metrics import multiclass_metrics_fn
 from pyhealth.trainer import Trainer, get_metrics_fn
 
 # Set random seed for reproducibility
@@ -123,10 +124,10 @@ y_true_label, y_prob_label, _, extra_label = Trainer(model=label_predictor).infe
     test_loader, additional_outputs=["y_predset"]
 )
 
-label_metrics = get_metrics_fn("multiclass")(
+label_metrics = multiclass_metrics_fn(
     y_true_label,
     y_prob_label,
-    metrics=["accuracy", "miscoverage_ps"],
+    metrics=["accuracy", "miscoverage_mean_ps"],
     y_predset=extra_label["y_predset"],
 )
 
@@ -138,16 +139,8 @@ predset_label = (
 )
 avg_set_size_label = predset_label.float().sum(dim=1).mean().item()
 
-# Extract scalar values from metrics (handle both scalar and array returns)
-miscoverage_label = label_metrics["miscoverage_ps"]
-if isinstance(miscoverage_label, np.ndarray):
-    miscoverage_label = float(
-        miscoverage_label.item()
-        if miscoverage_label.size == 1
-        else miscoverage_label.mean()
-    )
-else:
-    miscoverage_label = float(miscoverage_label)
+# Average over classes with observed true labels.
+miscoverage_label = float(label_metrics["miscoverage_mean_ps"])
 
 print("\nLABEL Results:")
 print(f"  Accuracy: {label_metrics['accuracy']:.4f}")
@@ -191,10 +184,10 @@ y_true_cov, y_prob_cov, _, extra_cov = Trainer(model=covariate_predictor).infere
     test_loader, additional_outputs=["y_predset"]
 )
 
-cov_metrics = get_metrics_fn("multiclass")(
+cov_metrics = multiclass_metrics_fn(
     y_true_cov,
     y_prob_cov,
-    metrics=["accuracy", "miscoverage_ps"],
+    metrics=["accuracy", "miscoverage_mean_ps"],
     y_predset=extra_cov["y_predset"],
 )
 
@@ -206,14 +199,8 @@ predset_cov = (
 )
 avg_set_size_cov = predset_cov.float().sum(dim=1).mean().item()
 
-# Extract scalar values from metrics (handle both scalar and array returns)
-miscoverage_cov = cov_metrics["miscoverage_ps"]
-if isinstance(miscoverage_cov, np.ndarray):
-    miscoverage_cov = float(
-        miscoverage_cov.item() if miscoverage_cov.size == 1 else miscoverage_cov.mean()
-    )
-else:
-    miscoverage_cov = float(miscoverage_cov)
+# Average over classes with observed true labels.
+miscoverage_cov = float(cov_metrics["miscoverage_mean_ps"])
 
 print("\nCovariateLabel Results:")
 print(f"  Accuracy: {cov_metrics['accuracy']:.4f}")

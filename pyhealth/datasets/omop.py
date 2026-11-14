@@ -43,6 +43,15 @@ class OMOPDataset(BaseDataset):
     The person_id field is used as the patient identifier across all tables.
     All clinical events are linked to visits via visit_occurrence_id.
 
+    Getting the data:
+        OMOP is a format, not a dataset; point ``root`` at any OMOP CDM CSV
+        export. For data to try it on:
+
+        - MIMIC-IV demo in OMOP (open, 100 patients):
+          https://physionet.org/content/mimic-iv-demo-omop/0.9/
+        - Synthea data converted with ETL-Synthea:
+          https://github.com/OHDSI/ETL-Synthea
+
     Args:
         root (str): The root directory where the OMOP dataset CSV files
             are stored.

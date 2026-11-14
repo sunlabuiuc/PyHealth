@@ -728,6 +728,8 @@ class _YAIBMIMIC3Task(BaseTask):
 class YAIBMortalityMIMIC3(_YAIBMIMIC3Task):
     """YAIB ICU mortality prediction after 24 hours on MIMIC-III.
 
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
+
     Predicts death in the ICU from the first 24 hours of the stay (hourly bins
     0 to 24 inclusive, as in YAIB). On top of the YAIB base cohort, stays are
     excluded if the patient died within 30 hours of ICU admission or the ICU
@@ -805,6 +807,8 @@ class YAIBMortalityMIMIC3(_YAIBMIMIC3Task):
 class YAIBKidneyFunctionMIMIC3(_YAIBMIMIC3Task):
     """YAIB kidney function prediction on MIMIC-III.
 
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
+
     Predicts the median creatinine (mg/dL) on the second day of the ICU stay
     from the first 24 hours (hourly bins 0 to 24 inclusive, as in YAIB). As in
     YAIB, the label is the median of the hourly creatinine bins after hour 24
@@ -877,6 +881,8 @@ class YAIBKidneyFunctionMIMIC3(_YAIBMIMIC3Task):
 class YAIBLengthOfStayMIMIC3(_YAIBMIMIC3Task):
     """YAIB remaining length of stay prediction on MIMIC-III.
 
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
+
     Predicts, at every hour of the ICU stay, the remaining hours until ICU
     discharge, capped at 7 days. As in YAIB, the stay is observed for at most
     7 days (hourly bins 0 to ``min(end, 168)``, where ``end`` is the ICU
@@ -937,6 +943,8 @@ class YAIBLengthOfStayMIMIC3(_YAIBMIMIC3Task):
 
 class YAIBAKIMIMIC3(_YAIBMIMIC3Task):
     """YAIB acute kidney injury (AKI) prediction on MIMIC-III.
+
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
 
     Predicts, at every hour of the ICU stay, AKI (KDIGO stage 1 or higher)
     within the next 6 hours, following YAIB-cohorts ``aki.R`` and its KDIGO
@@ -1080,6 +1088,8 @@ class YAIBAKIMIMIC3(_YAIBMIMIC3Task):
 
 class YAIBSepsisMIMIC3(_YAIBMIMIC3Task):
     """YAIB sepsis prediction on MIMIC-III.
+
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
 
     Predicts, at every hour of the ICU stay, Sepsis-3 onset within the next 6
     hours, following YAIB-cohorts ``sepsis.R`` with its ``sep3_alt``

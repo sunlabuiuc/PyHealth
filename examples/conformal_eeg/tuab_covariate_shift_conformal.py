@@ -55,6 +55,7 @@ from pyhealth.calib.utils import extract_embeddings
 from pyhealth.datasets import TUABDataset, get_dataloader, split_by_patient_conformal_tuh, split_by_sample_conformal_tuh, split_by_sample_conformal
 from pyhealth.models import ContraWR, TFMTokenizer
 from pyhealth.tasks import EEGAbnormalTUAB
+from pyhealth.metrics import multiclass_metrics_fn
 from pyhealth.trainer import Trainer, get_metrics_fn
 
 
@@ -262,9 +263,9 @@ def _run_one_seed(
         y_true, y_prob, _, extra = Trainer(model=cov_predictor).inference(
             test_loader, additional_outputs=["y_predset"]
         )
-        conf_metrics = get_metrics_fn("multiclass")(
+        conf_metrics = multiclass_metrics_fn(
             y_true, y_prob,
-            metrics=["accuracy", "miscoverage_ps"],
+            metrics=["accuracy", "miscoverage_mean_ps"],
             y_predset=extra["y_predset"],
         )
 
@@ -272,11 +273,7 @@ def _run_one_seed(
         predset_t = torch.tensor(predset) if isinstance(predset, np.ndarray) else predset
         avg_set_size = predset_t.float().sum(dim=1).mean().item()
 
-        miscoverage = conf_metrics["miscoverage_ps"]
-        if isinstance(miscoverage, np.ndarray):
-            miscoverage = float(miscoverage.item() if miscoverage.size == 1 else miscoverage.mean())
-        else:
-            miscoverage = float(miscoverage)
+        miscoverage = float(conf_metrics["miscoverage_mean_ps"])
 
         results[alpha] = {
             "accuracy":             float(base_metrics["accuracy"]),

@@ -56,6 +56,9 @@ class TimeseriesLabelProcessor[B: LabelProcessor](LabelProcessor):
     """The class of :attr:`base`, the static label processor of each record."""
     _scalar_values: ClassVar[bool] = True
     """Whether each value is one label (as opposed to a set of labels)."""
+    _index_values: ClassVar[bool] = False
+    """Whether :attr:`base` outputs a class index (a ``long`` scalar) per value,
+    rather than a float vector of :meth:`size`."""
 
     def __init__(self, base: B) -> None:
         super().__init__()
@@ -125,18 +128,6 @@ class TimeseriesLabelProcessor[B: LabelProcessor](LabelProcessor):
 
     def size(self) -> int:
         return self.base.size()
-
-    def is_token(self) -> bool:
-        return self.base.is_token()
-
-    def schema(self) -> tuple[str, ...]:
-        return ("value", "time")
-
-    def dim(self) -> tuple[int, ...]:
-        return (len(self._value_shape()) + 1, 1)
-
-    def spatial(self) -> tuple[bool, ...]:
-        return (True, *self.base.spatial())
 
     def __repr__(self) -> str:
         inner = repr(self.base)
@@ -212,10 +203,10 @@ class TimeseriesLabelProcessor[B: LabelProcessor](LabelProcessor):
         return value[0]
 
     def _value_shape(self) -> tuple[int, ...]:
-        return () if self.base.dim() == (0,) else (self.base.size(),)
+        return () if self._index_values else (self.base.size(),)
 
     def _dtype(self) -> torch.dtype:
-        return torch.long if self.base.is_token() else torch.float32
+        return torch.long if self._index_values else torch.float32
 
 
 @register_processor("timeseries_binary")
@@ -269,6 +260,7 @@ class TimeseriesMultiClassLabelProcessor(
 
     mode = "timeseries_multiclass"
     base_cls = MultiClassLabelProcessor
+    _index_values = True
 
     def __init__(self, labels: int | Sequence[Hashable] | None = None) -> None:
         super().__init__(MultiClassLabelProcessor(labels=labels))

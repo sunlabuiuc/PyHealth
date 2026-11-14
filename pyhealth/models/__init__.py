@@ -37,6 +37,7 @@ from .gnn import GAT, GCN
 from .graph_torchvision_model import Graph_TorchvisionModel
 from .graphcare import GraphCare
 from .grasp import GRASP, GRASPLayer
+from .dipro import DiPro as DiPro
 from .medfuse import MedFuse, MedFuseLayer
 from .medlink import MedLink
 from .micron import MICRON, MICRONLayer
@@ -89,6 +90,7 @@ from .generators.medgan import MedGAN
 from .generators.synthea import Synthea as Synthea
 from .generators.corgan import CorGAN as CorGAN
 from .survival_mdn import SurvivalMDN as SurvivalMDN
+from .cet import CET as CET
 from .trajsurv import TrajSurv as TrajSurv
 from .knowrare import KnowRare as KnowRare
 from .trace import (
@@ -99,6 +101,7 @@ from .trace import (
 )
 from .apricotm import APRICOTM as APRICOTM
 from .selective_ssm import SelectiveSSM as SelectiveSSM
+from .ethos import ETHOS as ETHOS
 from .heartlang import (
     HeartLang as HeartLang,
     HeartLangBackbone as HeartLangBackbone,
