@@ -241,6 +241,48 @@ class TestCachingFunctionality(BaseTestCase):
         sample_dataset1.close()
         sample_dataset2.close()
 
+    def test_clear_task_cache_removes_only_that_task(self):
+        task1, task2 = MockTask(param=1), MockTask(param=2)
+        self.dataset.set_task(task1).close()
+        self.dataset.set_task(task2).close()
+        path1 = self.dataset._task_cache_dir(task1)
+        path2 = self.dataset._task_cache_dir(task2)
+        self.assertTrue(path1.exists() and path2.exists())
+
+        self.assertTrue(self.dataset.clear_task_cache(task1))
+        self.assertFalse(path1.exists())
+        self.assertTrue(path2.exists())
+        self.assertTrue((self.dataset.cache_dir / "global_event_df.parquet").exists())
+        self.assertFalse(self.dataset.clear_task_cache(task1))  # already gone
+
+        with self.dataset.set_task(task1) as rebuilt:  # rebuilds the samples
+            self.assertEqual(len(rebuilt), 4)
+        self.assertTrue(path1.exists())
+
+    def test_clear_task_cache_needs_a_task(self):
+        with self.assertRaises(ValueError):
+            self.dataset.clear_task_cache()
+
+    def test_clear_cache_removes_everything_and_rebuilds(self):
+        self.dataset.set_task(self.task).close()
+        cache_dir = self.dataset.cache_dir
+        self.assertTrue((cache_dir / "global_event_df.parquet").exists())
+        self.assertTrue((cache_dir / "tasks").exists())
+
+        self.dataset.clear_cache()
+        self.assertTrue(cache_dir.exists())
+        self.assertEqual(list(cache_dir.iterdir()), [])
+
+        with self.dataset.set_task(self.task) as rebuilt:
+            self.assertEqual(len(rebuilt), 4)
+        self.assertTrue((cache_dir / "global_event_df.parquet").exists())
+
+    def test_task_cache_dir_matches_set_task(self):
+        with self.dataset.set_task(self.task) as sample_dataset:
+            task_dir = self.dataset._task_cache_dir(self.task)
+            self.assertTrue((task_dir / "task_df.ld" / "index.json").exists())
+            self.assertTrue(str(sample_dataset.path).startswith(str(task_dir)))
+
     def test_tasks_with_diff_output_schemas_get_diff_caches(self):
         sample_dataset1 = self.dataset.set_task(MockTask())
         sample_dataset2 = self.dataset.set_task(MockTask2())
