@@ -219,7 +219,6 @@ def load_run(
             "scores", {}).items()},
         pruning=read("prune.json"),
         confirm_se=settings.get("confirm_se", 2.0),
-        literature=read("literature.json"),
     )
 
 
@@ -245,7 +244,6 @@ def build_report(
     confirmed: dict[int, list[float]] | None = None,
     pruning: dict[str, Any] | None = None,
     confirm_se: float = 2.0,
-    literature: dict[str, Any] | None = None,
 ) -> Report:
     """Builds a report from a run's trials and, optionally, its test and attribution.
 
@@ -276,7 +274,6 @@ def build_report(
             ``AutoImprover.confirm``; the selection is then made on them.
         pruning: The result of ``AutoImprover.prune``.
         confirm_se: The bound used on the confirmation scores.
-        literature: The knowledge base's gap report and benchmark range.
 
     Examples:
         >>> from pyhealth.autoimprove import Trial
@@ -396,7 +393,6 @@ def build_report(
         if (pruning or {}).get("pruned_trial") == selected.trial_id else None,
         "one_se": one_se, "done": done, "baseline": baseline,
         "start": "start" if baseline else "first trial",
-        "bound": bound,
         "by_id": {t.trial_id: t for t in done},
     }
     flags = [{**f, "review": review.get(f["id"])}
@@ -410,8 +406,6 @@ def build_report(
         sections.append(_features_section(ctx, pruning, flags, test))
     if confirmed:
         sections.append(_confirm_section(ctx, confirmed, pruning))
-    if literature:
-        sections.append(_literature_section(literature, test))
     if explanation:
         sections.append(_decides_section(explanation))
     if test:
@@ -442,7 +436,6 @@ def build_report(
         "card": card.to_dict() if card is not None else None,
         "explanation": explanation, "flags": flags,
         "confirmed": {str(k): v for k, v in (confirmed or {}).items()},
-        "literature": literature,
         "pruning": pruning,
         "trials": [_public_trial(t) for t in trials],
     }
@@ -811,7 +804,6 @@ def _features_section(ctx, pruning, flags, test) -> Section:
         name = spec["name"]
         rows.append([name, spec.get("definition", "-"), spec.get("rationale", "-") or "-",
                      _direction(spec.get("direction", "")),
-                     ", ".join(spec.get("citations") or []) or "-",
                      contribution.get(name, "-"),
                      "held for review" if name in open_flags else "in the model"])
     blocks = [
@@ -821,8 +813,8 @@ def _features_section(ctx, pruning, flags, test) -> Section:
                "rationale and expected direction were given when it was proposed "
                "*(hypothesis)*; the contribution is what its group added on the "
                "confirmation folds *(tested)*.")),
-        ("table", ["feature", "definition", "rationale", "expected", "citations",
-                   "contribution", "status"], rows),
+        ("table", ["feature", "definition", "rationale", "expected", "contribution",
+                   "status"], rows),
     ]
     held = (test or {}).get("held_back")
     if held and "without_flagged" in (test or {}):
@@ -832,37 +824,6 @@ def _features_section(ctx, pruning, flags, test) -> Section:
                              f"{test.get('metric', ctx['metric'])} "
                              f"{_ci(test['without_flagged'])}.")))
     return Section("Features", blocks)
-
-
-def _literature_section(literature, test) -> Section:
-    gap = literature.get("gap", {})
-    blocks = [("p", (f"{literature.get('verified', 0)} published effects passed the "
-                     f"citation check ({literature.get('rejected', 0)} rejected: a "
-                     "source not gathered, a quote not in the source or not naming "
-                     "the predictor, or an effect size not attached to the effect "
-                     "in the quote). The literature orders and justifies "
-                     "candidates; only this task's data decides. *(measured)*"))]
-    rows = []
-    for status in ("have", "build", "not in data", "unmapped"):
-        for r in gap.get(status, []):
-            detail = r.get("column") or r.get("definition") or r.get("note", "")
-            rows.append([r["predictor"], status, detail, _direction(r.get("direction")),
-                         ", ".join(r.get("sources", [])[:3])])
-    if rows:
-        blocks += [("p", ("**Gap report**: each published predictor, and whether the "
-                          "task has it, can build it, or lacks the data (a data "
-                          "request).")),
-                   ("table", ["predictor", "status", "detail", "expected", "sources"],
-                    rows)]
-    bench = literature.get("benchmark") or []
-    if bench:
-        line = "; ".join(f"{b['type']} {b['value']:g} ({b['source']})" for b in bench
-                         if isinstance(b.get("value"), (int, float)))
-        ours = (test or {}).get("best", {})
-        blocks.append(("p", f"**Published performance:** {line}."
-                       + (f" This model on test: {ours.get('estimate', float('nan')):.3f} "
-                          f"({test.get('metric', '')})." if ours else "")))
-    return Section("Literature", blocks)
 
 
 def _confirm_section(ctx, confirmed, pruning) -> Section:
@@ -1136,19 +1097,7 @@ def _why(ctx) -> str:
         return (f"{lead} It is the most interpretable trial ({words}) whose score "
                 f"is within one standard error of the best, #{top.trial_id}: "
                 f"{_pm(gap, se, better, k)}. *(measured)*")
-    if sel is ref:
-        passed = len(ctx["candidates"]) - 1
-        if ctx["confirmed"] and passed:
-            return (f"{passed} trial(s) beat the starting pipeline on the search folds, "
-                    f"but none kept a gain of {ctx['bound']:g} standard errors on the "
-                    "confirmation folds (see *Confirmation*), so it stays selected. "
-                    "*(measured)*")
-        if passed:
-            rule = ("it is simpler and scores within one standard error of the "
-                    "best of them" if ctx["one_se"] else
-                    "the selection rule kept it")
-            return (f"{passed} trial(s) cleared the search bound over the starting "
-                    f"pipeline, but it stays selected: {rule}. *(measured)*")
+    if sel is ref and len(ctx["candidates"]) == 1:
         return ("No trial beat the starting pipeline consistently across folds, so "
                 "it stays selected. *(measured)*")
     if not ctx["one_se"]:

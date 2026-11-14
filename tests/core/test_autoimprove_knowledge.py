@@ -22,7 +22,6 @@ from pyhealth.autoimprove import (  # noqa: E402
     pubmed_query,
 )
 from pyhealth.autoimprove.knowledge import _numbers  # noqa: E402
-from pyhealth.autoimprove.proposers import build_feature_prompt  # noqa: E402
 from pyhealth.tasks import TaskCard  # noqa: E402
 
 ABSTRACT = ("Children with two or more ED visits in the prior year had a higher "
@@ -335,23 +334,11 @@ class TestMapping(unittest.TestCase):
             improver = AutoImprover(
                 self.world.train, self.world.val, QueueProposer(ranked),
                 baseline=BASELINE, space=SPACE, cv_folds=5, features=fs,
-                run_dir=tmp, check=False, knowledge=kb, n_agents=1, n_cycles=2)
-            # Before any trial, the evidence prompt lists the untried
-            # predictor with its citation.
-            prompt = build_feature_prompt(
-                improver._context("a0", "evidence", None, kind="features"))
-            self.assertIn("count_90d__visits", prompt)
-            self.assertIn("PMID:1", prompt)
+                run_dir=tmp, check=False, n_agents=1, n_cycles=2)
             result = improver.run()
             self.assertEqual([s["name"] for s in result.best.features],
                              ["count_90d__visits"])
-            # Once tried, it is no longer offered as evidence.
-            self.assertNotIn("count_90d__visits",
-                             "\n".join(improver._evidence_lines()))
-            text = improver.report().to_markdown()
-            self.assertIn("## Literature", text)
-            self.assertIn("Gap report", text)
-            self.assertIn("PMID:1", text)
+            self.assertEqual(result.best.features[0]["citations"], ["PMID:1"])
 
 
 if __name__ == "__main__":

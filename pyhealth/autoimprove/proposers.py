@@ -51,13 +51,8 @@ FEATURE_STRATEGIES = {
         "Contrast: compare the accepted and the rejected feature groups, and "
         "propose features like the accepted ones and unlike the rejected ones."
     ),
-    "evidence": (
-        "Evidence: propose untried published predictors from the list below, "
-        "adapting windows or thresholds to this task if needed; keep their "
-        "citations in each spec's \"citations\"."
-    ),
 }
-"""Instructions for each strategy in a feature cycle; "evidence" needs a knowledge base."""
+"""Instructions for each strategy in a feature cycle."""
 
 
 class ProposerExhausted(ValueError):
@@ -93,11 +88,8 @@ class ProposalContext:
             feature turn.
         accepted: The accepted feature specs (dicts with ``name`` and
             ``definition``), which a feature turn adds to.
-        feature_trials: The latest feature trials, oldest first.
-        tried_features: Names of every feature tried so far, in any trial.
+        feature_trials: Earlier feature trials, oldest first.
         card: A plain-text summary of the task card, if any.
-        evidence: Untried published predictors, one line each, with their
-            citations (from a :class:`~pyhealth.autoimprove.KnowledgeBase`).
 
     Examples:
         >>> from pyhealth.autoimprove import SearchSpace
@@ -125,9 +117,7 @@ class ProposalContext:
     features: Any = None
     accepted: Sequence[dict] = ()
     feature_trials: Sequence[Any] = ()
-    tried_features: Sequence[str] = ()
     card: str = ""
-    evidence: Sequence[str] = ()
 
 
 class Proposer(ABC):
@@ -422,16 +412,10 @@ def build_feature_prompt(context: ProposalContext) -> str:
     else:
         parts.append("No features have been accepted yet.")
     if context.feature_trials:
-        parts.append("Latest feature groups tried:\n" + format_trials(
+        parts.append("Feature groups tried so far:\n" + format_trials(
             context.feature_trials))
-    if context.tried_features:
-        parts.append("Every feature tried so far (do not propose these again): "
-                     + ", ".join(sorted(context.tried_features)))
     if context.lessons:
         parts.append("Lessons from earlier cycles:\n" + _bullets(context.lessons))
-    if context.evidence:
-        parts.append("Published predictors not tried yet (verified citations; the "
-                     "prior only orders them):\n" + _bullets(context.evidence))
     parts.append(f"Strategy for this turn: {FEATURE_STRATEGIES[context.strategy]}")
     parts.append(f"Propose at most {context.features.max_features} features.")
     if context.feedback:
@@ -470,7 +454,7 @@ def format_trials(trials: Sequence[Any]) -> str:
                 getattr(t, "accepted", None), "")
             line += f" + features {', '.join(added)} ({verdict})"
         if t.notes:
-            line += f" (notes: {'; '.join(t.notes)})"
+            line += f" (changed to fit the search space: {'; '.join(t.notes)})"
         lines.append(line)
     return "\n".join(lines)
 
