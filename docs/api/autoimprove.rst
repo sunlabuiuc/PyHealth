@@ -321,7 +321,8 @@ ranked, justified candidate features. It reads two kinds of source:
     improver = AutoImprover(..., proposer=QueueProposer(kb.ranked_specs()), features=fs)
     # or let the LLM see the published predictors, and report the literature:
     improver = AutoImprover(..., proposer=EvidenceProposer(ClaudeLLM(), kb), features=fs)
-    report = add_literature(improver.report(), kb)
+    # improver.report() saves its files first; path= saves them again with the section
+    report = add_literature(improver.report(), kb, path="runs/asthma/report.html")
 
 - **LLMs invent references, so every record is checked.** A record is kept
   only if its source is a gathered document, its quoted sentence appears in

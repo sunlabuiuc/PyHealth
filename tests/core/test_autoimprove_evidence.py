@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -50,7 +51,8 @@ def _kb(world, mappings):
         Evidence("lab draws", {"type": "OR", "value": 1.5}, "PMID:2",
                  "Lab draws raised the risk (OR 1.5)."),
         Evidence("wheeze intensity", {"type": "AUC", "value": 0.84}, "PMID:2",
-                 "Wheeze intensity discriminated exacerbations (AUC 0.84)"),
+                 "Wheeze intensity discriminated exacerbations (AUC 0.84)",
+                 population="children with asthma"),
         Evidence("made up", {"type": "OR", "value": 9.0}, "PMID:9", "invented"),
     ])
     kb.verify()
@@ -142,6 +144,19 @@ class TestEvidence(unittest.TestCase):
         self.assertNotIn("count_90d__visits", second.split("not tried yet")[1])
         self.assertIn("count_90d__labs", second.split("not tried yet")[1])
 
+    def test_variants_are_matched_on_the_whole_selection(self):
+        from pyhealth.autoimprove.evidence import _adapts
+
+        listed = {"name": "count_90d__labs", "op": "count", "window": 90,
+                  "select": {"event_type": "labs", "where": {"code": ["eos"]}},
+                  "citations": ["PMID:2"]}
+        window = {**listed, "name": "count_30d__labs", "window": 30}
+        other_lab = {**listed, "name": "count_90d__labs_ige",
+                     "select": {"event_type": "labs", "where": {"code": ["ige"]}}}
+        self.assertTrue(_adapts(window, listed))  # another window, same lab
+        self.assertFalse(_adapts(other_lab, listed))  # same paper, another lab
+        self.assertFalse(_adapts({**window, "citations": ["PMID:9"]}, listed))
+
     def test_accepted_features_are_not_listed(self):
         llm = ScriptedLLM([LABS])
         fs = FeatureSpace(self.world, time_key="t", min_patients=5)
@@ -159,7 +174,7 @@ class TestEvidence(unittest.TestCase):
         self.assertIn("3 published effects passed the citation check (1 rejected", text)
         self.assertIn("Gap report", text)
         self.assertIn("no wheeze scores", text)
-        self.assertIn("AUC 0.84 (PMID:2)", text)
+        self.assertIn("AUC 0.84 (PMID:2; children with asthma)", text)
         self.assertNotIn("This model on test", text)
         test = {"metric": "roc_auc", "best": {"estimate": 0.81}}
         with_test = "\n".join(str(b) for b in literature_section(self.kb, test).blocks)
@@ -170,7 +185,12 @@ class TestEvidence(unittest.TestCase):
             baseline=BASELINE, space=SPACE, cv_folds=5, check=False, n_agents=1,
             n_cycles=1)
         improver.run()
-        report = add_literature(improver.report(), self.kb)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "report.html")
+            report = add_literature(improver.report(), self.kb, path=path)
+            for suffix in (".html", ".md"):
+                with open(path.removesuffix(".html") + suffix) as f:
+                    self.assertIn("Literature", f.read())
         markdown = report.to_markdown()
         self.assertIn("## Literature", markdown)
         self.assertIn("recent visits", markdown)

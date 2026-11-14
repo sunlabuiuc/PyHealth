@@ -18,7 +18,8 @@ Examples:
     >>> from pyhealth.autoimprove import EvidenceProposer, add_literature
     >>> proposer = EvidenceProposer(ClaudeLLM(), kb)  # doctest: +SKIP
     >>> improver = AutoImprover(train, val, proposer, features=fs)  # doctest: +SKIP
-    >>> report = add_literature(improver.report(), kb)  # doctest: +SKIP
+    >>> report = add_literature(improver.report(), kb,  # doctest: +SKIP
+    ...                         path="runs/asthma/report.html")
 """
 
 from __future__ import annotations
@@ -147,12 +148,18 @@ class EvidenceProposer(LLMProposer):
 
 
 def _selects(node: Any) -> set[tuple]:
-    """The ``(event_type, group)`` pairs a spec reads, at any depth."""
+    """The selections a spec reads, at any depth: event type, group, filters.
+
+    Two labs from one table differ in their group or ``where`` filter, so
+    they are different selections.
+    """
     out: set[tuple] = set()
     if isinstance(node, dict):
         select = node.get("select")
         if isinstance(select, dict):
-            out.add((select.get("event_type"), select.get("group")))
+            where = tuple(sorted((k, tuple(sorted(map(str, v))))
+                                 for k, v in (select.get("where") or {}).items()))
+            out.add((select.get("event_type"), select.get("group"), where))
         for value in node.values():
             if isinstance(value, (dict, list)):
                 out |= _selects(value)
@@ -163,7 +170,13 @@ def _selects(node: Any) -> set[tuple]:
 
 
 def _adapts(spec: dict[str, Any], listed: dict[str, Any]) -> bool:
-    """Whether ``spec`` is ``listed`` or a variant of it: same citation, same events."""
+    """Whether ``spec`` is ``listed`` or a variant of it.
+
+    A variant cites the same source and reads the same selection (event
+    type, group and filters), e.g. with another window or threshold. Two
+    predictors from one paper that read exactly the same selection count as
+    one.
+    """
     if spec.get("name") and spec.get("name") == listed.get("name"):
         return True
     cites = set(spec.get("citations") or ()) & set(listed.get("citations") or ())
@@ -206,7 +219,8 @@ def literature_section(
                           "data request).")),
                    ("table", ["predictor", "status", "detail", "expected",
                               "sources"], rows)]
-    values = [f"{b['type']} {b['value']:g} ({b['source']})"
+    values = [f"{b['type']} {b['value']:g} ({b['source']}"
+              + (f"; {b['population']}" if b.get("population") else "") + ")"
               for b in knowledge.benchmark_range()
               if isinstance(b.get("value"), (int, float))]
     if values:
@@ -219,12 +233,20 @@ def literature_section(
 
 
 def add_literature(
-    report: Report, knowledge: KnowledgeBase, test: dict[str, Any] | None = None
+    report: Report,
+    knowledge: KnowledgeBase,
+    test: dict[str, Any] | None = None,
+    path: str | None = None,
 ) -> Report:
     """Appends :func:`literature_section` to a report and returns it.
 
     The gap report, the published values and the citation-check counts are
     also stored in ``report.data["literature"]``.
+
+    :meth:`~pyhealth.autoimprove.AutoImprover.report` saves its files before
+    this runs, so pass ``path`` to write the report again with the section:
+    ``path`` (HTML) plus the ``.md`` and ``.json`` next to it, as
+    :meth:`~pyhealth.autoimprove.Report.save` does.
 
     Examples:
         >>> from pyhealth.autoimprove import Report
@@ -239,4 +261,6 @@ def add_literature(
         "verified": len(knowledge.records()),
         "rejected": sum(1 for e in knowledge.evidence if e.verified is False),
     }
+    if path is not None:
+        report.save(path)
     return report
