@@ -1,49 +1,56 @@
-class BaseEHRDataset:
-    """This class is deprecated and should not be used."""
+def _removed_1x_class(name: str, replacement: str) -> type:
+    """Builds a placeholder for a PyHealth 1.x class removed in 2.0.
+
+    The name stays importable so old imports load, but creating an instance
+    (or an instance of a subclass) raises at once with the 2.x replacement,
+    instead of returning an object with none of its attributes set.
+
+    Example:
+        >>> from pyhealth.datasets import SampleEHRDataset
+        >>> try:
+        ...     SampleEHRDataset()
+        ... except NotImplementedError as err:
+        ...     print(str(err).split(";")[0])
+        SampleEHRDataset was removed in PyHealth 2.0. Use SampleDataset \
+(returned by BaseDataset.set_task) instead
+    """
 
     def __init__(self, *args, **kwargs):
-        import warnings
-
-        warnings.warn(
-            "The BaseEHRDataset class is deprecated and will be removed in a future version.",
-            DeprecationWarning,
+        docs = "https://pyhealth.readthedocs.io/en/latest/api/datasets.html"
+        cls = type(self).__name__
+        if cls != name:
+            # An in-tree or user dataset still built on the 1.x base class
+            # (e.g. CardiologyDataset, ISRUCDataset, SHHSDataset,
+            # MIMICExtractDataset). It never worked on 2.x: the stub set no
+            # attributes and provided no set_task.
+            raise NotImplementedError(
+                f"{cls} is built on {name}, which was removed in PyHealth "
+                f"2.0, so {cls} does not work yet. It needs porting to "
+                f"{replacement}; see {docs}"
+            )
+        raise NotImplementedError(
+            f"{name} was removed in PyHealth 2.0. Use {replacement} instead; "
+            f"see {docs}"
         )
 
-
-class BaseSignalDataset:
-    """This class is deprecated and should not be used."""
-
-    def __init__(self, *args, **kwargs):
-        import warnings
-
-        warnings.warn(
-            "The BaseSignalDataset class is deprecated and will be removed in a future version.",
-            DeprecationWarning,
-        )
+    return type(
+        name,
+        (),
+        {
+            "__init__": __init__,
+            "__doc__": f"Removed in PyHealth 2.0; use {replacement}.",
+        },
+    )
 
 
-class SampleEHRDataset:
-    """This class is deprecated and should not be used."""
-
-    def __init__(self, *args, **kwargs):
-        import warnings
-
-        warnings.warn(
-            "The SampleEHRDataset class is deprecated and will be removed in a future version.",
-            DeprecationWarning,
-        )
-
-
-class SampleSignalDataset:
-    """This class is deprecated and should not be used."""
-
-    def __init__(self, *args, **kwargs):
-        import warnings
-
-        warnings.warn(
-            "The SampleSignalDataset class is deprecated and will be removed in a future version.",
-            DeprecationWarning,
-        )
+BaseEHRDataset = _removed_1x_class("BaseEHRDataset", "BaseDataset")
+BaseSignalDataset = _removed_1x_class("BaseSignalDataset", "BaseDataset")
+SampleEHRDataset = _removed_1x_class(
+    "SampleEHRDataset", "SampleDataset (returned by BaseDataset.set_task)"
+)
+SampleSignalDataset = _removed_1x_class(
+    "SampleSignalDataset", "SampleDataset (returned by BaseDataset.set_task)"
+)
 
 
 from .base_dataset import BaseDataset
