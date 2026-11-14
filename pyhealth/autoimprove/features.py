@@ -548,7 +548,7 @@ class FeatureSpace:
             return (f"there was any {_singular(self._noun(node['select']))} in the "
                     f"{node['window']} days before {self.time_word}")
         text = self._define(node)
-        if node["op"] == "ge":  # "1 if <clause>, else 0"
+        if node["op"] in ("ge", "any"):  # "1 if <clause>, else 0"
             return text[len("1 if "):-len(", else 0")]
         return f"{text} is above 0"
 

@@ -156,6 +156,8 @@ class TestOperators(unittest.TestCase):
             "1 if there was any admissions event in the 365 days before the prediction time "
             "or there were 3 or more SABA orders in the 365 days before the prediction "
             "time, else 0"))
+        nested = {"op": "any", "a": {"op": "any", "a": adm, "b": saba}, "b": adm}
+        self.assertNotIn("else 0 is above 0", _one(self.fs, nested)[1].definition)
         self.assertEqual(_one(self.fs, {"op": "cross", "a": adm, "b": saba})[0], 6)
         column = self.fs.validate({"op": "column", "column": "age", "rationale": "r"})
         self.assertEqual(self.fs.compute([column], _samples(4))[:, 0].tolist(),

@@ -212,7 +212,8 @@ class TestFeatureSearch(unittest.TestCase):
                     return replies.pop(0)
                 return '```json\n{"features": [' + json.dumps(LABS_90) + "]}\n```"
 
-        improver = _improver(self.world, LLMProposer(LLM()), n_cycles=3,
+        # cycles: features, model, features (labs), model, features (labs again)
+        improver = _improver(self.world, LLMProposer(LLM()), n_cycles=5,
                              feature_cycles=(1, 1))
         result = improver.run()
         planted = next(t for t in result.trials if t.added == ["count_90d__visits"])
@@ -223,6 +224,9 @@ class TestFeatureSearch(unittest.TestCase):
         later = [p for p in LLM.prompts if "Every feature tried so far" in p]
         self.assertTrue(later)
         self.assertIn("count_90d__visits", later[-1].split("Every feature tried so far")[1])
+        # the LLM keeps proposing count_90d__labs; the retry names the repeat
+        self.assertTrue(any("already tried (count_90d__labs); propose new ones" in p
+                            for p in LLM.prompts))
         self.assertNotIn("changed to fit the search space", later[-1])
 
     def test_a_feature_that_reveals_the_outcome_is_held_as_suspicious(self):
