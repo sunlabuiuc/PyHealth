@@ -101,6 +101,12 @@ from .survival_metabric import (
 from .survival_mimic4 import InHospitalSurvivalMIMIC4 as InHospitalSurvivalMIMIC4
 from .acuity_mimic4 import ICUAcuityMIMIC4 as ICUAcuityMIMIC4
 from .survival_preprocess_support2 import SurvivalPreprocessSupport2
+from .survival_time_to_event import (
+    SurvivalTimeToEventGBSG as SurvivalTimeToEventGBSG,
+)
+from .survival_time_to_event import (
+    SurvivalTimeToEventSupport2 as SurvivalTimeToEventSupport2,
+)
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
