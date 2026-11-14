@@ -62,7 +62,7 @@ class TUEVDataset(BaseDataset):
         >>> sample = sample_dataset[0]
         >>> print(sample['signal'].shape)  # (16, 1280)
 
-        For a complete example, see `examples/conformal_eeg/tuev_eeg_quickstart.ipynb`.
+        For a complete example, see `examples/conformal_eeg/contrawr_tuev_eeg.ipynb`.
     """
     
     def __init__(

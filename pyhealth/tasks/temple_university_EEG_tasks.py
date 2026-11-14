@@ -73,7 +73,7 @@ class EEGEventsTUEV(BaseTask):
         >>> sample = sample_dataset[0]
         >>> print(sample['label'])
 
-        For a complete example, see `examples/conformal_eeg/tuev_eeg_quickstart.ipynb`.
+        For a complete example, see `examples/conformal_eeg/contrawr_tuev_eeg.ipynb`.
     """
 
     task_name: str = "EEG_events"
