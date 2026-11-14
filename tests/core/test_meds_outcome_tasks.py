@@ -214,6 +214,22 @@ class TestHospitalReadmissionMEDS(unittest.TestCase):
         )
         self.assertEqual(sample["codes"].count(ADMIT), 1)
 
+    def test_same_day_readmission_codes_stay_out_of_the_input(self):
+        # Discharge at 14:00, readmission at 18:00 the same day; the next
+        # stay's HCPCS code is stamped at midnight of that day, before this
+        # discharge, and must not reach the input.
+        hcpcs = "HCPCS//G0378"
+        rows = (
+            _stay(1, 0, 0.25)  # T0 is 08:00, so the discharge is at 14:00
+            + _stay(2, 10, 1)
+            + [(-8, hcpcs, 2)]  # 00:00 of the same day, stay 2
+        )
+        sample = HospitalReadmissionMEDS()(_patient(rows))[0]
+        self.assertEqual(sample["hadm_id"], 1)
+        self.assertEqual(sample["readmission"], 1)
+        self.assertNotIn(hcpcs, sample["codes"])
+        self.assertEqual(sorted(sample["codes"]), sorted([ADMIT, HOME]))
+
     def test_full_followup_drops_censored_negatives_only(self):
         censored = _stay(1, 0, 3) + [(_hours(3 + 5), LAB, None)]
         observed = _stay(1, 0, 3) + [(_hours(3 + 40), LAB, None)]
