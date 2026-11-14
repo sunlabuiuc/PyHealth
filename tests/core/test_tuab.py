@@ -538,5 +538,55 @@ class TestEEGAbnormalTUAB(unittest.TestCase):
         self.assertEqual(task.input_schema, {"signal": "tensor"})
 
 
+class TestEEGAbnormalTUABRobustness(unittest.TestCase):
+    """Float sampling rates and skipped recordings."""
+
+    ELECTRODES = (
+        "FP1", "F7", "T3", "T5", "O1", "FP2", "F8", "T4",
+        "T6", "O2", "F3", "C3", "P3", "F4", "C4", "P4",
+    )
+    CH_NAMES = tuple(f"EEG {c}-REF" for c in ELECTRODES)
+
+    def _patient(self) -> _DummyPatient:
+        return _DummyPatient(
+            patient_id="patient-0",
+            events=[_DummyEvent(signal_file="/dummy/path.edf", label="normal")],
+        )
+
+    def test_call_accepts_float_resample_rate(self):
+        # resample_rate is typed float; it used to raise TypeError when
+        # the window bounds were used as slice indices.
+        for rate in (200.0, 256.0):
+            with self.subTest(rate=rate):
+                task = EEGAbnormalTUAB(resample_rate=rate, compute_stft=False)
+                raw = np.random.randn(len(self.CH_NAMES), int(rate) * 25)
+                with patch.object(
+                    EEGAbnormalTUAB,
+                    "read_and_process_edf",
+                    return_value=(raw, list(self.CH_NAMES)),
+                ):
+                    samples = task(self._patient())
+                self.assertEqual(len(samples), 2)
+                self.assertEqual(samples[0]["signal"].shape, (16, int(rate) * 10))
+                self.assertEqual(samples[1]["start_time"], int(rate) * 10)
+
+    def test_unreadable_recording_is_skipped_with_a_warning(self):
+        task = EEGAbnormalTUAB(compute_stft=False)
+        with (
+            patch.object(
+                EEGAbnormalTUAB,
+                "read_and_process_edf",
+                side_effect=ValueError("bad EDF header"),
+            ),
+            self.assertLogs(
+                "pyhealth.tasks.temple_university_EEG_tasks", level="WARNING"
+            ) as logs,
+        ):
+            samples = task(self._patient())
+        self.assertEqual(samples, [])
+        self.assertIn("/dummy/path.edf", logs.output[0])
+        self.assertIn("bad EDF header", logs.output[0])
+
+
 if __name__ == "__main__":
     unittest.main()
