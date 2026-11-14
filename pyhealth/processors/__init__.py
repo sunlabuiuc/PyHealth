@@ -79,6 +79,12 @@ from .temporal_timeseries_processor import TemporalTimeseriesProcessor
 from .tuple_time_text_processor import TupleTimeTextProcessor
 from .cehr_processor import CehrProcessor, ConceptVocab
 from .ethos_processor import EthosProcessor
+from .unified_bridge import (
+    BridgeDataset,
+    UnifiedBridge,
+    transform_batch,
+    transform_processor,
+)
 
 # Expose public API
 from .base_processor import (
@@ -111,6 +117,10 @@ __all__ = [
     "SequenceProcessor",
     "SequenceProcessorV2",
     "JaggedFeatureProcessor",
+    "UnifiedBridge",
+    "BridgeDataset",
+    "transform_batch",
+    "transform_processor",
     "Records",
     "LevelConfig",
     "Impute",
@@ -131,6 +141,7 @@ __all__ = [
     "TimeImageProcessor",
     "GraphProcessor",
     "AudioProcessor",
+    "IgnoreProcessor",
     "TupleTimeTextProcessor",
     "CehrProcessor",
     "ConceptVocab",

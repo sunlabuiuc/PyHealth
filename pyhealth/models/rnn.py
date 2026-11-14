@@ -8,17 +8,19 @@ import torch.nn.utils.rnn as rnn_utils
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.processors import (
+    BridgeDataset,
     DeepNestedFloatsProcessor,
     DeepNestedSequenceProcessor,
+    JaggedFeatureProcessor,
     MultiHotProcessor,
     NestedFloatsProcessor,
     NestedSequenceProcessor,
     SequenceProcessor,
-    JaggedFeatureProcessor,
     StageNetProcessor,
     StageNetTensorProcessor,
     TimeseriesLabelProcessor,
     TimeseriesProcessor,
+    transform_batch,
 )
 
 from .embedding import EmbeddingModel
@@ -28,6 +30,7 @@ from .sequence_embedding import (
     PretrainedEmbedding,
     SequenceEmbeddingModel,
 )
+
 
 class RNNLayer(nn.Module):
     """Recurrent neural network layer.
@@ -789,7 +792,11 @@ class RNN_V2(BaseModel):
     input field must be ``"jagged"``: sequences, sets and tokens are
     expressed with it, and so are static values, as a ``series`` with one
     record at ``t = 0`` (known before the first event), which goes through its
-    own RNN like any other field.
+    own RNN like any other field. A legacy field (``"sequence"``,
+    ``"tensor"``, ...) is read as the levels of its
+    :class:`~pyhealth.processors.UnifiedBridge`: the model wraps its dataset
+    in a :class:`~pyhealth.processors.BridgeDataset` and converts each
+    batch, and data loaders are built from the dataset as usual.
 
     Each V2 field is encoded bottom-up, level by level, from level 0 up.
     A level's input is its records' embeddings concatenated with the summary
@@ -881,20 +888,19 @@ class RNN_V2(BaseModel):
         mask: MaskMode = "ignore",
         pretrain: Sequence[PretrainedEmbedding] | None = None,
     ):
-        super().__init__(dataset)
+        super().__init__(BridgeDataset(dataset))
         if len(self.label_keys) != 1:
             raise ValueError("RNN_V2 supports exactly one label.")
         self.label_key = self.label_keys[0]
         self.per_step = isinstance(self.label_processor, TimeseriesLabelProcessor)
 
         for field in self.feature_keys:
-            processor = dataset.input_processors[field]
+            processor = self.dataset.input_processors[field]
             if not isinstance(processor, JaggedFeatureProcessor):
                 raise TypeError(
                     f"Field '{field}': {type(processor).__name__} is not supported. "
-                    "RNN_V2 takes only 'jagged' fields: express sequences, "
-                    "sets and tokens with it, and static values as a 'series' "
-                    "with one record at t = 0."
+                    "RNN_V2 takes 'jagged' fields and legacy fields with a "
+                    "unified bridge (see BridgeDataset)."
                 )
         self.sequence_fields: list[str] = list(self.feature_keys)
 
@@ -933,7 +939,7 @@ class RNN_V2(BaseModel):
                     "would use future time steps."
                 )
         self.processors = {
-            field: cast(JaggedFeatureProcessor, dataset.input_processors[field])
+            field: cast(JaggedFeatureProcessor, self.dataset.input_processors[field])
             for field in fields
         }
         if self.per_step:
@@ -947,7 +953,7 @@ class RNN_V2(BaseModel):
                     )
 
         self.embedding = SequenceEmbeddingModel(
-            dataset,
+            self.dataset,
             embedding_dim=embedding_dim,
             pretrain=pretrain,
             mask=mask,
@@ -1009,6 +1015,7 @@ class RNN_V2(BaseModel):
             ``loss``, ``y_prob``, ``y_true`` and ``logit``; also ``embed``, the
             concatenated summaries, if the batch has ``embed=True``.
         """
+        batch = transform_batch(self.dataset.input_processors, batch)
         embedded = self.embedding(
             {field: batch[field] for field in self.sequence_fields}
         )

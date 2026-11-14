@@ -82,6 +82,8 @@ class TestCitationCheck(unittest.TestCase):
         self.assertFalse(e.verified)
 
     def test_invented_citation_and_numbers_are_rejected(self):
+        self.kb.add_documents([Document("PMID:5", (
+            "Overuse of oral corticosteroids raised the risk (OR 2.1)."))])
         cases = [
             (Evidence(ED, {"type": "OR", "value": 2.4}, "PMID:999", ED_QUOTE),
              "not among the gathered"),
@@ -92,6 +94,10 @@ class TestCitationCheck(unittest.TestCase):
              "effect size 2.9 is not in the quote"),
             (Evidence(ED, {"type": "OR", "value": 2.4, "ci": [1.5, 3.1]}, "PMID:1",
                       ED_QUOTE), "effect size 1.5 is not in the quote"),
+            # one shared word does not name a two-word predictor
+            (Evidence("SABA overuse", {"type": "OR", "value": 2.1}, "PMID:5",
+                      "Overuse of oral corticosteroids raised the risk (OR 2.1)"),
+             "does not name the predictor"),
             # a real sentence and number, filed under the wrong predictor
             (Evidence(ED, {"type": "RR", "value": 0.7, "ci": [0.5, 0.9]}, "PMID:1",
                       "Controller use was associated with fewer exacerbations "
@@ -145,7 +151,18 @@ class TestCitationCheck(unittest.TestCase):
         kb = KnowledgeBase(llm=ScriptedLLM([_reply({"records": records})]))
         kb.add_documents([Document("PMID:1", ABSTRACT)])
         kb.extract(CARD)
-        self.assertEqual([(e.verified, e.reason) for e in kb.verify()], [
+        # A record added directly (or loaded) with string numbers is stored
+        # with the numbers verify() checked, so its direction is set.
+        e = self.verdicts(Evidence(ED, {"type": "OR", "value": "2.4", "ci": ["1.8",
+                                        "3.1"], "direction": "-"}, "PMID:1", ED_QUOTE))
+        self.assertTrue(e.verified, e.reason)
+        self.assertEqual((e.effect["value"], e.effect["direction"]), (2.4, "+"))
+        self.assertGreater(e.strength, 0)
+        verdicts = kb.verify()
+        self.assertEqual(verdicts[0].effect["value"], 2.4)  # stored as a number
+        self.assertEqual(verdicts[0].effect["direction"], "+")
+        self.assertGreater(verdicts[0].strength, 0)
+        self.assertEqual([(e.verified, e.reason) for e in verdicts], [
             (True, ""),
             (False, "the record has no effect size"),
             (False, "the effect size is not a number"),
@@ -268,9 +285,20 @@ class TestTablesAndQueries(unittest.TestCase):
             return "Title. Abstract text."
 
         kb = KnowledgeBase(fetch=fetch)
-        docs = kb.fetch_pubmed([33831622.0, "PMID: 31014587", None])
+        docs = kb.fetch_pubmed([33831622.0, "PMID: 31014587", None,
+                                "10.1000/xyz", "PMC1234567"])  # not PMIDs
         self.assertEqual([d.id for d in docs], ["PMID:33831622", "PMID:31014587"])
         self.assertTrue(all(re.search(r"id=(\d+)&", u) for u in urls))
+        self.assertEqual(len(urls), 2)
+
+    def test_text_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "review.md")
+            with open(path, "w") as f:
+                f.write("Prior ED visits raised the risk (OR 2.4).")
+            kb = KnowledgeBase()
+            kb.add_text_files([path])
+            self.assertIn("raised the risk", kb.documents["file:review.md"].text)
 
 
 class TestMapping(unittest.TestCase):
@@ -298,6 +326,38 @@ class TestMapping(unittest.TestCase):
         ])
         kb.verify()
         return kb
+
+    def test_have_column_and_malformed_mappings(self):
+        card = TaskCard(population="test patients", outcome="the label",
+                        columns={"x": ["noise"]})
+        fs = FeatureSpace(self.world, time_key="t", min_patients=5,
+                          columns={"x": ["noise"]})
+        kb = self._kb([
+            "not a record",
+            {"predictor": "recent visits", "status": "have", "column": "noise"},
+            {"predictor": "controller use", "status": "have", "column": "missing"},
+            {"predictor": "smoke exposure", "status": "build",
+             "spec": "count of smoke events"},
+        ])
+        kb.map(fs, card)  # does not raise
+        gap = kb.gap_report()
+        self.assertEqual([(r["predictor"], r["column"]) for r in gap["have"]],
+                         [("recent visits", "noise")])
+        notes = {r["predictor"]: r["note"] for r in gap["not in data"]}
+        self.assertEqual(notes["controller use"], "no column 'missing'")
+        self.assertEqual(notes["smoke exposure"], "the spec is not a record")
+
+    def test_benchmark_range(self):
+        kb = KnowledgeBase()
+        kb.add_documents([Document("PMID:9", "Wheeze intensity discriminated "
+                                             "exacerbations (AUC 0.84).")])
+        kb.add_evidence([Evidence("wheeze intensity", {"type": "AUC", "value": 0.84},
+                                  "PMID:9", "Wheeze intensity discriminated "
+                                  "exacerbations (AUC 0.84)", population="children")])
+        kb.verify()
+        self.assertEqual(kb.benchmark_range(), [{"source": "PMID:9", "type": "AUC",
+                                                 "value": 0.84,
+                                                 "population": "children"}])
 
     def test_have_build_and_not_in_data(self):
         fs = FeatureSpace(self.world, time_key="t", min_patients=5,
@@ -345,6 +405,7 @@ class TestMapping(unittest.TestCase):
             result = improver.run()
             self.assertEqual([s["name"] for s in result.best.features],
                              ["count_90d__visits"])
+            self.assertEqual(result.best.features[0]["citations"], ["PMID:1"])
             # Once tried, it is no longer offered as evidence.
             self.assertNotIn("count_90d__visits",
                              "\n".join(improver._evidence_lines()))

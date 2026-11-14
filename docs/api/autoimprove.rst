@@ -323,16 +323,24 @@ ranked, justified candidate features. It reads two kinds of source:
 
 - **LLMs invent references, so every record is checked.** A record is kept
   only if its source is a gathered document, its quoted sentence appears in
-  that document, and its effect size and confidence interval appear in the
-  quote. The source is set by the knowledge base, never by the LLM.
+  that document and names the predictor, and its effect size is the number
+  the quote attaches to the effect type ("OR 2.4"), followed by its
+  confidence interval, with matching signs. The source is set by the
+  knowledge base, never by the LLM. Curated rows keep their reference
+  column, which is not checked against the cited papers.
 - **Directions** come from the verified effects. When sources disagree, the
   direction is ambiguous: controller use, for example, marks severity but is
   protective.
 - **The literature only orders and justifies candidates.** The prior
   (strength × population match × data support) decides the order in which
-  candidates are tried; the feature search decides what is kept. Features
-  carry their citations into the report, which adds a *Literature* section
-  with the gap report and the published performance range.
+  candidates are tried; the feature search decides what is kept. Specs
+  from :meth:`~pyhealth.autoimprove.KnowledgeBase.ranked_specs` carry their
+  citations.
+- **In the improver** (``AutoImprover(..., knowledge=kb)``), feature cycles
+  gain an "evidence" strategy, which shows the LLM the untried published
+  predictors with their citations and priors. The report gains a
+  *Literature* section (the citation-check counts, the gap report and the
+  published performance range) and a citations column in *Features*.
 - **Privacy.** The knowledge base never sees patient data. PubMed queries
   use only the task card's text, and every query is kept in ``kb.queries``.
   Mapping sees only the names of event types, groups and columns.
