@@ -362,5 +362,30 @@ class TestConfirmedReport(unittest.TestCase):
         self.assertIn("within one standard error", why)
         self.assertNotIn("No trial beat", why)
 
+    def test_baseline_kept_by_one_se_after_confirmation(self):
+        # With a lenient confirmation bound (0.5 SE) a trial keeps its gain,
+        # but the simpler starting pipeline is within one SE of it; the report
+        # must not say that no trial kept its gain.
+        base = [0.47, 0.48, 0.46, 0.47, 0.47]
+        search = [b + g for b, g in zip(base, [0.02, 0.03, 0.01, 0.02, 0.02])]
+        trials = [
+            Trial(0, 0, "baseline", "explore", PipelineConfig("LogisticRegression"),
+                  metric_name="pr_auc", score=sum(base) / 5, fold_scores=base),
+            Trial(1, 0, "agent0", "explore", PipelineConfig("XGBoost"),
+                  metric_name="pr_auc", score=sum(search) / 5, fold_scores=search),
+        ]
+        confirm = [0.46, 0.47, 0.47, 0.48, 0.46]
+        confirmed = {0: confirm, 1: [c + d for c, d in zip(
+            confirm, [0.03, -0.02, 0.02, -0.01, 0.01])]}
+        report = build_report(trials, metric="pr_auc", promote_se=0.0,
+                              space=with_xgboost(SPACE), confirmed=confirmed,
+                              confirm_se=0.5)
+        self.assertEqual(report.data["selected"], 0)
+        why = next(line for line in report.to_markdown().splitlines()
+                   if "Why this model" in line)
+        self.assertIn("1 trial(s) kept a gain of 0.5 standard errors", why)
+        self.assertIn("the one-SE rule keeps it", why)
+        self.assertNotIn("none kept", why)
+
 if __name__ == "__main__":
     unittest.main()

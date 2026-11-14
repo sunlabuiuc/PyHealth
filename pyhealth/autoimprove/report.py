@@ -1102,10 +1102,24 @@ def _why(ctx) -> str:
     if sel is ref:
         passed = len(ctx["candidates"]) - 1
         if ctx["confirmed"] and passed:
-            return (f"{passed} trial(s) beat the starting pipeline on the search folds, "
-                    f"but none kept a gain of {ctx['bound']:g} standard errors on the "
-                    "confirmation folds (see *Confirmation*), so it stays selected. "
-                    "*(measured)*")
+            def kept_gain(t) -> bool:
+                gain, se = ctx["vs_rule"](t, ref)[:2]
+                return se is not None and gain - ctx["bound"] * se > 0
+
+            kept = [t for t in ctx["done"] if t is not ref
+                    and t.trial_id in ctx["candidates"]
+                    and t.trial_id in ctx["rescored"] and kept_gain(t)]
+            if kept and ctx["one_se"]:
+                return (f"{len(kept)} trial(s) kept a gain of {ctx['bound']:g} "
+                        "standard errors on the confirmation folds, but the starting "
+                        "pipeline is simpler and scores within one standard error of "
+                        f"the best, #{top.trial_id}, so the one-SE rule keeps it "
+                        "(see *Confirmation*). *(measured)*")
+            if not kept:
+                return (f"{passed} trial(s) beat the starting pipeline on the search "
+                        f"folds, but none kept a gain of {ctx['bound']:g} standard "
+                        "errors on the confirmation folds (see *Confirmation*), so "
+                        "it stays selected. *(measured)*")
         if passed:
             rule = ("it is simpler and scores within one standard error of the "
                     "best of them" if ctx["one_se"] else
