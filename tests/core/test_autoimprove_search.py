@@ -166,6 +166,8 @@ class TestFeatureSearch(unittest.TestCase):
             self.assertIn("## Features", text)
             self.assertIn("## Confirmation", text)
             self.assertIn("the number of visits events in the 90 days", text)
+            # the Features table has a citations column ("-" when a spec has none)
+            self.assertIn("| expected | citations | contribution |", text)
 
     def test_nothing_survives_confirmation_with_shuffled_labels(self):
         world = World(shuffle=True)
