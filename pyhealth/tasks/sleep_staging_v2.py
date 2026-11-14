@@ -10,8 +10,17 @@ class SleepStagingSleepEDF(BaseTask):
 
     Works with :class:`~pyhealth.datasets.SleepEDFDataset`.
 
-    This task predicts sleep stages (Awake, REM, N1, N2, N3, N4) based on
-    multichannel EEG signals. The task is defined as a multi-class classification.
+    This task predicts the Rechtschaffen and Kales stage of each
+    ``chunk_duration`` epoch: W=0, 1=1, 2=2, 3=3, 4=4, R=5. Epochs scored
+    "Sleep stage ?" or "Movement time" are not used. A night that lacks some
+    stages (many Sleep-EDF nights have no stage 4) keeps the same label codes.
+
+    ``signal`` holds every channel of the PSG file, as read by MNE: for the
+    cassette subset, the two EEG channels (Fpz-Cz, Pz-Oz), horizontal EOG,
+    oro-nasal airflow, submental EMG, rectal temperature and the event marker,
+    all at 100 Hz, in volts. Select channels downstream if you need EEG only.
+    The full recording is used, so long wake periods before and after sleep
+    are kept (about 75% of the epochs are W for SC4001).
 
     Attributes:
         task_name (str): The name of the task, set to "SleepStaging".
@@ -49,31 +58,33 @@ class SleepStagingSleepEDF(BaseTask):
     def __call__(self, patient: Any) -> list[dict[str, Any]]:
         """Processes a single patient for the sleep staging task on Sleep EDF.
 
-        Sleep staging aims at predicting the sleep stages (Awake, REM, N1, N2, N3, N4) based on
-        the multichannel EEG signals. The task is defined as a multi-class classification.
+        Each night (event) of the patient is cut into ``chunk_duration``
+        epochs labeled with the scored stage; see the class docstring for the
+        label codes and the channels in ``signal``.
 
         Args:
             patient: A patient object containing SleepEDF data.
 
         Returns:
-            samples: a list of samples, each sample is a dict with patient_id, night,
-                patient_age, patient_sex, signal, and label.
+            samples: a list of samples, each sample is a dict with patient_id,
+                night, patient_age, patient_sex, signal (a ``numpy.ndarray`` of
+                shape ``(n_channels, chunk_duration * sfreq)``), and label.
 
         Note that we define the task as a multi-class classification task.
 
         Examples:
             >>> from pyhealth.datasets import SleepEDFDataset
             >>> sleepedf = SleepEDFDataset(
-            ...         root="/srv/local/data/SLEEPEDF/sleep-edf-database-expanded-1.0.0/sleep-cassette",
+            ...     root="/srv/local/data/SLEEPEDF/sleep-edf-database-expanded-1.0.0",
             ...     )
             >>>
             >>> sleepstage_ds = sleepedf.set_task()
             >>> sleepstage_ds.samples[0]
             {
-                'patient_id': 'SC4001',
-                'night': 0,
-                'patient_age': 58,
-                'patient_sex': 'M',
+                'patient_id': '0',
+                'night': 1,
+                'patient_age': 33,
+                'patient_sex': 1,
                 'signal': array(...),
                 'label': 0
             }
@@ -102,10 +113,19 @@ class SleepStagingSleepEDF(BaseTask):
                 "Sleep stage R": 5,
             }
 
+            if not set(ann.description) & set(event_id):
+                # No scored sleep stage in this night (only "Sleep stage ?" or
+                # "Movement time"): there is nothing to epoch, and
+                # events_from_annotations would raise.
+                continue
             ann_events, _ = mne.events_from_annotations(
                 data, event_id=event_id, chunk_duration=self.chunk_duration
             )
 
+            # A night does not always contain every stage: many Sleep-EDF
+            # hypnograms have no stage 4 (or no stage 3). mne.Epochs raises by
+            # default when an event_id key has no event, so ignore missing
+            # keys. The label codes stay fixed because event_id is unchanged.
             epochs_train = mne.Epochs(
                 data,
                 ann_events,
@@ -114,6 +134,7 @@ class SleepStagingSleepEDF(BaseTask):
                 tmax=self.chunk_duration - 1.0 / data.info["sfreq"],
                 baseline=None,
                 preload=True,
+                on_missing="ignore",
             )
 
             signals = epochs_train.get_data()
