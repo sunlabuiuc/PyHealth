@@ -10,7 +10,7 @@ from torch.nn.functional import binary_cross_entropy_with_logits
 from torch.nn.functional import multilabel_margin_loss
 
 from pyhealth.models import BaseModel
-from pyhealth.models.utils import get_last_visit
+from pyhealth.models.utils import ddi_adjacency, get_last_visit
 from pyhealth.models.utils import batch_to_multihot
 from pyhealth.models.embedding import EmbeddingModel
 from pyhealth.metrics import ddi_rate_score
@@ -18,6 +18,7 @@ from pyhealth.medcode import ATC
 from pyhealth.datasets import SampleDataset
 
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
+from pyhealth.models.utils import save_ddi_adj
 
 
 def _import_ogb(min_version: str = "1.3.5") -> None:
@@ -584,11 +585,6 @@ class MoleRec(BaseModel):
         else:
             raise ValueError(f"MoleRec requires exactly one label key, but got {self.label_keys}")
         
-        if not hasattr(self, 'mode') or not self.mode:
-            if self.label_key in self.dataset.output_schema:
-                self.mode = self._resolve_mode(self.dataset.output_schema[self.label_key])
-            else:
-                self.mode = "multilabel"
 
         try:
             _import_ogb("1.3.5")
@@ -673,23 +669,14 @@ class MoleRec(BaseModel):
     
             # save ddi adj
         ddi_adj = self.generate_ddi_adj()
-        np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj.numpy())
+        self.ddi_adj_matrix = save_ddi_adj(
+            ddi_adj, os.path.join(CACHE_PATH, "ddi_adj.npy")
+        )
 
     def generate_ddi_adj(self) -> torch.FloatTensor:
         """Generates the DDI graph adjacency matrix."""
-        atc = ATC()
-        ddi = atc.get_ddi(gamenet_ddi=True)
         label_vocab = self.dataset.output_processors[self.label_key].label_vocab
-        ddi_adj = np.zeros((self.label_size, self.label_size))
-        ddi_atc3 = [
-            [ATC.convert(l[0], level=3), ATC.convert(l[1], level=3)] for l in ddi
-        ]
-        for atc_i, atc_j in ddi_atc3:
-            if atc_i in label_vocab and atc_j in label_vocab:
-                ddi_adj[label_vocab[atc_i], label_vocab[atc_j]] = 1
-                ddi_adj[label_vocab[atc_j], label_vocab[atc_i]] = 1
-        ddi_adj = torch.FloatTensor(ddi_adj)
-        return ddi_adj
+        return ddi_adjacency(label_vocab)
 
     def generate_substructure_mask(self) -> Tuple[torch.Tensor, List[str]]:
         all_substructures_list = [[] for _ in range(self.label_size)]

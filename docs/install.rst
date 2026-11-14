@@ -68,6 +68,12 @@ Install it with the optional extra:
 
    pip install "pyhealth[xgboost]"
 
+DICOM, NIfTI and segmentation support (UNet, Dice/IoU) is also optional:
+
+.. code-block:: bash
+
+   pip install "pyhealth[imaging]"
+
 On macOS, XGBoost needs an OpenMP runtime (``brew install libomp``). PyTorch
 bundles its own ``libomp.dylib``, and two copies in one process can crash
 multithreaded XGBoost fits. See :doc:`api/models/pyhealth.models.XGBoostModel`
@@ -126,6 +132,20 @@ the shell before running:
 .. code-block:: bash
 
     ulimit -n 8192
+
+**Jupyter notebooks (including VS Code and Cursor)**
+
+When a dataset builds its event cache inside a notebook, PyHealth shows a Dask
+progress bar. With ``ipywidgets`` installed it is an interactive widget; without
+it, PyHealth falls back to a plain text bar. ``ipywidgets`` is optional:
+
+.. code-block:: bash
+
+    pip install ipywidgets
+
+In PyHealth 2.0.0 to 2.1.0, building a dataset in a notebook without
+``ipywidgets`` failed with ``ModuleNotFoundError: No module named 'ipywidgets'``.
+Installing ``ipywidgets`` works around it on those versions.
 
 **Other Platforms**
 

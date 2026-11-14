@@ -16,6 +16,7 @@ import torch
 
 from . import register_processor
 from .base_processor import ModalityType, TemporalFeatureProcessor
+from .utils import sample_on_grid
 
 
 @register_processor("temporal_timeseries")
@@ -39,15 +40,18 @@ class TemporalTimeseriesProcessor(TemporalFeatureProcessor):
         sampling_rate: Uniform re-sampling interval.  Defaults to 1 hour.
         impute_strategy: Currently only ``"forward_fill"`` is supported.
 
-    Example::
-
-        proc = TemporalTimeseriesProcessor(sampling_rate=timedelta(hours=2))
-        from datetime import datetime, timedelta
-        ts  = [datetime(2023,1,1,0), datetime(2023,1,1,4), datetime(2023,1,1,8)]
-        val = np.array([[120.0, 80.0], [115.0, 78.0], [118.0, 82.0]])
-        out = proc.process_temporal((ts, val))
-        # out["value"].shape  → (5, 2)   ← 5 two-hour steps over 8 h
-        # out["time"].shape   → (5,)     ← [0., 2., 4., 6., 8.] hours
+    Examples:
+        >>> from datetime import datetime, timedelta
+        >>> import numpy as np
+        >>> from pyhealth.processors import TemporalTimeseriesProcessor
+        >>> proc = TemporalTimeseriesProcessor(sampling_rate=timedelta(hours=2))
+        >>> ts = [datetime(2023, 1, 1, 0), datetime(2023, 1, 1, 4), datetime(2023, 1, 1, 8)]
+        >>> val = np.array([[120.0, 80.0], [115.0, 78.0], [118.0, 82.0]])
+        >>> out = proc.process_temporal((ts, val))
+        >>> tuple(out["value"].shape)  # 5 two-hour steps over 8 hours
+        (5, 2)
+        >>> out["time"].tolist()
+        [0.0, 2.0, 4.0, 6.0, 8.0]
     """
 
     def __init__(
@@ -89,21 +93,8 @@ class TemporalTimeseriesProcessor(TemporalFeatureProcessor):
         if len(timestamps) == 0:
             raise ValueError("Timestamps list is empty.")
 
-        values = np.asarray(values, dtype=float)
-        if values.ndim == 1:
-            values = values[:, None]  # (T,) → (T, 1)
-
-        num_features = values.shape[1]
-        start_time = timestamps[0]
-        end_time = timestamps[-1]
-        total_steps = int((end_time - start_time) / self.sampling_rate) + 1
-
-        sampled_values = np.full((total_steps, num_features), np.nan)
-
-        for t, v in zip(timestamps, values):
-            idx = int((t - start_time) / self.sampling_rate)
-            if 0 <= idx < total_steps:
-                sampled_values[idx] = v
+        sampled_values = sample_on_grid(timestamps, values, self.sampling_rate)
+        total_steps, num_features = sampled_values.shape
 
         # Forward-fill imputation
         for f in range(num_features):

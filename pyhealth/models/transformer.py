@@ -402,7 +402,7 @@ class Transformer(BaseModel, CheferInterpretable):
                 num_layers=num_layers,
             )
 
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(len(self.feature_keys) * embedding_dim, output_size)
 
     def _pool_embedding(self, x: torch.Tensor) -> torch.Tensor:
@@ -420,7 +420,7 @@ class Transformer(BaseModel, CheferInterpretable):
             obtain per-event representations.
         """
 
-        if x.dim() == 4:
+        while x.dim() > 3:
             x = x.sum(dim=2)
         if x.dim() == 2:
             x = x.unsqueeze(1)
@@ -509,7 +509,7 @@ class Transformer(BaseModel, CheferInterpretable):
 
             if mask is not None:
                 mask = mask.to(self.device).bool()
-                if mask.dim() == value.dim():
+                while mask.dim() > 2:
                     mask = mask.any(dim=-1)
             else:
                 mask = self._mask_from_embeddings(value).to(self.device)
@@ -521,7 +521,7 @@ class Transformer(BaseModel, CheferInterpretable):
 
         patient_emb = torch.cat(patient_emb, dim=1)
         logits = self.fc(patient_emb)
-        y_prob = self.prepare_y_prob(logits)
+        y_prob = self.label_processor.activation(logits)
 
         results = {
             "logit": logits,
@@ -530,7 +530,7 @@ class Transformer(BaseModel, CheferInterpretable):
 
         if self.label_key in kwargs:
             y_true = cast(torch.Tensor, kwargs[self.label_key]).to(self.device)
-            loss = self.get_loss_function()(logits, y_true)
+            loss = self.label_processor.loss(logits, y_true)
             results["loss"] = loss
             results["y_true"] = y_true
 

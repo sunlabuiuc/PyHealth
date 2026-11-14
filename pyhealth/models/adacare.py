@@ -406,7 +406,7 @@ class AdaCare(BaseModel):
                 input_dim=embedding_dim, hidden_dim=self.hidden_dim, **kwargs
             )
 
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
@@ -475,17 +475,18 @@ class AdaCare(BaseModel):
         # (patient, label_size)
         logits = self.fc(patient_emb)
         # obtain y_true, loss, y_prob
-        y_true = kwargs[self.label_keys[0]].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
+        y_prob = self.label_processor.activation(logits)
         results = {
-            "loss": loss,
             "y_prob": y_prob,
-            "y_true": y_true,
             "logit": logits,
             "feature_importance": feature_importance,
             "conv_feature_importance": conv_feature_importance,
         }
+        # The label is optional, so the model can predict without it.
+        if self.label_keys[0] in kwargs:
+            y_true = kwargs[self.label_keys[0]].to(self.device)
+            results["loss"] = self.label_processor.loss(logits, y_true)
+            results["y_true"] = y_true
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results
@@ -615,7 +616,7 @@ class MultimodalAdaCare(BaseModel):
             len(self.sequential_features) * hidden_dim
             + len(self.non_sequential_features) * embedding_dim
         )
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(final_dim, output_size)
 
     def _is_sequential_processor(self, processor) -> bool:
@@ -729,18 +730,18 @@ class MultimodalAdaCare(BaseModel):
         logits = self.fc(patient_emb)
 
         # Calculate loss and predictions
-        y_true = kwargs[self.label_keys[0]].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
-
+        y_prob = self.label_processor.activation(logits)
         results = {
-            "loss": loss,
             "y_prob": y_prob,
-            "y_true": y_true,
             "logit": logits,
             "feature_importance": feature_importance,
             "conv_feature_importance": conv_feature_importance,
         }
+        # The label is optional, so the model can predict without it.
+        if self.label_keys[0] in kwargs:
+            y_true = kwargs[self.label_keys[0]].to(self.device)
+            results["loss"] = self.label_processor.loss(logits, y_true)
+            results["y_true"] = y_true
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results

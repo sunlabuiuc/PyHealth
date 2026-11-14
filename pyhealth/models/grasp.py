@@ -499,7 +499,7 @@ class GRASP(BaseModel):
                 **kwargs,
             )
 
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(
             len(self.dynamic_feature_keys) * self.hidden_dim, output_size
         )
@@ -536,6 +536,13 @@ class GRASP(BaseModel):
 
         for feature_key in self.dynamic_feature_keys:
             x = embedded[feature_key]
+            if x.dim() == 2:
+                # One vector per sample (tensor, multi_hot): a length-1 sequence.
+                x = x.unsqueeze(1)
+            while x.dim() > 3:
+                # Nested codes (B, visits, codes, D): pool the codes within each
+                # visit (padded codes embed to zero), then run over the visits.
+                x = x.sum(dim=2)
             mask = (torch.abs(x).sum(dim=-1) != 0).int()
             x = self.grasp[feature_key](x, static=static, mask=mask)
             patient_emb.append(x)
@@ -544,10 +551,13 @@ class GRASP(BaseModel):
         # (patient, label_size)
         logits = self.fc(patient_emb)
         # obtain y_true, loss, y_prob
-        y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
-        results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
+        y_prob = self.label_processor.activation(logits)
+        results = {"y_prob": y_prob, "logit": logits}
+        # The label is optional, so the model can predict without it.
+        if self.label_key in kwargs:
+            y_true = kwargs[self.label_key].to(self.device)
+            results["loss"] = self.label_processor.loss(logits, y_true)
+            results["y_true"] = y_true
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results

@@ -6,6 +6,7 @@ import numpy as np
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import MICRON
+from pyhealth.models.utils import ddi_adjacency
 from pyhealth.processors.base_processor import FeatureProcessor
 
 
@@ -124,9 +125,8 @@ class TestMICRON(unittest.TestCase):
 
         self.assertIn("embed", ret)
         self.assertEqual(ret["embed"].shape[0], 2)  # batch size
-        expected_seq_len = max(len(data_batch["conditions"][0]), len(data_batch["procedures"][0]))
         expected_feature_dim = self.model.embedding_dim * len(self.model.feature_keys)
-        self.assertEqual(ret["embed"].shape[1], expected_seq_len)
+        self.assertEqual(ret["embed"].shape[1], 1)
         self.assertEqual(ret["embed"].shape[2], expected_feature_dim)
 
     def test_custom_hyperparameters(self):
@@ -150,6 +150,57 @@ class TestMICRON(unittest.TestCase):
 
         self.assertIn("loss", ret)
         self.assertIn("y_prob", ret)
+
+    def test_features_with_unequal_sequence_lengths(self):
+        """Unequal code lists must both contribute to the visit's prediction."""
+        samples = [{
+            "conditions": ["a", "b", "c"],
+            "procedures": ["x"],
+            "drugs": ["d1", "d2"],
+        }]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"conditions": "sequence", "procedures": "sequence"},
+            output_schema={"drugs": "multilabel"},
+        )
+        model = MICRON(dataset=dataset, embedding_dim=2, hidden_dim=2)
+        # Positive, small weights avoid cancellation and sigmoid saturation.
+        with torch.no_grad():
+            for parameter in model.parameters():
+                parameter.fill_(0.1)
+            for layer in model.embedding_model.embedding_layers.values():
+                layer.weight[0].zero_()
+        data_batch = next(iter(get_dataloader(dataset, batch_size=1, shuffle=False)))
+        ret = model(**data_batch, embed=True)
+        self.assertTrue(torch.isfinite(ret["loss"]))
+        # Each flat list belongs to the same single visit.
+        self.assertEqual(ret["embed"].shape[1], 1)
+
+        ret["y_prob"].sum().backward()
+        for field, codes in {"conditions": ["a", "b", "c"], "procedures": ["x"]}.items():
+            vocab = dataset.input_processors[field].code_vocab
+            grad = model.embedding_model.embedding_layers[field].weight.grad
+            for code in codes:
+                self.assertTrue(torch.isfinite(grad[vocab[code]]).all())
+                self.assertGreater(grad[vocab[code]].abs().sum().item(), 0)
+
+    def test_nested_sequences_preserve_visits(self):
+        samples = [{
+            "conditions": [["a", "b"], ["c"]],
+            "procedures": [["x"], ["y", "z"]],
+            "drugs": ["d1"],
+        }]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"conditions": "nested_sequence", "procedures": "nested_sequence"},
+            output_schema={"drugs": "multilabel"},
+        )
+        model = MICRON(dataset=dataset)
+        batch = next(iter(get_dataloader(dataset, batch_size=1, shuffle=False)))
+        result = model(**batch, embed=True)
+        self.assertEqual(result["embed"].shape[1], 2)
+        self.assertTrue(torch.isfinite(result["loss"]))
+        result["loss"].backward()
 
     def test_ddi_adjacency_matrix(self):
         """Test the drug-drug interaction adjacency matrix generation."""
@@ -186,6 +237,26 @@ class TestMICRON(unittest.TestCase):
         
         self.assertEqual(rec_loss.dim(), 0)  # scalar loss
         self.assertTrue(rec_loss >= 0)  # non-negative loss
+
+
+    def test_generate_ddi_adj_matches_the_shared_helper(self):
+        """The DDI matrix is the shared ATC-3 one, over the drug labels."""
+        samples = [
+            {"patient_id": "p0", "visit_id": "v0", "conditions": ["c1"],
+             "procedures": ["p1"], "drugs": ["N02B", "B01A", "C03C"]},
+            {"patient_id": "p1", "visit_id": "v1", "conditions": ["c2"],
+             "procedures": ["p2"], "drugs": ["N02A", "M01A"]},
+        ]
+        dataset = create_sample_dataset(
+            samples=samples, input_schema=self.input_schema,
+            output_schema=self.output_schema, dataset_name="ddi",
+        )
+        adj = MICRON(dataset=dataset).generate_ddi_adj()
+        vocab = dataset.output_processors["drugs"].label_vocab
+        self.assertEqual(tuple(adj.shape), (len(vocab), len(vocab)))
+        self.assertTrue(torch.equal(adj, ddi_adjacency(vocab)))
+        self.assertTrue(torch.equal(adj, adj.T))
+        self.assertGreater(adj.sum().item(), 0)
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ Overview
 confidence levels:
 
 - :class:`~pyhealth.calib.calibration.TemperatureScaling`: Simple and effective logit scaling
+- :class:`~pyhealth.calib.calibration.LogisticRecalibration`: Refits the calibration intercept (and slope) on the logit scale
 - :class:`~pyhealth.calib.calibration.HistogramBinning`: Non-parametric binning approach
 - :class:`~pyhealth.calib.calibration.DirichletCalibration`: Matrix-based recalibration
 - :class:`~pyhealth.calib.calibration.KCal`: Kernel-based full calibration
@@ -22,6 +23,7 @@ confidence levels:
 - :class:`~pyhealth.calib.predictionset.SCRIB`: Class-specific risk control
 - :class:`~pyhealth.calib.predictionset.FavMac`: Value-maximizing sets with cost control
 - :class:`~pyhealth.calib.predictionset.CovariateLabel`: Covariate shift adaptive conformal prediction with a finite-sample correction for the calibration/test weighting
+- :class:`~pyhealth.calib.predictionset.RC3P`: Rank-calibrated class-conditional conformal prediction
 - :class:`~pyhealth.calib.predictionset.ClusterLabel`: K-means cluster-based conformal prediction
 - :class:`~pyhealth.calib.predictionset.NeighborhoodLabel`: Neighborhood Conformal Prediction (NCP)
 
@@ -45,7 +47,6 @@ This example shows the complete pipeline from model training to uncertainty-awar
 Quick Links
 -----------
 
-- :doc:`calib/usage_guide` - Practical examples and best practices
 - :doc:`calib/pyhealth.calib.calibration` - Model calibration API reference
 - :doc:`calib/pyhealth.calib.predictionset` - Prediction set API reference
 
@@ -55,7 +56,6 @@ Module Contents
 .. toctree::
     :maxdepth: 3
 
-    calib/usage_guide
     calib/pyhealth.calib.calibration
     calib/pyhealth.calib.predictionset
 

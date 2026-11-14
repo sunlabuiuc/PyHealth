@@ -31,6 +31,8 @@ class ChestXray14BinaryClassification(BaseTask):
     A PyHealth task class for binary classification of a specific disease
     in the ChestXray14 dataset.
 
+    Works with :class:`~pyhealth.datasets.ChestXray14Dataset`.
+
     Attributes:
         task_name (str): The name of the task.
         input_schema (Dict[str, str]): The schema for the task input.
@@ -79,6 +81,7 @@ class ChestXray14BinaryClassification(BaseTask):
 
         Returns:
             List[Dict]: A list containing a dictionary for each patient visit with:
+                - 'patient_id': the patient identifier, for patient-level splits.
                 - 'image': path to the chest X-ray image.
                 - 'label': binary label for the specified disease.
         """
@@ -86,6 +89,12 @@ class ChestXray14BinaryClassification(BaseTask):
 
         samples = []
         for event in events:
-            samples.append({"image": event["path"], "label": int(event[self.disease])})
+            samples.append(
+                {
+                    "patient_id": patient.patient_id,
+                    "image": event["path"],
+                    "label": int(event[self.disease]),
+                }
+            )
 
         return samples

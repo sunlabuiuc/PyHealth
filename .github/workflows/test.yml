@@ -8,6 +8,8 @@ on:
       - 'docs/**'
     branches:
       - master
+  # a /merge by the AI review workflow starts no push run, so it dispatches one
+  workflow_dispatch:
 
 permissions:
   contents: read

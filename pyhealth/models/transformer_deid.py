@@ -202,7 +202,7 @@ class TransformerDeID(BaseModel):
         logits = self.classifier(self.dropout(hidden_states))
 
         # Token-level cross-entropy, ignoring padded/special positions.
-        # We can't use BaseModel.get_loss_function() because it assumes
+        # We can't use BaseModel.label_processor.loss because it assumes
         # one label per sample. Instead we call cross_entropy directly
         # with ignore_index to skip special tokens and non-first subtokens.
         # Flatten + ignore_index pattern from HuggingFace's

@@ -39,9 +39,15 @@ routes each feature type automatically.
    * - ``MultimodalRNN``
      - Features mix sequential codes with static tensors or multi-hot encodings
      - Auto-routes sequential features to RNN layers and non-sequential features to linear layers; good default for EHR
+   * - ``RNN_V2``
+     - Features are ``jagged`` fields (nested codes, values and timestamps); static values are a series with one record at ``t = 0``
+     - Encodes each field bottom-up over packed records, without padding the hierarchy
    * - :doc:`models/pyhealth.models.StageNet`
      - You have time-stamped vital signs with irregular measurement intervals
      - Requires ``StageNetProcessor`` or ``StageNetTensorProcessor`` in the task schema
+   * - :doc:`models/pyhealth.models.UNet`
+     - Your task is pixel/voxel-level segmentation with an image and a mask
+     - ``UNet2D``/``UNet3D``; pair with ``PatchDataset``, ``PatchSampler`` and Dice/IoU metrics
    * - :doc:`models/pyhealth.models.GNN`
      - Features include graph-structured data
      - Works with ``GraphProcessor``; see :doc:`graph` for setup
@@ -63,16 +69,20 @@ base class reads the dataset's schemas and automatically sets:
 - ``self.label_keys`` — the list of output field names from ``output_schema``
 - ``self.device`` — the compute device
 
-It also provides three helper methods that take care of the boilerplate that
-varies by task type:
+It also gives the label processor, ``self.label_processor`` (see
+:class:`~pyhealth.processors.LabelProcessor`), which takes care of everything
+that varies by task type:
 
-- ``self.get_output_size()`` returns the output dimension from the fitted
-  label processor, so you don't have to hard-code it.
-- ``self.get_loss_function()`` returns the right loss for the task: BCE for
-  binary and multilabel tasks, cross-entropy for multiclass, MSE for
-  regression.
-- ``self.prepare_y_prob(logits)`` applies sigmoid, softmax, or identity to
-  logits depending on the task, producing calibrated probabilities.
+- ``self.label_processor.output_size()`` is the output dimension, so you don't have
+  to hard-code it.
+- ``self.label_processor.loss(logits, y_true)`` is the right loss for the
+  task: BCE for binary and multilabel tasks, cross-entropy for multiclass, MSE
+  for regression.
+- ``self.label_processor.activation(logits)`` applies sigmoid, softmax, or
+  identity to logits depending on the task, producing ``y_prob``.
+
+A model with several labels uses ``self.label_processors``, a dict by output
+key.
 
 The ``forward()`` method is expected to return a dictionary with four keys:
 ``loss``, ``y_prob``, ``y_true``, and ``logit``. The Trainer reads all four.
@@ -119,6 +129,10 @@ on the label processor in your task's ``output_schema``:
    * - ``"regression"``
      - MSE
      - identity → (batch, 1)
+   * - ``"timeseries_binary"``, ``"timeseries_multiclass"``,
+       ``"timeseries_multilabel"``, ``"timeseries_regression"``
+     - the static loss, per label record
+     - the static activation → (label records, ...)
 
 The schema value can be written as a string, a label processor class, a
 processor instance, or a ``(name, kwargs)`` tuple. These are equivalent:
@@ -129,31 +143,87 @@ processor instance, or a ``(name, kwargs)`` tuple. These are equivalent:
     output_schema = {"icd_codes": MultiLabelProcessor}
     output_schema = {"icd_codes": ("multilabel", {})}
 
-Whichever form a task uses, ``model.mode`` is always the plain string
-(``"binary"``, ``"multiclass"``, ``"multilabel"`` or ``"regression"``), or
-``None`` when the label is not one of these kinds. ``Trainer.evaluate()`` and
-the calibration methods use it to pick metrics. ``BaseModel`` sets it for you,
-so custom models don't need to assign ``self.mode``; if they do, the value is
-resolved the same way.
+Whichever form a task uses, the model gets the same fitted label processor,
+and ``model.mode`` is its kind (``"binary"``, ``"multiclass"``, ...), or
+``None`` when the model has no single label processor. ``mode`` is read-only.
+``Trainer.evaluate()`` asks the label processor how to gather the predictions
+and which metrics to compute. A model that scores something other than its
+dataset's label (for example a reconstruction) overrides
+``label_processors``.
+
+Segmentation
+^^^^^^^^^^^^
+
+For pixel/voxel-level tasks, use :doc:`models/pyhealth.models.UNet` together
+with :class:`~pyhealth.datasets.PatchDataset` and
+:class:`~pyhealth.sampler.PatchSampler`. ``num_classes=1`` selects binary
+segmentation; larger values select multiclass segmentation.
+
+.. code-block:: python
+
+    from pyhealth.datasets import PatchDataset, PatientSplit, get_dataloader
+    from pyhealth.models import UNet3D
+    from pyhealth.sampler import PatchSampler
+
+    train, val = dataset.set_task(
+        dataset.default_task,
+        split=PatientSplit((0.8, 0.2), seed=42),
+    )
+    patches = PatchDataset(
+        train,
+        PatchSampler((64, 64, 64), foreground_prob=1 / 3),
+        mode="train",
+    )
+    model = UNet3D(train)  # original U-Net defaults: 64 channels, depth 5
+    loader = get_dataloader(patches, batch_size=2, shuffle=True)
+
+``UNet`` reports ``"segmentation_binary"`` or ``"segmentation_multiclass"``
+from ``num_classes`` (or the mask processor's configured ``num_classes``), so the
+``Trainer`` can score variable-shaped masks with Dice and IoU.
+
+A task can add a boolean ``class_mask`` vector to each sample to mark which
+classes are annotated. ``SegmentationLoss`` excludes unannotated classes from
+the loss, and ``evaluate_segmentation`` remaps the metrics to the kept classes.
+``PatchDataset`` does not create ``class_mask``; the task supplies it.
+
+A class is included in the Dice/IoU average when either the target or the
+prediction has foreground. If the target is empty but the prediction has
+foreground, that class scores 0.0; classes empty in both are left out. The
+case score is NaN only when no class has foreground in either the target or
+the prediction.
+
+``Trainer.evaluate`` uses the model's label processor and does not read a
+per-sample ``class_mask``. For partially annotated data, evaluate with
+:func:`~pyhealth.models.evaluate_segmentation`, which remaps each case to its
+annotated classes before scoring.
+
+When ``in_channels``, ``num_classes`` or ``spatial_dim`` are omitted, ``UNet``
+reads them from the image and mask processors or the first materialised sample
+(a ``{0, 1}`` mask without ``num_classes`` infers ``num_classes=2`` multiclass;
+pass ``num_classes=1`` for single-channel binary segmentation). Lazy values are
+materialised before their shape or labels are inspected.
 
 Imbalanced outcomes
 ^^^^^^^^^^^^^^^^^^^
 
-For rare binary or multilabel outcomes, weight the positive examples in the
-default loss with ``set_pos_weight``:
+For rare binary or multilabel outcomes, the task weights the positive examples
+in the loss with the label processor's ``pos_weight``:
 
 .. code-block:: python
 
-    model = RNN(dataset=samples)
-    model.set_pos_weight("balanced", train_dataset)   # negatives / positives
-    # or a fixed weight: model.set_pos_weight(9.0); remove it: set_pos_weight(None)
+    output_schema = {"mortality": ("binary", {"pos_weight": "balanced"})}
+    # or a fixed weight: ("binary", {"pos_weight": 9.0}); per label, in the
+    # order of the given labels:
+    # ("multilabel", {"labels": [...], "pos_weight": [...]})
 
-``"balanced"`` is computed from the dataset you pass, so pass the training split,
-not the full dataset. The weight applies to models that use the default loss
-(``BaseModel.get_loss_function``); the drug-recommendation models (GAMENet,
-SafeDrug, MoleRec, MICRON) compute their own loss and ignore it. Weighting
-shifts the predicted probabilities upward, so check calibration before
-interpreting them as risks. See ``examples/imbalanced_outcome_pos_weight.py``.
+``"balanced"`` is negatives / positives over the samples the processor is
+fitted on, so fit the processors on the training split
+(``set_task(task, split=PatientSplit(...))``); PyHealth warns otherwise. The
+weight applies to models that use ``label_processor.loss``; the
+drug-recommendation models (GAMENet, SafeDrug, MoleRec, MICRON, ARMR) compute
+their own loss and ignore it. Weighting shifts the predicted probabilities
+upward, so check calibration before interpreting them as risks. See
+``examples/imbalanced_outcome_pos_weight.py``.
 
 Building a Custom Model
 -----------------------
@@ -161,7 +231,8 @@ Building a Custom Model
 If none of the built-in models fit your architecture, you can subclass
 ``BaseModel`` directly. The skeleton below shows the typical structure: build
 an ``EmbeddingModel`` in ``__init__``, unpack processor schemas in
-``forward``, pool or aggregate the embeddings, and return the four-key dict.
+``forward``, pool or aggregate the embeddings, and return ``logit`` and
+``y_prob``, plus ``loss`` and ``y_true`` when the batch has a label.
 
 .. code-block:: python
 
@@ -176,7 +247,7 @@ an ``EmbeddingModel`` in ``__init__``, unpack processor schemas in
             self.label_key = self.label_keys[0]
             self.embedding_model = EmbeddingModel(dataset, embedding_dim)
             self.fc = nn.Linear(embedding_dim * len(self.feature_keys),
-                                self.get_output_size())
+                                self.label_processor.output_size())
 
         def forward(self, **kwargs):
             inputs, masks = {}, {}
@@ -193,13 +264,17 @@ an ``EmbeddingModel`` in ``__init__``, unpack processor schemas in
             pooled = [embedded[k].mean(dim=1) for k in self.feature_keys]
             logits = self.fc(torch.cat(pooled, dim=1))
 
-            y_true = kwargs[self.label_key].to(self.device)
-            return {
-                "loss":   self.get_loss_function()(logits, y_true),
-                "y_prob": self.prepare_y_prob(logits),
-                "y_true": y_true,
-                "logit":  logits,
+            results = {
+                "y_prob": self.label_processor.activation(logits),
+                "logit": logits,
             }
+            # The label is absent at inference time; add the loss only when
+            # it is present, as the built-in models do.
+            if self.label_key in kwargs:
+                y_true = kwargs[self.label_key].to(self.device)
+                results["loss"] = self.label_processor.loss(logits, y_true)
+                results["y_true"] = y_true
+            return results
 
 API Reference
 -------------
@@ -211,17 +286,22 @@ API Reference
     models/pyhealth.models.LogisticRegression
     models/pyhealth.models.MLP
     models/pyhealth.models.CNN
+    models/pyhealth.models.UNet
     models/pyhealth.models.RNN
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
     models/pyhealth.models.TransformersModel
+    models/pyhealth.models.LLMEHREncoder
+    models/pyhealth.models.MEME
     models/pyhealth.models.TransformerDeID
     models/pyhealth.models.RETAIN
     models/pyhealth.models.GAMENet
     models/pyhealth.models.GraphCare
     models/pyhealth.models.MICRON
     models/pyhealth.models.SafeDrug
+    models/pyhealth.models.SHy
     models/pyhealth.models.MoleRec
+    models/pyhealth.models.ARMR
     models/pyhealth.models.Deepr
     models/pyhealth.models.EHRMamba
     models/pyhealth.models.EHRMambaCEHR
@@ -247,9 +327,21 @@ API Reference
     models/pyhealth.models.CorGAN
     models/pyhealth.models.Synthea
     models/pyhealth.models.SDOH
+    models/pyhealth.models.SequenceEmbeddingModel
     models/pyhealth.models.VisionEmbeddingModel
     models/pyhealth.models.TextEmbedding
     models/pyhealth.models.BIOT
     models/pyhealth.models.unified_multimodal_embedding_docs
     models/pyhealth.models.califorest
     models/pyhealth.models.XGBoostModel
+    models/pyhealth.models.survival_mdn
+    models/pyhealth.models.cet
+    models/pyhealth.models.TrajSurv
+    models/pyhealth.models.KnowRare
+    models/pyhealth.models.APRICOTM
+    models/pyhealth.models.ProtoECGNet
+    models/pyhealth.models.HeartLang
+    models/pyhealth.models.APN
+    models/pyhealth.models.TRACE
+    models/pyhealth.models.MIRA
+

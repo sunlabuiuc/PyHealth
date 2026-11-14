@@ -1,7 +1,27 @@
 import unittest
-import pickle
-import random
-from pyhealth.datasets.sample_dataset import create_sample_dataset
+from pathlib import Path
+
+from torch.utils.data import IterableDataset
+
+from pyhealth.datasets.sample_dataset import SampleDataset, create_sample_dataset
+from pyhealth.datasets.utils import get_dataloader
+
+
+class _PlainIterableDataset(IterableDataset):
+    """Minimal non-SampleDataset iterable with a ``set_shuffle`` hook."""
+
+    def __init__(self):
+        self.shuffle = None
+
+    def set_shuffle(self, shuffle):
+        self.shuffle = shuffle
+
+    def __iter__(self):
+        return iter(
+            {"feature": [float(index)], "label": index % 2}
+            for index in range(4)
+        )
+
 
 class TestSampleDatasetParity(unittest.TestCase):
     def setUp(self):
@@ -142,6 +162,80 @@ class TestSampleDatasetParity(unittest.TestCase):
         for i in range(20):
             self.assertEqual(items_disk_ordered[i]["feature"], i)
             self.assertEqual(items_mem_ordered[i]["feature"], i)
+
+    def test_close_preserves_caller_owned_directory(self):
+        owner, _ = self._get_datasets()
+        path = Path(owner.path)
+        dataset = SampleDataset(path=str(path))
+
+        try:
+            dataset.close()
+            self.assertTrue(path.exists())
+            reopened = SampleDataset(path=str(path))
+            self.assertEqual(reopened[0]["feature"], 0)
+        finally:
+            owner.close()
+
+    def test_close_preserves_directory_shared_with_subset(self):
+        owner, _ = self._get_datasets()
+        path = Path(owner.path)
+        subset = owner.subset([0])
+
+        try:
+            subset.close()
+            self.assertTrue(path.exists())
+        finally:
+            owner.close()
+
+    def test_close_removes_owned_temporary_directory(self):
+        owner, _ = self._get_datasets()
+        path = Path(owner.path)
+
+        owner.close()
+
+        self.assertFalse(path.exists())
+
+    def test_dataloader_forwards_loader_kwargs(self):
+        dataset, _ = self._get_datasets()
+        try:
+            loader = get_dataloader(
+                dataset,
+                batch_size=2,
+                num_workers=0,
+                pin_memory=False,
+            )
+            self.assertEqual(loader.num_workers, 0)
+            self.assertFalse(loader.pin_memory)
+        finally:
+            dataset.close()
+
+    def test_dataloader_forwards_kwargs_to_plain_dataset(self):
+        dataset = _PlainIterableDataset()
+        loader = get_dataloader(
+            dataset, batch_size=2, num_workers=0, pin_memory=False
+        )
+        self.assertEqual(loader.num_workers, 0)
+        self.assertFalse(loader.pin_memory)
+        self.assertFalse(dataset.shuffle)
+        features = sorted(
+            int(value[0]) for batch in loader for value in batch["feature"]
+        )
+        self.assertEqual(features, [0, 1, 2, 3])
+
+    def test_persistent_workers_with_shuffle_is_rejected(self):
+        dataset, _ = self._get_datasets()
+        try:
+            with self.assertRaisesRegex(ValueError, "persistent_workers"):
+                get_dataloader(
+                    dataset,
+                    batch_size=2,
+                    shuffle=True,
+                    num_workers=1,
+                    persistent_workers=True,
+                )
+        finally:
+            dataset.close()
+
 
 if __name__ == "__main__":
     unittest.main()
