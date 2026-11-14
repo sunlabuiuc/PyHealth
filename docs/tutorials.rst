@@ -138,13 +138,13 @@ Additional Examples
 
 .. note::
    The examples below were updated for PyHealth 2.1 in the examples cleanup
-   (November 2026): each one was smoke-run end to end on demo or synthetic
-   data, and its header says which dataset it needs and how to try it without
-   credentials (usually by pointing it at the demo data in
-   ``test-resources/core/``). Exceptions are noted in the descriptions, and
-   examples added later may not follow this yet. Older examples that no longer run, or
-   that duplicate a maintained one, are archived in ``examples/old/`` and are
-   not listed here.
+   (November 2026) and smoke-run on demo or synthetic data. Each header says
+   which dataset the example needs and how to try it without credentials
+   (usually by pointing it at the demo data in ``test-resources/core/``). The
+   few examples with a step that doesn't run yet say so here and in their
+   header. Examples added later may not follow this yet. Older examples that
+   no longer run, or that duplicate a maintained one, are archived in
+   ``examples/old/`` and are not listed here.
 
 The ``examples/`` directory contains additional code examples demonstrating various tasks, models, and techniques. These examples show how to use PyHealth in real-world scenarios.
 
