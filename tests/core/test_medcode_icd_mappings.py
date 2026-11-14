@@ -160,6 +160,23 @@ class TestICDTranslation(unittest.TestCase):
         self.assertEqual(mapping.unmapped_codes, set())
 
 
+class TestHasManyTargets(unittest.TestCase):
+    """`has_many_targets` tells x-to-one tables from x-to-many ones."""
+
+    def test_icd_mappings_backend_has_single_targets(self):
+        for pair in ICD_MAPPINGS_PAIRS:
+            with self.subTest(pair=pair):
+                self.assertFalse(CrossMap.load(*pair).has_many_targets)
+
+    def test_pyhealth_table_with_several_targets_has_many_targets(self):
+        # Built by hand so PyHealth's resource server is never contacted.
+        mapping = CrossMap.__new__(CrossMap)
+        mapping.mapping = {"A": ["1"], "B": ["1"]}
+        self.assertFalse(mapping.has_many_targets)
+        mapping.mapping = {"A": ["1"], "B": ["1", "2"]}
+        self.assertTrue(mapping.has_many_targets)
+
+
 class TestBackendSelectionEndToEnd(unittest.TestCase):
     """The `backend` argument must survive the trip through load()."""
 

@@ -14,6 +14,7 @@ def main():
         samples=samples,
         input_schema={"feature": "raw"},
         output_schema={"label": "raw"},
+        in_memory=False,
     )
 
     subset = dataset.subset([3, 0, 2])
@@ -21,6 +22,7 @@ def main():
 
     print(subset.patient_to_index)
     print(nested_subset.patient_to_index)
+    dataset.close()
 
 
 if __name__ == "__main__":

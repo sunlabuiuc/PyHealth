@@ -70,6 +70,17 @@ class FeatureProcessor(Processor):
     warns unless it is fitted on a training split
     (``set_task(task, split=PatientSplit(...))``).
 
+    Set ``stores_tensor = True`` only if ``process()`` always returns a
+    ``torch.Tensor``, or a tuple with one tensor per :meth:`schema` entry
+    (each tensor may change shape between samples). Such fields are written
+    to the disk cache as tensors; every other output (lists, other tuples,
+    dicts, strings, None, objects) is stored as one pickled value per sample,
+    so it may vary freely in length and shape between samples.
+
+    A processor whose batches need more than padding can define
+    ``collate(items)``, taking the ``process()`` outputs of one batch;
+    :func:`~pyhealth.datasets.get_dataloader` then uses it for that field.
+
     Examples:
         >>> import torch
         >>> from pyhealth.processors.base_processor import FeatureProcessor
@@ -87,6 +98,7 @@ class FeatureProcessor(Processor):
     """
 
     learns_statistics: bool = False
+    stores_tensor: bool = False
 
     def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Fit the processor to the samples.

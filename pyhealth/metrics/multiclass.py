@@ -41,6 +41,12 @@ def multiclass_metrics_fn(
         - ECE_adapt: adaptive ECE (with 20 equal-size bins). Check :func:`pyhealth.metrics.calibration.ece_confidence_multiclass`.
         - cwECEt: classwise ECE with threshold=min(0.01,1/K). Check :func:`pyhealth.metrics.calibration.ece_classwise`.
         - cwECEt_adapt: classwise adaptive ECE with threshold=min(0.01,1/K). Check :func:`pyhealth.metrics.calibration.ece_classwise`.
+        - hits@K: fraction of samples whose true class is among the K
+            highest-probability classes, for any positive integer K
+            (e.g. "hits@3" returns the key "HITS@3")
+        - hits@n: shorthand that returns HITS@1, HITS@5 and HITS@10 together
+        - mean_rank: mean rank of the true class (1 is best); also returns
+            mean_reciprocal_rank
 
     The following metrics related to the prediction sets are accepted as well, but will be ignored if y_predset is None:
         - rejection_rate: Frequency of rejection, where rejection happens when the prediction set has cardinality other than 1. Check :func:`pyhealth.metrics.prediction_set.rejection_rate`.
@@ -64,6 +70,8 @@ def multiclass_metrics_fn(
         y_prob: Predicted probabilities of shape (n_samples, n_classes).
         metrics: List of metrics to compute. Default is ["accuracy", "f1_macro",
             "f1_micro"].
+        y_predset: Optional prediction sets, one per sample. Only used by the
+            prediction set metrics listed above. Default is None.
 
     Returns:
         Dictionary of metrics whose keys are the metric names and values are
@@ -78,6 +86,8 @@ def multiclass_metrics_fn(
         ...                    [0.6,  0.2,  0.2]])
         >>> multiclass_metrics_fn(y_true, y_prob, metrics=["accuracy"])
         {'accuracy': 0.75}
+        >>> multiclass_metrics_fn(y_true, y_prob, metrics=["hits@1", "hits@3"])
+        {'HITS@1': 0.75, 'HITS@3': 1.0}
     """
     if metrics is None:
         metrics = ["accuracy", "f1_macro", "f1_micro"]
@@ -94,6 +104,7 @@ def multiclass_metrics_fn(
     y_pred = np.argmax(y_prob, axis=-1)
 
     output = {}
+    ranking = None
     for metric in metrics:
         if metric == "roc_auc_macro_ovo":
             y_prob_roc = y_prob[:, 1] if y_prob.shape[1] == 2 else y_prob
@@ -186,28 +197,59 @@ def multiclass_metrics_fn(
                 output[metric] = pset.error_ps(y_predset, y_true)
             elif metric == "error_overall_ps":
                 output[metric] = pset.error_overall_ps(y_predset, y_true)
-        
         elif metric == "hits@n":
-            argsort = np.argsort(-y_prob, axis=1)
-            ranking = np.array([np.where(argsort[i] == y_true[i])[0][0] for i in range(len(y_true))]) + 1
-            output["HITS@1"] = np.count_nonzero(ranking <= 1) / len(ranking)
-            output["HITS@5"] = np.count_nonzero(ranking <= 5) / len(ranking)
-            output["HITS@10"] = np.count_nonzero(ranking <= 10) / len(ranking)
+            if ranking is None:
+                ranking = _true_label_ranks(y_true, y_prob)
+            for k in (1, 5, 10):
+                output[f"HITS@{k}"] = _hits_at_k(ranking, k)
+        elif metric.startswith("hits@"):
+            k = _parse_hits_cutoff(metric)
+            if ranking is None:
+                ranking = _true_label_ranks(y_true, y_prob)
+            output[f"HITS@{k}"] = _hits_at_k(ranking, k)
         elif metric == "mean_rank":
-            argsort = np.argsort(-y_prob, axis=1)
-            ranking = np.array([np.where(argsort[i] == y_true[i])[0][0] for i in range(len(y_true))]) + 1
-            mean_rank = np.mean(ranking)
-            mean_reciprocal_rank = np.mean(1/ranking)
-            output["mean_rank"] = mean_rank
-            output["mean_reciprocal_rank"] = mean_reciprocal_rank
-            
+            if ranking is None:
+                ranking = _true_label_ranks(y_true, y_prob)
+            output["mean_rank"] = np.mean(ranking)
+            output["mean_reciprocal_rank"] = np.mean(1 / ranking)
         else:
             raise ValueError(f"Unknown metric for multiclass classification: {metric}")
 
     return output
 
 
-if __name__ == "__main__":
+def _true_label_ranks(y_true: np.ndarray, y_prob: np.ndarray) -> np.ndarray:
+    """Returns the 1-based rank of the true class in each row of ``y_prob``."""
+    y_true = np.asarray(y_true)
+    num_classes = y_prob.shape[1]
+    invalid = (y_true < 0) | (y_true >= num_classes)
+    if np.any(invalid):
+        bad = np.unique(y_true[invalid]).tolist()
+        raise ValueError(
+            f"y_true contains label {bad} outside the valid range "
+            f"[0, {num_classes - 1}] for y_prob with {num_classes} classes."
+        )
+    argsort = np.argsort(-y_prob, axis=1)
+    return np.argmax(argsort == np.asarray(y_true)[:, None], axis=1) + 1
+
+
+def _hits_at_k(ranking: np.ndarray, k: int) -> float:
+    """Fraction of samples whose true class is ranked within the top ``k``."""
+    return np.count_nonzero(ranking <= k) / len(ranking)
+
+
+def _parse_hits_cutoff(metric: str) -> int:
+    """Parses ``k`` from a metric name such as ``"hits@3"``."""
+    cutoff = metric.split("@", 1)[1]
+    if not cutoff.isdigit() or int(cutoff) < 1:
+        raise ValueError(
+            f"Invalid metric {metric!r}: expected 'hits@K' with K a positive "
+            "integer (e.g. 'hits@3'), or 'hits@n' for HITS@1/5/10."
+        )
+    return int(cutoff)
+
+
+if __name__ == "__main__":  # pragma: no cover
     all_metrics = [
         "roc_auc_macro_ovo",
         "roc_auc_macro_ovr",

@@ -5,6 +5,8 @@ from typing import Dict, Optional, Tuple
 
 import torch
 
+from pyhealth.utils import _seeded_by
+
 from pyhealth.models import BaseModel
 from pyhealth.interpret.api import Interpretable
 from .base_interpreter import BaseInterpreter
@@ -135,6 +137,7 @@ class Shap(BaseInterpreter):
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+    @_seeded_by("random_seed")
     def attribute(
         self,
         baseline: Optional[Dict[str, torch.Tensor]] = None,
@@ -176,10 +179,6 @@ class Shap(BaseInterpreter):
             ... )
             >>> print(shap_values['x_continuous'])  # Shape: (1, 3)
         """
-        # Set random seed for reproducibility if specified
-        if self.random_seed is not None:
-            torch.manual_seed(self.random_seed)
-
         device = next(self.model.parameters()).device
 
         # Filter kwargs to only include model feature keys and ensure they are tuples

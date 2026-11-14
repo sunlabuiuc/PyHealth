@@ -60,14 +60,34 @@ class RETAINLayer(nn.Module):
 
     @staticmethod
     def reverse_x(input, lengths):
-        """Reverses the input."""
-        reversed_input = input.new(input.size())
+        """Reverses each sequence's first ``length`` steps; padding stays zero.
+
+        Examples:
+            >>> x = torch.tensor([[[1.0], [2.0], [3.0]], [[4.0], [5.0], [9.0]]])
+            >>> RETAINLayer.reverse_x(x, torch.tensor([3, 2]))[:, :, 0]
+            tensor([[3., 2., 1.],
+                    [5., 4., 0.]])
+        """
+        reversed_input = input.new_zeros(input.size())
         for i, length in enumerate(lengths):
             reversed_input[i, :length] = input[i, :length].flip(dims=[0])
         return reversed_input
 
     def compute_alpha(self, rx, lengths, total_length: int):
-        """Computes alpha attention."""
+        """Computes alpha attention, one weight per step of the input.
+
+        The GRU reads the reversed input ``rx``, so its outputs are flipped
+        back to line up with the original steps. Padded steps get no weight.
+
+        Examples:
+            >>> layer = RETAINLayer(4)
+            >>> x = torch.randn(2, 3, 4)
+            >>> lengths = torch.tensor([3, 1])
+            >>> rx = RETAINLayer.reverse_x(x, lengths)
+            >>> alpha = layer.compute_alpha(rx, lengths, 3)
+            >>> alpha.shape, float(alpha[1, 1:].sum())
+            (torch.Size([2, 3, 1]), 0.0)
+        """
         rx = rnn_utils.pack_padded_sequence(
             rx, lengths, batch_first=True, enforce_sorted=False
         )
@@ -75,11 +95,28 @@ class RETAINLayer(nn.Module):
         g, _ = rnn_utils.pad_packed_sequence(
             g, batch_first=True, total_length=total_length
         )
-        attn_alpha = torch.softmax(self.alpha_li(g), dim=1)
+        g = self.reverse_x(g, lengths)  # back to the original order
+        scores = self.alpha_li(g)
+        steps = torch.arange(total_length, device=scores.device)
+        padded = steps[None, :] >= lengths.to(scores.device)[:, None]
+        scores = scores.masked_fill(padded.unsqueeze(-1), float("-inf"))
+        attn_alpha = torch.softmax(scores, dim=1)
         return attn_alpha
 
     def compute_beta(self, rx, lengths, total_length: int):
-        """Computes beta attention."""
+        """Computes beta attention, one vector per step of the input.
+
+        As in :meth:`compute_alpha`, the outputs are flipped back to line up
+        with the original steps.
+
+        Examples:
+            >>> layer = RETAINLayer(4)
+            >>> x = torch.randn(2, 3, 4)
+            >>> lengths = torch.tensor([3, 1])
+            >>> rx = RETAINLayer.reverse_x(x, lengths)
+            >>> layer.compute_beta(rx, lengths, 3).shape
+            torch.Size([2, 3, 4])
+        """
         rx = rnn_utils.pack_padded_sequence(
             rx, lengths, batch_first=True, enforce_sorted=False
         )
@@ -87,6 +124,7 @@ class RETAINLayer(nn.Module):
         h, _ = rnn_utils.pad_packed_sequence(
             h, batch_first=True, total_length=total_length
         )
+        h = self.reverse_x(h, lengths)  # back to the original order
         attn_beta = torch.tanh(self.beta_li(h))
         return attn_beta
 
@@ -218,7 +256,7 @@ class RETAIN(BaseModel):
         for feature_key in self.feature_keys:
             self.retain[feature_key] = RETAINLayer(feature_size=embedding_dim, **kwargs)
 
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         num_features = len(self.feature_keys)
         self.fc = nn.Linear(num_features * self.embedding_dim, output_size)
 
@@ -247,8 +285,11 @@ class RETAIN(BaseModel):
             # Case 1: 4D tensor from NestedSequenceProcessor
             # (batch, visits, events, embedding_dim)
             # Need to sum across events to get (batch, visits, embedding_dim)
-            if len(x.shape) == 4:
-                x = torch.sum(x, dim=2)  # Sum across events within visit
+            if len(x.shape) >= 4:
+                # Sum across events within each visit; for deep nested
+                # sequences, also across the visits within each group.
+                while x.dim() > 3:
+                    x = torch.sum(x, dim=2)
 
             # Case 2: 3D tensor from SequenceProcessor or after summing
             # (batch, seq_len, embedding_dim) - already correct format
@@ -276,15 +317,13 @@ class RETAIN(BaseModel):
         # (patient, label_size)
         logits = self.fc(patient_emb)
         # obtain y_true, loss, y_prob
-        y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
-        results = {
-            "loss": loss,
-            "y_prob": y_prob,
-            "y_true": y_true,
-            "logit": logits,
-        }
+        y_prob = self.label_processor.activation(logits)
+        results = {"y_prob": y_prob, "logit": logits}
+        # The label is optional, so the model can predict without it.
+        if self.label_key in kwargs:
+            y_true = kwargs[self.label_key].to(self.device)
+            results["loss"] = self.label_processor.loss(logits, y_true)
+            results["y_true"] = y_true
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results
@@ -457,7 +496,7 @@ class MultimodalRETAIN(BaseModel):
             len(self.sequential_features) * embedding_dim
             + len(self.non_sequential_features) * embedding_dim
         )
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(final_dim, output_size)
 
     def _is_sequential_processor(self, processor) -> bool:
@@ -516,8 +555,11 @@ class MultimodalRETAIN(BaseModel):
             # Case 1: 4D tensor from NestedSequenceProcessor
             # (batch, visits, events, embedding_dim)
             # Need to sum across events to get (batch, visits, embedding_dim)
-            if x.dim() == 4:
-                x = torch.sum(x, dim=2)  # Sum across events within visit
+            if x.dim() >= 4:
+                # Sum across events within each visit; for deep nested
+                # sequences, also across the visits within each group.
+                while x.dim() > 3:
+                    x = torch.sum(x, dim=2)
 
             # Case 2: 3D tensor from SequenceProcessor or after summing
             # (batch, seq_len, embedding_dim) - already correct format
@@ -557,16 +599,13 @@ class MultimodalRETAIN(BaseModel):
         logits = self.fc(patient_emb)
 
         # Calculate loss and predictions
-        y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
-
-        results = {
-            "loss": loss,
-            "y_prob": y_prob,
-            "y_true": y_true,
-            "logit": logits,
-        }
+        y_prob = self.label_processor.activation(logits)
+        results = {"y_prob": y_prob, "logit": logits}
+        # The label is optional, so the model can predict without it.
+        if self.label_key in kwargs:
+            y_true = kwargs[self.label_key].to(self.device)
+            results["loss"] = self.label_processor.loss(logits, y_true)
+            results["y_true"] = y_true
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results

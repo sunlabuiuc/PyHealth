@@ -1,0 +1,138 @@
+# Synthea synthetic patient data, CSV export.
+#
+# Requires Synthea to have been run with --exporter.csv.export=true (CSV export
+# is OFF by default), or one of MITRE's pre-generated CSV sample downloads.
+#
+# All column names here are lowercase because BaseDataset.load_table lowercases
+# every header before consulting this config. Synthea ships uppercase headers.
+#
+# `version` is free-form and unused at runtime; it records the Synthea CSV
+# schema generation this config was validated against.
+version: "4.0"
+tables:
+  patients:
+    file_path: "patients.csv"
+    patient_id: "id"
+    timestamp: "birthdate"
+    timestamp_format: "%Y-%m-%d"
+    attributes: ["birthdate", "deathdate", "gender", "race", "ethnicity",
+                 "marital", "birthplace", "city", "state", "county", "zip"]
+  encounters:
+    file_path: "encounters.csv"
+    patient_id: "patient"
+    timestamp: "start"
+    timestamp_format: "%Y-%m-%dT%H:%M:%SZ"
+    attributes: ["id", "start", "stop", "encounterclass", "code",
+                 "description", "base_encounter_cost", "total_claim_cost",
+                 "payer_coverage", "reasoncode", "reasondescription"]
+  conditions:
+    file_path: "conditions.csv"
+    patient_id: "patient"
+    timestamp: "start"
+    timestamp_format: "%Y-%m-%d"
+    attributes: ["start", "stop", "encounter", "code", "description"]
+  medications:
+    file_path: "medications.csv"
+    patient_id: "patient"
+    timestamp: "start"
+    timestamp_format: "%Y-%m-%dT%H:%M:%SZ"
+    attributes: ["start", "stop", "encounter", "code", "description",
+                 "base_cost", "dispenses", "totalcost",
+                 "reasoncode", "reasondescription"]
+  observations:
+    file_path: "observations.csv"
+    patient_id: "patient"
+    timestamp: "date"
+    timestamp_format: "%Y-%m-%dT%H:%M:%SZ"
+    attributes: ["date", "encounter", "code", "description", "value",
+                 "units", "type"]
+  procedures:
+    # `stop` and `system` are omitted on purpose: both are absent from older
+    # exports (e.g. the apr2020 sample), and a missing attribute is a KeyError.
+    # `start` is synthesized from `date` by preprocess_procedures when needed.
+    file_path: "procedures.csv"
+    patient_id: "patient"
+    timestamp: "start"
+    timestamp_format: "%Y-%m-%dT%H:%M:%SZ"
+    attributes: ["encounter", "code", "description",
+                 "base_cost", "reasoncode", "reasondescription"]
+  immunizations:
+    # Synthea's CSV data dictionary calls this column `cost`; the real files
+    # emit `base_cost`. Trust the files.
+    file_path: "immunizations.csv"
+    patient_id: "patient"
+    timestamp: "date"
+    timestamp_format: "%Y-%m-%dT%H:%M:%SZ"
+    attributes: ["date", "encounter", "code", "description", "base_cost"]
+  careplans:
+    file_path: "careplans.csv"
+    patient_id: "patient"
+    timestamp: "start"
+    timestamp_format: "%Y-%m-%d"
+    attributes: ["id", "start", "stop", "encounter", "code", "description",
+                 "reasoncode", "reasondescription"]
+  allergies:
+    file_path: "allergies.csv"
+    patient_id: "patient"
+    timestamp: "start"
+    timestamp_format: "%Y-%m-%d"
+    attributes: ["start", "stop", "encounter", "code", "system",
+                 "description", "type", "category", "reaction1",
+                 "description1", "severity1", "reaction2", "description2",
+                 "severity2"]
+  devices:
+    file_path: "devices.csv"
+    patient_id: "patient"
+    timestamp: "start"
+    timestamp_format: "%Y-%m-%dT%H:%M:%SZ"
+    attributes: ["start", "stop", "encounter", "code", "description", "udi"]
+  imaging_studies:
+    file_path: "imaging_studies.csv"
+    patient_id: "patient"
+    timestamp: "date"
+    timestamp_format: "%Y-%m-%dT%H:%M:%SZ"
+    attributes: ["id", "date", "encounter", "series_uid", "bodysite_code",
+                 "bodysite_description", "modality_code",
+                 "modality_description", "instance_uid", "sop_code",
+                 "sop_description", "procedure_code"]
+  supplies:
+    file_path: "supplies.csv"
+    patient_id: "patient"
+    timestamp: "date"
+    timestamp_format: "%Y-%m-%d"
+    attributes: ["date", "encounter", "code", "description", "quantity"]
+  payer_transitions:
+    file_path: "payer_transitions.csv"
+    patient_id: "patient"
+    timestamp: "start_date"
+    timestamp_format: "%Y-%m-%dT%H:%M:%SZ"
+    attributes: ["memberid", "start_date", "end_date", "payer",
+                 "secondary_payer", "plan_ownership", "owner_name"]
+  claims:
+    file_path: "claims.csv"
+    patient_id: "patientid"
+    timestamp: "servicedate"
+    timestamp_format: "%Y-%m-%dT%H:%M:%SZ"
+    attributes: ["id", "providerid", "primarypatientinsuranceid",
+                 "secondarypatientinsuranceid", "departmentid",
+                 "patientdepartmentid", "diagnosis1", "diagnosis2",
+                 "diagnosis3", "diagnosis4", "diagnosis5", "diagnosis6",
+                 "diagnosis7", "diagnosis8", "referringproviderid",
+                 "appointmentid", "currentillnessdate", "servicedate",
+                 "supervisingproviderid", "status1", "status2", "statusp",
+                 "outstanding1", "outstanding2", "outstandingp",
+                 "lastbilleddate1", "lastbilleddate2", "lastbilleddatep",
+                 "healthcareclaimtypeid1", "healthcareclaimtypeid2"]
+  claims_transactions:
+    file_path: "claims_transactions.csv"
+    patient_id: "patientid"
+    timestamp: "fromdate"
+    timestamp_format: "%Y-%m-%dT%H:%M:%SZ"
+    attributes: ["id", "claimid", "chargeid", "type", "amount", "method",
+                 "fromdate", "todate", "placeofservice", "procedurecode",
+                 "modifier1", "modifier2", "diagnosisref1", "diagnosisref2",
+                 "diagnosisref3", "diagnosisref4", "units", "departmentid",
+                 "notes", "unitamount", "transferoutid", "transfertype",
+                 "payments", "adjustments", "transfers", "outstanding",
+                 "appointmentid", "linenote", "patientinsuranceid",
+                 "feescheduleid", "providerid", "supervisingproviderid"]

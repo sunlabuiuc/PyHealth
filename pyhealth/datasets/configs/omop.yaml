@@ -116,3 +116,70 @@ tables:
       - "value_as_number"
       - "value_as_concept_id"
       - "unit_concept_id"
+
+  observation_period:
+    file_path: "observation_period.csv"
+    patient_id: "person_id"
+    timestamp: "observation_period_start_date"
+    timestamp_format: "%Y-%m-%d"
+    attributes:
+      - "observation_period_start_date"
+      - "observation_period_end_date"
+      - "period_type_concept_id"
+
+  visit_detail:
+    file_path: "visit_detail.csv"
+    patient_id: "person_id"
+    timestamp: "visit_detail_start_datetime"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    attributes:
+      - "visit_detail_id"
+      - "visit_occurrence_id"
+      - "visit_detail_concept_id"
+      - "visit_detail_start_date"
+      - "visit_detail_start_datetime"
+      - "visit_detail_end_date"
+      - "visit_detail_end_datetime"
+      - "visit_detail_type_concept_id"
+
+  observation:
+    file_path: "observation.csv"
+    patient_id: "person_id"
+    timestamp: "observation_datetime"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    join:
+      - file_path: "visit_occurrence.csv"
+        "on": "visit_occurrence_id"
+        how: "left"
+        columns:
+          - "visit_start_datetime"
+    attributes:
+      - "visit_occurrence_id"
+      - "observation_concept_id"
+      - "observation_date"
+      - "observation_datetime"
+      - "observation_type_concept_id"
+      - "value_as_number"
+      - "value_as_string"
+      - "value_as_concept_id"
+      - "unit_concept_id"
+
+  device_exposure:
+    file_path: "device_exposure.csv"
+    patient_id: "person_id"
+    timestamp: "device_exposure_start_datetime"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    join:
+      - file_path: "visit_occurrence.csv"
+        "on": "visit_occurrence_id"
+        how: "left"
+        columns:
+          - "visit_start_datetime"
+    attributes:
+      - "visit_occurrence_id"
+      - "device_concept_id"
+      - "device_exposure_start_date"
+      - "device_exposure_start_datetime"
+      - "device_exposure_end_date"
+      - "device_exposure_end_datetime"
+      - "device_type_concept_id"

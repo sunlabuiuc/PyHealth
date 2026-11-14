@@ -38,6 +38,11 @@ tables read. Editing the YAML or rewriting a source file (even at the same path)
 therefore builds a fresh cache instead of silently reusing a stale one. Old cache
 folders are left in place; delete them to reclaim disk space.
 
+Temporary files (converted source tables, Dask scratch space) go to folders
+under ``tmp/`` in the cache directory. Each dataset removes only the folders it
+created, so a job that finishes does not delete the temporary files of another
+job using the same ``cache_dir``.
+
 The result is a :class:`~pyhealth.datasets.BaseDataset` — a structured
 patient→event tree. It is different from a PyTorch Dataset: it has no integer
 length and you cannot index into it with ``dataset[i]``. Think of it as a
@@ -88,6 +93,17 @@ future runs without re-fitting.
 
 Calling ``samples.subset(...)`` rebuilds both lookups with indices local to the
 new dataset, so they remain valid after repeated splitting.
+
+Calling ``close()`` preserves reusable task caches. Disk-backed datasets created
+by ``create_sample_dataset()`` own a temporary directory and remove it on close.
+
+.. note::
+   Subsets (from ``subset()``, ``split_by_patient`` and ``set_task(split=...)``)
+   read with litdata's POSIX-fast mmap reads turned off (litdata 0.2.68+);
+   the full dataset keeps them. POSIX-fast caches per run of consecutive
+   indices instead of per chunk file. A patient-level split has thousands of
+   such runs over a few files, so with it on in litdata 0.2.76, iterating a
+   training part takes ~20x longer (43 s vs 2 s for 140k samples).
 
 For testing or small cohorts you can skip the disk step entirely using
 ``InMemorySampleDataset``, which holds all processed samples in RAM and is
@@ -230,6 +246,20 @@ Each event in the returned list has:
 - ``event.icd_code``, ``event["icd_code"]``, ``event.attr_dict`` — different
   ways to access the other attributes. All attribute names are lowercase.
 
+Shuffling and Reproducibility
+-----------------------------
+
+``get_dataloader(dataset, batch_size, shuffle=True, seed=None)`` gives each
+loader its own shuffle order: the same ``seed`` gives the same sequence of
+epoch orders, a different seed a different one, and each epoch is reshuffled.
+With ``seed=None`` the seed is drawn from torch's random generator when the
+loader is created, so ``torch.manual_seed(...)`` alone makes runs
+reproducible. This also holds with ``num_workers > 0``. Each loader applies
+its own settings to the dataset at the start of every pass, so an unshuffled
+evaluation loader on a training dataset leaves the training loader shuffling;
+just don't iterate two loaders over one dataset at the same time. See the
+Trainer docs for the full checklist.
+
 Things to Watch Out For
 ------------------------
 
@@ -263,8 +293,16 @@ Available Datasets
 
     datasets/pyhealth.datasets.BaseDataset
     datasets/pyhealth.datasets.SampleDataset
+    datasets/pyhealth.datasets.PatchDataset
+    MSD Base Loader <datasets/pyhealth.datasets.MSDSegmentationDataset>
+    datasets/pyhealth.datasets.MSDHippocampusDataset
+    datasets/pyhealth.datasets.MSDProstateDataset
+    datasets/pyhealth.datasets.MSDSpleenDataset
+    datasets/pyhealth.datasets.CHAOSDataset
+    datasets/pyhealth.datasets.RSNAPneumoniaDataset
     datasets/pyhealth.datasets.MIMIC3Dataset
     datasets/pyhealth.datasets.MIMIC4Dataset
+    datasets/pyhealth.datasets.MIMIC4EDDataset
     datasets/pyhealth.datasets.FHIRDataset
     datasets/pyhealth.datasets.MEDSDataset
     datasets/pyhealth.datasets.MIMIC4FHIR
@@ -274,20 +312,30 @@ Available Datasets
     datasets/pyhealth.datasets.ISRUCDataset
     datasets/pyhealth.datasets.MIMICExtractDataset
     datasets/pyhealth.datasets.OMOPDataset
+    datasets/pyhealth.datasets.SyntheaCSVDataset
     datasets/pyhealth.datasets.DREAMTDataset
     datasets/pyhealth.datasets.SHHSDataset
     datasets/pyhealth.datasets.SleepEDFDataset
     datasets/pyhealth.datasets.EHRShotDataset
     datasets/pyhealth.datasets.Support2Dataset
+    datasets/pyhealth.datasets.PBCSeqDataset
+    datasets/pyhealth.datasets.synthetic_liver
+    datasets/pyhealth.datasets.MetabricDataset
     datasets/pyhealth.datasets.BMDHSDataset
     datasets/pyhealth.datasets.COVID19CXRDataset
     datasets/pyhealth.datasets.ChestXray14Dataset
     datasets/pyhealth.datasets.PhysioNetDeIDDataset
     datasets/pyhealth.datasets.EEGBCIDataset
+    PTB-XL Dataset <datasets/pyhealth.datasets.PTBXLDataset>
+    PhysioNet 2012 Dataset <datasets/pyhealth.datasets.PhysioNet2012Dataset>
     datasets/pyhealth.datasets.TUABDataset
     datasets/pyhealth.datasets.TUEVDataset
+    datasets/pyhealth.datasets.CHBMITDataset
+    datasets/pyhealth.datasets.EESM23Dataset
+    datasets/pyhealth.datasets.IIICDataset
     datasets/pyhealth.datasets.ClinVarDataset
     datasets/pyhealth.datasets.COSMICDataset
     datasets/pyhealth.datasets.TCGAPRADDataset
+    datasets/pyhealth.datasets.VSACDataset
     datasets/pyhealth.datasets.splitter
     datasets/pyhealth.datasets.utils

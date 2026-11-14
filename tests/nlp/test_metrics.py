@@ -36,7 +36,9 @@ class TestMetrics(BaseTestCase):
 
     def test_pandas(self):
         WRITE: bool = 0
-        should_file: Path = Path('test-resources/nlp/metrics.csv')
+        should_file: Path = (
+            Path(__file__).parents[2] / "test-resources" / "nlp" / "metrics.csv"
+        )
         self._set_debug()
         scorer = Scorer()
         ss: ScoreSet = scorer.score(ScoreContext(self.pairs))

@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Set
 from tests.base import BaseTestCase
 from pyhealth.models.sdoh import SdohClassifier
@@ -25,7 +26,10 @@ class TestSdoh(BaseTestCase):
     def test_parse_reponse(self):
         """Test the parsing of the SDOH output."""
         import pandas as pd
-        df = pd.read_csv('test-resources/core/sdoh-test-cases.csv')
+        cases = (
+            Path(__file__).parents[2] / "test-resources" / "core" / "sdoh-test-cases.csv"
+        )
+        df = pd.read_csv(cases)
         sdoh = SdohClassifier()
         response: str
         preds: str

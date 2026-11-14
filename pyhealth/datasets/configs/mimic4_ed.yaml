@@ -1,0 +1,97 @@
+version: "2.2"
+# MIMIC-IV-ED (https://physionet.org/content/mimic-iv-ed/). The root is the
+# folder holding ed/; the open demo (mimic-iv-ed-demo) has the same layout.
+tables:
+  edstays:
+    file_path: "ed/edstays.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "intime"
+    attributes:
+      - "hadm_id"
+      - "stay_id"
+      - "outtime"
+      - "gender"
+      - "race"
+      - "arrival_transport"
+      - "disposition"
+
+  # triage has no time of its own; it is recorded at arrival
+  triage:
+    file_path: "ed/triage.csv.gz"
+    patient_id: "subject_id"
+    join:
+      - file_path: "ed/edstays.csv.gz"
+        "on": "stay_id"
+        how: "inner"
+        columns:
+          - "intime"
+    timestamp: "intime"
+    attributes:
+      - "stay_id"
+      - "temperature"
+      - "heartrate"
+      - "resprate"
+      - "o2sat"
+      - "sbp"
+      - "dbp"
+      - "pain"
+      - "acuity"
+      - "chiefcomplaint"
+
+  vitalsign:
+    file_path: "ed/vitalsign.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "charttime"
+    attributes:
+      - "stay_id"
+      - "temperature"
+      - "heartrate"
+      - "resprate"
+      - "o2sat"
+      - "sbp"
+      - "dbp"
+      - "rhythm"
+      - "pain"
+
+  medrecon:
+    file_path: "ed/medrecon.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "charttime"
+    attributes:
+      - "stay_id"
+      - "name"
+      - "gsn"
+      - "ndc"
+      - "etc_rn"
+      - "etccode"
+      - "etcdescription"
+
+  pyxis:
+    file_path: "ed/pyxis.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "charttime"
+    attributes:
+      - "stay_id"
+      - "med_rn"
+      - "name"
+      - "gsn_rn"
+      - "gsn"
+
+  # ED diagnoses are coded at the end of the stay, so they are stamped with
+  # the stay's outtime
+  diagnosis:
+    file_path: "ed/diagnosis.csv.gz"
+    patient_id: "subject_id"
+    join:
+      - file_path: "ed/edstays.csv.gz"
+        "on": "stay_id"
+        how: "inner"
+        columns:
+          - "outtime"
+    timestamp: "outtime"
+    attributes:
+      - "stay_id"
+      - "seq_num"
+      - "icd_code"
+      - "icd_version"
+      - "icd_title"

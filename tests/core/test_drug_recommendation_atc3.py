@@ -102,7 +102,9 @@ class TestDrugRecommendationATC3(unittest.TestCase):
 
         first_sample = by_visit[first_hadm_id]
         second_sample = by_visit[second_hadm_id]
-        self.assertEqual(first_sample["drugs"], ["A10B", "C03C"])
+        # "drugs" is a multilabel target: check the codes (each once), not the
+        # order of same-day prescriptions.
+        self.assertCountEqual(first_sample["drugs"], ["A10B", "C03C"])
         self.assertEqual(second_sample["drugs"], ["N02B"])
         self.assertNotIn("1111", first_sample["drugs"])
         self.assertNotIn("2222", first_sample["drugs"])

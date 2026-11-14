@@ -26,7 +26,20 @@ class ImageProcessor(FeatureProcessor):
 
     Raises:
         ValueError: If normalization parameters are inconsistent.
+
+    Examples:
+        >>> from pyhealth.processors import ImageProcessor
+        >>> p = ImageProcessor(image_size=224)
+        >>> p.stores_tensor  # to_tensor=False returns PIL images instead
+        True
+        >>> p.process("chest_xray.png").shape  # doctest: +SKIP
+        torch.Size([3, 224, 224])
     """
+
+    @property
+    def stores_tensor(self) -> bool:
+        """True when ``process()`` returns a tensor (``to_tensor=True``)."""
+        return bool(getattr(self, "to_tensor", True))
 
     def __init__(
         self,

@@ -1,12 +1,11 @@
 import logging
 import os
 from urllib.parse import urljoin
-from urllib.request import urlretrieve
 
 import pandas as pd
 
 from pyhealth import BASE_CACHE_PATH
-from pyhealth.utils import create_directory, load_pickle, load_json
+from pyhealth.utils import create_directory, download_file, load_pickle, load_json
 
 BASE_URL = "https://storage.googleapis.com/pyhealth/resource/"
 MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "medcode")
@@ -28,12 +27,18 @@ def download_and_read_csv(filename: str, refresh_cache: bool = False) -> pd.Data
 
     Returns:
         A pandas DataFrame.
+
+    Examples:
+        >>> from pyhealth.medcode.utils import download_and_read_csv
+        >>> df = download_and_read_csv("ICD9CM.csv")  # doctest: +SKIP
+        >>> df.columns.tolist()  # doctest: +SKIP
+        ['code', 'parent_code', 'name']
     """
     local_filepath = os.path.join(MODULE_CACHE_PATH, filename)
     online_filepath = urljoin(BASE_URL, filename)
     if (not os.path.exists(local_filepath)) or refresh_cache:
         logger.debug(f"downloading {online_filepath} to {local_filepath}")
-        urlretrieve(online_filepath, local_filepath)
+        download_file(online_filepath, local_filepath)
     return pd.read_csv(local_filepath, dtype=str)
 
 
@@ -61,16 +66,24 @@ def download_and_read_pkl(filename: str, refresh_cache: bool = False):
 
     Returns:
         The object loaded from the pickle file.
+
+    Note:
+        Unpickling can run code. Only use this for files from PyHealth's own
+        resource bucket, never with a filename or ``BASE_URL`` you don't trust.
+
+    Examples:
+        >>> from pyhealth.medcode.utils import download_and_read_pkl
+        >>> obj = download_and_read_pkl("some_resource.pkl")  # doctest: +SKIP
     """
     local_filepath = os.path.join(MODULE_CACHE_PATH, filename)
     online_filepath = urljoin(BASE_URL, filename)
     if (not os.path.exists(local_filepath)) or refresh_cache:
         logger.debug(f"downloading {online_filepath} to {local_filepath}")
-        urlretrieve(online_filepath, local_filepath)
+        download_file(online_filepath, local_filepath)
     return load_pickle(local_filepath)
 
 
-def download_and_read_json(filename: str, refresh_cache: bool = True):
+def download_and_read_json(filename: str, refresh_cache: bool = False):
     """Reads a json file from the pyhealth resource folder.
 
     This function will read the json file from `MODULE_CACHE_PATH` if it exists.
@@ -83,10 +96,14 @@ def download_and_read_json(filename: str, refresh_cache: bool = True):
 
     Returns:
         The object loaded from the json file.
+
+    Examples:
+        >>> from pyhealth.medcode.utils import download_and_read_json
+        >>> data = download_and_read_json("some_resource.json")  # doctest: +SKIP
     """
     local_filepath = os.path.join(MODULE_CACHE_PATH, filename)
     online_filepath = urljoin(BASE_URL, filename)
     if (not os.path.exists(local_filepath)) or refresh_cache:
         logger.debug(f"downloading {online_filepath} to {local_filepath}")
-        urlretrieve(online_filepath, local_filepath)
+        download_file(online_filepath, local_filepath)
     return load_json(local_filepath)

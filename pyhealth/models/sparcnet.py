@@ -306,7 +306,7 @@ class SparcNet(BaseModel):
             n_channels = n_channels // 2
 
         """ prediction layer """
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(n_channels, output_size)
 
         # Official init from torch repo.
@@ -350,8 +350,8 @@ class SparcNet(BaseModel):
         logits = self.fc(emb)
         # obtain y_true, loss, y_prob
         y_true = kwargs[self.label_keys[0]].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
+        loss = self.label_processor.loss(logits, y_true)
+        y_prob = self.label_processor.activation(logits)
         results = {
             "loss": loss,
             "y_prob": y_prob,

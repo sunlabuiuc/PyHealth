@@ -1,0 +1,172 @@
+name: Coverage Comment
+
+# Runs after "Python Test" finishes, in the context of the base repository, so
+# it can comment on PRs from forks. It never checks out or executes PR code;
+# it only reads the coverage summary printed in the test job's log, which is
+# untrusted input.
+on:
+  workflow_run:
+    workflows: ['Python Test']
+    types: [completed]
+
+permissions:
+  actions: read
+  pull-requests: write
+
+jobs:
+  comment:
+    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'cancelled' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find the PR
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // fork PRs are missing from workflow_run.pull_requests, so look the
+            // PR up by its head branch and only accept it if the tested commit
+            // is its head
+            const run = context.payload.workflow_run;
+            const { data: prs } = await github.rest.pulls.list({
+              ...context.repo,
+              state: 'open',
+              head: `${run.head_repository.owner.login}:${run.head_branch}`,
+            });
+            const pr = prs.find((p) => p.head.sha === run.head_sha);
+            if (!pr) {
+              core.info(`no open PR has head ${run.head_sha}; skipping`);
+              return;
+            }
+            core.setOutput('number', pr.number);
+
+            // a PR that edits the test workflow controls what the coverage step
+            // prints, so its log can't be trusted for a coverage report
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              ...context.repo, pull_number: pr.number, per_page: 100,
+            });
+            const touched = files.some(
+              (f) => f.filename === run.path || f.previous_filename === run.path
+            );
+            core.setOutput('workflow-modified', touched);
+
+      # Only the log of the "Report test coverage" step is read, from the
+      # per-step files in the run's log archive, so output printed by earlier
+      # steps (e.g. the tests) can never be mistaken for the summary.
+      - name: Fetch the coverage report step log
+        if: ${{ steps.pr.outputs.number && steps.pr.outputs.workflow-modified != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          step=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs" \
+            --jq '.jobs[] | select(.name == "build") | .steps[] | select(.name == "Report test coverage") | .number')
+          if [[ ! "$step" =~ ^[0-9]+$ ]]; then
+            echo "::error::expected exactly one 'Report test coverage' step in job 'build', got: ${step//$'\n'/ }"
+            exit 1
+          fi
+          gh api "repos/$REPO/actions/runs/$RUN_ID/logs" > run.zip
+          unzip -p run.zip "build/${step}_Report test coverage.txt" > report.log
+
+      - name: Comment on PR
+        if: ${{ steps.pr.outputs.number }}
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          WORKFLOW_MODIFIED: ${{ steps.pr.outputs.workflow-modified }}
+        with:
+          script: |
+            const fs = require('fs');
+            const run = context.payload.workflow_run;
+            const prNumber = Number(process.env.PR_NUMBER);
+            const marker = '<!-- pyhealth-coverage-comment -->';
+
+            // The test run executes PR code (and the PR's own test.yml), so the
+            // log is attacker-controlled. Only rebuild a summary from fields
+            // that pass strict type and format checks; never pass any log text
+            // through to the comment.
+            function parseSummary(log) {
+              // log lines are "<timestamp> <text>", possibly with ANSI colors
+              const lines = log.replace(/^﻿/, '').split(/\r?\n/).map((l) =>
+                l.replace(/^\S+Z /, '').replace(/\x1b\[[0-9;]*m/g, '')
+              );
+              // skip the step header, which echoes the script and its env
+              const output = lines.slice(lines.indexOf('##[endgroup]') + 1);
+              const open = output.lastIndexOf('{');
+              const close = output.indexOf('}', open);
+              if (open < 0 || close < 0) return null;
+
+              let raw;
+              try {
+                raw = JSON.parse(output.slice(open, close + 1).join('\n'));
+              } catch {
+                return null;
+              }
+
+              const isCount = (n) => Number.isSafeInteger(n) && n >= 0;
+              const stats = (s) => {
+                if (s === null || typeof s !== 'object') return undefined;
+                const { percent_covered: p, covered_lines: c, num_statements: n } = s;
+                if (typeof p !== 'number' || !(p >= 0 && p <= 100)) return undefined;
+                if (!isCount(c) || !isCount(n) || c > n) return undefined;
+                return { percent_covered: p, covered_lines: c, num_statements: n };
+              };
+
+              const total = stats(raw?.total);
+              const files = raw?.modified_files;
+              if (!total || files === null || typeof files !== 'object' || Array.isArray(files)) {
+                return null;
+              }
+              const modified_files = {};
+              for (const [p, s] of Object.entries(files).slice(0, 200)) {
+                // plain repo paths only: nothing that can break out of a code span
+                if (!/^pyhealth\/[A-Za-z0-9_\/.-]{1,200}\.py$/.test(p) || p.includes('..')) continue;
+                const v = s === null ? null : stats(s);
+                if (v !== undefined) modified_files[p] = v;
+              }
+              return { total, modified_files };
+            }
+
+            let body = `${marker}\n## Test Coverage\n\n`;
+            if (process.env.WORKFLOW_MODIFIED === 'true') {
+              body += `Coverage not available: this PR modifies \`${run.path}\`, `
+                + 'so its coverage output is not reported.\n';
+            } else {
+              const summary = parseSummary(fs.readFileSync('report.log', 'utf8'));
+              if (!summary) {
+                core.setFailed('coverage summary not found in the "Report test coverage" step log');
+                return;
+              }
+
+              const pct = (s) => `${s.percent_covered.toFixed(2)}%`;
+              const count = (s) => `${s.covered_lines} / ${s.num_statements}`;
+              const rows = Object.entries(summary.modified_files).map(([p, s]) =>
+                s ? `| \`${p}\` | ${pct(s)} | ${count(s)} |` : `| \`${p}\` | not imported by tests | - |`
+              );
+
+              if (run.conclusion !== 'success') {
+                body += `> [!WARNING]\n> Tests ${run.conclusion}; coverage may be incomplete.\n\n`;
+              }
+              body += `**Total:** ${pct(summary.total)} (${count(summary.total)} lines)\n\n`;
+              body += rows.length
+                ? `| Modified file | Coverage | Lines |\n| --- | --- | --- |\n${rows.join('\n')}\n`
+                : '_No modified files under `pyhealth/`._\n';
+            }
+            body += `\n[Workflow run](${run.html_url}) · ${run.head_sha.slice(0, 7)}`;
+
+            // update the previous coverage comment instead of adding a new one
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              ...context.repo, issue_number: prNumber, per_page: 100,
+            });
+            const existing = comments.find(
+              (c) => c.user.type === 'Bot' && c.body.includes(marker)
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                ...context.repo, comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                ...context.repo, issue_number: prNumber, body,
+              });
+            }

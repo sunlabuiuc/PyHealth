@@ -129,7 +129,16 @@ class CehrProcessor(FeatureProcessor):
     processor's only state is a :class:`ConceptVocab`, grown during the
     standard :meth:`~pyhealth.datasets.sample_dataset.SampleBuilder.fit`
     pass over cached samples.
+
+    Examples:
+        >>> from pyhealth.processors.cehr_processor import CehrProcessor
+        >>> p = CehrProcessor(max_len=4)
+        >>> _ = p.fit([{"codes": ["A", "B"]}], "codes")
+        >>> p.process(["A", "B"]).dtype
+        torch.int64
     """
+
+    stores_tensor = True
 
     def __init__(self, max_len: int = 512) -> None:
         self.vocab = ConceptVocab()

@@ -2,9 +2,9 @@ import subprocess
 import shutil
 import os
 from typing import List
-from urllib.request import urlretrieve
 
 from pyhealth.datasets import BaseSignalDataset
+from pyhealth.utils import download_file
 
 DEV_NUM_PAT = 5
 FULL_NUM_PAT = 100
@@ -12,7 +12,7 @@ FULL_NUM_PAT = 100
 
 def _download_file(online_filepath, local_filepath, refresh_cache=False):
     if (not os.path.exists(local_filepath)) or refresh_cache:
-        urlretrieve(online_filepath, local_filepath)
+        download_file(online_filepath, local_filepath)
     return local_filepath
 
 

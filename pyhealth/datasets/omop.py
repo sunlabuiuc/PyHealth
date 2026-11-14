@@ -35,6 +35,8 @@ class OMOPDataset(BaseDataset):
         - procedure_occurrence: procedures (CPT, ICD codes)
         - drug_exposure: medication orders and administrations
         - measurement: laboratory tests and vital signs
+        - observation_period: spans of time when a person is observed
+        - visit_detail: parts of a visit, such as ward or ICU stays
         - observation: clinical observations
         - device_exposure: medical device usage
 
