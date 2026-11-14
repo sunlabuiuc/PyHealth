@@ -29,6 +29,9 @@ ABSTRACT = ("Children with two or more ED visits in the prior year had a higher 
             "risk of exacerbation (OR 2.4, 95% CI 1.8-3.1). Controller use was "
             "associated with fewer exacerbations (RR 0.7, 0.5-0.9).")
 CARD = TaskCard(population="children with asthma", outcome="asthma exacerbation")
+ED = "prior ED visits"
+ED_QUOTE = ("two or more ED visits in the prior year had a higher risk of "
+            "exacerbation (OR 2.4, 95% CI 1.8-3.1)")
 
 
 def _reply(data):
@@ -56,9 +59,8 @@ class TestCitationCheck(unittest.TestCase):
 
     def test_real_record_is_kept_and_direction_set_from_the_value(self):
         e = self.verdicts(Evidence(
-            "prior ED visits", {"type": "OR", "value": 2.4, "ci": [1.8, 3.1],
-                                "direction": "-"}, "PMID:1",
-            "had a higher risk of exacerbation (OR 2.4, 95% CI 1.8-3.1)"))
+            ED, {"type": "OR", "value": 2.4, "ci": [1.8, 3.1], "direction": "-"},
+            "PMID:1", ED_QUOTE))
         self.assertTrue(e.verified)
         self.assertEqual(e.effect["direction"], "+")  # corrected from the value
 
@@ -66,31 +68,34 @@ class TestCitationCheck(unittest.TestCase):
         self.kb.add_documents([Document("PMID:2", (
             "Exacerbation rates did not differ (MD -0.37, 95% CI -0.8 to 0.06). "
             "Wheeze intensity discriminated best (AUC 84% [95% CI, 82%-85%])."))])
-        for effect, quote in [
-            ({"type": "MD", "value": -0.37, "ci": [-0.8, 0.06]},
-             "(MD -0.37, 95% CI -0.8 to 0.06)"),
-            ({"type": "AUC", "value": 0.84, "ci": [0.82, 0.85]},
-             "(AUC 84% [95% CI, 82%-85%])"),
+        for *effect, quote in [
+            ("exacerbation rates", {"type": "MD", "value": -0.37, "ci": [-0.8, 0.06]},
+             "Exacerbation rates did not differ (MD -0.37, 95% CI -0.8 to 0.06)"),
+            ("wheeze intensity", {"type": "AUC", "value": 0.84, "ci": [0.82, 0.85]},
+             "Wheeze intensity discriminated best (AUC 84% [95% CI, 82%-85%])"),
         ]:
-            e = self.verdicts(Evidence("x", effect, "PMID:2", quote))
+            e = self.verdicts(Evidence(effect[0], effect[1], "PMID:2", quote))
             self.assertTrue(e.verified, e.reason)
-        e = self.verdicts(Evidence("x", {"type": "AUC", "value": 0.86}, "PMID:2",
-                                   "(AUC 84% [95% CI, 82%-85%])"))
+        e = self.verdicts(Evidence(
+            "wheeze intensity", {"type": "AUC", "value": 0.86}, "PMID:2",
+            "Wheeze intensity discriminated best (AUC 84% [95% CI, 82%-85%])"))
         self.assertFalse(e.verified)
 
     def test_invented_citation_and_numbers_are_rejected(self):
         cases = [
-            (Evidence("x", {"type": "OR", "value": 2.4}, "PMID:999",
-                      "(OR 2.4, 95% CI 1.8-3.1)"), "not among the gathered"),
-            (Evidence("x", {"type": "OR", "value": 3.1}, "PMID:1",
+            (Evidence(ED, {"type": "OR", "value": 2.4}, "PMID:999", ED_QUOTE),
+             "not among the gathered"),
+            (Evidence(ED, {"type": "OR", "value": 3.1}, "PMID:1",
                       "Children with two or more ED visits had triple the risk"),
              "quote is not in the source"),
-            (Evidence("x", {"type": "OR", "value": 2.9}, "PMID:1",
-                      "risk of exacerbation (OR 2.4, 95% CI 1.8-3.1)"),
+            (Evidence(ED, {"type": "OR", "value": 2.9}, "PMID:1", ED_QUOTE),
              "effect size 2.9 is not in the quote"),
-            (Evidence("x", {"type": "OR", "value": 2.4, "ci": [1.5, 3.1]}, "PMID:1",
-                      "risk of exacerbation (OR 2.4, 95% CI 1.8-3.1)"),
-             "effect size 1.5 is not in the quote"),
+            (Evidence(ED, {"type": "OR", "value": 2.4, "ci": [1.5, 3.1]}, "PMID:1",
+                      ED_QUOTE), "effect size 1.5 is not in the quote"),
+            # a real sentence and number, filed under the wrong predictor
+            (Evidence(ED, {"type": "RR", "value": 0.7, "ci": [0.5, 0.9]}, "PMID:1",
+                      "Controller use was associated with fewer exacerbations "
+                      "(RR 0.7, 0.5-0.9)"), "does not name the predictor"),
         ]
         for record, reason in cases:
             e = self.verdicts(record)
@@ -101,19 +106,27 @@ class TestCitationCheck(unittest.TestCase):
         self.kb.add_documents([Document("PMID:3", (
             "Symptom days fell (MD -0.37, 95% CI -0.8 to 0.06). "
             "Night waking rose (MD 0.37, 95% CI 0.1 to 0.6)."))])
-        quote = "risk of exacerbation (OR 2.4, 95% CI 1.8-3.1)"
+        self.kb.add_documents([Document("PMID:4", (
+            "Children with prior ED visits aged 2-17 years had a higher risk "
+            "(OR 2.4, 95% CI 1.8-3.1)."))])
         cases = [
             # the "95%" confidence level is not an effect of 0.95
-            (Evidence("x", {"type": "OR", "value": 0.95}, "PMID:1", quote),
+            (Evidence(ED, {"type": "OR", "value": 0.95}, "PMID:1", ED_QUOTE),
              "effect size 0.95"),
             # a CI bound cannot stand in for the estimate
-            (Evidence("x", {"type": "OR", "value": 1.8, "ci": [1.8, 3.1]}, "PMID:1",
-                      quote), "effect size 1.8"),
+            (Evidence(ED, {"type": "OR", "value": 1.8, "ci": [1.8, 3.1]}, "PMID:1",
+                      ED_QUOTE), "effect size 1.8"),
+            # nor can a stray number before the effect
+            (Evidence(ED, {"type": "OR", "value": 2.0, "ci": [1.8, 3.1]}, "PMID:4",
+                      "prior ED visits aged 2-17 years had a higher risk "
+                      "(OR 2.4, 95% CI 1.8-3.1)"), "effect size 2"),
             # signs must match, both ways
-            (Evidence("x", {"type": "MD", "value": 0.37}, "PMID:3",
-                      "(MD -0.37, 95% CI -0.8 to 0.06)"), "effect size 0.37"),
-            (Evidence("x", {"type": "MD", "value": -0.37}, "PMID:3",
-                      "(MD 0.37, 95% CI 0.1 to 0.6)"), "effect size -0.37"),
+            (Evidence("symptom days", {"type": "MD", "value": 0.37}, "PMID:3",
+                      "Symptom days fell (MD -0.37, 95% CI -0.8 to 0.06)"),
+             "effect size 0.37"),
+            (Evidence("night waking", {"type": "MD", "value": -0.37}, "PMID:3",
+                      "Night waking rose (MD 0.37, 95% CI 0.1 to 0.6)"),
+             "effect size -0.37"),
         ]
         for record, reason in cases:
             e = self.verdicts(record)
@@ -121,36 +134,29 @@ class TestCitationCheck(unittest.TestCase):
             self.assertIn(reason, e.reason)
 
     def test_non_numeric_llm_output_is_rejected_not_a_crash(self):
-        quote = "risk of exacerbation (OR 2.4, 95% CI 1.8-3.1)"
-        records = [
-            {"predictor": "string number", "quote": quote,
-             "effect": {"type": "OR", "value": "2.4", "ci": ["1.8", "3.1"]}},
-            {"predictor": "null value", "quote": quote,
-             "effect": {"type": "OR", "value": None}},
-            {"predictor": "bad ci", "quote": quote,
-             "effect": {"type": "OR", "value": 2.4, "ci": [1.8]}},
-            {"predictor": "words", "quote": quote,
-             "effect": {"type": "OR", "value": "about two"}},
-            {"predictor": "effect as text", "quote": quote, "effect": "OR 2.4"},
+        effects = [
+            {"type": "OR", "value": "2.4", "ci": ["1.8", "3.1"]},  # string numbers
+            {"type": "OR", "value": None},
+            {"type": "OR", "value": 2.4, "ci": [1.8]},  # a malformed interval
+            {"type": "OR", "value": "about two"},
+            "OR 2.4",  # the effect as text
         ]
+        records = [{"predictor": ED, "quote": ED_QUOTE, "effect": e} for e in effects]
         kb = KnowledgeBase(llm=ScriptedLLM([_reply({"records": records})]))
         kb.add_documents([Document("PMID:1", ABSTRACT)])
         kb.extract(CARD)
-        reasons = {e.predictor: (e.verified, e.reason) for e in kb.verify()}
-        self.assertEqual(reasons["string number"], (True, ""))
-        self.assertEqual(reasons["null value"],
-                         (False, "the record has no effect size"))
-        for name in ("bad ci", "words"):
-            self.assertEqual(reasons[name],
-                             (False, "the effect size is not a number"))
-        self.assertEqual(reasons["effect as text"],
-                         (False, "the effect is not a record"))
+        self.assertEqual([(e.verified, e.reason) for e in kb.verify()], [
+            (True, ""),
+            (False, "the record has no effect size"),
+            (False, "the effect size is not a number"),
+            (False, "the effect size is not a number"),
+            (False, "the effect is not a record"),
+        ])
 
     def test_extraction_cannot_choose_its_source(self):
         llm = ScriptedLLM([_reply({"records": [
-            {"predictor": "prior ED visits", "effect": {"type": "OR", "value": 2.4,
-             "ci": [1.8, 3.1]}, "quote": "risk of exacerbation (OR 2.4, 95% CI "
-             "1.8-3.1)", "citation": "PMID:12345"},
+            {"predictor": ED, "effect": {"type": "OR", "value": 2.4,
+             "ci": [1.8, 3.1]}, "quote": ED_QUOTE, "citation": "PMID:12345"},
             {"predictor": "made up", "effect": {"type": "OR", "value": 5.0},
              "quote": "an invented sentence about OR 5.0"},
         ]})])
@@ -207,6 +213,8 @@ class TestTablesAndQueries(unittest.TestCase):
         md = parse_effect("MD -0.37 (95% CI -0.8 to 0.06)")
         self.assertEqual((md["value"], md["ci"]), (-0.37, [-0.8, 0.06]))
         self.assertEqual(parse_effect("AUC 84%")["value"], 0.84)
+        for text, value in (("OR 2.4 (p = 0.01)", 2.4), ("AUC 0.84 (p<0.001)", 0.84)):
+            self.assertEqual(parse_effect(text)["value"], value)  # p is not a bound
         crossing = parse_effect("OR 0.5–1.5")  # no point estimate, no direction
         self.assertEqual((crossing["value"], crossing["direction"], crossing["range"]),
                          (None, "", [0.5, 1.5]))
@@ -233,6 +241,24 @@ class TestTablesAndQueries(unittest.TestCase):
             self.assertLessEqual(words, allowed, query)
         self.assertEqual(kb.queries[0], pubmed_query(CARD))
         self.assertEqual(len(urls), 3)  # one search, two abstracts
+
+    def test_cache_keys_hash_the_whole_url(self):
+        calls = []
+
+        def fetch(url):
+            calls.append(url)
+            return url
+
+        tail = "x" * 300  # identical long tails, different starts
+        with tempfile.TemporaryDirectory() as tmp:
+            kb = KnowledgeBase(fetch=fetch, cache_dir=tmp)
+            self.assertEqual(kb._get("https://a/?term=children" + tail),
+                             "https://a/?term=children" + tail)
+            self.assertEqual(kb._get("https://a/?term=adults" + tail),
+                             "https://a/?term=adults" + tail)
+            kb._get("https://a/?term=adults" + tail)  # cached
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(len(os.listdir(tmp)), 2)
 
     def test_fetch_by_id_sends_only_the_ids(self):
         urls = []

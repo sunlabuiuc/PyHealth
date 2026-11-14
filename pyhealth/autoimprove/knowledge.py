@@ -38,6 +38,7 @@ event types, groups and columns.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -308,7 +309,8 @@ class KnowledgeBase:
 
         The query uses only words from the card's population and outcome
         (no data, no feature names), and every query is kept in
-        ``self.queries`` so it can be audited. Abstracts are cached.
+        ``self.queries`` so it can be audited. Abstracts are cached when
+        ``cache_dir`` is set.
 
         Examples:
             >>> kb.search_pubmed(task.task_card())  # doctest: +SKIP
@@ -343,7 +345,8 @@ class KnowledgeBase:
     def _get(self, url: str) -> str:
         if self.cache_dir:
             os.makedirs(self.cache_dir, exist_ok=True)
-            key = re.sub(r"[^A-Za-z0-9]+", "_", url)[-150:]
+            # a hash of the whole URL: long queries differ at the start
+            key = hashlib.sha256(url.encode()).hexdigest()
             path = os.path.join(self.cache_dir, key + ".txt")
             if os.path.exists(path):
                 with open(path) as f:
@@ -396,9 +399,13 @@ class KnowledgeBase:
         """Checks every record's citation; returns the records with verdicts.
 
         A record is kept (``verified``) only if its source is a gathered
-        document, its quote appears in that document, and its effect size,
-        and confidence interval if given, appear in the quote. A direction
-        that contradicts a ratio effect is corrected from the value.
+        document, its quote appears in that document, the quote (or, for a
+        curated row, the row) names the predictor, and its effect size and
+        confidence interval, if given, are the numbers the quote attaches to
+        the effect type (the estimate right after "OR", "RR", ...). A ratio
+        effect's direction is set from its value, and left empty when its
+        interval crosses 1. Curated rows' reference columns are kept but not
+        checked against the cited papers.
 
         Examples:
             >>> [e.reason for e in kb.verify() if not e.verified]  # doctest: +SKIP
@@ -409,7 +416,12 @@ class KnowledgeBase:
             value = e.effect.get("value")
             if e.verified and e.effect.get("type") in RATIO_TYPES and isinstance(
                     value, (int, float)):
-                e.effect["direction"] = "+" if value > 1 else "-" if value < 1 else ""
+                ci = e.effect.get("ci")
+                if ci and min(ci) <= 1 <= max(ci):
+                    e.effect["direction"] = ""  # the interval crosses 1
+                else:
+                    e.effect["direction"] = ("+" if value > 1 else "-" if value < 1
+                                             else "")
         return list(self.evidence)
 
     # ---------------------------------------------------------------- mapping
@@ -676,6 +688,9 @@ def _check(e: Evidence, doc: Document | None) -> tuple[bool, str]:
     quote = _norm(e.quote)
     if len(quote) < 8 or quote not in _norm(doc.text):
         return False, "the quote is not in the source"
+    # A curated row's quote is its effect cell; the row names the predictor.
+    if not _mentions(e.predictor, _norm(doc.text) if e.curated else quote):
+        return False, "the quote does not name the predictor"
     effect = _coerce_effect(e.effect)
     if "invalid" in effect:
         return False, effect["invalid"]
@@ -686,10 +701,19 @@ def _check(e: Evidence, doc: Document | None) -> tuple[bool, str]:
     numbers += list(effect.get("ci") or []) + list(effect.get("range") or [])
     tokens = _numbers(quote)
     as_percent = effect.get("type") in PROPORTION_TYPES
-    # The numbers must appear in the quote in order (estimate, then the
-    # interval), each at its own position, so a CI bound cannot stand in
-    # for the estimate.
+    # The first number must be the one the quote attaches to the effect type
+    # ("OR 2.4"), and the rest must follow it in order, each at its own
+    # position, so neither a stray number ("aged 2-17") nor a CI bound can
+    # stand in for the estimate.
     start = 0
+    if effect.get("type"):
+        anchors = _anchored(effect["type"], quote, tokens)
+        if not anchors:
+            return False, f"the quote does not state an {effect['type']}"
+        first = next((i for i in anchors if _find_number(
+            numbers[0], tokens, i, as_percent) == i), None)
+        if first is None:
+            return False, f"the effect size {numbers[0]:g} is not in the quote"
     for number in numbers:
         pos = _find_number(number, tokens, start, as_percent)
         if pos is None:
@@ -703,7 +727,8 @@ def _numbers(text: str) -> list[tuple[float, bool, int]]:
 
     A dash after a number, a percent sign or a bracket is a range
     ("1.8-3.1", "82%-85%") and one after a letter a hyphen ("COVID-19"),
-    not a minus; a confidence level ("95% CI", "95% confidence interval") is skipped.
+    not a minus; a confidence level ("95% CI", "95% confidence interval")
+    and a p-value ("p = 0.01") are skipped.
     """
     out = []
     pattern = r"(?<![\d.])(-)?(\d+(?:\.\d+)?)\s*(%?)(\s*(?:ci\b|confidence))?"
@@ -711,6 +736,8 @@ def _numbers(text: str) -> list[tuple[float, bool, int]]:
         minus, digits, percent, level = m.groups()
         if percent and level:
             continue
+        if re.search(r"\bp\s*(?:[=<>≤≥]\s*)?$", text[:m.start()], re.IGNORECASE):
+            continue  # a p-value ("p = 0.01", "p<0.001")
         adjacent = text[m.start() - 1:m.start()]
         before = text[:m.start()].rstrip()[-1:]
         if minus and (adjacent.isalpha() or (before and (
@@ -719,6 +746,46 @@ def _numbers(text: str) -> list[tuple[float, bool, int]]:
         x = float(digits)
         out.append((-x if minus else x, bool(percent), m.start()))
     return out
+
+
+def _anchored(
+    kind: str, quote: str, tokens: list[tuple[float, bool, int]]
+) -> list[int]:
+    """Indexes of the numbers right after a mention of the effect type.
+
+    "OR 2.4" and "OR: 2.4" anchor 2.4; an adjusted type ("aOR") also matches
+    a plain or spelled-out mention ("adjusted OR"), and an AUC "AUROC" or
+    "c-statistic".
+    """
+    names = {kind.lower()}
+    if kind.startswith("a") and kind[1:] in ("RR", "OR", "HR", "IRR"):
+        names.add(kind[1:].lower())
+    if kind in PROPORTION_TYPES:
+        names |= {"auc", "auroc", "c-statistic", "c statistic"}
+    out = []
+    for name in names:
+        for m in re.finditer(rf"(?<![a-z]){re.escape(name)}(?![a-z])", quote):
+            nxt = next((i for i, (_, _, pos) in enumerate(tokens)
+                        if pos >= m.end()), None)
+            if nxt is not None and tokens[nxt][2] - m.end() <= 12:
+                out.append(nxt)
+    return sorted(set(out))
+
+
+def _mentions(predictor: str, text: str) -> bool:
+    """Whether the text names the predictor: most of its words, by stem.
+
+    "prior ED visits" is named by "two or more ED visits in the prior year".
+    Words of three letters or more count (and acronyms such as "ED"); a
+    word matches a text word with the same first five letters.
+    """
+    words = [w for w in re.findall(r"[a-z0-9]+", _norm(predictor))
+             if w not in _STOPWORDS and (len(w) >= 3 or w.isalpha())]
+    if not words:
+        return False
+    text_words = re.findall(r"[a-z0-9]+", text)
+    found = sum(any(t[:5] == w[:5] for t in text_words) for w in words)
+    return found * 2 >= len(words) and found > 0
 
 
 def _find_number(
