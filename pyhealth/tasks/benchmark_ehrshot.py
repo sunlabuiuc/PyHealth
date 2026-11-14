@@ -8,6 +8,8 @@ from .base_task import BaseTask
 class BenchmarkEHRShot(BaseTask):
     """Benchmark predictive tasks using EHRShot.
 
+    Works with :class:`~pyhealth.datasets.EHRShotDataset`.
+
     Examples:
         >>> from pyhealth.datasets import EHRShotDataset
         >>> from pyhealth.tasks import BenchmarkEHRShot

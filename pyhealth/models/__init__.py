@@ -7,6 +7,15 @@ from .apn import (
     masked_mse as masked_mse,
 )
 from .base_model import BaseModel
+from .unet import (
+    DiceLoss as DiceLoss,
+    SegmentationLoss as SegmentationLoss,
+    UNet as UNet,
+    UNet2D as UNet2D,
+    UNet3D as UNet3D,
+    evaluate_segmentation as evaluate_segmentation,
+    sliding_window_inference as sliding_window_inference,
+)
 from .transformer_deid import TransformerDeID
 from .biot import BIOT
 from .cnn import CNN, CNNLayer
@@ -37,6 +46,7 @@ from .retain import MultimodalRETAIN, RETAIN, RETAINLayer
 from .rnn import MultimodalRNN, RNN, RNNLayer
 from .rnn import RNN_V2 as RNN_V2
 from .safedrug import SafeDrug, SafeDrugLayer
+from .shy import SHy as SHy
 from .sparcnet import DenseBlock, DenseLayer, SparcNet, TransitionLayer
 from .stagenet import StageNet, StageNetLayer
 from .stagenet_mha import StageAttentionNet, StageNetAttentionLayer
@@ -79,8 +89,15 @@ from .generators.medgan import MedGAN
 from .generators.synthea import Synthea as Synthea
 from .generators.corgan import CorGAN as CorGAN
 from .survival_mdn import SurvivalMDN as SurvivalMDN
+from .cet import CET as CET
 from .trajsurv import TrajSurv as TrajSurv
 from .knowrare import KnowRare as KnowRare
+from .trace import (
+    TRACE as TRACE,
+    TRACEAttention as TRACEAttention,
+    TRACELayer as TRACELayer,
+    TRACETimeEmbedding as TRACETimeEmbedding,
+)
 from .apricotm import APRICOTM as APRICOTM
 from .selective_ssm import SelectiveSSM as SelectiveSSM
 from .ethos import ETHOS as ETHOS

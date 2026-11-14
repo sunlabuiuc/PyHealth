@@ -594,13 +594,12 @@ class Agent(BaseModel):
             #Handle NestedSequenceProcessor output(4D->3D)
             #NestedSequenceProcessor returns [batch, visits, codes, embed_dim]
             #AgentLayer expects [batch, seq_len, input_dim]
-            if x.dim()== 4:
-                #Sum across the codes dimension(like RETAIN, AdaCare, SafeDrug)
-                x=torch.sum(x, dim=2) #-> [batch, visits, embed_dim]
-            elif x.dim()!= 3:
-                raise ValueError(
-                    f"Expected 3D or 4D tensor for {feature_key}, got {x.dim()}D"
-                )
+            # Sum over inner code dimensions (like RETAIN, AdaCare, SafeDrug)
+            while x.dim() > 3:
+                x = x.sum(dim=2)  # -> [batch, visits, embed_dim]
+            if x.dim() == 2:
+                # One vector per patient (multi_hot, tensor): a single step.
+                x = x.unsqueeze(1)
                 #Compute visit-level mask (non-zero entries are valid)
             mask=x.abs().sum(dim=-1)> 0
             mask_dict[feature_key]= mask

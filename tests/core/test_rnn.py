@@ -271,5 +271,42 @@ class TestMultimodalRNN(unittest.TestCase):
         self.assertEqual(ret["embed"].shape[1], expected_embed_dim)
 
 
+MODELS = [RNN, MultimodalRNN]
+
+DEEP_SAMPLES = [
+    {"patient_id": "p0", "label": 0,
+     "codes": [[["a", "b"], ["c"]], [["a"]], [["d", "e"], ["b"], ["c"]]]},
+    {"patient_id": "p1", "label": 1, "codes": [[["b"]]]},
+]
+
+
+class TestDeepNestedCodes(unittest.TestCase):
+    """deep_nested_sequence fields embed to (batch, groups, visits, codes, D)."""
+
+    def test_models_pool_each_group_and_ignore_padding(self):
+        dataset = create_sample_dataset(
+            samples=DEEP_SAMPLES, input_schema={"codes": "deep_nested_sequence"},
+            output_schema={"label": "binary"}, dataset_name="deep",
+        )
+        for cls in MODELS:
+            with self.subTest(model=cls.__name__):
+                torch.manual_seed(0)
+                model = cls(dataset=dataset, embedding_dim=8, hidden_dim=8)
+                batch = next(iter(get_dataloader(dataset, batch_size=2)))
+                ret = model(**batch)
+                ret["loss"].backward()
+                self.assertEqual(tuple(ret["y_prob"].shape), (2, 1))
+                self.assertTrue(torch.isfinite(ret["loss"]))
+                # The short record scores the same alone as when padded next
+                # to a longer one.
+                model.eval()
+                with torch.no_grad():
+                    together = model(**batch)["y_prob"][1]
+                    single = next(iter(get_dataloader(dataset.subset([1]),
+                                                      batch_size=1)))
+                    alone = model(**single)["y_prob"][0]
+                torch.testing.assert_close(together, alone)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -22,9 +22,13 @@ Processors are automatically applied based on the ``input_schema`` and ``output_
 Available Processors
 --------------------
 
+:doc:`processors/compatibility` shows which layer ``EmbeddingModel`` builds
+for each input processor, and which general-purpose models (RNN, Transformer,
+MLP and others) train on a field of that type.
+
 **Sequence Processors:**
 
-- :doc:`SequenceProcessorV2 <processors/pyhealth.processors.SequenceProcessorV2>`: Unified processor for hierarchical packed records (codes, continuous values, and timestamps at any nesting depth) without padding or truncation
+- :doc:`JaggedFeatureProcessor <processors/pyhealth.processors.JaggedFeatureProcessor>`: Jagged processor for hierarchical packed records (codes, continuous values, and timestamps at any nesting depth) without padding or truncation
 - ``SequenceProcessor``: For categorical sequences (e.g., medical codes like diagnoses, procedures)
 - ``NestedSequenceProcessor``: For nested categorical sequences (e.g., drug recommendation with visit history)
 - ``NestedMultiHotProcessor``: For nested categorical sequences as per-visit multi-hot vectors (e.g., generative EHR models)
@@ -37,6 +41,8 @@ Available Processors
 - ``BinaryLabelProcessor``: Binary classification labels (e.g., mortality prediction)
 - ``MultiClassLabelProcessor``: Multi-class classification labels
 - ``MultiLabelProcessor``: Multi-label classification (e.g., drug recommendation)
+- ``SegmentationBinaryLabelProcessor``: Binary segmentation masks (``"segmentation_binary"``; supplied by ``UNet.label_processors``, not available as a string schema or through ``get_metrics_fn``), scored case by case with Dice/IoU because masks keep their spatial shape
+- ``SegmentationMultiClassLabelProcessor``: Multi-class segmentation masks (``"segmentation_multiclass"``; supplied by ``UNet.label_processors``, not available as a string schema or through ``get_metrics_fn``), one integer class per voxel
 - ``RegressionLabelProcessor``: Continuous regression targets, optionally normalized for training, as ``TensorProcessor`` does for inputs (``("regression", {"normalization": "minmax"})``, ``"zscore"``, or a fixed ``(low, high)`` range); ``Trainer.inference`` and metrics are in the original units
 - ``TimeseriesBinaryLabelProcessor``: Binary labels at given times (``"timeseries_binary"``): each sample is ``{"time": [...], "values": [...]}``, packed per batch as ``(values [ΣN, 1], time [ΣN], batch offsets [B + 1])``, one record per label, with no grid or mask
 - ``TimeseriesMultiClassLabelProcessor``: One class per given time (``"timeseries_multiclass"``), values ``[ΣN]``, in the same packed format
@@ -89,7 +95,8 @@ pixels through the processor's ``collate`` method.
 **Supporting Types:**
 
 - ``ModalityType``: Enum of modality identifiers (``CODE``, ``TEXT``, ``IMAGE``, ``NUMERIC``, ``AUDIO``, ``SIGNAL``) used for routing in ``UnifiedMultimodalEmbeddingModel``
-- ``TemporalFeatureProcessor``: Abstract base class for all temporal processors; requires ``modality()``, ``value_dim()``, and ``process()`` returning ``dict``
+- ``LegacyFeatureProcessor``: Base class for processors read by the legacy models (RNN, Transformer, StageNet, ...) and the interpretability methods; adds ``schema()``, ``is_token()``, ``dim()`` and ``spatial()`` to ``FeatureProcessor``
+- ``TemporalFeatureProcessor``: Abstract base class for all temporal processors (a ``LegacyFeatureProcessor``); requires ``modality()``, ``value_dim()``, and ``process()`` returning ``dict``
 
 Usage Examples
 --------------
@@ -334,7 +341,7 @@ samples to a disk cache (litdata). Each field is stored according to its process
 
 - Processors that always return a ``torch.Tensor`` — or a tuple of tensors with
   the same length for every sample — declare ``stores_tensor = True``
-  (``sequence_v2``, ``sequence``, ``nested_sequence``, ``tensor``, ``timeseries``,
+  (``jagged``, ``sequence``, ``nested_sequence``, ``tensor``, ``timeseries``,
   the label processors, ``image``, ``audio`` and others). Their outputs are
   stored natively as tensors.
 - Every other field — ``raw``, ``text``, ``stagenet``, ``tuple_time_text``,
@@ -360,7 +367,7 @@ value whose length, shape or type varied between samples failed to write, or was
 read back wrong. Caches written by those versions are rebuilt automatically (the
 storage layout is part of the cache key).
 
-Processors whose batches need custom packing (such as ``SequenceProcessorV2``)
+Processors whose batches need custom packing (such as ``JaggedFeatureProcessor``)
 define ``collate(items)``, which ``get_dataloader`` uses automatically for those
 fields. For fields without a processor-level ``collate``, the default collate
 function treats any 2-tuple as a ``(time, values)`` pair of tensors, so batch raw
@@ -371,7 +378,9 @@ Processor String Keys
 
 Common string keys for automatic processor selection:
 
-- ``"sequence_v2"``: For unified hierarchical packed records (codes, continuous values, and timestamps)
+- ``"jagged"``: For jagged hierarchical packed records (codes, continuous values, and timestamps)
+- ``"sequence_v2"``: Deprecated former name of ``"jagged"``
+  (:class:`~pyhealth.processors.sequence_processor_v2.SequenceProcessorV2`); use ``"jagged"``
 - ``"temporal_timeseries"``: For time-series data with preserved timestamps (use in place of ``"timeseries"`` when building ``UnifiedMultimodalEmbeddingModel``)
 - ``"sequence"``: For categorical sequences (medical codes)
 - ``"nested_sequence"``: For nested categorical sequences (visit history)
@@ -405,6 +414,8 @@ When creating a custom ``FeatureProcessor``, you need to understand two key meth
 
 1. **process()** - Required method that transforms individual feature values
 2. **fit()** - Optional method for learning global data statistics (e.g., vocabularies, normalization parameters)
+
+A processor whose field feeds the legacy models (RNN, Transformer, StageNet, ...) or the interpretability methods subclasses ``LegacyFeatureProcessor`` instead and also implements ``schema()``, ``is_token()``, ``dim()`` and ``spatial()``.
 
 The ``process()`` Method
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -563,14 +574,17 @@ API Reference
 .. toctree::
     :maxdepth: 3
 
+    processors/compatibility
     processors/pyhealth.processors.Processor
     processors/pyhealth.processors.FeatureProcessor
+    processors/pyhealth.processors.LegacyFeatureProcessor
     processors/pyhealth.processors.TemporalFeatureProcessor
     processors/pyhealth.processors.ModalityType
     processors/pyhealth.processors.SampleProcessor
     processors/pyhealth.processors.DatasetProcessor
     processors/pyhealth.processors.SequenceProcessor
-    processors/pyhealth.processors.SequenceProcessorV2
+    processors/pyhealth.processors.JaggedFeatureProcessor
+    processors/pyhealth.processors.UnifiedBridge
     processors/pyhealth.processors.NestedSequenceProcessor
     processors/pyhealth.processors.NestedMultiHotProcessor
     processors/pyhealth.processors.NestedFloatsProcessor
@@ -579,6 +593,8 @@ API Reference
     processors/pyhealth.processors.MultiClassLabelProcessor
     processors/pyhealth.processors.MultiLabelProcessor
     processors/pyhealth.processors.RegressionLabelProcessor
+    processors/pyhealth.processors.SegmentationBinaryLabelProcessor
+    processors/pyhealth.processors.SegmentationMultiClassLabelProcessor
     processors/pyhealth.processors.TimeseriesLabelProcessor
     processors/pyhealth.processors.TimeseriesBinaryLabelProcessor
     processors/pyhealth.processors.TimeseriesMultiClassLabelProcessor

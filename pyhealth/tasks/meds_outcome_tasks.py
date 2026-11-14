@@ -44,7 +44,10 @@ Readmission predicts **at discharge**:
 * **Features.** Static events, every event strictly before ``t_d``, and the
   events stamped ``t_d`` that carry this ``hadm_id`` (the discharge,
   diagnoses and DRG codes). Events stamped ``t_d`` from any other stay are
-  dropped, so a same-instant readmission cannot reach the input.
+  dropped, so a same-instant readmission cannot reach the input, and so are
+  all events of a stay admitted at or after ``t_d``: a same-day
+  readmission's date-resolution codes (e.g. HCPCS at midnight) sort before
+  ``t_d`` but belong to the next stay.
 * **Label.** 1 if the next ``HOSPITAL_ADMISSION//*`` of another stay or the next
   ``MEDS_DEATH`` falls within ``window_days`` of ``t_d`` (inclusive).
   ``require_full_followup=True`` also drops negatives whose timeline ends
@@ -217,12 +220,28 @@ def _rows_at_discharge(events: pl.DataFrame, stay: dict[str, Any]) -> pl.DataFra
 
     Returns:
         pl.DataFrame: Static rows, everything before discharge, then the events
-        of this stay stamped at discharge.
+        of this stay stamped at discharge. Events of a stay admitted at or
+        after this discharge are dropped even when stamped earlier: a
+        same-day readmission's date-resolution codes (e.g. HCPCS at
+        midnight) sort before this discharge and would reveal the label.
     """
+    code = pl.col("meds/code")
     time = pl.col("timestamp")
-    at_discharge = (time == stay["discharge"]) & _is_this_stay(stay["hadm_id"])
+    this_stay = _is_this_stay(stay["hadm_id"])
+    later_stays = (
+        events.filter(
+            code.str.starts_with(ADMISSION_PREFIX)
+            & (time >= stay["discharge"])
+            & ~this_stay
+        )["_hadm"]
+        .drop_nulls()
+        .unique()
+        .to_list()
+    )
+    at_discharge = (time == stay["discharge"]) & this_stay
     window = time.is_null() | (time < stay["discharge"]) | at_discharge
-    return events.filter(window & (pl.col("meds/code") != DEATH_CODE))
+    later = pl.col("_hadm").is_in(later_stays).fill_null(False)
+    return events.filter(window & ~later & (code != DEATH_CODE))
 
 
 def _codes_at_discharge(events: pl.DataFrame, stay: dict[str, Any]) -> list[str]:

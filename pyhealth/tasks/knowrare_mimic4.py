@@ -149,6 +149,8 @@ def _fill_both_ways(values: np.ndarray) -> np.ndarray:
 class KnowRareICUMortalityMIMIC4(YAIBMortalityMIMIC4):
     """ICU mortality from the first 24 hours, grouped by primary condition.
 
+    Works with :class:`~pyhealth.datasets.MIMIC4EHRDataset`.
+
     The MIMIC-IV counterpart of KnowRare's eICU ICU-mortality task. The
     cohort, label and features are those of
     :class:`~pyhealth.tasks.YAIBMortalityMIMIC4` (adults; ICU stays of at

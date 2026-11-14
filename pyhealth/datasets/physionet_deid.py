@@ -264,6 +264,13 @@ class PhysioNetDeIDDataset(BaseDataset):
         4. Download from
            https://physionet.org/content/deidentifiedmedicaltext/1.0/
 
+    Getting the data:
+        - Source: https://physionet.org/content/deidentifiedmedicaltext/1.0/
+        - Access: credentialed. Create a PhysioNet account, complete credentialing
+          (https://physionet.org/settings/credentialing/) and the CITI course,
+          then sign the data use agreement on the dataset page.
+        - ``root``: the folder holding ``id.text`` and ``id.res``.
+
     Attributes:
         root (str): Root directory containing id.text and id.res files.
         dataset_name (str): Name of the dataset.
