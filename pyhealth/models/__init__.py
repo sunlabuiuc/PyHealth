@@ -115,3 +115,9 @@ from .mira import (
     MIRAConfig as MIRAConfig,
     load_mira_checkpoint as load_mira_checkpoint,
 )
+
+from .giantmed import (
+    GiantMed as GiantMed,
+    HuggingFaceGiantMedGenerator as HuggingFaceGiantMedGenerator,
+    MediEvidenceFilter as MediEvidenceFilter,
+)

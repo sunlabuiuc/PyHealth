@@ -1,0 +1,460 @@
+"""Train SafeDrug and refine its predictions on the bundled MIMIC-III demo.
+
+Run from the repository root::
+
+    python examples/drug_recommendation/giantmed_mimic3.py --model Qwen/Qwen3-8B
+
+The demo is tiny and is intended only to exercise the pipeline, not to
+reproduce the paper. The model and code-mapping resources may need downloads.
+Without --model a no-op responder exercises the pipeline without an LLM.
+The reference's optional MEDI evidence filter is not applied in this example.
+"""
+
+import argparse
+from collections import Counter, defaultdict
+import json
+import os
+import tempfile
+import urllib.request
+from pathlib import Path
+
+import numpy as np
+import torch
+
+from pyhealth.datasets import MIMIC3Dataset, PatientSplit, get_dataloader
+from pyhealth.metrics import ddi_rate_score, multilabel_metrics_fn
+from pyhealth.medcode import ATC, ICD9CM, ICD9PROC
+from pyhealth.models import (
+    GiantMed,
+    HuggingFaceGiantMedGenerator,
+    MediEvidenceFilter,
+    SafeDrug,
+)
+from pyhealth.tasks import DrugRecommendationMIMIC3
+from pyhealth.trainer import Trainer
+
+
+class OpenRouterGenerator:
+    """Example adapter for OpenRouter; the API key stays in the environment."""
+
+    def __init__(self, model, max_tokens, max_input_tokens=None, response_trace=None):
+        self.model = model
+        self.max_tokens = max_tokens
+        self.max_input_tokens = max_input_tokens
+        self.usage = []
+        self.response_trace = response_trace
+        self.api_key = os.environ["OPENROUTER_API_KEY"]
+
+    def __call__(self, prompt):
+        body = json.dumps(
+            {
+                "model": self.model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.6,
+                "top_p": 0.95,
+                "max_tokens": self.max_tokens,
+                "reasoning": {"enabled": False},
+            }
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            "https://openrouter.ai/api/v1/chat/completions",
+            data=body,
+            headers={
+                "Authorization": "Bearer " + self.api_key,
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=240) as response:
+            payload = json.load(response)
+        self.usage.append(payload.get("usage", {}))
+        actual_tokens = payload.get("usage", {}).get("prompt_tokens")
+        if (
+            self.max_input_tokens is not None
+            and actual_tokens is not None
+            and actual_tokens > self.max_input_tokens
+        ):
+            raise ValueError(
+                f"Provider reported {actual_tokens} input tokens, exceeding "
+                f"the {self.max_input_tokens} token limit; stopping the run"
+            )
+        content = payload["choices"][0]["message"]["content"]
+        if self.response_trace:
+            with open(self.response_trace, "a", encoding="utf-8") as stream:
+                stream.write(
+                    json.dumps({"content": content, "usage": self.usage[-1]}) + "\n"
+                )
+        return content
+
+
+def count_chat_tokens(tokenizer, prompt):
+    """Count a single rendered chat, including its generation template."""
+    encoded = tokenizer.apply_chat_template(
+        [{"role": "user", "content": prompt}],
+        tokenize=True,
+        add_generation_prompt=True,
+        enable_thinking=False,
+    )
+    ids = encoded["input_ids"] if hasattr(encoded, "keys") else encoded
+    if len(ids) and isinstance(ids[0], (list, tuple)):
+        ids = ids[0]
+    return len(ids)
+
+
+def evaluate_predictions(y_true, scores, patient_ids, ddi):
+    """Average visit metrics within each patient, then across patients."""
+    scores = np.asarray(scores)
+    if len(y_true) != len(scores) or len(scores) != len(patient_ids) or not len(scores):
+        raise ValueError(
+            "targets, scores and patient IDs must have equal nonzero length"
+        )
+    per_patient = defaultdict(list)
+    counts = defaultdict(list)
+    predictions = []
+    for patient_id, target, probability in zip(patient_ids, y_true, scores):
+        per_patient[patient_id].append(
+            multilabel_metrics_fn(
+                np.asarray([target]),
+                np.asarray([probability]),
+                metrics=["jaccard_samples", "f1_samples", "pr_auc_samples"],
+                threshold=0.5,
+            )
+        )
+        prediction = np.flatnonzero(probability >= 0.5)
+        predictions.append(prediction)
+        counts[patient_id].append(len(prediction))
+    metrics = {
+        key: float(
+            np.mean(
+                [
+                    np.mean([visit[key] for visit in visits])
+                    for visits in per_patient.values()
+                ]
+            )
+        )
+        for key in ("jaccard_samples", "f1_samples", "pr_auc_samples")
+    }
+    metrics["ddi_rate"] = ddi_rate_score(predictions, ddi)
+    metrics["mean_medications"] = float(np.mean([np.mean(v) for v in counts.values()]))
+    return metrics
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--root",
+        default=str(
+            Path(__file__).resolve().parents[2] / "test-resources/core/mimic3demo"
+        ),
+    )
+    parser.add_argument("--model", help="Hugging Face causal chat model or local path")
+    parser.add_argument(
+        "--openrouter-model", help="OpenRouter model ID; sends prompts to OpenRouter"
+    )
+    parser.add_argument("--max-new-tokens", type=int, default=4096)
+    parser.add_argument("--max-input-tokens", type=int, default=4096)
+    parser.add_argument(
+        "--input-token-reserve",
+        type=int,
+        default=256,
+        help="allowance for remote provider chat formatting",
+    )
+    parser.add_argument(
+        "--prompt-tokenizer", help="Hugging Face tokenizer name or local path"
+    )
+    parser.add_argument("--boundary-low", type=float, default=0.3)
+    parser.add_argument("--boundary-high", type=float, default=0.7)
+    parser.add_argument(
+        "--candidate-batch-size",
+        type=int,
+        help="maximum target medications per LLM request",
+    )
+    parser.add_argument(
+        "--save-responses", help="optional local JSON path for generated responses"
+    )
+    parser.add_argument(
+        "--response-trace",
+        help="optional local JSONL response trace; may contain patient data",
+    )
+    parser.add_argument(
+        "--max-test-visits",
+        type=int,
+        default=None,
+        help="limit inference visits for a smoke run",
+    )
+    parser.add_argument(
+        "--demo-refinement",
+        action="store_true",
+        help="use a deterministic fake LLM to exercise score updates",
+    )
+    parser.add_argument("--medi", help="MEDI.csv")
+    parser.add_argument("--ndc-rxcui", help="reference NDC to RxCUI mapping")
+    parser.add_argument("--ndc-atc", help="reference RxCUI to ATC mapping")
+    parser.add_argument("--ingredient-cache", help="reference ingredient JSON cache")
+    args = parser.parse_args()
+    if args.max_new_tokens < 1 or (
+        args.max_test_visits is not None and args.max_test_visits < 1
+    ):
+        parser.error("token and visit limits must be positive")
+    if not 0 <= args.input_token_reserve < args.max_input_tokens:
+        parser.error(
+            "input token reserve must be nonnegative and smaller than the input limit"
+        )
+    if (
+        sum(bool(x) for x in (args.model, args.openrouter_model, args.demo_refinement))
+        > 1
+    ):
+        parser.error("choose only one model or demo responder")
+    if args.openrouter_model and not os.environ.get("OPENROUTER_API_KEY"):
+        parser.error("OPENROUTER_API_KEY must be set in the environment")
+    filter_files = [args.medi, args.ndc_rxcui, args.ndc_atc, args.ingredient_cache]
+    if any(filter_files) and not all(filter_files):
+        parser.error("supply all four MEDI mapping arguments together")
+    torch.manual_seed(0)
+    np.random.seed(0)
+    with tempfile.TemporaryDirectory() as cache:
+        dataset = MIMIC3Dataset(
+            root=args.root,
+            tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+            cache_dir=cache,
+        )
+        task = DrugRecommendationMIMIC3()
+        train, val, test = dataset.set_task(
+            task, split=PatientSplit((0.8, 0.1, 0.1), seed=0)
+        )
+        if not all(len(part) for part in (train, val, test)):
+            raise RuntimeError(
+                "The subset produced an empty split; use a larger dataset."
+            )
+        model = SafeDrug(train)
+        trainer = Trainer(model=model, metrics=["pr_auc_samples"], enable_logging=False)
+        trainer.train(
+            get_dataloader(train, batch_size=8, shuffle=True),
+            val_dataloader=get_dataloader(val, batch_size=8),
+            epochs=1,
+        )
+
+        # Raw task samples supply clinical codes for prompts and retrieval. The
+        # processed dataset supplies tensors for SafeDrug, in the same visit order.
+        def raw_samples(part):
+            return {
+                (str(s["patient_id"]), str(s["visit_id"])): s
+                for pid in part.patient_to_index
+                for s in task(dataset.get_patient(pid))
+            }
+
+        raw_train, raw_test = raw_samples(train), raw_samples(test)
+        vocab = train.output_processors["drugs"].label_vocab
+        codes = [code for code, _ in sorted(vocab.items(), key=lambda pair: pair[1])]
+        if args.model:
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+
+            tokenizer = AutoTokenizer.from_pretrained(args.model)
+            llm = AutoModelForCausalLM.from_pretrained(
+                args.model, torch_dtype="auto", device_map="auto"
+            )
+            generate = HuggingFaceGiantMedGenerator(
+                llm, tokenizer, max_new_tokens=args.max_new_tokens
+            )
+        elif args.openrouter_model:
+            generate = OpenRouterGenerator(
+                args.openrouter_model,
+                args.max_new_tokens,
+                max_input_tokens=args.max_input_tokens,
+                response_trace=args.response_trace,
+            )
+            print(f"Sending demo prompts to OpenRouter model {args.openrouter_model}.")
+        elif args.demo_refinement:
+
+            def generate(prompt):
+                candidates_line = next(
+                    line
+                    for line in prompt.splitlines()
+                    if line.startswith("Candidates: ")
+                )
+                candidates = json.loads(candidates_line.removeprefix("Candidates: "))
+                if isinstance(candidates, list):
+                    if "Only the first " in prompt:
+                        import re
+
+                        count = int(
+                            re.search(r"Only the first (\d+) rows", prompt).group(1)
+                        )
+                        candidates = candidates[:count]
+                    candidates = [row[0] for row in candidates]
+                return json.dumps({code: 0.8 for code in candidates})
+
+            print(
+                "Using a fake LLM to exercise score updates; results have no clinical meaning."
+            )
+        else:
+            print("No LLM selected: no-op refinement; scores will be unchanged.")
+
+            def generate(prompt):
+                return "{}"
+
+        # Translate codes for meaningful LLM evidence. Unknown codes remain visible.
+        all_raw = list(raw_train.values()) + list(raw_test.values())
+        names = {}
+        for field, terminology in (
+            ("conditions", ICD9CM()),
+            ("procedures", ICD9PROC()),
+            ("drugs", ATC()),
+        ):
+            values = (
+                set(codes)
+                if field == "drugs"
+                else {
+                    code
+                    for sample in all_raw
+                    for visit in sample[field]
+                    for code in visit
+                }
+            )
+            names[field] = {
+                code: terminology.lookup(code) for code in values if code in terminology
+            }
+        evidence_filter = None
+        if all(filter_files):
+            evidence_filter = MediEvidenceFilter.from_reference_files(
+                list(raw_train.values()),
+                Path(args.root) / "PRESCRIPTIONS.csv.gz",
+                args.medi,
+                args.ndc_rxcui,
+                args.ndc_atc,
+                args.ingredient_cache,
+            )
+            print(
+                "MEDI filter:",
+                len(evidence_filter.visit_drug_ingredients),
+                "training visit/drug mappings,",
+                len(evidence_filter.ingredient_diagnoses),
+                "ingredients with indications",
+            )
+        else:
+            print(
+                "MEDI evidence filter disabled; results differ from the released code."
+            )
+        tokenizer_name = args.prompt_tokenizer or args.model
+        if args.openrouter_model == "qwen/qwen3-14b" and not tokenizer_name:
+            tokenizer_name = "Qwen/Qwen3-14B"
+        if args.openrouter_model and not tokenizer_name:
+            parser.error("--prompt-tokenizer is required for this OpenRouter model")
+        token_counter = None
+        if tokenizer_name:
+            from transformers import AutoTokenizer
+
+            budget_tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+
+            def token_counter(prompt):
+                return count_chat_tokens(budget_tokenizer, prompt)
+
+        refiner = GiantMed(
+            codes,
+            model.safedrug.ddi_adj.detach().cpu().numpy(),
+            generate,
+            list(raw_train.values()),
+            code_names=names,
+            evidence_filter=evidence_filter,
+            boundary_low=args.boundary_low,
+            boundary_high=args.boundary_high,
+            prompt_token_counter=token_counter,
+            max_prompt_tokens=(args.max_input_tokens - args.input_token_reserve)
+            if token_counter
+            else None,
+            candidate_batch_size=args.candidate_batch_size,
+        )
+        y_true, baseline, refined, patient_ids = [], [], [], []
+        statuses = Counter()
+        candidate_count = updated_count = changed_count = 0
+        responses = []
+        budgets = []
+        evidence_checked = evidence_kept = 0
+        model.eval()
+        for batch in get_dataloader(test, batch_size=1, shuffle=False):
+            if args.max_test_visits is not None and len(y_true) >= args.max_test_visits:
+                break
+            with torch.no_grad():
+                out = model(**batch)
+            key = (str(batch["patient_id"][0]), str(batch["visit_id"][0]))
+            scores = out["y_prob"][0].detach().cpu().numpy()
+            if evidence_filter:
+                candidate_codes = {
+                    codes[i]
+                    for i in np.flatnonzero(
+                        (scores >= refiner.low) & (scores < refiner.high)
+                    )
+                }
+                for neighbour in refiner.retrieve(raw_test[key]):
+                    for drug in set(neighbour["drugs"]) & candidate_codes:
+                        evidence_checked += 1
+                        evidence_kept += int(
+                            evidence_filter(raw_test[key], neighbour, drug)
+                        )
+            result = refiner.refine_with_details(raw_test[key], scores)
+            if result.get("prompt_budget"):
+                budgets.append(result["prompt_budget"])
+            if args.save_responses:
+                responses.append(
+                    {
+                        "status": result["status"],
+                        "candidates": len(result["candidates"]),
+                        "updated": len(result["updated"]),
+                        "changed": len(result["changed"]),
+                        "prompt_budget": result.get("prompt_budget"),
+                        "response": result["response"],
+                        "responses": result.get("responses", []),
+                    }
+                )
+            statuses[result["status"]] += 1
+            candidate_count += len(result["candidates"])
+            updated_count += len(result["updated"])
+            changed_count += len(result["changed"])
+            y_true.append(out["y_true"][0].cpu().numpy())
+            baseline.append(scores)
+            refined.append(result["probabilities"])
+            patient_ids.append(key[0])
+            print(
+                f"Processed visit {len(y_true)}: {result['status']}; "
+                f"accepted {len(result['updated'])}/{len(result['candidates'])} scores",
+                flush=True,
+            )
+        print(
+            "Refinement statuses:",
+            dict(statuses),
+            f"accepted {updated_count}/{candidate_count} boundary scores; changed {changed_count}",
+        )
+        if budgets:
+            print("Prompt budget by visit:", json.dumps(budgets))
+        differences = np.abs(np.asarray(refined) - np.asarray(baseline))
+        decision_changes = np.sum(
+            (np.asarray(refined) >= 0.5) != (np.asarray(baseline) >= 0.5)
+        )
+        print(
+            f"Mean absolute score change: {differences.mean():.6f}; decision changes: {decision_changes}"
+        )
+        if evidence_filter:
+            print(
+                f"MEDI evidence: retained {evidence_kept}/{evidence_checked} retrieved candidate drugs"
+            )
+        if args.save_responses:
+            Path(args.save_responses).write_text(
+                json.dumps(responses, indent=2), encoding="utf-8"
+            )
+        if args.openrouter_model:
+            print("OpenRouter usage:", json.dumps(generate.usage))
+            if any(
+                item.get("prompt_tokens", 0) > args.max_input_tokens
+                for item in generate.usage
+            ):
+                print("WARNING: provider reported an input above the requested limit.")
+        for name, scores in (("SafeDrug", baseline), ("GiantMed", refined)):
+            # Reference averages visits within patient, then patients. Its DDI
+            # rate is computed over all predicted pairs across visits.
+            metrics = evaluate_predictions(y_true, scores, patient_ids, refiner.ddi)
+            print(name, metrics)
+        print("Demo results are not a reproduction of the paper.")
+
+
+if __name__ == "__main__":
+    main()
