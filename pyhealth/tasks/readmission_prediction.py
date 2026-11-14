@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from itertools import pairwise
 from typing import Dict, List
 
 from pyhealth.data import Event, Patient
@@ -179,7 +180,11 @@ class ReadmissionPredictionMIMIC4(BaseTask):
     output_schema: Dict[str, str] = {"readmission": "binary"}
 
     def __init__(
-        self, window: timedelta = timedelta(days=15), exclude_minors: bool = True, **kwargs
+        self,
+        window: timedelta = timedelta(days=15),
+        exclude_minors: bool = True,
+        min_gap: timedelta | None = None,
+        **kwargs,
     ) -> None:
         """Initializes the task object.
 
@@ -188,11 +193,18 @@ class ReadmissionPredictionMIMIC4(BaseTask):
                 considered a readmission. Defaults to 15 days.
             exclude_minors: Whether to exclude patients whose
                 ``anchor_age`` is less than 18. Defaults to True.
+            min_gap: Admissions that start at most ``min_gap`` after the
+                previous discharge (e.g. internal transfers) are merged into
+                one stay: the stay gives one sample, with the codes of all its
+                admissions, labelled from its last discharge. Defaults to
+                None, which merges nothing, so a transfer counts as a
+                readmission. Consider setting it, e.g. to a few hours.
             **kwargs: Passed to :class:`~pyhealth.tasks.BaseTask`, e.g.
                 ``code_mapping``.
         """
         super().__init__(**kwargs)
         self.window = window
+        self.min_gap = min_gap
         self.exclude_minors = exclude_minors
 
     def __call__(self, patient: Patient) -> List[Dict]:
@@ -205,8 +217,9 @@ class ReadmissionPredictionMIMIC4(BaseTask):
             patient (Patient): A patient object.
 
         Returns:
-            List[Dict]: A list containing a dictionary for each patient visit with:
-                - 'visit_id': MIMIC4 hadm_id.
+            List[Dict]: A list containing a dictionary for each stay (one
+            admission, or several merged by ``min_gap``) with:
+                - 'visit_id': MIMIC4 hadm_id of the stay's first admission.
                 - 'patient_id': MIMIC4 subject_id.
                 - 'conditions': MIMIC4 diagnoses_icd table ICD-9 or ICD-10 codes.
                 - 'procedures': MIMIC4 procedures_icd table ICD-9 or ICD-10 codes.
@@ -227,55 +240,51 @@ class ReadmissionPredictionMIMIC4(BaseTask):
         if len(admissions) < 2:
             return []
 
+        # Group consecutive admissions into stays: an admission that starts at
+        # most min_gap after the previous discharge continues that stay.
+        stays = [[admissions[0]]]
+        for admission in admissions[1:]:
+            gap = admission.timestamp - _discharge_time(stays[-1][-1])
+            if self.min_gap is not None and gap <= self.min_gap:
+                stays[-1].append(admission)
+            else:
+                stays.append([admission])
+
         samples = []
-        # Skip the last admission since we need a "next" admission
-        for i in range(len(admissions) - 1):
-            filter = ("hadm_id", "==", admissions[i].hadm_id)
-
-            diagnoses = []
-            for event in patient.get_events(
-                event_type="diagnoses_icd", filters=[filter]
-            ):
-                assert event.icd_version in ("9", "10")
-                diagnoses.append(f"{event.icd_version}_{event.icd_code}")
-            if len(diagnoses) == 0:
+        # Skip the last stay since we need a "next" admission
+        for stay, next_stay in pairwise(stays):
+            diagnoses, procedures, prescriptions = [], [], []
+            for admission in stay:
+                filter = ("hadm_id", "==", admission.hadm_id)
+                for event in patient.get_events(
+                    event_type="diagnoses_icd", filters=[filter]
+                ):
+                    assert event.icd_version in ("9", "10")
+                    diagnoses.append(f"{event.icd_version}_{event.icd_code}")
+                for event in patient.get_events(
+                    event_type="procedures_icd", filters=[filter]
+                ):
+                    assert event.icd_version in ("9", "10")
+                    procedures.append(f"{event.icd_version}_{event.icd_code}")
+                prescriptions += [
+                    event.ndc
+                    for event in patient.get_events(
+                        event_type="prescriptions", filters=[filter]
+                    )
+                    if event.ndc
+                ]
+            if not diagnoses or not procedures or not prescriptions:
                 continue
 
-            procedures = []
-            for event in patient.get_events(
-                event_type="procedures_icd", filters=[filter]
-            ):
-                assert event.icd_version in ("9", "10")
-                procedures.append(f"{event.icd_version}_{event.icd_code}")
-            if len(procedures) == 0:
-                continue
-
-            prescriptions = patient.get_events(
-                event_type="prescriptions", filters=[filter]
-            )
-            prescriptions = [event.ndc for event in prescriptions if event.ndc]
-            if len(prescriptions) == 0:
-                continue
-
-            try:
-                discharge_time = datetime.strptime(
-                    admissions[i].dischtime, "%Y-%m-%d %H:%M:%S"
-                )
-            except ValueError:
-                discharge_time = datetime.strptime(admissions[i].dischtime, "%Y-%m-%d")
-
-            readmission = int(
-                (admissions[i + 1].timestamp - discharge_time) < self.window
-            )
-
+            gap = next_stay[0].timestamp - _discharge_time(stay[-1])
             samples.append(
                 {
-                    "visit_id": admissions[i].hadm_id,
+                    "visit_id": stay[0].hadm_id,
                     "patient_id": patient.patient_id,
                     "conditions": diagnoses,
                     "procedures": procedures,
                     "drugs": prescriptions,
-                    "readmission": readmission,
+                    "readmission": int(gap < self.window),
                 }
             )
 
@@ -569,3 +578,15 @@ class ReadmissionPredictionOMOP(BaseTask):
             )
 
         return samples
+
+
+def _discharge_time(admission: Event) -> datetime:
+    """An admission's discharge time, from a timestamp or a date.
+
+    MIMIC-IV times have no time zone, like the admission timestamps they
+    are compared with, so the result is naive too.
+    """
+    try:
+        return datetime.strptime(admission.dischtime, "%Y-%m-%d %H:%M:%S")  # noqa: DTZ007
+    except ValueError:
+        return datetime.strptime(admission.dischtime, "%Y-%m-%d")  # noqa: DTZ007
