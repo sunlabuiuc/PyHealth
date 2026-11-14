@@ -14,10 +14,11 @@
 Minimum admission gap
 ---------------------
 
-``ReadmissionPredictionMIMIC4`` supports an optional ``min_gap`` parameter to
-exclude very short intervals between discharge and the next admission from
-being labeled as readmissions. This can be useful when short gaps may reflect
-internal transfers rather than a new hospital admission.
+``ReadmissionPredictionMIMIC4`` supports an optional ``min_gap`` parameter.
+An admission that starts at most ``min_gap`` after the previous discharge,
+such as an internal transfer, is merged into the same stay. The stay gives one
+sample, with the codes of all its admissions, and is labelled from its last
+discharge.
 
 For example:
 
@@ -31,7 +32,9 @@ For example:
         min_gap=timedelta(hours=3),
     )
 
-To maintain backwards compatibility, ``min_gap`` defaults to ``None``, meaning that some 'readmissions' are in fact internal transfers.
+To keep existing results unchanged, ``min_gap`` defaults to ``None``, which
+merges nothing, so some "readmissions" are in fact internal transfers.
+
 .. autoclass:: pyhealth.tasks.readmission_prediction.ReadmissionPredictionEICU
     :members:
     :undoc-members:
