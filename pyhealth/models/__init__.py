@@ -7,6 +7,7 @@ from .apn import (
     masked_mse as masked_mse,
 )
 from .base_model import BaseModel
+from .neural_fine_gray import NeuralFineGray as NeuralFineGray
 from .unet import (
     DiceLoss as DiceLoss,
     SegmentationLoss as SegmentationLoss,
