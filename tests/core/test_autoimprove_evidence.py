@@ -98,6 +98,7 @@ class TestEvidence(unittest.TestCase):
                           evidence_lines(self.kb, tried={"count_90d__visits"})],
                          ["count_90d__labs"])
         self.assertEqual(len(evidence_lines(self.kb, k=1)), 1)
+        self.assertEqual(evidence_lines(self.kb, k=0), [])
 
     def test_feature_prompts_list_untried_evidence_only(self):
         llm = ScriptedLLM([VISITS, LABS])
@@ -131,6 +132,10 @@ class TestEvidence(unittest.TestCase):
         self.assertIn("Gap report", text)
         self.assertIn("no wheeze scores", text)
         self.assertIn("AUC 0.84 (PMID:2)", text)
+        self.assertNotIn("This model on test", text)
+        test = {"metric": "roc_auc", "best": {"estimate": 0.81}}
+        with_test = "\n".join(str(b) for b in literature_section(self.kb, test).blocks)
+        self.assertIn("This model on test: 0.810 (roc_auc).", with_test)
 
         improver = AutoImprover(
             self.world.train, self.world.val, EvidenceProposer(ScriptedLLM([]), self.kb),

@@ -56,8 +56,10 @@ def evidence_lines(
         []
     """
     tried = set(tried)
-    lines = []
+    lines: list[str] = []
     for spec in knowledge.ranked_specs():
+        if len(lines) >= k:
+            break
         if spec["name"] in tried:
             continue
         cites = ", ".join(spec.get("citations", []))
@@ -67,8 +69,6 @@ def evidence_lines(
                      f"{spec.get('direction') or 'ambiguous'}; prior "
                      f"{spec.get('prior', 0):.2f}; {cites}). Spec: "
                      + json.dumps(body))
-        if len(lines) >= k:
-            break
     return lines
 
 
@@ -116,7 +116,6 @@ class EvidenceProposer(LLMProposer):
         tried = set(self.proposed)
         tried |= {name for t in context.feature_trials for name in t.added}
         tried |= {s["name"] for s in context.accepted}
-        tried |= set(getattr(context, "tried_features", ()) or ())
         self._evidence = evidence_lines(self.knowledge, tried, self.max_evidence)
         try:
             proposal = super().propose_features(context)
@@ -194,7 +193,8 @@ def add_literature(
 ) -> Report:
     """Appends :func:`literature_section` to a report and returns it.
 
-    The section also goes into ``report.data["literature"]``.
+    The gap report, the published values and the citation-check counts are
+    also stored in ``report.data["literature"]``.
 
     Examples:
         >>> from pyhealth.autoimprove import Report
