@@ -78,6 +78,7 @@ from .ignore_processor import IgnoreProcessor
 from .temporal_timeseries_processor import TemporalTimeseriesProcessor
 from .tuple_time_text_processor import TupleTimeTextProcessor
 from .cehr_processor import CehrProcessor, ConceptVocab
+from .ethos_processor import EthosProcessor
 from .unified_bridge import (
     BridgeDataset,
     UnifiedBridge,
@@ -144,4 +145,5 @@ __all__ = [
     "TupleTimeTextProcessor",
     "CehrProcessor",
     "ConceptVocab",
+    "EthosProcessor",
 ]
