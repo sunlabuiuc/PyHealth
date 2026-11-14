@@ -231,16 +231,28 @@ class Deepr(BaseModel):
             else:
                 raw = torch.tensor(raw, device=self.device)
 
-            if x.dim() == 3:
+            if raw.dim() == x.dim():
+                # Continuous or multi-hot values carry a feature dimension
+                # where codes carry an index; a step is valid if any value
+                # in it is non-zero.
+                raw = (raw != 0).any(dim=-1)
+            while x.dim() > 4:
+                # Deeper nesting [B, V, G, T, C]: one token list per visit.
+                x = x.flatten(2, 3)
+                raw = raw.flatten(2, 3)
+
+            if x.dim() == 2:
+                # One vector per sample (tensor, multi_hot): a single step.
+                x = x.unsqueeze(1)
+                mask = x.new_ones((x.size(0), 1))
+            elif x.dim() == 3:
                 # [B, T, C] from SequenceProcessor
                 # Raw indices are [B, T], mask where index != 0
                 mask = (raw != 0).to(dtype=x.dtype)
-            elif x.dim() == 4:
+            else:
                 # [B, V, T, C] from NestedSequenceProcessor
                 # Raw indices are [B, V, T], compute mask and flatten
                 x, mask = self._flatten_nested_with_gap(x, raw)
-            else:
-                raise ValueError(f"Deepr expects embedded features to be 3-D or 4-D, got shape {x.shape}")
 
             pooled = self.deepr[feature_key](x, mask)
             patient_emb.append(pooled)

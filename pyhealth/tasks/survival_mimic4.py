@@ -21,6 +21,8 @@ from .yaib_mimic4 import _parse_time, _YAIBMIMIC4Task
 class InHospitalSurvivalMIMIC4(_YAIBMIMIC4Task):
     """Time to in-hospital death after the first 36 ICU hours, on MIMIC-IV.
 
+    Works with :class:`~pyhealth.datasets.MIMIC4EHRDataset`.
+
     Cohort: the YAIB base cohort (adults, ICU stays of 6 hours or more with
     enough measurements; see :class:`~pyhealth.tasks.YAIBMortalityMIMIC4`),
     restricted to ICU stays of at least ``observation_hours`` hours and to
@@ -32,12 +34,12 @@ class InHospitalSurvivalMIMIC4(_YAIBMIMIC4Task):
 
     - ``dynamic``: the 48 YAIB hourly variables (labs, vitals, urine output)
       for hours ``0 .. observation_hours - 1`` after ICU admission, a
-      ``sequence_v2`` series that the processor forward-fills, standardizes
+      ``jagged`` series that the processor forward-fills, standardizes
       and masks (36 hourly bins by default, as in TrajSurv).
     - ``static``: age, sex, height and weight, a flat vector standardized
       with missing-value indicators, which
       :class:`~pyhealth.models.TrajSurv` concatenates to its initial state
-      (unlike the YAIB tasks, where it is a ``sequence_v2`` series at
+      (unlike the YAIB tasks, where it is a ``jagged`` series at
       ``t = 0``). As in YAIB, height and weight are the medians over the
       whole ICU stay, so they can include measurements charted after the
       observation window.

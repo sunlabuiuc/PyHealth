@@ -32,6 +32,13 @@ class BMDHSDataset(BaseDataset):
     BUET Multi-disease Heart Sound Dataset: A Comprehensive Auscultation Dataset for Developing
     Computer-Aided Diagnostic Systems. arXiv:2409.00724. https://arxiv.org/abs/2409.00724
 
+    Getting the data:
+        - Source: https://github.com/sani002/BMD-HS-Dataset
+        - Access: open, no account needed.
+        - Download: ``git clone https://github.com/sani002/BMD-HS-Dataset``
+        - ``root``: the cloned repository, which holds ``train.csv`` and
+          ``additional_metadata.csv``.
+
     Args:
         root: Root directory containing the repository files (e.g., the cloned or extracted repo).
         dataset_name: Optional dataset name, defaults to "bmd_hs".

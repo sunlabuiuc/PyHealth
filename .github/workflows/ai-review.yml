@@ -692,14 +692,38 @@ jobs:
             yourself, and never ask the author to copy code they chose to
             share.
 
+            Then skim the documentation of every component the pull request
+            adds or changes: its class and public method docstrings and its
+            page under docs/api/. Read it as a user who has never seen the
+            component, checking it against the code:
+            - A new dataset must cite where it comes from: a link to the
+              dataset's source site (such as its PhysioNet, Kaggle or project
+              page) or to the paper that introduced it, in the dataset class's
+              docstring or on its docs/api/ page. If there is none, report a
+              medium-severity finding on the class definition and ask for the
+              link. Don't ask for one for an existing dataset the pull request
+              only changes; mention it as low severity at most.
+            - Documentation for a new dataset should say briefly what the
+              data is, how to get access to it, and what root (folder and
+              files) the class expects.
+            - Documentation that contradicts the code, such as a wrong
+              argument name, default, file name or return value, is medium
+              severity.
+            - Documentation that is unclear, hard to follow, much longer than
+              it needs to be, or missing something from the list above, is low
+              severity: say what to cut or add. Keep these suggestions few and
+              concrete, and don't ask for more documentation than comparable
+              PyHealth components have.
+
             Severity, where high and medium should block the merge and low
             should not:
             - high: a likely bug, breakage, data corruption or security problem,
               or code that looks fabricated or placeholder
             - medium: another problem that should block the merge: a broken or
-              misleading API or documentation, behavior that doesn't match the
-              description, new behavior with no tests, or sharing between
-              components that the description doesn't explain
+              misleading API or documentation, a new dataset that doesn't cite
+              its source, behavior that doesn't match the description, new
+              behavior with no tests, or sharing between components that the
+              description doesn't explain
             - low: anything that would improve the change but needn't block it,
               including conventions in example scripts and limitations the pull
               request already states clearly
@@ -731,7 +755,8 @@ jobs:
             or shared code it touches. Use the repository to check what the
             changed code affects. If the change edits shared code and you are
             unsure whether that touches the core, answer "yes"; a change that
-            only edits self-contained components is "no".
+            only edits self-contained components, and registers them as
+            described below, is "no".
 
             What the core part of the codebase is. Judge the effect of the
             change, not just which files it touches:
@@ -768,8 +793,18 @@ jobs:
               description and docs. For example, reworking the VAE model's
               constructor and generate method, where only the VAE's own
               example and tests use them, does not touch the core.
-              Registering a new component by adding an entry does not touch
-              the core; changing what an existing entry means does.
+            - Registering a component does not touch the core. That includes
+              adding the import and export of a new or changed component to a
+              package __init__.py, such as pyhealth/datasets/__init__.py,
+              pyhealth/models/__init__.py or pyhealth/tasks/__init__.py (a line
+              like "from .my_model import MyModel" or a new __all__ entry), and
+              adding an entry to a registry or config list. Don't treat such
+              an edit as a change to shared code, even though the file is
+              shared. It does touch the core if it changes what existing code
+              gets: removing or renaming an existing export, binding an
+              existing name to something else, or adding import-time behavior
+              beyond the import itself, such as code that patches or
+              configures other modules.
             - A change that only edits comments, docstrings, tests, docs or
               examples does not touch the core, even in a base-class file.
           HAIKU_SCHEMA: >-
@@ -953,7 +988,10 @@ jobs:
               task that no other library code uses, is not part of the core,
               even when its own public API changes; breaking that API without
               stating it clearly in the description and docs is a blocking
-              problem, not a core change. A manual "yes" counts as a core
+              problem, not a core change. Adding a new component's import and
+              export to a package __init__.py, or an entry to a registry, is
+              registration, not a core change, unless it removes, renames or
+              rebinds an existing export. A manual "yes" counts as a core
               change whatever you answer.
             - test coverage from the CI run: the whole repository's total, and
               each changed file under pyhealth/ marked as added or modified; or
@@ -1019,6 +1057,13 @@ jobs:
                 author to either confirm the sharing is intended and say why
                 in the description, or keep the component self-contained,
                 offering both neutrally.
+              - Every new dataset in the diff cites its source: a link to the
+                dataset's source site or to the paper that introduced it, in
+                its class docstring or its docs/api/ page. If one doesn't, ask
+                for the link.
+              - The documentation in the diff matches the code. Suggest, as
+                optional, cuts or additions that would make it clearer or more
+                concise.
               - Test coverage meets the bar: generally at least 80% for each
                 added or modified file, and at least 60% for the whole
                 repository. This is a guideline, not a strict rule: a file with
