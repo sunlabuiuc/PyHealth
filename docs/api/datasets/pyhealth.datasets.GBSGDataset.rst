@@ -31,5 +31,7 @@ API reference
 .. autofunction:: pyhealth.datasets.gbsg_paper_time_transform
 .. autofunction:: pyhealth.datasets.gbsg_released_split_ids
 
+See :doc:`../../survival_pipeline` for the native pipeline and manual checks.
+
 .. _Katzman et al. (2018), DeepSurv: https://doi.org/10.1186/s12874-018-0482-1
 .. _gbsg_cancer_train_test.h5: https://github.com/jaredleekatzman/DeepSurv/blob/master/experiments/data/gbsg/gbsg_cancer_train_test.h5

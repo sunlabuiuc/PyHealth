@@ -22,3 +22,5 @@ widest-horizon convention. It does not alter the general metric functions.
 
 .. automodule:: pyhealth.metrics.survival_curve
     :members:
+
+See :doc:`../../survival_pipeline` for the shared benchmark and saved outputs.
