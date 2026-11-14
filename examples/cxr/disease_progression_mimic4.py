@@ -99,7 +99,8 @@ def write_ehr(root: Path, n_patients: int, rng: np.random.Generator) -> None:
             labs.append(
                 {"subject_id": subject_id, "hadm_id": hadm_id, "itemid": GLUCOSE,
                  "charttime": time, "storetime": time, "value": "110",
-                 "valuenum": 110.0, "valueuom": "mg/dL", "flag": None}
+                 "valuenum": 110.0, "valueuom": "mg/dL", "flag": None,
+                 "ref_range_lower": 70.0, "ref_range_upper": 100.0}
             )
     write_csv(pd.DataFrame(patients), root / "hosp" / "patients.csv.gz")
     write_csv(pd.DataFrame(admissions), root / "hosp" / "admissions.csv.gz")
@@ -200,7 +201,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--image-size", type=int, default=64)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--seed", type=int, default=0)
-    return parser.parse_args()
+    args = parser.parse_args()
+    roots = (args.ehr_root, args.cxr_root, args.imagenome_root)
+    if any(roots) and not all(roots):
+        parser.error("--ehr-root, --cxr-root and --imagenome-root go together")
+    return args
 
 
 def main() -> None:
