@@ -32,6 +32,8 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from sklearn.model_selection import train_test_split
+
 from pyhealth.datasets import (
     GBSGDataset,
     gbsg_paper_time_transform,
@@ -41,10 +43,9 @@ from pyhealth.datasets import (
 )
 from pyhealth.metrics import survival_curve_metrics_fn
 from pyhealth.models import SurvivalMDN
+from pyhealth.processors.utils import fit_normalization
 from pyhealth.tasks import SurvivalTimeToEventGBSG
 from pyhealth.trainer import Trainer
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 
 
 def write_synthetic_csv(root: Path, n: int = 40) -> None:
@@ -134,9 +135,11 @@ def load_gbsg_splits(
                         )
                     group_part[group] = name
     training_ids = set(memberships["train"])
-    training = [r for r in raw if r["patient_id"] in training_ids]
-    scaler = StandardScaler().fit([r["features"] for r in training])
-    task = SurvivalTimeToEventGBSG(scaler.mean_.tolist(), scaler.scale_.tolist())
+    training_features = np.asarray(
+        [r["features"] for r in raw if r["patient_id"] in training_ids]
+    )
+    feature_mean, feature_scale = fit_normalization([training_features], "zscore")
+    task = SurvivalTimeToEventGBSG(feature_mean, feature_scale)
     samples = dataset.set_task(task)
     parts = tuple(
         samples.subset(
@@ -159,8 +162,8 @@ def load_gbsg_splits(
         "split_source_ids": memberships,
         "counts": {name: len(part) for name, part in zip(memberships, parts)},
         "preprocessing": {
-            "feature_mean": scaler.mean_.tolist(),
-            "feature_scale": scaler.scale_.tolist(),
+            "feature_mean": feature_mean,
+            "feature_scale": feature_scale,
         },
         "model": {
             "time_transform": "softplus",

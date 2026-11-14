@@ -222,6 +222,8 @@ class _NextVisitDiagnosisPrediction(BaseTask):
 class NextVisitDiagnosisPredictionMIMIC3(_NextVisitDiagnosisPrediction):
     """Next-visit diagnosis prediction on MIMIC-III (ICD-9 codes).
 
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
+
     Input ``conditions`` is the patient's admissions except the last, each a
     list of ICD-9 diagnosis codes; label ``next_conditions`` is the set of
     codes of the last admission. This is the setting of the SHy paper (Yu et
@@ -269,6 +271,8 @@ class NextVisitDiagnosisPredictionMIMIC3(_NextVisitDiagnosisPrediction):
 
 class NextVisitDiagnosisPredictionMIMIC4(_NextVisitDiagnosisPrediction):
     """Next-visit diagnosis prediction on MIMIC-IV, ICD-9 codes only.
+
+    Works with :class:`~pyhealth.datasets.MIMIC4EHRDataset`.
 
     Same task as :class:`NextVisitDiagnosisPredictionMIMIC3`. MIMIC-IV mixes
     ICD-9 and ICD-10 codes; like the SHy authors' preprocessing, only ICD-9

@@ -40,7 +40,7 @@ routes each feature type automatically.
      - Features mix sequential codes with static tensors or multi-hot encodings
      - Auto-routes sequential features to RNN layers and non-sequential features to linear layers; good default for EHR
    * - ``RNN_V2``
-     - Features are ``sequence_v2`` fields (nested codes, values and timestamps); static values are a series with one record at ``t = 0``
+     - Features are ``jagged`` fields (nested codes, values and timestamps); static values are a series with one record at ``t = 0``
      - Encodes each field bottom-up over packed records, without padding the hierarchy
    * - :doc:`models/pyhealth.models.StageNet`
      - You have time-stamped vital signs with irregular measurement intervals
@@ -305,6 +305,7 @@ API Reference
     models/pyhealth.models.Deepr
     models/pyhealth.models.EHRMamba
     models/pyhealth.models.EHRMambaCEHR
+    models/pyhealth.models.ETHOS
     models/pyhealth.models.JambaEHR
     models/pyhealth.models.ContraWR
     models/pyhealth.models.SparcNet
@@ -315,6 +316,7 @@ API Reference
     models/pyhealth.models.Agent
     models/pyhealth.models.GRASP
     models/pyhealth.models.MedFuse
+    models/pyhealth.models.DiPro
     models/pyhealth.models.MedLink
     models/pyhealth.models.TCN
     models/pyhealth.models.TFMTokenizer
@@ -335,6 +337,7 @@ API Reference
     models/pyhealth.models.califorest
     models/pyhealth.models.XGBoostModel
     models/pyhealth.models.survival_mdn
+    models/pyhealth.models.cet
     models/pyhealth.models.TrajSurv
     models/pyhealth.models.KnowRare
     models/pyhealth.models.APRICOTM

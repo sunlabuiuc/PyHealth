@@ -11,6 +11,7 @@ selects the most interpretable one within noise of the best, and its report
 from .evaluate import (
     check_models,
     describe_error,
+    fold_parts,
     patient_folds,
     predict,
     run_config,
@@ -18,6 +19,13 @@ from .evaluate import (
     score,
     train_pipeline,
 )
+from .evidence import (
+    EvidenceProposer,
+    add_literature,
+    evidence_lines,
+    literature_section,
+)
+from .features import EngineeredDataset, FeatureSpace, FeatureSpec
 from .improver import (
     DEFAULT_METRIC,
     AutoImprover,
@@ -27,8 +35,16 @@ from .improver import (
     select_simplest,
     select_trial,
 )
+from .knowledge import Document, Evidence, KnowledgeBase, parse_effect, pubmed_query
 from .llm import LLM, ClaudeLLM
-from .proposers import STRATEGIES, LLMProposer, Proposer, RandomProposer
+from .proposers import (
+    STRATEGIES,
+    LLMProposer,
+    Proposer,
+    ProposerExhausted,
+    QueueProposer,
+    RandomProposer,
+)
 from .report import Report, build_report, load_run, unverified_numbers
 from .space import (
     DEFAULT_MODELS,
@@ -51,24 +67,39 @@ __all__ = [
     "TRAIN_PARAMS",
     "AutoImprover",
     "ClaudeLLM",
+    "Document",
+    "EngineeredDataset",
+    "Evidence",
+    "EvidenceProposer",
+    "FeatureSpace",
+    "FeatureSpec",
     "ImproveResult",
+    "KnowledgeBase",
     "LLMProposer",
     "ModelSpec",
     "Param",
     "PipelineConfig",
     "Proposer",
+    "ProposerExhausted",
+    "QueueProposer",
     "RandomProposer",
     "Report",
     "SearchSpace",
     "Trial",
+    "add_literature",
     "build_report",
     "check_models",
     "config_diff",
     "describe_error",
+    "evidence_lines",
+    "fold_parts",
+    "literature_section",
     "load_run",
     "paired_gain",
+    "parse_effect",
     "patient_folds",
     "predict",
+    "pubmed_query",
     "run_config",
     "run_config_cv",
     "score",

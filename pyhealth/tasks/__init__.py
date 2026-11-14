@@ -16,6 +16,13 @@ from .cardiology_detect import (
 )
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
+from .chaos_segmentation import (
+    CHAOSAbdominalSegmentationCTMRI as CHAOSAbdominalSegmentationCTMRI,
+    CHAOSAbdominalSegmentationMRIonly as CHAOSAbdominalSegmentationMRIonly,
+    CHAOSLiverSegmentationCTMRI as CHAOSLiverSegmentationCTMRI,
+    CHAOSLiverSegmentationCTonly as CHAOSLiverSegmentationCTonly,
+    CHAOSLiverSegmentationMRIonly as CHAOSLiverSegmentationMRIonly,
+)
 from .covid19_cxr_classification import COVID19CXRClassification
 from .covid19_cxr_generation import (
     COVID19CXRImageGeneration as COVID19CXRImageGeneration,
@@ -31,6 +38,9 @@ from .deid_ner import DeIDNERTask
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
 # New exports must use the redundant `X as X` form: this module has no
 # __all__, and the PR lint gate flags F401 on newly added import lines.
+from .disease_progression_mimic4 import (
+    DiseaseProgressionMIMIC4 as DiseaseProgressionMIMIC4,
+)
 from .drug_recommendation import (
     DrugRecommendationEICU,
     DrugRecommendationMIMIC3,
@@ -45,6 +55,10 @@ from .ed_disposition_mimic4 import (
     ED_OUTCOMES as ED_OUTCOMES,
     EDDispositionMIMIC4 as EDDispositionMIMIC4,
     EDOutcomesMIMIC4 as EDOutcomesMIMIC4,
+)
+from .ehr_cxr_mimic4 import (
+    EHRCXRMortalityMIMIC4 as EHRCXRMortalityMIMIC4,
+    EHRCXRPhenotypingMIMIC4 as EHRCXRPhenotypingMIMIC4,
 )
 from .ehr_text_serialization import (
     CodeDescriber as CodeDescriber,
@@ -69,6 +83,16 @@ from .length_of_stay_prediction import (
 )
 from .length_of_stay_stagenet_mimic4 import LengthOfStayStageNetMIMIC4
 from .medical_coding import MIMIC3ICD9Coding
+from .meds_outcome_tasks import (
+    HospitalReadmissionMEDS as HospitalReadmissionMEDS,
+    ICUAdmissionMEDS as ICUAdmissionMEDS,
+    ProlongedLengthOfStayMEDS as ProlongedLengthOfStayMEDS,
+)
+from .ethos_tasks import (
+    EthosOutcomeMEDS as EthosOutcomeMEDS,
+    EthosRolloutRule as EthosRolloutRule,
+    EthosTimelineMEDS as EthosTimelineMEDS,
+)
 from .msd_segmentation import MSDSegmentationTask as MSDSegmentationTask
 from .next_visit_diagnosis_prediction import (
     NextVisitDiagnosisPredictionMIMIC3 as NextVisitDiagnosisPredictionMIMIC3,
@@ -110,6 +134,9 @@ from .generate_ehr import (
     to_evaluation_dataframe,
 )
 from .patient_linkage import patient_linkage_mimic3_fn
+from .rsna_pneumonia_classification import (
+    RSNAPneumoniaClassification as RSNAPneumoniaClassification,
+)
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
     ReadmissionPredictionMIMIC3,

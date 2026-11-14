@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -128,6 +129,35 @@ class DicomProcessor(ImageProcessor):
     def stores_tensor(self) -> bool:
         """Whether the processed cache stores a tensor (not a reference)."""
         return bool(self.to_tensor and not self.lazy)
+
+    def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
+        """Records the widest output shape ``(C, H, W)`` of the images.
+
+        This replaces :meth:`ImageProcessor.fit`, which reads headers with
+        PIL and cannot open DICOM files. A DICOM image has one channel, which
+        ``mode="RGB"`` or ``"RGBA"`` repeats, so ``C`` is 3, 4 or otherwise
+        1. ``H`` and ``W`` are ``image_size``, or, without one, the largest
+        height and width of any image, read from the DICOM headers (not the
+        pixel data).
+
+        Args:
+            samples: Sample dictionaries.
+            field: The field holding DICOM paths.
+        """
+        channels = {"RGB": 3, "RGBA": 4}.get(self.mode or "", 1)
+        if self.image_size is not None:
+            size = self.image_size
+            self._shape = (channels, size, size)
+            return
+        height = width = 0
+        reader = DicomReader()
+        for sample in samples:
+            path = sample.get(field)
+            if path is None:
+                continue
+            _, h, w = reader.read_metadata(str(path))["shape"]
+            height, width = max(height, h), max(width, w)
+        self._shape = (channels, height, width) if height else None
 
     def process(self, value: str | Path) -> Any:
         """Process a DICOM path.

@@ -52,6 +52,8 @@ from .imaging.stats import (
     compute_foreground_intensity_stats as compute_foreground_intensity_stats,
 )
 from .cardiology import CardiologyDataset
+from .chaos import CHAOSDataset as CHAOSDataset
+from .chest_imagenome import ChestImaGenomeDataset as ChestImaGenomeDataset
 from .chestxray14 import ChestXray14Dataset
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
@@ -78,6 +80,7 @@ from .fhir import FHIRDataset, MIMIC4FHIR
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
 from .physionet_deid import PhysioNetDeIDDataset
+from .rsna_pneumonia import RSNAPneumoniaDataset as RSNAPneumoniaDataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
@@ -104,6 +107,8 @@ from .splitter import (
     split_by_visit,
     split_by_visit_conformal,
 )
+from .gold_test_split import GoldTestSplit as GoldTestSplit
+from .mimic4_imagenome import MIMIC4ImaGenomeDataset as MIMIC4ImaGenomeDataset
 from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
 from .iiic import IIICDataset as IIICDataset
 from .tuab import TUABDataset

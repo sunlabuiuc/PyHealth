@@ -8,6 +8,8 @@ The SUPPORT2 (Study to Understand Prognoses and Preferences for Outcomes and Ris
 
 The dataset is commonly used for mortality prediction, length of stay prediction, and other clinical outcome prediction tasks.
 
+It is openly available from the `UCI Machine Learning Repository <https://archive.ics.uci.edu/dataset/880/support2>`_.
+
 .. autoclass:: pyhealth.datasets.Support2Dataset
     :members:
     :undoc-members:

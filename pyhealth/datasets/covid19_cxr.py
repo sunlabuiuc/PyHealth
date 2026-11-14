@@ -19,9 +19,6 @@ logger = logging.getLogger(__name__)
 class COVID19CXRDataset(BaseDataset):
     """Base image dataset for COVID-19 Radiography Database.
 
-    Dataset is available at:
-    https://www.kaggle.com/datasets/tawsifurrahman/covid19-radiography-database
-
     Data Sources:
     ------------
     COVID-19 data:
@@ -61,6 +58,14 @@ class COVID19CXRDataset(BaseDataset):
     [7] https://github.com/armiro/COVID-CXNet
     [8] https://www.kaggle.com/c/rsna-pneumonia-detection-challenge/data
     [9] https://www.kaggle.com/paultimothymooney/chest-xray-pneumonia
+
+    Getting the data:
+        - Source: https://www.kaggle.com/datasets/tawsifurrahman/covid19-radiography-database
+        - Access: open; needs a free Kaggle account.
+        - Download: ``kaggle datasets download -d
+          tawsifurrahman/covid19-radiography-database``, then unzip.
+        - ``root``: the unzipped ``COVID-19_Radiography_Dataset`` folder, which
+          holds ``COVID/``, ``Normal/`` and the ``*.metadata.xlsx`` files.
 
     Args:
         root: Root directory of the raw data containing the dataset files.

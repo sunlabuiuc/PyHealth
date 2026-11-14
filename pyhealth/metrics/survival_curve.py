@@ -98,9 +98,11 @@ def censoring_survival(times, events, eval_times) -> np.ndarray:
     """
     times = _as_numpy(times)
     censored = 1.0 - _as_numpy(events)
-    knots = np.unique(times)
-    at_risk = (times[None, :] >= knots[:, None]).sum(axis=1)
-    n_censored = np.array([censored[times == k].sum() for k in knots])
+    knots, knot_index, counts = np.unique(
+        times, return_inverse=True, return_counts=True
+    )
+    at_risk = np.cumsum(counts[::-1])[::-1]
+    n_censored = np.bincount(knot_index, weights=censored, minlength=knots.size)
     g = np.cumprod(1.0 - n_censored / at_risk)
     return np.interp(
         _as_numpy(eval_times),
@@ -256,9 +258,10 @@ def integrated_brier_score_td(times, events, surv, t_grid) -> float:
     At each grid time ``t``, a patient with an event by ``t`` contributes
     ``S(t)^2 / G(T_i)``, a patient still at risk contributes
     ``(1 - S(t))^2 / G(t)``, and a patient censored before ``t``
-    contributes nothing. The result is the mean over patients and grid
-    times, which equals the time-normalised integral on a uniform grid.
-    Use :func:`integration_grid` for the paper's grid.
+    contributes nothing. ``G`` is the estimated censoring survival. The
+    score excludes patients with ``G(T_i) <= 1e-8`` and grid times with
+    ``G(t) <= 1e-8`` before averaging over the remaining patients and grid
+    times. Use :func:`integration_grid` for the paper's grid.
 
     Args:
         times: observed times, shape ``[N]``.
@@ -288,7 +291,10 @@ def integrated_binomial_loglik_td(times, events, surv, t_grid) -> float:
     The log-likelihood analogue of :func:`integrated_brier_score_td`: an
     event by ``t`` contributes ``log(1 - S(t)) / G(T_i)`` and a patient
     still at risk contributes ``log S(t) / G(t)``, with probabilities
-    floored at 1e-10 inside the log.
+    floored at 1e-10 inside the log. ``G`` is the estimated censoring
+    survival. The score excludes patients with ``G(T_i) <= 1e-8`` and grid
+    times with ``G(t) <= 1e-8`` before averaging over the remaining
+    patients and grid times.
 
     Args:
         times: observed times, shape ``[N]``.

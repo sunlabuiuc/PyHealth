@@ -155,9 +155,6 @@ class LabelProcessor(FeatureProcessor):
     ) -> dict[str, float]:
         """Scores the gathered labels and predictions of this label kind."""
 
-    def schema(self) -> tuple[str, ...]:
-        return ("value",)
-
     def __repr__(self) -> str:
         vocab = getattr(self, "label_vocab", None)
         if vocab is None:
@@ -339,17 +336,6 @@ class BinaryLabelProcessor(_WeightedBCE, LabelProcessor):
     def size(self) -> int:
         return 1
 
-    def is_token(self) -> bool:
-        """Binary labels are continuous float targets for BCE loss."""
-        return False
-
-    def dim(self) -> tuple[int, ...]:
-        """Output shape is (1,), so 1 dimension."""
-        return (1,)
-
-    def spatial(self) -> tuple[bool, ...]:
-        return (False,)
-
     def activation(self, logits: torch.Tensor) -> torch.Tensor:
         return torch.sigmoid(logits)
 
@@ -415,17 +401,6 @@ class MultiClassLabelProcessor(LabelProcessor):
 
     def size(self) -> int:
         return len(self.label_vocab)
-
-    def is_token(self) -> bool:
-        """Multi-class labels are discrete token indices."""
-        return True
-
-    def dim(self) -> tuple[int, ...]:
-        """Output is a scalar tensor (dim 0)."""
-        return (0,)
-
-    def spatial(self) -> tuple[bool, ...]:
-        return ()
 
     def activation(self, logits: torch.Tensor) -> torch.Tensor:
         return F.softmax(logits, dim=-1)
@@ -543,17 +518,6 @@ class MultiLabelProcessor(_WeightedBCE, LabelProcessor):
 
     def size(self) -> int:
         return len(self.label_vocab)
-
-    def is_token(self) -> bool:
-        """Multi-label indicators are continuous float targets for BCE loss."""
-        return False
-
-    def dim(self) -> tuple[int, ...]:
-        """Output shape is (num_classes,), so 1 dimension."""
-        return (1,)
-
-    def spatial(self) -> tuple[bool, ...]:
-        return (False,)
 
     def activation(self, logits: torch.Tensor) -> torch.Tensor:
         return torch.sigmoid(logits)
@@ -676,17 +640,6 @@ class RegressionLabelProcessor(LabelProcessor):
 
     def size(self) -> int:
         return 1
-
-    def is_token(self) -> bool:
-        """Regression labels are continuous, not discrete tokens."""
-        return False
-
-    def dim(self) -> tuple[int, ...]:
-        """Output shape is (1,), so 1 dimension."""
-        return (1,)
-
-    def spatial(self) -> tuple[bool, ...]:
-        return (False,)
 
     def activation(self, logits: torch.Tensor) -> torch.Tensor:
         return logits

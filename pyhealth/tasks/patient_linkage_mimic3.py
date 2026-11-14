@@ -7,6 +7,8 @@ class PatientLinkageMIMIC3Task(BaseTask):
     """
     Patient linkage task for MIMIC-III.
 
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
+
     For each patient with >=2 admissions:
     - Query: last admission
     - Positive database record: all previous admissions concatenated

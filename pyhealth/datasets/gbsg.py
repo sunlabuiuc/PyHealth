@@ -251,6 +251,12 @@ class GBSGDataset(BaseDataset):
     duplicate IDs are rejected. Clinical values and times are not modified.
     No network request is made by this loader.
 
+    The benchmark was released with `Katzman et al. (2018), DeepSurv
+    <https://doi.org/10.1186/s12874-018-0482-1>`_. Download the raw file
+    ``experiments/data/gbsg/gbsg_cancer_train_test.h5`` from the
+    `DeepSurv repository <https://github.com/jaredleekatzman/DeepSurv>`_
+    and pass the local file to :func:`prepare_gbsg_csv`.
+
     Args:
         root: Directory containing gbsg.csv, produced by prepare_gbsg_csv.
         tables: Optional table selection; only ["gbsg"] is supported.

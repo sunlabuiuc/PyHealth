@@ -52,6 +52,8 @@ _STATES = ("discharge", "stable", "unstable", "deceased")
 class ICUAcuityMIMIC4(_YAIBMIMIC4Task):
     """Next-4-hour ICU acuity, acuity transitions and therapy changes (MIMIC-IV).
 
+    Works with :class:`~pyhealth.datasets.MIMIC4EHRDataset`.
+
     Cohort (paper Methods): every ICU stay of an adult (age 18 or more) that
     lasts between ``min_stay_hours`` (8) hours and ``max_stay_days`` (30)
     days and has at least one measurement of each of the six routine vital
