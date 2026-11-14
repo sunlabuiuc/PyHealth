@@ -276,5 +276,36 @@ class TestGRASP(unittest.TestCase):
 
 
 
+    def _run(self, samples, schema):
+        dataset = create_sample_dataset(
+            samples=samples, input_schema=schema,
+            output_schema={"label": "binary"}, dataset_name="test_shapes",
+        )
+        torch.manual_seed(0)
+        model = GRASP(dataset=dataset, embedding_dim=8, hidden_dim=8, cluster_num=2)
+        batch = next(iter(get_dataloader(dataset, batch_size=len(samples))))
+        ret = model(**batch)
+        ret["loss"].backward()
+        self.assertEqual(tuple(ret["y_prob"].shape), (len(samples), 1))
+        self.assertTrue(torch.isfinite(ret["loss"]))
+
+    def test_one_vector_per_sample_inputs(self):
+        """tensor and multi_hot fields give 2-D embeddings (one step)."""
+        samples = [
+            {"patient_id": f"p{i}", "vitals": [float(i), 1.0, 2.0],
+             "flags": ["a", "b"][: 1 + i % 2], "label": i % 2}
+            for i in range(4)
+        ]
+        self._run(samples, {"vitals": "tensor", "flags": "multi_hot"})
+
+    def test_nested_codes(self):
+        """nested_sequence fields give 4-D embeddings: codes per visit."""
+        samples = [
+            {"patient_id": f"p{i}", "label": i % 2,
+             "visits": [["a", "b"], ["c"], ["a", "d"]][: 1 + i % 3]}
+            for i in range(4)
+        ]
+        self._run(samples, {"visits": "nested_sequence"})
+
 if __name__ == "__main__":
     unittest.main()

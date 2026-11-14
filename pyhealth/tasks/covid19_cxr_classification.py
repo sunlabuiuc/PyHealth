@@ -6,6 +6,8 @@ from .base_task import BaseTask
 class COVID19CXRClassification(BaseTask):
     """A task for classifying chest disease from chest X-ray images.
 
+    Works with :class:`~pyhealth.datasets.COVID19CXRDataset`.
+
     This task classifies chest X-ray images into different disease categories.
     It expects a single chest X-ray image per patient and returns the
     corresponding disease label.

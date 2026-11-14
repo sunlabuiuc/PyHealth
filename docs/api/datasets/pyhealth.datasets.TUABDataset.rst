@@ -1,7 +1,7 @@
 ﻿pyhealth.datasets.TUABDataset
 ===================================
 
-Dataset is available at https://isip.piconepress.com/projects/nedc/html/tuh_eeg/#c_tuab
+Dataset is available at https://isip.piconepress.com/projects/nedc/html/tuh_eeg/ (free, but you must request access with a signed form; see the class docstring below).
 
 The TUAB dataset (or Temple University Hospital EEG Abnormal Corpus) is a collection of EEG data acquired at the Temple University Hospital. 
 
