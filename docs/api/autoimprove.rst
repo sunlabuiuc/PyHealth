@@ -183,6 +183,121 @@ removed from the space, logged with the error, and listed in
 baseline's model fails, ``run()`` stops with the error instead. Pass
 ``check=False`` to skip the check.
 
+Features as data
+----------------
+
+New inputs are written as specs (JSON), never as code
+(:class:`~pyhealth.autoimprove.FeatureSpace`). A spec combines a fixed set of
+operators over PyHealth's event log:
+
+- ``count``, ``exists``, ``days_since``, ``stat`` (min, max, mean, last,
+  slope), ``n_distinct``, ``trend`` and ``blocks_with``, each over events
+  matching a selector in a window that ends strictly before the prediction
+  time t;
+- ``ratio``, ``diff``, ``band`` and ``ge`` thresholds, ``any``, ``cross``,
+  and ``column`` for an existing task feature.
+
+Every spec must carry its clinical ``rationale``, and may give its expected
+``direction``.
+Its column name and plain-language definition are generated from the spec
+itself, so the sentence a clinician reviews is exactly what was computed:
+
+.. code-block:: python
+
+    fs = FeatureSpace(base_dataset, time_key="landmark",   # or FeatureSpace.from_task
+                      time_word="the landmark")
+    specs = [{"op": "ge", "x": 3,
+              "of": {"op": "count", "window": 365,
+                     "select": {"event_type": "med_orders", "group": "SABA"}},
+              "rationale": "frequent reliever use signals poor control",
+              "direction": "+"}]
+    for row in fs.check(specs, train):    # definition, coverage, future-blind
+        print(row["definition"])          # 1 if there were 3 or more SABA orders
+                                          # in the 365 days before the landmark, else 0
+    specs = fs.validate_many(specs)
+    train_fe = fs.augment(train, specs)   # adds an "engineered" tensor field;
+                                          # future-blind test on every sample
+    val_fe = fs.augment(val, specs, stats=train_fe.stats)
+
+- **Refusals.** An unknown operator, group or attribute, a window outside the
+  menu, a ``where`` value that fewer than 11 patients have, a missing
+  rationale or a ninth feature is refused with a reason.
+- **The future-blind test.** :meth:`~pyhealth.autoimprove.FeatureSpace.future_blind`
+  computes every spec twice: on the full record, and on the record as known
+  at t. Rows dated at or after t are removed. The values of rows known only
+  later, such as a stay's length known at discharge (``known_at``), are
+  blanked. Derived events are rebuilt from the truncated record. Any
+  difference rejects the spec.
+- **Per-fold processing.** Engineered columns are imputed and scaled with
+  statistics from each fold's training part
+  (:func:`~pyhealth.autoimprove.fold_parts`), so a held-out fold never informs
+  its own medians and scales.
+- **Task hooks**, all optional attributes that
+  :meth:`~pyhealth.autoimprove.FeatureSpace.from_task` reads when a task
+  defines them (no base class change is needed):
+
+  - ``time_key``: the sample field holding t;
+  - ``feature_vocabulary()``: named code groups such as SABA;
+  - ``derived_events(patient, t)`` with ``derived_event_types``: clinical
+    definitions, such as exacerbation episodes, built from events before t.
+
+  Tasks without them work as before.
+
+See ``examples/autoimprove_features_mimic3.py``. It checks one hand-written
+feature and measures its gain by paired cross-validation, with no search and
+no LLM.
+
+Searching features
+------------------
+
+Give the improver a FeatureSpace to search inputs as well as settings:
+
+.. code-block:: python
+
+    improver = AutoImprover(
+        train, val, LLMProposer(ClaudeLLM()), baseline=..., space=...,
+        features=fs, cv_folds=5, confirm=True, task_card=task.task_card(),
+    )
+    result = improver.run()
+
+- **Alternating cycles** (``feature_cycles=(2, 1)``). Feature cycles hold
+  the model at the current selection, and each agent proposes a group of
+  specs with its rationale and expected direction. Model cycles hold the
+  accepted features and propose configs. With one side fixed, every accepted
+  change has a measured gain of its own.
+- **Forward selection.** A group joins the accepted set only if its paired
+  gain over the accepted set clears the lower bound. Specs that fail the
+  future-blind test are refused before anything trains. A group that was
+  rejected never becomes the result.
+- **Proposers.**
+
+  - :class:`~pyhealth.autoimprove.LLMProposer` sees the operator menu, the
+    task card, the accepted features and the earlier groups.
+  - :class:`~pyhealth.autoimprove.RandomProposer` proposes random valid
+    specs. They are labelled as having no rationale, so they need a
+    clinician's approval to stay.
+  - :class:`~pyhealth.autoimprove.QueueProposer` tries a given ranked list
+    in order, with no LLM.
+- **Confirmation** (``confirm=True``). After the search, the leading
+  candidates are scored again on new folds with several training seeds
+  (:meth:`~pyhealth.autoimprove.AutoImprover.confirm`), and the selection must
+  clear a stricter bound (``confirm_se=2``). Candidates picked as the best of
+  many on the same folds are partly lucky; this removes part of that luck
+  before the test. The new folds reuse the training patients, so only the
+  test split is untouched by the search.
+- **Pruning** (:meth:`~pyhealth.autoimprove.AutoImprover.prune`). Each
+  accepted group whose removal costs less than one SE is dropped, so a
+  clinician reviews the shortest list. The ablation shows what each group
+  added.
+- **Leakage and review.** A new feature that alone predicts the outcome
+  almost perfectly (``suspicion_auc``) is held as possible leakage. Features
+  with no rationale, or whose learned effect is opposite to their stated
+  direction, are held back until :meth:`~pyhealth.autoimprove.AutoImprover.approve`.
+  The test then also scores the model without them.
+- ``early_stop`` ends a trial after two folds when it is clearly worse than
+  the starting pipeline. A trial stopped early is never accepted or
+  selected, and the incumbent and pruned references always run every fold.
+
 Safety and data
 ---------------
 
@@ -199,7 +314,9 @@ Safety and data
   positive samples (the improver warns below 30).
   :meth:`~pyhealth.autoimprove.AutoImprover.evaluate_on_test` retrains the
   best and the baseline configs and compares them on test. For binary labels
-  it reports patient-level bootstrap intervals and a paired difference.
+  it reports patient-level bootstrap intervals and a paired difference. When
+  the baseline is itself the selected config it is trained once, and the
+  result has only ``best`` (no ``baseline`` or ``difference``).
   ``return_predictions=True`` also returns the test predictions, for other
   metrics without training again.
 
@@ -208,11 +325,15 @@ API Reference
 
 .. automodule:: pyhealth.autoimprove
     :members: AutoImprover, ImproveResult, Trial, PipelineConfig, SearchSpace,
-        ModelSpec, Param, Proposer, LLMProposer, RandomProposer, ClaudeLLM,
+        ModelSpec, Param, Proposer, LLMProposer, RandomProposer, QueueProposer,
+        ProposerExhausted, ClaudeLLM,
         with_xgboost, patient_folds, run_config_cv, select_trial, paired_gain,
         check_models, describe_error, select_simplest, config_diff, Report,
-        build_report, load_run, unverified_numbers
+        build_report, load_run, unverified_numbers, fold_parts
     :show-inheritance:
 
 .. automodule:: pyhealth.autoimprove.explain
     :members: attributions, summarize, top_overlap
+
+.. automodule:: pyhealth.autoimprove.features
+    :members: FeatureSpace, FeatureSpec, EngineeredDataset, WINDOWS, BLOCKS, AGGS

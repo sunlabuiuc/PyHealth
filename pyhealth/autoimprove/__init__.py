@@ -11,6 +11,7 @@ selects the most interpretable one within noise of the best, and its report
 from .evaluate import (
     check_models,
     describe_error,
+    fold_parts,
     patient_folds,
     predict,
     run_config,
@@ -18,6 +19,7 @@ from .evaluate import (
     score,
     train_pipeline,
 )
+from .features import EngineeredDataset, FeatureSpace, FeatureSpec
 from .improver import (
     DEFAULT_METRIC,
     AutoImprover,
@@ -28,7 +30,14 @@ from .improver import (
     select_trial,
 )
 from .llm import LLM, ClaudeLLM
-from .proposers import STRATEGIES, LLMProposer, Proposer, RandomProposer
+from .proposers import (
+    STRATEGIES,
+    LLMProposer,
+    Proposer,
+    ProposerExhausted,
+    QueueProposer,
+    RandomProposer,
+)
 from .report import Report, build_report, load_run, unverified_numbers
 from .space import (
     DEFAULT_MODELS,
@@ -51,12 +60,17 @@ __all__ = [
     "TRAIN_PARAMS",
     "AutoImprover",
     "ClaudeLLM",
+    "EngineeredDataset",
+    "FeatureSpace",
+    "FeatureSpec",
     "ImproveResult",
     "LLMProposer",
     "ModelSpec",
     "Param",
     "PipelineConfig",
     "Proposer",
+    "ProposerExhausted",
+    "QueueProposer",
     "RandomProposer",
     "Report",
     "SearchSpace",
@@ -65,6 +79,7 @@ __all__ = [
     "check_models",
     "config_diff",
     "describe_error",
+    "fold_parts",
     "load_run",
     "paired_gain",
     "patient_folds",
