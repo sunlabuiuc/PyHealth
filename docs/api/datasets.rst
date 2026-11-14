@@ -498,6 +498,7 @@ Available Datasets
     datasets/pyhealth.datasets.MIMIC4NoteDataset
     datasets/pyhealth.datasets.MIMIC4CXRDataset
     datasets/pyhealth.datasets.MIMIC4EDDataset
+    datasets/pyhealth.datasets.MIMIC4ImaGenomeDataset
     datasets/pyhealth.datasets.FHIRDataset
     datasets/pyhealth.datasets.MEDSDataset
     datasets/pyhealth.datasets.MIMIC4FHIR
@@ -533,4 +534,5 @@ Available Datasets
     datasets/pyhealth.datasets.TCGAPRADDataset
     datasets/pyhealth.datasets.VSACDataset
     datasets/pyhealth.datasets.splitter
+    datasets/pyhealth.datasets.GoldTestSplit
     datasets/pyhealth.datasets.utils

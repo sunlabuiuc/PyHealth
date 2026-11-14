@@ -107,6 +107,8 @@ from .splitter import (
     split_by_visit,
     split_by_visit_conformal,
 )
+from .gold_test_split import GoldTestSplit as GoldTestSplit
+from .mimic4_imagenome import MIMIC4ImaGenomeDataset as MIMIC4ImaGenomeDataset
 from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
 from .iiic import IIICDataset as IIICDataset
 from .tuab import TUABDataset
