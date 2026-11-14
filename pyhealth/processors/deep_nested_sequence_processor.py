@@ -257,11 +257,15 @@ class DeepNestedFloatsProcessor(LegacyFeatureProcessor):
     """
 
     stores_tensor = True
+    _saw_values: bool | None = None
+    """Whether ``fit()`` saw any values; None for a processor pickled before
+    this was recorded."""
 
     def __init__(self, forward_fill: bool = True):
         self._max_middle_len = 1  # Maximum length of middle sequences (visits)
         self._max_inner_len = 1   # Maximum length of inner sequences (values per visit)
         self.forward_fill = forward_fill
+        self._saw_values = False
 
     def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Determine maximum sequence lengths.
@@ -289,6 +293,7 @@ class DeepNestedFloatsProcessor(LegacyFeatureProcessor):
 
         self._max_middle_len = max(1, max_middle_len)
         self._max_inner_len = max(1, max_inner_len)
+        self._saw_values = max_inner_len > 0
 
     def process(self, value: List[List[List[float]]]) -> torch.Tensor:
         """Process deep nested numerical sequence with optional forward fill.

@@ -366,6 +366,21 @@ class TestNestedFloats(unittest.TestCase):
         _, got = _bridge_batch(NestedFloatsToUnifiedBridge, legacy, [[1.0], [], [None]])
         self.assertEqual(got, [[[1.0], [1.0], [1.0]]])
 
+    def test_processor_without_fitted_values_is_rejected(self):
+        # The width would default to 1 instead of coming from the data.
+        for legacy in (
+            NestedFloatsProcessor(),
+            _fit(NestedFloatsProcessor(padding=2), [], [[], []], None),
+        ):
+            with self.assertRaisesRegex(ValueError, "fit\\(\\) saw no values"):
+                NestedFloatsToUnifiedBridge(legacy)
+
+    def test_processor_fitted_before_values_were_recorded(self):
+        legacy = _fit(NestedFloatsProcessor(forward_fill=False), [[1.0, 2.0]])
+        delattr(legacy, "_saw_values")  # falls back to the class default, None
+        _, got = _bridge_batch(NestedFloatsToUnifiedBridge, legacy, [[3.0]])
+        self.assertEqual(got, [[[3.0, 0.0]]])
+
 
 class TestDeepNestedFloats(unittest.TestCase):
     def test_groups_and_padding(self):
@@ -398,6 +413,20 @@ class TestDeepNestedFloats(unittest.TestCase):
         legacy = _fit(DeepNestedFloatsProcessor(forward_fill=True), [[[1.0], [2.0], [3.0]]])
         _, got = _bridge_batch(DeepNestedFloatsToUnifiedBridge, legacy, [[[5.0]]])
         self.assertEqual(got, [[[[5.0], [5.0], [5.0]]]])
+
+    def test_processor_without_fitted_values_is_rejected(self):
+        for legacy in (
+            DeepNestedFloatsProcessor(),
+            _fit(DeepNestedFloatsProcessor(), [], [[], [[], []]], None),
+        ):
+            with self.assertRaisesRegex(ValueError, "fit\\(\\) saw no values"):
+                DeepNestedFloatsToUnifiedBridge(legacy)
+
+    def test_processor_fitted_before_values_were_recorded(self):
+        legacy = _fit(DeepNestedFloatsProcessor(forward_fill=False), [[[1.0, 2.0]]])
+        delattr(legacy, "_saw_values")  # falls back to the class default, None
+        _, got = _bridge_batch(DeepNestedFloatsToUnifiedBridge, legacy, [[[3.0]]])
+        self.assertEqual(got, [[[[3.0, 0.0]]]])
 
 
 class TestMultiHot(unittest.TestCase):

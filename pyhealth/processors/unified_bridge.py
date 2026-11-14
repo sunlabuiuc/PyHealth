@@ -522,13 +522,28 @@ def _fit_width(x: torch.Tensor, width: int) -> torch.Tensor:
 # ----------------------------------------------------------------------
 
 
+def _check_saw_values(legacy: NestedFloatsProcessor | DeepNestedFloatsProcessor) -> None:
+    """Rejects a processor whose ``fit()`` saw no values (or that is unfitted).
+
+    Its inner width then defaults to 1 rather than coming from the data. A
+    processor pickled before this was recorded (``_saw_values`` None) keeps
+    its width.
+    """
+    if legacy._saw_values is False:
+        raise ValueError(
+            f"{type(legacy).__name__}: fit() saw no values, so the width of a "
+            "visit is unknown and the processor cannot be bridged."
+        )
+
+
 @_bridges(NestedFloatsProcessor)
 class NestedFloatsToUnifiedBridge(UnifiedBridge):
     """:class:`~pyhealth.processors.NestedFloatsProcessor` as a ``sequence`` of value rows.
 
     Each visit is one record with the ``[C]`` values of the fitted inner
-    width. Each sample's trailing all-zero (or NaN) visits are padding, so a
-    real trailing visit of zeros is dropped (see :class:`UnifiedBridge`).
+    width; a processor whose ``fit()`` saw no values is rejected. Each
+    sample's trailing all-zero (or NaN) visits are padding, so a real
+    trailing visit of zeros is dropped (see :class:`UnifiedBridge`).
 
     Examples:
         >>> from pyhealth.processors import NestedFloatsProcessor
@@ -543,6 +558,7 @@ class NestedFloatsToUnifiedBridge(UnifiedBridge):
     """
 
     def __init__(self, legacy: NestedFloatsProcessor) -> None:
+        _check_saw_values(legacy)
         super().__init__(
             legacy, [{"ordering": "sequence", "values": [legacy._max_inner_len]}]
         )
@@ -557,11 +573,12 @@ class DeepNestedFloatsToUnifiedBridge(UnifiedBridge):
     """:class:`~pyhealth.processors.DeepNestedFloatsProcessor` as groups of value rows.
 
     Levels, bottom up: a ``sequence`` of visits per group, each one record
-    with ``[C]`` values, and a ``sequence`` of groups. Trailing all-zero (or
-    NaN) visits of a group and trailing all-zero groups of a sample are
-    padding (see :class:`UnifiedBridge`). With ``forward_fill``, the legacy
-    processor pads a group's visits by repeating its last visit, which is
-    not zero, so those padded visits are kept as records.
+    with ``[C]`` values, and a ``sequence`` of groups. A processor whose
+    ``fit()`` saw no values is rejected. Trailing all-zero (or NaN) visits of
+    a group and trailing all-zero groups of a sample are padding (see
+    :class:`UnifiedBridge`). With ``forward_fill``, the legacy processor
+    pads a group's visits by repeating its last visit, which is not zero, so
+    those padded visits are kept as records.
 
     Examples:
         >>> from pyhealth.processors import DeepNestedFloatsProcessor
@@ -575,6 +592,7 @@ class DeepNestedFloatsToUnifiedBridge(UnifiedBridge):
     """
 
     def __init__(self, legacy: DeepNestedFloatsProcessor) -> None:
+        _check_saw_values(legacy)
         super().__init__(
             legacy,
             [
