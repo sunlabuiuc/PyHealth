@@ -9,6 +9,7 @@ import unittest
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import torch
 from transformers import BertConfig, BertModel, BertTokenizerFast
@@ -412,6 +413,48 @@ class TestLLMEHREncoder(unittest.TestCase):
                       epochs=2)
         scores = trainer.evaluate(get_dataloader(self.dataset, 4))
         self.assertIn("roc_auc", scores)
+
+    def test_locked_cache_file_warns_and_keeps_the_embedding(self):
+        """Windows: os.replace keeps raising PermissionError on a locked file.
+        The cache write must warn, not raise, and the vector is still used."""
+
+        def embed_fn(texts):
+            return torch.stack([torch.full((4,), float(len(t))) for t in texts])
+
+        cache = os.path.join(self.tmp.name, "locked-cache")
+        model = LLMEHREncoder(self.dataset, embed_fn=embed_fn, cache_dir=cache,
+                              cache_name="stub")
+        expected = torch.nn.functional.normalize(embed_fn(["a", "bb"]), dim=-1)
+        locked = patch("pyhealth.models.utils.os.replace",
+                       side_effect=PermissionError("file in use"))
+        no_sleep = patch("pyhealth.models.utils.time.sleep")
+        with locked, no_sleep, self.assertWarnsRegex(RuntimeWarning,
+                                                     "Could not replace"):
+            out = model.embed(["a", "bb"])
+        torch.testing.assert_close(out, expected)
+        self.assertEqual(
+            [p for p in Path(cache).rglob("*") if p.is_file()], []
+        )  # no temporary files left, and nothing half-written
+
+    @unittest.skipIf(os.name == "nt", "POSIX permission bits")
+    def test_cache_files_are_owner_only(self):
+        """Embeddings of patient-derived text are readable by the owner only."""
+
+        def embed_fn(texts):
+            return torch.stack([torch.full((4,), float(len(t))) for t in texts])
+
+        cache = os.path.join(self.tmp.name, "private-cache")
+        model = LLMEHREncoder(self.dataset, embed_fn=embed_fn, cache_dir=cache,
+                              cache_name="stub")
+        old = os.umask(0o022)
+        try:
+            model.embed(["a", "bb"])
+        finally:
+            os.umask(old)
+        files = [p for p in Path(cache).rglob("*") if p.is_file()]
+        self.assertEqual(len(files), 2)
+        for f in files:
+            self.assertEqual(f.stat().st_mode & 0o777, 0o600)
 
     def test_embeddings_are_cached_in_memory_and_on_disk(self):
         calls = []
