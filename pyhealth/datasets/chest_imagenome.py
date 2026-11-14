@@ -176,7 +176,13 @@ def _find_scene_graphs(root: Path) -> list[Path]:
 
 
 def _format_datetime(value: object) -> str:
-    """Formats ``StudyDateTime`` for the config, or "" if it cannot be parsed."""
+    """Formats ``StudyDateTime`` for the config, or "" if it cannot be parsed.
+
+    Only strings are parsed: pandas reads a number as nanoseconds since 1970,
+    which would give a wrong date instead of a blank one.
+    """
+    if not isinstance(value, str):
+        return ""
     parsed = pd.to_datetime(value, errors="coerce", utc=True)
     return "" if pd.isna(parsed) else parsed.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -251,7 +257,8 @@ def prepare_chest_imagenome(root: str | Path) -> Path:
     """Writes the tables that the dataset config reads.
 
     Reads every scene graph in ``silver_dataset/scene_graph/`` and the gold
-    comparison file in ``gold_dataset/``. A scene graph that cannot be parsed is
+    comparison file in ``gold_dataset/``. A scene graph that cannot be parsed,
+    or that lacks a field read here such as ``patient_id`` or ``study_id``, is
     skipped with a warning, and a missing gold file gives an empty
     ``gold_comparisons`` table. Rows are streamed to disk, since the full
     dataset has one scene graph per frontal image.
@@ -301,11 +308,21 @@ def prepare_chest_imagenome(root: str | Path) -> Path:
                 logger.warning("Skipping unreadable scene graph %s: %s", path, error)
                 continue
             dicom_id = path.name.removesuffix(_SCENE_GRAPH_SUFFIX)
-            ids = {
-                "subject_id": str(graph["patient_id"]),
-                "study_id": str(graph["study_id"]),
-                "study_datetime": _format_datetime(graph.get("StudyDateTime")),
-            }
+            try:
+                ids = {
+                    "subject_id": str(graph["patient_id"]),
+                    "study_id": str(graph["study_id"]),
+                    "study_datetime": _format_datetime(graph.get("StudyDateTime")),
+                }
+                objects = list(_object_rows(graph, dicom_id))
+                comparisons = list(_comparison_rows(graph))
+            except (KeyError, TypeError, IndexError, AttributeError) as error:
+                logger.warning(
+                    "Skipping scene graph %s with a missing or malformed field: %r",
+                    path,
+                    error,
+                )
+                continue
             undated += not ids["study_datetime"]
             images[dicom_id] = (
                 ids["subject_id"],
@@ -320,9 +337,9 @@ def prepare_chest_imagenome(root: str | Path) -> Path:
                 "gender": graph.get("gender", ""),
                 "age_decile": graph.get("age_decile", ""),
             })
-            for row in _object_rows(graph, dicom_id):
+            for row in objects:
                 object_writer.writerow({**ids, "dicom_id": dicom_id, **row})
-            for row in _comparison_rows(graph):
+            for row in comparisons:
                 pending_writer.writerow({**ids, **row})
 
     if undated:
