@@ -149,7 +149,15 @@ class TestOperators(unittest.TestCase):
         saba = {"op": "count", "window": 365, "select": SABA}
         self.assertEqual(_one(self.fs, {"op": "ratio", "a": adm, "b": saba})[0], 0.75)
         self.assertEqual(_one(self.fs, {"op": "diff", "a": saba, "b": adm})[0], 1)
-        self.assertEqual(_one(self.fs, {"op": "any", "a": adm, "b": saba})[0], 1)
+        value, spec = _one(self.fs, {"op": "any", "a": adm, "b": {
+            "op": "ge", "x": 3, "of": saba}})
+        self.assertEqual(value, 1)
+        self.assertEqual(spec.definition, (
+            "1 if there was any admissions event in the 365 days before the prediction time "
+            "or there were 3 or more SABA orders in the 365 days before the prediction "
+            "time, else 0"))
+        nested = {"op": "any", "a": {"op": "any", "a": adm, "b": saba}, "b": adm}
+        self.assertNotIn("else 0 is above 0", _one(self.fs, nested)[1].definition)
         self.assertEqual(_one(self.fs, {"op": "cross", "a": adm, "b": saba})[0], 6)
         column = self.fs.validate({"op": "column", "column": "age", "rationale": "r"})
         self.assertEqual(self.fs.compute([column], _samples(4))[:, 0].tolist(),
@@ -247,6 +255,24 @@ class TestFutureBlind(unittest.TestCase):
             valid = fs.validate(spec)
             reason = fs.future_blind([valid], _samples())[valid.name]
             self.assertEqual(reason is not None, leaks)
+
+    def test_derived_events_only_replace_declared_types(self):
+        # The hook runs only for a declared derived type; an ordinary table
+        # is read from the EHR, even if the hook returns rows of that type.
+        calls = []
+
+        def hook(patient, t):
+            calls.append(patient)
+            return [{"event_type": "med_orders", "timestamp": t - timedelta(days=1),
+                     "drug_class": "SABA"}] * 50
+
+        plain = _space()
+        fs = _space(derived_events=hook, derived_types={"episodes": ["n_stays"]})
+        spec = {"op": "count", "window": 365, "select": SABA, "rationale": "r"}
+        expected = plain.compute([plain.validate(spec)], _samples())
+        values = fs.compute([fs.validate(spec)], _samples())
+        self.assertEqual(values.tolist(), expected.tolist())
+        self.assertEqual(calls, [])
 
     def test_check_reports_what_a_reviewer_needs(self):
         rows = _space().check([{"op": "exists", "window": 90, "select": SABA,

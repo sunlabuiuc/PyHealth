@@ -393,6 +393,7 @@ def build_report(
         if (pruning or {}).get("pruned_trial") == selected.trial_id else None,
         "one_se": one_se, "done": done, "baseline": baseline,
         "start": "start" if baseline else "first trial",
+        "bound": bound,
         "by_id": {t.trial_id: t for t in done},
     }
     flags = [{**f, "review": review.get(f["id"])}
@@ -804,6 +805,7 @@ def _features_section(ctx, pruning, flags, test) -> Section:
         name = spec["name"]
         rows.append([name, spec.get("definition", "-"), spec.get("rationale", "-") or "-",
                      _direction(spec.get("direction", "")),
+                     ", ".join(spec.get("citations") or []) or "-",
                      contribution.get(name, "-"),
                      "held for review" if name in open_flags else "in the model"])
     blocks = [
@@ -813,8 +815,8 @@ def _features_section(ctx, pruning, flags, test) -> Section:
                "rationale and expected direction were given when it was proposed "
                "*(hypothesis)*; the contribution is what its group added on the "
                "confirmation folds *(tested)*.")),
-        ("table", ["feature", "definition", "rationale", "expected", "contribution",
-                   "status"], rows),
+        ("table", ["feature", "definition", "rationale", "expected", "citations",
+                   "contribution", "status"], rows),
     ]
     held = (test or {}).get("held_back")
     if held and "without_flagged" in (test or {}):
@@ -1097,7 +1099,33 @@ def _why(ctx) -> str:
         return (f"{lead} It is the most interpretable trial ({words}) whose score "
                 f"is within one standard error of the best, #{top.trial_id}: "
                 f"{_pm(gap, se, better, k)}. *(measured)*")
-    if sel is ref and len(ctx["candidates"]) == 1:
+    if sel is ref:
+        passed = len(ctx["candidates"]) - 1
+        if ctx["confirmed"] and passed:
+            def kept_gain(t) -> bool:
+                gain, se = ctx["vs_rule"](t, ref)[:2]
+                return se is not None and gain - ctx["bound"] * se > 0
+
+            kept = [t for t in ctx["done"] if t is not ref
+                    and t.trial_id in ctx["candidates"]
+                    and t.trial_id in ctx["rescored"] and kept_gain(t)]
+            if kept and ctx["one_se"]:
+                return (f"{len(kept)} trial(s) kept a gain of {ctx['bound']:g} "
+                        "standard errors on the confirmation folds, but the starting "
+                        "pipeline is simpler and scores within one standard error of "
+                        f"the best, #{top.trial_id}, so the one-SE rule keeps it "
+                        "(see *Confirmation*). *(measured)*")
+            if not kept:
+                return (f"{passed} trial(s) beat the starting pipeline on the search "
+                        f"folds, but none kept a gain of {ctx['bound']:g} standard "
+                        "errors on the confirmation folds (see *Confirmation*), so "
+                        "it stays selected. *(measured)*")
+        if passed:
+            rule = ("it is simpler and scores within one standard error of the "
+                    "best of them" if ctx["one_se"] else
+                    "the selection rule kept it")
+            return (f"{passed} trial(s) cleared the search bound over the starting "
+                    f"pipeline, but it stays selected: {rule}. *(measured)*")
         return ("No trial beat the starting pipeline consistently across folds, so "
                 "it stays selected. *(measured)*")
     if not ctx["one_se"]:
