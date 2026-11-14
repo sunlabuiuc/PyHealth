@@ -160,7 +160,8 @@ class KnowledgeBase:
     Args:
         llm: Backend for extraction and mapping, e.g.
             :class:`~pyhealth.autoimprove.ClaudeLLM`; without one, only curated
-            tables are used and nothing is mapped.
+            tables are used, and :meth:`extract` and :meth:`map` raise
+            ``ValueError``.
         fetch: ``fetch(url) -> str`` for PubMed; defaults to ``urllib``.
             Tests replace it.
         cache_dir: Where fetched abstracts are cached.
@@ -325,17 +326,22 @@ class KnowledgeBase:
     def fetch_pubmed(self, pmids: Sequence[Any]) -> list[Document]:
         """Fetches the abstracts of given PubMed ids, e.g. a review's references.
 
-        Only the ids are sent. Abstracts are cached in ``cache_dir``.
+        Only the ids are sent, and only values that are entirely digits
+        (after a ``PMID:`` prefix) are used; anything else, such as a DOI,
+        is skipped with a warning. Abstracts are cached in ``cache_dir``.
 
         Examples:
             >>> kb.fetch_pubmed(["33831622", "31014587"])  # doctest: +SKIP
         """
         docs = []
         for value in pmids:
-            found = re.search(r"\d+", _clean_id(value)) if _present(value) else None
-            if found is None:
+            if not _present(value):
                 continue
-            pmid = found.group()
+            pmid = re.sub(r"^pmid\s*:?\s*", "", _clean_id(value), flags=re.IGNORECASE)
+            if not re.fullmatch(r"\d+", pmid):
+                # a DOI ("10.1000/x") or PMC id would be cited as a wrong PMID
+                logger.warning("skipping %r: not a PubMed id", value)
+                continue
             text = self._get(f"{EUTILS}/efetch.fcgi?" + urllib.parse.urlencode(
                 {"db": "pubmed", "id": pmid, "rettype": "abstract", "retmode": "text"}))
             docs.append(Document(f"PMID:{pmid}", text))
@@ -413,6 +419,8 @@ class KnowledgeBase:
         """
         for e in self.evidence:
             e.verified, e.reason = _check(e, self.documents.get(e.source))
+            if e.verified:  # keep the numbers as checked ("2.4" -> 2.4)
+                e.effect = _coerce_effect(e.effect)
             value = e.effect.get("value")
             if e.verified and e.effect.get("type") in RATIO_TYPES and isinstance(
                     value, (int, float)):
@@ -461,13 +469,17 @@ class KnowledgeBase:
         except ValueError:
             return records
         known_columns = set(columns)
-        for item in data.get("mappings", []) or []:
+        items = data.get("mappings", []) if isinstance(data, dict) else []
+        for item in items if isinstance(items, list) else []:
+            if not isinstance(item, dict):
+                continue
             group = by_predictor.get(_norm_name(str(item.get("predictor", ""))))
             if not group:
                 continue
             mapping = self._validate_mapping(item, group, features, known_columns)
-            match = _unit(item.get("population_match"), 1.0)
-            support = _unit(item.get("data_support"), 1.0)
+            # a missing rating is neutral, not full weight
+            match = _unit(item.get("population_match"), 0.5)
+            support = _unit(item.get("data_support"), 0.5)
             strength = max(e.strength for e in group)
             for e in group:
                 e.mapping = dict(mapping)
@@ -483,7 +495,10 @@ class KnowledgeBase:
                 return {"status": "have", "column": column, "note": note}
             return {"status": "not in data", "note": f"no column {column!r}"}
         if status == "build" and features is not None:
-            spec = dict(item.get("spec") or {})
+            spec = item.get("spec") or {}
+            if not isinstance(spec, dict):
+                return {"status": "not in data", "note": "the spec is not a record"}
+            spec = dict(spec)
             spec["rationale"] = spec.get("rationale") or f"{group[0].predictor} predicts " \
                 f"the outcome in the literature"
             spec["direction"] = self.direction_of(group[0].predictor)
@@ -773,7 +788,7 @@ def _anchored(
 
 
 def _mentions(predictor: str, text: str) -> bool:
-    """Whether the text names the predictor: most of its words, by stem.
+    """Whether the text names the predictor: its words, by stem.
 
     "prior ED visits" is named by "two or more ED visits in the prior year".
     Words of three letters or more count (and acronyms such as "ED"); a
@@ -785,7 +800,10 @@ def _mentions(predictor: str, text: str) -> bool:
         return False
     text_words = re.findall(r"[a-z0-9]+", text)
     found = sum(any(t[:5] == w[:5] for t in text_words) for w in words)
-    return found * 2 >= len(words) and found > 0
+    # every word of a one- or two-word predictor ("SABA overuse" is not named
+    # by "overuse of oral corticosteroids"); at least two and half otherwise
+    need = len(words) if len(words) <= 2 else max(2, (len(words) + 1) // 2)
+    return found >= need
 
 
 def _find_number(
