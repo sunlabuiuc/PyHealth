@@ -17,12 +17,15 @@ from pyhealth.autoimprove import (
     Param,
     PipelineConfig,
     QueueProposer,
+    RandomProposer,
     SearchSpace,
     Trial,
     build_report,
     with_xgboost,
 )
 from pyhealth.autoimprove.evaluate import patient_folds, run_config_cv
+from pyhealth.autoimprove.proposers import ProposalContext
+from pyhealth.autoimprove.report import flags_for
 from pyhealth.data import Patient
 from pyhealth.datasets import create_sample_dataset
 
@@ -232,6 +235,51 @@ class TestFeatureSearch(unittest.TestCase):
                             stop_if=lambda scores: len(scores) >= 2)
         self.assertTrue(out["stopped_early"])
         self.assertEqual(len(out["fold_scores"]), 2)
+
+
+    def test_early_stopped_trials_are_never_accepted(self):
+        # early_stop=-1 stops every searched trial after 2 folds; the run
+        # still completes, and none of them is accepted or selected.
+        queue = QueueProposer([VISITS_90, LABS_90])
+        improver = _improver(self.world, queue, early_stop=-1.0, n_cycles=2)
+        result = improver.run()
+        stopped = [t for t in result.trials if t.stopped_early]
+        self.assertTrue(stopped)
+        for t in stopped:
+            self.assertEqual(len(t.fold_scores), 2)
+            self.assertFalse(t.accepted)
+        self.assertEqual(result.best.agent, "baseline")
+
+    def test_a_re_evaluated_incumbent_runs_every_fold(self):
+        # The incumbent is the reference for paired gains, so it must not be
+        # cut short by early_stop even when the rule would stop it.
+        improver = _improver(self.world, QueueProposer([LABS_90]),
+                             early_stop=-1.0, n_cycles=1)
+        improver.run()
+        baseline = next(t for t in improver.trials if t.agent == "baseline")
+        baseline.stopped_early = True  # force a fresh evaluation
+        incumbent = improver._incumbent(cycle=9)
+        self.assertIsNotNone(incumbent)
+        self.assertEqual(incumbent.agent, "incumbent")
+        self.assertFalse(incumbent.stopped_early)
+        self.assertEqual(len(incumbent.fold_scores), 5)
+
+
+class TestRandomFeatures(unittest.TestCase):
+    def test_random_specs_are_valid_and_flagged_without_explain(self):
+        world = World()
+        fs = FeatureSpace(world, time_key="t", min_patients=5)
+        context = ProposalContext("a0", "explore", SPACE, "", "roc_auc", True,
+                                  kind="features", features=fs)
+        proposer = RandomProposer(seed=0)
+        for _ in range(10):
+            group = proposer.propose_features(context)
+            self.assertIn(len(group["features"]), (1, 2))
+            for spec in group["features"]:
+                valid = fs.validate(spec)  # raises if invalid
+                self.assertTrue(valid.rationale.startswith("none"))
+        flags = flags_for(None, None, None, features=[valid.to_dict()])
+        self.assertIn(f"no_rationale:{valid.name}", [f["id"] for f in flags])
 
 
 class TestConfirmedReport(unittest.TestCase):
