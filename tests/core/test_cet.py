@@ -261,3 +261,34 @@ def test_posterior_occurrence_matches_constant_time_case():
         torch.full_like(estimated[~observed.bool()], expected_censored),
         atol=1e-6,
     )
+
+
+def test_sample_median_matches_quantile():
+    torch.manual_seed(42)
+
+    for n_samples in (1, 7, 8, 32, 100):
+        mu = torch.randn(5, n_samples, 3)
+
+        expected = torch.quantile(
+            torch.exp(mu.clamp(max=40)),
+            0.5,
+            dim=1,
+        )
+        actual = CET._sample_median_time(mu)
+
+        torch.testing.assert_close(
+            actual, expected, rtol=1e-6, atol=1e-6
+        )
+
+
+def test_sample_median_large_batch():
+    # More than 2**24 total elements.
+    # 16,778 patients, 100 samples, 10 events.
+    with torch.no_grad():
+        mu = torch.zeros((16_778, 100, 10))
+        result = CET._sample_median_time(mu)
+
+    assert result.shape == (16_778, 10)
+    torch.testing.assert_close(
+        result, torch.ones_like(result)
+    )

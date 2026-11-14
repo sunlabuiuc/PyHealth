@@ -67,6 +67,8 @@ Results can be aggregated across seeds using the accompanying summary script:
 python examples/summarize_cet_ablation.py cet_larger_synthetic.json cet_ablation_seed8.json cet_ablation_seed9.json
 ```
 
+The per-event test AUC values used to calculate the reported averages can be inspected in the `test_eventual_auc` field for each configuration under `ablation` in the generated JSON files. The array contains the AUCs for Event 0 and Event 1, respectively.
+
 ### Synthetic Ablation Results
 
 The following table summarizes results from three independently generated synthetic datasets using seeds 7, 8, and 9.
@@ -117,8 +119,6 @@ SUPPORT2 contains clinical patient information and right-censored mortality outc
 
 The full SUPPORT2 CSV was used rather than the small three-record fixture located in `test-resources/core/support2/`.
 
-The initial experiment used a local CSV copy with a sequential `sno` identifier because the public CSV lacked the `sno`/`patient_id` column required by the existing `survival_mdn_data.py` helper. The updated CET example now creates such identifiers automatically in a temporary copy when necessary; it does not modify the original input CSV or the existing PyHealth helper.
-
 The experiment produced the following processed dataset:
 
 - **Total observations:** 8,873
@@ -150,7 +150,7 @@ Run the ablation from the PyHealth repository root:
 python examples/synthetic_event_time_cet.py --source support2 --data "data/support2/support2.csv" --epochs 60 --seed 7 --output cet_support2_60.json
 ```
 
-At startup, inspect the `SUPPORT2 cohort audit` output and check whether `raw_rows - rows_missing_wblc_or_crea` equals `encoded_rows`. The published results below were obtained using the manually identified CSV prior to this convenience update; rerun on the original file to confirm reproducibility.
+At startup, inspect the SUPPORT2 cohort audit output and verify that raw_rows - rows_missing_wblc_or_crea equals encoded_rows. The results below were reproduced using the original SUPPORT2 CSV and the current example's automatic temporary patient ID handling, with 60 training epochs and random seed 7. All three ablation configurations produced results matching the values reported in the table.
 
 The dataset-loading helper initializes the PyHealth SUPPORT2 dataset, prepares the censored survival targets, and splits the observations for model training and evaluation.
 

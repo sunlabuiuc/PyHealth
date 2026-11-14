@@ -335,6 +335,32 @@ class CET(BaseModel):
         nlogsurv = -torch.special.log_ndtr(-z)
         return nlogpdf, nlogsurv
 
+    @staticmethod
+    def _sample_median_time(mu: Tensor) -> Tensor:
+        """Median of sampled conditional times along the sample dimension.
+
+        Preserves the linear-interpolated median of torch.quantile(q=0.5)
+        for both odd and even sample counts without calling torch.quantile.
+
+        Args:
+            mu: Sampled log-time means [batch, samples, events].
+
+        Returns:
+            Predicted event times [batch, events].
+        """
+        times = torch.exp(mu.clamp(max=40))
+        sorted_times = torch.sort(times, dim=1).values
+
+        n_samples = sorted_times.shape[1]
+        middle = n_samples // 2
+
+        if n_samples % 2:
+            return sorted_times[:, middle, :]
+
+        lower = sorted_times[:, middle - 1, :]
+        upper = sorted_times[:, middle, :]
+        return lower + 0.5 * (upper - lower)
+
     def censored_nll(
         self, logits: Tensor, c: Tensor, mu: Tensor, logvar: Tensor,
         duration: Tensor, event: Tensor,
@@ -390,7 +416,7 @@ class CET(BaseModel):
         output = {
             "logit": logits,
             "y_prob": torch.sigmoid(logits),
-            "time_pred": torch.quantile(torch.exp(mu.clamp(max=40)), 0.5, dim=1),
+            "time_pred": self._sample_median_time(mu),
         }
         if self.duration_key in kwargs:
             duration = self._outcome(kwargs[self.duration_key], "duration", len(x))
@@ -437,7 +463,7 @@ class CET(BaseModel):
             logits = self.occurrence_logits(x)
             c = self.sample_occurrence(logits, n_samples)
             mu, _ = self.conditional_time_params(x, c)
-            return torch.quantile(torch.exp(mu.clamp(max=40)), 0.5, dim=1)
+            return self._sample_median_time(mu)
         finally:
             self.train(was_training)
 
