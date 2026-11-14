@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from itertools import pairwise
 from typing import Dict, List
 
 from pyhealth.data import Event, Patient
@@ -251,7 +252,7 @@ class ReadmissionPredictionMIMIC4(BaseTask):
 
         samples = []
         # Skip the last stay since we need a "next" admission
-        for stay, next_stay in zip(stays, stays[1:]):
+        for stay, next_stay in pairwise(stays):
             diagnoses, procedures, prescriptions = [], [], []
             for admission in stay:
                 filter = ("hadm_id", "==", admission.hadm_id)
@@ -580,8 +581,12 @@ class ReadmissionPredictionOMOP(BaseTask):
 
 
 def _discharge_time(admission: Event) -> datetime:
-    """An admission's discharge time, from a timestamp or a date."""
+    """An admission's discharge time, from a timestamp or a date.
+
+    MIMIC-IV times have no time zone, like the admission timestamps they
+    are compared with, so the result is naive too.
+    """
     try:
-        return datetime.strptime(admission.dischtime, "%Y-%m-%d %H:%M:%S")
+        return datetime.strptime(admission.dischtime, "%Y-%m-%d %H:%M:%S")  # noqa: DTZ007
     except ValueError:
-        return datetime.strptime(admission.dischtime, "%Y-%m-%d")
+        return datetime.strptime(admission.dischtime, "%Y-%m-%d")  # noqa: DTZ007
