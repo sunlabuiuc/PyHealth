@@ -391,6 +391,28 @@ class TestEstimateRisk(unittest.TestCase):
         torch.manual_seed(0)
         self.model = tiny_model(self.dataset)
 
+    def test_outcome_data_must_use_the_models_processors(self):
+        script(self.model, DEATH)
+        new_codes = [(0.5 + k, f"LAB//NEW{k}", None) for k in range(8)]
+        refitted = tiny_dataset(extra=[sample(9, [(0.0, ADMIT, None), *new_codes])])
+        with self.assertRaisesRegex(ValueError, "input_processors"):
+            self.model.estimate_risk(get_dataloader(refitted, batch_size=3), RULE,
+                                     num_rollouts=1)
+        # a plain list of batches has no dataset to compare; out-of-vocabulary
+        # ids still raise
+        with self.assertRaisesRegex(ValueError, "outside this model's vocabulary"):
+            self.model.estimate_risk([batch_of(refitted, size=4)], RULE,
+                                     num_rollouts=1)
+        shared = create_sample_dataset(
+            [sample(i, [(0.0, ADMIT, None), (30.0, HOME, None)]) for i in range(2)],
+            input_schema={"timeline": "ethos", "context": "ethos_context"},
+            output_schema={},
+            input_processors=self.dataset.input_processors,
+        )
+        risk = self.model.estimate_risk(get_dataloader(shared, batch_size=2), RULE,
+                                        num_rollouts=1)
+        self.assertEqual(len(risk["y_prob"]), 2)
+
     def test_all_positive(self):
         script(self.model, DEATH)
         risk = self.model.estimate_risk([self.batch], RULE, num_rollouts=2)

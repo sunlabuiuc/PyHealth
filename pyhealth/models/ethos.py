@@ -498,6 +498,48 @@ class ETHOS(BaseModel):
             "days": (hours / 24.0).tolist(),
         }
 
+    def _check_processors(self, dataset: Any) -> None:
+        """Raises if ``dataset`` encodes with other processors than the model's."""
+        processors = getattr(dataset, "input_processors", None)
+        if not processors:
+            return
+        ours = {"timeline": self.timeline_processor, "context": self.context_processor}
+        for key, mine in ours.items():
+            theirs = processors.get(key)
+            if theirs is mine:
+                continue
+            same = (
+                theirs is not None
+                and type(theirs) is type(mine)
+                and theirs.vocab is not None
+                and theirs.vocab.to_json() == mine.vocab.to_json()
+                and getattr(theirs, "quantiles", None) == getattr(mine, "quantiles", None)
+                and getattr(theirs, "interval_estimates", None)
+                == getattr(mine, "interval_estimates", None)
+            )
+            if not same:
+                raise ValueError(
+                    f"The dataset's {key!r} processor is not the one this model "
+                    "was trained with, so its token ids mean something else. "
+                    "Build the outcome dataset with "
+                    "input_processors=model.dataset.input_processors."
+                )
+
+    def _check_ids(self, tokens: torch.Tensor, static: torch.Tensor) -> None:
+        """Raises if a batch has ids outside the model's vocabularies."""
+        if tokens.numel() and int(tokens.max()) >= self.timeline_vocab_size:
+            raise ValueError(
+                "A timeline token id is outside this model's vocabulary; the "
+                "batch was encoded with other processors. Build the outcome "
+                "dataset with input_processors=model.dataset.input_processors."
+            )
+        if static.numel() and int(static.max()) >= self.context_processor.size():
+            raise ValueError(
+                "A context token id is outside this model's vocabulary; build "
+                "the outcome dataset with "
+                "input_processors=model.dataset.input_processors."
+            )
+
     def estimate_risk(
         self,
         dataloader: Iterable[dict[str, Any]],
@@ -512,6 +554,13 @@ class ETHOS(BaseModel):
 
         The risk is the share of positive rollouts among those ``rule`` keeps.
         The paper uses 100 rollouts per sample.
+
+        The batches must be encoded with this model's processors: build the
+        outcome dataset with ``input_processors=model.dataset.input_processors``
+        (see :class:`~pyhealth.tasks.EthosOutcomeMEDS`). Processors fitted on
+        the outcome samples give token ids that mean something else, so this
+        raises ``ValueError`` when the dataloader's dataset has other
+        processors, or when a token id falls outside the model's vocabulary.
 
         Rollouts have no key-value cache: each new token re-runs the model over
         the whole sequence so far. That is fine for small models and short
@@ -533,6 +582,7 @@ class ETHOS(BaseModel):
             ``num_kept`` (rollouts behind each risk), ``patient_id`` (if the
             batches have it) and ``y_true`` (with ``label_key``).
         """
+        self._check_processors(getattr(dataloader, "dataset", None))
         generator = None
         if seed is not None:
             generator = torch.Generator(device=self.device).manual_seed(seed)
@@ -544,6 +594,7 @@ class ETHOS(BaseModel):
         for batch in dataloader:
             time, tokens = batch["timeline"]
             age, static = batch["context"]
+            self._check_ids(tokens, static)
             for i in range(len(tokens)):
                 result = self.rollout(
                     (time[i], tokens[i]),
