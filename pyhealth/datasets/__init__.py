@@ -53,6 +53,7 @@ from .imaging.stats import (
 )
 from .cardiology import CardiologyDataset
 from .chaos import CHAOSDataset as CHAOSDataset
+from .chest_imagenome import ChestImaGenomeDataset as ChestImaGenomeDataset
 from .chestxray14 import ChestXray14Dataset
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
