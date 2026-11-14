@@ -127,5 +127,57 @@ class TestTensorProcessorOptions(unittest.TestCase):
             self.assertEqual(len(p.spatial()), len(shape))
 
 
+class TestTensorProcessorShape(unittest.TestCase):
+    """fit() records the input shape over every sample."""
+
+    def _shape(self, *values, **kwargs):
+        p = TensorProcessor(**kwargs)
+        p.fit([{"x": value} for value in values], "x")
+        return p
+
+    def test_fixed_and_variable_first_axis(self):
+        cases = (
+            (([[1.0, 2.0, 3.0]], [[4.0, 5.0, 6.0]]), (1, 3)),
+            (([[1.0, 2.0]], [[3.0, 4.0], [5.0, 6.0]]), (None, 2)),
+            (([1.0], [2.0, 3.0]), (None,)),
+            (([1.0, 2.0], [3.0, 4.0]), (2,)),
+            ((1.0, 2.0), ()),
+            ((torch.zeros(2, 3, 4), torch.zeros(5, 3, 4)), (None, 3, 4)),
+        )
+        for values, shape in cases:
+            with self.subTest(shape=shape):
+                self.assertEqual(self._shape(*values)._shape, shape)
+
+    def test_other_axes_or_ranks_varying_give_no_shape(self):
+        for values in (
+            ([[1.0, 2.0]], [[1.0, 2.0, 3.0]]),
+            ([1.0, 2.0], [[1.0, 2.0]]),
+            (1.0, [1.0]),
+        ):
+            with self.subTest(values=values):
+                p = self._shape(*values)
+                self.assertIsNone(p._shape)
+                self.assertEqual(p._n_dim, len(torch.tensor(values[0]).shape))
+
+    def test_missing_values_are_skipped(self):
+        p = TensorProcessor()
+        p.fit([{"x": None}, {}, {"x": [1.0, 2.0]}], "x")
+        self.assertEqual(p._shape, (2,))
+        self.assertEqual((p._n_dim, p._feature_dim), (1, 2))
+        p = TensorProcessor()
+        p.fit([{"x": None}], "x")
+        self.assertIsNone(p._shape)
+
+    def test_first_sample_still_sets_n_dim_and_feature_dim(self):
+        p = self._shape([[1.0, 2.0]], [[3.0, 4.0], [5.0, 6.0]], normalization="zscore")
+        self.assertEqual((p._n_dim, p._feature_dim), (2, 2))
+        np.testing.assert_allclose(p.center, [3.0, 4.0])
+
+    def test_processors_pickled_before_fit_have_no_shape(self):
+        p = self._shape([1.0])
+        del p.__dict__["_shape"]
+        self.assertIsNone(p._shape)
+
+
 if __name__ == "__main__":
     unittest.main()

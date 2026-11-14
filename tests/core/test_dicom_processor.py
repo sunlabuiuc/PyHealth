@@ -24,6 +24,8 @@ from pyhealth.processors import (
     DicomSeriesProcessor,
     ImageMaskDirectoryProcessor,
     read_image_metadata,
+    transform_batch,
+    transform_processor,
 )
 from pyhealth.processors.image_io.readers.dicom import DicomReader, DicomSeriesReader
 
@@ -91,6 +93,18 @@ def _write_multiframe(path: Path, series_uid: str, study_uid: str) -> None:
     dataset = pydicom.dcmread(str(path))
     dataset.NumberOfFrames = 2
     dataset.PixelData = np.zeros((2, 6, 8), dtype=np.int16).tobytes()
+    dataset.save_as(str(path), enforce_file_format=True)
+
+
+def _write_sized_slice(
+    path: Path, rows: int, columns: int, study_uid: str
+) -> None:
+    """Write one CT slice of ``rows`` x ``columns`` pixels."""
+    _write_slice(path, 1024, 0.0, 1, generate_uid(), study_uid)
+    dataset = pydicom.dcmread(str(path))
+    dataset.Rows = rows
+    dataset.Columns = columns
+    dataset.PixelData = np.zeros((rows, columns), dtype=np.int16).tobytes()
     dataset.save_as(str(path), enforce_file_format=True)
 
 
@@ -291,6 +305,41 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
             self.assertIn("loss", output)
         finally:
             dataset.close()
+
+    def test_fit_records_the_output_shape_from_dicom_headers(self):
+        tall = self._write_single()  # 6 x 8
+        wide = self.root / "wide.dcm"
+        _write_sized_slice(wide, 4, 10, self.study_uid)
+        samples = [{"image": str(tall)}, {"image": None}, {"image": str(wide)}]
+        missing = [{"image": str(self.root / "missing.dcm")}]
+        for mode, channels in ((None, 1), ("L", 1), ("RGB", 3), ("RGBA", 4)):
+            with self.subTest(mode=mode):
+                processor = DicomProcessor(image_size=None, mode=mode)
+                processor.fit(samples, "image")
+                self.assertEqual(processor._shape, (channels, 6, 10))
+                # With an image_size, fit() reads no file.
+                processor = DicomProcessor(image_size=5, mode=mode)
+                processor.fit(missing, "image")
+                self.assertEqual(processor._shape, (channels, 5, 5))
+                self.assertEqual(
+                    tuple(processor.process(str(wide)).shape), (channels, 5, 5)
+                )
+        processor = DicomProcessor(image_size=None)
+        processor.fit([{"image": None}, {}], "image")
+        self.assertIsNone(processor._shape)
+
+    def test_unified_bridge_uses_the_fitted_shape(self):
+        tall = self._write_single()  # 6 x 8
+        wide = self.root / "wide.dcm"
+        _write_sized_slice(wide, 4, 10, self.study_uid)
+        processor = DicomProcessor(image_size=None)
+        processor.fit([{"image": str(tall)}, {"image": str(wide)}], "image")
+        processors = transform_processor({"image": processor})
+        self.assertEqual(processors["image"].value_dim(), {0: (1, 6, 10)})
+        batch = {"image": processor.collate([processor.process(str(tall))])}
+        values, offsets = transform_batch(processors, batch)["image"]
+        self.assertEqual(tuple(values.shape), (1, 1, 6, 10))
+        self.assertEqual(offsets.tolist(), [0, 1])
 
     def test_multiframe_dicom_is_rejected_while_reading_metadata(self):
         path = self.root / "multi.dcm"
