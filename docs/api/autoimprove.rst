@@ -283,7 +283,8 @@ Give the improver a FeatureSpace to search inputs as well as settings:
   (:meth:`~pyhealth.autoimprove.AutoImprover.confirm`), and the selection must
   clear a stricter bound (``confirm_se=2``). Candidates picked as the best of
   many on the same folds are partly lucky; this removes part of that luck
-  before the test.
+  before the test. The new folds reuse the training patients, so only the
+  test split is untouched by the search.
 - **Pruning** (:meth:`~pyhealth.autoimprove.AutoImprover.prune`). Each
   accepted group whose removal costs less than one SE is dropped, so a
   clinician reviews the shortest list. The ablation shows what each group
@@ -294,7 +295,8 @@ Give the improver a FeatureSpace to search inputs as well as settings:
   direction, are held back until :meth:`~pyhealth.autoimprove.AutoImprover.approve`.
   The test then also scores the model without them.
 - ``early_stop`` ends a trial after two folds when it is clearly worse than
-  the starting pipeline.
+  the starting pipeline. A trial stopped early is never accepted or
+  selected, and the incumbent and pruned references always run every fold.
 
 Literature knowledge
 --------------------

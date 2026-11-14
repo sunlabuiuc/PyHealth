@@ -826,8 +826,9 @@ def _features_section(ctx, pruning, flags, test) -> Section:
     ]
     held = (test or {}).get("held_back")
     if held and "without_flagged" in (test or {}):
-        blocks.append(("p", (f"Until a clinician approves {', '.join(held)}, the "
-                             "deployable model is the one without them: test "
+        blocks.append(("p", (f"{', '.join(held)} await a clinician's approval. "
+                             "The headline test result uses them; for comparison, "
+                             "the selection without them scores test "
                              f"{test.get('metric', ctx['metric'])} "
                              f"{_ci(test['without_flagged'])}.")))
     return Section("Features", blocks)
@@ -1014,16 +1015,23 @@ def _checklist_section(ctx, card, explanation, test, attribution) -> Section:
     ])
 
 
-def flags_for(card, explanation, test, suspicious=()) -> list[dict[str, str]]:
+def flags_for(
+    card, explanation, test, suspicious=(), features=()
+) -> list[dict[str, str]]:
     """Items for clinician review, from the task card, explanation and test.
 
     Engineered features are also flagged when they have no clinical
     rationale (proposed by random search) or were ``suspicious``: alone they
     predicted the outcome almost perfectly, which usually means leakage.
+    ``features`` are the selection's engineered specs; those without a
+    rationale are flagged whether or not ``explanation`` is given.
 
     Examples:
         >>> [f["id"] for f in flags_for(None, None, None)]
         ['no_task_card']
+        >>> spec = {"name": "count_90d__visits", "rationale": "none: random"}
+        >>> [f["id"] for f in flags_for(None, None, None, features=[spec])]
+        ['no_task_card', 'no_rationale:count_90d__visits']
     """
     out = []
     if card is None:
@@ -1050,6 +1058,18 @@ def flags_for(card, explanation, test, suspicious=()) -> list[dict[str, str]]:
             out.append({"id": f"no_rationale:{f['name']}", "kind": "rationale",
                         "detail": f"{f['name']} is a top feature with no entry in "
                                   "the task card's dictionary."})
+    # The selection's engineered features without a rationale are flagged
+    # even when explain() has not run, so the review gate holds them back.
+    seen = {f["id"] for f in out}
+    for spec in features:
+        flag_id = f"no_rationale:{spec['name']}"
+        if (str(spec.get("rationale", "")).startswith("none")
+                and flag_id not in seen):
+            seen.add(flag_id)
+            out.append({"id": flag_id, "kind": "rationale",
+                        "detail": f"{spec['name']} was proposed without a clinical "
+                                  "rationale (random search); keep it only if a "
+                                  "clinician can justify it."})
     for name in suspicious:
         out.append({"id": f"suspicion:{name}", "kind": "leakage",
                     "detail": f"{name} alone predicts the outcome almost perfectly: "

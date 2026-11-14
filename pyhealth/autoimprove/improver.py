@@ -758,9 +758,10 @@ class AutoImprover:
             PipelineConfig(selected.config.model, dict(selected.config.model_params),
                            dict(selected.config.train_params),
                            "the selected config with the accepted features"),
-            cycle, "incumbent", "incumbent", features=accepted,
+            cycle, "incumbent", "incumbent", features=accepted, early_stop=False,
         )
-        return trial if trial.error is None else None
+        # A reference for paired gains: it must have every fold.
+        return trial if trial.error is None and not trial.stopped_early else None
 
     def _labels(self) -> np.ndarray:
         if "labels" not in self._samples_cache:
@@ -924,7 +925,7 @@ class AutoImprover:
                                dict(best.config.train_params),
                                "the selection without features it does not need"),
                 max((t.cycle for t in self.trials), default=0), "pruned", "prune",
-                features=current,
+                features=current, early_stop=False,
             )
             if pruned.error is None:
                 self.confirmed[pruned.trial_id] = scores
@@ -941,7 +942,7 @@ class AutoImprover:
         return out
 
     def _evaluate(self, config, cycle, agent, strategy, notes=None, features=None,
-                  added=None, parent=None, save=True) -> Trial:
+                  added=None, parent=None, save=True, early_stop=True) -> Trial:
         trial = Trial(len(self.trials), cycle, agent, strategy, config,
                       metric_name=self.metric, notes=list(notes or []),
                       features=[dict(s) for s in features or []],
@@ -955,7 +956,8 @@ class AutoImprover:
         try:
             out = self._run_config(
                 config, self.report_metrics, trial.features,
-                stop_if=self._early_stop_rule(),
+                # references (incumbent, pruned) always run every fold
+                stop_if=self._early_stop_rule() if early_stop else None,
             )
             trial.metrics = out["metrics"]
             trial.score = out["metrics"][self.metric]
@@ -1364,7 +1366,8 @@ class AutoImprover:
         return [
             {**flag, "review": review.get(flag["id"])}
             for flag in flags_for(self.task_card, self._read_json("explain.json"),
-                                  self._read_json("test.json"), suspicious)
+                                  self._read_json("test.json"), suspicious,
+                                  features=best.features if best else ())
         ]
 
     def _held_back(self, best: Trial | None) -> set[str]:

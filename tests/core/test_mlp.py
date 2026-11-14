@@ -1,8 +1,18 @@
 import unittest
+from datetime import datetime, timedelta
+from unittest import mock
+
 import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
+from pyhealth.interpret.methods import IntegratedGradients
 from pyhealth.models import MLP
+from tests.core.timeseries_test_utils import (
+    NUMERIC_INPUTS,
+    nested_multihot,
+    numeric_input,
+    padded_series,
+)
 
 
 class TestMLP(unittest.TestCase):
@@ -144,6 +154,164 @@ class TestMLP(unittest.TestCase):
         self.assertIn("loss", ret)
         self.assertIn("y_prob", ret)
 
+    def test_timeseries_and_nested_codes(self):
+        """A (time, features) series is embedded per step, not flattened."""
+        t0 = datetime(2020, 1, 1)
+        samples = [
+            {
+                "patient_id": f"patient-{i}",
+                "vitals": (
+                    [t0 + timedelta(hours=h) for h in range(4)],
+                    [[float(i + h), 1.0, 2.0] for h in range(4)],
+                ),
+                "visits": [["a", "b"], ["c"]],
+                "label": i % 2,
+            }
+            for i in range(4)
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"vitals": "timeseries", "visits": "nested_sequence"},
+            output_schema={"label": "binary"},
+            dataset_name="test_timeseries",
+        )
+        model = MLP(dataset=dataset, embedding_dim=8, hidden_dim=8)
+        batch = next(iter(get_dataloader(dataset, batch_size=4)))
+        ret = model(**batch)
+        ret["loss"].backward()
+        self.assertEqual(ret["y_prob"].shape, (4, 1))
+
+    def test_other_numeric_3d_inputs_are_embedded_per_step(self):
+        """nested_sequence_floats, stagenet_tensor and tensor inputs are
+        embedded per step too, each pooling to the mean of its steps."""
+        for input_type in NUMERIC_INPUTS:
+            with self.subTest(input_type):
+                dataset = numeric_input(input_type)
+                model = MLP(dataset=dataset, embedding_dim=8, hidden_dim=8)
+                batch = next(iter(get_dataloader(dataset, batch_size=4)))
+                ret = model(**batch)
+                ret["loss"].backward()
+                self.assertEqual(ret["y_prob"].shape, (4, 1))
+                model.eval()
+                linear = model.embedding_model.embedding_layers["x"]
+                schema = dataset.input_processors["x"].schema()
+                with torch.no_grad():
+                    embed = model(**batch, embed=True)["embed"]
+                    for i in range(len(dataset)):
+                        row = batch["patient_id"].index(dataset[i]["patient_id"])
+                        steps = dataset[i]["x"]
+                        if isinstance(steps, tuple):
+                            steps = steps[schema.index("value")]
+                        pooled = linear(steps).mean(dim=0)
+                        torch.testing.assert_close(embed[row], model.mlp["x"](pooled))
+
+    def test_padded_steps_are_left_out_of_the_mean(self):
+        """A short series pools the same in a padded batch as on its own."""
+        dataset = padded_series()
+        model = MLP(dataset=dataset, embedding_dim=8)
+        model.eval()
+        linear = model.embedding_model.embedding_layers["vitals"]
+        with torch.no_grad():
+            batch = next(iter(get_dataloader(dataset, batch_size=3)))
+            together = model(**batch, embed=True)["embed"]
+            self.assertTrue(torch.isfinite(together).all())
+            for i in range(len(dataset)):
+                row = batch["patient_id"].index(dataset[i]["patient_id"])
+                alone = next(iter(get_dataloader(dataset.subset([i]), batch_size=1)))
+                torch.testing.assert_close(
+                    together[row], model(**alone, embed=True)["embed"][0]
+                )
+                # each step is embedded on its own, then the real steps averaged
+                pooled = linear(dataset[i]["vitals"]).mean(dim=0)
+                torch.testing.assert_close(together[row], model.mlp["vitals"](pooled))
+
+    def test_all_zero_series_with_an_external_mask(self):
+        """A mask built from the raw values, as the interpretability methods
+        build it, is all zero for an all-zero series; pooling stays finite."""
+        dataset = padded_series()
+        model = MLP(dataset=dataset, embedding_dim=8, hidden_dim=8)
+        model.eval()
+        batch = next(iter(get_dataloader(dataset, batch_size=3)))
+        raw = batch["vitals"]
+        mask = (raw.abs().sum(dim=-1) != 0).float()
+        self.assertFalse(mask.sum(dim=1).all())  # one row has no valid step
+        with torch.no_grad():
+            embedded = model.embedding_model({"vitals": raw})["vitals"]
+            out = model.forward_from_embedding(vitals=(embedded, mask),
+                                               label=batch["label"])
+            torch.testing.assert_close(out["logit"], model(**batch)["logit"])
+        attributions = IntegratedGradients(model).attribute(**batch, steps=5)
+        self.assertTrue(torch.isfinite(attributions["vitals"]).all())
+
+    def test_nested_multihot_passes_through_flattened(self):
+        """Documents a limitation: EmbeddingModel has no layer for
+        nested_multihot, so the raw multi-hot rows pass through and are
+        flattened into one vector. The model only runs because embedding_dim
+        is set to that flattened width (visits x vocabulary size)."""
+        dataset = nested_multihot()
+        width = 2 * dataset.input_processors["visits"].size()  # two visits
+        model = MLP(dataset=dataset, embedding_dim=width, hidden_dim=8)
+        model.eval()
+        batch = next(iter(get_dataloader(dataset, batch_size=4)))
+        with torch.no_grad():
+            embed = model(**batch, embed=True)["embed"]
+            flat = batch["visits"].reshape(4, -1)
+            torch.testing.assert_close(embed, model.mlp["visits"](flat))
+
+    def test_forward_from_embedding_inputs(self):
+        """A bare tensor and a mask with a feature dimension are accepted;
+        other ranks are rejected."""
+        dataset = padded_series()
+        model = MLP(dataset=dataset, embedding_dim=8, hidden_dim=8)
+        model.eval()
+        batch = next(iter(get_dataloader(dataset, batch_size=3)))
+        with torch.no_grad():
+            embedded = model.embedding_model({"vitals": batch["vitals"]})["vitals"]
+            bare = model.forward_from_embedding(vitals=embedded)
+            ones = model.forward_from_embedding(vitals=(embedded, torch.ones_like(embedded)))
+            # without a mask every embedded (nonzero) step counts, as with all ones
+            torch.testing.assert_close(bare["logit"], ones["logit"])
+            with self.assertRaises(ValueError):
+                model.forward_from_embedding(vitals=embedded.unsqueeze(1))
+        self.assertEqual(MLP.sum_pooling(embedded).shape, (3, 8))
+
+    def test_a_mask_given_with_3d_codes_is_flattened_with_them(self):
+        """A mask given with 3D codes, by the processor or appended as the
+        interpretability methods append theirs, is flattened with the codes,
+        so a masked code is left out of the mean."""
+        samples = [
+            {
+                "patient_id": f"patient-{i}",
+                "visits": [["a", "b"], ["c", "d"] if i % 2 else ["c"]],
+                "label": i % 2,
+            }
+            for i in range(4)
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"visits": "nested_sequence"},
+            output_schema={"label": "binary"},
+            dataset_name="test_codes_mask",
+        )
+        model = MLP(dataset=dataset, embedding_dim=8, hidden_dim=8)
+        model.eval()
+        batch = next(iter(get_dataloader(dataset, batch_size=4)))
+        codes = batch["visits"]
+        mask = codes != 0
+        mask[:, 0, 1] = False  # mask out a real code: "b" in the first visit
+        processor = dataset.input_processors["visits"]
+        embedding = model.embedding_model.embedding_layers["visits"]
+        with torch.no_grad():
+            unmasked = model(**batch, embed=True)["embed"]
+            with mock.patch.object(processor, "schema", return_value=("value", "mask")):
+                from_processor = model(visits=(codes, mask), label=batch["label"], embed=True)
+            # the processor's schema is ("value",), so the mask is an extra element
+            appended = model(visits=(codes, mask), label=batch["label"], embed=True)
+            for masked in (from_processor["embed"], appended["embed"]):
+                for i in range(len(codes)):
+                    kept = embedding(codes[i][mask[i]]).mean(dim=0)
+                    torch.testing.assert_close(masked[i], model.mlp["visits"](kept))
+                self.assertFalse(torch.allclose(masked, unmasked))
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,6 +9,8 @@ class ReadmissionPredictionMIMIC3(BaseTask):
     """
     Readmission prediction on the MIMIC3 dataset.
 
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
+
     This task aims at predicting whether the patient will be readmitted into hospital within
     a specified number of days based on clinical information from the current visit.
 
@@ -147,6 +149,8 @@ class ReadmissionPredictionMIMIC4(BaseTask):
     """
     Readmission prediction on the MIMIC4 dataset.
 
+    Works with :class:`~pyhealth.datasets.MIMIC4EHRDataset`.
+
     This task aims at predicting whether the patient will be readmitted into hospital within
     a specified number of days based on clinical information from the current visit.
 
@@ -281,6 +285,8 @@ class ReadmissionPredictionMIMIC4(BaseTask):
 class ReadmissionPredictionEICU(BaseTask):
     """
     Readmission prediction on the eICU dataset.
+
+    Works with :class:`~pyhealth.datasets.eICUDataset`.
 
     This task aims at predicting whether the patient will be readmitted into the ICU
     during the same hospital stay based on clinical information from the current ICU
@@ -432,6 +438,8 @@ class ReadmissionPredictionEICU(BaseTask):
 class ReadmissionPredictionOMOP(BaseTask):
     """
     Readmission prediction on the OMOP dataset.
+
+    Works with :class:`~pyhealth.datasets.OMOPDataset`.
 
     This task aims at predicting whether the patient will be readmitted into hospital within
     a specified number of days based on clinical information from the current visit.
