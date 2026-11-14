@@ -38,6 +38,8 @@ Weight is also recorded as a time series, but the benchmarks (and
 class PhysioNet2012Forecasting(BaseTask):
     """Forecast the next observed values of 36 ICU time series.
 
+    Works with :class:`~pyhealth.datasets.PhysioNet2012Dataset`.
+
     The observations of each variable are averaged within each hour since
     ICU admission, z-scored with the given statistics, and values more than
     ``outlier_sd`` standard deviations from the mean are dropped. The hours

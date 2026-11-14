@@ -24,11 +24,17 @@ class COSMICDataset(BaseDataset):
     mutations in human cancer. This dataset enables mutation pathogenicity
     prediction and cancer gene analysis tasks.
 
-    Dataset is available at:
-    https://cancer.sanger.ac.uk/cosmic/download
-
     Note:
         COSMIC requires registration and license agreement for data access.
+
+    Getting the data:
+        - Source: https://cancer.sanger.ac.uk/cosmic/download
+        - Access: registration required. Free for academic use; commercial use
+          needs a paid license.
+        - Download: ``CosmicMutantExportCensus.tsv.gz`` (or
+          ``CosmicMutantExport.tsv.gz``) from the download page after signing in.
+        - ``root``: the folder holding that file. The class writes
+          ``cosmic-pyhealth.csv`` there on first load.
 
     Args:
         root: Root directory of the raw data containing the COSMIC files.
