@@ -11,8 +11,11 @@ import numpy as np
 import pytest
 import torch
 
-from examples.survival_pipeline import load_split, restore_pilot, run_pilot
+from examples.survival_benchmark.run_survival_mdn import Support2Benchmark
+from examples.survival_pipeline import PARTITIONS, load_split, restore_pilot, run_pilot
 from pyhealth.datasets import create_sample_dataset, get_dataloader
+from tests.core.survival_test_utils import threaded_csv_loading
+from tests.core.test_support2_survival import encode, row, write_csv, write_released
 
 
 @pytest.fixture(autouse=True)
@@ -86,3 +89,51 @@ def test_standard_trainer_metrics_and_checkpoint(parts, transform, tmp_path):
 def test_invalid_released_partition_is_rejected_before_loading(split, tmp_path):
     with pytest.raises(ValueError, match="1 through 10"):
         load_split("gbsg", tmp_path, tmp_path, split, tmp_path / "cache")
+
+
+@threaded_csv_loading()
+def test_support2_paths_fit_training_features_and_preserve_released_order(tmp_path):
+    rows = [
+        row(1, age="50", meanbp="90"),
+        row(2, age="60", meanbp="90"),
+        row(3, age="80", meanbp="130"),
+        row(4, age="90", meanbp="140"),
+        row(5, age="100", meanbp="150"),
+    ]
+    memberships = [[1, 0], [3, 2], [4]]
+    write_csv(tmp_path, rows)
+    write_released(tmp_path, rows, memberships)
+
+    cache = tmp_path / "cache"
+    benchmark = Support2Benchmark(tmp_path, tmp_path, cache)
+    ids, samples, fitted = benchmark.split(1)
+    parts, pilot = load_split("support2", tmp_path, tmp_path, 1, cache)
+    expected_ids = {
+        name: [rows[i]["sno"] for i in indices]
+        for name, indices in zip(PARTITIONS, memberships)
+    }
+    assert ids == pilot["patient_ids"] == expected_ids
+
+    raw = np.array([encode(r) for r in rows])
+    train = raw[memberships[0]]
+    mean = train.mean(axis=0)
+    scale = train.std(axis=0)
+    scale[scale == 0] = 1
+    for metadata in (fitted, pilot["preprocessing"]):
+        np.testing.assert_allclose(metadata["feature_mean"], mean, atol=1e-6)
+        np.testing.assert_allclose(metadata["feature_scale"], scale, atol=1e-6)
+        assert metadata["time_divisor"] == 365.25
+        assert metadata["time_offset"] == 0.001
+
+    benchmark_by_id = {sample["patient_id"]: sample for sample in samples}
+    for name, part, indices in zip(PARTITIONS, parts, memberships):
+        assert [sample["patient_id"] for sample in part] == expected_ids[name]
+        for sample, i in zip(part, indices):
+            for result in (sample, benchmark_by_id[rows[i]["sno"]]):
+                np.testing.assert_allclose(
+                    result["features"], (raw[i] - mean) / scale, atol=1e-6
+                )
+                assert result["duration"].item() == pytest.approx(
+                    float(rows[i]["d.time"]) / 365.25 + 0.001
+                )
+                assert result["event"].item() == int(rows[i]["death"])

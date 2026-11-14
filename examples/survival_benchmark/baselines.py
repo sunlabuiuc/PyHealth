@@ -193,8 +193,6 @@ class CoxAdapter:
 
         Args:
             directory: Directory previously written by ``save``.
-            device: CPU/CUDA override supported by DeepSurv only. If omitted,
-                DeepSurv preserves the original device.
 
         Returns:
             A fitted adapter ready for prediction.

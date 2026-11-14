@@ -149,6 +149,9 @@ class TestSurvivalBenchmarkInputs(unittest.TestCase):
         self.assertIn("baselines.py", hashes)
         self.assertIn("pyhealth/metrics/survival_curve.py", hashes)
         self.assertIn("pyhealth/datasets/support2.py", hashes)
+        self.assertIn("pyhealth/trainer.py", hashes)
+        self.assertIn("pyhealth/datasets/utils.py", hashes)
+        self.assertIn("pyhealth/datasets/sample_dataset.py", hashes)
         self.assertTrue(all(len(value) == 64 for value in hashes.values()))
         self.assertNotIn("README.md", hashes)
 

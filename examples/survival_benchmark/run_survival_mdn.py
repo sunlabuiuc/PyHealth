@@ -217,7 +217,7 @@ def artifact_hashes(run_dir: Path) -> dict[str, str]:
 
 
 def implementation_hashes() -> dict[str, str]:
-    """Identify example and native model, metric, task and loader source.
+    """Identify example and native source used for training and scoring.
 
     Returns:
         Source identifiers mapped to SHA-256 fingerprints. Installed source
@@ -226,11 +226,14 @@ def implementation_hashes() -> dict[str, str]:
     paths = {p.name: p for p in Path(__file__).parent.glob("*.py")}
     package = Path(pyhealth.__file__).parent
     for name in [
+        "trainer.py",
         "models/survival_mdn.py",
         "metrics/survival_curve.py",
         "tasks/survival_time_to_event.py",
         "datasets/gbsg.py",
+        "datasets/sample_dataset.py",
         "datasets/support2.py",
+        "datasets/utils.py",
     ]:
         paths["pyhealth/" + name] = package / name
     return {
@@ -574,11 +577,9 @@ def reference_compatible_widest(
     Their model code evaluates curves on linspace(t_min, t_max, 1000) but
     scores them as if they were on linspace(t_min, tau, 1000), where tau is
     the widest horizon. When the last test time is censored, tau < t_max
-    and the grids are misaligned. The
-    paper's Table 1 widest-horizon IBS/IBLL include this effect, so these
-    values are the ones to compare with Table 1. PyHealth's aligned values
-    stay in test_metrics. Checked against the authors' metrics.py to 2e-15
-    using independent synthetic probes.
+    and the grids are misaligned. Use these scores to compare with the
+    paper's widest-horizon IBS and IBLL in Table 1. PyHealth reports the
+    aligned-grid scores in ``test_metrics``.
 
     Args:
         times: Positive observed event/censoring times, shape [N].

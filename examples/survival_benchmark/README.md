@@ -146,8 +146,10 @@ and output fingerprints.
 
 The runner automatically creates a directory such as
 `cox/split_1/seed_1/run_0123456789abcdef/`. The final component is a 16-character
-fingerprint of the fit settings, data hashes, relevant executable source bytes
-and runtime identity, including the device. Reordering JSON keys, moving input
+fingerprint of the fit settings, data hashes, selected source files, and runtime
+identity, including the device. The source list covers the benchmark modules
+and PyHealth's survival model, metrics, tasks, dataset loaders, Trainer, and
+batching code. Reordering JSON keys, moving input
 files without changing their contents, or editing this README does not change
 the identity. Editing fingerprinted executable source does, even if the edit
 does not change numerical behavior. Commit IDs and timestamps are provenance
@@ -155,7 +157,7 @@ only, so committing identical source does not invalidate a completed fit.
 
 - An identical completed run is reused only after its record and saved files
   are verified. No fit files are rewritten.
-- Changed settings, data, source or runtime automatically select a new
+- Changed settings, data, fingerprinted source or runtime automatically select a new
   directory under the same output root. Earlier runs are preserved.
 - A directory without a completed record, or with missing, changed or unreadable
   outputs, raises an error naming the problem. Another process may still own an

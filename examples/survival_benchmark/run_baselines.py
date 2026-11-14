@@ -6,7 +6,6 @@ Run optional Cox/DeepSurv benchmarks using native PyHealth survival tasks.
 """
 
 import argparse
-import hashlib
 import importlib.metadata
 import json
 import platform
@@ -48,18 +47,6 @@ def package_version(name: str) -> str | None:
         return importlib.metadata.version(name)
     except importlib.metadata.PackageNotFoundError:
         return None
-
-
-def fingerprint(path: Path) -> str:
-    """Hash a local input file.
-
-    Args:
-        path: File whose bytes identify an input or implementation.
-
-    Returns:
-        Hexadecimal SHA-256 digest.
-    """
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def arrays(part: SampleDataset) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

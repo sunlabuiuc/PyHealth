@@ -5,6 +5,12 @@ GBSG and SUPPORT tasks connect native datasets to PyHealth's existing
 SurvivalMDN. The task interface uses separate duration/event tensors. The model
 supplies its censored likelihood to the standard Trainer with ``mode=None``.
 
+Use this pilot to run either dataset through the same Trainer and check finite
+gradients, patient-averaged validation loss, and exact prediction equality
+after checkpoint reload. The GBSG loading example covers CSV preparation and
+loading. The separate SUPPORT example explores the model's time transform and
+network width.
+
 Dataset preparation
 -------------------
 
@@ -57,7 +63,7 @@ Each group needs two patients for the training BatchNorm and curve comparisons,
 so this three-way smoke example uses six rather than five artificial patients.
 
 Identical completed requests verify and reuse their files. Changing settings,
-inputs, executable source or runtime creates a new result directory. Incomplete
+inputs, fingerprinted source or runtime creates a new result directory. Incomplete
 or changed results raise an error without overwriting them. The example README
 documents explicit restart and restoration commands.
 
