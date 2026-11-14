@@ -195,5 +195,57 @@ class TestEEGEventsTUEV(unittest.TestCase):
         self.assertEqual(task.input_schema, {"signal": "tensor"})
 
 
+class TestEEGEventsTUEVSkippedRecordings(unittest.TestCase):
+    """Recordings the task cannot use must be reported, not dropped silently."""
+
+    @staticmethod
+    def _read_edf_with_suffix(suffix: str):
+        class _Raw:
+            def __init__(self, ch_names):
+                self.info = {"ch_names": ch_names}
+
+        electrodes = (
+            "FP1", "F7", "T3", "T5", "O1", "FP2", "F8", "T4",
+            "T6", "O2", "F3", "C3", "P3", "F4", "C4", "P4",
+        )
+        names = [f"EEG {c}-{suffix}" for c in electrodes]
+        fs = 200
+        signals = np.zeros((len(names), fs * 20))
+        times = np.arange(fs * 20) / fs
+        rec = np.array([[0, 8.0, 9.0, 1]])
+        return signals, times, rec, _Raw(names)
+
+    def _patient(self) -> _DummyPatient:
+        return _DummyPatient(
+            patient_id="patient-0",
+            events=[_DummyEvent(signal_file="/dummy/le_recording.edf")],
+        )
+
+    def test_reference_montage_recording_is_used(self):
+        task = EEGEventsTUEV(compute_stft=False)
+        with patch.object(
+            EEGEventsTUEV, "readEDF", return_value=self._read_edf_with_suffix("REF")
+        ):
+            samples = task(self._patient())
+        self.assertEqual(len(samples), 1)
+
+    def test_linked_ear_recording_is_skipped_with_a_warning(self):
+        task = EEGEventsTUEV(compute_stft=False)
+        with (
+            patch.object(
+                EEGEventsTUEV,
+                "readEDF",
+                return_value=self._read_edf_with_suffix("LE"),
+            ),
+            self.assertLogs(
+                "pyhealth.tasks.temple_university_EEG_tasks", level="WARNING"
+            ) as logs,
+        ):
+            samples = task(self._patient())
+        self.assertEqual(samples, [])
+        self.assertIn("/dummy/le_recording.edf", logs.output[0])
+        self.assertIn("EEG FP1-REF", logs.output[0])
+
+
 if __name__ == "__main__":
     unittest.main()

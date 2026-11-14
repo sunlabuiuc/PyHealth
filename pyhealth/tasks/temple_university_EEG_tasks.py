@@ -2,8 +2,11 @@ import numpy as np
 import torch
 import mne
 from typing import Any, Dict, List, Tuple
+import logging
 import numpy as np
 from pyhealth.tasks import BaseTask
+
+logger = logging.getLogger(__name__)
 
 
 def read_edf_uv(
@@ -53,14 +56,21 @@ class EEGEventsTUEV(BaseTask):
 
     For each EDF recording, this task:
       1) reads the EDF
-      2) applies bandpass (0.1-75 Hz), notch (50 Hz), resamples to 256 Hz
+      2) applies bandpass (0.1-75 Hz), notch (50 Hz), resamples to
+         ``resample_rate`` (200 Hz by default)
       3) loads the paired .rec file (same path, .edf -> .rec)
       4) constructs 5-second event-centered windows (16 bipolar channels)
       5) returns one sample per event
 
+    Recordings without the ``EEG XX-REF`` channels of the averaged-reference
+    montage (TUEV also has linked-ear recordings) are skipped with a
+    warning, as in the BIOT preprocessing this task follows.
+
     Each returned sample contains:
-      - "signal": np.ndarray, shape (16, 256*5)
-      - "offending_channel": int
+      - "signal": torch.FloatTensor, shape (16, 5 * resample_rate)
+      - "offending_channel": int, the channel number from the .rec file.
+        It indexes the 22-channel TCP montage (0-21), not a row of
+        ``signal``.
       - "label": int
 
     Examples:
@@ -205,7 +215,16 @@ class EEGEventsTUEV(BaseTask):
                         edf_path, self.resample_rate, self.bandpass_filter, self.notch_filter
                     )
                     signals = self.convert_signals(signals, raw)
-                except (ValueError, KeyError):
+                except KeyError as exc:
+                    logger.warning(
+                        "Skipping %s: channel %s not found. Only recordings "
+                        "with the EEG XX-REF channels are used.",
+                        edf_path,
+                        exc,
+                    )
+                    continue
+                except ValueError as exc:
+                    logger.warning("Skipping %s: %s", edf_path, exc)
                     continue
 
                 feats, offending_channels, labels = self.BuildEvents(
@@ -250,13 +269,14 @@ class EEGAbnormalTUAB(BaseTask):
 
     For each EDF recording, this task:
       1) reads the EDF
-      2) Applies bandpass (0.1-75 Hz), notch (50 Hz) and resamples to 200 Hz
+      2) Applies bandpass (0.1-75 Hz), notch (50 Hz) and resamples to
+         ``resample_rate`` (200 Hz by default)
       3) Constructs 16 bipolar channels from the TCP montage of non-overlapping 10 second windows # following BIOT
       4) assigns a binary label (1 = abnormal, 0 = normal) derived from the
          metadata ``label`` attribute
 
     Each returned sample contains:
-      - "signal": np.ndarray, shape (16, 2000)
+      - "signal": torch.FloatTensor, shape (16, 10 * resample_rate)
       - "label": int (0 = normal, 1 = abnormal)
 
     Examples:
@@ -411,15 +431,18 @@ class EEGAbnormalTUAB(BaseTask):
                     raw_data, ch_name = self.read_and_process_edf(
                         edf_path, self.resample_rate, self.bandpass_filter, self.notch_filter
                     )
-                except (ValueError, KeyError):
+                except (ValueError, KeyError) as exc:
+                    logger.warning("Skipping %s: %s", edf_path, exc)
                     continue
 
                 bipolar_data = self.convert_to_bipolar(raw_data, ch_name)
 
-                num_samples = int(bipolar_data.shape[1] // (fs * 10))
+                # Slice indices must be ints, and resample_rate may be a float.
+                window = round(fs * 10)
+                num_samples = bipolar_data.shape[1] // window
                 for i in range(num_samples):
-                    start = i * fs * 10
-                    end = start + fs * 10
+                    start = i * window
+                    end = start + window
                     signal = bipolar_data[:, start:end]
 
                     if self.normalization == '95th_percentile':
