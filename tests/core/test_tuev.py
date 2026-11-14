@@ -9,6 +9,7 @@ import numpy as np
 from unittest.mock import patch
 
 
+from pyhealth.datasets.base_dataset import BaseDataset
 from pyhealth.datasets.tuev import TUEVDataset
 from pyhealth.tasks.temple_university_EEG_tasks import EEGEventsTUEV
 
@@ -193,6 +194,89 @@ class TestEEGEventsTUEV(unittest.TestCase):
     def test_task_schema_no_stft(self):
         task = EEGEventsTUEV(compute_stft=False)
         self.assertEqual(task.input_schema, {"signal": "tensor"})
+
+
+class TestTUEVMetadataCachePerRoot(unittest.TestCase):
+    """Two dataset roots must never share cached metadata.
+
+    When ``root`` is not writable, the metadata CSVs are written to a home
+    cache. That cache used to be one folder for every root, so a second root
+    silently loaded the first root's recordings.
+    """
+
+    def _make_root(self, root: Path, subject: str) -> None:
+        for split, name in (
+            ("train", f"{subject}_00000001.edf"),
+            ("eval", "bckg_001_a_.edf"),
+        ):
+            edf = root / split / subject / name
+            edf.parent.mkdir(parents=True, exist_ok=True)
+            edf.write_bytes(b"")
+
+    def _metadata_root(self, root: Path) -> Path:
+        """Run ``__init__`` up to ``BaseDataset`` and return the root it picks."""
+        captured = {}
+
+        def fake_base_init(dataset, root, **kwargs):
+            captured["root"] = root
+
+        with patch.object(BaseDataset, "__init__", fake_base_init):
+            TUEVDataset(root=str(root))
+        return Path(captured["root"])
+
+    @staticmethod
+    def _train_patients(metadata_root: Path) -> list[str]:
+        csv = metadata_root / "tuev-train-pyhealth.csv"
+        return sorted(pd.read_csv(csv, dtype=str)["patient_id"])
+
+    @staticmethod
+    def _read_only(*roots: Path):
+        """Make ``DataFrame.to_csv`` fail under ``roots``.
+
+        This stands in for a read-only directory. ``chmod`` cannot be used:
+        it has no effect on Windows or when the tests run as root.
+        """
+        real_to_csv = pd.DataFrame.to_csv
+
+        def to_csv(df, path_or_buf=None, *args, **kwargs):
+            if any(str(path_or_buf).startswith(str(r)) for r in roots):
+                raise PermissionError(f"read-only: {path_or_buf}")
+            return real_to_csv(df, path_or_buf, *args, **kwargs)
+
+        return patch.object(pd.DataFrame, "to_csv", to_csv)
+
+    def test_read_only_root_does_not_leak_into_writable_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            home, root_a, root_b = tmp / "home", tmp / "a", tmp / "b"
+            self._make_root(root_a, "00000001")
+            self._make_root(root_b, "00000002")
+            with patch.object(Path, "home", return_value=home):
+                with self._read_only(root_a):
+                    meta_a = self._metadata_root(root_a)
+                meta_b = self._metadata_root(root_b)
+
+            self.assertTrue(meta_a.is_relative_to(home))
+            self.assertEqual(self._train_patients(meta_a), ["00000001"])
+            self.assertEqual(meta_b, root_b)
+            self.assertEqual(self._train_patients(meta_b), ["00000002"])
+
+    def test_two_read_only_roots_get_separate_caches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            home, root_a, root_b = tmp / "home", tmp / "a", tmp / "b"
+            self._make_root(root_a, "00000001")
+            self._make_root(root_b, "00000002")
+            with (
+                patch.object(Path, "home", return_value=home),
+                self._read_only(root_a, root_b),
+            ):
+                meta_a = self._metadata_root(root_a)
+                meta_b = self._metadata_root(root_b)
+
+            self.assertNotEqual(meta_a, meta_b)
+            self.assertEqual(self._train_patients(meta_a), ["00000001"])
+            self.assertEqual(self._train_patients(meta_b), ["00000002"])
 
 
 if __name__ == "__main__":

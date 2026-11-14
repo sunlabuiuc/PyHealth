@@ -5,6 +5,7 @@ from pathlib import Path
 
 from typing import Optional
 from .base_dataset import BaseDataset
+from .metadata_csv import metadata_cache_dir
 from pyhealth.tasks import EEGAbnormalTUAB
 
 logger = logging.getLogger(__name__)
@@ -88,7 +89,7 @@ class TUABDataset(BaseDataset):
         
         # Determine where the CSVs are located (shared directory or cache)
         root_path = Path(root)
-        cache_dir = Path.home() / ".cache" / "pyhealth" / "tuab"
+        cache_dir = metadata_cache_dir(root, "tuab")
         
         # Check if CSVs exist in cache and not in shared location
         use_cache = False
@@ -120,6 +121,11 @@ class TUABDataset(BaseDataset):
         - <root>/tuab-train-pyhealth.csv
         - <root>/tuab-eval-pyhealth.csv
 
+        If ``root`` is not writable, the CSVs go to
+        ``~/.cache/pyhealth/tuab/<hash of root>/`` instead (see
+        :func:`~pyhealth.datasets.metadata_csv.metadata_cache_dir`), so two
+        roots never share metadata.
+
         Train and eval filenames look like: aaaaalkt_s001_t000.edf
         - subject_id = aaaaalkt
         - session_id = s001
@@ -132,7 +138,7 @@ class TUABDataset(BaseDataset):
         - normal   -> 0
         """
         root = Path(self.root)
-        cache_dir = Path.home() / ".cache" / "pyhealth" / "tuab"
+        cache_dir = metadata_cache_dir(root, "tuab")
 
         for split in ("train", "eval"):
             # Check if metadata exists in either shared location or cache
