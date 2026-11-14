@@ -53,6 +53,10 @@ from .ed_disposition_mimic4 import (
     EDDispositionMIMIC4 as EDDispositionMIMIC4,
     EDOutcomesMIMIC4 as EDOutcomesMIMIC4,
 )
+from .ehr_cxr_mimic4 import (
+    EHRCXRMortalityMIMIC4 as EHRCXRMortalityMIMIC4,
+    EHRCXRPhenotypingMIMIC4 as EHRCXRPhenotypingMIMIC4,
+)
 from .ehr_text_serialization import (
     CodeDescriber as CodeDescriber,
     EHRTextSerializationTask as EHRTextSerializationTask,

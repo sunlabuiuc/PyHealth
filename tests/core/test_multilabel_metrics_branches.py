@@ -41,6 +41,13 @@ ALL_METRICS = [
     "cwECE_adapt",
     "tp",
     "fp",
+    "miscoverage_overall_ps",
+    "miscoverage_ps",
+    "miscoverage_mean_ps",
+    "set_size",
+    "fp_cost",
+    "fp_cost_violation_rate",
+    "tp_value",
 ]
 
 
@@ -63,7 +70,11 @@ class TestMultilabelMetricBranches(unittest.TestCase):
     def test_every_metric_with_ddi_first(self):
         y_predset = (self.y_prob >= 0.5).astype(int)
         out = multilabel_metrics_fn(
-            self.y_true, self.y_prob, metrics=ALL_METRICS, y_predset=y_predset
+            self.y_true,
+            self.y_prob,
+            metrics=ALL_METRICS,
+            y_predset=y_predset,
+            target_cost=1.0,
         )
         expected_keys = {m for m in ALL_METRICS if m != "ddi"} | {"ddi_score"}
         self.assertEqual(set(out), expected_keys)
@@ -71,7 +82,21 @@ class TestMultilabelMetricBranches(unittest.TestCase):
         self.assertAlmostEqual(out["hamming_loss"], 1 / 12)
 
     def test_prediction_set_metrics_skipped_without_predset(self):
-        out = multilabel_metrics_fn(self.y_true, self.y_prob, metrics=["tp", "fp"])
+        out = multilabel_metrics_fn(
+            self.y_true,
+            self.y_prob,
+            metrics=[
+                "tp",
+                "fp",
+                "miscoverage_overall_ps",
+                "miscoverage_ps",
+                "miscoverage_mean_ps",
+                "set_size",
+                "fp_cost",
+                "fp_cost_violation_rate",
+                "tp_value",
+            ],
+        )
         self.assertEqual(out, {})
 
     def test_default_metric(self):
