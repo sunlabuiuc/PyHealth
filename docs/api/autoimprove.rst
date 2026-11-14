@@ -340,7 +340,9 @@ ranked, justified candidate features. It reads two kinds of source:
   gain an "evidence" strategy, which shows the LLM the untried published
   predictors with their citations and priors. The report gains a
   *Literature* section (the citation-check counts, the gap report and the
-  published performance range) and a citations column in *Features*.
+  published discrimination values) and a citations column in *Features*.
+  The "evidence" strategy is used only while untried published predictors
+  remain.
 - **Privacy.** The knowledge base never sees patient data. PubMed queries
   use only the task card's text, and every query is kept in ``kb.queries``.
   Mapping sees only the names of event types, groups and columns.

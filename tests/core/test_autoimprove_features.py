@@ -254,6 +254,24 @@ class TestFutureBlind(unittest.TestCase):
             reason = fs.future_blind([valid], _samples())[valid.name]
             self.assertEqual(reason is not None, leaks)
 
+    def test_derived_events_only_replace_declared_types(self):
+        # The hook runs only for a declared derived type; an ordinary table
+        # is read from the EHR, even if the hook returns rows of that type.
+        calls = []
+
+        def hook(patient, t):
+            calls.append(patient)
+            return [{"event_type": "med_orders", "timestamp": t - timedelta(days=1),
+                     "drug_class": "SABA"}] * 50
+
+        plain = _space()
+        fs = _space(derived_events=hook, derived_types={"episodes": ["n_stays"]})
+        spec = {"op": "count", "window": 365, "select": SABA, "rationale": "r"}
+        expected = plain.compute([plain.validate(spec)], _samples())
+        values = fs.compute([fs.validate(spec)], _samples())
+        self.assertEqual(values.tolist(), expected.tolist())
+        self.assertEqual(calls, [])
+
     def test_check_reports_what_a_reviewer_needs(self):
         rows = _space().check([{"op": "exists", "window": 90, "select": SABA,
                                 "rationale": "recent reliever use", "direction": "+"}],

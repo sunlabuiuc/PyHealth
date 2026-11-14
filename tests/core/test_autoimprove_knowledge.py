@@ -17,7 +17,9 @@ from pyhealth.autoimprove import (  # noqa: E402
     Evidence,
     FeatureSpace,
     KnowledgeBase,
+    LLMProposer,
     QueueProposer,
+    load_run,
     parse_effect,
     pubmed_query,
 )
@@ -413,6 +415,31 @@ class TestMapping(unittest.TestCase):
             self.assertIn("## Literature", text)
             self.assertIn("Gap report", text)
             self.assertIn("PMID:1", text)
+            # The section is saved with the run, so a reloaded report keeps it.
+            self.assertTrue(os.path.exists(os.path.join(tmp, "literature.json")))
+            reloaded = load_run(tmp, space=SPACE).to_markdown()
+            self.assertIn("## Literature", reloaded)
+            self.assertIn("Gap report", reloaded)
+
+    def test_no_evidence_strategy_without_untried_predictors(self):
+        # A knowledge base whose predictors are all "not in data" offers no
+        # evidence lines, so feature cycles never use the "evidence" strategy.
+        fs = FeatureSpace(self.world, time_key="t", min_patients=5)
+        kb = self._kb([{"predictor": p, "status": "not in data"} for p in
+                       ("recent visits", "controller use", "smoke exposure")])
+        kb.map(fs, CARD)
+        self.assertEqual(kb.ranked_specs(), [])
+        llm = ScriptedLLM(['```json\n{"features": [{"op": "count", "window": 90, '
+                           '"select": {"event_type": "visits"}, "rationale": "r"}]}'
+                           '\n```'] * 10)
+        improver = AutoImprover(
+            self.world.train, self.world.val, LLMProposer(llm), baseline=BASELINE,
+            space=SPACE, cv_folds=5, features=fs, check=False, knowledge=kb,
+            n_agents=1, n_cycles=2, feature_cycles=(1, 1))
+        improver.run()
+        strategies = {t.strategy for t in improver.trials if t.added}
+        self.assertTrue(strategies)
+        self.assertNotIn("evidence", strategies)
 
 
 if __name__ == "__main__":

@@ -463,9 +463,11 @@ class AutoImprover:
         stale = 0
         for cycle in range(first_cycle, self.n_cycles):
             kind = self._cycle_kind(cycle)
+            # "evidence" only while there are untried published predictors
+            evidence = kind == "features" and bool(self._evidence_lines())
             strategies = list(STRATEGIES) if kind == "model" else [
-                s for s in FEATURE_STRATEGIES if s != "evidence" or self.knowledge]
-            first = "evidence" if kind == "features" and self.knowledge else "explore"
+                s for s in FEATURE_STRATEGIES if s != "evidence" or evidence]
+            first = "evidence" if evidence else "explore"
             for i in range(self.n_agents):
                 if self._out_of_budget(start) or self._exhausted:
                     break

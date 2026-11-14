@@ -154,8 +154,8 @@ def load_run(
     """Builds the report of a run from its directory alone.
 
     Reads ``trials.jsonl`` and, when present, ``run.json``, ``lessons.json``,
-    ``card.json``, ``attribution.json``, ``explain.json``, ``test.json`` and
-    ``review.json``. Runs written before ``run.json``
+    ``card.json``, ``attribution.json``, ``explain.json``, ``test.json``,
+    ``review.json`` and ``literature.json``. Runs written before ``run.json``
     existed need ``metric`` (and ``maximize`` for a metric where lower is
     better). Their selection is recomputed under the rule the report states,
     and the report says so: the search itself may have chosen another trial.
