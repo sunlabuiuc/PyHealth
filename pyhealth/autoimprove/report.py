@@ -838,8 +838,9 @@ def _literature_section(literature, test) -> Section:
     gap = literature.get("gap", {})
     blocks = [("p", (f"{literature.get('verified', 0)} published effects passed the "
                      f"citation check ({literature.get('rejected', 0)} rejected: a "
-                     "source not gathered, a quote not in the source, or an effect "
-                     "size not in the quote). The literature orders and justifies "
+                     "source not gathered, a quote not in the source or not naming "
+                     "the predictor, or an effect size not attached to the effect "
+                     "in the quote). The literature orders and justifies "
                      "candidates; only this task's data decides. *(measured)*"))]
     rows = []
     for status in ("have", "build", "not in data", "unmapped"):
