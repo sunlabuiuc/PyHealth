@@ -33,6 +33,13 @@ from .llm import LLM
 from .proposers import FEATURE_SYSTEM_PROMPT, LLMProposer, ProposalContext
 from .report import Report, Section
 
+# Published effect types on the scale of each test metric.
+_METRIC_TYPES = {
+    "roc_auc": {"AUC", "AUROC", "ROC-AUC", "C", "C-STATISTIC"},
+    "c_index": {"AUC", "AUROC", "ROC-AUC", "C", "C-STATISTIC"},
+    "pr_auc": {"PR-AUC", "AUPRC"},
+}
+
 _DIRECTIONS = {"+": "higher → more risk", "-": "higher → less risk",
                "u": "U-shaped", "": "ambiguous"}
 
@@ -175,15 +182,17 @@ def _selects(node: Any) -> set[tuple]:
 def _adapts(spec: dict[str, Any], listed: dict[str, Any]) -> bool:
     """Whether ``spec`` is ``listed`` or a variant of it.
 
-    A variant cites the same source and reads the same selection (event
-    type, group and filters), e.g. with another window or threshold. Two
-    predictors from one paper that read exactly the same selection count as
-    one.
+    A variant cites the same source and reads the same set of selections
+    (event type, group and filters), e.g. with another window or threshold.
+    A composite spec (a ratio or difference of two selections) is not a
+    variant of either part. Two predictors from one paper that read exactly
+    the same selections count as one.
     """
     if spec.get("name") and spec.get("name") == listed.get("name"):
         return True
     cites = set(spec.get("citations") or ()) & set(listed.get("citations") or ())
-    return bool(cites) and bool(_selects(spec) & _selects(listed))
+    selects = _selects(listed)
+    return bool(cites) and bool(selects) and _selects(spec) == selects
 
 
 def literature_section(
@@ -220,8 +229,8 @@ def literature_section(
                          ", ".join(r.get("sources", [])[:3])])
     if rows:
         blocks += [("p", ("**Gap report**: each published predictor, and whether "
-                          "the task has it, can build it, or lacks the data (a "
-                          "data request).")),
+                          "the task has it, can build it, lacks the data (a "
+                          "data request), or is not mapped yet.")),
                    ("table", ["predictor", "status", "detail", "expected",
                               "sources"], rows)]
     values = [f"{b['type']} {b['value']:g} ({b['source']}"
@@ -234,10 +243,13 @@ def literature_section(
         if estimate is not None:
             metric = test.get("metric", "")
             text += f" This model on test: {estimate:.3f} ({metric})."
-            if metric and metric not in ("roc_auc", "auroc", "c_index"):
-                text += (" The published values are discrimination measures "
-                         "(AUROC or C-statistic), so they are not on the same "
-                         "scale as this metric.")
+            published = {str(b.get("type", "")).upper()
+                         for b in knowledge.benchmark_range()}
+            family = _METRIC_TYPES.get(metric.lower())
+            if family is not None and not published <= family:
+                other = ", ".join(sorted(published - family))
+                text += (f" Published {other} values are not on the scale of "
+                         f"{metric}.")
         blocks.append(("p", text))
     return Section("Literature", blocks)
 

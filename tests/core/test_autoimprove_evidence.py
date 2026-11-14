@@ -156,6 +156,9 @@ class TestEvidence(unittest.TestCase):
         self.assertTrue(_adapts(window, listed))  # another window, same lab
         self.assertFalse(_adapts(other_lab, listed))  # same paper, another lab
         self.assertFalse(_adapts({**window, "citations": ["PMID:9"]}, listed))
+        ratio = {"name": "ratio_labs", "op": "ratio", "a": listed,
+                 "b": other_lab, "citations": ["PMID:2"]}
+        self.assertFalse(_adapts(ratio, listed))  # a composite is not a variant
 
     def test_accepted_features_are_not_listed(self):
         llm = ScriptedLLM([LABS])
@@ -208,8 +211,11 @@ class TestEvidence(unittest.TestCase):
                          add_literature(improver.report(), self.kb,
                                         stale).to_markdown())
         pr = {"metric": "pr_auc", "best": {"trial_id": selected, "estimate": 0.4}}
-        self.assertIn("not on the same scale",
+        self.assertIn("Published AUC values are not on the scale of pr_auc",
                       add_literature(improver.report(), self.kb, pr).to_markdown())
+        self.assertNotIn("not on the scale",  # AUC next to roc_auc: same scale
+                         add_literature(improver.report(), self.kb,
+                                        matching).to_markdown())
 
 
 if __name__ == "__main__":

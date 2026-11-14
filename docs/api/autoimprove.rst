@@ -343,9 +343,9 @@ ranked, justified candidate features. It reads two kinds of source:
   feature prompt also lists the untried published predictors with their
   definitions, directions, priors and citations, until all are tried.
   Model prompts are unchanged. A predictor counts as tried once proposed,
-  accepted or adapted (same citation and same selection, e.g. another
-  window), so two predictors from one paper that read exactly the same
-  events count as one. After a resumed run, earlier predictors may be listed
+  accepted or adapted (same citation and the same set of selections, e.g.
+  another window; a ratio of two selections adapts neither), so two
+  predictors from one paper that read exactly the same events count as one. After a resumed run, earlier predictors may be listed
   again.
 - **In the report** (:func:`~pyhealth.autoimprove.add_literature`), a
   *Literature* section gives the citation-check counts, the gap report and
