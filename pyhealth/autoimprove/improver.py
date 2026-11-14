@@ -669,7 +669,8 @@ class AutoImprover:
                 continue
             new = [s for s in specs if s.name not in have and s.name not in tried]
             if not new:
-                feedback = "every feature in your last proposal was already tried"
+                feedback = ("every feature in your last proposal was already tried ("
+                            + ", ".join(s.name for s in specs) + "); propose new ones")
                 continue
             leaks = {k: v for k, v in self.features.future_blind(
                 new, self.train_dataset).items() if v}
@@ -1008,6 +1009,7 @@ class AutoImprover:
             accepted=self._accepted(),
             feature_trials=[t for t in self.trials if t.added][-12:],
             card=card,
+            tried_features=sorted({n for t in self.trials for n in t.added}),
         )
 
     def _best_score(self) -> float | None:

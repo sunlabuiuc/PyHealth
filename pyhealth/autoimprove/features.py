@@ -536,11 +536,21 @@ class FeatureSpace:
         if op == "diff":
             return f"{self._define(node['a'])} minus {self._define(node['b'])}"
         if op == "any":
-            return (f"1 if either {self._define(node['a'])} or "
-                    f"{self._define(node['b'])} is above 0, else 0")
+            return (f"1 if {self._condition(node['a'])} or "
+                    f"{self._condition(node['b'])}, else 0")
         if op == "cross":
             return f"{self._define(node['a'])} times {self._define(node['b'])}"
         return f"the task's feature {node['column']}"
+
+    def _condition(self, node: dict[str, Any]) -> str:
+        """A clause that holds when the node's value is above 0 (for ``any``)."""
+        if node["op"] in ("exists", "count"):
+            return (f"there was any {_singular(self._noun(node['select']))} in the "
+                    f"{node['window']} days before {self.time_word}")
+        text = self._define(node)
+        if node["op"] == "ge":  # "1 if <clause>, else 0"
+            return text[len("1 if "):-len(", else 0")]
+        return f"{text} is above 0"
 
     def _noun(self, select: dict[str, Any]) -> str:
         et = select["event_type"]
@@ -928,7 +938,7 @@ class _EventView:
         return df
 
     def _derived_rows(self, et) -> pl.DataFrame | None:
-        if self.space.derived_events is None:
+        if self.space.derived_events is None or et not in self.space.derived_types:
             return None
         if self._derived is None:
             rows = self.space.derived_events(self.patient, self.t) or []
