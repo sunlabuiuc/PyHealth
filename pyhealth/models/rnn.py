@@ -818,22 +818,21 @@ class RNN_V2(BaseModel):
 
     Per-step labels (``"timeseries_binary"`` / ``"timeseries_regression"``,
     a :class:`~pyhealth.processors.TimeseriesLabelProcessor`): the model
-    predicts once per label record. The label's times are in the unit of the
-    fields' top level, with the same origin, and a label at time ``t`` uses
-    each field's top-level state after its last top-level record with time
-    ``<= t`` (zeros before the first), so it never sees a later top-level
-    record. That state covers everything the record contains:
-    lower levels' times are not on the label's timeline and are not compared
-    to it, so data that must be cut at label times belongs at the top level.
-    Every V2 field must have a ``series`` top level, resampled or not (a
+    predicts once per label record. The label processor's ``timeline`` names
+    the fields on the label's timeline, which must all be input fields. Such
+    a field's top-level times are in the label's unit, with the same origin,
+    and a label at time ``t`` uses its top-level state after its last
+    top-level record with time ``<= t`` (zeros before the first), so it
+    never sees a later top-level record. That state covers everything the
+    record contains: lower levels' times are not compared to the label's, so
+    data that must be cut at label times belongs at the top level. So a
+    timeline field needs a ``series`` top level, resampled or not (a
     resampled one with ``align: "right"``, the default, keeps this causal:
-    a step holds no record later than its time). Wrap a ``set`` or
-    ``sequence`` top level in a ``series`` with ``t = 0``. The exception is
-    a field that is only a ``single`` level, such as static values: every
-    label record of a sample uses its one record. A ``single`` level above
-    other levels is rejected, as every label would see all their records;
-    make the static values a field of their own. Logits are
-    ``[label records, 1]``, packed like the label.
+    a step holds no record later than its time), and a causal RNN; a field
+    without time belongs off the timeline. Every other field holds for the
+    whole sample: it is encoded whole, whatever its levels (e.g. static
+    values as a ``single`` level), and every label record of the sample uses
+    its summary. Logits are ``[label records, 1]``, packed like the label.
 
     Every per-field argument takes one value for all V2 fields, or a
     ``{field: value}`` dict (unlisted fields get the default).
@@ -846,7 +845,8 @@ class RNN_V2(BaseModel):
         rnn_type: ``"RNN"``, ``"LSTM"`` or ``"GRU"`` (default), per field.
         num_layers: The layers of each level's RNN, per field.
         dropout: Dropout before each RNN, per field.
-        bidirectional: Bidirectional RNNs, per field. Not with per-step labels.
+        bidirectional: Bidirectional RNNs, per field. Not on the fields of a
+            per-step label's timeline.
         time_feature: Whether timed levels get the time since the previous
             record, per field.
         mask: How :class:`SequenceEmbeddingModel` uses missing-value masks:
@@ -940,28 +940,37 @@ class RNN_V2(BaseModel):
             "time_feature", time_feature, fields, False, lambda v: isinstance(v, bool)
         )
 
-        for field in fields:
-            if bidirectionals[field] and self.per_step:
-                raise ValueError(
-                    "A per-step label needs a causal model; bidirectional=True "
-                    "would use future time steps."
-                )
         self.processors = {
             field: cast(JaggedFeatureProcessor, self.dataset.input_processors[field])
             for field in fields
         }
+        # The fields on a per-step label's timeline; the others hold for the
+        # whole sample.
+        self.timeline: tuple[str, ...] = ()
         if self.per_step:
-            for field, processor in self.processors.items():
-                top = processor.ordering()[processor.depth]
-                if top == "series" or (top == "single" and processor.depth == 0):
-                    continue
+            label_processor = cast(TimeseriesLabelProcessor, self.label_processor)
+            unknown = [f for f in label_processor.timeline if f not in fields]
+            if unknown:
                 raise ValueError(
-                    f"'{field}': per-step labels need a 'series' top level, so each "
-                    "step can use the records before it. Wrap a 'set' or 'sequence' "
-                    "top level in a 'series' with t = 0. A 'single' level is "
-                    "accepted alone (static values), but not above other levels, "
-                    "as every step would see all their records: make the static "
-                    "values a field of their own."
+                    f"The label's timeline names {unknown}, which are not input "
+                    f"fields of the model ({fields})."
+                )
+            self.timeline = tuple(f for f in fields if f in label_processor.timeline)
+        for field in self.timeline:
+            processor = self.processors[field]
+            top = processor.ordering()[processor.depth]
+            if top != "series":
+                raise ValueError(
+                    f"'{field}' is on the label's timeline, so it needs a 'series' "
+                    "top level: each label uses its records at or before the "
+                    f"label's time. Got a {top!r} top level, which has no time: "
+                    "take the field off the timeline, so every label sees all "
+                    "of it."
+                )
+            if bidirectionals[field]:
+                raise ValueError(
+                    f"'{field}' is on the label's timeline, so it needs a causal "
+                    "RNN; bidirectional=True would use later time steps."
                 )
 
         self.embedding = SequenceEmbeddingModel(
@@ -1045,13 +1054,13 @@ class RNN_V2(BaseModel):
             if not self.per_step:
                 parts.append(summary)
                 continue
-            if states is None:
-                # A lone 'single' level (the only pooled top level __init__
-                # allows): each label record gets its sample's one record.
+            if field not in self.timeline:
+                # Off the timeline, the field holds for the whole sample: each
+                # label record gets its sample's summary.
                 parts.append(summary[label_sample])
                 continue
-            # Otherwise the top level is a series, which has time.
-            assert time is not None
+            # __init__ requires a series top level, which has states and time.
+            assert states is not None and time is not None
             out = embedded[field]
             offsets = out[encoder.depth]["offsets"]
             parts.append(

@@ -304,13 +304,14 @@ class TestStatics(unittest.TestCase):
         _, (summary, _, _) = _encode(model, batch, "age")
         torch.testing.assert_close(result["embed"][:, 5:], summary)
 
-    def test_every_label_record_sees_the_static_record(self):
-        # Labels at 0, 1 and 2: the record at t = 0 is at or before each.
+    def test_a_series_off_the_timeline_is_not_cut_at_label_times(self):
+        # Labels at 0, 1 and 2, the record at t = 5: off the timeline, its
+        # time is not compared to theirs, so every label sees it.
         samples = [
             {
                 "patient_id": f"p{i}",
                 "x": _visits((1.0, "er", ["A"])),
-                "age": _ages((50.0 + 10 * i, float(i)))[0],
+                "age": {"time": [5.0], "values": [[50.0 + 10 * i, float(i)]]},
                 "y": {"time": [0.0, 1.0, 2.0], "values": [0, 1, i % 2]},
             }
             for i in range(2)
@@ -330,8 +331,9 @@ class TestStatics(unittest.TestCase):
         )
         batch = _batch(dataset)
         embed = model(**batch, embed=True)["embed"][:, 5:]
-        _, (_, states, _) = _encode(model, batch, "age")
-        torch.testing.assert_close(embed, states.repeat_interleave(3, dim=0))
+        _, (summary, _, _) = _encode(model, batch, "age")
+        self.assertTrue(torch.all(summary.abs().sum(1) > 0))  # not cut to zeros
+        torch.testing.assert_close(embed, summary.repeat_interleave(3, dim=0))
 
     def test_per_field_settings(self):
         dataset = _dataset(
@@ -345,6 +347,14 @@ class TestStatics(unittest.TestCase):
         )
         self.assertEqual(model.fc.in_features, 4 + 6)
         self.assertEqual(model(**_batch(dataset))["logit"].shape, (4, 1))
+
+
+# A 'single' level above timed visits, and its two levels' embedding dims.
+SINGLE_ABOVE: list[LevelConfig] = [
+    {"ordering": "series", "tokens": 1},
+    {"ordering": "single", "tokens": 1},
+]
+SINGLE_ABOVE_DIMS: list[LevelEmbedding] = [{"tokens": (4,)}, {"tokens": (2,)}]
 
 
 class TestPerStep(unittest.TestCase):
@@ -373,26 +383,108 @@ class TestPerStep(unittest.TestCase):
                 {"ordering": top},
             ]
             dataset = self.dataset(levels, [{"children": [{"tokens": ["A"]}]}] * 2)
-            with self.subTest(top=top), self.assertRaisesRegex(ValueError, "Wrap"):
+            with self.subTest(top=top), self.assertRaisesRegex(ValueError, "take the field off the timeline"):
                 RNN_V2(dataset, embedding_dim={"x": [{"tokens": (4,)}, {}]})
 
-    def test_a_single_top_level_must_be_alone(self):
-        levels: list[LevelConfig] = [
-            {"ordering": "series", "tokens": 1},
-            {"ordering": "single", "tokens": 1},
+    def with_static(self, levels, records, timeline=("x",)):
+        """``x`` visits and a field ``s``, with the given timeline."""
+        samples = [
+            {
+                "patient_id": f"p{i}",
+                "x": _visits((0.5, "er", ["A"]), (5.0, "op", ["B"])),
+                "s": records[i],
+                "y": self.labels([0.0, 1.0, 2.0]),
+            }
+            for i in range(len(records))
         ]
-        records = [{"tokens": ["F"], "children": [{"time": [0.0], "tokens": ["A"]}]}]
-        dataset = self.dataset(levels, records * 2)
-        with self.assertRaisesRegex(ValueError, "not above other levels"):
-            RNN_V2(dataset, embedding_dim={"x": [{"tokens": (4,)}, {"tokens": (2,)}]})
+        return create_sample_dataset(
+            samples,
+            {
+                "x": ("jagged", {"levels": VISITS}),
+                "s": ("jagged", {"levels": levels}),
+            },
+            {"y": ("timeseries_binary", {"timeline": list(timeline)})},
+        )
 
-    def test_no_bidirectional(self):
+    def single_above(self, sex: str) -> dict[str, Any]:
+        return {"tokens": [sex], "children": [{"time": [9.0], "tokens": ["A"]}]}
+
+    def test_a_timeline_field_needs_a_series_top_level(self):
+        cases: list[tuple[list[LevelConfig], dict, list[LevelEmbedding]]] = [
+            (DEMO, _demo(("F", 50.0))[0], DEMO_DIMS["demo"]),
+            (SINGLE_ABOVE, self.single_above("F"), SINGLE_ABOVE_DIMS),
+        ]
+        for levels, record, dims in cases:
+            with self.subTest(top=levels[-1].get("ordering")):
+                dataset = self.with_static(levels, [record] * 2, ("x", "s"))
+                with self.assertRaisesRegex(ValueError, "'s' is on the label's"):
+                    RNN_V2(dataset, embedding_dim={"x": VISIT_DIMS["visits"], "s": dims})
+
+    def test_a_field_off_the_timeline_is_encoded_whole(self):
+        # Any top level; the record at t = 9 is after every label, and every
+        # label still sees it.
+        cases: list[tuple[list[LevelConfig], list[dict], list[LevelEmbedding]]] = [
+            (DEMO, _demo(("F", 50.0), ("M", 60.0)), DEMO_DIMS["demo"]),
+            (
+                SINGLE_ABOVE,
+                [self.single_above("F"), self.single_above("M")],
+                SINGLE_ABOVE_DIMS,
+            ),
+            (
+                [{"ordering": "set", "tokens": 1}, {"ordering": "sequence"}],
+                [{"children": [{"tokens": ["A"]}]}, {"children": [{"tokens": ["B"]}]}],
+                [{"tokens": (4,)}, {}],
+            ),
+        ]
+        for levels, records, dims in cases:
+            with self.subTest(top=levels[-1].get("ordering"), depth=len(levels)):
+                dataset = self.with_static(levels, records)
+                model = _model(
+                    dataset,
+                    embedding_dim={"x": VISIT_DIMS["visits"], "s": dims},
+                    hidden_dim=5,
+                )
+                self.assertEqual(model.timeline, ("x",))
+                batch = _batch(dataset)
+                embed = model(**batch, embed=True)["embed"][:, 5:]
+                _, (summary, _, _) = _encode(model, batch, "s")
+                self.assertTrue(torch.all(summary.abs().sum(1) > 0))
+                torch.testing.assert_close(embed, summary.repeat_interleave(3, dim=0))
+
+    def test_timeline_fields_must_be_inputs(self):
+        samples = [
+            {
+                "patient_id": f"p{i}",
+                "x": _visits((0.0, "er", ["A"])),
+                "z": [0.0],
+                "y": self.labels([0.0]),
+            }
+            for i in range(2)
+        ]
+        dataset = create_sample_dataset(
+            samples,
+            {"x": ("jagged", {"levels": VISITS})},
+            {"y": ("timeseries_binary", {"timeline": ["x", "z"]})},
+        )
+        with self.assertRaisesRegex(ValueError, r"timeline names \['z'\]"):
+            RNN_V2(dataset, embedding_dim={"x": VISIT_DIMS["visits"]})
+
+    def test_no_bidirectional_on_the_timeline(self):
         records = [_visits((0.0, "er", ["A"]))] * 2
         dataset = self.dataset(VISITS, records)
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, "causal"):
             RNN_V2(
                 dataset, embedding_dim={"x": VISIT_DIMS["visits"]}, bidirectional=True
             )
+
+    def test_bidirectional_off_the_timeline(self):
+        dataset = self.with_static(VISITS, [_visits((9.0, "er", ["A"]))] * 2)
+        model = _model(
+            dataset,
+            embedding_dim={"x": VISIT_DIMS["visits"], "s": VISIT_DIMS["visits"]},
+            bidirectional={"s": True},
+        )
+        self.assertEqual(model(**_batch(dataset))["logit"].shape, (6, 1))
 
     def test_each_label_uses_the_records_at_or_before_it(self):
         records = [
@@ -592,7 +684,9 @@ class TestLegacyFields(unittest.TestCase):
                 field,
             )
 
-    def per_step(self, spec, values):
+    def per_step(self, spec, values, on_timeline=True):
+        """Per-step labels with legacy ``x``, on the timeline or beside a
+        timed ``t`` that is."""
         samples = [
             {
                 "patient_id": f"p{i}",
@@ -601,8 +695,14 @@ class TestLegacyFields(unittest.TestCase):
             }
             for i in range(len(values))
         ]
+        schema: dict[str, Any] = {"x": spec}
+        if not on_timeline:
+            for i, sample in enumerate(samples):
+                sample["t"] = {"time": [0.0], "values": [[float(i)]]}
+            schema["t"] = ("jagged", {"levels": [{"ordering": "series", "values": [1]}]})
+        timeline = ["x"] if on_timeline else ["t"]
         return create_sample_dataset(
-            samples, {"x": spec}, {"y": ("timeseries_binary", {"timeline": ["x"]})}
+            samples, schema, {"y": ("timeseries_binary", {"timeline": timeline})}
         )
 
     def test_per_step_label_on_a_legacy_timeseries(self):
@@ -619,18 +719,28 @@ class TestLegacyFields(unittest.TestCase):
         self.assertTrue(torch.isfinite(result["loss"]))
 
     def test_per_step_label_with_a_legacy_tensor(self):
-        # A fixed-shape tensor is a lone 'single' level, which every label sees.
-        dataset = self.per_step("tensor", [[1.0, 2.0], [3.0, 4.0]])
-        model = _model(dataset, embedding_dim={"x": [{"values": 3}]}, hidden_dim=4)
+        # A fixed-shape tensor is a 'single' level: off the timeline, every
+        # label sees it; on it, it has no time to cut at.
+        values = [[1.0, 2.0], [3.0, 4.0]]
+        dims = {"x": [{"values": 3}], "t": [{"values": 2}]}
+        dataset = self.per_step("tensor", values, on_timeline=False)
+        model = _model(dataset, embedding_dim=dims, hidden_dim=4)
         self.assertEqual(model.processors["x"].ordering(), {0: "single"})
         result = model(**_batch(dataset))
         self.assertEqual(result["logit"].shape, (4, 1))  # two labels per sample
         self.assertTrue(torch.isfinite(result["loss"]))
+        dataset = self.per_step("tensor", values)
+        with self.assertRaisesRegex(ValueError, "needs a 'series' top level"):
+            RNN_V2(dataset, embedding_dim={"x": [{"values": 3}]})
 
     def test_per_step_label_on_a_legacy_sequence(self):
         dataset = self.per_step("sequence", [["A"], ["B"]])
-        with self.assertRaisesRegex(ValueError, "need a 'series' top level"):
+        with self.assertRaisesRegex(ValueError, "needs a 'series' top level"):
             RNN_V2(dataset, embedding_dim={"x": [{"tokens": (4,)}]})
+        dataset = self.per_step("sequence", [["A"], ["B"]], on_timeline=False)
+        dims = {"x": [{"tokens": (4,)}], "t": [{"values": 2}]}
+        result = _model(dataset, embedding_dim=dims, hidden_dim=4)(**_batch(dataset))
+        self.assertEqual(result["logit"].shape, (4, 1))
 
 
 class TestTraining(unittest.TestCase):
