@@ -7,6 +7,7 @@ from pyhealth.datasets import PTBXLDataset
 from pyhealth.models import TaskAug
 from pyhealth.trainer import Trainer
 from torch.utils.data import DataLoader
+from pyhealth.tasks import PTBXLAllDiagnosticClassification
 
 def main():
     # 1. Load the existing PTB-XL Dataset and Task
@@ -15,7 +16,9 @@ def main():
         cache_dir="tests/data/my_clean_cache"
     ) 
     
-    samples = dataset.set_task(dataset.default_task)
+    samples = dataset.set_task(
+        PTBXLAllDiagnosticClassification(scp_statements_path="tests/data/ptbxl_synthetic/scp_statements.csv")
+    )
 
     # 2. Split into train/val/test (using a simple subset for demonstration)
     train_dataset = samples[:len(samples)//2]
