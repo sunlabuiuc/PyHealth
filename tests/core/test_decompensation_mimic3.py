@@ -18,6 +18,7 @@ from pyhealth.tasks.decompensation_mimic3 import (
     hourly_matrix,
     in_hospital_mortality,
     select_stays,
+    time_to_event_hours,
 )
 
 
@@ -291,3 +292,103 @@ def test_missing_columns():
     assert task._missing(["event_type"])
     cols = [f"{t}/{c}" for t, cs in _REQUIRED_COLUMNS.items() for c in cs]
     assert task._missing(cols) == []
+
+
+# --- survival label mode ---------------------------------------------------
+
+
+def test_time_to_event_hours():
+    assert time_to_event_hours(5.5, 1) == 6  # death in (5, 6]
+    assert time_to_event_hours(5.0, 1) == 6
+    assert time_to_event_hours(0.0, 1) == 1  # death at the step's own hour
+    assert time_to_event_hours(5.5, 0) == 5  # censored: whole hours observed
+    assert time_to_event_hours(0.0, 0) == 0
+
+
+def test_time_to_event_matches_binary_label():
+    # k <= horizon  <=>  death within the horizon, for whole horizons
+    for lived in (12.0, 29.5, 30.0, 47.9, 48.0, 100.0):
+        for horizon in (6.0, 12.0, 24.0, 48.0):
+            for step in decompensation_steps(40.0, lived, 1, 0.5, horizon=horizon):
+                k = time_to_event_hours(step["duration"], step["event"])
+                assert (step["event"] == 1 and k <= horizon) == bool(step["label"])
+
+
+def test_build_sample_survival_keys_and_alignment():
+    ev = [(0.5, "Heart Rate", 80.0), (9.2, "Heart Rate", 90.0)]
+    plain = build_sample("p", ev, 12.0, 10.0, 1)
+    assert "time_to_event" not in plain and "event" not in plain
+    smp = build_sample("p", ev, 12.0, 10.0, 1, label_mode="survival")
+    times = smp["label"]["time"]
+    assert smp["time_to_event"]["time"] == times
+    assert smp["event"]["time"] == times
+    # steps at hours 5..10, death at 10: remaining 5, 4, ..., 0 -> hour 6..1
+    assert [v[0] for v in smp["time_to_event"]["values"]] == [6, 5, 4, 3, 2, 1]
+    assert all(v == [1.0] for v in smp["event"]["values"])
+    assert smp["label"] == plain["label"]  # the binary label is unchanged
+
+
+def test_build_sample_survival_censored():
+    ev = [(0.5, "Heart Rate", 80.0)]
+    smp = build_sample("p", ev, 12.0, None, 0, label_mode="survival")
+    assert [v[0] for v in smp["time_to_event"]["values"]] == [7, 6, 5, 4, 3, 2, 1, 0]
+    assert all(v == [0.0] for v in smp["event"]["values"])
+    assert all(v == [0.0] for v in smp["label"]["values"])
+
+
+def test_build_sample_rejects_unknown_mode():
+    try:
+        build_sample("p", [(0.5, "Heart Rate", 80.0)], 12.0, None, 0, label_mode="x")
+    except ValueError as err:
+        assert "label_mode" in str(err)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_task_default_mode_unchanged():
+    task = DecompensationMIMIC3()
+    assert task.label_mode == "binary"
+    assert list(task.output_schema) == ["decompensation"]
+    assert task.task_name == "DecompensationMIMIC3"
+
+
+def test_task_survival_schema_and_name():
+    task = DecompensationMIMIC3(label_mode="survival")
+    assert task.output_schema == {
+        "decompensation": "timeseries_binary",
+        "time_to_event": "timeseries_regression",
+        "event": "timeseries_binary",
+    }
+    assert task.task_name == "DecompensationMIMIC3_survival"
+    assert DecompensationMIMIC3.output_schema == {
+        "decompensation": "timeseries_binary"
+    }  # the class (and other instances) keep the binary schema
+    assert DecompensationMIMIC3(12, label_mode="survival").task_name == (
+        "DecompensationMIMIC3_h12_survival"
+    )
+
+
+def test_task_survival_rejects_bad_arguments():
+    for kwargs in ({"label_mode": "x"}, {"horizon": 12.5, "label_mode": "survival"}):
+        try:
+            DecompensationMIMIC3(**kwargs)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"expected ValueError for {kwargs}")
+    DecompensationMIMIC3(horizon=12.5)  # fine in binary mode
+
+
+def test_task_survival_samples():
+    task = DecompensationMIMIC3(label_mode="survival")
+    s = task(patient(deathtime=at(20.0)))[0]
+    assert s["time_to_event"]["time"] == s["decompensation"]["time"]
+    assert s["time_to_event"]["values"][0] == [16.0]  # hour 5 -> death in (15, 16]
+    assert s["time_to_event"]["values"][-1] == [1.0]
+    assert all(v == [1.0] for v in s["event"]["values"])
+    survivor = task(patient(los_days=0.5))[0]
+    assert all(v == [0.0] for v in survivor["event"]["values"])
+    assert survivor["time_to_event"]["values"][-1] == [0.0]
+    binary = DecompensationMIMIC3()(patient(deathtime=at(20.0)))[0]
+    assert "time_to_event" not in binary
+    assert binary["decompensation"] == s["decompensation"]
