@@ -2,7 +2,7 @@
 
 from collections.abc import Hashable, Iterable, Sequence
 from itertools import pairwise
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Generic, TypeVar
 
 import numpy as np
 import torch
@@ -18,8 +18,10 @@ from .label_processor import (
 )
 from .utils import Normalization
 
+B = TypeVar("B", bound=LabelProcessor)
 
-class TimeseriesLabelProcessor[B: LabelProcessor](LabelProcessor):
+
+class TimeseriesLabelProcessor(LabelProcessor, Generic[B]):
     """Base class of labels given at time points.
 
     A label is ``{"time": [t, ...], "values": [v, ...]}``: one value per time.

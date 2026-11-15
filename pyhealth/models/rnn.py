@@ -1,5 +1,5 @@
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any, Literal, Optional, cast, get_args
+from typing import Any, Literal, Optional, TypeVar, cast, get_args
 
 import torch
 import torch.nn as nn
@@ -610,8 +610,10 @@ class MultimodalRNN(BaseModel):
 
 RNNType = Literal["RNN", "LSTM", "GRU"]
 
+T = TypeVar("T")
 
-def _per_field[T](
+
+def _per_field(
     name: str,
     value: T | Mapping[str, T],
     fields: Sequence[str],

@@ -15,9 +15,9 @@ eICU-CRD is centered on the ICU stay: every table carries the ICU stay ID
 (``patientunitstayid``) and times are offsets in minutes from ICU admission.
 """
 
-import itertools
 from typing import Any, ClassVar, NamedTuple
 
+import more_itertools
 import numpy as np
 import polars as pl
 
@@ -474,7 +474,9 @@ class _YAIBEICUTask(BaseTask):
         )
         hospitals: dict[int, int] = {}
         with_outcome: set[int] = set()
-        for batch in itertools.batched(patient_ids, self._PREVALENCE_BATCH_SIZE):
+        for batch in more_itertools.batched(
+            patient_ids, self._PREVALENCE_BATCH_SIZE
+        ):
             patients = (
                 events.filter(pl.col("patient_id").is_in(batch))
                 .collect(engine="streaming")

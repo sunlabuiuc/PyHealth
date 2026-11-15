@@ -17,6 +17,7 @@ import multiprocessing
 import multiprocessing.queues
 from queue import Empty
 import shutil
+import sys
 import time
 
 from filelock import FileLock
@@ -31,6 +32,7 @@ import pandas as pd
 import polars as pl
 import requests
 from tqdm import tqdm
+import dask
 import dask.dataframe as dd
 from dask.distributed import (
     Client as DaskClient,
@@ -398,7 +400,7 @@ def _task_transform_fn(
         writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
 
         write_index = 0
-        batches = itertools.batched(patient_ids, BATCH_SIZE)
+        batches = more_itertools.batched(patient_ids, BATCH_SIZE)
         for batch in batches:
             complete = 0
             patients = (
@@ -478,6 +480,34 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
         writer.done()
 
     logger.info(f"Worker {worker_id} finished processing samples.")
+
+
+def _compute_divisions_locally(df: dd.DataFrame, num_workers: int) -> None:
+    """Computes a dataframe's divisions with dask's local threaded scheduler.
+
+    Before Python 3.12, ``functools.cached_property`` holds one lock per
+    attribute that is shared by every instance. Dask computes the divisions of
+    a sorted frame inside such a property, so asking the distributed client
+    for them deadlocks: the scheduler thread needs the same lock to build the
+    graph. The local threaded scheduler builds the graph in the calling thread,
+    where the lock is reentrant. Later calls reuse the cached divisions. On
+    Python 3.12 and newer this does nothing.
+
+    Args:
+        df: The dask dataframe, typically the result of ``sort_values``.
+        num_workers: Number of threads used to compute the divisions.
+
+    Example:
+        >>> import dask.dataframe as dd
+        >>> import pandas as pd
+        >>> pdf = pd.DataFrame({"patient_id": ["b", "a", "c"]})
+        >>> df = dd.from_pandas(pdf, npartitions=2).sort_values("patient_id")
+        >>> _compute_divisions_locally(df, num_workers=1)
+    """
+    if sys.version_info >= (3, 12):
+        return
+    with dask.config.set(scheduler="threads", num_workers=num_workers):
+        _ = df.divisions  # computed and cached on the expression
 
 
 class BaseDataset(ABC):
@@ -882,7 +912,9 @@ class BaseDataset(ABC):
                         df = df[filter]
 
                     logger.info(f"Caching event dataframe to {output_dir}...")
-                    collection = df.sort_values("patient_id").to_parquet(
+                    df = df.sort_values("patient_id")
+                    _compute_divisions_locally(df, self.num_workers)
+                    collection = df.to_parquet(
                         output_dir,
                         write_index=False,
                         compute=False,
@@ -1267,7 +1299,7 @@ class BaseDataset(ABC):
                         output_dir,
                     )
                     for worker_id, pids in enumerate(
-                        itertools.batched(
+                        more_itertools.batched(
                             patient_ids, len(patient_ids) // num_workers + 1
                         )
                     )
