@@ -67,6 +67,8 @@ from .base_task import BaseTask
 
 EPS = 1e-6
 
+LABEL_MODES: tuple[str, ...] = ("binary", "survival")
+
 FEATURES: list[str] = [
     "Capillary refill rate",
     "Diastolic blood pressure",
@@ -465,6 +467,31 @@ def decompensation_steps(
     return steps
 
 
+def time_to_event_hours(duration: float, event: int) -> int:
+    """Survival target of one step, in whole hours.
+
+    A death ``duration`` hours ahead falls in hour ``floor(duration) + 1``
+    (hour ``k`` covers ``(k - 1, k]``), so it is within a horizon of ``h``
+    hours exactly when ``floor(duration) + 1 <= h``, which is the binary
+    decompensation label for a whole ``h``. Without an observed death the
+    step is censored: this is the number of whole hours still observed.
+
+    Args:
+        duration: Hours from the step to the death, or to the end of the stay.
+        event: 1 if the death is observed, else 0.
+
+    Returns:
+        The hour of the death, or the observed hours if censored.
+
+    Examples:
+        >>> time_to_event_hours(5.5, 1), time_to_event_hours(5.5, 0)
+        (6, 5)
+        >>> time_to_event_hours(24.0, 1)
+        25
+    """
+    return math.floor(duration) + int(event)
+
+
 def build_sample(
     patient_id: str,
     events: list[tuple[float, str, float]],
@@ -472,11 +499,16 @@ def build_sample(
     lived_hours: float | None,
     mortality: int,
     horizon: float = 24.0,
+    label_mode: str = "binary",
 ) -> dict[str, Any] | None:
     """Builds one per-stay sample, or None if the stay yields no steps.
 
     Events outside ``[0, los_hours]`` are dropped, and nothing after the last
     prediction step (so nothing after death) enters the features.
+
+    With ``label_mode="survival"`` the sample also has ``time_to_event`` and
+    ``event`` records at the same times as ``label`` (see
+    :func:`time_to_event_hours`).
 
     Returns:
         A dict with ``patient_id``, ``dynamic`` (``time`` and ``values``) and
@@ -489,6 +521,10 @@ def build_sample(
         >>> sample["dynamic"]["values"].shape, sample["label"]["time"][0]
         ((13, 17), 5.0)
     """
+    if label_mode not in LABEL_MODES:
+        raise ValueError(
+            f"label_mode must be one of {LABEL_MODES}, not {label_mode!r}."
+        )
     inside = [e for e in events if -EPS < e[0] < los_hours + EPS]
     if not inside:
         return None
@@ -499,17 +535,31 @@ def build_sample(
     if not steps:
         return None
     last_hour = round(steps[-1]["t"])
-    return {
+    times = [s["t"] for s in steps]
+    sample = {
         "patient_id": patient_id,
         "dynamic": {
             "time": [float(h) for h in range(last_hour + 1)],
             "values": hourly_matrix(inside, last_hour),
         },
         "label": {
-            "time": [s["t"] for s in steps],
+            "time": times,
             "values": [[float(s["label"])] for s in steps],
         },
     }
+    if label_mode == "survival":
+        sample["time_to_event"] = {
+            "time": times,
+            "values": [
+                [float(time_to_event_hours(s["duration"], s["event"]))]
+                for s in steps
+            ],
+        }
+        sample["event"] = {
+            "time": times,
+            "values": [[float(s["event"])] for s in steps],
+        }
+    return sample
 
 
 # --- PyHealth task ----------------------------------------------------------
@@ -584,6 +634,17 @@ class DecompensationMIMIC3(BaseTask):
     Training needs a model that reads the ``sequence_v2`` input and the
     per-hour label records, such as :class:`~pyhealth.models.RNN_V2`.
 
+    With ``label_mode="survival"`` each hour also gets a time-to-event target
+    for survival models such as the hazard model of Yeche et al. (2024): the
+    ``time_to_event`` records give the hour in which the death falls, counted
+    from the step (hour ``k`` covers ``(k - 1, k]``), or the whole hours still
+    observed if the stay ends without a death (censored); the ``event``
+    records say whether the death was observed. A step is positive in
+    ``decompensation`` exactly when ``time_to_event <= horizon`` and
+    ``event == 1``. The binary label is kept so a survival model can be
+    scored like the binary one. A step censored with no observed hours left
+    has ``time_to_event == 0`` and carries no survival information.
+
     Requires the ``chartevents`` and ``labevents`` tables and a MIMIC-III
     config with the columns of ``_REQUIRED_COLUMNS`` (ward and care-unit
     columns of ``icustays``, ``deathtime`` of ``admissions``, ``hadm_id`` and
@@ -594,6 +655,9 @@ class DecompensationMIMIC3(BaseTask):
             follows within this many hours.
         apply_ranges: Whether to clip or drop values by the benchmark's
             plausibility ranges.
+        label_mode: ``"binary"`` (default) gives only ``decompensation``;
+            ``"survival"`` also gives ``time_to_event`` and ``event``. It
+            needs a whole number of hours as the horizon.
 
     Examples:
         >>> from pyhealth.datasets import MIMIC3Dataset
@@ -604,6 +668,9 @@ class DecompensationMIMIC3(BaseTask):
         ...     config_path="pyhealth/datasets/configs/mimic3_icu.yaml",
         ... )
         >>> samples = dataset.set_task(DecompensationMIMIC3(horizon=24))
+        >>> task = DecompensationMIMIC3(horizon=24, label_mode="survival")
+        >>> sorted(task.output_schema)
+        ['decompensation', 'event', 'time_to_event']
     """
 
     task_name: str = "DecompensationMIMIC3"
@@ -631,15 +698,38 @@ class DecompensationMIMIC3(BaseTask):
         "decompensation": "timeseries_binary"
     }
 
-    def __init__(self, horizon: float = 24.0, apply_ranges: bool = False) -> None:
+    def __init__(
+        self,
+        horizon: float = 24.0,
+        apply_ranges: bool = False,
+        label_mode: str = "binary",
+    ) -> None:
         super().__init__()
+        if label_mode not in LABEL_MODES:
+            raise ValueError(
+                f"label_mode must be one of {LABEL_MODES}, not {label_mode!r}."
+            )
+        if label_mode == "survival" and float(horizon) != int(horizon):
+            raise ValueError(
+                f"label_mode='survival' needs a whole number of hours, "
+                f"got horizon={horizon!r}."
+            )
         self.horizon = float(horizon)
         self.apply_ranges = bool(apply_ranges)
+        self.label_mode = label_mode
+        if label_mode == "survival":
+            self.output_schema = {
+                **type(self).output_schema,
+                "time_to_event": "timeseries_regression",
+                "event": "timeseries_binary",
+            }
         # Samples differ by these options, so keep their caches apart.
         if self.horizon != 24.0:
             self.task_name = f"{self.task_name}_h{self.horizon:g}"
         if self.apply_ranges:
             self.task_name = f"{self.task_name}_ranges"
+        if self.label_mode == "survival":
+            self.task_name = f"{self.task_name}_survival"
 
     def pre_filter(self, df: Any) -> Any:
         """Drops measurement rows of items the task does not use.
@@ -703,7 +793,8 @@ class DecompensationMIMIC3(BaseTask):
 
         Returns:
             Samples with ``patient_id``, ``stay_id``, ``dynamic`` (hourly
-            series) and ``decompensation`` (per-hour labels).
+            series) and ``decompensation`` (per-hour labels), plus
+            ``time_to_event`` and ``event`` in survival mode.
         """
         demographics = _rows(patient, "patients")
         stay_rows = _rows(patient, "icustays")
@@ -789,6 +880,7 @@ class DecompensationMIMIC3(BaseTask):
                 lived,
                 mortality,
                 horizon=self.horizon,
+                label_mode=self.label_mode,
             )
             if sample is None:
                 continue
