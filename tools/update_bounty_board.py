@@ -50,6 +50,18 @@ TITLE_TAG_RE = re.compile(r"\[\s*(?:bounty|bty)\s*-\s*(\d+)\s*\]", re.IGNORECASE
 
 SECTIONS = ("Claimed", "Unclaimed")
 
+# Subsection order; a category outside this list is rejected.
+CATEGORIES = (
+    "infrastructure", "dataset", "task", "model", "interpretability", "calibration",
+)
+
+# Priority 1 is the highest. U+FE0E keeps the double arrows in text style
+# instead of emoji style.
+PRIORITY_ICONS = {
+    1: "\u23eb\ufe0e", 2: "\u25b2", 3: "\u2501", 4: "\u25bc", 5: "\u23ec\ufe0e",
+}
+PRIORITY_NAMES = {1: "highest", 2: "high", 3: "medium", 4: "low", 5: "lowest"}
+
 
 # --------------------------------------------------------------------------- #
 # bounty.yaml
@@ -79,12 +91,24 @@ def load_bounties(path):
             value = entry.get(field)
             if not isinstance(value, str) or not value.strip():
                 errors.append(f"{where}: `{field}` must be a non-empty string")
+        category = str(entry.get("category", "")).strip()
+        if category and category not in CATEGORIES:
+            errors.append(
+                f"{where}: unknown category {category!r} "
+                f"(expected one of: {', '.join(CATEGORIES)})"
+            )
+        priority = entry.get("priority")
+        if priority not in PRIORITY_ICONS or isinstance(priority, bool):
+            errors.append(
+                f"{where}: `priority` must be an integer from 1 (highest) to 5"
+            )
         if entry.get("complete") is not None:
             continue
         bounties[bid] = {
             "id": bid,
+            "priority": priority,
             "title": str(entry.get("title", "")).strip(),
-            "category": str(entry.get("category", "")).strip(),
+            "category": category,
             "description": str(entry.get("description", "")).strip(),
         }
     if errors:
@@ -209,7 +233,8 @@ def link_prs(bounties, prs):
 
 
 def render_entry(bounty, claim_prs):
-    heading = f"#### BTY-{bounty['id']} · {bounty['title']}"
+    icon = PRIORITY_ICONS[bounty["priority"]]
+    heading = f"#### {icon} · BTY-{bounty['id']} · {bounty['title']}"
     if claim_prs:
         by_author = defaultdict(list)  # insertion order = first PR number
         for p in claim_prs:
@@ -227,8 +252,8 @@ def render_entry(bounty, claim_prs):
 def build_sections(bounties, claims):
     """[(section, [(category title, [entry text, ...]), ...]), ...]"""
     grouped = {s: defaultdict(list) for s in SECTIONS}
-    for bid in sorted(bounties):
-        bounty = bounties[bid]
+    for bounty in sorted(bounties.values(), key=lambda b: (b["priority"], b["id"])):
+        bid = bounty["id"]
         section = "Claimed" if claims.get(bid) else "Unclaimed"
         grouped[section][bounty["category"]].append(
             render_entry(bounty, claims.get(bid, []))
@@ -238,7 +263,8 @@ def build_sections(bounties, claims):
             section,
             [
                 (category_title(cat), grouped[section][cat])
-                for cat in sorted(grouped[section], key=str.lower)
+                for cat in CATEGORIES
+                if grouped[section][cat]
             ],
         )
         for section in SECTIONS
@@ -254,6 +280,9 @@ def render_header(repo, n_claimed, n_unclaimed):
         "title, for example `[BTY-2] Port SHHSDataset to BaseDataset` "
         "(`[Bounty-2]` works too). A bounty stays claimed while the PR is open "
         "or after it merges; a PR closed without merging releases it.\n\n"
+        "Priority: "
+        + ", ".join(f"{PRIORITY_ICONS[p]} {PRIORITY_NAMES[p]}" for p in PRIORITY_ICONS)
+        + ".\n\n"
         f"Open bounties: {n_claimed + n_unclaimed} "
         f"({n_claimed} claimed, {n_unclaimed} unclaimed)."
     )
