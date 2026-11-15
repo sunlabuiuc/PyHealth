@@ -29,6 +29,23 @@ negative log-likelihood and ``loss`` adds the balancing penalty.
 ``mode=None`` is intentional: use a custom survival training loop and
 censoring-aware metrics rather than classification scoring.
 
+Example and ablation
+--------------------
+
+From a PyHealth checkout with this contribution installed::
+
+    pip install SurvivalEVAL
+    python examples/support2_survival_personalized_moe.py --synthetic --epochs 2
+
+This uses synthetic data to check execution. For SUPPORT2, replace
+``--synthetic --epochs 2`` with ``--root data/support2``; missing data are
+downloaded automatically. Preprocessing is fitted on training data only.
+
+The example compares dropout rates 0, 0.1, 0.3 and 0.5 using five paired seeds
+and a fixed data split. Results are written to ``personalized_moe_results.json``
+(override with ``--output``). Setup, reproduction results and prediction-setting
+limitations are documented in ``examples/support2_survival_personalized_moe.py``.
+
 API
 ---
 
