@@ -55,6 +55,12 @@ from .in_hospital_mortality_meds import (
     InHospitalMortalityMEDS as InHospitalMortalityMEDS,
 )
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
+from .mimic_extract import (
+    MIMICExtractBinaryTask as MIMICExtractBinaryTask,
+    MIMICExtractLengthOfStay as MIMICExtractLengthOfStay,
+    MIMICExtractMortalityHospital as MIMICExtractMortalityHospital,
+    MIMICExtractMortalityICU as MIMICExtractMortalityICU,
+)
 from .lab_nowcasting import (
     LabNowcasting as LabNowcasting,
     LabNowcastingMIMIC3 as LabNowcastingMIMIC3,
