@@ -184,7 +184,10 @@ supports ``len()`` and index access, ready for a DataLoader.
     sample_ds[0]     # a single sample dict with tensor values
 
 If you re-run ``set_task()`` with the same task and processor configuration,
-PyHealth detects the existing cache and skips reprocessing. During
+PyHealth detects the existing cache and skips reprocessing. The cache key holds
+the task's arguments and schemas but not its code, so after you edit a task's
+``__call__``, run ``dataset.clear_task_cache(task)`` (see *Task caches and when
+to clear them* in :doc:`datasets`). During
 development it is useful to set ``dev=True`` on the dataset, which limits
 processing to 1 000 patients so iterations are fast.
 
