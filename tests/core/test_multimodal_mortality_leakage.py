@@ -1,5 +1,7 @@
+import tempfile
 import unittest
 from datetime import datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 import polars as pl
@@ -131,3 +133,54 @@ class TestMultimodalMortalityLeakage(unittest.TestCase):
         )
 
         self.assertEqual(samples, [])
+
+
+class ColumnsPatient(DummyPatient):
+    """A DummyPatient whose dataset loaded only ``tables``, like ``Patient``."""
+
+    def __init__(self, events, tables):
+        super().__init__({k: v for k, v in events.items() if k in tables})
+        self.data_source = pl.DataFrame(
+            schema={f"{table}/hadm_id": pl.Utf8 for table in tables}
+        )
+
+    def get_events(self, event_type=None, filters=None, **kwargs):
+        if filters and f"{event_type}/hadm_id" not in self.data_source.columns:
+            raise pl.exceptions.ColumnNotFoundError(f"{event_type}/hadm_id")
+        return super().get_events(event_type, filters=filters, **kwargs)
+
+
+class TestMultimodalMortalityTables(unittest.TestCase):
+    def setUp(self):
+        self.events = make_patient(include_available_xray=True).events
+
+    def test_runs_without_the_radiology_table(self):
+        tables = [k for k in self.events if k != "radiology"]
+        samples = MultimodalMortalityPredictionMIMIC4()(
+            ColumnsPatient(self.events, tables)
+        )
+        self.assertEqual(len(samples), 1)
+        self.assertEqual(samples[0]["discharge"], ["Discharged"])
+        self.assertEqual(samples[0]["radiology"], [])
+
+    def test_names_the_missing_sources(self):
+        tables = [k for k in self.events if k not in ("discharge", "radiology")]
+        with self.assertRaisesRegex(ValueError, "note table"):
+            MultimodalMortalityPredictionMIMIC4()(ColumnsPatient(self.events, tables))
+        tables = [k for k in self.events if k != "metadata"]
+        with self.assertRaisesRegex(ValueError, "CXR metadata"):
+            MultimodalMortalityPredictionMIMIC4()(ColumnsPatient(self.events, tables))
+
+    def test_ehr_only_dataset_gets_a_clear_error(self):
+        from pyhealth.datasets import MIMIC4Dataset
+
+        root = Path(__file__).parents[2] / "test-resources/core/mimic4demo"
+        with tempfile.TemporaryDirectory() as cache:
+            dataset = MIMIC4Dataset(
+                ehr_root=str(root),
+                ehr_tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+                cache_dir=cache,
+            )
+            patient = next(iter(dataset.iter_patients()))
+            with self.assertRaisesRegex(ValueError, "note table.*CXR metadata"):
+                MultimodalMortalityPredictionMIMIC4()(patient)
