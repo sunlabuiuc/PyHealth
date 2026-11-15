@@ -250,7 +250,7 @@ class TestStatics(unittest.TestCase):
                 "x": ("jagged", {"levels": VISITS}),
                 "age": ("jagged", {"levels": AGE}),
             },
-            {"y": "timeseries_binary"},
+            {"y": ("timeseries_binary", {"timeline": ["x"]})},
         )
         model = _model(
             dataset,
@@ -292,7 +292,7 @@ class TestPerStep(unittest.TestCase):
         return create_sample_dataset(
             samples,
             {"x": ("jagged", {"levels": levels})},
-            {"y": "timeseries_binary"},
+            {"y": ("timeseries_binary", {"timeline": ["x"]})},
         )
 
     def test_top_level_must_be_a_series(self):
@@ -520,7 +520,9 @@ class TestLegacyFields(unittest.TestCase):
             }
             for i in range(len(values))
         ]
-        return create_sample_dataset(samples, {"x": spec}, {"y": "timeseries_binary"})
+        return create_sample_dataset(
+            samples, {"x": spec}, {"y": ("timeseries_binary", {"timeline": ["x"]})}
+        )
 
     def test_per_step_label_on_a_legacy_timeseries(self):
         t0 = datetime(2020, 1, 1)

@@ -158,6 +158,17 @@ class TestVAE(unittest.TestCase):
         second = model(**batch)["loss"]
         torch.testing.assert_close(first, second)
 
+    def test_sequence_reconstruction_is_on_the_input_timeline(self):
+        model = VAE(
+            self.sequence_dataset,
+            feature_key="conditions",
+            hidden_dim=8,
+            sequence_hidden_dim=8,
+        )
+        processor = model.label_processors["reconstruction"]
+        self.assertEqual(processor.mode, "timeseries_multiclass")
+        self.assertEqual(processor.timeline, ("conditions",))
+
     def test_sequence_vae_builds_only_the_selected_embedding(self):
         dataset = create_sample_dataset(
             samples=[
