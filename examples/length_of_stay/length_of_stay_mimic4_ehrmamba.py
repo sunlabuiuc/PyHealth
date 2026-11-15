@@ -7,6 +7,10 @@ Usage:
     python examples/length_of_stay/length_of_stay_mimic4_ehrmamba.py
     python examples/length_of_stay/length_of_stay_mimic4_ehrmamba.py --quick-test  # ~5 min smoke test
     EHR_ROOT=/path/to/mimiciv/2.2 python examples/length_of_stay/length_of_stay_mimic4_ehrmamba.py
+
+Without credentials: EHR_ROOT=test-resources/core/mimic4demo (21 samples;
+the default cache goes to ./benchmark_cache, override with CACHE_BASE).
+A GPU is recommended for full MIMIC-IV.
 """
 
 import argparse

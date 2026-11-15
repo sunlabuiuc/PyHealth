@@ -1,17 +1,26 @@
 """Train a separate RNN_V2 on each of the five MIMIC-IV YAIB tasks.
 
-Run from the repository root with PyHealth and its dependencies installed::
+Runs PyHealth's YAIB task definitions (mortality, kidney function, length of
+stay, AKI, sepsis) on MIMIC-IV, fitting preprocessing on the training patients
+(``PatientSplit``), training one RNN_V2 per task, and saving checkpoints, logs
+and test metrics under ``--output-dir``.
 
-    .venv/Scripts/python.exe -B examples/yaib_mimic4_rnn_v2.py
-    .venv/Scripts/python.exe -B examples/yaib_mimic4_rnn_v2.py --check
+Data: MIMIC-IV v3.1 (https://physionet.org/content/mimiciv/3.1/,
+credentialed); --root must contain the ``hosp/`` and ``icu/`` folders,
+including chartevents, inputevents, outputevents, procedureevents, transfers
+and microbiologyevents (the bundled ``test-resources/core/mimic4demo`` lacks
+these, so there is no no-credential run). The original YAIB benchmark used
+v2.2. Run from the repository root::
 
-The default root is D:/physionet.org/files/mimiciv/3.1, the local MIMIC-IV
-installation. Override it with --root on other machines. This uses version
-3.1; the original YAIB benchmark used version 2.2.
-The root must contain the MIMIC-IV hosp/ and icu/ directories. Development
-mode uses fewer patients; some task cohorts or splits may be too small.
-This is a training example using PyHealth's YAIB task definitions, not a
-reproduction of the original benchmark's tuning and cross-validation protocol.
+    python examples/yaib_mimic4_rnn_v2.py --root /path/to/mimiciv/3.1 --check
+    python examples/yaib_mimic4_rnn_v2.py --root /path/to/mimiciv/3.1 --dev
+
+``--check`` only verifies the files and the device. The first run
+preprocesses full MIMIC-IV chartevents, which is slow and memory-hungry
+(cached in --cache-dir afterwards); a GPU speeds up training. Development mode uses fewer
+patients; some task cohorts or splits may be too small. This is a training
+example, not a reproduction of the original benchmark's tuning and
+cross-validation protocol.
 """
 
 import argparse
@@ -164,8 +173,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--root",
-        default="D:/physionet.org/files/mimiciv/3.1",
-        help="MIMIC-IV directory (default: D:/physionet.org/files/mimiciv/3.1)",
+        required=True,
+        help="MIMIC-IV directory containing hosp/ and icu/",
     )
     parser.add_argument("--tasks", nargs="+", choices=TASKS, default=list(TASKS))
     parser.add_argument("--epochs", type=int, default=10)
@@ -181,7 +190,7 @@ def main():
     parser.add_argument("--dev", action="store_true")
     parser.add_argument(
         "--cache-dir", type=Path,
-        default=Path("D:/physionet.org/pyhealth-cache/mimiciv-3.1"),
+        default=Path("~/.cache/pyhealth/yaib-mimiciv-3.1"),
         help="Persistent preprocessing cache, reused across runs",
     )
     parser.add_argument(
