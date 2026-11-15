@@ -147,7 +147,7 @@ class ICUAcuityMIMIC4(_YAIBMIMIC4Task):
             },
         ),
         # A flat vector, which APRICOT-M fuses with the pooled events (unlike
-        # the YAIB tasks, where static is a sequence_v2 series at t = 0).
+        # the YAIB tasks, where static is a jagged field with a single level).
         "static": (
             "tensor",
             {
