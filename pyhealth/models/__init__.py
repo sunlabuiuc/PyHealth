@@ -61,6 +61,7 @@ from .molerec import MoleRec, MoleRecLayer
 from .retain import MultimodalRETAIN, RETAIN, RETAINLayer
 from .rnn import MultimodalRNN, RNN, RNNLayer
 from .rnn import RNN_V2 as RNN_V2
+from .dynamic_survival_rnn import DynamicSurvivalRNN as DynamicSurvivalRNN
 from .safedrug import SafeDrug, SafeDrugLayer
 from .shy import SHy as SHy
 from .sleepkd import SleepKD as SleepKD
