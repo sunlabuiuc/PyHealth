@@ -1,0 +1,20 @@
+version: "1.0"
+tables:
+  shhs1:
+    file_path: "shhs1-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "visit"
+    - "record_id"
+    - "signal_file"
+    - "annotation_file"
+  shhs2:
+    file_path: "shhs2-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "visit"
+    - "record_id"
+    - "signal_file"
+    - "annotation_file"
