@@ -1,0 +1,102 @@
+# categories are infrastructure, dataset, task, model, interpretability. if you need to add a new category, metion here.
+bounty:
+  - id: 1
+    category: model
+    title: CNN PyHealth 2.0 Migration
+    description: "Port pyhealth/models/cnn.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and a MIMIC-III training example. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/cnn.py)"
+    complete: "@Logiquo (yongdaf2@illinois.edu)"
+  - id: 2
+    category: model
+    title: GNN PyHealth 2.0 Migration
+    description: "Port pyhealth/models/gnn.py (GCN and GAT) to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and a MIMIC-III training example. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/gnn.py)"
+    complete: "@Logiquo (yongdaf2@illinois.edu)"
+  - id: 3
+    category: model
+    title: Transformer PyHealth 2.0 Migration
+    description: "Port pyhealth/models/transformer.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and a MIMIC-III training example. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/transformer.py)"
+    complete: "@Logiquo (yongdaf2@illinois.edu)"
+  - id: 4
+    category: model
+    title: GAMENet PyHealth 2.0 Migration
+    description: "Port pyhealth/models/gamenet.py to the PyHealth 2.0 BaseModel and processor API for medication recommendation with forward-pass tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/gamenet.py)"
+    complete: "@lehendo (arjunc4@illinois.edu)"
+  - id: 5
+    category: model
+    title: SafeDrug PyHealth 2.0 Migration
+    description: "Port pyhealth/models/safedrug.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/safedrug.py)"
+    complete: "@lehendo (arjunc4@illinois.edu)"
+  - id: 6
+    category: model
+    title: MoleRec PyHealth 2.0 Migration
+    description: "Port pyhealth/models/molerec.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/molerec.py)"
+    complete: "@lehendo (arjunc4@illinois.edu)"
+  - id: 7
+    category: model
+    title: MICRON PyHealth 2.0 Migration
+    description: "Port pyhealth/models/micron.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/micron.py)"
+    complete: "@naveenkcb (naveenkcb@illinois.edu)"
+  - id: 8
+    category: model
+    title: Deepr PyHealth 2.0 Migration
+    description: "Port pyhealth/models/deepr.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/deepr.py)"
+    complete: "@joshuasteier"
+  - id: 9
+    category: model
+    title: ConCare PyHealth 2.0 Migration
+    description: "Port pyhealth/models/concare.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/concare.py)"
+    complete: "@joshuasteier"
+  - id: 10
+    category: model
+    title: Dr. Agent PyHealth 2.0 Migration
+    description: "Port pyhealth/models/agent.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/agent.py)"
+    complete: "@joshuasteier"
+  - id: 11
+    category: model
+    title: ContraWR PyHealth 2.0 Migration
+    description: "Port pyhealth/models/contrawr.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/contrawr.py)"
+    complete: "@Razin93937"
+  - id: 12
+    category: model
+    title: AdaCare PyHealth 2.0 Migration
+    description: "Port pyhealth/models/adacare.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/adacare.py)"
+    complete: "@Razin93937"
+  - id: 13
+    category: model
+    title: GRASP PyHealth 2.0 Migration
+    description: "Port pyhealth/models/grasp.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and a MIMIC-III training pipeline. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/grasp.py)"
+    complete: "@capccode (loewcx@illinois.edu), @lookman-olowo (lolowo2@illinois.edu), @christyanamarie (cmbeard2@illinois.edu), @ddhangdd (dkfung2@illinois.edu)"
+  - id: 14
+    category: model
+    title: MedLink PyHealth 2.0 Migration
+    description: "Port the MedLink patient-linkage model to the PyHealth 2.0 BaseModel and processor API with unit tests and a MIMIC-III linkage example. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/medlink/model.py)"
+    complete: "@rianfyi"
+  - id: 15
+    category: model
+    title: TCN PyHealth 2.0 Migration
+    description: "Port pyhealth/models/tcn.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/tcn.py)"
+    complete: "@bilalarif3197 (barif@illinois.edu)"
+  - id: 16
+    category: model
+    title: SparcNet PyHealth 2.0 Migration
+    description: "Port pyhealth/models/sparcnet.py to the PyHealth 2.0 BaseModel and processor API for sleep staging. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/sparcnet.py)"
+    complete: "@joshuxchn (joshua86@illinois.edu)"
+  - id: 17
+    category: task
+    title: Readmission Prediction @ t days
+    description: "Implement PyHealth 2.0 readmission prediction tasks with configurable t-day windows across supported EHR datasets such as MIMIC-III and OMOP. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/tasks/readmission_prediction.py)"
+    complete: "@EricSchrock (ejs9@illinois.edu)"
+  - id: 18
+    category: task
+    title: Length of Stay Prediction
+    description: "Implement PyHealth 2.0 length-of-stay prediction tasks across supported EHR datasets. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/tasks/length_of_stay_prediction.py)"
+    complete: "@jhnwu3 (johnwu3@illinois.edu)"
+  - id: 19
+    category: dataset
+    title: eICU Dataset PyHealth 2.0 Migration
+    description: "Migrate eICUDataset to the PyHealth 2.0 BaseDataset API with YAML table configuration and dataset tasks. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/datasets/eicu.py)"
+    complete: "@jhnwu3 (johnwu3@illinois.edu), @EricSchrock (ejs9@illinois.edu)"
+  - id: 20
+    category: interpretability
+    title: Attention Rollout
+    description: "Implement the Attention Rollout interpretability method (Abnar & Zuidema, 2020) for PyHealth 2.0 transformer models. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/interpret/methods/attention_rollout.py), [paper](https://arxiv.org/abs/2005.00928)"
+    complete: "@fbonc (felipea5@illinois.edu)"
