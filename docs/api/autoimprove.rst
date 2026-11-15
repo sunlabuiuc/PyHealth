@@ -240,6 +240,9 @@ itself, so the sentence a clinician reviews is exactly what was computed:
   - ``feature_vocabulary()``: named code groups such as SABA;
   - ``derived_events(patient, t)`` with ``derived_event_types``: clinical
     definitions, such as exacerbation episodes, built from events before t.
+    The hook is called only for the types declared in
+    ``derived_event_types``; rows it returns for any other type are ignored,
+    so ordinary tables are always read from the EHR.
 
   Tasks without them work as before.
 
