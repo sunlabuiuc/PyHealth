@@ -20,9 +20,9 @@ Data (all credentialed, from PhysioNet):
     - Notes: MIMIC-IV-Note v2.2 (https://physionet.org/content/mimic-iv-note/2.2/)
     - Chest X-rays: MIMIC-CXR-JPG v2.0.0 with the NegBio labels
       (https://physionet.org/content/mimic-cxr-jpg/2.0.0/)
-    MultimodalMortalityPredictionMIMIC4 reads all three sources. The
-    --no-notes and --no-cxr switches currently fail inside the task, because it
-    queries the note and CXR tables unconditionally.
+    MultimodalMortalityPredictionMIMIC4 needs notes and X-rays for every sample,
+    so with --no-notes or --no-cxr the task stops with a ValueError naming the
+    missing source.
 
 Outputs: by default it writes the sample's lab plot (HTML), lab CSV (with
 --save-labs) and a copy of its X-ray into the current directory. Set
