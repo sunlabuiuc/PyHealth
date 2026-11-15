@@ -255,6 +255,7 @@ Available Tasks
     EEGBCI Tasks <tasks/pyhealth.tasks.eegbci>
     PTB-XL Tasks <tasks/pyhealth.tasks.ptbxl>
     Sleep Staging v2 <tasks/pyhealth.tasks.sleep_staging_v2>
+    Sleep Staging (SHHS) <tasks/pyhealth.tasks.sleep_staging_shhs>
     Benchmark EHRShot <tasks/pyhealth.tasks.benchmark_ehrshot>
     EHR Text Serialization (LLM encoders) <tasks/pyhealth.tasks.ehr_text_serialization>
     ED Disposition and Outcomes (MIMIC-IV-ED) <tasks/pyhealth.tasks.ed_disposition_mimic4>
