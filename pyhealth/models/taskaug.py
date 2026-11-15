@@ -47,17 +47,14 @@ class TaskAug(BaseModel):
         num_stages: int = 2,
         **kwargs
     ):
-        # 1. Safely initialize parent without passing rejected kwargs
         super().__init__(dataset=dataset)
         
-        # 2. Use safe variable names to prevent PyHealth @property collisions
         self.model_feature_keys = feature_keys
         self.model_label_key = label_key
         self.model_mode = mode
         self.num_stages = num_stages
-        self.num_operations = 5  # warp, wander, noise, scale, displacement
+        self.num_operations = 5
         
-        # 3. TaskAug Policy Parameters
         self.operation_probs = nn.ParameterList([
             nn.Parameter(torch.ones(self.num_operations) / self.num_operations)
             for _ in range(self.num_stages)
@@ -70,7 +67,6 @@ class TaskAug(BaseModel):
             nn.Parameter(torch.zeros(self.num_operations)) for _ in range(self.num_stages)
         ])
 
-        # 4. 1D ResNet-18 Backbone for ECG (12-lead input)
         self.in_channels = 64
         self.conv1 = nn.Conv1d(12, 64, kernel_size=15, stride=2, padding=7, bias=False)
         self.bn1 = nn.BatchNorm1d(64)
@@ -82,8 +78,6 @@ class TaskAug(BaseModel):
         
         self.adaptive_pool = nn.AdaptiveAvgPool1d(1)
         
-        # 5. Output Classifier Layer
-        # Read the exact target shape directly from the data to guarantee a match
         output_size = len(dataset[0][label_key])
         self.fc = nn.Linear(512, output_size)
 
@@ -100,7 +94,7 @@ class TaskAug(BaseModel):
         return x
 
     def compute_loss(self, logits: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        """Computes the training loss explicitly to avoid Trainer crashes."""
+        """Computes the training loss."""
         if self.model_mode == "multilabel":
             return F.binary_cross_entropy_with_logits(logits, y.float())
         return F.cross_entropy(logits, y.long())
@@ -109,7 +103,6 @@ class TaskAug(BaseModel):
         """Forward pass for the model."""
         x = kwargs[self.model_feature_keys[0]]
         
-        # Ensure standard tensor shape if PyHealth passes a list
         if isinstance(x, list):
             x = torch.stack(x)
             

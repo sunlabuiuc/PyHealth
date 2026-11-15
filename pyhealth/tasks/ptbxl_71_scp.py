@@ -20,7 +20,6 @@ class PTBXLAllDiagnosticClassification(BaseTask):
     def __init__(self, scp_statements_path: str):
         self.scp_statements_path = Path(scp_statements_path)
         
-        # Dynamically load all valid diagnostic SCP codes
         df = pd.read_csv(self.scp_statements_path, index_col=0)
         self.valid_codes = set(df[df["diagnostic"] == 1].index.astype(str))
         super().__init__()
@@ -32,7 +31,6 @@ class PTBXLAllDiagnosticClassification(BaseTask):
         for event in patient.get_events(event_type="records"):
             codes = parse_scp_codes(event.scp_codes)
             
-            # Keep only valid diagnostic codes present in the record
             labels = sorted([code for code in codes.keys() if code in self.valid_codes])
             
             if not labels:
