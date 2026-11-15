@@ -34,6 +34,7 @@ MLP and others) train on a field of that type.
 - ``NestedMultiHotProcessor``: For nested categorical sequences as per-visit multi-hot vectors (e.g., generative EHR models)
 - ``NestedFloatsProcessor``: For nested numerical sequences with optional forward-fill
 - :doc:`EthosProcessor <processors/pyhealth.processors.EthosProcessor>`: Tokenizes MEDS patient timelines the way ETHOS does, with quantile tokens for numeric values and time-interval tokens (``"ethos"``, fitted on the training split)
+- :doc:`EthosContextProcessor <processors/pyhealth.processors.EthosContextProcessor>`: Encodes a patient's demographics and birth date as the static context of an ETHOS timeline (``"ethos_context"``)
 
 **Label Processors** (subclasses of ``LabelProcessor``, which also define the loss, activation, output size and metrics of the label):
 
@@ -48,6 +49,8 @@ MLP and others) train on a field of that type.
 - ``TimeseriesMultiLabelProcessor``: A set of labels per given time (``"timeseries_multilabel"``), values ``[ΣN, K]``, in the same packed format
 - ``TimeseriesRegressionLabelProcessor``: Real-valued labels at given times (``"timeseries_regression"``), in the same packed format, with the same ``normalization`` option
 
+Each takes a required ``timeline``: the input fields on the label's timeline (their top-level times share the label's unit and origin), e.g. ``("timeseries_binary", {"timeline": ["dynamic"]})``. Other input fields hold for every label record.
+
 **Data Type Processors:**
 
 - ``ImageProcessor``: For image data (e.g., chest X-rays)
@@ -61,6 +64,7 @@ MLP and others) train on a field of that type.
 - ``SignalProcessor``: For general signal data (e.g., EEG, ECG)
 - ``TimeseriesProcessor``: For time-series data; optional ``normalization`` (``"zscore"`` or ``"minmax"``, fitted on the training split) and ``missing_indicators``
 - ``TimeImageProcessor``: For time-stamped image sequences (e.g., serial X-rays)
+- ``TimeRegionImageProcessor``: For the same regions cropped from time-stamped images
 - ``TensorProcessor``: For pre-processed tensor data; optional ``normalization``, ``missing_indicators`` and ``impute_strategy="zero"``
 - ``RawProcessor``: Pass-through processor for raw data
 
@@ -389,7 +393,7 @@ Common string keys for automatic processor selection:
 - ``"multiclass"``: For multi-class labels  
 - ``"multilabel"``: For multi-label classification
 - ``"regression"``: For regression targets
-- ``"timeseries_binary"``, ``"timeseries_multiclass"``, ``"timeseries_multilabel"``, ``"timeseries_regression"``: For labels given at time points
+- ``("timeseries_binary", {"timeline": [...]})``, and likewise ``"timeseries_multiclass"``, ``"timeseries_multilabel"``, ``"timeseries_regression"``: For labels given at time points; ``timeline`` is required (see the time-series label processors above)
 - ``"text"``: For text data
 - ``"tuple_time_text"``: For text paired with temporal information
 - ``"image"``: For image data
@@ -397,6 +401,7 @@ Common string keys for automatic processor selection:
 - ``"signal"``: For signal data
 - ``"timeseries"``: For time-series data
 - ``"time_image"``: For time-stamped image sequences
+- ``"time_region_image"``: For regions cropped from time-stamped images
 - ``"tensor"``: For pre-processed tensors
 - ``"raw"``: For raw/unprocessed data
 - ``"graph"``: For knowledge graph subgraphs
@@ -607,11 +612,13 @@ API Reference
     processors/pyhealth.processors.TextProcessor
     processors/pyhealth.processors.TupleTimeTextProcessor
     processors/pyhealth.processors.EthosProcessor
+    processors/pyhealth.processors.EthosContextProcessor
     processors/pyhealth.processors.AudioProcessor
     processors/pyhealth.processors.SignalProcessor
     processors/pyhealth.processors.TimeseriesProcessor
     processors/pyhealth.processors.TemporalTimeseriesProcessor
     processors/pyhealth.processors.TimeImageProcessor
+    processors/pyhealth.processors.TimeRegionImageProcessor
     processors/pyhealth.processors.TensorProcessor
     processors/pyhealth.processors.RawProcessor
     processors/pyhealth.processors.IgnoreProcessor

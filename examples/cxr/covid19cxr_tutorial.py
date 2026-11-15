@@ -3,6 +3,21 @@ COVID-19 CXR Tutorial: ViT, Conformal Prediction & Interpretability.
 
 Demonstrates: dataset loading, ViT training, LABEL conformal prediction,
 and Chefer attention-based interpretability for uncertain samples.
+
+Data: the COVID-19 Radiography Database,
+https://www.kaggle.com/datasets/tawsifurrahman/covid19-radiography-database
+(open download, no credentials). Set ``ROOT`` to the folder with the four class
+folders and their ``*.metadata.xlsx`` files, and ``CACHE``/``CKPT`` to writable
+paths. If ``CKPT`` exists the model is loaded instead of trained.
+
+Run: ``python examples/cxr/covid19cxr_tutorial.py``. Training ViT-B/16
+(ImageNet weights, downloaded by torchvision) for 20 epochs needs a GPU. The
+figure is saved to ``covid19_cxr_interpretability.png``. A notebook version is
+``covid19cxr_tutorial.ipynb``.
+
+Known issue: step 3 currently raises "Model must implement CheferInterpretable
+interface", because CheferRelevance no longer supports TorchvisionModel ViTs
+(see pyhealth/interpret/methods/chefer.py). Steps 1-2 run.
 """
 
 import os
@@ -23,10 +38,9 @@ from pyhealth.interpret.methods import CheferRelevance
 from pyhealth.interpret.utils import visualize_image_attr
 
 # Configuration
-DATA_ROOT = "/home/johnwu3/projects/PyHealth_Branch_Testing/datasets"
-ROOT = f"{DATA_ROOT}/COVID-19_Radiography_Dataset"
-CACHE = "/home/johnwu3/projects/covid19cxr_base_cache"
-CKPT = "/home/johnwu3/projects/covid19cxr_vit_model.ckpt"
+ROOT = "/path/to/COVID-19_Radiography_Dataset"
+CACHE = "/path/to/cache/covid19cxr"
+CKPT = "covid19cxr_vit_model.ckpt"
 SEED = 42
 
 if __name__ == "__main__":
@@ -56,7 +70,7 @@ if __name__ == "__main__":
         model_name="vit_b_16",
         model_config={"weights": "DEFAULT"},
     )
-    device = "cuda:4" if torch.cuda.is_available() else "cpu"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Load or train model
     trainer = Trainer(model=model, device=device, enable_logging=False)

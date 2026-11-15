@@ -38,6 +38,9 @@ from .deid_ner import DeIDNERTask
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
 # New exports must use the redundant `X as X` form: this module has no
 # __all__, and the PR lint gate flags F401 on newly added import lines.
+from .disease_progression_mimic4 import (
+    DiseaseProgressionMIMIC4 as DiseaseProgressionMIMIC4,
+)
 from .drug_recommendation import (
     DrugRecommendationEICU,
     DrugRecommendationMIMIC3,
@@ -80,6 +83,16 @@ from .length_of_stay_prediction import (
 )
 from .length_of_stay_stagenet_mimic4 import LengthOfStayStageNetMIMIC4
 from .medical_coding import MIMIC3ICD9Coding
+from .meds_outcome_tasks import (
+    HospitalReadmissionMEDS as HospitalReadmissionMEDS,
+    ICUAdmissionMEDS as ICUAdmissionMEDS,
+    ProlongedLengthOfStayMEDS as ProlongedLengthOfStayMEDS,
+)
+from .ethos_tasks import (
+    EthosOutcomeMEDS as EthosOutcomeMEDS,
+    EthosRolloutRule as EthosRolloutRule,
+    EthosTimelineMEDS as EthosTimelineMEDS,
+)
 from .msd_segmentation import MSDSegmentationTask as MSDSegmentationTask
 from .next_visit_diagnosis_prediction import (
     NextVisitDiagnosisPredictionMIMIC3 as NextVisitDiagnosisPredictionMIMIC3,
@@ -101,6 +114,12 @@ from .survival_metabric import (
 from .survival_mimic4 import InHospitalSurvivalMIMIC4 as InHospitalSurvivalMIMIC4
 from .acuity_mimic4 import ICUAcuityMIMIC4 as ICUAcuityMIMIC4
 from .survival_preprocess_support2 import SurvivalPreprocessSupport2
+from .survival_time_to_event import (
+    SurvivalTimeToEventGBSG as SurvivalTimeToEventGBSG,
+)
+from .survival_time_to_event import (
+    SurvivalTimeToEventSupport2 as SurvivalTimeToEventSupport2,
+)
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )

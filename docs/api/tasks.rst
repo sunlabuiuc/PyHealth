@@ -184,7 +184,10 @@ supports ``len()`` and index access, ready for a DataLoader.
     sample_ds[0]     # a single sample dict with tensor values
 
 If you re-run ``set_task()`` with the same task and processor configuration,
-PyHealth detects the existing cache and skips reprocessing. During
+PyHealth detects the existing cache and skips reprocessing. The cache key holds
+the task's arguments and schemas but not its code, so after you edit a task's
+``__call__``, run ``dataset.clear_task_cache(task)`` (see *Task caches and when
+to clear them* in :doc:`datasets`). During
 development it is useful to set ``dev=True`` on the dataset, which limits
 processing to 1 000 patients so iterations are fast.
 
@@ -213,6 +216,11 @@ Available Tasks
     Task Card <tasks/pyhealth.tasks.TaskCard>
     In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
     In-Hospital Mortality (MEDS) <tasks/pyhealth.tasks.InHospitalMortalityMEDS>
+    ICU Admission (MEDS) <tasks/pyhealth.tasks.ICUAdmissionMEDS>
+    Hospital Readmission (MEDS) <tasks/pyhealth.tasks.HospitalReadmissionMEDS>
+    Prolonged Length of Stay (MEDS) <tasks/pyhealth.tasks.ProlongedLengthOfStayMEDS>
+    ETHOS Timelines (MEDS) <tasks/pyhealth.tasks.EthosTimelineMEDS>
+    ETHOS Zero-Shot Outcomes (MEDS) <tasks/pyhealth.tasks.EthosOutcomeMEDS>
     MIMIC-III ICD-9 Coding <tasks/pyhealth.tasks.MIMIC3ICD9Coding>
     BMD-HS Disease Classification <tasks/pyhealth.tasks.bmd_hs_disease_classification>
     Cardiology Detection <tasks/pyhealth.tasks.cardiology_detect>
@@ -221,6 +229,7 @@ Available Tasks
     PTB-XL Multilabel Classification <tasks/pyhealth.tasks.PTBXLMultilabelClassification>
     PTB-XL HeartLang Classification <tasks/pyhealth.tasks.PTBXLHeartLangClassification>
     PhysioNet 2012 Forecasting <tasks/pyhealth.tasks.PhysioNet2012Forecasting>
+    Disease Progression (MIMIC-IV + Chest ImaGenome) <tasks/pyhealth.tasks.DiseaseProgressionMIMIC4>
     DKA Prediction (MIMIC-IV) <tasks/pyhealth.tasks.dka>
     Drug Recommendation <tasks/pyhealth.tasks.drug_recommendation>
     EHR + CXR In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.EHRCXRMortalityMIMIC4>
@@ -268,3 +277,4 @@ Available Tasks
     YAIB Tasks (MIMIC-III) <tasks/pyhealth.tasks.yaib_mimic3>
     YAIB Tasks (eICU) <tasks/pyhealth.tasks.yaib_eicu>
     Value Set Completion (VSAC) <tasks/pyhealth.tasks.ValueSetCompletion>
+    Time-to-event survival (GBSG and SUPPORT) <tasks/pyhealth.tasks.survival_time_to_event>

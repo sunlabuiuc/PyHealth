@@ -240,6 +240,9 @@ itself, so the sentence a clinician reviews is exactly what was computed:
   - ``feature_vocabulary()``: named code groups such as SABA;
   - ``derived_events(patient, t)`` with ``derived_event_types``: clinical
     definitions, such as exacerbation episodes, built from events before t.
+    The hook is called only for the types declared in
+    ``derived_event_types``; rows it returns for any other type are ignored,
+    so ordinary tables are always read from the EHR.
 
   Tasks without them work as before.
 
@@ -298,6 +301,62 @@ Give the improver a FeatureSpace to search inputs as well as settings:
   the starting pipeline. A trial stopped early is never accepted or
   selected, and the incumbent and pruned references always run every fold.
 
+Literature knowledge
+--------------------
+
+A :class:`~pyhealth.autoimprove.KnowledgeBase` turns published evidence into
+ranked, justified candidate features. It reads two kinds of source:
+
+- **curated tables**, one row per predictor and effect, as a literature
+  review records them;
+- **documents** (abstracts, text files, or PubMed searches built from the
+  task card alone), from which an LLM extracts records.
+
+.. code-block:: python
+
+    kb = KnowledgeBase(llm=ClaudeLLM())
+    kb.add_table_evidence("risk_factors.csv", "Risk factor", "Effect estimate (95% CI)")
+    kb.add_table_documents("references.csv", ["Title", "Abstract"], id_column="PMID")
+    kb.extract(card)          # records from the documents
+    kb.verify()               # the citation check
+    kb.map(fs, card)          # have / build / not in data, with priors
+    print(kb.gap_report())    # the "not in data" list is a ready data request
+    improver = AutoImprover(..., proposer=QueueProposer(kb.ranked_specs()), features=fs)
+    # or let the LLM see the published predictors, and report the literature:
+    improver = AutoImprover(..., proposer=EvidenceProposer(ClaudeLLM(), kb), features=fs)
+    # improver.report() saves its files first; path= saves them again with the section
+    report = add_literature(improver.report(), kb, path="runs/asthma/report.html")
+
+- **LLMs invent references, so every record is checked.** A record is kept
+  only if its source is a gathered document, its quoted sentence appears in
+  that document and names the predictor, and its effect size is the number
+  the quote attaches to the effect type ("OR 2.4"), followed by its
+  confidence interval, with matching signs. The source is set by the
+  knowledge base, never by the LLM. Curated rows keep their reference
+  column, which is not checked against the cited papers.
+- **Directions** come from the verified effects. When sources disagree, the
+  direction is ambiguous: controller use, for example, marks severity but is
+  protective.
+- **The literature only orders and justifies candidates.** The prior
+  (strength × population match × data support) decides the order in which
+  candidates are tried; the feature search decides what is kept. Specs
+  from :meth:`~pyhealth.autoimprove.KnowledgeBase.ranked_specs` carry their
+  citations.
+- **In the search** (:class:`~pyhealth.autoimprove.EvidenceProposer`), each
+  feature prompt also lists the untried published predictors with their
+  definitions, directions, priors and citations, until all are tried.
+  Model prompts are unchanged. A predictor counts as tried once proposed,
+  accepted or adapted (same citation and the same set of selections, e.g.
+  another window; a ratio of two selections adapts neither), so two
+  predictors from one paper that read exactly the same events count as one. After a resumed run, earlier predictors may be listed
+  again.
+- **In the report** (:func:`~pyhealth.autoimprove.add_literature`), a
+  *Literature* section gives the citation-check counts, the gap report and
+  the published discrimination values.
+- **Privacy.** The knowledge base never sees patient data. PubMed queries
+  use only the task card's text, and every query is kept in ``kb.queries``.
+  Mapping sees only the names of event types, groups and columns.
+
 Safety and data
 ---------------
 
@@ -337,3 +396,9 @@ API Reference
 
 .. automodule:: pyhealth.autoimprove.features
     :members: FeatureSpace, FeatureSpec, EngineeredDataset, WINDOWS, BLOCKS, AGGS
+
+.. automodule:: pyhealth.autoimprove.knowledge
+    :members: KnowledgeBase, Evidence, Document, parse_effect, pubmed_query
+
+.. automodule:: pyhealth.autoimprove.evidence
+    :members: EvidenceProposer, evidence_lines, literature_section, add_literature
