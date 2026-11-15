@@ -80,7 +80,11 @@ class TimeseriesLabelProcessor[B: LabelProcessor](LabelProcessor):
 
     @property
     def timeline(self) -> tuple[str, ...]:
-        """The input fields on the label's timeline, in declared order."""
+        """The input fields on the label's timeline, in declared order.
+
+        A processor pickled before ``timeline`` was added has none; rebuild it
+        from a schema that declares one.
+        """
         return self._timeline
 
     @staticmethod
@@ -128,7 +132,12 @@ class TimeseriesLabelProcessor[B: LabelProcessor](LabelProcessor):
     # FeatureProcessor
     # ------------------------------------------------------------------
     def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
-        """Fits :attr:`base` on the values of every label record."""
+        """Fits :attr:`base` on the values of every label record.
+
+        ``samples`` must be re-iterable, as the dataset's are: the first
+        sample is read once to check :attr:`timeline`, then all of them are
+        read again, so a one-shot iterator would lose its first sample.
+        """
         self._check_samples(samples, field)
         self.base.fit(self._records(samples, field), field)
 

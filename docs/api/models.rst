@@ -129,8 +129,8 @@ on the label processor in your task's ``output_schema``:
    * - ``"regression"``
      - MSE
      - identity → (batch, 1)
-   * - ``"timeseries_binary"``, ``"timeseries_multiclass"``,
-       ``"timeseries_multilabel"``, ``"timeseries_regression"``
+   * - ``("timeseries_<kind>", {"timeline": [...]})``, where ``<kind>`` is
+       ``binary``, ``multiclass``, ``multilabel`` or ``regression``
      - the static loss, per label record
      - the static activation → (label records, ...)
 
@@ -142,6 +142,11 @@ processor instance, or a ``(name, kwargs)`` tuple. These are equivalent:
     output_schema = {"icd_codes": "multilabel"}
     output_schema = {"icd_codes": MultiLabelProcessor}
     output_schema = {"icd_codes": ("multilabel", {})}
+
+The ``timeseries_*`` labels take a required ``timeline`` (see
+:class:`~pyhealth.processors.TimeseriesLabelProcessor`), so they are written
+in the tuple form, e.g. ``("timeseries_binary", {"timeline": ["dynamic"]})``.
+A bare ``"timeseries_binary"`` raises ``TypeError``.
 
 Whichever form a task uses, the model gets the same fitted label processor,
 and ``model.mode`` is its kind (``"binary"``, ``"multiclass"``, ...), or
