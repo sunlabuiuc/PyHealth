@@ -215,3 +215,89 @@ def test_categorical_embeddings_and_gradients():
     for invalid in [categories[:, :1], categories + 5, categories.float() + 0.5]:
         with pytest.raises(ValueError):
             model(features=features, categories=invalid)
+
+
+@pytest.fixture
+def renamed_dataset():
+    from pyhealth.datasets import create_sample_dataset
+
+    return create_sample_dataset(
+        samples=[
+            {
+                "patient_id": str(i),
+                "x": [float(i), 1.0, 0.0],
+                "cat": [i],
+                "t": [i],
+                "e": [i % 2],
+            }
+            for i in range(2)
+        ],
+        input_schema={"x": "tensor", "cat": "tensor"},
+        output_schema={"t": "tensor", "e": "tensor"},
+        in_memory=True,
+    )
+
+
+def test_configurable_dataset_keys(renamed_dataset):
+    from pyhealth.datasets import get_dataloader
+
+    model = PersonalizedSurvivalMoE(
+        renamed_dataset,
+        3,
+        5,
+        hidden_dim=8,
+        num_experts=2,
+        categorical_cardinalities=(2,),
+        feature_key="x",
+        categories_key="cat",
+        time_bin_key="t",
+        event_key="e",
+    ).eval()
+    default = PersonalizedSurvivalMoE(
+        None, 3, 5, hidden_dim=8, num_experts=2, categorical_cardinalities=(2,)
+    ).eval()
+    default.load_state_dict(model.state_dict())
+    batch = next(iter(get_dataloader(renamed_dataset, batch_size=2, shuffle=False)))
+    actual = model(**batch)
+    expected = default(
+        features=batch["x"],
+        categories=batch["cat"],
+        time_bin=batch["t"],
+        event=batch["e"],
+    )
+    for key in expected:
+        torch.testing.assert_close(actual[key], expected[key], rtol=0, atol=0)
+    actual["loss"].backward()
+    assert torch.isfinite(model.query.weight.grad).all()
+    inference = model(x=batch["x"], cat=batch["cat"])
+    assert "loss" not in inference
+    torch.testing.assert_close(inference["pmf"], actual["pmf"])
+    with pytest.raises(ValueError, match="Missing required input 'x'"):
+        model(cat=batch["cat"])
+    with pytest.raises(ValueError, match="cat are required"):
+        model(x=batch["x"])
+    with pytest.raises(ValueError, match="t and e must be provided together"):
+        model(x=batch["x"], cat=batch["cat"], t=batch["t"])
+
+
+@pytest.mark.parametrize(
+    "key", ["feature_key", "categories_key", "time_bin_key", "event_key"]
+)
+def test_missing_dataset_schema_key(renamed_dataset, key):
+    keys = {
+        "feature_key": "x",
+        "categories_key": "cat",
+        "time_bin_key": "t",
+        "event_key": "e",
+    }
+    keys[key] = "missing"
+    with pytest.raises(ValueError, match="key 'missing' is not in dataset"):
+        PersonalizedSurvivalMoE(
+            renamed_dataset,
+            3,
+            5,
+            hidden_dim=8,
+            num_experts=2,
+            categorical_cardinalities=(2,),
+            **keys,
+        )

@@ -28,6 +28,10 @@ class PersonalizedSurvivalMoE(BaseModel):
         num_hidden_layers: Number of encoder layers.
         categorical_cardinalities: Vocabulary sizes for optional categorical inputs.
         embedding_dim: Width of each categorical embedding.
+        feature_key: Input schema key for dense continuous features.
+        categories_key: Input schema key for categorical indices, when enabled.
+        time_bin_key: Output schema key for zero-based time categories.
+        event_key: Output schema key for binary observed-event flags.
 
     The encoder uses disjoint expert value subspaces. Routing
     temperature is learned from 2.0; load-balancing regularization weight is 0.01.
@@ -59,8 +63,30 @@ class PersonalizedSurvivalMoE(BaseModel):
         num_hidden_layers: int = 1,
         categorical_cardinalities: tuple[int, ...] = (),
         embedding_dim: int = 4,
+        feature_key: str = "features",
+        categories_key: str = "categories",
+        time_bin_key: str = "time_bin",
+        event_key: str = "event",
     ) -> None:
         super().__init__(dataset)
+        self.feature_key = feature_key
+        self.categories_key = categories_key
+        self.time_bin_key = time_bin_key
+        self.event_key = event_key
+        if dataset is not None:
+            inputs = [feature_key]
+            if categorical_cardinalities:
+                inputs.append(categories_key)
+            for key in inputs:
+                if key not in dataset.input_schema:
+                    raise ValueError(
+                        f"input key {key!r} is not in dataset.input_schema"
+                    )
+            for key in (time_bin_key, event_key):
+                if key not in dataset.output_schema:
+                    raise ValueError(
+                        f"output key {key!r} is not in dataset.output_schema"
+                    )
         for name, value in {
             "input_dim": input_dim,
             "num_time_bins": num_time_bins,
@@ -152,25 +178,32 @@ class PersonalizedSurvivalMoE(BaseModel):
         """Predict PMFs, survival and routing weights; optionally compute loss.
 
         Args:
-            **kwargs: Dense features (batch, input_dim), optional paired
-                time_bin/event labels, integer categories (batch, number of
-                embeddings), and ignored sample metadata.
+            **kwargs: Values under the configured feature_key (batch, input_dim),
+                categories_key (batch, number of embeddings, when enabled), and
+                optional paired time_bin_key/event_key labels (batch,) or
+                (batch, 1). Other sample metadata is ignored.
 
         Returns:
             logit (log mixture PMF), pmf, survival/y_prob, expert_pmf,
             mixture_weights, and, when labeled, loss, nll and y_true.
         """
+        if self.feature_key not in kwargs:
+            raise ValueError(f"Missing required input {self.feature_key!r}")
         x = torch.as_tensor(
-            kwargs["features"], device=self.device, dtype=self.query.weight.dtype
+            kwargs[self.feature_key], device=self.device, dtype=self.query.weight.dtype
         )
         if x.ndim != 2 or x.shape[1] != self.input_dim or not x.shape[0]:
             raise ValueError("features must have shape (nonempty batch, input_dim)")
         if not torch.isfinite(x).all():
             raise ValueError("features must be finite; impute missing values first")
         if self.embeddings:
-            if "categories" not in kwargs:
-                raise ValueError("categories are required for categorical embeddings")
-            categories = torch.as_tensor(kwargs["categories"], device=self.device)
+            if self.categories_key not in kwargs:
+                raise ValueError(
+                    f"{self.categories_key} are required for categorical embeddings"
+                )
+            categories = torch.as_tensor(
+                kwargs[self.categories_key], device=self.device
+            )
             if categories.shape != (len(x), len(self.embeddings)):
                 raise ValueError("categories must have one column per embedding")
             if not torch.isfinite(categories).all() or not torch.all(
@@ -203,12 +236,14 @@ class PersonalizedSurvivalMoE(BaseModel):
             "expert_pmf": log_experts.exp(),
             "mixture_weights": log_weights.exp(),
         }
-        labeled = [key in kwargs for key in ("time_bin", "event")]
+        labeled = [key in kwargs for key in (self.time_bin_key, self.event_key)]
         if any(labeled) and not all(labeled):
-            raise ValueError("time_bin and event must be provided together")
+            raise ValueError(
+                f"{self.time_bin_key} and {self.event_key} must be provided together"
+            )
         if all(labeled):
-            time = torch.as_tensor(kwargs["time_bin"], device=self.device)
-            event = torch.as_tensor(kwargs["event"], device=self.device)
+            time = torch.as_tensor(kwargs[self.time_bin_key], device=self.device)
+            event = torch.as_tensor(kwargs[self.event_key], device=self.device)
             nll = self.negative_log_likelihood(log_pmf, time, event)
             # Balance untempered routing probabilities, as in the reference.
             avg = router_logits.softmax(-1).mean(0)
