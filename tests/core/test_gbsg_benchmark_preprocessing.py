@@ -7,11 +7,13 @@ https://proceedings.mlr.press/v182/han22a.html
 
 import csv
 import json
+import sys
 
 import numpy as np
 import pytest
 import torch
 
+from examples import survival_pipeline
 from examples.survival_benchmark.run_survival_mdn import GBSGBenchmark, main
 from tests.core.survival_test_utils import threaded_csv_loading
 
@@ -140,6 +142,55 @@ def test_gbsg_cli_versions_preprocessing_and_reuses_saved_fits(tmp_path, capsys)
     finally:
         torch.set_num_threads(previous_threads)
     capsys.readouterr()
+
+
+@threaded_csv_loading()
+def test_gbsg_pilot_cli_uses_released_rows_and_reloads_checkpoint(
+    tmp_path, monkeypatch, capsys
+):
+    root = tmp_path / "inputs"
+    released, _ = write_inputs(root)
+    out = tmp_path / "pilot"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "survival_pipeline",
+            "--dataset",
+            "gbsg",
+            "--root",
+            str(root),
+            "--released-dir",
+            str(released),
+            "--split",
+            "2",
+            "--out",
+            str(out),
+            "--epochs",
+            "1",
+        ],
+    )
+    previous_threads = torch.get_num_threads()
+    try:
+        with torch.random.fork_rng(devices=[]):
+            survival_pipeline.main()
+    finally:
+        torch.set_num_threads(previous_threads)
+
+    record = json.loads((out / "record.json").read_text())
+    assert record["passed"]
+    assert record["checkpoint_max_error"] == 0
+    assert record["preprocessing"]["features"] == "raw"
+    assert record["patient_ids"] == {
+        "train": ["train_2", "train_3"],
+        "valid": ["train_0", "train_1"],
+        "test": ["train_4", "train_5"],
+    }
+    with np.load(out / "predictions.npz", allow_pickle=False) as predictions:
+        assert predictions["patient_id"].tolist() == record["patient_ids"]["test"]
+        np.testing.assert_allclose(predictions["time"], np.array([5, 6]) / 6 + 0.002)
+        np.testing.assert_array_equal(predictions["event"], [1, 1])
+    assert '"passed": true' in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("dataset", ["synthetic", "support2"])

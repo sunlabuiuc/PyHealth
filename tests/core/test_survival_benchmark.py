@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-from examples.survival_benchmark import run_baselines, run_survival_mdn
+from examples.survival_benchmark import run_baselines, run_records, run_survival_mdn
 from examples.survival_benchmark.baselines import CoxAdapter, DeepSurvAdapter
 from examples.survival_benchmark.calibrate_saved import calibrate
 
@@ -107,23 +107,23 @@ class TestSurvivalBenchmarkInputs(unittest.TestCase):
 
     def test_resume_rejects_changed_settings(self):
         expected = {"dataset": "gbsg", "epochs": 100, "source_hash": "a"}
-        run_survival_mdn.validate_resume({"request": expected}, expected)
+        run_records.validate_resume({"request": expected}, expected)
         for changed in [
             {},
             {**expected, "epochs": 5},
             {**expected, "source_hash": "b"},
         ]:
             with self.subTest(changed=changed), self.assertRaises(ValueError):
-                run_survival_mdn.validate_resume({"request": changed}, expected)
+                run_records.validate_resume({"request": changed}, expected)
 
     def test_output_roots_cannot_mix_datasets_or_runners(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)
-            run_survival_mdn.prepare_output(path, "gbsg", "mdn")
-            run_survival_mdn.prepare_output(path, "gbsg", "mdn")
+            run_records.prepare_output(path, "gbsg", "mdn")
+            run_records.prepare_output(path, "gbsg", "mdn")
             for dataset, runner in [("support2", "mdn"), ("gbsg", "baselines")]:
                 with self.subTest(dataset=dataset), self.assertRaises(ValueError):
-                    run_survival_mdn.prepare_output(path, dataset, runner)
+                    run_records.prepare_output(path, dataset, runner)
 
     def test_real_cli_requires_paths(self):
         for main in [run_baselines.main, run_survival_mdn.main]:
@@ -145,8 +145,9 @@ class TestSurvivalBenchmarkInputs(unittest.TestCase):
                 DeepSurvAdapter(**config)
 
     def test_source_fingerprints_include_actual_native_modules(self):
-        hashes = run_survival_mdn.implementation_hashes()
+        hashes = run_records.implementation_hashes()
         self.assertIn("baselines.py", hashes)
+        self.assertIn("run_records.py", hashes)
         self.assertIn("pyhealth/metrics/survival_curve.py", hashes)
         self.assertIn("pyhealth/datasets/support2.py", hashes)
         self.assertIn("pyhealth/trainer.py", hashes)
@@ -166,7 +167,7 @@ class TestSurvivalBenchmarkInputs(unittest.TestCase):
             parent = Path(folder)
             legacy = parent / "record.json"
             legacy.write_text("unverified legacy record")
-            first, saved = run_survival_mdn.resolve_run(parent, request)
+            first, saved = run_records.resolve_run(parent, request)
             self.assertIsNone(saved)
             self.assertRegex(first.name, r"^run_[0-9a-f]{16}$")
             for key, value in [
@@ -176,7 +177,7 @@ class TestSurvivalBenchmarkInputs(unittest.TestCase):
                 ("runtime", "cuda"),
             ]:
                 with self.subTest(key=key):
-                    other, saved = run_survival_mdn.resolve_run(
+                    other, saved = run_records.resolve_run(
                         parent, {**request, key: value}
                     )
                     self.assertNotEqual(other, first)
@@ -188,11 +189,11 @@ class TestSurvivalBenchmarkInputs(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             parent = Path(folder)
             request = {"epochs": 1, "seed": 0}
-            path, _ = run_survival_mdn.resolve_run(parent, request)
+            path, _ = run_records.resolve_run(parent, request)
             marker = path / "partial.ckpt"
             marker.write_bytes(b"interrupted training")
             with self.assertRaisesRegex(ValueError, "Incomplete run.*no completed"):
-                run_survival_mdn.resolve_run(parent, request)
+                run_records.resolve_run(parent, request)
             self.assertEqual(marker.read_bytes(), b"interrupted training")
             self.assertEqual(len(list(parent.glob("run_*"))), 1)
 
@@ -200,35 +201,35 @@ class TestSurvivalBenchmarkInputs(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             parent = Path(folder)
             request = {"epochs": 1, "model": {"width": 8, "layers": 2}}
-            path, _ = run_survival_mdn.resolve_run(parent, request)
+            path, _ = run_records.resolve_run(parent, request)
             (path / "predictions.npz").write_bytes(b"saved predictions")
             record = {
                 "request": request,
-                "artifacts": run_survival_mdn.artifact_hashes(path),
+                "artifacts": run_records.artifact_hashes(path),
             }
             (path / "record.json").write_text(json.dumps(record))
             reordered = {"model": {"layers": 2, "width": 8}, "epochs": 1}
-            reused, saved = run_survival_mdn.resolve_run(parent, reordered)
+            reused, saved = run_records.resolve_run(parent, reordered)
             self.assertEqual(reused, path)
             self.assertEqual(saved, record)
 
     def test_unreadable_completed_record_requires_explicit_recovery(self):
         with tempfile.TemporaryDirectory() as folder:
-            path, _ = run_survival_mdn.resolve_run(Path(folder), {"epochs": 1})
+            path, _ = run_records.resolve_run(Path(folder), {"epochs": 1})
             record = path / "record.json"
             record.write_text('{"interrupted":')
             with self.assertRaisesRegex(ValueError, "Unreadable completed record"):
-                run_survival_mdn.resolve_run(Path(folder), {"epochs": 1})
+                run_records.resolve_run(Path(folder), {"epochs": 1})
             self.assertEqual(record.read_text(), '{"interrupted":')
 
     def test_record_identity_mismatch_is_never_overwritten(self):
         with tempfile.TemporaryDirectory() as folder:
-            path, _ = run_survival_mdn.resolve_run(Path(folder), {"epochs": 1})
+            path, _ = run_records.resolve_run(Path(folder), {"epochs": 1})
             record = path / "record.json"
             for content in ["[]", '{"request": {"epochs": 2}}']:
                 record.write_text(content)
                 with self.assertRaisesRegex(ValueError, "identity does not match"):
-                    run_survival_mdn.resolve_run(Path(folder), {"epochs": 1})
+                    run_records.resolve_run(Path(folder), {"epochs": 1})
                 self.assertEqual(record.read_text(), content)
 
 

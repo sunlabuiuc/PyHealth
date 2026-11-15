@@ -91,9 +91,11 @@ input hashes are recorded. Model initialization uses `--seed` for baselines and
 - MDN uses the standard Trainer, full validation batches and singleton-safe
   training batches for BatchNorm. It restores the best validation checkpoint.
   Its default optimizer, epoch cap and patience follow the authors' defaults.
-- Select baseline configurations by validation IBS and MDN configurations by
-  validation negative log-likelihood. Neural checkpoint selection uses each
-  model's validation loss. Test metrics are for reporting, never selection.
+- The runners fit every requested configuration and record its validation score.
+  To choose a configuration, compare validation IBS for Cox and DeepSurv or
+  validation negative log-likelihood for MDN. During each neural fit, the
+  runner chooses the checkpoint by validation loss. Use test metrics to
+  report held-out performance after choosing a configuration.
 
 Baseline `--config` accepts JSON such as `{"cox": {"alpha": 0.1}, "deepsurv":
 {"hidden": [32, 32], "lr": 0.001}}`. Epochs, patience, seed and device are CLI
@@ -173,12 +175,13 @@ only the fits requested by the latest successful command. They are refreshed
 views; the versioned fit records remain the source of historical results. Thus
 older learning rates, runtimes or code versions cannot enter a new comparison
 merely because they share the same output root. `record.json` includes the
-relative `run_directory` for locating each selected baseline run. The CLI also
+relative `run_directory` for locating each recorded baseline fit. The CLI also
 prints its directory when it reuses a run.
 
-Cox restoration uses `CoxAdapter.load(checkpoint_dir)` and trusted joblib data.
+Cox restoration uses `CoxAdapter.load(checkpoint_dir)` to read a joblib pickle.
+Only load Cox checkpoints from a trusted source because unpickling can run code.
 DeepSurv uses `DeepSurvAdapter.load(checkpoint_dir, device="cpu")`, tensor state
-weights and NPZ baseline hazards. Only load checkpoints from a trusted source.
+weights and NPZ baseline hazards.
 MDN restores the recorded model configuration and `trainer/best.ckpt`; its
 time transform and other constructor settings are saved in the record.
 Saved exact probabilities can be scored without loading a model.

@@ -4,6 +4,11 @@ These examples connect native datasets and time-to-event tasks to PyHealth's
 existing `SurvivalMDN` and standard `Trainer`. They are short integration checks;
 their scores do not establish reproduction of a published experiment.
 
+Use `gbsg_survival_loading.py` to prepare the GBSG CSV or check dataset loading.
+Use `survival_pipeline.py` to run a released split of either dataset and check
+training gradients, validation loss, and prediction equality after reloading
+the checkpoint.
+
 The tasks emit `features`, `duration: [time]` and `event: [indicator]`. After
 batching, the two output fields each have shape `[batch, 1]`. Event 1 means an
 observed outcome; event 0 means right censoring. Patient identifiers remain
