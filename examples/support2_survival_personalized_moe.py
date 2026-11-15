@@ -13,7 +13,12 @@ Uses the reference's 42 features, physiological/median imputation, missing
 indicators, scaling, categorical embeddings and 20-quantile hday buckets.
 Preprocessing fits only the fixed seed-42 80/10/10 training split.
 
-These are not admission-time predictions.
+This reproduces the paper's full feature set, not admission-time predictions.
+It retains dnr (do-not-resuscitate order) and dnrday (day of that order) to match
+the reference. The SUPPORT dataset documentation hosted by Vanderbilt cautions
+against using these predictors and notes that most assessments occur on study
+day three. Some inputs therefore may be unavailable at admission.
+Dataset documentation: https://hbiostat.org/data/repo/supportdesc.
 
 Defaults: one 128-unit layer, eight experts, 4-dimensional embeddings, Adam
 (lr=0.0005, eps=1e-7), batch 64, up to 1,000 epochs, patience 10. Each run keeps the
