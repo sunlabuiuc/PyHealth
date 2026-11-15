@@ -12,6 +12,9 @@ construction raises ``ValueError`` otherwise. Omit both labels for inference.
 The model returns event-time probabilities, survival curves and routing weights,
 plus loss when labeled. See ``examples/support2_survival_personalized_moe.py``
 for preprocessing, training and evaluation.
+``label_processors`` is empty and ``mode`` remains ``None``, even if the dataset
+declares ``event`` as ``binary``. Use survival-aware evaluation rather than
+classification metrics.
 
 The SUPPORT2 example reproduces the reference's full feature set, including
 ``dnr`` and ``dnrday``. It is a retrospective experiment, not admission-time

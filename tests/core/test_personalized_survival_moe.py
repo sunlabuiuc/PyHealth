@@ -160,7 +160,8 @@ def test_extreme_scores_stable(model):
     assert torch.isfinite(model.experts[0].bias.grad).all()
 
 
-def test_pyhealth_sample_dataset_and_dataloader():
+@pytest.mark.parametrize("event_processor", ["tensor", "binary"])
+def test_pyhealth_sample_dataset_and_dataloader(event_processor):
     from pyhealth.datasets import create_sample_dataset, get_dataloader
 
     dataset = create_sample_dataset(
@@ -169,17 +170,18 @@ def test_pyhealth_sample_dataset_and_dataloader():
                 "patient_id": str(i),
                 "features": [0.0, float(i), 1.0],
                 "time_bin": [i],
-                "event": [i % 2],
+                "event": i % 2 if event_processor == "binary" else [i % 2],
             }
             for i in range(4)
         ],
         input_schema={"features": "tensor"},
-        output_schema={"time_bin": "tensor", "event": "tensor"},
+        output_schema={"time_bin": "tensor", "event": event_processor},
         in_memory=True,
     )
     model = PersonalizedSurvivalMoE(dataset, 3, 5, hidden_dim=8, num_experts=2)
     batch = next(iter(get_dataloader(dataset, batch_size=4, shuffle=False)))
     assert model.mode is None
+    assert model.label_processors == {}
     assert torch.isfinite(model(**batch)["loss"])
 
 

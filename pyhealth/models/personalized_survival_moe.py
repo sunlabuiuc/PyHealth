@@ -13,6 +13,7 @@ from torch.nn import functional as F
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models.base_model import BaseModel
+from pyhealth.processors import LabelProcessor
 
 
 class PersonalizedSurvivalMoE(BaseModel):
@@ -43,8 +44,9 @@ class PersonalizedSurvivalMoE(BaseModel):
     ``survival[:, j]`` is P(category > j), for finite categories only.
     Fit preprocessing and time boundaries on training patients only.
 
-    Survival is not a standard classification mode: use a custom training loop
-    and censoring-aware metrics, as in the accompanying SUPPORT2 example.
+    Survival outputs have no label processors, so ``mode`` is always ``None``.
+    Use a custom training loop and censoring-aware metrics, as in the
+    accompanying SUPPORT2 example.
 
     Examples:
         >>> model = PersonalizedSurvivalMoE(None, input_dim=3, num_time_bins=5)
@@ -131,6 +133,11 @@ class PersonalizedSurvivalMoE(BaseModel):
         self.raw_temperature = nn.Parameter(
             torch.tensor(2.0 + math.log(-math.expm1(-2.0)))
         )
+
+    @property
+    def label_processors(self) -> dict[str, LabelProcessor]:
+        """Keep survival outputs out of Trainer's classification scoring."""
+        return {}
 
     @staticmethod
     def negative_log_likelihood(
