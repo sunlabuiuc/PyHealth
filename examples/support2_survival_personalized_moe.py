@@ -13,6 +13,13 @@ Uses the reference's 42 features, physiological/median imputation, missing
 indicators, scaling, categorical embeddings and 20-quantile hday buckets.
 Preprocessing fits only the fixed seed-42 80/10/10 training split.
 
+This is a retrospective full-feature reproduction, not admission-time prediction.
+It retains dnr and dnrday to match the reference, although Vanderbilt cautions
+against using them as predictors. Most assessments are from study day three;
+features can contain information unavailable at admission, limiting interpretation
+of these scores as prospective performance.
+See https://hbiostat.org/data/repo/supportdesc.
+
 Defaults: one 128-unit layer, eight experts, 4-dimensional embeddings, Adam
 (lr=0.0005, eps=1e-7), batch 64, up to 1,000 epochs, patience 10. Each run keeps the
 lowest validation negative log-likelihood (NLL) checkpoint. Seeds 42–46 vary model
