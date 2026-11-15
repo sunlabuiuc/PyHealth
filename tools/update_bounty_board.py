@@ -271,20 +271,60 @@ def build_sections(bounties, claims):
     ]
 
 
+DISCORD_URL = "https://discord.gg/mpb835EHaX"
+GUIDE_URL = "https://pyhealth.readthedocs.io/en/latest/how_to_contribute.html"
+
+HEADER_TEMPLATE = """\
+Welcome! These are the open PyHealth bounties: models, datasets, tasks and \
+tools we'd love help adding. Anyone can take one on.
+
+**Before you start**
+1. Join the [PyHealth Discord]({discord}). Ask questions and request reviews there.
+2. Read the [contribution guide]({guide}).
+
+**Pick a bounty**
+- Choose the highest-priority bounty you can take on. Priority: {legend}.
+- Pick one marked *To be claimed*. To help with a claimed one, ask in Discord.
+- Check that it isn't already in PyHealth or in an \
+[open pull request](https://github.com/{repo}/pulls).
+- Know a paper with public code that would fit PyHealth? Suggest it in Discord.
+
+**Claim and build**
+- Claim a bounty by opening a pull request (a draft is fine) with its ID in the \
+title, like `[BTY-<id>] <short description>`. `[Bounty-<id>]` works too. This \
+board updates within an hour.
+- Your claim holds while the PR is open and after it merges. Closing it without \
+merging releases the bounty.
+- Build from the paper's official code, use datasets PyHealth already loads \
+where possible, and aim to reproduce the paper's results.
+- Every bounty needs an implementation that follows the \
+[contribution guide]({guide}).
+- When it's ready, comment `/review` on your PR for an AI review, or ask in Discord.
+
+**Why contribute**
+Students in the DL4H course can earn extra credit. Contributors who complete a \
+bounty may get the chance to join a research paper and work with our industry \
+partners.
+
+*This board is generated from [`bounty.yaml`]({yaml_url}) and updated hourly. \
+Edits made here are overwritten.*
+
+Open bounties: {total} ({claimed} claimed, {unclaimed} unclaimed)."""
+
+
 def render_header(repo, n_claimed, n_unclaimed):
-    yaml_url = f"https://github.com/{repo}/blob/HEAD/bounty.yaml"
-    return (
-        "This board is generated automatically from "
-        f"[`bounty.yaml`]({yaml_url}). Edits made here are overwritten.\n\n"
-        "**To claim a bounty**, open a pull request with the bounty tag in its "
-        "title, for example `[BTY-2] Port SHHSDataset to BaseDataset` "
-        "(`[Bounty-2]` works too). A bounty stays claimed while the PR is open "
-        "or after it merges; a PR closed without merging releases it.\n\n"
-        "Priority: "
-        + ", ".join(f"{PRIORITY_ICONS[p]} {PRIORITY_NAMES[p]}" for p in PRIORITY_ICONS)
-        + ".\n\n"
-        f"Open bounties: {n_claimed + n_unclaimed} "
-        f"({n_claimed} claimed, {n_unclaimed} unclaimed)."
+    legend = ", ".join(
+        f"{PRIORITY_ICONS[p]} {PRIORITY_NAMES[p]}" for p in PRIORITY_ICONS
+    )
+    return HEADER_TEMPLATE.format(
+        discord=DISCORD_URL,
+        guide=GUIDE_URL,
+        legend=legend,
+        repo=repo,
+        yaml_url=f"https://github.com/{repo}/blob/HEAD/bounty.yaml",
+        total=n_claimed + n_unclaimed,
+        claimed=n_claimed,
+        unclaimed=n_unclaimed,
     )
 
 
