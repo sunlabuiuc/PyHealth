@@ -15,9 +15,9 @@ Preprocessing fits only the fixed seed-42 80/10/10 training split.
 
 This reproduces the paper's full feature set, not admission-time predictions.
 It retains dnr (do-not-resuscitate order) and dnrday (day of that order) to match
-the reference. The SUPPORT dataset documentation hosted by Vanderbilt cautions
-against using these predictors and notes that most assessments occur on study
-day three. Some inputs therefore may be unavailable at admission.
+the reference. The SUPPORT dataset documentation cautions against using these
+predictors and notes that most assessments occur on study day three. Some inputs
+therefore may be unavailable at admission.
 Dataset documentation: https://hbiostat.org/data/repo/supportdesc.
 
 Defaults: one 128-unit layer, eight experts, 4-dimensional embeddings, Adam
