@@ -45,8 +45,7 @@ class PersonalizedSurvivalMoE(BaseModel):
     Fit preprocessing and time boundaries on training patients only.
 
     Survival outputs have no label processors, so ``mode`` is always ``None``.
-    Use a custom training loop and censoring-aware metrics, as in the
-    accompanying SUPPORT2 example.
+    Use a custom training loop and censoring-aware metrics.
 
     Examples:
         >>> model = PersonalizedSurvivalMoE(None, input_dim=3, num_time_bins=5)
