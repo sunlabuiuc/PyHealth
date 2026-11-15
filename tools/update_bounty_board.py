@@ -7,7 +7,7 @@ Each run rebuilds the board from scratch:
     2. Link every open or merged PR whose title carries `[BTY-<id>]` or
        `[Bounty-<id>]` (case-insensitive) to that bounty. PRs closed without
        merging are ignored.
-    3. Render the board: Claimed, then Unclaimed; within each, one subsection
+    3. Render the board: Unclaimed, then Claimed; within each, one subsection
        per category (alphabetical, only if non-empty); within each, id order.
     4. Find the board issue (created by the bot, hidden marker in the body),
        creating it if missing; keep it open, locked and pinned.
@@ -48,7 +48,7 @@ PAGE_BUDGET = 60000
 
 TITLE_TAG_RE = re.compile(r"\[\s*(?:bounty|bty)\s*-\s*(\d+)\s*\]", re.IGNORECASE)
 
-SECTIONS = ("Claimed", "Unclaimed")
+SECTIONS = ("Unclaimed", "Claimed")
 
 # Subsection order; a category outside this list is rejected.
 CATEGORIES = (
