@@ -163,6 +163,18 @@ class TestMultimodalMortalityTables(unittest.TestCase):
         self.assertEqual(samples[0]["discharge"], ["Discharged"])
         self.assertEqual(samples[0]["radiology"], [])
 
+    def test_runs_without_the_discharge_table(self):
+        events = dict(self.events)
+        events["radiology"] = [
+            make_event(e.timestamp, hadm_id="history", text="Chest clear")
+            for e in events["discharge"]
+        ]
+        tables = [k for k in events if k != "discharge"]
+        samples = MultimodalMortalityPredictionMIMIC4()(ColumnsPatient(events, tables))
+        self.assertEqual(len(samples), 1)
+        self.assertEqual(samples[0]["discharge"], [])
+        self.assertEqual(samples[0]["radiology"], ["Chest clear"])
+
     def test_names_the_missing_sources(self):
         tables = [k for k in self.events if k not in ("discharge", "radiology")]
         with self.assertRaisesRegex(ValueError, "note table"):

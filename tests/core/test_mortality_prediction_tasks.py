@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from pyhealth.datasets import MIMIC4Dataset
 from pyhealth.tasks import (
     MortalityPredictionMIMIC4,
+    MortalityPredictionOMOP,
     MultimodalMortalityPredictionMIMIC3,
 )
 
@@ -146,6 +147,51 @@ class TestMultimodalMortalityPredictionMIMIC3(unittest.TestCase):
     def test_one_visit_gives_no_sample(self):
         patient = FakePatient({"admissions": [event(hadm_id="h0")]})
         self.assertEqual(MultimodalMortalityPredictionMIMIC3()(patient), [])
+
+
+class TestMortalityPredictionOMOP(unittest.TestCase):
+    def make_patient(self, died):
+        t0 = datetime(2150, 1, 1)  # noqa: DTZ001
+        visits = [
+            event(
+                t0, visit_occurrence_id="v1", visit_end_datetime="2150-01-03 00:00:00"
+            ),
+            event(t0 + timedelta(days=10), visit_occurrence_id="v2"),
+            event(t0 + timedelta(days=20), visit_occurrence_id="v3"),
+        ]
+        return FakePatient(
+            {
+                "visit_occurrence": visits,
+                "death": [event(t0 + timedelta(days=40))] if died else [],
+                "condition_occurrence": [
+                    event(visit_occurrence_id="v1", condition_concept_id=201826),
+                    event(visit_occurrence_id="v1", condition_concept_id=None),
+                ],
+                "procedure_occurrence": [
+                    event(visit_occurrence_id="v1", procedure_concept_id=4163872)
+                ],
+                "drug_exposure": [
+                    event(visit_occurrence_id="v1", drug_concept_id=1503297)
+                ],
+            }
+        )
+
+    def test_codes_per_visit_and_death_label(self):
+        task = MortalityPredictionOMOP()
+        samples = task(self.make_patient(died=True))
+        # v2 has no codes and is skipped; v3 is the last visit
+        self.assertEqual(len(samples), 1)
+        sample = samples[0]
+        self.assertEqual(sample["conditions"], ["201826"])
+        self.assertEqual(sample["procedures"], ["4163872"])
+        self.assertEqual(sample["drugs"], ["1503297"])
+        self.assertEqual(sample["mortality"], 1)
+        self.assertEqual(task(self.make_patient(died=False))[0]["mortality"], 0)
+
+    def test_one_visit_gives_no_sample(self):
+        t0 = datetime(2150, 1, 1)  # noqa: DTZ001
+        patient = FakePatient({"visit_occurrence": [event(t0)]})
+        self.assertEqual(MortalityPredictionOMOP()(patient), [])
 
 
 if __name__ == "__main__":
