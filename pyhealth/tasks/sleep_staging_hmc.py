@@ -68,6 +68,12 @@ class HMCScoring:
             ``"Sleep stage N2"``.
         lights_off: Onset of the ``Lights off`` marker, or None.
         lights_on: Onset of the ``Lights on`` marker, or None.
+
+    Examples:
+        >>> from pyhealth.tasks.sleep_staging_hmc import HMCScoring
+        >>> scoring = HMCScoring(onsets=[0.0, 30.0], stages=["Sleep stage W"] * 2)
+        >>> scoring.lights_off is None
+        True
     """
 
     onsets: list[float] = field(default_factory=list)
