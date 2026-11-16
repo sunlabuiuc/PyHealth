@@ -90,8 +90,8 @@ Findings (eICU-CRD 2.0, every ICU stay, patient-level 80/20 split, seed 0;
     largest draw in brackets. The independent-marginal baseline has by far
     the best KL of the generated tables, yet a model trained on it is at
     chance on average, so marginal KL alone cannot certify synthetic data.
-    The LLM tables (one run each, from an open-weight model run locally, as
-    the eICU data use agreement requires) fall between that baseline and a
+    The LLM tables (one run each, from qwen2.5:14b run locally with Ollama,
+    as the eICU data use agreement requires) fall between that baseline and a
     real sample of the same size. The paper, with o1 and a filtered cohort,
     reports an average KL of 0.155 and an AUROC of 0.813 for its group-based
     prompt.
