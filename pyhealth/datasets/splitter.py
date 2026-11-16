@@ -133,7 +133,7 @@ class PatientSplit(Split):
         patients = sorted(patient_to_index, key=str)
         order = np.random.default_rng(self.seed).permutation(len(patients))
         cuts = [
-            int(len(patients) * sum(self.ratios[: k + 1]))
+            _cut_index(len(patients), sum(self.ratios[: k + 1]))
             for k in range(len(self.ratios) - 1)
         ]
         parts = []
@@ -252,6 +252,24 @@ class SubjectSplit(Split):
             indices.sort()
             parts.append(indices)
         return parts
+
+
+def _cut_index(n: int, fraction: float) -> int:
+    """Return how many of ``n`` items fall in the first ``fraction``.
+
+    The count is ``n * fraction`` rounded down. The product is first rounded
+    to 6 decimals, because sums and products of decimal ratios are not exact
+    in floating point: ``0.7 + 0.1`` is ``0.7999999999999999``, so truncating
+    ``10 * (0.7 + 0.1)`` directly gives 7 instead of 8.
+
+    Args:
+        n: Number of items to split.
+        fraction: Cumulated ratio of the parts before the cut, in ``[0, 1]``.
+
+    Returns:
+        The index of the cut, between 0 and ``n``.
+    """
+    return int(round(n * fraction, 6))
 
 
 def _validate_ratios(ratios: object, expected_length: int) -> None:
@@ -418,11 +436,11 @@ def split_by_visit(
     rng = np.random.default_rng(seed)
     index = np.arange(len(dataset))
     rng.shuffle(index)
-    train_index = index[: int(len(dataset) * ratios[0])]
-    val_index = index[
-        int(len(dataset) * ratios[0]) : int(len(dataset) * (ratios[0] + ratios[1]))
-    ]
-    test_index = index[int(len(dataset) * (ratios[0] + ratios[1])) :]
+    train_end = _cut_index(len(dataset), ratios[0])
+    val_end = _cut_index(len(dataset), ratios[0] + ratios[1])
+    train_index = index[:train_end]
+    val_index = index[train_end:val_end]
+    test_index = index[val_end:]
     train_dataset = dataset.subset(train_index) # type: ignore
     val_dataset = dataset.subset(val_index) # type: ignore
     test_dataset = dataset.subset(test_index) # type: ignore
@@ -473,11 +491,11 @@ def split_by_patient(
     patient_indx = sorted(dataset.patient_to_index, key=str)
     num_patients = len(patient_indx)
     rng.shuffle(patient_indx)
-    train_patient_indx = patient_indx[: int(num_patients * ratios[0])]
-    val_patient_indx = patient_indx[
-        int(num_patients * ratios[0]) : int(num_patients * (ratios[0] + ratios[1]))
-    ]
-    test_patient_indx = patient_indx[int(num_patients * (ratios[0] + ratios[1])) :]
+    train_end = _cut_index(num_patients, ratios[0])
+    val_end = _cut_index(num_patients, ratios[0] + ratios[1])
+    train_patient_indx = patient_indx[:train_end]
+    val_patient_indx = patient_indx[train_end:val_end]
+    test_patient_indx = patient_indx[val_end:]
     train_index = list(
         chain(*[dataset.patient_to_index[i] for i in train_patient_indx])
     )
@@ -705,11 +723,11 @@ def split_by_sample(
     rng = np.random.default_rng(seed)
     index = np.arange(len(dataset))
     rng.shuffle(index)
-    train_index = index[: int(len(dataset) * ratios[0])]
-    val_index = index[
-        int(len(dataset) * ratios[0]) : int(len(dataset) * (ratios[0] + ratios[1]))
-    ]
-    test_index = index[int(len(dataset) * (ratios[0] + ratios[1])) :]
+    train_end = _cut_index(len(dataset), ratios[0])
+    val_end = _cut_index(len(dataset), ratios[0] + ratios[1])
+    train_index = index[:train_end]
+    val_index = index[train_end:val_end]
+    test_index = index[val_end:]
     train_dataset = dataset.subset(train_index) # type: ignore
     val_dataset = dataset.subset(val_index) # type: ignore
     test_dataset = dataset.subset(test_index) # type: ignore
@@ -769,9 +787,9 @@ def split_by_visit_conformal(
     rng.shuffle(index)
 
     # Calculate split points
-    train_end = int(len(dataset) * ratios[0])
-    val_end = int(len(dataset) * (ratios[0] + ratios[1]))
-    cal_end = int(len(dataset) * (ratios[0] + ratios[1] + ratios[2]))
+    train_end = _cut_index(len(dataset), ratios[0])
+    val_end = _cut_index(len(dataset), ratios[0] + ratios[1])
+    cal_end = _cut_index(len(dataset), ratios[0] + ratios[1] + ratios[2])
 
     train_index = index[:train_end]
     val_index = index[train_end:val_end]
@@ -833,9 +851,9 @@ def split_by_patient_conformal(
     rng.shuffle(patient_indx)
 
     # Calculate split points
-    train_end = int(num_patients * ratios[0])
-    val_end = int(num_patients * (ratios[0] + ratios[1]))
-    cal_end = int(num_patients * (ratios[0] + ratios[1] + ratios[2]))
+    train_end = _cut_index(num_patients, ratios[0])
+    val_end = _cut_index(num_patients, ratios[0] + ratios[1])
+    cal_end = _cut_index(num_patients, ratios[0] + ratios[1] + ratios[2])
 
     train_patient_indx = patient_indx[:train_end]
     val_patient_indx = patient_indx[train_end:val_end]
@@ -939,8 +957,8 @@ def split_by_patient_conformal_tuh(
     rng.shuffle(patient_ids)
 
     n = len(patient_ids)
-    train_end = int(n * ratios[0])
-    val_end = int(n * (ratios[0] + ratios[1]))
+    train_end = _cut_index(n, ratios[0])
+    val_end = _cut_index(n, ratios[0] + ratios[1])
 
     train_pids = patient_ids[:train_end]
     val_pids = patient_ids[train_end:val_end]
@@ -1031,8 +1049,8 @@ def split_by_sample_conformal_tuh(
 
     # Slice into train / val / cal.
     n = len(train_arr)
-    train_end = int(n * ratios[0])
-    val_end = int(n * (ratios[0] + ratios[1]))
+    train_end = _cut_index(n, ratios[0])
+    val_end = _cut_index(n, ratios[0] + ratios[1])
 
     train_index = train_arr[:train_end]
     val_index = train_arr[train_end:val_end]
@@ -1127,7 +1145,7 @@ def split_by_patient_tuh(
     rng.shuffle(patient_ids)
 
     n = len(patient_ids)
-    train_end = int(n * ratios[0])
+    train_end = _cut_index(n, ratios[0])
 
     train_pids = patient_ids[:train_end]
     val_pids = patient_ids[train_end:]
@@ -1220,7 +1238,7 @@ def split_by_sample_tuh(
     rng.shuffle(train_arr)
 
     n = len(train_arr)
-    train_end = int(n * ratios[0])
+    train_end = _cut_index(n, ratios[0])
 
     train_index = train_arr[:train_end]
     val_index = train_arr[train_end:]
@@ -1287,9 +1305,9 @@ def split_by_sample_conformal(
     rng.shuffle(index)
 
     # Calculate split points
-    train_end = int(len(dataset) * ratios[0])
-    val_end = int(len(dataset) * (ratios[0] + ratios[1]))
-    cal_end = int(len(dataset) * (ratios[0] + ratios[1] + ratios[2]))
+    train_end = _cut_index(len(dataset), ratios[0])
+    val_end = _cut_index(len(dataset), ratios[0] + ratios[1])
+    cal_end = _cut_index(len(dataset), ratios[0] + ratios[1] + ratios[2])
 
     train_index = index[:train_end]
     val_index = index[train_end:val_end]
