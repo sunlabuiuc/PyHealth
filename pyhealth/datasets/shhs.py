@@ -202,7 +202,7 @@ class SHHSDataset(BaseDataset):
         >>> dataset.stats()  # doctest: +SKIP
         >>> samples = dataset.set_task()  # doctest: +SKIP
         >>> samples[0]["signal"].shape  # doctest: +SKIP
-        (2, 3750)
+        torch.Size([2, 3750])
     """
 
     def __init__(
