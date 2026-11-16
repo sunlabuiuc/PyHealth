@@ -71,7 +71,7 @@ from .dreamt import DREAMTDataset
 from .ehrshot import EHRShotDataset
 from .eicu import eICUDataset
 from .isruc import ISRUCDataset
-from .hmc import HMCDataset as HMCDataset  # noqa: E402
+from .hmc import HMCDataset as HMCDataset
 from .medical_transcriptions import MedicalTranscriptionsDataset
 from .msd import (
     MSDHippocampusDataset as MSDHippocampusDataset,
