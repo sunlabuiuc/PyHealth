@@ -160,6 +160,9 @@ from .seizure_detection_chbmit import (
 from .sleep_staging_ear_eeg import (
     SleepStagingEarEEG as SleepStagingEarEEG,
 )
+from .dementia_classification_ahepa import (
+    DementiaClassificationAHEPA as DementiaClassificationAHEPA,
+)
 from .eegbci import (
     EEGBCIPatternDiscovery as EEGBCIPatternDiscovery,
     EEGMotorImageryEEGBCI as EEGMotorImageryEEGBCI,
