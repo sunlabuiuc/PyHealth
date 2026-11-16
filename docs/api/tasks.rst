@@ -276,5 +276,6 @@ Available Tasks
     YAIB Tasks (MIMIC-IV) <tasks/pyhealth.tasks.yaib_mimic4>
     YAIB Tasks (MIMIC-III) <tasks/pyhealth.tasks.yaib_mimic3>
     YAIB Tasks (eICU) <tasks/pyhealth.tasks.yaib_eicu>
+    Tabular ICU Mortality (eICU) <tasks/pyhealth.tasks.TabularMortalityPredictionEICU>
     Value Set Completion (VSAC) <tasks/pyhealth.tasks.ValueSetCompletion>
     Time-to-event survival (GBSG and SUPPORT) <tasks/pyhealth.tasks.survival_time_to_event>
