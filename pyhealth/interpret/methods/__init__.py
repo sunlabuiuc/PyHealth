@@ -6,6 +6,7 @@ from pyhealth.interpret.methods.raw_attention import RawAttention
 from pyhealth.interpret.methods.basic_gradient import BasicGradientSaliencyMaps
 from pyhealth.interpret.methods.deeplift import DeepLift
 from pyhealth.interpret.methods.gim import GIM
+from pyhealth.interpret.methods.grad_cam import GradCAM
 from pyhealth.interpret.methods.ig_gim import IntegratedGradientGIM
 from pyhealth.interpret.methods.integrated_gradients import IntegratedGradients
 from pyhealth.interpret.methods.shap import ShapExplainer
@@ -22,6 +23,7 @@ __all__ = [
     "RawAttention",
     "DeepLift",
     "GIM",
+    "GradCAM",
     "IntegratedGradientGIM",
     "IntegratedGradients",
     "BasicGradientSaliencyMaps",
