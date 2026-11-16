@@ -384,4 +384,5 @@ API Reference
     models/pyhealth.models.MedTok
     models/pyhealth.models.EviCare
     models/pyhealth.models.QueryFocusedEHRModel
+    models/pyhealth.models.WatchSleepNet
 
