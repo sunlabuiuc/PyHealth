@@ -45,7 +45,7 @@ def main() -> None:
     # STEP 2: apply the sleep-staging task.
     # 30 s epochs, the length the reading centre scored. Epochs labelled as
     # movement are dropped, so the label space is 0-5.
-    task = SleepStagingSHHS(epoch_sec=30)
+    task = SleepStagingSHHS(epoch_seconds=30)
     print(f"Task: {task.task_name}")
     print(f"Input schema: {list(task.input_schema)}")
     print(f"Output schema: {list(task.output_schema)}")

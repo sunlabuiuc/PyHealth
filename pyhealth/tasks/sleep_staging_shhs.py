@@ -1,8 +1,10 @@
 """Sleep staging on SHHS polysomnography.
 
-Each 30 s epoch of the two EEG channels is one sample, labelled with the stage
-assigned by the SHHS reading centre: wake, N1, N2, N3, N4 or REM. Movement
-epochs (code 9) are dropped because they are not a class.
+The SHHS reading centre scored every 30 s of the night: wake, N1, N2, N3, N4 or
+REM, with code 9 for movement. By default one scored epoch of the two EEG
+channels is one sample. A shorter epoch length cuts each score into several
+samples, so ``epoch_seconds=10`` yields three 10 s samples per score. Movement
+epochs are dropped because they are not a class.
 
 The paired dataset is :class:`~pyhealth.datasets.SHHSDataset`, which builds the
 ``shhs1`` and ``shhs2`` tables from the NSRR ``polysomnography`` release.
@@ -17,7 +19,9 @@ References:
 """
 
 import logging
+import math
 from typing import Any, ClassVar
+from xml.etree import ElementTree as ET
 
 import mne
 import numpy as np
@@ -28,12 +32,16 @@ from pyhealth.tasks.eegbci import normalize_signal
 
 logger = logging.getLogger(__name__)
 
-#: Sampling rate of the released SHHS EDF files, in Hz.
+#: Sampling rate of the released SHHS EDF files, in Hz. Epoch boundaries are
+#: recomputed from each file's own ``sfreq``, so a recording is never cut in the
+#: wrong place; anything other than this rate is unexpected enough to warn
+#: about.
 SHHS_SAMPLE_RATE = 125
 
-#: Epoch lengths the released annotations support. The reading centre scored
-#: every 30 s, so only divisors of 30 keep the signal and the labels aligned.
-_EPOCH_SEC_OPTIONS = (1, 2, 3, 5, 6, 10, 15, 30, 60, 90, 120, 300)
+#: Length of one epoch in the released annotations, in seconds. The reading
+#: centre scored every 30 s, so ``epoch_seconds`` has to divide this evenly for
+#: a score to line up with a whole number of signal windows.
+_SCORED_EPOCH_SECONDS = 30
 
 #: Channels the 1.x loader took positionally when it could not match names.
 _LEGACY_CHANNEL_POSITIONS = (2, 7)
@@ -65,21 +73,35 @@ def _valid_sleep_stages() -> frozenset[int]:
 class SleepStagingSHHS(BaseTask):
     """Epoch-level sleep staging for the Sleep Heart Health Study.
 
-    One sample is one scored 30 s epoch: ``signal`` holds the selected EEG
-    channels (in uV) and ``label`` is the stage code ``0``-``5``. Epochs
-    scored as movement (``9``) are dropped, as are epochs with no matching
-    signal window.
+    The reading centre scored one stage per 30 s of the night. With the default
+    ``epoch_seconds=30`` one sample is one scored epoch: ``signal`` holds the
+    selected EEG channels (in uV) and ``label`` is the stage code ``0``-``5``.
+    Epochs scored as movement (``9``) are dropped, as are epochs with no
+    matching signal window.
+
+    A shorter ``epoch_seconds`` cuts each scored epoch into
+    ``30 / epoch_seconds`` samples that share its label, exactly as
+    :class:`~pyhealth.tasks.SleepStagingISRUC` does, so ``epoch_seconds=10``
+    yields three 10 s samples per score. Lengths that do not divide 30 are
+    rejected: a score would otherwise cover a fractional number of windows and
+    the labels would drift out of step with the signal.
 
     Args:
-        epoch_sec: Epoch length in seconds. Defaults to ``30``, the length the
-            reading centre scored. Must divide 30 so signal and labels stay
-            aligned.
+        epoch_seconds: Epoch length in whole seconds. Defaults to ``30``, the
+            length the reading centre scored. Must divide 30 so signal and
+            labels stay aligned.
         channels: EEG channel names to keep, for example ``["EEG"]``.
             Defaults to every channel whose name starts with ``EEG``.
         normalization: Passed to
             :func:`~pyhealth.tasks.eegbci.normalize_signal`, for example
             ``"95th_percentile"``. Defaults to ``None`` (no normalization).
         subjects: Patient ids to keep. Defaults to ``None`` (all of them).
+
+    Raises:
+        ValueError: If ``epoch_seconds`` is not a positive whole number of
+            seconds that divides 30, if ``channels`` is empty, or if
+            ``normalization`` is not a mode
+            :func:`~pyhealth.tasks.eegbci.normalize_signal` knows.
 
     Attributes:
         task_name (str): ``"SleepStagingSHHS"``.
@@ -104,27 +126,55 @@ class SleepStagingSHHS(BaseTask):
 
     def __init__(
         self,
-        epoch_sec: float = 30,
+        epoch_seconds: int = 30,
         channels: list[str] | None = None,
         normalization: str | None = None,
         subjects: list[str] | None = None,
     ) -> None:
         super().__init__()
-        if float(epoch_sec) not in _EPOCH_SEC_OPTIONS:
+        try:
+            seconds = float(epoch_seconds)
+            whole_seconds = int(seconds)
+        except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError(
-                f"epoch_sec must be one of {_EPOCH_SEC_OPTIONS}, got {epoch_sec!r}; "
-                "SHHS annotations are scored every 30 s."
+                "epoch_seconds must be a whole number of seconds that divides "
+                f"{_SCORED_EPOCH_SECONDS}, got {epoch_seconds!r}."
+            ) from exc
+        if (
+            seconds <= 0
+            or seconds != whole_seconds
+            or _SCORED_EPOCH_SECONDS % whole_seconds != 0
+        ):
+            raise ValueError(
+                "epoch_seconds must be a whole number of seconds that divides "
+                f"{_SCORED_EPOCH_SECONDS}, got {epoch_seconds!r}."
             )
+        if channels is not None and not channels:
+            raise ValueError("channels must name at least one channel.")
         normalize_signal(np.zeros((1, 2)), normalization)
-        self.epoch_sec = float(epoch_sec)
+        self.epoch_seconds = whole_seconds
         self.channels = None if channels is None else tuple(channels)
+        # Normalizing the requested names once keeps the per-recording loop to
+        # a single pass over the channels the file happens to carry.
+        self._channel_lookup = (
+            None
+            if channels is None
+            else tuple((name, _normalize_channel_name(name)) for name in channels)
+        )
         self.normalization = normalization
-        self.subjects = None if subjects is None else tuple(str(s) for s in subjects)
+        # A set, because every participant is looked up once per pass.
+        self.subjects = (
+            None if subjects is None else frozenset(str(s) for s in subjects)
+        )
 
     def read_recording(
         self, file_name: str
     ) -> tuple[np.ndarray, float, list[str]] | None:
         """Load one EDF recording and keep the requested EEG channels.
+
+        The file is not preloaded: ``get_data`` reads only the requested
+        channels, so a fourteen channel night never has to sit in memory in
+        full.
 
         Args:
             file_name: Path to a ``shhs1-<pid>.edf`` or ``shhs2-<pid>.edf``.
@@ -135,7 +185,7 @@ class SleepStagingSHHS(BaseTask):
             read or none of the requested channels are present.
         """
         try:
-            raw = mne.io.read_raw_edf(file_name, preload=True, verbose="error")
+            raw = mne.io.read_raw_edf(file_name, preload=False, verbose="error")
         except (OSError, RuntimeError, ValueError) as exc:
             logger.warning("Failed to read %s: %s", file_name, exc)
             return None
@@ -145,16 +195,33 @@ class SleepStagingSHHS(BaseTask):
         if picks is None:
             raw.close()
             return None
-        data = raw.get_data(picks=picks, units="uV")
+
         sfreq = float(raw.info["sfreq"])
-        raw.close()
+        try:
+            # Without preloading the data, a truncated or corrupt EDF surfaces
+            # here rather than inside read_raw_edf.
+            data = raw.get_data(picks=picks, units="uV")
+        except (OSError, RuntimeError, ValueError) as exc:
+            logger.warning("Failed to read %s: %s", file_name, exc)
+            return None
+        finally:
+            raw.close()
+
+        if not math.isclose(sfreq, SHHS_SAMPLE_RATE, rel_tol=1e-6):
+            logger.warning(
+                "Expected %s Hz for %s, got %s Hz; cutting epochs at the "
+                "file's own sampling rate.",
+                SHHS_SAMPLE_RATE,
+                file_name,
+                sfreq,
+            )
         return data, sfreq, [ch_names[i] for i in picks]
 
     def _channel_indices(self, ch_names: list[str], source: str) -> list[int] | None:
         """Resolve channel names to indices, falling back to 1.x positions."""
         normalized = [_normalize_channel_name(name) for name in ch_names]
 
-        if self.channels is None:
+        if self._channel_lookup is None:
             picks = [i for i, name in enumerate(normalized) if name.startswith("eeg")]
             if not picks:
                 picks = [i for i in _LEGACY_CHANNEL_POSITIONS if i < len(ch_names)]
@@ -166,8 +233,7 @@ class SleepStagingSHHS(BaseTask):
             return picks or None
 
         picks = []
-        for wanted in self.channels:
-            key = _normalize_channel_name(wanted)
+        for wanted, key in self._channel_lookup:
             match = [i for i, name in enumerate(normalized) if name == key]
             if not match:
                 match = [i for i, name in enumerate(normalized) if name.startswith(key)]
@@ -206,46 +272,65 @@ class SleepStagingSHHS(BaseTask):
 
         try:
             labels = _read_sleep_stages(annotation_file)
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, ET.ParseError) as exc:
+            # ET.ParseError is a SyntaxError, so it is not covered by
+            # ValueError: a truncated download or an HTML error page would
+            # otherwise abort the whole run instead of dropping one night.
             logger.warning("Failed to read %s: %s", annotation_file, exc)
             return []
 
         valid = _valid_sleep_stages()
-        epoch_len = round(sfreq * self.epoch_sec)
-        if epoch_len <= 0:
+        scored_len = round(_SCORED_EPOCH_SECONDS * sfreq)
+        epoch_len = round(self.epoch_seconds * sfreq)
+        if scored_len <= 0 or epoch_len <= 0:
             return []
+        # One score labels this many consecutive epochs of epoch_len samples.
+        per_score = _SCORED_EPOCH_SECONDS // self.epoch_seconds
 
-        n_epochs = min(signal.shape[1] // epoch_len, len(labels))
+        n_scored = min(len(labels), signal.shape[1] // scored_len)
+        if n_scored < len(labels):
+            logger.warning(
+                "%s has %d scored epochs but only %d complete %d s epochs of "
+                "signal, keeping the first %d.",
+                signal_file,
+                len(labels),
+                signal.shape[1] // scored_len,
+                _SCORED_EPOCH_SECONDS,
+                n_scored,
+            )
+
         samples: list[dict[str, Any]] = []
         unscored = 0
-        for epoch_index in range(n_epochs):
-            label = labels[epoch_index]
+        for scored_index in range(n_scored):
+            label = labels[scored_index]
             if label not in valid:
                 unscored += 1
                 continue
-            start = epoch_index * epoch_len
-            epoch = signal[:, start : start + epoch_len]
-            if epoch.shape[1] != epoch_len:
-                continue
-            if np.isnan(epoch).any():
-                continue
-            epoch = normalize_signal(epoch, self.normalization)
-            samples.append(
-                {
-                    "patient_id": patient_id,
-                    "visit": visit,
-                    "record_id": f"{record_id}-{epoch_index}",
-                    "epoch_index": int(epoch_index),
-                    "signal": torch.FloatTensor(np.ascontiguousarray(epoch)),
-                    "label": int(label),
-                }
-            )
+            for sub_index in range(per_score):
+                epoch_index = scored_index * per_score + sub_index
+                start = scored_index * scored_len + sub_index * epoch_len
+                epoch = signal[:, start : start + epoch_len]
+                if epoch.shape[1] != epoch_len:
+                    continue
+                if np.isnan(epoch).any():
+                    continue
+                epoch = normalize_signal(epoch, self.normalization)
+                samples.append(
+                    {
+                        "patient_id": patient_id,
+                        "visit": visit,
+                        "record_id": f"{record_id}-{epoch_index}",
+                        "epoch_index": int(epoch_index),
+                        "signal": torch.FloatTensor(np.ascontiguousarray(epoch)),
+                        "label": int(label),
+                    }
+                )
 
         if unscored:
             logger.debug(
-                "Dropped %d of %d epochs without a valid stage in %s",
+                "Dropped %d of %d scored epochs without a valid stage in %s",
                 unscored,
-                n_epochs,
+                n_scored,
                 record_id,
             )
         return samples
