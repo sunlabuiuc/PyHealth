@@ -75,6 +75,8 @@ class GiantMed:
         candidate_batch_size: int | None = None,
     ):
         self.codes = list(medication_codes)
+        if not all(isinstance(code, str) and code for code in self.codes):
+            raise ValueError("medication_codes must contain nonempty strings")
         if not self.codes or len(set(self.codes)) != len(self.codes):
             raise ValueError("medication_codes must be nonempty and unique")
         self.ddi = np.asarray(ddi_matrix)
@@ -112,6 +114,10 @@ class GiantMed:
                 raise ValueError(
                     "candidate batching requires a token counter and budget"
                 )
+        if candidate_batch_size is not None and any(
+            code.isascii() and code.isdigit() for code in self.codes
+        ):
+            raise ValueError("numeric medication codes are ambiguous in batched mode")
         self.candidate_batch_size = candidate_batch_size
         self.train_samples = list(train_samples)
         if any("patient_id" not in s for s in self.train_samples):
@@ -144,23 +150,30 @@ class GiantMed:
         names = self.names.get(field, self.names)
         return f"{code} ({names.get(code, code)})"
 
+    def _instructions(self):
+        """Shared clinical guidance for every prompt format."""
+        bracket = "]" if self.upper_inclusive else ")"
+        return (
+            "You are a clinical pharmacy expert. Revise medication probabilities "
+            f"in [{self.low}, {self.high}{bracket} predicted by a deep model. "
+            "A score >= 0.5 recommends a drug. Use the current visit, prior "
+            "medication history, similar training visits and potential interactions. "
+            "Treat model scores as priors, not sufficient justification. Raise "
+            "clinically necessary medications toward 0.70-0.90 and lower unsupported "
+            "ones; avoid leaving scores in the ambiguous boundary. Avoid recommending "
+            "medications with serious interactions or functional redundancy."
+        )
+
     def build_prompt(self, sample, probabilities, indices, neighbours):
         """Construct the evidence prompt without current-visit target drugs."""
         current_d = set(self._current(sample, "conditions"))
         current_p = set(self._current(sample, "procedures"))
         candidates = {self.codes[i] for i in indices}
         lines = [
-            "You are a clinical pharmacy expert. Revise the medication "
-            f"probabilities in [{self.low}, {self.high}{']' if self.upper_inclusive else ')'} "
-            "predicted by a deep model. A score >= 0.5 "
-            "recommends a drug. Use the current visit, previous medications, "
-            "similar visits and potential drug interactions. Treat the model "
-            "score as a prior and similar visits as supporting evidence. "
-            "Increase scores for necessary medications and lower scores "
-            "for unsupported, redundant, or interacting medications. "
-            "Return only a JSON object mapping each "
-            "candidate medication code directly to a numeric probability in [0, 1], "
-            'for example {"A10A": 0.8}. Do not use nested objects.',
+            self._instructions()
+            + " Return only a JSON object mapping each candidate medication code "
+            'to a numeric probability in [0, 1], for example {"A10A": 0.8}. '
+            "Do not use nested objects.",
             "Current diagnoses: "
             + json.dumps([self._describe(c, "conditions") for c in sorted(current_d)]),
             "Current procedures: "
@@ -285,7 +298,7 @@ class GiantMed:
             parts = [
                 lines[0],
                 "Candidates are rows [code, score, name], numbered from 0 in order. "
-                "Return scores keyed by code. Similar-visit medication numbers and "
+                "Return scores keyed by medication code, not row number. Similar-visit medication numbers and "
                 "interaction numbers refer to candidate row numbers. Similar-visit "
                 "diagnosis and procedure codes refer to the current-visit lists.",
             ]
@@ -347,53 +360,41 @@ class GiantMed:
             selected["Similar training visits"] = []
             selected["Potential interactions among candidates"] = []
 
-        # Reserve 60% of the remaining budget for clinical context and DDI pairs.
-        # Names for higher-scored candidates are kept first, with all codes and
-        # probabilities retained above regardless of this optional enrichment.
         if not all_fit:
-            core_tokens = self.prompt_token_counter(render())
-            name_limit = core_tokens + (self.max_prompt_tokens - core_tokens) * 2 // 5
-            low, high = 0, len(ordered_names)
-            while low < high:
-                middle = (low + high + 1) // 2
-                selected["Candidate names"] = {
-                    code: candidate_names[code] for code in ordered_names[:middle]
-                }
-                if self.prompt_token_counter(render()) <= name_limit:
-                    low = middle
-                else:
-                    high = middle - 1
-            selected["Candidate names"] = {
-                code: candidate_names[code] for code in ordered_names[:low]
-            }
-        # Keep recent medication history first and the most similar visits first.
-        for name, options, recent in (
-            ()
-            if all_fit
-            else (
-                ("Previous medications", history, True),
-                ("Similar training visits", neighbours, False),
-                ("Potential interactions among candidates", pairs, False),
+            # Each category has a fixed share of the space beyond the core.
+            # This prevents long histories from starving retrieved visits or DDIs.
+            available = self.max_prompt_tokens - self.prompt_token_counter(render())
+            allocations = (
+                ("Candidate names", ordered_names, False, 25),
+                ("Potential interactions among candidates", pairs, False, 35),
+                ("Similar training visits", neighbours, False, 25),
+                ("Previous medications", history, True, 15),
             )
-        ):
-            limit = self.max_prompt_tokens
-            if name == "Similar training visits" and pairs:
-                # Do not let retrieved visits consume all interaction space.
-                available = max(
-                    0, self.max_prompt_tokens - self.prompt_token_counter(render())
-                )
-                limit -= min(400, available // 2)
-            low, high = 0, len(options)
-            while low < high:
-                middle = (low + high + 1) // 2
-                selected[name] = options[-middle:] if recent else options[:middle]
-                if self.prompt_token_counter(render()) <= limit:
-                    low = middle
+            for name, options, recent, share in allocations:
+                limit = self.prompt_token_counter(render()) + available * share // 100
+                low, high = 0, len(options)
+                while low < high:
+                    middle = (low + high + 1) // 2
+                    if name == "Candidate names":
+                        selected[name] = {
+                            code: candidate_names[code] for code in options[:middle]
+                        }
+                    else:
+                        selected[name] = (
+                            options[-middle:] if recent else options[:middle]
+                        )
+                    if self.prompt_token_counter(render()) <= limit:
+                        low = middle
+                    else:
+                        high = middle - 1
+                if name == "Candidate names":
+                    selected[name] = {
+                        code: candidate_names[code] for code in options[:low]
+                    }
                 else:
-                    high = middle - 1
-            selected[name] = (
-                (options[-low:] if recent else options[:low]) if low else []
-            )
+                    selected[name] = (
+                        (options[-low:] if recent else options[:low]) if low else []
+                    )
         fitted = render()
         tokens = self.prompt_token_counter(fitted)
         if tokens > self.max_prompt_tokens:
@@ -476,8 +477,7 @@ class GiantMed:
 
             def render():
                 header = (
-                    "Revise medication probabilities using the current visit, prior scores, "
-                    "similar training visits and potential interactions. Candidate rows are "
+                    self._instructions() + " Candidate rows are "
                     "[code, score, name] and are numbered from zero. Only the first "
                     f"{len(targets)} rows are targets: return a JSON object with exactly "
                     f"{len(targets)} entries, one for every target row index from 0 to "
@@ -515,8 +515,8 @@ class GiantMed:
                 return None
             if add_support:
                 for name, options, recent in (
-                    ("Previous medications", history, True),
                     ("Similar training visits", retrieved, False),
+                    ("Previous medications", history, True),
                 ):
                     low, high = 0, len(options)
                     while low < high:
@@ -648,9 +648,14 @@ class GiantMed:
             details["responses"].append(text)
             try:
                 # Preserve duplicate keys to reject ambiguous scores.
-                pairs = json.loads(
-                    re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip()),
-                    object_pairs_hook=lambda x: x,
+                cleaned = re.sub(
+                    r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE
+                )
+                start = cleaned.find("{")
+                if start < 0:
+                    continue
+                pairs, _ = json.JSONDecoder(object_pairs_hook=lambda x: x).raw_decode(
+                    cleaned[start:]
                 )
             except (ValueError, TypeError, AttributeError):
                 continue
@@ -698,6 +703,11 @@ class GiantMed:
                     and score[0][0] == "probability"
                 ):
                     score = score[0][1]
+                if isinstance(score, str):
+                    try:
+                        score = float(score)
+                    except ValueError:
+                        pass
                 if (
                     code in allowed
                     and counts[code] == 1
@@ -717,6 +727,8 @@ class GiantMed:
             "complete"
             if len(details["updated"]) == len(indices)
             else "partial"
+            if details["updated"]
+            else "no_updates"
             if valid_responses
             else "invalid_response"
         )
@@ -907,11 +919,16 @@ class MediEvidenceFilter:
             )
         return cls(ingredients, indications, ancestor_match, history_rescue)
 
-    def __call__(self, query, neighbour, drug):
+    def evidence_status(self, query, neighbour, drug):
+        """Explain whether evidence is retained or why it was excluded."""
         history = query.get("drugs_hist", [])
         if self.history_rescue and len(history) > 1 and drug in history[-2]:
-            return True
+            return "history_rescue"
         key = (str(neighbour["patient_id"]), str(neighbour["visit_id"]), drug)
+        if key not in self.visit_drug_ingredients:
+            return "missing_mapping"
+        if not self.visit_drug_ingredients[key]:
+            return "missing_ingredients"
         diagnoses = [
             str(code).replace(".", "").upper()
             for code in GiantMed._current(query, "conditions")
@@ -924,5 +941,11 @@ class MediEvidenceFilter:
                     or (self.ancestor_match and len(code) >= 3 and d.startswith(code))
                     for d in diagnoses
                 ):
-                    return True
-        return False
+                    return "indication_match"
+        return "indication_mismatch"
+
+    def __call__(self, query, neighbour, drug):
+        return self.evidence_status(query, neighbour, drug) in {
+            "history_rescue",
+            "indication_match",
+        }

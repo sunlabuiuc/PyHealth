@@ -7,7 +7,7 @@ Run from the repository root::
 The demo is tiny and is intended only to exercise the pipeline, not to
 reproduce the paper. The model and code-mapping resources may need downloads.
 Without --model a no-op responder exercises the pipeline without an LLM.
-The reference's optional MEDI evidence filter is not applied in this example.
+The optional MEDI evidence filter is enabled only when its files are supplied.
 """
 
 import argparse
@@ -369,7 +369,7 @@ def main():
         candidate_count = updated_count = changed_count = 0
         responses = []
         budgets = []
-        evidence_checked = evidence_kept = 0
+        evidence_outcomes = Counter()
         model.eval()
         for batch in get_dataloader(test, batch_size=1, shuffle=False):
             if args.max_test_visits is not None and len(y_true) >= args.max_test_visits:
@@ -382,16 +382,48 @@ def main():
                 candidate_codes = {
                     codes[i]
                     for i in np.flatnonzero(
-                        (scores >= refiner.low) & (scores < refiner.high)
+                        (scores >= refiner.low)
+                        & (
+                            scores <= refiner.high
+                            if refiner.upper_inclusive
+                            else scores < refiner.high
+                        )
                     )
                 }
                 for neighbour in refiner.retrieve(raw_test[key]):
                     for drug in set(neighbour["drugs"]) & candidate_codes:
-                        evidence_checked += 1
-                        evidence_kept += int(
-                            evidence_filter(raw_test[key], neighbour, drug)
+                        evidence_outcomes[
+                            evidence_filter.evidence_status(
+                                raw_test[key], neighbour, drug
+                            )
+                        ] += 1
+            try:
+                result = refiner.refine_with_details(raw_test[key], scores)
+            except Exception as exc:
+                # The example is a long-running experiment: retain the backbone
+                # for this visit and continue, while making the failure visible.
+                print(
+                    f"Refinement failed for visit {len(y_true) + 1}: {type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+                result = {
+                    "status": "refinement_error",
+                    "candidates": [
+                        codes[i]
+                        for i in np.flatnonzero(
+                            (scores >= refiner.low)
+                            & (
+                                scores <= refiner.high
+                                if refiner.upper_inclusive
+                                else scores < refiner.high
+                            )
                         )
-            result = refiner.refine_with_details(raw_test[key], scores)
+                    ],
+                    "updated": [],
+                    "changed": [],
+                    "probabilities": scores.copy(),
+                    "response": None,
+                }
             if result.get("prompt_budget"):
                 budgets.append(result["prompt_budget"])
             if args.save_responses:
@@ -434,9 +466,7 @@ def main():
             f"Mean absolute score change: {differences.mean():.6f}; decision changes: {decision_changes}"
         )
         if evidence_filter:
-            print(
-                f"MEDI evidence: retained {evidence_kept}/{evidence_checked} retrieved candidate drugs"
-            )
+            print(f"MEDI evidence outcomes: {dict(evidence_outcomes)}")
         if args.save_responses:
             Path(args.save_responses).write_text(
                 json.dumps(responses, indent=2), encoding="utf-8"

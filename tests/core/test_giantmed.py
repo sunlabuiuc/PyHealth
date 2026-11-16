@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from pyhealth.models.giantmed import GiantMed
+from pyhealth.models.giantmed import GiantMed, MediEvidenceFilter
 
 
 @pytest.fixture
@@ -533,4 +533,137 @@ def test_incomplete_or_one_based_numeric_batches_fall_back(response):
     )
     result = model.refine_with_details({"patient_id": "test"}, [0.4, 0.4])
     np.testing.assert_allclose(result["probabilities"], [0.4, 0.4])
-    assert result["status"] == "partial"
+    assert result["status"] == "no_updates"
+
+
+@pytest.mark.parametrize("mode", ["plain", "budget", "batch"])
+def test_prompt_modes_share_clinical_guidance(mode):
+    options = {}
+    if mode != "plain":
+        options.update(prompt_token_counter=len, max_prompt_tokens=10000)
+    if mode == "batch":
+        options["candidate_batch_size"] = 1
+    model = GiantMed(["A"], [[0]], lambda p: '{"A":0.8}', [], **options)
+    prompt = model.refine_with_details({"patient_id": "p"}, [0.5])["prompt"]
+    for instruction in (
+        "clinical pharmacy expert",
+        "[0.3, 0.7)",
+        "Raise",
+        "lower unsupported",
+        "serious interactions",
+    ):
+        assert instruction in prompt
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        'Result: {"A":"0.8"}',
+        '<think>ignore {"A":0.1}</think>\n```json\n{"A":0.8}\n```',
+    ],
+)
+def test_response_with_surrounding_text_and_numeric_string(response):
+    model = GiantMed(["A"], [[0]], lambda p: response, [])
+    result = model.refine_with_details({"patient_id": "p"}, [0.5])
+    assert result["probabilities"].tolist() == [0.8]
+    assert result["status"] == "complete"
+
+
+def test_empty_response_status_and_code_validation():
+    model = GiantMed(["A"], [[0]], lambda p: "{}", [])
+    assert (
+        model.refine_with_details({"patient_id": "p"}, [0.5])["status"] == "no_updates"
+    )
+    with pytest.raises(ValueError, match="strings"):
+        GiantMed([1], [[0]], lambda p: "{}", [])
+    with pytest.raises(ValueError, match="numeric medication codes"):
+        GiantMed(
+            ["1"],
+            [[0]],
+            lambda p: "{}",
+            [],
+            prompt_token_counter=len,
+            max_prompt_tokens=1000,
+            candidate_batch_size=1,
+        )
+
+
+def test_medi_status_distinguishes_missing_mapping_and_rejection():
+    filt = MediEvidenceFilter(
+        {("p", "v", "A"): {"ingredient"}, ("p", "v", "B"): set()},
+        {"ingredient": {"123"}},
+        history_rescue=False,
+    )
+    query = {"conditions": [["456"]]}
+    neighbour = {"patient_id": "p", "visit_id": "v"}
+    assert filt.evidence_status(query, neighbour, "A") == "indication_mismatch"
+    assert filt.evidence_status(query, neighbour, "B") == "missing_ingredients"
+    assert filt.evidence_status(query, neighbour, "C") == "missing_mapping"
+    query["conditions"] = [["123"]]
+    assert filt.evidence_status(query, neighbour, "A") == "indication_match"
+
+
+def test_budget_protects_similar_visits_and_interactions_from_long_history():
+    codes = [f"D{i:02}" for i in range(20)]
+    matrix = np.ones((20, 20)) - np.eye(20)
+    training = [
+        {
+            "patient_id": f"p{i}",
+            "visit_id": "v",
+            "conditions": [["X"]],
+            "procedures": [[]],
+            "drugs": codes,
+        }
+        for i in range(3)
+    ]
+    query = {
+        "patient_id": "query",
+        "conditions": [["X"]],
+        "procedures": [[]],
+        "drugs_hist": [["A" * 40] * 12 for _ in range(20)] + [[]],
+    }
+    counts = []
+    for budget in (3000, 4000, 6000):
+        model = GiantMed(
+            codes,
+            matrix,
+            lambda p: "{}",
+            training,
+            prompt_token_counter=len,
+            max_prompt_tokens=budget,
+        )
+        report = model.refine_with_details(query, [0.5] * 20)["prompt_budget"]
+        counts.append((report["similar_visits"][0], report["ddi_pairs"][0]))
+    assert all(similar > 0 and ddi > 0 for similar, ddi in counts)
+    assert counts == sorted(counts)
+    assert all(a[1] <= b[1] for a, b in zip(counts, counts[1:]))
+
+
+def test_batch_preserves_similar_visit_before_long_history():
+    train = [
+        {
+            "patient_id": "train",
+            "visit_id": "1",
+            "conditions": [["X"]],
+            "procedures": [[]],
+            "drugs": ["A"],
+        }
+    ]
+    query = {
+        "patient_id": "query",
+        "conditions": [["X"]],
+        "procedures": [[]],
+        "drugs_hist": [["long history" * 60]] * 10 + [[]],
+    }
+    model = GiantMed(
+        ["A"],
+        [[0]],
+        lambda prompt: '{"0": 0.8}',
+        train,
+        candidate_batch_size=1,
+        prompt_token_counter=len,
+        max_prompt_tokens=2200,
+    )
+    budget = model.refine_with_details(query, [0.5])["prompt_budget"]
+    assert budget["support_per_batch"][0]["similar_visits"] == [1, 1]
+    assert budget["support_per_batch"][0]["history_visits"][0] < 10
