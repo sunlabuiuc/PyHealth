@@ -1,0 +1,43 @@
+version: "1.0.0"  # MIMIC-Extract (Wang et al., CHIL 2020) on MIMIC-III v1.4
+tables:
+  patients:
+    # Written by MIMICExtractDataset from all_hourly_data.h5: one row per ICU
+    # stay. preprocess_patients casts age and the outcomes to floats.
+    file_path: "mimic_extract-pyhealth-patients.csv"
+    patient_id: "subject_id"
+    timestamp: "intime"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    attributes:
+      - "icustay_id"
+      - "hadm_id"
+      - "los_icu"
+      - "mort_icu"
+      - "mort_hosp"
+      - "gender"
+      - "ethnicity"
+      - "age"
+      - "insurance"
+      - "admission_type"
+      - "first_careunit"
+      - "admittime"
+      - "dischtime"
+      - "outtime"
+      - "deathtime"
+      - "hospital_expire_flag"
+      - "readmission_30"
+  vitals_labs:
+    # One row per (stay, hour, variable) with at least one measurement.
+    # preprocess_vitals_labs casts hours_in to int and mean/count/std to float.
+    file_path: "mimic_extract-pyhealth-vitals_labs.csv"
+    patient_id: "subject_id"
+    # The stay's intime plus hours_in hours
+    timestamp: "time"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    attributes:
+      - "icustay_id"
+      - "hadm_id"
+      - "hours_in"
+      - "variable"
+      - "mean"
+      - "count"
+      - "std"
