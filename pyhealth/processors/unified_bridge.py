@@ -826,7 +826,7 @@ class TensorToUnifiedBridge(UnifiedBridge):
 
     ``fit()`` records the shape of every sample's tensor. When its first
     axis has the same length in every sample, each sample is one record of
-    a ``set`` level, holding the whole tensor (``[1]`` for a scalar). When
+    a ``single`` level, holding the whole tensor (``[1]`` for a scalar). When
     the first axis varies in length, each row along it is one record,
     holding the rest of the tensor (``[1]`` for an element of a vector);
     the level is a ``sequence`` when ``spatial_dims`` marks the first axis
@@ -885,7 +885,7 @@ class TensorToUnifiedBridge(UnifiedBridge):
             record_spatial = list(spatial[1:]) if spatial and len(shape) > 1 else None
         else:
             record = [int(n) for n in shape] or [1]
-            ordering = "set"
+            ordering = "single"
             record_spatial = list(spatial) if spatial and shape else None
         level: LevelConfig = {"ordering": ordering, "values": record}
         if record_spatial is not None:
@@ -917,7 +917,7 @@ class TensorToUnifiedBridge(UnifiedBridge):
 
 @_bridges(ImageProcessor)
 class ImageToUnifiedBridge(UnifiedBridge):
-    """:class:`~pyhealth.processors.ImageProcessor` as a ``set`` of one image.
+    """:class:`~pyhealth.processors.ImageProcessor` as a ``single`` image per sample.
 
     Each sample is one record with ``[C, H, W]`` values, the height and
     width being spatial. The shape is the widest that ``fit()`` saw: the
@@ -964,7 +964,7 @@ class ImageToUnifiedBridge(UnifiedBridge):
             legacy,
             [
                 {
-                    "ordering": "set",
+                    "ordering": "single",
                     "values": list(shape),
                     "spatial": [False, True, True],
                 }
@@ -983,7 +983,7 @@ class ImageToUnifiedBridge(UnifiedBridge):
 
 @_bridges(AudioProcessor)
 class AudioToUnifiedBridge(UnifiedBridge):
-    """:class:`~pyhealth.processors.AudioProcessor` as a ``set`` of one recording.
+    """:class:`~pyhealth.processors.AudioProcessor` as a ``single`` recording.
 
     Each sample is one record: the ``[1, samples]`` waveform, or the
     ``[1, n_mels, frames]`` mel spectrogram, with the time (and mel) axes
@@ -1019,7 +1019,7 @@ class AudioToUnifiedBridge(UnifiedBridge):
             hop = legacy.hop_length or legacy.n_fft // 2
             shape, spatial = [1, legacy.n_mels, 1 + samples // hop], [False, True, True]
         super().__init__(
-            legacy, [{"ordering": "set", "values": shape, "spatial": spatial}]
+            legacy, [{"ordering": "single", "values": shape, "spatial": spatial}]
         )
 
     def transform_batch(self, value: torch.Tensor) -> tuple[torch.Tensor, ...]:
