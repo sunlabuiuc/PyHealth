@@ -36,6 +36,8 @@ TimeUnit = Literal["months", "years", "paper"]
 class MetabricSurvivalPrediction(BaseTask):
     """Predict the time to death from the METABRIC baseline features.
 
+    Works with :class:`~pyhealth.datasets.MetabricDataset`.
+
     One sample per patient, for continuous-time survival models such as
     :class:`~pyhealth.models.SurvivalMDN`:
 

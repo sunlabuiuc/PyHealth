@@ -23,7 +23,7 @@ Notes:
   CEHR-style models. ``EmbeddingModel`` does not handle them, so every
   model below fails on them.
 - Image, signal, audio and graph fields, and
-  :class:`~pyhealth.processors.SequenceProcessorV2` fields, are read
+  :class:`~pyhealth.processors.JaggedFeatureProcessor` fields, are read
   by the models built for them and are not listed. ``raw`` and
   ``ignore`` fields are not embedded, so they are not listed either.
 
@@ -227,7 +227,7 @@ Notes:
      - ✗
      - ✓
    * - ``text``
-     - error: NotImplementedError
+     - none (passed through)
      - ✗
      - ✗
      - ✗

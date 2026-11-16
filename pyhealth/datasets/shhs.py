@@ -8,13 +8,21 @@ from pyhealth.datasets import BaseSignalDataset
 class SHHSDataset(BaseSignalDataset):
     """Base EEG dataset for Sleep Heart Health Study (SHHS)
 
-    Dataset is available at https://sleepdata.org/datasets/shhs
-
     The Sleep Heart Health Study (SHHS) is a multi-center cohort study implemented by the National Heart Lung & Blood Institute to determine the cardiovascular and other consequences of sleep-disordered breathing. It tests whether sleep-related breathing is associated with an increased risk of coronary heart disease, stroke, all cause mortality, and hypertension.  In all, 6,441 men and women aged 40 years and older were enrolled between November 1, 1995 and January 31, 1998 to take part in SHHS Visit 1. During exam cycle 3 (January 2001- June 2003), a second polysomnogram (SHHS Visit 2) was obtained in 3,295 of the participants. CVD Outcomes data were monitored and adjudicated by parent cohorts between baseline and 2011. More than 130 manuscripts have been published investigating predictors and outcomes of sleep disorders.
+
+    Getting the data:
+        - Source: https://sleepdata.org/datasets/shhs (NSRR)
+        - Access: restricted. Create an NSRR account and submit a data access
+          request ("Request Data Access" on the dataset page); approval is manual.
+        - Download: once approved, use the NSRR downloader
+          (``gem install nsrr``, then ``nsrr download shhs/polysomnography``).
+        - ``root``: the ``polysomnography`` folder, which holds ``edfs/`` and
+          ``annotations-events-profusion/``.
 
     Args:
         dataset_name: name of the dataset.
-        root: root directory of the raw data (should contain many csv files).
+        root: the ``polysomnography`` folder (holds ``edfs/`` and
+            ``annotations-events-profusion/``).
         dev: whether to enable dev mode (only use a small subset of the data).
             Default is False.
         refresh_cache: whether to refresh the cache; if true, the dataset will

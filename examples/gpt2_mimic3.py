@@ -14,6 +14,15 @@ This example demonstrates:
 3. Training GPT2 with its custom training loop
 4. Generating synthetic patients
 5. Evaluating the synthetic data with the generative metrics suite
+
+Data: MIMIC-III v1.4 (https://physionet.org/content/mimiciii/1.4/,
+credentialed); only DIAGNOSES_ICD (plus the core PATIENTS/ADMISSIONS tables)
+is read. Set ``MIMIC3_ROOT`` below. To try it without credentials, set
+``MIMIC3_ROOT`` to ``test-resources/core/mimic3demo`` in this repository (a
+handful of patients: it only checks that the pipeline runs).
+
+Run: ``python examples/gpt2_mimic3.py``. With ``dev=True`` it takes a few minutes on a
+laptop CPU; a GPU helps on the full cohort.
 """
 
 from pyhealth.datasets import MIMIC3Dataset, split_by_patient
@@ -21,11 +30,15 @@ from pyhealth.metrics.generative import evaluate_synthetic_ehr
 from pyhealth.models import GPT2
 from pyhealth.tasks import EHRSequenceGenerationMIMIC3, to_evaluation_dataframe
 
+# Folder with the MIMIC-III CSV(.gz) files.
+MIMIC3_ROOT = "/path/to/mimic-iii-clinical-database-1.4"
+
+
 if __name__ == "__main__":
     # STEP 1: Load MIMIC-III. dev=True keeps this to a small subset -- start
     # here, and only drop it once the whole script runs end to end.
     base_dataset = MIMIC3Dataset(
-        root="/srv/local/data/MIMIC-III/mimic-iii-clinical-database-1.4",
+        root=MIMIC3_ROOT,
         tables=["diagnoses_icd"],
         dev=True,
     )

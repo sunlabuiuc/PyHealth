@@ -818,6 +818,22 @@ class TestExplainedRuns(unittest.TestCase):
             self.assertEqual(verdicts[result.best.trial_id], "selected")
             self.assertEqual(len(verdicts), len(result.trials))
 
+    def test_baseline_kept_after_confirmation(self):
+        from pyhealth.autoimprove.report import build_report
+
+        folds = [0.40, 0.41, 0.42, 0.43, 0.44]
+        trials = [Trial(0, -1, "baseline", "baseline", PipelineConfig("MLP"),
+                        score=0.42, fold_scores=folds),
+                  Trial(1, 0, "a0", "explore",
+                        PipelineConfig("MLP", {}, {"weight_decay": 0.01}),
+                        score=0.45, fold_scores=[x + 0.03 for x in folds])]
+        confirmed = {0: folds, 1: [x + d for x, d in
+                                   zip(folds, [0.02, -0.01, 0.02, -0.01, 0.0])]}
+        text = build_report(trials, metric="pr_auc", confirmed=confirmed).to_markdown()
+        self.assertIn("**Selected: #0", text)
+        self.assertNotIn("beat the starting pipeline consistently", text)
+        self.assertIn("1 trial(s) beat the starting pipeline on the search folds", text)
+
     def test_run_json_rule_is_rewritten_when_the_baseline_fails(self):
         def fake_cv(config, space, train, val, metric, folds, *args, **kwargs):
             if config.model_params.get("max_depth") == 4:
@@ -1028,6 +1044,24 @@ class TestClinicalReport(unittest.TestCase):
         self.assertIn("observed / expected n/a", both[0]["detail"])
         # NaN alone raises no flag
         self.assertEqual(ids(test(float("nan"), None, float("nan"))), [])
+
+    def test_stability_refits_use_fold_parts(self):
+        # Each stability fold model goes through fold_parts, so engineered
+        # columns would be refitted on the fold, as in cross-validation.
+        from pyhealth.autoimprove import evaluate
+
+        improver = AutoImprover(
+            self.train, self.val, RandomProposer(seed=0),
+            baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16},
+                                    {"epochs": 2}),
+            space=SPACE, n_agents=1, n_cycles=1, cv_folds=3, task_card=CARD,
+        )
+        improver.run()
+        with mock.patch("pyhealth.autoimprove.improver.fold_parts",
+                        side_effect=evaluate.fold_parts) as spy:
+            out = improver.explain(top_k=3)
+        self.assertEqual(spy.call_count, 3)
+        self.assertEqual(out["stability"]["models"], 3)
 
     def test_selected_baseline_is_reported_once(self):
         # With only the baseline trial, it is the selected config: the test

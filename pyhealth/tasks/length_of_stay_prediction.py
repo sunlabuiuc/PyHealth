@@ -36,6 +36,8 @@ def categorize_los(days: int):
 class LengthOfStayPredictionMIMIC3(BaseTask):
     """Task for predicting length of stay using MIMIC-III dataset.
 
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
+
     Length of stay prediction aims at predicting the length of stay (in days) of the
     current hospital visit based on the clinical information from the visit
     (e.g., conditions and procedures).
@@ -133,6 +135,8 @@ class LengthOfStayPredictionMIMIC3(BaseTask):
 
 class LengthOfStayPredictionMIMIC4(BaseTask):
     """Task for predicting length of stay using MIMIC-IV dataset.
+
+    Works with :class:`~pyhealth.datasets.MIMIC4Dataset`.
 
     Length of stay prediction aims at predicting the length of stay (in days) of the
     current hospital visit based on the clinical information from the visit
@@ -236,6 +240,8 @@ class LengthOfStayPredictionMIMIC4(BaseTask):
 
 class LengthOfStayPredictioneICU(BaseTask):
     """Task for predicting length of stay using eICU dataset.
+
+    Works with :class:`~pyhealth.datasets.eICUDataset`.
 
     Length of stay prediction aims at predicting the length of stay (in days) of the
     current ICU stay based on the clinical information from the stay
@@ -364,6 +370,8 @@ class LengthOfStayPredictioneICU(BaseTask):
 
 class LengthOfStayPredictionOMOP(BaseTask):
     """Task for predicting length of stay using OMOP dataset.
+
+    Works with :class:`~pyhealth.datasets.OMOPDataset`.
 
     Length of stay prediction aims at predicting the length of stay (in days) of the
     current hospital visit based on the clinical information from the visit

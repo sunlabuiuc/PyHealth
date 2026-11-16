@@ -54,10 +54,10 @@ def _dataset(
     return create_sample_dataset(
         samples=samples,
         input_schema={
-            "dynamic": ("sequence_v2", {"levels": DYNAMIC}),
-            "static": ("sequence_v2", {"levels": STATIC}),
+            "dynamic": ("jagged", {"levels": DYNAMIC}),
+            "static": ("jagged", {"levels": STATIC}),
         },
-        output_schema={"label": mode},
+        output_schema={"label": (mode, {"timeline": ["dynamic"]})},
         dataset_name="timeseries_modes",
     )
 
@@ -163,7 +163,9 @@ class TestTimeseriesModes(unittest.TestCase):
             for i in range(2)
         ]
         dataset = create_sample_dataset(
-            samples, {"dynamic": "timeseries"}, {"label": "timeseries_binary"}
+            samples,
+            {"dynamic": "timeseries"},
+            {"label": ("timeseries_binary", {"timeline": ["dynamic"]})},
         )
         for model in (RNN, MultimodalRNN):
             with (

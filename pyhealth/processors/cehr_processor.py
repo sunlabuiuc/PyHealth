@@ -8,7 +8,7 @@ ensure_special_tokens(vocab)
     Add CEHR/MPF specials (``<cls>``, ``<reg>``, ``<mor>``, ``<readm>``) and
     return their ids.
 CehrProcessor
-    Standard :class:`~pyhealth.processors.FeatureProcessor` that maps a sample's
+    Standard :class:`~pyhealth.processors.LegacyFeatureProcessor` that maps a sample's
     list of concept-key strings (already boundary-padded by the task) to a 1-D
     ``torch.long`` tensor of token ids. Vocab growth happens inside the standard
     ``SampleBuilder.fit(samples)`` loop -- no warm-up or freeze flag needed.
@@ -28,7 +28,7 @@ import orjson
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor
+from .base_processor import LegacyFeatureProcessor
 
 DEFAULT_PAD = 0
 DEFAULT_UNK = 1
@@ -121,7 +121,7 @@ def ensure_special_tokens(vocab: ConceptVocab) -> Dict[str, int]:
 
 
 @register_processor("cehr")
-class CehrProcessor(FeatureProcessor):
+class CehrProcessor(LegacyFeatureProcessor):
     """Map a sample's list of concept-key strings to a 1-D LongTensor of ids.
 
     The task is expected to have already done all boundary-token insertion

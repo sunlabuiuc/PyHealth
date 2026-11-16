@@ -90,6 +90,13 @@ class MEDSDataset(BaseDataset):
         prefers mapping MEDS ``code`` onto ``event_type`` instead is a design
         question for the maintainer.
 
+    Getting the data:
+        MEDS is a format, not a dataset. Convert a source dataset with an ETL
+        from the MEDS ecosystem (for example MIMIC-IV with ``MIMIC_IV_MEDS``,
+        https://github.com/Medical-Event-Data-Standard/MIMIC_IV_MEDS), or use a
+        release that already ships in MEDS, such as EHRSHOT's ``EHRSHOT_MEDS.zip``
+        (see :class:`EHRShotDataset`).
+
     Args:
         root: Root directory of the MEDS dataset (the directory that
             contains ``data/`` and ``metadata/``).

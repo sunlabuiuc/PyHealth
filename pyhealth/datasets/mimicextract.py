@@ -47,72 +47,45 @@ from pathlib import Path
 import narwhals as nw
 import pandas as pd
 
-from .base_dataset import BaseDataset
+from pyhealth.data import Event, Visit, Patient
+from pyhealth.datasets import BaseEHRDataset
+from pyhealth.datasets.utils import strptime
 
-logger = logging.getLogger(__name__)
+# TODO: add other tables
 
-PATIENTS_CSV = "mimic_extract-pyhealth-patients.csv"
-VITALS_LABS_CSV = "mimic_extract-pyhealth-vitals_labs.csv"
-PARAMS_JSON = "mimic_extract-pyhealth-params.json"
-"""Records the arguments the CSVs were built with, so a change rebuilds them."""
+class MIMICExtractDataset(BaseEHRDataset):
+    """Base dataset for MIMIC-Extract dataset.
 
-SUPPORTED_TABLES = ("patients", "vitals_labs")
-AGGREGATES = ("mean", "count", "std")
+    Reads the HDF5 data produced by
+    `MIMIC-Extract <https://github.com/MLforHealth/MIMIC_Extract#step-4-set-cohort-selection-and-extraction-criteria>`__.
+    Works with files created with or without LEVEL2 grouping and with restricted cohort population
+    sizes, other optional parameter values, and should work with many customized versions of the pipeline.
 
-STAY_INDEX = ("subject_id", "hadm_id", "icustay_id")
-HOURLY_INDEX = (*STAY_INDEX, "hours_in")
+    MIMIC-Extract is derived from MIMIC-III, so every route below first needs
+    credentialed PhysioNet access to MIMIC-III
+    (https://physionet.org/content/mimiciii/1.4/; see :class:`MIMIC3Dataset`).
+    You can create or obtain a MIMIC-Extract dataset in several ways:
 
-PATIENTS_REQUIRED = (*STAY_INDEX, "intime", "los_icu", "mort_icu", "mort_hosp")
-"""Columns the ``patients`` HDF5 table must have."""
+    * The default cohort dataset is `available on GCP <https://console.cloud.google.com/storage/browser/mimic_extract>`__
+      (requires PhysioNet access provisioned in GCP).
+    * Follow the `step-by-step instructions <https://github.com/MLforHealth/MIMIC_Extract#step-by-step-instructions>`__
+      on the MIMIC_Extract github site, which includes setting up a PostgreSQL database and loading
+      the MIMIC-III data files.
+    * Use the instructions at `MIMICExtractEasy <https://github.com/SphtKr/MIMICExtractEasy>`__ which uses DuckDB
+      instead and should be a good bit simpler.
+    
+    Any of these methods will provide you with a set of HDF5 files containing a cleaned subset of the MIMIC-III dataset.
+    This class can be used to read that dataset (mainly the `all_hourly_data.h5` file). Consult the MIMIC-Extract
+    documentation for all the options available for dataset generation (cohort selection, aggregation level, etc.).
 
-PATIENTS_OPTIONAL = (
-    "gender",
-    "ethnicity",
-    "age",
-    "insurance",
-    "admission_type",
-    "first_careunit",
-    "admittime",
-    "dischtime",
-    "outtime",
-    "deathtime",
-    "hospital_expire_flag",
-    "readmission_30",
-)
-"""Columns kept when present; written as empty when the extract lacks them."""
-
-_DATETIME_COLUMNS = ("intime", "admittime", "dischtime", "outtime", "deathtime")
-_PATIENTS_NUMERIC = (
-    "age",
-    "los_icu",
-    "mort_icu",
-    "mort_hosp",
-    "hospital_expire_flag",
-    "readmission_30",
-)
-_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
-
-
-def build_mimic_extract_tables(
-    patients: pd.DataFrame,
-    vitals_labs: pd.DataFrame,
-    root: str | Path,
-    max_hours: int | None = None,
-    chunk_rows: int = 200_000,
-) -> None:
-    """Writes the CSV tables the dataset config reads, from in-memory frames.
-
-    Takes the two tables as they are stored in ``all_hourly_data.h5`` and
-    writes :data:`PATIENTS_CSV` (one row per ICU stay) and
-    :data:`VITALS_LABS_CSV` (one row per stay, hour and variable, with
-    ``mean``, ``count`` and ``std``) into ``root``. Hourly rows with no
-    measurement (``mean`` and ``std`` missing and ``count`` missing or 0) are
-    dropped. :func:`prepare_mimic_extract` calls this after reading the HDF5
-    file; it also lets tests build the tables without PyTables.
-
-    Each hourly timestamp is the stay's ``intime`` plus ``hours_in`` hours,
-    so events keep MIMIC-III's (date-shifted) calendar times. The ``patients``
-    event of a stay is timestamped at its ``intime``.
+    Getting the data:
+        - Source: MIMIC-III on PhysioNet,
+          https://physionet.org/content/mimiciii/1.4/, processed with
+          MIMIC-Extract (https://github.com/MLforHealth/MIMIC_Extract).
+        - Access: credentialed, the same as :class:`MIMIC3Dataset`.
+        - Download: build the HDF5 files with one of the routes above.
+        - ``root``: the folder holding ``all_hourly_data.h5`` (or
+          ``all_hourly_data_<pop_size>.h5`` when ``pop_size`` is set).
 
     Args:
         patients: The ``patients`` table, indexed by (or with columns)

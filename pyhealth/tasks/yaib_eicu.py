@@ -304,12 +304,14 @@ class _YAIBEICUTask(BaseTask):
     Each sample holds ``dynamic``, a ``sequence_v2`` series of the hourly
     bins (``{"time": [0, 1, ..., T], "values": [T + 1, 48]}``, time in hours
     since ICU admission, ``NaN`` for bins without measurement), and
-    ``static``, a ``sequence_v2`` series with one record at hour 0, known
-    before any hourly bin (``{"time": [0], "values": [[age, sex, height,
-    weight]]}``, sex encoded as 1 for male and 0 for female, ``NaN`` when
+    ``static``, a ``sequence_v2`` field with a ``single`` level, the stay's
+    one record (``{"values": [[age, sex, height, weight]]}``, sex
+    encoded as 1 for male and 0 for female, ``NaN`` when
     unavailable). Per-hour labels are ``timeseries_*`` labels on the same
     hours (``{"time": [...], "values": [...]}``), so a model predicts at hour
-    ``h`` from the bins up to ``h``. Missing values are left to the
+    ``h`` from the bins up to ``h``. They declare ``timeline=["dynamic"]``:
+    ``dynamic`` is on the label's timeline, and ``static`` holds for every
+    hour. Missing values are left to the
     processors, which apply YAIB's preprocessing: the dynamic features are
     forward-filled, with values before the first measurement set to the
     training mean (0 once standardized), standardized, and get a
@@ -366,7 +368,7 @@ class _YAIBEICUTask(BaseTask):
             {
                 "levels": [
                     {
-                        "ordering": "series",
+                        "ordering": "single",
                         "values": [len(_STATIC_FEATURES)],
                         "impute": [
                             {"method": "mean", "by_dims": ()},  # per feature
@@ -750,9 +752,9 @@ class _YAIBEICUTask(BaseTask):
         return {"time": [float(hour) for hour in range(end + 1)], "values": values}
 
     @staticmethod
-    def _static_series(values: list[float]) -> Records:
-        """The static features as one record at hour 0, before any bin."""
-        return {"time": [0.0], "values": [values]}
+    def _static_record(values: list[float]) -> Records:
+        """The static features as the stay's one record of a ``single`` level."""
+        return {"values": [values]}
 
     @staticmethod
     def _labels(time: list[float], labels: list[float]) -> dict[str, Any]:
@@ -824,6 +826,8 @@ class _YAIBEICUTask(BaseTask):
 class YAIBMortalityEICU(_YAIBEICUTask):
     """YAIB ICU mortality prediction after 24 hours on eICU-CRD.
 
+    Works with :class:`~pyhealth.datasets.eICUDataset`.
+
     Predicts death in the ICU from the first 24 hours of the stay (hourly bins
     0 to 24 inclusive, as in YAIB). On top of the YAIB base cohort, stays are
     excluded if the patient died within 30 hours of ICU admission or the ICU
@@ -874,7 +878,7 @@ class YAIBMortalityEICU(_YAIBEICUTask):
                     "patient_id": patient.patient_id,
                     "stay_id": stay_id,
                     "dynamic": self._dynamic(hourly, stay_id, min(end, self.OBSERVATION_HOURS)),
-                    "static": self._static_series(static[stay_id]),
+                    "static": self._static_record(static[stay_id]),
                     "mortality": int(death is not None),
                 }
             )
@@ -883,6 +887,8 @@ class YAIBMortalityEICU(_YAIBEICUTask):
 
 class YAIBKidneyFunctionEICU(_YAIBEICUTask):
     """YAIB kidney function prediction on eICU-CRD.
+
+    Works with :class:`~pyhealth.datasets.eICUDataset`.
 
     Predicts the median creatinine (mg/dL) on the second day of the ICU stay
     from the first 24 hours (hourly bins 0 to 24 inclusive, as in YAIB). As in
@@ -947,7 +953,7 @@ class YAIBKidneyFunctionEICU(_YAIBEICUTask):
                     "patient_id": patient.patient_id,
                     "stay_id": stay_id,
                     "dynamic": self._dynamic(hourly, stay_id, min(end, self.OBSERVATION_HOURS)),
-                    "static": self._static_series(static[stay_id]),
+                    "static": self._static_record(static[stay_id]),
                     "creatinine": labels[stay_id],
                 }
             )
@@ -956,6 +962,8 @@ class YAIBKidneyFunctionEICU(_YAIBEICUTask):
 
 class YAIBLengthOfStayEICU(_YAIBEICUTask):
     """YAIB remaining length of stay prediction on eICU-CRD.
+
+    Works with :class:`~pyhealth.datasets.eICUDataset`.
 
     Predicts, at every hour of the ICU stay, the remaining hours until ICU
     discharge, capped at 7 days. As in YAIB, the stay is observed for at most
@@ -987,7 +995,10 @@ class YAIBLengthOfStayEICU(_YAIBEICUTask):
 
     task_name: str = "YAIBLengthOfStayEICU"
     output_schema: ClassVar[dict[str, Any]] = {
-        "los": ("timeseries_regression", {"normalization": "minmax"})
+        "los": (
+            "timeseries_regression",
+            {"normalization": "minmax", "timeline": ["dynamic"]},
+        )
     }
 
     MAX_HOURS: ClassVar[int] = 7 * 24
@@ -1009,7 +1020,7 @@ class YAIBLengthOfStayEICU(_YAIBEICUTask):
                     "patient_id": patient.patient_id,
                     "stay_id": stay_id,
                     "dynamic": dynamic,
-                    "static": self._static_series(static[stay_id]),
+                    "static": self._static_record(static[stay_id]),
                     "los": self._labels(dynamic["time"], remaining),
                 }
             )
@@ -1018,6 +1029,8 @@ class YAIBLengthOfStayEICU(_YAIBEICUTask):
 
 class YAIBAKIEICU(_YAIBEICUTask):
     """YAIB acute kidney injury (AKI) prediction on eICU-CRD.
+
+    Works with :class:`~pyhealth.datasets.eICUDataset`.
 
     Predicts, at every hour of the ICU stay, AKI (KDIGO stage 1 or higher)
     within the next 6 hours, following YAIB-cohorts aki.R and its KDIGO
@@ -1065,7 +1078,9 @@ class YAIBAKIEICU(_YAIBEICUTask):
     """
 
     task_name: str = "YAIBAKIEICU"
-    output_schema: ClassVar[dict[str, Any]] = {"aki": "timeseries_binary"}
+    output_schema: ClassVar[dict[str, Any]] = {
+        "aki": ("timeseries_binary", {"timeline": ["dynamic"]})
+    }
 
     MAX_HOURS: ClassVar[int] = 7 * 24
     HORIZON: ClassVar[int] = 6
@@ -1249,7 +1264,7 @@ class YAIBAKIEICU(_YAIBEICUTask):
                     "patient_id": patient.patient_id,
                     "stay_id": stay_id,
                     "dynamic": dynamic,
-                    "static": self._static_series(static[stay_id]),
+                    "static": self._static_record(static[stay_id]),
                     "aki": self._labels(dynamic["time"], labels),
                 }
             )
@@ -1257,6 +1272,8 @@ class YAIBAKIEICU(_YAIBEICUTask):
 
 class YAIBSepsisEICU(_YAIBEICUTask):
     """YAIB sepsis prediction on eICU-CRD.
+
+    Works with :class:`~pyhealth.datasets.eICUDataset`.
 
     Predicts, at every hour of the ICU stay, Sepsis-3 onset within the next 6
     hours, following YAIB-cohorts sepsis.R with its sep3_alt definition and
@@ -1350,7 +1367,9 @@ class YAIBSepsisEICU(_YAIBEICUTask):
     """
 
     task_name: str = "YAIBSepsisEICU"
-    output_schema: ClassVar[dict[str, Any]] = {"sepsis": "timeseries_binary"}
+    output_schema: ClassVar[dict[str, Any]] = {
+        "sepsis": ("timeseries_binary", {"timeline": ["dynamic"]})
+    }
 
     MAX_HOURS: ClassVar[int] = 7 * 24
     HORIZON: ClassVar[int] = 6
@@ -2119,7 +2138,7 @@ class YAIBSepsisEICU(_YAIBEICUTask):
                     "patient_id": patient.patient_id,
                     "stay_id": stay_id,
                     "dynamic": dynamic,
-                    "static": self._static_series(static[stay_id]),
+                    "static": self._static_record(static[stay_id]),
                     "sepsis": self._labels(dynamic["time"], labels),
                 }
             )

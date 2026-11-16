@@ -46,7 +46,13 @@ from ..data import Patient
 from ..tasks import BaseTask
 from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
-from .sample_dataset import STORAGE_FORMAT, SampleDataset, SampleBuilder
+from .sample_dataset import (
+    STORAGE_FORMAT,
+    SampleBuilder,
+    SampleDataset,
+    _litdata_add,
+    _litdata_merge,
+)
 from .splitter import Split
 from ..utils import download_file, preserve_rng_state, set_env
 
@@ -287,42 +293,6 @@ def _csv_tsv_gz_path(path: str) -> str:
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
 
 
-def _litdata_merge(cache_dir: Path) -> None:
-    """
-    Merges LitData binary writer index files in the given cache directory.
-
-    Workers write contiguous sample ranges, each with its own
-    ``{rank}.index.json``. ``patient_to_index`` and ``record_to_index`` are
-    built before processing and assume merged sample ``i`` is input sample
-    ``i``, so the per-worker indexes must be joined in numeric rank order.
-    ``BinaryWriter.merge`` does this from litdata 0.2.64 on; earlier versions
-    sort the file names as strings (0, 1, 10, 11, ..., 2), which reorders
-    samples with more than 10 workers.
-
-    Args:
-        cache_dir (Path): The cache directory containing LitData binary writer files.
-    """
-    from litdata.streaming.writer import _INDEX_FILENAME
-
-    files = os.listdir(cache_dir)
-
-    # Return if the index already exists
-    if _INDEX_FILENAME in files:
-        return
-
-    index_files = [f for f in files if f.endswith(_INDEX_FILENAME)]
-
-    # Return if there are no index files to merge
-    if len(index_files) == 0:
-        raise ValueError(
-            "There are zero samples in the dataset, please check the task and processors."
-        )
-
-    BinaryWriter(cache_dir=str(cache_dir), chunk_bytes="64MB").merge(
-        num_workers=len(index_files)
-    )
-
-
 # Seconds between the progress updates dask's scheduler sends (dask's default).
 _DASK_PROGRESS_INTERVAL = 0.1
 
@@ -495,7 +465,7 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
         write_index = 0
         for i in range(start_idx, end_idx):
             transformed: dict[str, Any] = builder.transform_for_storage(dataset[i])
-            writer.add_item(write_index, transformed)
+            _litdata_add(writer, write_index, transformed)
             write_index += 1
             complete += 1
 
@@ -650,6 +620,81 @@ class BaseDataset(ABC):
             cache_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"Using provided cache_dir: {cache_dir}")
         return Path(cache_dir)
+
+    def _task_cache_dir(self, task: BaseTask) -> Path:
+        """The directory that caches ``task``'s samples for this dataset.
+
+        The name holds the task name and a hash of the task's attributes and
+        schemas, so tasks that differ in any argument get their own cache.
+        """
+        task_params = json.dumps(
+            {
+                **vars(task),
+                "input_schema": task.input_schema,
+                "output_schema": task.output_schema,
+            },
+            sort_keys=True,
+            default=str,
+        )
+        return (
+            self.cache_dir
+            / "tasks"
+            / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
+        )
+
+    def clear_task_cache(self, task: BaseTask | None = None) -> bool:
+        """Deletes the cached samples of one task for this dataset.
+
+        The next :meth:`set_task` with the same task rebuilds them. The
+        dataset's event table and other tasks' caches are kept. A
+        :class:`~pyhealth.datasets.SampleDataset` already returned for this
+        task reads from the deleted directory, so close it first.
+
+        Args:
+            task: The task whose cache to delete. Defaults to the dataset's
+                ``default_task``.
+
+        Returns:
+            Whether a cache was found and deleted.
+
+        Raises:
+            ValueError: If no task is given and the dataset has no default task.
+
+        Examples:
+            >>> dataset.clear_task_cache(MortalityPredictionMIMIC4())  # doctest: +SKIP
+            True
+        """
+        if task is None:
+            task = self.default_task
+        if task is None:
+            raise ValueError("No task given and the dataset has no default task.")
+        path = self._task_cache_dir(task)
+        if not path.exists():
+            return False
+        shutil.rmtree(path)
+        logger.info(f"Deleted the cache of task {task.task_name}: {path}")
+        return True
+
+    def clear_cache(self) -> None:
+        """Deletes this dataset's whole cache: the event table and every task.
+
+        The directory is the one for this dataset configuration
+        (:attr:`cache_dir`); other configurations of the dataset, and other
+        datasets, keep theirs. The next access rebuilds the event table from
+        the source files. Close any :class:`~pyhealth.datasets.SampleDataset`
+        built from this dataset first, since its files are deleted.
+
+        Examples:
+            >>> dataset.clear_cache()  # doctest: +SKIP
+        """
+        path = self.cache_dir
+        if path.exists():
+            shutil.rmtree(path)
+            logger.info(f"Deleted the cache of {self.dataset_name}: {path}")
+        self._global_event_df = None
+        self._unique_patient_ids = None
+        self._tmp_dirs = []
+        path.mkdir(parents=True, exist_ok=True)
 
     def create_tmpdir(self) -> Path:
         """Creates and returns a new temporary directory within the cache.
@@ -1385,21 +1430,7 @@ class BaseDataset(ABC):
             f"Setting task {task.task_name} for {self.dataset_name} base dataset..."
         )
 
-        task_params = json.dumps(
-            {
-                **vars(task),
-                "input_schema": task.input_schema,
-                "output_schema": task.output_schema,
-            },
-            sort_keys=True,
-            default=str,
-        )
-
-        cache_dir = (
-            self.cache_dir
-            / "tasks"
-            / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
-        )
+        cache_dir = self._task_cache_dir(task)
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         proc_params = json.dumps(
