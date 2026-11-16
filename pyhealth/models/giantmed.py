@@ -5,12 +5,12 @@ The refiner operates on raw task samples and probabilities from a separately
 trained model. Retrieval must be fitted on training patients only.
 """
 
-import json
-import math
-import re
 import ast
 import csv
 import gzip
+import json
+import math
+import re
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
@@ -297,10 +297,12 @@ class GiantMed:
         def render():
             parts = [
                 lines[0],
-                "Candidates are rows [code, score, name], numbered from 0 in order. "
-                "Return scores keyed by medication code, not row number. Similar-visit medication numbers and "
-                "interaction numbers refer to candidate row numbers. Similar-visit "
-                "diagnosis and procedure codes refer to the current-visit lists.",
+                (
+                    "Candidates are rows [code, score, name], numbered from 0 in order. "
+                    "Return scores keyed by medication code, not row number. Similar-visit medication numbers and "
+                    "interaction numbers refer to candidate row numbers. Similar-visit "
+                    "diagnosis and procedure codes refer to the current-visit lists."
+                ),
             ]
             for name in (
                 "Current diagnoses",
