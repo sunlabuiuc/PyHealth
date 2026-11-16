@@ -7,6 +7,7 @@ import torch.nn as nn
 
 from pyhealth.interpret.methods import GIM
 from pyhealth.interpret.api import Interpretable
+from pyhealth.processors import BinaryLabelProcessor
 from pyhealth.models import BaseModel
 from pyhealth.models.transformer import Attention
 
@@ -41,9 +42,11 @@ class _MockDataset:
         self.dataset_name = "dummy"
 
 
-class _BinaryProcessor:
-    def size(self) -> int:
-        return 1
+def _BinaryProcessor() -> BinaryLabelProcessor:
+    """A fitted binary label processor for the mock dataset."""
+    processor = BinaryLabelProcessor()
+    processor.fit([{"label": 0}, {"label": 1}], "label")
+    return processor
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +85,6 @@ class _ToyGIMModel(BaseModel, Interpretable):
         super().__init__(dataset=dataset)
         self.feature_keys = ["codes"]
         self.label_keys = ["label"]
-        self.mode = "binary"
 
         self.embedding_model = _ToyEmbeddingModel(vocab_size, embedding_dim)
         self.query = nn.Linear(embedding_dim, embedding_dim, bias=False)

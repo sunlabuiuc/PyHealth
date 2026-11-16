@@ -1,7 +1,7 @@
 pyhealth.processors.TimeseriesLabelProcessor
 ============================================
 
-Base processor for labels given per time step, returning ``(value, mask)`` on the time grid of the input time series.
+Base class of labels given at time points: one label of the static counterpart per time, packed per batch.
 
 .. autoclass:: pyhealth.processors.TimeseriesLabelProcessor
     :members:

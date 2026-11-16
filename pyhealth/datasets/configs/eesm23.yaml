@@ -1,0 +1,12 @@
+version: "1.0.0"
+tables:
+  recordings:
+    file_path: "eesm23-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "session_id"
+    - "signal_file"
+    - "scoring_file"
+    - "recording_failures_file"
+    - "has_scoring"

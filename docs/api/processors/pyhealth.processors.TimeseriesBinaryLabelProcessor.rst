@@ -1,7 +1,7 @@
 pyhealth.processors.TimeseriesBinaryLabelProcessor
 ==================================================
 
-Binary (0/1) label per time step (``"timeseries_binary"``).
+Binary (0/1) labels at time points (``"timeseries_binary"``).
 
 .. autoclass:: pyhealth.processors.TimeseriesBinaryLabelProcessor
     :members:

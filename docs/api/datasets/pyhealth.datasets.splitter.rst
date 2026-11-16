@@ -47,6 +47,25 @@ training patients only, let ``set_task`` do the split:
 The default, ``set_task(task)`` without ``split``, is unchanged: it fits on all
 samples and returns one dataset.
 
+Splitting by a list of subjects
+-------------------------------
+
+:class:`SubjectSplit` places each subject in a part you name. Nothing is
+shuffled, and a subject you leave off the lists is left out of every part.
+Pass it to ``set_task`` so processors are fitted on the training subjects
+only. :func:`split_by_subject` does the same cut on a dataset that has
+already been processed.
+
+.. code-block:: python
+
+    from pyhealth.datasets import SubjectSplit
+
+    train_subjects = [f"chb{i:02d}" for i in range(1, 21)]
+    split = SubjectSplit((train_subjects, ["chb21", "chb22"], ["chb23", "chb24"]))
+    train, val, test = dataset.set_task(task, split=split)
+
+``CHBMITDataset.default_subject_split()`` returns that CHB-MIT split.
+
 Writing your own split
 ----------------------
 

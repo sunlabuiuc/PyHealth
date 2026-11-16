@@ -250,7 +250,7 @@ class GraphCare(BaseModel):
         else:
             pool_dim = hidden_dim
 
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.dropout = nn.Dropout(dropout)
         self.fc = nn.Linear(
             len(self.feature_keys) * pool_dim, output_size
@@ -358,7 +358,7 @@ class GraphCare(BaseModel):
 
         patient_emb = torch.cat(patient_emb, dim=1)
         logits = self.fc(self.dropout(patient_emb))
-        y_prob = self.prepare_y_prob(logits)
+        y_prob = self.label_processor.activation(logits)
 
         results = {
             "logit": logits,
@@ -369,7 +369,7 @@ class GraphCare(BaseModel):
             y_true = cast(
                 torch.Tensor, kwargs[self.label_key]
             ).to(self.device)
-            loss = self.get_loss_function()(logits, y_true)
+            loss = self.label_processor.loss(logits, y_true)
             results["loss"] = loss
             results["y_true"] = y_true
 
