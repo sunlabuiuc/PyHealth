@@ -87,3 +87,5 @@ from .heartlang import (
 )
 from .meme import MEME as MEME
 from .meme import DomainSelfAttention as DomainSelfAttention
+from .motionage import MotionAge as MotionAge
+from .motionage import MotionAgeMapping as MotionAgeMapping
