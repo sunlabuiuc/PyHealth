@@ -15,6 +15,8 @@ from pyhealth.datasets.nhanes_synthetic import (
     MAX_INTENSITY,
     MAX_STEPS,
     PAXRAW_COLUMNS,
+    PLANTED_BOUNDED_NONWEAR,
+    PLANTED_LONE_SPIKE,
     PLANTED_NONWEAR,
     PLANTED_SEDENTARY,
     PLANTED_SPIKE,
@@ -227,8 +229,21 @@ class TestSyntheticNHANES(unittest.TestCase):
         self.assertEqual(intensity[start - 1], 50)
         self.assertEqual(intensity[end], 50)
 
+    def test_planted_bounded_nonwear_block(self):
+        """The 120-minute block is zeros plus one spike, between counts of 150."""
+        intensity = self.intensity("died_within_5y")
+        wear = self.data.wear_truth[self.seqn("died_within_5y")]
+        start, end = PLANTED_BOUNDED_NONWEAR
+        self.assertFalse(wear[start:end].any())
+        self.assertTrue(wear[start - 1] and wear[end])
+        self.assertEqual(intensity[PLANTED_LONE_SPIKE], 50)
+        block = np.delete(intensity[start:end], PLANTED_LONE_SPIKE - start)
+        self.assertTrue((block == 0).all())
+        self.assertEqual(intensity[start - 1], 150)
+        self.assertEqual(intensity[end], 150)
+
     def test_wear_truth_is_consistent_with_counts(self):
-        """Non-wear minutes are zero (except the spike) and runs last >= 90."""
+        """Non-wear minutes are zero (except the spikes) and runs last >= 90."""
         planted = self.seqn("died_within_5y")
         for seqn, wear in self.data.wear_truth.items():
             rows = self.paxraw[self.paxraw["SEQN"] == seqn]
@@ -236,6 +251,7 @@ class TestSyntheticNHANES(unittest.TestCase):
             spike = np.zeros_like(wear)
             if seqn == planted:
                 spike[slice(*PLANTED_SPIKE)] = True
+                spike[PLANTED_LONE_SPIKE] = True
             self.assertTrue((intensity[~wear & ~spike] == 0).all())
             # Zero runs of the wear mask are the non-wear stretches.
             for start, end in zero_runs(wear.astype(int)):

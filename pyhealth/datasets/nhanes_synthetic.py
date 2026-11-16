@@ -87,6 +87,10 @@ EDGE_CASE_ROLES = (
 PLANTED_NONWEAR = (10 * 60, 13 * 60)  # 180 zero minutes: Choi should flag.
 PLANTED_SPIKE = (11 * 60 + 29, 11 * 60 + 31)  # 2-minute spike inside it.
 PLANTED_SEDENTARY = (14 * 60 + 30, 15 * 60 + 30)  # 60 zero minutes: worn.
+# 120 zero minutes between two counts of 150, with one 1-100 spike inside:
+# both Choi and the authors' rule should flag the whole block.
+PLANTED_BOUNDED_NONWEAR = (16 * 60 + 30, 18 * 60 + 30)
+PLANTED_LONE_SPIKE = 17 * 60 + 30  # 60 zero minutes before it, 59 after.
 
 
 @dataclass
@@ -204,6 +208,11 @@ def _simulate_activity(
         sed_start, sed_end = PLANTED_SEDENTARY
         intensity[sed_start:sed_end] = 0  # Still worn: wear stays True.
         intensity[sed_start - 1] = intensity[sed_end] = 50
+        bn_start, bn_end = PLANTED_BOUNDED_NONWEAR
+        wear[bn_start:bn_end] = False
+        intensity[bn_start:bn_end] = 0
+        intensity[PLANTED_LONE_SPIKE] = 50
+        intensity[bn_start - 1] = intensity[bn_end] = 150  # > 100: authors split
 
     # Nonzero first and last worn minute of every worn stretch.
     for start, end in _true_runs(wear):

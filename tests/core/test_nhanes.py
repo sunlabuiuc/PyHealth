@@ -16,6 +16,7 @@ import pandas as pd
 from pyhealth.datasets import nhanes
 from pyhealth.datasets.nhanes import NHANESDataset
 from pyhealth.datasets.nhanes_synthetic import (
+    PLANTED_BOUNDED_NONWEAR,
     PLANTED_NONWEAR,
     PLANTED_SEDENTARY,
     generate_synthetic_nhanes,
@@ -309,6 +310,10 @@ class TestNHANESDataset(unittest.TestCase):
             nonwear="choi",
             cache_dir=str(Path(cls._tmp.name) / "cache"),
         )
+        # The default authors' rule, for value checks inside the planted blocks.
+        cls.authors_dataset = NHANESDataset(
+            root=str(root), cache_dir=str(Path(cls._tmp.name) / "cache")
+        )
         cls.table = pd.read_parquet(
             cls.dataset.prepared_dir / "nhanes-participants.parquet"
         ).set_index("seqn")
@@ -385,15 +390,32 @@ class TestNHANESDataset(unittest.TestCase):
             np.testing.assert_array_equal(epochs["wear_minutes"].to_numpy(), truth)
 
     def test_planted_patterns(self):
-        """Planted 180-min block: Choi flags it, the authors' rule does not."""
+        """Choi flags both planted blocks; the authors' rule only the bounded one."""
         rows = self.paxraw[self.paxraw.SEQN == self.seqn("died_within_5y")]
         counts = rows.sort_values("PAXN")["PAXINTEN"].to_numpy(float)
         start, end = PLANTED_NONWEAR
         self.assertTrue(nhanes._choi_nonwear(counts)[start:end].all())
         self.assertFalse(nhanes._authors_nonwear(counts)[start:end].any())
+        start, end = PLANTED_BOUNDED_NONWEAR
+        for detector in (nhanes._choi_nonwear, nhanes._authors_nonwear):
+            flagged = detector(counts)
+            self.assertTrue(flagged[start:end].all())
+            self.assertFalse(flagged[start - 1] or flagged[end])
         start, end = PLANTED_SEDENTARY
         for detector in (nhanes._choi_nonwear, nhanes._authors_nonwear):
             self.assertFalse(detector(counts)[start:end].any())
+
+    def test_authors_epochs_in_planted_blocks(self):
+        """Default build: the adjacent-spike block stays worn, the bounded one not."""
+        table = pd.read_parquet(
+            self.authors_dataset.prepared_dir / "nhanes-participants.parquet"
+        ).set_index("seqn")
+        epochs = pd.read_parquet(table.loc[self.seqn("died_within_5y"), "epoch_file"])
+        wear = epochs["wear_minutes"].to_numpy()
+        start, end = PLANTED_NONWEAR
+        self.assertTrue((wear[start // 5 : end // 5] == 5).all())
+        start, end = PLANTED_BOUNDED_NONWEAR
+        self.assertTrue((wear[start // 5 : end // 5] == 0).all())
 
     def test_patients_and_events(self):
         """PyHealth sees one patient per participant with readable attributes."""
