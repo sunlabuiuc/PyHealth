@@ -1,3 +1,5 @@
+.. Generated with Claude Fable 5.2 (Anthropic).
+
 pyhealth.tasks.TabularMortalityPredictionEICU
 =============================================
 

@@ -10,6 +10,9 @@ Paper:
     Synthetic Medical Record Generation with Commercial LLMs", CHIL 2025
     (PMLR 287), https://proceedings.mlr.press/v287/lin25a.html
 
+AI assistance:
+    Generated with Claude Fable 5.2 (Anthropic).
+
 This script reproduces two of the paper's prompting strategies on the table
 that :class:`~pyhealth.tasks.TabularMortalityPredictionEICU` builds (one row
 per ICU stay: ten early features, sex, ethnicity and in-ICU mortality):

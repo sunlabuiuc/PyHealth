@@ -10,6 +10,9 @@ Paper being reproduced:
     Synthetic Medical Record Generation with Commercial LLMs", CHIL 2025
     (PMLR 287), https://proceedings.mlr.press/v287/lin25a.html
 
+AI assistance:
+    Generated with Claude Fable 5.2 (Anthropic).
+
 The paper prompts commercial LLMs to generate synthetic eICU records and
 scores them with an XGBoost ICU mortality classifier. Its real cohort is a
 flat table with one row per ICU stay: demographics, the first and last value

@@ -2,6 +2,9 @@
 
 Every patient is built in memory from a handful of made-up events, so the
 tests read no eICU files and write nothing to disk.
+
+AI assistance:
+    Generated with Claude Fable 5.2 (Anthropic).
 """
 
 import math
