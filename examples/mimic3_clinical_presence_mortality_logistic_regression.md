@@ -193,7 +193,7 @@ gives the full list.
 |---|---|---|---|
 | Stay anchor | Hospital admission (the text says ICU admission) | Hospital admission, as the code | - |
 | Index admission | Last row of `ADMISSIONS.csv` | Latest admission time | 88 patients (0.24%) get a later admission |
-| Label | `DEATHTIME - ADMITTIME` under 8 days | `hospital_expire_flag` and `DISCHTIME - ADMITTIME` under 8 days | 5 labels differ |
+| Label | `DEATHTIME - ADMITTIME` under 8 days | `hospital_expire_flag` and `DISCHTIME - ADMITTIME` under 8 days | 0.2% of the positive labels differ |
 | Labs of the admission | `HADM_ID` and the 24-hour window | The window only | 37 patients move into or out of the cohort |
 | Split | Imputer fit on 80%; classifier evaluated on the other 28% | 80/10/10, with everything fit on the 80% | A test split 2.8 times smaller |
 | Missingness indicators | Added before MICE | Added after, as the text says | See the indicator-order table |

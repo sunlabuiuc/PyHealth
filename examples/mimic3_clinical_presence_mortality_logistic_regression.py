@@ -62,6 +62,9 @@ strategy's share of extreme imputations), fig_deltas_<model>_<capacity>.png
 the paper's values in brackets). Each "+ indicators first" strategy run with its
 base strategy also gives order_shift.csv (how far the imputed values move) and
 order_paired.csv (paired bootstrap differences of every metric and gap).
+
+The MIMIC-III v1.4 results over split seeds 0-4 (reproduction, hypotheses and
+ablations) are in examples/mimic3_clinical_presence_mortality_logistic_regression.md.
 """
 
 import argparse

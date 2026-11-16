@@ -244,6 +244,15 @@ On MIMIC-III v1.4 these give 36,313 patients against the reference's 36,296.
 For the 36,192 patients that both cohorts share with the same index admission,
 every lab value, lab-order count and group flag matches.
 
+Example and Results
+-------------------
+
+``examples/mimic3_clinical_presence_mortality_logistic_regression.py`` runs the
+experiment: it trains a logistic regression on each imputation draw and writes
+the paper's tables and figures, with the paper's values alongside. Its results
+on MIMIC-III v1.4 over five split seeds, compared with the paper, are in
+``examples/mimic3_clinical_presence_mortality_logistic_regression.md``.
+
 Task Class
 ----------
 
