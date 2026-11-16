@@ -276,7 +276,9 @@ class EEGAbnormalTUAB(BaseTask):
          metadata ``label`` attribute
 
     Each returned sample contains:
-      - "signal": torch.FloatTensor, shape (16, 10 * resample_rate)
+      - "signal": torch.FloatTensor, shape (16, round(10 * resample_rate));
+        a window is exactly 10 s only when ``10 * resample_rate`` is a
+        whole number of samples
       - "label": int (0 = normal, 1 = abnormal)
 
     Examples:
