@@ -35,22 +35,23 @@ paper); the others make one.
 
 Usage:
     # MIMIC-III v1.4, which needs credentialed PhysioNet access: every
-    # strategy on split seed 0
+    # strategy on split seed 0, also training PyHealth's LogisticRegression on
+    # each draw (without --pyhealth-lr, only scikit-learn's)
     python examples/mimic3_clinical_presence_mortality_logistic_regression.py \
         --root /path/to/mimic-iii/1.4 --cache-dir /path/to/cache \
-        --out results/clinical_presence_fairness
+        --out results/clinical_presence_fairness --pyhealth-lr
 
-    # The paper's strategies over five split seeds, also training PyHealth's
-    # LogisticRegression on each draw
+    # The paper's strategies over five split seeds
     python examples/mimic3_clinical_presence_mortality_logistic_regression.py \
         --root /path/to/mimic-iii/1.4 --strategies paper --seeds 0 1 2 3 4 \
         --pyhealth-lr
 
-    # The open MIMIC-III demo (100 patients) checks the code paths only; subgroup
-    # metrics that its small test split cannot support are skipped with a warning
+    # The open MIMIC-III demo (100 patients, about 3 min) checks the code paths
+    # only; subgroup metrics that its small test split cannot support are
+    # skipped with a warning
     python examples/mimic3_clinical_presence_mortality_logistic_regression.py \
         --root /path/to/mimiciii-demo/1.4 --out results/demo --strategies paper \
-        --n-draws 2 --split-ratios 0.5 0.1 0.4 --n-bootstrap 20
+        --n-draws 2 --split-ratios 0.5 0.1 0.4 --n-bootstrap 20 --pyhealth-lr
 
 Writes aggregate results only, never per-patient rows: metrics.csv (long
 format), selection.csv (each C's validation score and iterations per draw, and
