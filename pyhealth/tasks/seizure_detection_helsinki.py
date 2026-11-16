@@ -71,6 +71,38 @@ _FILTER_ORDER = 6
 _STOPBAND_ATTENUATION_DB = 80
 
 
+def bandpass_sections(stopband_edges: Sequence[float], sfreq: float) -> np.ndarray:
+    """Design the band-pass filter of Borovac et al.'s code.
+
+    A sixth-order Chebyshev type II band-pass with 80 dB of stopband
+    attenuation, ``scipy.signal.cheby2(6, 80, ...)`` in their code. It is
+    returned as second-order sections: the transfer-function form of this
+    design is numerically unstable for narrow bands at 256 Hz.
+
+    Args:
+        stopband_edges: ``(low, high)`` frequencies in Hz at which the
+            attenuation reaches 80 dB.
+        sfreq: Sampling rate of the signal in Hz.
+
+    Returns:
+        The filter as an array of second-order sections, for
+        ``scipy.signal.sosfilt``.
+
+    Examples:
+        >>> from pyhealth.tasks.seizure_detection_helsinki import bandpass_sections
+        >>> bandpass_sections((0.5, 32.0), 256.0).shape
+        (6, 6)
+    """
+    return cheby2(
+        _FILTER_ORDER,
+        _STOPBAND_ATTENUATION_DB,
+        list(stopband_edges),
+        btype="bandpass",
+        fs=sfreq,
+        output="sos",
+    )
+
+
 def electrode_name(label: str) -> str:
     """Return the electrode of a Helsinki EDF channel label.
 
@@ -366,17 +398,7 @@ class SeizureDetectionHelsinki(BaseTask):
                     f"The upper band edge {self.bandpass[1]} Hz is not below half "
                     f"of the {sfreq} Hz rate of {signal_file}."
                 )
-            # Second-order sections: the transfer-function form of this design
-            # is numerically unstable for narrow bands at 256 Hz.
-            sos = cheby2(
-                _FILTER_ORDER,
-                _STOPBAND_ATTENUATION_DB,
-                self.bandpass,
-                btype="bandpass",
-                fs=sfreq,
-                output="sos",
-            )
-            data = sosfilt(sos, data, axis=-1)
+            data = sosfilt(bandpass_sections(self.bandpass, sfreq), data, axis=-1)
         if self.resample_rate is not None and self.resample_rate != sfreq:
             ratio = Fraction(self.resample_rate / sfreq).limit_denominator(1000)
             data = resample_poly(data, ratio.numerator, ratio.denominator, axis=-1)

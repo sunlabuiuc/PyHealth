@@ -7,12 +7,14 @@ from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
+from scipy.signal import sosfreqz
 
 from pyhealth.datasets import HelsinkiNeonatalDataset
 from pyhealth.tasks import SeizureDetectionHelsinki
 from pyhealth.tasks.seizure_detection_helsinki import (
     HELSINKI_BIPOLAR_MONTAGE,
     LABEL_MODES,
+    bandpass_sections,
     combine_annotations,
     electrode_name,
     read_helsinki_annotations,
@@ -160,6 +162,19 @@ class TestHelpers(_TempDir):
         self.assertEqual(electrode_name("EEG Fp1-Ref"), "Fp1")
         self.assertEqual(electrode_name("EEG Cz-REF"), "Cz")
         self.assertEqual(electrode_name("Resp Effort-REF"), "Resp Effort")
+
+    def test_default_filter_passband(self):
+        # The docstring gives the band that passes at -3 dB for the default
+        # stopband edges (0.5, 32) Hz on a 256 Hz recording.
+        sos = bandpass_sections(SeizureDetectionHelsinki().bandpass, 256.0)
+        freqs, response = sosfreqz(sos, worN=2**16, fs=256.0)
+        gain_db = 20 * np.log10(np.maximum(np.abs(response), 1e-12))
+        passing = freqs[gain_db >= -3]
+        self.assertAlmostEqual(float(passing[0]), 1.25, delta=0.02)
+        self.assertAlmostEqual(float(passing[-1]), 13.4, delta=0.05)
+        # 80 dB of attenuation at and beyond the stopband edges.
+        self.assertLess(float(gain_db[freqs <= 0.5].max()), -79.9)
+        self.assertLess(float(gain_db[freqs >= 32].max()), -79.9)
 
     def test_read_annotations_drops_rows_after_the_recording(self):
         _write_annotations(
