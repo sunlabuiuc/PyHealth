@@ -1,28 +1,35 @@
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Tuple, Union, Type
+from typing import TYPE_CHECKING
 
 import polars as pl
 
 from .fingerprint import record_init_args
 
+if TYPE_CHECKING:
+    from .task_card import TaskCard
+
 
 class BaseTask(ABC):
-    """Base class for PyHealth predictive tasks.
+    """A prediction task: turns one patient's events into samples.
+
+    Subclasses set ``task_name``, ``input_schema`` and ``output_schema`` and
+    implement ``__call__``. They may also describe themselves with
+    :meth:`task_card`.
 
     Init arguments, class-level configuration, and ``version`` are part of
     the ``set_task`` cache key. Bump ``version`` when ``__call__`` or
     ``pre_filter`` changes in a way that alters generated samples.
 
-    Example:
-        >>> from pyhealth.tasks.base_task import BaseTask
-        >>> class ToyTask(BaseTask):
-        ...     task_name = "toy"
-        ...     input_schema = {"x": "sequence"}
-        ...     output_schema = {"y": "binary"}
+    Examples:
+        >>> class Mortality(BaseTask):
+        ...     task_name = "mortality"
+        ...     input_schema = {"labs": "tensor"}
+        ...     output_schema = {"death": "binary"}
         ...     def __call__(self, patient):
         ...         return []
-        >>> ToyTask().task_name
-        'toy'
+        >>> Mortality().task_name
+        'mortality'
     """
 
     task_name: str
@@ -81,6 +88,27 @@ class BaseTask(ABC):
 
     def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
         return df
+
+    def task_card(self) -> "TaskCard | None":
+        """Optional: what the task predicts, for whom and when, and why.
+
+        Override to return a :class:`~pyhealth.tasks.TaskCard`, with the
+        rationale for the cohort, prediction time, outcome and exclusions,
+        and a dictionary of the task's features. Reports, such as those of
+        :mod:`pyhealth.autoimprove`, use it to explain a model in clinical
+        terms. The default returns ``None``.
+
+        Examples:
+            >>> class Mortality(BaseTask):
+            ...     task_name = "mortality"
+            ...     input_schema = {"labs": "tensor"}
+            ...     output_schema = {"death": "binary"}
+            ...     def __call__(self, patient):
+            ...         return []
+            >>> Mortality().task_card() is None
+            True
+        """
+        return None
 
     @abstractmethod
     def __call__(self, patient) -> List[Dict]:

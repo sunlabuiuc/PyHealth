@@ -6,7 +6,7 @@ coverage guarantees. These methods are based on conformal prediction and related
 techniques for uncertainty quantification.
 
 ``BaseConformal``, ``LABEL``, ``ClusterLabel``, ``CovariateLabel``,
-``LabelShift``, and ``NeighborhoodLabel`` all accept a ``score_type`` argument selecting the
+``LabelShift``, ``RC3P``, and ``NeighborhoodLabel`` all accept a ``score_type`` argument selecting the
 nonconformity/conformity score used for calibration and set construction:
 either ``"threshold"`` (the default, unchanged from prior releases) or
 ``"aps"`` (Adaptive Prediction Sets, Romano, Sesia, and Candes 2020), which
@@ -19,7 +19,6 @@ Available Methods
 -----------------
 
 .. autosummary::
-   :toctree: _autosummary
    :nosignatures:
 
    pyhealth.calib.predictionset.BaseConformal
@@ -28,6 +27,7 @@ Available Methods
    pyhealth.calib.predictionset.FavMac
    pyhealth.calib.predictionset.CovariateLabel
    pyhealth.calib.predictionset.LabelShift
+   pyhealth.calib.predictionset.RC3P
    pyhealth.calib.predictionset.ClusterLabel
    pyhealth.calib.predictionset.NeighborhoodLabel
 
@@ -64,10 +64,45 @@ doesn't actually apply.
 FavMac (Fast Value-Maximizing Prediction Sets)
 -----------------------------------------------
 
+.. note::
+
+   FavMac's threshold formulas are verified directly against the paper's
+   Eq. 18 (expected cost control) and Eq. 21 (violation control,
+   Appendix B.3 Algorithm 5 / Theorem 4.6). Like standard split-conformal
+   prediction, both guarantees assume exchangeability between the
+   calibration data and the point being predicted -- FavMac does not
+   correct for covariate shift; see
+   :class:`~pyhealth.calib.predictionset.CovariateLabel` for a method
+   that does.
+
 .. autoclass:: pyhealth.calib.predictionset.FavMac
    :members:
    :undoc-members:
    :show-inheritance:
+
+For evaluation, pass the original ``cost_weights``, ``value_weights`` and
+``target_cost`` used to construct FavMac, without normalizing them. Both weights
+default to 1.0. With ``delta=None``, compare ``fp_cost`` with ``target_cost``.
+With delta specified, compare ``fp_cost_violation_rate`` with delta instead.
+delta is not an input to either metric.
+
+For example, given these test labels and prediction sets::
+
+    import numpy as np
+    from pyhealth.metrics import multilabel_metrics_fn
+
+    y_true = np.array([[1, 0], [0, 1]])
+    y_predset = np.array([[1, 1], [0, 1]])
+    scores = multilabel_metrics_fn(
+        y_true,
+        np.zeros_like(y_true, dtype=float),  # Probabilities are unused here.
+        metrics=["fp_cost", "tp_value", "fp_cost_violation_rate"],
+        y_predset=y_predset,
+        cost_weights=np.array([2.0, 3.0]),
+        value_weights=np.array([1.0, 4.0]),
+        target_cost=2.0,
+    )
+    assert scores == {"fp_cost": 1.5, "tp_value": 2.5, "fp_cost_violation_rate": 0.5}
 
 CovariateLabel (Covariate Shift Adaptive)
 ------------------------------------------
@@ -81,6 +116,14 @@ LabelShift (Label Shift Adaptive)
 ---------------------------------
 
 .. autoclass:: pyhealth.calib.predictionset.LabelShift
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+RC3P (Rank Calibrated Class-conditional Conformal Prediction)
+-------------------------------------------------------------
+
+.. autoclass:: pyhealth.calib.predictionset.RC3P
    :members:
    :undoc-members:
    :show-inheritance:

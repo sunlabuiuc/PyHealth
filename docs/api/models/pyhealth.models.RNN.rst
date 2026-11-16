@@ -18,3 +18,8 @@ The separate callable RNNLayer and the complete RNN model.
     :members:
     :undoc-members:
     :show-inheritance:
+
+.. autoclass:: pyhealth.models.RNN_V2
+    :members:
+    :undoc-members:
+    :show-inheritance:

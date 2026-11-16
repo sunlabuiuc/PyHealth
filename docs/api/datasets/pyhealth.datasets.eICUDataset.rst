@@ -1,7 +1,7 @@
 ﻿pyhealth.datasets.eICUDataset
 ===================================
 
-The open eICU Collaborative Research Database, refer to `doc <https://eicu-crd.mit.edu/>`_ for more information. We process this database into well-structured dataset object and give user the **best flexibility and convenience** for supporting modeling and analysis.
+The eICU Collaborative Research Database, a credentialed-access dataset on `PhysioNet <https://physionet.org/content/eicu-crd/2.0/>`_ (see `the eICU docs <https://eicu-crd.mit.edu/>`_). The open `eICU demo <https://physionet.org/content/eicu-crd-demo/2.0.1/>`_ works with the same class. The class docstring below explains how to get access and where ``root`` should point.
 
 .. autoclass:: pyhealth.datasets.eICUDataset
     :members:

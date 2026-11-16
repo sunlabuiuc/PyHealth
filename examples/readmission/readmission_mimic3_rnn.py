@@ -1,3 +1,20 @@
+"""30-day readmission prediction on MIMIC-III with an RNN.
+
+Loads diagnoses, procedures and prescriptions, applies
+``ReadmissionPredictionMIMIC3`` (binary: is the patient readmitted within
+the window after discharge), and trains/evaluates an ``RNN`` for one epoch.
+``exclude_minors=False`` keeps pediatric admissions, which the synthetic
+data needs to produce any positive labels.
+
+Data: by default ``root`` points at the public Synthetic MIMIC-III copy
+(downloaded on the fly, no credentials). For real MIMIC-III
+(https://physionet.org/content/mimiciii/, credentialed) set ``root`` to your
+local folder.
+
+Run: ``python examples/readmission/readmission_mimic3_rnn.py`` (CPU).
+Offline: set ``root`` to ``test-resources/core/mimic3demo`` and
+``dev=False`` (the demo has only 100 patients).
+"""
 import tempfile
 
 from pyhealth.datasets import MIMIC3Dataset

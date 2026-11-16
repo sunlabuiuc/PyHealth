@@ -86,6 +86,29 @@ class TestSleepStagingSHHS(unittest.TestCase):
             self.assertEqual(epoch["signal"].shape, (2, 125))
             self.assertEqual(epoch["label"], sample["label"])
 
+    def _run_epochs(self, num_epochs):
+        signal = np.zeros((14, num_epochs * 125))
+        with mock.patch.object(
+            sleep_staging.mne.io,
+            "read_raw_edf",
+            return_value=_FakeRawEDF(signal),
+        ):
+            return sleep_staging_shhs_fn(self.record, epoch_seconds=1)
+
+    def test_skips_signal_epochs_beyond_available_labels(self):
+        """Six signal epochs and four labels yield the four labeled epochs."""
+        samples = self._run_epochs(6)
+        self.assertEqual([s["label"] for s in samples], ["0", "4", "2", "1"])
+        self.assertEqual(
+            [s["record_id"] for s in samples],
+            [f"shhs1-200001-{i}" for i in range(4)],
+        )
+
+    def test_ignores_labels_without_a_complete_signal_epoch(self):
+        """Two signal epochs and four labels yield the first two labels."""
+        samples = self._run_epochs(2)
+        self.assertEqual([s["label"] for s in samples], ["0", "4"])
+
     def test_drops_missing_channel_rows_before_selecting_eeg(self):
         """15- and 16-channel recordings still yield the two EEG channels."""
         for num_channels in (15, 16):

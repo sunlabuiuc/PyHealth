@@ -4,18 +4,17 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
-import numpy as np
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
+from pyhealth.models.utils import save_ddi_adj
 from pyhealth.processors.base_processor import FeatureProcessor
 from pyhealth.processors import (
     SequenceProcessor, StageNetProcessor, StageNetTensorProcessor, TimeseriesProcessor, TensorProcessor, MultiHotProcessor
 )
 from pyhealth.processors.base_processor import FeatureProcessor
-from pyhealth.models.utils import get_last_visit
+from pyhealth.models.utils import ddi_adjacency, get_last_visit
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
-from pyhealth.medcode import ATC
 
 class MICRONLayer(nn.Module):
     """MICRON layer.
@@ -218,7 +217,7 @@ class MICRON(BaseModel):
                 "The processor type is: " + type(label_processor).__name__
             )
         
-        num_drugs = label_processor.size()
+        num_drugs = label_processor.output_size()
         if num_drugs == 0:
             raise ValueError("Label processor returned 0 size")
         
@@ -231,7 +230,9 @@ class MICRON(BaseModel):
 
         # save ddi adjacency matrix for later use
         ddi_adj = self.generate_ddi_adj()
-        np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj)
+        self.ddi_adj_matrix = save_ddi_adj(
+            ddi_adj, os.path.join(CACHE_PATH, "ddi_adj.npy")
+        )
 
     @staticmethod
     def _split_temporal(feature):
@@ -352,19 +353,7 @@ class MICRON(BaseModel):
 
     def generate_ddi_adj(self) -> torch.Tensor:
         """Generates the drug-drug interaction (DDI) graph adjacency matrix using PyHealth 2.0 label processor."""
-        atc = ATC()
-        ddi = atc.get_ddi(gamenet_ddi=True)
-        label_processor = self.dataset.output_processors[self.label_key]
-        label_size = label_processor.size()
-        vocab_to_index = label_processor.label_vocab
-        ddi_adj = np.zeros((label_size, label_size))
-        ddi_atc3 = [
-            [ATC.convert(l[0], level=3), ATC.convert(l[1], level=3)] for l in ddi
-        ]
-        for atc_i, atc_j in ddi_atc3:
-            if atc_i in vocab_to_index and atc_j in vocab_to_index:
-                ddi_adj[vocab_to_index[atc_i], vocab_to_index[atc_j]] = 1
-                ddi_adj[vocab_to_index[atc_j], vocab_to_index[atc_i]] = 1
-        return torch.tensor(ddi_adj, dtype=torch.float)
+        label_vocab = self.dataset.output_processors[self.label_key].label_vocab
+        return ddi_adjacency(label_vocab)
 
 

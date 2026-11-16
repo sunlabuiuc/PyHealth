@@ -130,10 +130,37 @@ class Event:
 class Patient:
     """Patient class representing a sequence of events.
 
+    Events are ordered by timestamp. Events that share a timestamp are grouped
+    by table, sorted by ``event_type``, and within a table keep the order of
+    their rows in the source file (for example all diagnoses of a MIMIC
+    admission, which carry its discharge time), using the ``_source_row``
+    column that dataset loading adds. Rows that still tie, such as the copies
+    of one row that a one-to-many ``join`` in the dataset config makes, are
+    ordered by their other columns. The order is the same on every cache
+    build.
+
     Attributes:
         patient_id (str): Unique patient identifier.
-        data_source (pl.DataFrame): DataFrame containing all events, sorted by timestamp.
+        data_source (pl.DataFrame): DataFrame containing all events, sorted by
+            timestamp. It keeps the ``_source_row`` column, which is not an
+            event attribute.
         event_type_partitions (Dict[str, pl.DataFrame]): Dictionary mapping event types to their respective DataFrame partitions.
+
+    Examples:
+        >>> from datetime import datetime
+        >>> import polars as pl
+        >>> from pyhealth.data import Patient
+        >>> t = datetime(2020, 1, 1)
+        >>> events = pl.DataFrame({
+        ...     "patient_id": ["p1"] * 3,
+        ...     "event_type": ["diagnoses"] * 3,
+        ...     "timestamp": [t, t, t],
+        ...     "_source_row": [2, 0, 1],
+        ...     "diagnoses/code": ["c", "a", "b"],
+        ... })
+        >>> patient = Patient(patient_id="p1", data_source=events)
+        >>> [e.code for e in patient.get_events(event_type="diagnoses")]
+        ['a', 'b', 'c']
     """
 
     def __init__(self, patient_id: str, data_source: pl.DataFrame) -> None:
@@ -145,7 +172,27 @@ class Patient:
             data_source (pl.DataFrame): DataFrame containing all events.
         """
         self.patient_id = patient_id
-        self.data_source = data_source.sort("timestamp")
+        # Events that share a timestamp are ordered by table and then by their
+        # row in the source file, so the order does not depend on how the cache
+        # was built. Copies of one source row (from a one-to-many join or a
+        # hook that duplicates rows) share all three keys, so the remaining
+        # columns break those ties; no stable sort is needed. A Patient built
+        # by hand or by MIMICExtractDataset has no source-row column (caches
+        # written before it are rebuilt, not read); there the existing row
+        # order is kept, which needs a stable sort.
+        if "_source_row" in data_source.columns:
+            keys = ["timestamp", "event_type", "_source_row"]
+            rest = [
+                name
+                for name, dtype in data_source.schema.items()
+                if name not in keys and not dtype.is_nested() and dtype != pl.Object
+            ]
+            # A typical patient's few hundred events sort faster on one thread.
+            self.data_source = data_source.sort(
+                keys + rest, multithreaded=data_source.height > 2_000
+            )
+        else:
+            self.data_source = data_source.sort("timestamp", maintain_order=True)
         self.event_type_partitions = self.data_source.partition_by("event_type", maintain_order=True, as_dict=True)
 
     def _filter_by_time_range_regular(self, df: pl.DataFrame, start: Optional[datetime], end: Optional[datetime]) -> pl.DataFrame:

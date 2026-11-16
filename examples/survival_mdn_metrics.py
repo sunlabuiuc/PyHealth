@@ -4,14 +4,25 @@
 Preserves the original evaluator's test-cohort censoring KM interpolation,
 strict concordance comparisons and 1000-point uniform grid. These helpers
 are not proposed as a general-purpose PyHealth survival metric API.
+
+They stay separate from :mod:`pyhealth.metrics.survival` on purpose, because
+they compute different quantities: a censoring KM interpolated linearly
+between event times (the library uses the step function), an IPCW-weighted
+time-dependent concordance with truncation (the library has Harrell's
+C-index), and the integrated Brier score and binomial log-likelihood over a
+grid (the library has the Brier score at single horizons). Switching to the
+library would change the reported SUPPORT benchmark numbers.
 """
 
 from __future__ import annotations
+
 import numpy as np
 import torch
 
 
 def km_fit(times, event_censor):
+    # Same step values as pyhealth.metrics.survival's censoring KM; kept
+    # because km_predict interpolates linearly between them.
     times = np.asarray(times, float)
     ev = np.asarray(event_censor, np.int8)
     uniq = np.unique(times)
@@ -26,6 +37,7 @@ def km_fit(times, event_censor):
 
 
 def km_predict(kmt, kms, q):
+    # Linear interpolation between KM steps, as in the original evaluator.
     return np.interp(np.asarray(q, float), kmt, kms, left=1.0, right=kms[-1])
 
 
@@ -68,6 +80,8 @@ def paper_metrics(model, split):
     H = -np.log(np.clip(S_event, 1e-30, 1.0))
     pos = np.searchsorted(eval_t, t)
 
+    # Time-dependent concordance with 1 / G(T)^2 weights, truncated where
+    # G(T) < eps, counting censored ties as comparable; not Harrell's C-index.
     for eps, key in [(1e-8, "c"), (0.2, "c2"), (0.4, "c4")]:
         G = G_T.copy()
         G[G == 0] = eps / 2
@@ -82,6 +96,8 @@ def paper_metrics(model, split):
             num += np.sum(idx) * w
         out[key] = float(score / num)
 
+    # Integrated Brier score and binomial log-likelihood over a uniform grid;
+    # pyhealth.metrics.survival only scores single horizons.
     for eps, suffix in [(0, ""), (0.2, "2"), (0.4, "4")]:
         grid = np.linspace(t.min(), float(np.max(t[G_T > eps])), 1000)
         S = survival_matrix(model, x, grid)

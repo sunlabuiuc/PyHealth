@@ -31,6 +31,8 @@ class ChestXray14MultilabelClassification(BaseTask):
     A PyHealth task class for multilabel classification of all fourteen diseases
     in the ChestXray14 dataset.
 
+    Works with :class:`~pyhealth.datasets.ChestXray14Dataset`.
+
     Attributes:
         task_name (str): The name of the task.
         input_schema (Dict[str, str]): The schema for the task input.
@@ -58,6 +60,7 @@ class ChestXray14MultilabelClassification(BaseTask):
 
         Returns:
             List[Dict]: A list containing a dictionary for each patient visit with:
+                - 'patient_id': the patient identifier, for patient-level splits.
                 - 'image': path to the chest X-ray image.
                 - 'labels': a list of labels for diseases present in the image (strings from the list ChestXray14Dataset.classes).
         """
@@ -69,6 +72,7 @@ class ChestXray14MultilabelClassification(BaseTask):
         for event in events:
             samples.append(
                 {
+                    "patient_id": patient.patient_id,
                     "image": event["path"],
                     "labels": [
                         disease

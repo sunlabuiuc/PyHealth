@@ -290,7 +290,7 @@ def sleep_staging_shhs_fn(record, epoch_seconds=30):
     
     # slice the EEG signals into non-overlapping windows
     # window size = sampling rate * second time = 125 * epoch_seconds
-    for slice_index in range(X.shape[1] // sample_length):
+    for slice_index in range(min(X.shape[1] // sample_length, len(Y))):
 
         epoch_signal = X[
             :, slice_index * sample_length : (slice_index + 1) * sample_length

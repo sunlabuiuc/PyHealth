@@ -57,6 +57,8 @@ def _map_ndc_list_to_atc3(
 class DrugRecommendationMIMIC3(BaseTask):
     """Task for drug recommendation using MIMIC-III dataset.
 
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
+
     Drug recommendation aims at recommending a set of drugs given the
     patient health history (e.g., conditions and procedures). This task
     creates samples with cumulative history, where each visit includes
@@ -73,6 +75,15 @@ class DrugRecommendationMIMIC3(BaseTask):
               visit excluded)
         output_schema (Dict[str, str]): The schema for output data:
             - drugs: List of drugs to predict for current visit
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.tasks import DrugRecommendationMIMIC3
+        >>> dataset = MIMIC3Dataset(
+        ...     root="/path/to/mimic-iii/1.4",
+        ...     tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+        ... )
+        >>> samples = dataset.set_task(DrugRecommendationMIMIC3())
     """
 
     task_name: str = "DrugRecommendationMIMIC3"
@@ -191,6 +202,8 @@ class DrugRecommendationMIMIC3(BaseTask):
 
 class DrugRecommendationMIMIC4(BaseTask):
     """Task for drug recommendation using MIMIC-IV dataset.
+
+    Works with :class:`~pyhealth.datasets.MIMIC4EHRDataset`.
 
     Drug recommendation aims at recommending a set of drugs given the patient health
     history (e.g., conditions and procedures). This task creates samples with
@@ -510,6 +523,8 @@ def drug_recommendation_mimic4_fn(patient: Patient):
 class DrugRecommendationEICU(BaseTask):
     """Task for drug recommendation using eICU dataset.
 
+    Works with :class:`~pyhealth.datasets.eICUDataset`.
+
     Drug recommendation aims at recommending a set of drugs given the patient health
     history (e.g., conditions and procedures). This task creates samples with
     cumulative history, where each visit includes all previous visit information.
@@ -648,6 +663,8 @@ class DrugRecommendationEICU(BaseTask):
 
 class DrugRecommendationOMOP(BaseTask):
     """Task for drug recommendation using an OMOP CDM dataset.
+
+    Works with :class:`~pyhealth.datasets.OMOPDataset`.
 
     Drug recommendation aims at recommending a set of drugs given the patient
     health history (e.g., conditions and procedures). This task creates one

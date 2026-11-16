@@ -28,8 +28,23 @@ class BasicGradientSaliencyMaps(BaseInterpreter):
         where c iterates over color channels (RGB or grayscale)
     
     Examples:
+        >>> import torch
+        >>> from pyhealth.interpret.methods.basic_gradient import (
+        ...     BasicGradientSaliencyMaps,
+        ... )
+        >>> class TinyCNN(torch.nn.Module):
+        ...     def __init__(self):
+        ...         super().__init__()
+        ...         self.fc = torch.nn.Linear(3 * 8 * 8, 2)
+        ...     def forward(self, image, disease=None):
+        ...         return {"y_prob": self.fc(image.flatten(1)).softmax(dim=1)}
+        >>> saliency = BasicGradientSaliencyMaps(TinyCNN())
+        >>> maps = saliency.attribute(image=torch.randn(4, 3, 8, 8))
+        >>> maps["image"].shape
+        torch.Size([4, 8, 8])
+
         Basic usage with a batch::
-        
+
             from pyhealth.interpret.methods.basic_gradient import BasicGradientSaliencyMaps
             import matplotlib.pyplot as plt
             
@@ -68,7 +83,7 @@ class BasicGradientSaliencyMaps(BaseInterpreter):
         - For best results, normalize input images consistently with training
     
     See Also:
-        - ``examples/ChestXrayClassificationWithSaliency.ipynb``: Complete tutorial
+        - ``examples/cxr/ChestXrayClassificationWithSaliency.ipynb``: Complete tutorial
         - :class:`~pyhealth.interpret.methods.IntegratedGradients`: Alternative attribution method
     """
     def __init__(self, model, input_batch=None, image_key='image', label_key='disease'):

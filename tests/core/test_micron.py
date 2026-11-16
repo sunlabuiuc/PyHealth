@@ -6,6 +6,7 @@ import numpy as np
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import MICRON
+from pyhealth.models.utils import ddi_adjacency
 from pyhealth.processors.base_processor import FeatureProcessor
 
 
@@ -236,6 +237,26 @@ class TestMICRON(unittest.TestCase):
         
         self.assertEqual(rec_loss.dim(), 0)  # scalar loss
         self.assertTrue(rec_loss >= 0)  # non-negative loss
+
+
+    def test_generate_ddi_adj_matches_the_shared_helper(self):
+        """The DDI matrix is the shared ATC-3 one, over the drug labels."""
+        samples = [
+            {"patient_id": "p0", "visit_id": "v0", "conditions": ["c1"],
+             "procedures": ["p1"], "drugs": ["N02B", "B01A", "C03C"]},
+            {"patient_id": "p1", "visit_id": "v1", "conditions": ["c2"],
+             "procedures": ["p2"], "drugs": ["N02A", "M01A"]},
+        ]
+        dataset = create_sample_dataset(
+            samples=samples, input_schema=self.input_schema,
+            output_schema=self.output_schema, dataset_name="ddi",
+        )
+        adj = MICRON(dataset=dataset).generate_ddi_adj()
+        vocab = dataset.output_processors["drugs"].label_vocab
+        self.assertEqual(tuple(adj.shape), (len(vocab), len(vocab)))
+        self.assertTrue(torch.equal(adj, ddi_adjacency(vocab)))
+        self.assertTrue(torch.equal(adj, adj.T))
+        self.assertGreater(adj.sum().item(), 0)
 
 
 if __name__ == "__main__":

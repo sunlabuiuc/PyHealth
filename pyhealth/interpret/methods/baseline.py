@@ -44,7 +44,7 @@ class RandomBaseline(BaseInterpreter):
     Examples:
         >>> import torch
         >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
-        >>> from pyhealth.interpret.methods.baseline import Random
+        >>> from pyhealth.interpret.methods import RandomBaseline
         >>> from pyhealth.models import MLP
         >>>
         >>> samples = [
@@ -64,7 +64,7 @@ class RandomBaseline(BaseInterpreter):
         >>> model.eval()
         >>> test_loader = get_dataloader(dataset, batch_size=1, shuffle=False)
         >>>
-        >>> rand_interp = Random(model, random_seed=42)
+        >>> rand_interp = RandomBaseline(model, random_seed=42)
         >>> batch = next(iter(test_loader))
         >>> attributions = rand_interp.attribute(**batch)
         >>> print({k: v.shape for k, v in attributions.items()})
