@@ -91,7 +91,9 @@ class SleepStagingSHHS(BaseTask):
             length the reading centre scored. Must divide 30 so signal and
             labels stay aligned.
         channels: EEG channel names to keep, for example ``["EEG"]``.
-            Defaults to every channel whose name starts with ``EEG``.
+            Defaults to every channel whose name starts with ``EEG``. The rows
+            of ``signal`` follow the order given here, not the order the EDF
+            lists them, so a montage can be named directly.
         normalization: Passed to
             :func:`~pyhealth.tasks.eegbci.normalize_signal`, for example
             ``"95th_percentile"``. Defaults to ``None`` (no normalization).
@@ -161,6 +163,14 @@ class SleepStagingSHHS(BaseTask):
             if channels is None
             else tuple((name, _normalize_channel_name(name)) for name in channels)
         )
+        if self._channel_lookup is not None:
+            requested = [key for _name, key in self._channel_lookup]
+            if len(set(requested)) != len(requested):
+                logger.warning(
+                    "channels names a channel twice (%s); it is kept once, so "
+                    "signal has fewer rows than channels.",
+                    requested,
+                )
         self.normalization = normalization
         # A set, because every participant is looked up once per pass.
         self.subjects = (
@@ -218,7 +228,13 @@ class SleepStagingSHHS(BaseTask):
         return data, sfreq, [ch_names[i] for i in picks]
 
     def _channel_indices(self, ch_names: list[str], source: str) -> list[int] | None:
-        """Resolve channel names to indices, falling back to 1.x positions."""
+        """Resolve channel names to indices, falling back to 1.x positions.
+
+        The result follows the order the channels were requested in, not the
+        order the file lists them, so ``signal`` rows line up with
+        ``channels``. Without that, a caller building a montage would silently
+        train on permuted rows.
+        """
         normalized = [_normalize_channel_name(name) for name in ch_names]
 
         if self._channel_lookup is None:
@@ -234,14 +250,22 @@ class SleepStagingSHHS(BaseTask):
 
         picks = []
         for wanted, key in self._channel_lookup:
-            match = [i for i, name in enumerate(normalized) if name == key]
-            if not match:
-                match = [i for i, name in enumerate(normalized) if name.startswith(key)]
+            exact = [i for i, name in enumerate(normalized) if name == key]
+            match = exact or [i for i, n in enumerate(normalized) if n.startswith(key)]
             if not match:
                 logger.warning("Channel %r not found in %s", wanted, source)
                 return None
+            if not exact and len(match) > 1:
+                logger.warning(
+                    "Channel %r matches %s in %s; keeping the first.",
+                    wanted,
+                    [ch_names[i] for i in match],
+                    source,
+                )
             picks.append(match[0])
-        return sorted(set(picks)) or None
+        # dict.fromkeys dedupes while keeping the requested order; a sorted set
+        # would silently reorder the rows.
+        return list(dict.fromkeys(picks)) or None
 
     def _samples_from_event(self, patient_id: str, event: Any) -> list[dict[str, Any]]:
         """Turn one scored night into epoch samples.
@@ -265,11 +289,8 @@ class SleepStagingSHHS(BaseTask):
         )
         record_id = getattr(event, "record_id", "") or f"{visit}-{patient_id}"
 
-        loaded = self.read_recording(signal_file)
-        if loaded is None:
-            return []
-        signal, sfreq, _ch_names = loaded
-
+        # Parse the annotation first: it is a small XML file, so a night that
+        # is going to be dropped never pays for reading its EDF.
         try:
             labels = _read_sleep_stages(annotation_file)
         except (OSError, ValueError, ET.ParseError) as exc:
@@ -278,6 +299,14 @@ class SleepStagingSHHS(BaseTask):
             # otherwise abort the whole run instead of dropping one night.
             logger.warning("Failed to read %s: %s", annotation_file, exc)
             return []
+        if not labels:
+            logger.warning("No scored epochs in %s", annotation_file)
+            return []
+
+        loaded = self.read_recording(signal_file)
+        if loaded is None:
+            return []
+        signal, sfreq, _ch_names = loaded
 
         valid = _valid_sleep_stages()
         scored_len = round(_SCORED_EPOCH_SECONDS * sfreq)
@@ -309,7 +338,13 @@ class SleepStagingSHHS(BaseTask):
             for sub_index in range(per_score):
                 epoch_index = scored_index * per_score + sub_index
                 start = scored_index * scored_len + sub_index * epoch_len
-                epoch = signal[:, start : start + epoch_len]
+                # Stop at the end of this score's window. Rounding a
+                # fractional sfreq can make the sub-epochs overshoot it, and an
+                # epoch reaching into the next window would carry that score's
+                # label. The length check below then drops the short remainder
+                # rather than returning a window with a borrowed label.
+                stop = min(start + epoch_len, (scored_index + 1) * scored_len)
+                epoch = signal[:, start:stop]
                 if epoch.shape[1] != epoch_len:
                     continue
                 if np.isnan(epoch).any():

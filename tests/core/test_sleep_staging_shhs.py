@@ -138,9 +138,30 @@ class TestSleepStagingSHHS(unittest.TestCase):
         self.assertEqual(tuple(signal.shape), (1, _SAMPLES_PER_SCORE))
         np.testing.assert_array_equal(signal[:, 0], [1])
 
+    def test_signal_rows_follow_the_requested_channel_order(self):
+        # "EEG" is channel 0 and "EEG(sec)" is channel 1 in the file, so asking
+        # for them the other way round has to swap the rows.
+        samples = self._run(self._data(4), channels=["EEG(sec)", "EEG"])
+        signal = samples[0]["signal"]
+        self.assertEqual(tuple(signal.shape), (2, _SAMPLES_PER_SCORE))
+        np.testing.assert_array_equal(signal[:, 0], [1, 0])
+
+    def test_duplicate_channels_are_kept_once_and_warn(self):
+        with self.assertLogs(task_module.logger, level="WARNING") as logs:
+            samples = self._run(self._data(4), channels=["EEG", "EEG"])
+        self.assertTrue(any("twice" in message for message in logs.output))
+        self.assertEqual(tuple(samples[0]["signal"].shape), (1, _SAMPLES_PER_SCORE))
+
     def test_channel_lookup_ignores_case_and_spacing(self):
         samples = self._run(self._data(4), channels=["eeg (sec)"])
         np.testing.assert_array_equal(samples[0]["signal"][:, 0], [1])
+
+    def test_ambiguous_prefix_warns_and_keeps_the_first_match(self):
+        channels = ["EOG(L)", "EOG(R)"]
+        with self.assertLogs(task_module.logger, level="WARNING") as logs:
+            samples = self._run(self._data(4), ch_names=channels, channels=["EOG"])
+        self.assertTrue(any("matches" in message for message in logs.output))
+        np.testing.assert_array_equal(samples[0]["signal"][:, 0], [0])
 
     def test_missing_channel_drops_the_recording(self):
         with self.assertLogs(task_module.logger, level="WARNING") as logs:
@@ -200,6 +221,33 @@ class TestSleepStagingSHHS(unittest.TestCase):
                     samples = self._run(self._data(4), label_file=label_file)
                 self.assertEqual(samples, [])
                 self.assertTrue(any("Failed to read" in m for m in logs.output))
+
+    def test_empty_annotation_drops_the_recording(self):
+        label_file = self.root / "no-stages.xml"
+        label_file.write_text(
+            "<PSGAnnotation><SleepStages></SleepStages></PSGAnnotation>"
+        )
+        with self.assertLogs(task_module.logger, level="WARNING") as logs:
+            samples = self._run(self._data(4), label_file=label_file)
+        self.assertEqual(samples, [])
+        self.assertTrue(any("No scored epochs" in m for m in logs.output))
+
+    def test_annotation_is_read_before_the_recording(self):
+        # A night that is going to be dropped should not pay for its EDF.
+        task = SleepStagingSHHS()
+        event = SimpleNamespace(
+            visit="shhs1",
+            record_id="shhs1-200001",
+            signal_file="shhs1-200001.edf",
+            annotation_file=str(self.root / "absent.xml"),
+        )
+        with (
+            mock.patch.object(task_module.mne.io, "read_raw_edf") as reader,
+            self.assertLogs(task_module.logger, level="WARNING"),
+        ):
+            samples = task._samples_from_event("200001", event)
+        self.assertEqual(samples, [])
+        reader.assert_not_called()
 
     def test_subjects_filter_excludes_other_participants(self):
         samples = self._run(self._data(4), subjects=["200999"])
@@ -289,6 +337,30 @@ class TestSleepStagingSHHS(unittest.TestCase):
         # Boundaries follow the file, so a 30 s epoch is 3000 samples here.
         self.assertEqual(len(samples), 4)
         self.assertEqual(tuple(samples[0]["signal"].shape), (2, 3000))
+
+    def test_short_epochs_never_read_into_the_next_scored_window(self):
+        # 133.33 Hz makes 30 s round to 4000 samples but 5 s to 667, so six
+        # sub-epochs no longer fit. The overflowing window has to be dropped
+        # rather than labelled with the following score.
+        scored_len = round(30 * 133.33)
+        signal = np.tile(
+            np.arange(scored_len * 2, dtype=float),
+            (2, 1),
+        )
+        with self.assertLogs(task_module.logger, level="WARNING"):
+            samples = self._run(
+                signal, sfreq=133.33, epoch_seconds=5, ch_names=SHHS_CHANNELS[:2]
+            )
+
+        self.assertTrue(samples)
+        for sample in samples:
+            first = int(sample["signal"][0, 0])
+            last = int(sample["signal"][0, -1])
+            window = first // scored_len
+            self.assertEqual(last // scored_len, window)
+            self.assertLessEqual(last, (window + 1) * scored_len - 1)
+        # The score that ran out of room contributed fewer sub-epochs.
+        self.assertEqual(len(samples), 10)
 
     def test_task_schemas(self):
         task = SleepStagingSHHS()
