@@ -111,12 +111,12 @@ class SleepStagingISRUC(BaseTask):
     Args:
         channels: Channel names to keep, without the reference. Defaults to
             the six EEG channels F3, F4, C3, C4, O1 and O2.
-        epoch_seconds: Epoch length in seconds. It has to divide 30.
+        epoch_seconds: Epoch length in whole seconds. It has to divide 30.
         annotator: Which expert's scoring to use, 1 or 2.
 
     Raises:
-        ValueError: If ``epoch_seconds`` doesn't divide 30, ``annotator``
-            isn't 1 or 2, or ``channels`` is empty.
+        ValueError: If ``epoch_seconds`` isn't a whole number that divides 30,
+            ``annotator`` isn't 1 or 2, or ``channels`` is empty.
 
     Examples:
         >>> from pyhealth.datasets import ISRUCDataset
@@ -138,10 +138,14 @@ class SleepStagingISRUC(BaseTask):
         annotator: int = 1,
     ) -> None:
         super().__init__()
-        if epoch_seconds <= 0 or _SCORED_EPOCH_SECONDS % epoch_seconds != 0:
+        if (
+            epoch_seconds <= 0
+            or epoch_seconds != int(epoch_seconds)
+            or _SCORED_EPOCH_SECONDS % epoch_seconds != 0
+        ):
             raise ValueError(
-                f"epoch_seconds must divide {_SCORED_EPOCH_SECONDS}, "
-                f"got {epoch_seconds}."
+                "epoch_seconds must be a whole number of seconds that divides "
+                f"{_SCORED_EPOCH_SECONDS}, got {epoch_seconds}."
             )
         if annotator not in (1, 2):
             raise ValueError(f"annotator must be 1 or 2, got {annotator}.")

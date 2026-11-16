@@ -375,6 +375,8 @@ class TestSleepStagingISRUC(unittest.TestCase):
         for kwargs in (
             {"epoch_seconds": 7},
             {"epoch_seconds": 0},
+            {"epoch_seconds": 7.5},
+            {"epoch_seconds": 0.5},
             {"annotator": 3},
             {"channels": ()},
         ):
