@@ -14,6 +14,10 @@ Paper:
     2022, PMLR 193:12-34. https://proceedings.mlr.press/v193/jeanselme22a.html
     Reference code: https://github.com/Jeanselme/ClinicalPresenceFairness
 
+Authors:
+    Chunyi Yu (cyu410@gatech.edu)
+    John Nguyen (jnguyen461@gatech.edu)
+
 Strategies, chosen with --strategies by name, by family or "all". "Group" adds
 the group flags as imputation predictors, and "Missing" appends one missingness
 indicator per lab. The MICE strategies make --n-draws draws (10, as in the
@@ -32,19 +36,19 @@ paper); the others make one.
 Usage:
     # MIMIC-III v1.4, which needs credentialed PhysioNet access: every
     # strategy on split seed 0
-    python examples/mortality_prediction/clinical_presence_fairness_mimic3.py \
+    python examples/mimic3_clinical_presence_mortality_logistic_regression.py \
         --root /path/to/mimic-iii/1.4 --cache-dir /path/to/cache \
         --out results/clinical_presence_fairness
 
     # The paper's strategies over five split seeds, also training PyHealth's
     # LogisticRegression on each draw
-    python examples/mortality_prediction/clinical_presence_fairness_mimic3.py \
+    python examples/mimic3_clinical_presence_mortality_logistic_regression.py \
         --root /path/to/mimic-iii/1.4 --strategies paper --seeds 0 1 2 3 4 \
         --pyhealth-lr
 
     # The open MIMIC-III demo (100 patients) checks the code paths only; subgroup
     # metrics that its small test split cannot support are skipped with a warning
-    python examples/mortality_prediction/clinical_presence_fairness_mimic3.py \
+    python examples/mimic3_clinical_presence_mortality_logistic_regression.py \
         --root /path/to/mimiciii-demo/1.4 --out results/demo --strategies paper \
         --n-draws 2 --split-ratios 0.5 0.1 0.4 --n-bootstrap 20
 
