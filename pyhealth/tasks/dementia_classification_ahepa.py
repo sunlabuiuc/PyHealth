@@ -17,7 +17,7 @@ References:
     - Miltiadous, A. et al. A Dataset of Scalp EEG Recordings of Alzheimer's
       Disease, Frontotemporal Dementia and Healthy Subjects from Routine
       EEG. Data 8(6), 95, 2023. https://doi.org/10.3390/data8060095
-    - Problems, window length and validation: Miltiadous, A. et al. The
+    - Review of the studies on this dataset: Miltiadous, A. et al. The
       AHEPA EEG benchmark: setting the standard for machine learning in
       dementia diagnosis, a scoping review. Cognitive Neurodynamics 20(1),
       2026. https://doi.org/10.1007/s11571-026-10464-w
@@ -61,6 +61,8 @@ PROBLEMS: tuple[str, ...] = tuple(_PROBLEMS)
 
 VARIANTS: tuple[str, ...] = ("derivatives", "raw")
 
+REFERENCES: tuple[str, ...] = ("stored", "average")
+
 _VARIANT_COLUMN: dict[str, str] = {
     "derivatives": "signal_file",
     "raw": "raw_signal_file",
@@ -89,15 +91,20 @@ class DementiaClassificationAHEPA(BaseTask):
     - ``"three_class"``: control 0, Alzheimer's disease 1, frontotemporal
       dementia 2 (a ``multiclass`` label; the others are ``binary``)
 
-    Defaults: the dataset authors' review (Miltiadous et al., 2026) counts
-    Alzheimer's disease against controls as the most studied problem (40
-    studies), and reports 30 second windows with 15 seconds of overlap for
-    the authors' own model, DICE-net. Window lengths in the reviewed studies
-    range from 1 to 240 seconds, so both are parameters.
+    Defaults: the data descriptor (Miltiadous et al., 2023, section 3.3)
+    benchmarks Alzheimer's disease against controls and frontotemporal
+    dementia against controls on 4 second windows with 50% overlap, and
+    encourages the use of the artifact-cleaned recordings. The authors'
+    review (Miltiadous et al., 2026) counts Alzheimer's disease against
+    controls as the most studied problem (40 studies). Window lengths in the
+    reviewed studies range from 1 to 240 seconds, for example 30 seconds
+    with 15 seconds of overlap for the authors' DICE-net model, so both are
+    parameters.
 
     Split by patient: every window of a subject carries the same label, and
     the review asks for complete subject-level independence between
-    training and test data (leave-one-subject-out in the authors' work).
+    training and test data; the data descriptor uses leave-one-subject-out
+    validation.
     Use :func:`~pyhealth.datasets.split_by_patient` or
     :class:`~pyhealth.datasets.PatientSplit`, never a split by sample.
 
@@ -108,7 +115,7 @@ class DementiaClassificationAHEPA(BaseTask):
     Each sample contains:
 
     - ``signal``: float32 array, shape ``(19, window_seconds * rate)``,
-      ``(19, 15000)`` by default (the recordings are 500 Hz)
+      ``(19, 2000)`` by default (the recordings are 500 Hz)
     - ``label``: integer class index of ``problem``
     - ``group``: group code of the subject (``"A"``, ``"F"`` or ``"C"``)
     - ``start_second``: start of the window in the recording
@@ -135,7 +142,7 @@ class DementiaClassificationAHEPA(BaseTask):
         >>> task = DementiaClassificationAHEPA(problem="ad_vs_cn")
         >>> samples = dataset.set_task(task)
         >>> samples[0]["signal"].shape
-        torch.Size([19, 15000])
+        torch.Size([19, 2000])
         >>> train, val, test = split_by_patient(samples, [0.6, 0.2, 0.2])
     """
 
@@ -146,16 +153,19 @@ class DementiaClassificationAHEPA(BaseTask):
     def __init__(
         self,
         problem: str = "ad_vs_cn",
-        window_seconds: float = 30.0,
-        stride_seconds: float = 15.0,
+        window_seconds: float = 4.0,
+        stride_seconds: float = 2.0,
         variant: str = "derivatives",
         resample_rate: float | None = None,
+        reference: str = "stored",
     ) -> None:
         super().__init__()
         if problem not in _PROBLEMS:
             raise ValueError(f"problem must be one of {PROBLEMS}, got {problem}.")
         if variant not in VARIANTS:
             raise ValueError(f"variant must be one of {VARIANTS}, got {variant}.")
+        if reference not in REFERENCES:
+            raise ValueError(f"reference must be one of {REFERENCES}, got {reference}.")
         for name, value in (
             ("window_seconds", window_seconds),
             ("stride_seconds", stride_seconds),
@@ -168,6 +178,7 @@ class DementiaClassificationAHEPA(BaseTask):
         self.window_seconds = float(window_seconds)
         self.stride_seconds = float(stride_seconds)
         self.variant = variant
+        self.reference = reference
         self.resample_rate = None if resample_rate is None else float(resample_rate)
         self._labels = _PROBLEMS[problem]
         if len(set(self._labels.values())) > 2:
@@ -196,6 +207,8 @@ class DementiaClassificationAHEPA(BaseTask):
             return None
         data = raw.get_data(picks=list(AHEPA_CHANNELS), units="uV")
         sfreq = float(raw.info["sfreq"])
+        if self.reference == "average":
+            data = data - data.mean(axis=0, keepdims=True)
         if self.resample_rate is not None and self.resample_rate != sfreq:
             ratio = Fraction(self.resample_rate / sfreq).limit_denominator(1000)
             data = resample_poly(data, ratio.numerator, ratio.denominator, axis=-1)

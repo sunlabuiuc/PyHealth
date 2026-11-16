@@ -3,8 +3,8 @@
 Author: Axel Coiffard-Donaty
 
 Loads the dataset (OpenNeuro ds004504) with ``AHEPADementiaDataset``, cuts
-the artifact-cleaned recordings into 30 second windows with 15 seconds of
-overlap with ``DementiaClassificationAHEPA``, splits by subject and trains
+the artifact-cleaned recordings into 4 second windows with 50% overlap
+with ``DementiaClassificationAHEPA``, splits by subject and trains
 ``SparcNet``.
 
 The split is by subject: every window of a subject carries that subject's

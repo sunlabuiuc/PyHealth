@@ -16,8 +16,8 @@ Task parameters:
 
 - problem: ``"ad_vs_cn"`` (default), ``"ftd_vs_cn"``, ``"ad_vs_ftd"``,
   ``"dementia_vs_cn"`` or ``"three_class"``
-- window_seconds: float, default=30
-- stride_seconds: float, default=15
+- window_seconds: float, default=4
+- stride_seconds: float, default=2
 - variant: ``"derivatives"`` (default) or ``"raw"``
 - resample_rate: float or None, default=None (500 Hz)
 

@@ -231,6 +231,18 @@ class TestDementiaClassificationAHEPA(_TempDir):
 
         np.testing.assert_allclose(raw[0]["signal"] - cleaned[0]["signal"], 5000.0)
 
+    def test_average_reference_removes_the_shared_signal(self):
+        # Every channel of the synthetic file holds the same ramp (the sample
+        # index) plus its own constant 100 * i: the ramp is shared.
+        stored = _task()(_patient(self.root, "sub-001", "A"))
+        average = _task(reference="average")(_patient(self.root, "sub-001", "A"))
+
+        self.assertGreater(float(np.ptp(stored[1]["signal"][0])), 70.0)
+        constants = 100.0 * np.arange(19)
+        expected = np.repeat((constants - constants.mean())[:, None], 4 * SFREQ, axis=1)
+        np.testing.assert_allclose(average[1]["signal"], expected, atol=1e-3)
+        np.testing.assert_allclose(average[1]["signal"].mean(axis=0), 0.0, atol=1e-3)
+
     def test_missing_recording_of_the_variant_is_skipped(self):
         patient = _patient(self.root, "sub-001", "A", signal_file="")
 
@@ -277,15 +289,17 @@ class TestDementiaClassificationAHEPA(_TempDir):
         task = DementiaClassificationAHEPA()
         self.assertEqual(
             (task.problem, task.window_seconds, task.stride_seconds, task.variant),
-            ("ad_vs_cn", 30.0, 15.0, "derivatives"),
+            ("ad_vs_cn", 4.0, 2.0, "derivatives"),
         )
         self.assertIsNone(task.resample_rate)
+        self.assertEqual(task.reference, "stored")
         self.assertEqual(len(AHEPA_CHANNELS), 19)
 
     def test_invalid_arguments(self):
         cases = (
             {"problem": "ad"},
             {"variant": "cleaned"},
+            {"reference": "cz"},
             {"window_seconds": 0},
             {"stride_seconds": -1},
             {"resample_rate": 0},

@@ -14,7 +14,7 @@ Point ``root`` at the downloaded folder, the one holding
 ``participants.tsv``. The dataset writes one metadata row per subject, with
 both recordings, the group, the gender, the age and the MMSE score. The
 default task, ``DementiaClassificationAHEPA``, cuts the artifact-cleaned
-recordings into 30 second windows labelled with the diagnosis of the subject.
+recordings into 4 second windows labelled with the diagnosis of the subject.
 Split the windows by patient.
 
 .. autoclass:: pyhealth.datasets.AHEPADementiaDataset

@@ -118,7 +118,7 @@ class AHEPADementiaDataset(BaseDataset):
         >>> dataset.stats()
         >>> samples = dataset.set_task()
         >>> samples[0]["signal"].shape
-        torch.Size([19, 15000])
+        torch.Size([19, 2000])
     """
 
     def __init__(
@@ -207,7 +207,7 @@ class AHEPADementiaDataset(BaseDataset):
 
         Returns:
             A :class:`~pyhealth.tasks.DementiaClassificationAHEPA` for
-            Alzheimer's disease against controls, on 30 second windows of
+            Alzheimer's disease against controls, on 4 second windows of
             the artifact-cleaned recordings.
         """
         return DementiaClassificationAHEPA()
