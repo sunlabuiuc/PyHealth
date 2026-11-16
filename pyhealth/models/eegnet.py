@@ -56,8 +56,11 @@ class Conv2dWithMaxNorm(nn.Conv2d):
     """2D convolution whose filters are renormalized to a maximum L2 norm.
 
     The paper constrains the depthwise (spatial) filters with a max-norm of 1.
-    As in Keras, where a kernel constraint is applied after each update, the
-    weights are renormalized in place before each training forward pass.
+    Keras applies a kernel constraint after each update. Here the weights are
+    renormalized in place before every forward pass, in training and in
+    evaluation mode, so the weights used for prediction, and those saved
+    after an evaluation (for example the best checkpoint of
+    :class:`~pyhealth.trainer.Trainer`), are always within the norm.
 
     Args:
         *args: Positional arguments of :class:`torch.nn.Conv2d`.
@@ -76,7 +79,7 @@ class Conv2dWithMaxNorm(nn.Conv2d):
         self.max_norm = max_norm
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Renormalize the filters (in training mode), then convolve.
+        """Renormalize the filters, then convolve.
 
         Args:
             x: Input tensor of shape ``(batch, in_channels, height, width)``.
@@ -84,11 +87,10 @@ class Conv2dWithMaxNorm(nn.Conv2d):
         Returns:
             The convolution output.
         """
-        if self.training:
-            with torch.no_grad():
-                self.weight.copy_(
-                    torch.renorm(self.weight, p=2, dim=0, maxnorm=self.max_norm)
-                )
+        with torch.no_grad():
+            self.weight.copy_(
+                torch.renorm(self.weight, p=2, dim=0, maxnorm=self.max_norm)
+            )
         return super().forward(x)
 
 
@@ -96,6 +98,8 @@ class LinearWithMaxNorm(nn.Linear):
     """Linear layer whose output units have a maximum L2 weight norm.
 
     The paper constrains the classification layer with a max-norm of 0.25.
+    As in :class:`Conv2dWithMaxNorm`, the weights are renormalized in place
+    before every forward pass.
 
     Args:
         *args: Positional arguments of :class:`torch.nn.Linear`.
@@ -114,7 +118,7 @@ class LinearWithMaxNorm(nn.Linear):
         self.max_norm = max_norm
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Renormalize the weights (in training mode), then apply the layer.
+        """Renormalize the weights, then apply the layer.
 
         Args:
             x: Input tensor of shape ``(batch, in_features)``.
@@ -122,11 +126,10 @@ class LinearWithMaxNorm(nn.Linear):
         Returns:
             The layer output of shape ``(batch, out_features)``.
         """
-        if self.training:
-            with torch.no_grad():
-                self.weight.copy_(
-                    torch.renorm(self.weight, p=2, dim=0, maxnorm=self.max_norm)
-                )
+        with torch.no_grad():
+            self.weight.copy_(
+                torch.renorm(self.weight, p=2, dim=0, maxnorm=self.max_norm)
+            )
         return super().forward(x)
 
 
@@ -155,9 +158,12 @@ class EEGNet(BaseModel):
     by 4). By default this class keeps those durations at ``sampling_rate``:
     ``kernel_length = sampling_rate / 2`` and ``separable_kernel_length =
     sampling_rate / 8``, while the pooling sizes stay at 4 and 8. The paper
-    only evaluates 128 Hz; other rates follow the authors' code comments and
-    are not validated by the paper. Resampling the data to 128 Hz reproduces
-    the published configuration exactly.
+    only evaluates 128 Hz. The authors' reference code
+    (https://github.com/vlawhern/arl-eegmodels, ``EEGModels.py``) suggests
+    scaling both the kernel lengths and the pooling sizes with the sampling
+    rate, and notes that this rule is untested; this class scales only the
+    kernel lengths. Resampling the data to 128 Hz reproduces the published
+    configuration exactly.
 
     Dropout: the paper uses 0.5 for within-subject and 0.25 for cross-subject
     classification. The default, 0.25, matches subject-wise splits.
@@ -176,7 +182,8 @@ class EEGNet(BaseModel):
         depth_multiplier: ``D`` in the paper, the number of spatial filters
             per temporal filter. Default is 2.
         n_pointwise_filters: ``F2`` in the paper, the number of pointwise
-            filters. Default is 16 (``D * F1``).
+            filters. Default is 16, the paper's value for EEGNet-8,2 (where
+            it equals ``D * F1``); it does not follow ``F1`` or ``D``.
         kernel_length: Temporal kernel length in samples. Default is
             ``round(sampling_rate / 2)``.
         separable_kernel_length: Separable kernel length in samples, after

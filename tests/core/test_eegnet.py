@@ -9,6 +9,15 @@ from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import EEGNet
 
 
+def _label(i, mode):
+    """A label for sample ``i`` that cycles through every class."""
+    if mode == "multiclass":
+        return i % 3
+    if mode == "multilabel":
+        return [["a"], ["b"], ["a", "c"]][i % 3]
+    return i % 2
+
+
 def _dataset(n_channels, n_times, mode="multiclass", n_samples=4, extra=None):
     """Build a tiny SampleDataset of random signals.
 
@@ -29,7 +38,7 @@ def _dataset(n_channels, n_times, mode="multiclass", n_samples=4, extra=None):
         sample = {
             "patient_id": f"p{i}",
             "signal": rng.standard_normal(shape).astype(np.float32),
-            "label": i % 3 if mode == "multiclass" else i % 2,
+            "label": _label(i, mode),
         }
         if extra is not None:
             sample[extra] = rng.standard_normal((2, 4, 4)).astype(np.float32)
@@ -86,6 +95,16 @@ class TestEEGNet(unittest.TestCase):
         self.assertEqual(tuple(out["y_prob"].shape), (4, 1))
         self.assertTrue(bool(((out["y_prob"] >= 0) & (out["y_prob"] <= 1)).all()))
 
+    def test_forward_multilabel_outputs(self):
+        dataset = _dataset(4, 128, mode="multilabel", n_samples=6)
+        out = EEGNet(dataset=dataset)(**_batch(dataset, batch_size=6))
+        n_labels = dataset.output_processors["label"].size()
+        self.assertEqual(n_labels, 3)
+        self.assertEqual(tuple(out["y_prob"].shape), (6, n_labels))
+        self.assertEqual(tuple(out["y_true"].shape), (6, n_labels))
+        self.assertEqual(out["loss"].dim(), 0)
+        self.assertTrue(bool(((out["y_prob"] >= 0) & (out["y_prob"] <= 1)).all()))
+
     def test_backward_reaches_every_parameter(self):
         out = self.model(**_batch(self.dataset))
         out["loss"].backward()
@@ -135,22 +154,52 @@ class TestEEGNet(unittest.TestCase):
         )
         self.assertEqual(n_params, expected)
 
-    def test_max_norm_constraints_hold_after_training_steps(self):
-        optimizer = torch.optim.SGD(self.model.parameters(), lr=10.0)
-        batch = _batch(self.dataset)
-        for _ in range(3):
-            optimizer.zero_grad()
-            self.model(**batch)["loss"].backward()
-            optimizer.step()
-        self.model.train()
-        self.model(**batch)  # the constraint is applied on the forward pass
+    def _depthwise_and_classifier_norms(self):
         depthwise_conv = next(
             m for m in self.model.modules() if type(m).__name__ == "Conv2dWithMaxNorm"
         )
         depthwise = depthwise_conv.weight.flatten(1).norm(dim=1)
         classifier = self.model.fc.weight.norm(dim=1)
+        return depthwise, classifier
+
+    def _push_weights_past_max_norm(self, batch):
+        optimizer = torch.optim.SGD(self.model.parameters(), lr=10.0)
+        for _ in range(3):
+            optimizer.zero_grad()
+            self.model(**batch)["loss"].backward()
+            optimizer.step()
+        depthwise, classifier = self._depthwise_and_classifier_norms()
+        # The last optimizer step is not followed by a projection, so the test
+        # below only means something if the norms are exceeded here.
+        self.assertTrue(bool((depthwise > 1.0).any() or (classifier > 0.25).any()))
+
+    def _assert_within_max_norm(self):
+        depthwise, classifier = self._depthwise_and_classifier_norms()
         self.assertTrue(bool((depthwise <= 1.0 + 1e-5).all()))
         self.assertTrue(bool((classifier <= 0.25 + 1e-5).all()))
+
+    def test_max_norm_holds_for_eval_forward_after_training_steps(self):
+        batch = _batch(self.dataset)
+        self._push_weights_past_max_norm(batch)
+        self.model.eval()
+        with torch.no_grad():
+            logit = self.model(**batch)["logit"]
+        # The weights used for that prediction, and any state dict saved after
+        # it, are within the norm.
+        self._assert_within_max_norm()
+        clone = EEGNet(dataset=self.dataset)
+        clone.load_state_dict(self.model.state_dict())
+        clone.eval()
+        with torch.no_grad():
+            torch.testing.assert_close(clone(**batch)["logit"], logit)
+
+    def test_max_norm_holds_under_inference_mode(self):
+        batch = _batch(self.dataset)
+        self._push_weights_past_max_norm(batch)
+        self.model.eval()
+        with torch.inference_mode():
+            self.model(**batch)
+        self._assert_within_max_norm()
 
     def test_eval_mode_is_deterministic(self):
         self.model.eval()
