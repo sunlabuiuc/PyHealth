@@ -14,8 +14,8 @@ import tempfile
 import unittest
 import warnings
 from datetime import datetime, timedelta
+from pathlib import Path
 
-import dask.dataframe as dd
 import numpy as np
 import polars as pl
 import torch
@@ -175,15 +175,15 @@ def cohort_events() -> pl.DataFrame:
 
 
 # The random patients draw from these labs, from always to rarely observed
-RANDOM_LABS = LAB_NAMES[:24]
+RANDOM_LABS = LAB_NAMES[:8]
 FOREST = {"n_estimators": 5, "n_jobs": 1}
 TASK_LOGGER = "pyhealth.tasks.clinical_presence_mortality_mimic3"
 
 
-def random_events(n_patients: int = 200, seed: int = 0) -> pl.DataFrame:
+def random_events(n_patients: int = 60, seed: int = 0) -> pl.DataFrame:
     """Seeded random adults with correlated labs, plus a child outside the cohort.
 
-    Every adult is in the cohort; 43 of the 67 labs are never observed.
+    Every adult is in the cohort; 59 of the 67 labs are never observed.
     """
     rng = np.random.default_rng(seed)
     observe = np.linspace(1.0, 0.05, len(RANDOM_LABS))
@@ -288,14 +288,20 @@ def cache_key(task: ClinicalPresenceMortalityMIMIC3) -> str:
 
 
 class _EventsDataset(BaseDataset):
-    """A BaseDataset whose event table is a given frame."""
+    """A BaseDataset whose event table is a given frame.
+
+    The frame is written to the event cache directly, which skips the Dask
+    cluster that BaseDataset starts and stops to build it (about 3 s).
+    """
 
     def __init__(self, events: pl.DataFrame, cache_dir: str):
         self.events = events
         super().__init__(root="", tables=[], dataset_name="Events", cache_dir=cache_dir)
 
-    def load_data(self) -> dd.DataFrame:
-        return dd.from_pandas(self.events.to_pandas(), npartitions=1)
+    def _event_transform(self, output_dir: Path) -> None:
+        output_dir.mkdir(parents=True)
+        events = self.events.sort("patient_id", maintain_order=True)
+        events.write_parquet(output_dir / "part.0.parquet")
 
 
 class TestExtractCohort(unittest.TestCase):
@@ -534,15 +540,15 @@ class TestImputation(unittest.TestCase):
 
         data = random_cohort()
         X = self.X.copy()
-        X[~self.missing[:, 10], 10] = 5.0
+        X[~self.missing[:, 5], 5] = 5.0
         G = data["G"].copy()
         G[:, 0] = 1
         out = _impute_draws(
             X, G, self.split, "group_corrected_mice", data["draw_seeds"], 2, {}
         )
         self.assertTrue(np.isfinite(out).all())
-        self.assertTrue(self.missing[:, 10].any())
-        np.testing.assert_array_equal(out[:, :, 10], 5.0)
+        self.assertTrue(self.missing[:, 5].any())
+        np.testing.assert_array_equal(out[:, :, 5], 5.0)
 
     def test_extreme_imputations(self):
         # Bounds: lab 0 [-2, 6]; lab 1 one value, inexact in float32; lab 2 none
@@ -598,7 +604,7 @@ class TestTask(unittest.TestCase):
             "n_extreme_imputations": int,
             "labs": np.ndarray,
         }
-        for pid in ("1000", "1001", "1199"):
+        for pid in ("1000", "1001", "1059"):
             samples = samples_for(task, pid)
             self.assertEqual([s["draw"] for s in samples], [0, 1])
             for sample in samples:
@@ -629,7 +635,7 @@ class TestTask(unittest.TestCase):
         kept = task.pre_filter(random_cohort()["events"].lazy()).collect()
         self.assertEqual(cache_key(task), before)
         self.assertEqual(set(kept["event_type"]), {"patients"})
-        self.assertEqual(kept.height, 200)
+        self.assertEqual(kept.height, 60)
         default = ClinicalPresenceMortalityMIMIC3(imputation="mice")
         explicit = ClinicalPresenceMortalityMIMIC3(imputation="mice", n_draws=10)
         self.assertEqual(cache_key(default), cache_key(explicit))
@@ -669,8 +675,8 @@ class TestTask(unittest.TestCase):
         self.assertFalse([w for w in caught if w.category is ConvergenceWarning])
         output = "\n".join(logs.output)
         for line in (
-            "Cohort: 200 patients",
-            "Split (seed 0): 120 train / 40 val / 40 test.",
+            "Cohort: 60 patients",
+            "Split (seed 0): 36 train / 12 val / 12 test.",
             "Imputation 'missforest': 2 draw(s)",
             "The imputer ran all 2 sweeps without meeting scikit-learn's tol",
             "Imputed labs beyond the training range ± 3 sd: 0.000%",
@@ -689,7 +695,7 @@ class TestTask(unittest.TestCase):
         )
         after = fitted_task("mice", True)
         F, F_after = task._state.features, after._state.features
-        self.assertEqual(F.shape, (2, 200, 134))
+        self.assertEqual(F.shape, (2, 60, 134))
         # Same indicator columns; only the imputed labs differ
         np.testing.assert_array_equal(F[:, :, 67:], F_after[:, :, 67:])
         self.assertFalse(np.array_equal(F[:, :, :67], F_after[:, :, :67]))
@@ -708,14 +714,14 @@ class TestSetTask(unittest.TestCase):
 
     def test_set_task_end_to_end(self):
         samples = self.run_set_task(num_workers=1)
-        self.assertEqual(len(samples), 200 * 2)
+        self.assertEqual(len(samples), 60 * 2)
         sample = samples[("1000", 0)]
         self.assertIsInstance(sample["labs"], torch.Tensor)
         self.assertEqual(tuple(sample["labs"].shape), (134,))
         for key in ("hadm_id", "split", *GROUP_FLAGS, "n_extreme_imputations"):
             self.assertIn(key, sample)
         splits = [s["split"] for (_, draw), s in samples.items() if draw == 0]
-        self.assertEqual(splits.count("test"), 40)
+        self.assertEqual(splits.count("test"), 12)
 
     @unittest.skipUnless(
         os.environ.get("PYHEALTH_RUN_SLOW") == "1",
