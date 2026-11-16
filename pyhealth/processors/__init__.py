@@ -74,7 +74,7 @@ from .timeseries_label_processor import (
 from .time_image_processor import TimeImageProcessor
 from .time_region_image_processor import TimeRegionImageProcessor
 from .graph_processor import GraphProcessor
-from .kg_triple_processor import KGTripleProcessor  # noqa: E402
+from .kg_triple_processor import KGTripleProcessor
 from .audio_processor import AudioProcessor
 from .ignore_processor import IgnoreProcessor
 from .temporal_timeseries_processor import TemporalTimeseriesProcessor
