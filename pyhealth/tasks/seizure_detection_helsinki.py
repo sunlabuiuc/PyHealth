@@ -14,22 +14,24 @@ References:
       6:190039, 2019. https://doi.org/10.1038/sdata.2019.39
     - Montage: ``read_data_montage.m`` in
       https://github.com/ktapani/Neonatal_Seizure_Detection
-    - Default preprocessing (0.5-16 Hz, 32 Hz, 16 s windows shifted by 4 s,
-      18 bipolar channels): Borovac, A. et al. Ensemble learning using
-      individual neonatal data for seizure detection. IEEE Journal of
-      Translational Engineering in Health and Medicine 10, 2022.
-      https://doi.org/10.1109/JTEHM.2022.3201167
+    - Default filter, sampling rate, windows and window labels: Borovac, A.
+      et al. Ensemble learning using individual neonatal data for seizure
+      detection. IEEE Journal of Translational Engineering in Health and
+      Medicine 10, 2022. https://doi.org/10.1109/JTEHM.2022.3201167, and
+      its code, ``src/data_preprocessing.py`` in
+      https://github.com/anaborovac/Distributed-NSDA
 """
 
 import logging
 import math
 from collections.abc import Sequence
+from fractions import Fraction
 from typing import Any, ClassVar
 
 import mne
 import numpy as np
 import pandas as pd
-from scipy.signal import butter, sosfiltfilt
+from scipy.signal import cheby2, resample_poly, sosfilt
 
 from pyhealth.tasks import BaseTask
 
@@ -63,8 +65,10 @@ LABEL_MODES: tuple[str, ...] = ("consensus", "majority", "any", *ANNOTATORS)
 
 _EXCLUDED = -1
 
-# Order of the Butterworth band-pass design, applied forward and backward.
-_FILTER_ORDER = 4
+# Chebyshev type II band-pass design of Borovac et al.'s code:
+# scipy.signal.cheby2(6, 80, ...), with the band edges as stopband edges.
+_FILTER_ORDER = 6
+_STOPBAND_ATTENUATION_DB = 80
 
 
 def electrode_name(label: str) -> str:
@@ -182,26 +186,41 @@ class SeizureDetectionHelsinki(BaseTask):
     4. cuts windows of ``window_seconds`` every ``stride_seconds`` and
        labels each one
 
-    Expert labels: with ``"consensus"`` (the default) a second is a seizure
-    when the three experts mark it, a non-seizure when none does, and is
-    excluded when they disagree. Any window that contains an excluded second
-    is dropped. ``"majority"`` and ``"any"`` keep every second, and ``"A"``,
-    ``"B"`` or ``"C"`` use one expert, for example to study the agreement
-    between a model and each expert.
+    The defaults follow Borovac et al. (2022) and their published code:
 
-    Window labels: a window is a seizure (1) when at least
-    ``min_seizure_fraction`` of its seconds are seizure seconds, otherwise a
-    non-seizure (0). This rule is this implementation's choice.
+    - Experts: with ``"consensus"`` a second is a seizure when the three
+      experts mark it, a non-seizure when none does, and is excluded when
+      they disagree; any window that contains an excluded second is
+      dropped. ``"majority"`` and ``"any"`` keep every second, and
+      ``"A"``, ``"B"`` or ``"C"`` use one expert, for example to study the
+      agreement between a model and each expert.
+    - Window labels: a window is a seizure (1) when all its seconds are
+      seizure seconds and a non-seizure (0) when none is. Windows that are
+      partly seizure are dropped: the paper leaves the segments that are
+      partly seizure and partly non-seizure out of its training sets.
+      Setting ``min_seizure_fraction`` keeps every window instead (apart
+      from the excluded seconds of ``"consensus"``) and labels it a
+      seizure from that fraction of seizure seconds on; this alternative
+      is not from the paper, and is meant for scoring a model on a whole
+      recording.
+    - Filter: a sixth-order Chebyshev type II band-pass with 80 dB of
+      stopband attenuation. ``bandpass`` gives its stopband edges, the
+      frequencies where that attenuation is reached, so the band that
+      passes is narrower: about 1.25 to 13.4 Hz at -3 dB for the default
+      ``(0.5, 32)`` on a 256 Hz recording. The paper states cut-off
+      frequencies of 0.5 and 16 Hz; its code uses 0.5 and 32 Hz, followed
+      here.
+    - Rate and windows: polyphase resampling to 32 Hz, 16 second windows
+      shifted by 4 seconds, 18 bipolar channels.
 
-    Defaults: the 0.5-16 Hz band, the 32 Hz rate, the 16 second windows
-    shifted by 4 seconds and the 18 bipolar channels follow Borovac et al.
-    (2022). The filter differs: they use a sixth-order Chebyshev type II
-    filter, this task applies a fourth-order Butterworth band-pass forward
-    and backward (zero phase). Neonatal EEG has a lot of power below
-    0.5 Hz, so the steepness of the low cut-off matters: MNE's default FIR
-    filter, whose transition band is 0.5 Hz wide at this cut-off, lets a
-    large share of that slow activity through. The recordings are 256 Hz;
-    ``resample_rate=None`` and ``bandpass=None`` keep the signal as stored.
+    Differences from that code: the filter runs once over the whole
+    recording, as cascaded second-order sections, where the code filters
+    each window separately; the signal stays in microvolts, without the
+    clipping at 200 microvolts and the 16-bit rescaling of the code. The
+    filter is causal (one forward pass), as in the code.
+
+    The recordings are 256 Hz; ``resample_rate=None`` and ``bandpass=None``
+    keep the signal as stored.
 
     A recording missing an electrode of the montage, an annotation file that
     ``label_mode`` needs, or its column in that file, is skipped with a
@@ -223,10 +242,12 @@ class SeizureDetectionHelsinki(BaseTask):
         stride_seconds: Shift between windows in whole seconds.
         resample_rate: Sampling rate of the output in Hz, or None to keep
             the rate of the recording.
-        bandpass: ``(low, high)`` cut-off frequencies in Hz, or None for no
-            filtering.
-        min_seizure_fraction: Smallest fraction of seizure seconds that
-            makes a window a seizure, in ``(0, 1]``.
+        bandpass: ``(low, high)`` stopband edges of the band-pass filter in
+            Hz, or None for no filtering.
+        min_seizure_fraction: None (default) to keep only the windows that
+            are entirely seizure or entirely non-seizure. A fraction in
+            ``(0, 1]`` keeps the partly seizure windows too and labels a
+            window a seizure from that fraction of seizure seconds on.
         montage: Pairs of electrodes ``(a, b)``; each channel is ``a - b``.
             Defaults to ``HELSINKI_BIPOLAR_MONTAGE``.
 
@@ -234,10 +255,10 @@ class SeizureDetectionHelsinki(BaseTask):
         ValueError: If ``label_mode`` is unknown, ``window_seconds`` or
             ``stride_seconds`` isn't a positive whole number,
             ``resample_rate`` isn't positive, ``bandpass`` isn't an
-            increasing pair of positive frequencies, or its upper cut-off is
-            above half of ``resample_rate`` (or, when a file is read, not
-            below half of the recording's rate), ``min_seizure_fraction`` is outside
-            ``(0, 1]`` or ``montage`` is empty.
+            increasing pair of positive frequencies (or, when a file is
+            read, its upper edge isn't below half of the recording's rate),
+            ``min_seizure_fraction`` is outside ``(0, 1]`` or ``montage`` is
+            empty.
 
     Examples:
         >>> from pyhealth.datasets import HelsinkiNeonatalDataset
@@ -259,8 +280,8 @@ class SeizureDetectionHelsinki(BaseTask):
         window_seconds: int = 16,
         stride_seconds: int = 4,
         resample_rate: float | None = 32.0,
-        bandpass: tuple[float, float] | None = (0.5, 16.0),
-        min_seizure_fraction: float = 0.5,
+        bandpass: tuple[float, float] | None = (0.5, 32.0),
+        min_seizure_fraction: float | None = None,
         montage: Sequence[tuple[str, str]] = HELSINKI_BIPOLAR_MONTAGE,
     ) -> None:
         super().__init__()
@@ -284,14 +305,7 @@ class SeizureDetectionHelsinki(BaseTask):
                 raise ValueError(
                     f"bandpass must be (low, high) with 0 < low < high, got {bandpass}."
                 )
-            # Without resampling the limit is the recording's own rate, which
-            # is only known when the file is read.
-            if resample_rate is not None and high > resample_rate / 2:
-                raise ValueError(
-                    f"The upper cut-off {high} Hz is above half of "
-                    f"resample_rate={resample_rate} Hz."
-                )
-        if not 0 < min_seizure_fraction <= 1:
+        if min_seizure_fraction is not None and not 0 < min_seizure_fraction <= 1:
             raise ValueError(
                 f"min_seizure_fraction must be in (0, 1], got {min_seizure_fraction}."
             )
@@ -302,7 +316,9 @@ class SeizureDetectionHelsinki(BaseTask):
         self.stride_seconds = int(stride_seconds)
         self.resample_rate = None if resample_rate is None else float(resample_rate)
         self.bandpass = None if bandpass is None else tuple(map(float, bandpass))
-        self.min_seizure_fraction = float(min_seizure_fraction)
+        self.min_seizure_fraction = (
+            None if min_seizure_fraction is None else float(min_seizure_fraction)
+        )
         self.montage = tuple((str(a), str(b)) for a, b in montage)
 
     def read_recording(self, signal_file: str) -> tuple[np.ndarray, float] | None:
@@ -347,18 +363,24 @@ class SeizureDetectionHelsinki(BaseTask):
         if self.bandpass is not None:
             if self.bandpass[1] >= sfreq / 2:
                 raise ValueError(
-                    f"The upper cut-off {self.bandpass[1]} Hz is not below half "
+                    f"The upper band edge {self.bandpass[1]} Hz is not below half "
                     f"of the {sfreq} Hz rate of {signal_file}."
                 )
-            sos = butter(
-                _FILTER_ORDER, self.bandpass, btype="bandpass", fs=sfreq, output="sos"
+            # Second-order sections: the transfer-function form of this design
+            # is numerically unstable for narrow bands at 256 Hz.
+            sos = cheby2(
+                _FILTER_ORDER,
+                _STOPBAND_ATTENUATION_DB,
+                self.bandpass,
+                btype="bandpass",
+                fs=sfreq,
+                output="sos",
             )
-            data = sosfiltfilt(sos, data, axis=-1)
+            data = sosfilt(sos, data, axis=-1)
         if self.resample_rate is not None and self.resample_rate != sfreq:
-            data = mne.filter.resample(
-                data, down=sfreq / self.resample_rate, verbose="error"
-            )
-            sfreq = self.resample_rate
+            ratio = Fraction(self.resample_rate / sfreq).limit_denominator(1000)
+            data = resample_poly(data, ratio.numerator, ratio.denominator, axis=-1)
+            sfreq = sfreq * ratio.numerator / ratio.denominator
         return data, sfreq
 
     def _second_labels(self, patient_id: str, event: Any) -> np.ndarray | None:
@@ -438,6 +460,12 @@ class SeizureDetectionHelsinki(BaseTask):
             if (window == _EXCLUDED).any():
                 continue
             fraction = float(window.mean())
+            if self.min_seizure_fraction is None:
+                if 0 < fraction < 1:
+                    continue
+                label = int(fraction == 1)
+            else:
+                label = int(fraction >= self.min_seizure_fraction)
             start = round(start_second * sfreq)
             samples.append(
                 {
@@ -445,7 +473,7 @@ class SeizureDetectionHelsinki(BaseTask):
                     "start_second": start_second,
                     "seizure_fraction": fraction,
                     "signal": signal[:, start : start + window_len].astype(np.float32),
-                    "label": int(fraction >= self.min_seizure_fraction),
+                    "label": label,
                 }
             )
         return samples

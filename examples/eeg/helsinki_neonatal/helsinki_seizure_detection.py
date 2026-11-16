@@ -4,7 +4,7 @@ Author: Axel Coiffard-Donaty
 
 Loads the recordings with ``HelsinkiNeonatalDataset``, builds 16 second
 windows of the 18-channel bipolar montage with ``SeizureDetectionHelsinki``
-(32 Hz, 0.5-16 Hz, labels by consensus of the three experts), splits by
+(32 Hz, band-pass filtered, labels by consensus of the three experts), splits by
 neonate and trains ``SparcNet``.
 
 Seizure windows are a minority (about 10% of the consensus windows), so the

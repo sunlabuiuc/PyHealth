@@ -290,24 +290,45 @@ class TestSeizureDetectionHelsinki(_TempDir):
         self.assertEqual(samples[0]["label"], 0)
         self.assertEqual(samples[0]["seizure_fraction"], 0.0)
 
-    def test_window_labels_per_mode(self):
+        # With a 1 s shift the window on seconds 5 to 8 is a start: it is the
+        # only consensus seizure window.
+        samples = self._run(stride_seconds=1)
+        self.assertEqual([s["start_second"] for s in samples], [0, 5])
+        self.assertEqual([s["label"] for s in samples], [0, 1])
+
+    def test_partly_seizure_windows_are_dropped_by_default(self):
         self._write()
-        starts = [0, 2, 4, 6, 8]
+        # (starts, labels) of the windows that are all seizure or all not.
         expected = {
-            "majority": [0, 0, 1, 1, 1],  # seconds 5 to 9
-            "any": [0, 1, 1, 1, 1],  # seconds 4 to 9
-            "A": [0, 1, 1, 1, 1],
-            "B": [0, 0, 1, 1, 1],  # seconds 5 to 9
-            "C": [0, 0, 1, 1, 0],  # seconds 5 to 8
+            "majority": ([0, 6], [0, 1]),  # seizure seconds 5 to 9
+            "any": ([0, 4, 6], [0, 1, 1]),  # seizure seconds 4 to 9
+            "A": ([0, 4, 6], [0, 1, 1]),
+            "B": ([0, 6], [0, 1]),  # seizure seconds 5 to 9
+            "C": ([0], [0]),  # seizure seconds 5 to 8, never a whole window
         }
-        for mode, labels in expected.items():
+        for mode, (starts, labels) in expected.items():
             with self.subTest(mode=mode):
                 samples = self._run(label_mode=mode)
                 self.assertEqual([s["start_second"] for s in samples], starts)
                 self.assertEqual([s["label"] for s in samples], labels)
+                self.assertTrue(
+                    all(s["seizure_fraction"] in (0.0, 1.0) for s in samples)
+                )
 
-    def test_min_seizure_fraction(self):
+    def test_min_seizure_fraction_keeps_and_labels_every_window(self):
         self._write()
+        expected = {
+            "majority": [0, 0, 1, 1, 1],
+            "any": [0, 1, 1, 1, 1],
+            "A": [0, 1, 1, 1, 1],
+            "B": [0, 0, 1, 1, 1],
+            "C": [0, 0, 1, 1, 0],
+        }
+        for mode, labels in expected.items():
+            with self.subTest(mode=mode):
+                samples = self._run(label_mode=mode, min_seizure_fraction=0.5)
+                self.assertEqual([s["start_second"] for s in samples], [0, 2, 4, 6, 8])
+                self.assertEqual([s["label"] for s in samples], labels)
 
         strict = self._run(label_mode="C", min_seizure_fraction=1.0)
         loose = self._run(label_mode="C", min_seizure_fraction=0.25)
@@ -318,6 +339,9 @@ class TestSeizureDetectionHelsinki(_TempDir):
         self.assertEqual(
             [s["seizure_fraction"] for s in loose], [0.0, 0.25, 0.75, 0.75, 0.25]
         )
+        # Consensus still drops the windows with a disputed second.
+        consensus = self._run(min_seizure_fraction=0.5)
+        self.assertEqual([s["start_second"] for s in consensus], [0])
 
     def test_bipolar_montage_values_for_both_label_styles(self):
         for channels in (CHANNELS_REF, CHANNELS_UPPER):
@@ -340,7 +364,7 @@ class TestSeizureDetectionHelsinki(_TempDir):
         sample = self._run(label_mode="A", montage=[("Cz", "Pz")])[1]
 
         self.assertEqual(sample["signal"].shape, (1, 4 * SFREQ))
-        self.assertEqual(sample["start_second"], 2)
+        self.assertEqual(sample["start_second"], 4)
 
     def test_bandpass_and_resampling(self):
         seconds, rate = 40, 64
@@ -351,7 +375,7 @@ class TestSeizureDetectionHelsinki(_TempDir):
             window_seconds=8,
             stride_seconds=8,
             resample_rate=16,
-            bandpass=(1.0, 6.0),
+            bandpass=(0.5, 12.0),
             montage=[("Fp2", "F4")],
         )
         samples = task(_patient(self.root))
@@ -360,12 +384,19 @@ class TestSeizureDetectionHelsinki(_TempDir):
         window = samples[2]["signal"][0]
         self.assertEqual(window.shape, (8 * 16,))
         # Fp2 holds a 3 Hz tone plus a constant and a 20 Hz tone; F4 is zero.
-        # The band-pass keeps the 3 Hz tone and removes the other two.
+        # 0.5 and 12 Hz are the stopband edges: the band-pass keeps the 3 Hz
+        # tone and removes the other two.
         spectrum = np.abs(np.fft.rfft(window))
         freqs = np.fft.rfftfreq(window.size, d=1 / 16)
         self.assertEqual(freqs[int(spectrum.argmax())], 3.0)
         self.assertLess(abs(float(window.mean())), 1.0)
         self.assertAlmostEqual(float(np.abs(window).max()), 100.0, delta=5.0)
+
+    def test_band_edge_above_the_recording_nyquist_raises(self):
+        self._write()  # a 16 Hz recording
+
+        with self.assertRaises(ValueError):
+            self._run(label_mode="A", bandpass=(0.5, 8.0))
 
     def _write_tone(self, seconds: int, rate: int) -> None:
         """Write a ``rate`` Hz recording whose Fp2 channel carries tones."""
@@ -386,7 +417,7 @@ class TestSeizureDetectionHelsinki(_TempDir):
         with self.assertLogs(
             "pyhealth.tasks.seizure_detection_helsinki", level="WARNING"
         ):
-            samples = self._run(label_mode="A")
+            samples = self._run(label_mode="A", min_seizure_fraction=0.5)
 
         self.assertEqual([s["start_second"] for s in samples], [0, 2])
 
@@ -416,7 +447,7 @@ class TestSeizureDetectionHelsinki(_TempDir):
 
         self.assertEqual(no_file, [])
         self.assertEqual(no_column, [])
-        self.assertEqual(len(one_expert), 5)
+        self.assertEqual([s["start_second"] for s in one_expert], [0, 4, 6])
 
     def test_invalid_arguments(self):
         cases = (
@@ -426,7 +457,6 @@ class TestSeizureDetectionHelsinki(_TempDir):
             {"stride_seconds": -1},
             {"resample_rate": 0},
             {"bandpass": (16.0, 0.5)},
-            {"bandpass": (0.5, 20.0), "resample_rate": 32},
             {"min_seizure_fraction": 0.0},
             {"min_seizure_fraction": 1.5},
             {"montage": []},
@@ -440,7 +470,8 @@ class TestSeizureDetectionHelsinki(_TempDir):
         self.assertEqual(task.label_mode, "consensus")
         self.assertEqual((task.window_seconds, task.stride_seconds), (16, 4))
         self.assertEqual(task.resample_rate, 32.0)
-        self.assertEqual(task.bandpass, (0.5, 16.0))
+        self.assertEqual(task.bandpass, (0.5, 32.0))
+        self.assertIsNone(task.min_seizure_fraction)
         self.assertEqual(task.montage, HELSINKI_BIPOLAR_MONTAGE)
         self.assertEqual(len(HELSINKI_BIPOLAR_MONTAGE), 18)
 
@@ -464,11 +495,11 @@ class TestHelsinkiEndToEnd(_TempDir):
         samples = dataset.set_task(_raw_task())
 
         self.assertEqual(sorted(dataset.unique_patient_ids), ["1", "2"])
-        self.assertEqual(len(samples), 5 + 5)
+        # Neonate 1 has a seizure from second 4: the window starting at 2 is
+        # half seizure and dropped; those starting at 4, 6 and 8 are seizures.
+        self.assertEqual(len(samples), 4 + 5)
         self.assertEqual(tuple(samples[0]["signal"].shape), (18, 4 * SFREQ))
-        # Neonate 1 has a seizure from second 4: the windows starting at 2
-        # (half seizure), 4, 6 and 8 are seizure windows.
-        self.assertEqual(sum(int(s["label"]) for s in samples), 4)
+        self.assertEqual(sum(int(s["label"]) for s in samples), 3)
 
 
 if __name__ == "__main__":
