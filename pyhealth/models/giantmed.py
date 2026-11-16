@@ -821,6 +821,7 @@ class MediEvidenceFilter:
         profile="all_medi",
         ancestor_match=False,
         history_rescue=True,
+        ndc_to_atc3=None,
     ):
         """Build the filter from the released reference pipeline's input files.
 
@@ -834,6 +835,9 @@ class MediEvidenceFilter:
             profile: One of ``all_medi``, ``medi1`` or ``hps``.
             ancestor_match: Allow diagnosis descendants of MEDI codes.
             history_rescue: Retain drugs used in the preceding visit.
+            ndc_to_atc3: Optional callable returning label ATC3 codes for an
+                NDC. Supply the task's own mapper to align the index to its
+                labels. By default, use the reference RxCUI-to-ATC mapping.
 
         Returns:
             A configured evidence filter. Only training visit prescriptions are
@@ -909,14 +913,22 @@ class MediEvidenceFilter:
             if (patient, visit) not in visits:
                 continue
             clinical = ndc_to_clinical.get(str(row.get("NDC", "")).strip())
-            atc = clinical_to_atc.get(clinical)
-            if atc is None:
-                continue
+            ndc = str(row.get("NDC", "")).strip()
+            if ndc_to_atc3 is None:
+                atc = clinical_to_atc.get(clinical)
+                atc_codes = [atc] if atc is not None else []
+            else:
+                atc_codes = ndc_to_atc3(ndc)
             values = cache.get(clinical, {}).get("ingredients", [])
-            key = (patient, visit, atc)
-            ingredients.setdefault(key, set()).update(
-                str(item["rxcui"]) for item in values if item.get("rxcui") is not None
-            )
+            for atc in atc_codes:
+                if not isinstance(atc, str) or not atc:
+                    continue
+                key = (patient, visit, atc)
+                ingredients.setdefault(key, set()).update(
+                    str(item["rxcui"])
+                    for item in values
+                    if item.get("rxcui") is not None
+                )
         return cls(ingredients, indications, ancestor_match, history_rescue)
 
     def evidence_status(self, query, neighbour, drug):

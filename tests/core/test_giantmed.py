@@ -667,3 +667,37 @@ def test_batch_preserves_similar_visit_before_long_history():
     budget = model.refine_with_details(query, [0.5])["prompt_budget"]
     assert budget["support_per_batch"][0]["similar_visits"] == [1, 1]
     assert budget["support_per_batch"][0]["history_visits"][0] < 10
+
+
+def test_medi_uses_same_ndc_label_mapping_as_task(tmp_path):
+    (tmp_path / "prescriptions.csv").write_text(
+        "subject_id,hadm_id,ndc\n1,11,123\n1,11,456\n2,22,123\n"
+    )
+    (tmp_path / "medi.csv").write_text(
+        "RXCUI,CODE,SAB,MEDI1,MEDI1_HPS,MEDI2_HPS\n"
+        "ingredient,25000,ICD9CM,TRUE,FALSE,FALSE\n"
+    )
+    (tmp_path / "ndc.txt").write_text("{'123': 'clinical', '456': 'missing'}")
+    (tmp_path / "atc.csv").write_text("RXCUI,ATC4\nclinical,A10AB\n")
+    (tmp_path / "cache.json").write_text(
+        '{"clinical_rxcuis": {"clinical": {"ingredients": [{"rxcui": "ingredient"}]}}}'
+    )
+    filt = MediEvidenceFilter.from_reference_files(
+        [{"patient_id": "1", "visit_id": "11"}],
+        tmp_path / "prescriptions.csv",
+        tmp_path / "medi.csv",
+        tmp_path / "ndc.txt",
+        tmp_path / "atc.csv",
+        tmp_path / "cache.json",
+        ndc_to_atc3=lambda ndc: {"123": ["B01A", "C01A"], "456": ["D01A"]}[ndc],
+    )
+    query = {"conditions": [["25000"]]}
+    visit = {"patient_id": "1", "visit_id": "11"}
+    assert filt.evidence_status(query, visit, "B01A") == "indication_match"
+    assert filt.evidence_status(query, visit, "C01A") == "indication_match"
+    assert filt.evidence_status(query, visit, "D01A") == "missing_ingredients"
+    assert filt.evidence_status(query, visit, "A10A") == "missing_mapping"
+    assert (
+        filt.evidence_status(query, {"patient_id": "2", "visit_id": "22"}, "B01A")
+        == "missing_mapping"
+    )

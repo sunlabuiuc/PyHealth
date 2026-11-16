@@ -31,6 +31,7 @@ from pyhealth.models import (
     SafeDrug,
 )
 from pyhealth.tasks import DrugRecommendationMIMIC3
+from pyhealth.tasks.drug_recommendation import _map_ndc_list_to_atc3
 from pyhealth.trainer import Trainer
 
 
@@ -323,6 +324,7 @@ def main():
                 args.ndc_rxcui,
                 args.ndc_atc,
                 args.ingredient_cache,
+                ndc_to_atc3=lambda ndc: _map_ndc_list_to_atc3([ndc]),
             )
             print(
                 "MEDI filter:",
