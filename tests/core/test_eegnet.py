@@ -81,6 +81,13 @@ class TestEEGNet(unittest.TestCase):
         )
         self.assertEqual((model.kernel_length, model.separable_kernel_length), (32, 8))
 
+    def test_pointwise_filters_default_to_depth_times_temporal(self):
+        model = EEGNet(dataset=self.dataset, n_temporal_filters=4, depth_multiplier=3)
+        self.assertEqual(model.n_pointwise_filters, 12)
+        model = EEGNet(dataset=self.dataset, n_pointwise_filters=5)
+        self.assertEqual(model.n_pointwise_filters, 5)
+        self.assertEqual(tuple(model(**_batch(self.dataset))["logit"].shape), (4, 3))
+
     def test_forward_multiclass_outputs(self):
         out = self.model(**_batch(self.dataset))
         self.assertEqual(set(out), {"loss", "y_prob", "y_true", "logit"})

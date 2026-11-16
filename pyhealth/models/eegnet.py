@@ -58,9 +58,12 @@ class Conv2dWithMaxNorm(nn.Conv2d):
     The paper constrains the depthwise (spatial) filters with a max-norm of 1.
     Keras applies a kernel constraint after each update. Here the weights are
     renormalized in place before every forward pass, in training and in
-    evaluation mode, so the weights used for prediction, and those saved
-    after an evaluation (for example the best checkpoint of
-    :class:`~pyhealth.trainer.Trainer`), are always within the norm.
+    evaluation mode, so every prediction uses weights within the norm, and
+    so does a state dict saved after an evaluation (for example the best
+    checkpoint of :class:`~pyhealth.trainer.Trainer`). A state dict saved
+    right after an optimizer step (``last.ckpt``, saved before validation)
+    can hold weights slightly above the norm; the next forward pass projects
+    them.
 
     Args:
         *args: Positional arguments of :class:`torch.nn.Conv2d`.
@@ -161,8 +164,10 @@ class EEGNet(BaseModel):
     only evaluates 128 Hz. The authors' reference code
     (https://github.com/vlawhern/arl-eegmodels, ``EEGModels.py``) suggests
     scaling both the kernel lengths and the pooling sizes with the sampling
-    rate, and notes that this rule is untested; this class scales only the
-    kernel lengths. Resampling the data to 128 Hz reproduces the published
+    rate, and notes that this rule is untested. This class scales only the
+    kernel lengths, and the ``sampling_rate / 8`` rule for the separable
+    kernel is its own choice: the reference code fixes that kernel at 16
+    samples. Resampling the data to 128 Hz reproduces the published
     configuration exactly.
 
     Dropout: the paper uses 0.5 for within-subject and 0.25 for cross-subject
@@ -182,8 +187,8 @@ class EEGNet(BaseModel):
         depth_multiplier: ``D`` in the paper, the number of spatial filters
             per temporal filter. Default is 2.
         n_pointwise_filters: ``F2`` in the paper, the number of pointwise
-            filters. Default is 16, the paper's value for EEGNet-8,2 (where
-            it equals ``D * F1``); it does not follow ``F1`` or ``D``.
+            filters. Default is ``D * F1`` (16 for EEGNet-8,2), the rule
+            stated in the authors' reference code.
         kernel_length: Temporal kernel length in samples. Default is
             ``round(sampling_rate / 2)``.
         separable_kernel_length: Separable kernel length in samples, after
@@ -229,7 +234,7 @@ class EEGNet(BaseModel):
         sampling_rate: float = PAPER_SAMPLING_RATE,
         n_temporal_filters: int = 8,
         depth_multiplier: int = 2,
-        n_pointwise_filters: int = 16,
+        n_pointwise_filters: int | None = None,
         kernel_length: int | None = None,
         separable_kernel_length: int | None = None,
         dropout: float = 0.25,
@@ -251,8 +256,12 @@ class EEGNet(BaseModel):
         self.sampling_rate = float(sampling_rate)
         self.n_temporal_filters = n_temporal_filters
         self.depth_multiplier = depth_multiplier
-        self.n_pointwise_filters = n_pointwise_filters
-        f1, f2 = n_temporal_filters, n_pointwise_filters
+        self.n_pointwise_filters = (
+            n_pointwise_filters
+            if n_pointwise_filters is not None
+            else n_temporal_filters * depth_multiplier
+        )
+        f1, f2 = n_temporal_filters, self.n_pointwise_filters
         n_spatial = f1 * depth_multiplier
         self.kernel_length = (
             kernel_length
