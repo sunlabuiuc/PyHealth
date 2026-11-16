@@ -7,7 +7,7 @@ Overview
 :class:`pyhealth.interpret.methods.shap.ShapExplainer` provides SHAP (SHapley Additive exPlanations)
 attributions for PyHealth models based on coalitional game theory. Consult the class docstring for 
 detailed guidance, usage notes, and examples. A full workflow is demonstrated in
-``examples/shap_stagenet_mimic4.py``.
+``examples/interpretability/shap_stagenet_mimic4.py``.
 
 API Reference
 -------------

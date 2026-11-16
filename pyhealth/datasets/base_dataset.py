@@ -621,6 +621,81 @@ class BaseDataset(ABC):
             logger.info(f"Using provided cache_dir: {cache_dir}")
         return Path(cache_dir)
 
+    def _task_cache_dir(self, task: BaseTask) -> Path:
+        """The directory that caches ``task``'s samples for this dataset.
+
+        The name holds the task name and a hash of the task's attributes and
+        schemas, so tasks that differ in any argument get their own cache.
+        """
+        task_params = json.dumps(
+            {
+                **vars(task),
+                "input_schema": task.input_schema,
+                "output_schema": task.output_schema,
+            },
+            sort_keys=True,
+            default=str,
+        )
+        return (
+            self.cache_dir
+            / "tasks"
+            / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
+        )
+
+    def clear_task_cache(self, task: BaseTask | None = None) -> bool:
+        """Deletes the cached samples of one task for this dataset.
+
+        The next :meth:`set_task` with the same task rebuilds them. The
+        dataset's event table and other tasks' caches are kept. A
+        :class:`~pyhealth.datasets.SampleDataset` already returned for this
+        task reads from the deleted directory, so close it first.
+
+        Args:
+            task: The task whose cache to delete. Defaults to the dataset's
+                ``default_task``.
+
+        Returns:
+            Whether a cache was found and deleted.
+
+        Raises:
+            ValueError: If no task is given and the dataset has no default task.
+
+        Examples:
+            >>> dataset.clear_task_cache(MortalityPredictionMIMIC4())  # doctest: +SKIP
+            True
+        """
+        if task is None:
+            task = self.default_task
+        if task is None:
+            raise ValueError("No task given and the dataset has no default task.")
+        path = self._task_cache_dir(task)
+        if not path.exists():
+            return False
+        shutil.rmtree(path)
+        logger.info(f"Deleted the cache of task {task.task_name}: {path}")
+        return True
+
+    def clear_cache(self) -> None:
+        """Deletes this dataset's whole cache: the event table and every task.
+
+        The directory is the one for this dataset configuration
+        (:attr:`cache_dir`); other configurations of the dataset, and other
+        datasets, keep theirs. The next access rebuilds the event table from
+        the source files. Close any :class:`~pyhealth.datasets.SampleDataset`
+        built from this dataset first, since its files are deleted.
+
+        Examples:
+            >>> dataset.clear_cache()  # doctest: +SKIP
+        """
+        path = self.cache_dir
+        if path.exists():
+            shutil.rmtree(path)
+            logger.info(f"Deleted the cache of {self.dataset_name}: {path}")
+        self._global_event_df = None
+        self._unique_patient_ids = None
+        self._tmp_dirs = []
+        path.mkdir(parents=True, exist_ok=True)
+
     def create_tmpdir(self) -> Path:
         """Creates and returns a new temporary directory within the cache.
 
@@ -1355,21 +1430,7 @@ class BaseDataset(ABC):
             f"Setting task {task.task_name} for {self.dataset_name} base dataset..."
         )
 
-        task_params = json.dumps(
-            {
-                **vars(task),
-                "input_schema": task.input_schema,
-                "output_schema": task.output_schema,
-            },
-            sort_keys=True,
-            default=str,
-        )
-
-        cache_dir = (
-            self.cache_dir
-            / "tasks"
-            / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
-        )
+        cache_dir = self._task_cache_dir(task)
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         proc_params = json.dumps(

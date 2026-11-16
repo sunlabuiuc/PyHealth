@@ -1,3 +1,19 @@
+"""Drug recommendation on MIMIC-III with GAMENet.
+
+Loads diagnoses, procedures and prescriptions, applies
+``DrugRecommendationMIMIC3`` (multilabel: the ATC-3 drugs prescribed at each
+visit, from the visit history of conditions and procedures), and trains
+GAMENet (a graph-augmented memory network that uses the DDI graph) for one epoch, reporting Jaccard, F1, PR-AUC, and DDI rate.
+
+Data: by default ``root`` points at the public Synthetic MIMIC-III copy
+(downloaded on the fly, no credentials). For real MIMIC-III
+(https://physionet.org/content/mimiciii/, credentialed) set ``root`` to your
+local folder.
+
+Run: ``python examples/drug_recommendation/drug_recommendation_mimic3_gamenet.py``
+(CPU). Offline: set ``root`` to ``test-resources/core/mimic3demo`` and
+``dev=False``.
+"""
 import tempfile
 
 from pyhealth.datasets import MIMIC3Dataset

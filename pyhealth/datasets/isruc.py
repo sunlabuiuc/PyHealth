@@ -1,162 +1,254 @@
-import subprocess
-import shutil
+"""ISRUC-Sleep polysomnography dataset.
+
+Author: Sameh Aissa (port to the PyHealth 2.0 API)
+
+ISRUC-Sleep has three subgroups, each downloaded separately from
+https://sleeptight.isr.uc.pt/:
+
+- subgroup I, 100 subjects with sleep disorders, one recording each
+- subgroup II, 8 subjects with two recordings each
+- subgroup III, 10 healthy subjects, one recording each
+
+A recording is an EDF file shipped with a ``.rec`` extension, sampled at
+200 Hz, with the scorings of two experts next to it.
+
+References:
+    - Khalighi, S. et al. ISRUC-Sleep: A comprehensive public dataset for
+      sleep researchers. Computer Methods and Programs in Biomedicine 124,
+      2016. https://doi.org/10.1016/j.cmpb.2015.10.013
+"""
+
+import logging
 import os
-from typing import List
+from pathlib import Path
 
-from pyhealth.datasets import BaseSignalDataset
-from pyhealth.utils import download_file
+import pandas as pd
 
-DEV_NUM_PAT = 5
-FULL_NUM_PAT = 100
+from pyhealth.tasks import SleepStagingISRUC
 
+from .base_dataset import BaseDataset
+from .metadata_csv import (
+    metadata_cache_dir,
+    metadata_csv_exists,
+    resolve_metadata_root,
+    write_metadata_csv,
+)
 
-def _download_file(online_filepath, local_filepath, refresh_cache=False):
-    if (not os.path.exists(local_filepath)) or refresh_cache:
-        download_file(online_filepath, local_filepath)
-    return local_filepath
+logger = logging.getLogger(__name__)
 
+_CSV_NAME = "isruc-pyhealth.csv"
 
-def _unrar_function(rar_path, dst_path):
-    if os.name == "nt":
-        try:
-            import patoolib
-        except ModuleNotFoundError:
-            raise ModuleNotFoundError(
-                "Please install patool to download ISRUC data. \
-            You might need to have 7z/rar/unrar installed as well."
-            )
-
-        patoolib.extract_archive(rar_path, outdir=dst_path)
-    else:
-        # Linux, we use 7zzs, which can be downloaded from https://www.7-zip.org/download.html
-        path_7z = shutil.which("7zzs")
-        assert (
-            path_7z is not None
-        ), "Please download 7z for linux, reference: https://www.7-zip.org/download.html"
-        subprocess.call([path_7z, "x", rar_path, f"-o{dst_path}"])
+_SIGNAL_SUFFIXES: tuple[str, ...] = (".edf", ".rec")
 
 
-def _download_ISRUC_group1(data_dir: str, dev: bool, exclude_subjects: List[int]):
-    """Download all group 1 data for ISRUC.
+def _edf_path(rec_file: Path, root: Path, alias: str) -> Path | None:
+    """Return a ``.edf`` path that opens ``rec_file``.
+
+    MNE only reads EDF files with an ``.edf`` extension. The first choice
+    is a hard link ``<id>.edf`` next to the ``.rec`` file, which takes no
+    extra space. When that fails, for example on a read only folder, a
+    symbolic link named ``alias`` goes in the home cache instead.
 
     Args:
-        data_dir (str):
-            path to download the data.
-        exclude_subjects (List[int]):
-            List of subjects to exclude.
+        rec_file: Path to an ISRUC ``.rec`` recording.
+        root: Dataset root directory, used for the cache directory.
+        alias: File name for the link in the cache, unique per recording.
+
     Returns:
-        raw_dir: directory the dataset is extracted to (in data_dir).
+        The ``.edf`` path, or None if no link could be made.
     """
-    rar_dir = os.path.join(data_dir, "rar_files")
-    raw_dir = os.path.join(data_dir, "raw")
-    for _ in [rar_dir, raw_dir]:
-        if not os.path.isdir(_):
-            os.makedirs(_)
-    exclude_subjects = set(exclude_subjects)
-
-    NUM_PAT = DEV_NUM_PAT if dev else FULL_NUM_PAT
-    print(f"Downloading ISRUC Group 1 data, the first {NUM_PAT} patients")
-
-    for subject_id in range(1, NUM_PAT + 1):
-        if subject_id in exclude_subjects:
-            continue
-        if os.path.isfile(os.path.join(raw_dir, f"{subject_id}/{subject_id}.edf")):
-            continue
-        rar_url = f"http://dataset.isr.uc.pt/ISRUC_Sleep/subgroupI/{subject_id}.rar"
-        rar_dst = os.path.join(rar_dir, f"{subject_id}.rar")
-        _download_file(rar_url, rar_dst)
-        _unrar_function(rar_dst, raw_dir)
-        os.rename(
-            os.path.join(raw_dir, f"{subject_id}/{subject_id}.rec"),
-            os.path.join(raw_dir, f"{subject_id}/{subject_id}.edf"),
+    sibling = rec_file.with_suffix(".edf")
+    try:
+        os.link(rec_file, sibling)
+        return sibling
+    except OSError:
+        pass
+    cached = metadata_cache_dir(root, "isruc") / "edf" / alias
+    try:
+        cached.parent.mkdir(parents=True, exist_ok=True)
+        if not cached.exists():
+            cached.symlink_to(rec_file.resolve())
+        return cached
+    except OSError:
+        logger.warning(
+            "Skipping %s, MNE needs an .edf extension and no link could be "
+            "made. Copy or rename it to %s.",
+            rec_file,
+            sibling.name,
         )
-    return raw_dir
+        return None
 
 
-class ISRUCDataset(BaseSignalDataset):
-    """Base EEG dataset for ISRUC Group I.
+def _scoring_file(signal_file: Path, annotator: int) -> str:
+    """Return the path of one expert's scoring for a recording.
 
-        - The EEG signals are sampled at 200 Hz.
-        - There are 100 subjects in the orignal dataset.
-        - Each subject's data is about a night's sleep.
+    Args:
+        signal_file: Path to the ``.rec`` or ``.edf`` recording.
+        annotator: 1 or 2.
 
+    Returns:
+        The resolved ``<id>_<annotator>.txt`` path, or an empty string when
+        that file is missing.
+    """
+    path = signal_file.with_name(f"{signal_file.stem}_{annotator}.txt")
+    return str(path.resolve()) if path.is_file() else ""
+
+
+def _find_recordings(root: Path) -> list[Path]:
+    """List the ISRUC recordings under a subgroup folder.
+
+    A recording is ``<subject>/<subject>.rec`` (subgroups I and III) or
+    ``<subject>/<session>/<session>.rec`` (subgroup II), with ``.edf`` in
+    place of ``.rec`` also accepted. When both exist the ``.edf`` file is
+    used.
+
+    Args:
+        root: Subgroup folder.
+
+    Returns:
+        One path per recording.
+    """
+    recordings: dict[Path, Path] = {}
+    for pattern in ("*/*", "*/*/*"):
+        for path in sorted(root.glob(pattern)):
+            if path.suffix.lower() not in _SIGNAL_SUFFIXES:
+                continue
+            if path.stem != path.parent.name:
+                continue
+            key = path.with_suffix("")
+            if key not in recordings or path.suffix.lower() == ".edf":
+                recordings[key] = path
+    return list(recordings.values())
+
+
+def _sort_key(row: dict) -> tuple:
+    """Sort subjects and sessions numerically when the ids are numbers.
+
+    Args:
+        row: Metadata row with ``patient_id`` and ``session_id``.
+
+    Returns:
+        A key that puts ``"2"`` before ``"10"``.
+    """
+    return tuple(
+        (0, int(v)) if v.isdigit() else (1, v)
+        for v in (row["patient_id"], row["session_id"])
+    )
+
+
+class ISRUCDataset(BaseDataset):
+    """ISRUC-Sleep polysomnography (PSG) dataset.
+
+    Point ``root`` at one subgroup folder. Subgroups I and III hold one
+    folder per subject, ``<subject>/<subject>.rec``. Subgroup II adds a
+    folder per recording, ``<subject>/<session>/<session>.rec``. Next to
+    each recording are the scorings of the two experts, ``<id>_1.txt`` and
+    ``<id>_2.txt``.
+
+    ``prepare_metadata`` writes ``isruc-pyhealth.csv`` (one row per
+    recording) in ``root``, or under ``~/.cache/pyhealth/isruc/<hash of
+    root>`` when ``root`` is not writable. MNE only opens EDF files with
+    an ``.edf`` extension, so each ``.rec`` file gets an ``.edf`` link the
+    first time, a hard link next to it or a symbolic link in that cache.
+    The default task is :class:`~pyhealth.tasks.SleepStagingISRUC`.
 
     Getting the data:
-        - Source: https://sleeptight.isr.uc.pt/ (subgroup I)
+        - Source: https://sleeptight.isr.uc.pt/, page "Download Dataset"
         - Access: open, no account needed.
-        - Download: pass ``download=True`` to fetch and extract the subject
-          archives into ``root/raw``. Extracting the ``.rar`` files needs the
-          standalone 7-Zip binary ``7zzs`` on ``PATH`` on Linux and macOS
-          (https://www.7-zip.org/download.html; a plain ``7z`` install is not
-          enough), or ``patool`` plus a RAR extractor on Windows.
-        - ``root``: a folder whose ``raw/`` subfolder holds the extracted files.
+        - Download: one MEGA link per subgroup on that page, about 14 GB
+          for subgroup I, 2.2 GB for II and 1.35 GB for III. Extract the
+          subject archives in place.
+        - ``root``: one extracted subgroup folder, holding ``1/``, ``2/``
+          and so on.
 
     Args:
-        dataset_name: name of the dataset.
-            Default is 'ISRUCDataset'.
-        root: root directory of the raw data.
-            We expect `root/raw` to contain all extracted files (.txt, .rec, ...)
-            You can also download the data to a new directory by using download=True.
-        dev: whether to enable dev mode (only use a small subset of the data).
-            Default is False.
-        refresh_cache: Whether to refresh the cache; if true, the dataset will
-            be processed from scratch and the cache will be updated. Default is False.
-        download: Whether to download the data automatically.
-            Default is False.
-
+        root: Folder of one ISRUC-Sleep subgroup, for example the extracted
+            ``ISRUC-Sleep-I`` folder.
+        dataset_name: Name stored on the dataset. Defaults to ``"isruc"``.
+        config_path: YAML config. Defaults to ``configs/isruc.yaml``.
+        **kwargs: Forwarded to :class:`~pyhealth.datasets.BaseDataset`
+            (``dev``, ``num_workers``, ``cache_dir``).
 
     Examples:
         >>> from pyhealth.datasets import ISRUCDataset
-        >>> dataset = ISRUCDataset(
-        ...         root="/srv/local/data/data/ISRUC-I",
-        ...         download=True,
-        ...     )
-        >>> dataset.stat()
-        >>> dataset.info()
+        >>> dataset = ISRUCDataset(root="/path/to/ISRUC-Sleep-I")
+        >>> dataset.stats()
+        >>> samples = dataset.set_task()
+        >>> samples[0]["signal"].shape
+        torch.Size([6, 6000])
     """
 
-    _EXCLUDE_SUBJECTS = [8]  # This subject has missing channels
+    def __init__(
+        self,
+        root: str,
+        dataset_name: str | None = None,
+        config_path: str | None = None,
+        **kwargs,
+    ) -> None:
+        if config_path is None:
+            logger.info("No config path provided, using default config")
+            config_path = Path(__file__).parent / "configs" / "isruc.yaml"
 
-    def process_EEG_data(self):
-        # download the data or check if the data exists
-        if ("download" in self.kwargs) and self.kwargs["download"]:
-            _download_ISRUC_group1(
-                self.root, self.dev, exclude_subjects=self._EXCLUDE_SUBJECTS
-            )
-        else:
-            assert os.path.exists(
-                os.path.join(self.root, "raw")
-            ), "raw data {root}/raw does not exist, please \
-                download the data by enabling 'download=True' first."
+        self.root = root
+        self.prepare_metadata()
 
-        raw_dir = os.path.join(self.root, "raw")
-        subject_ids = os.listdir(raw_dir)
-        if self.dev:
-            subject_ids = subject_ids[:DEV_NUM_PAT]
-        subjects = {
-            subject_id: [
+        super().__init__(
+            root=resolve_metadata_root(root, "isruc", _CSV_NAME),
+            tables=["recordings"],
+            dataset_name=dataset_name or "isruc",
+            config_path=config_path,
+            **kwargs,
+        )
+
+    def prepare_metadata(self) -> None:
+        """Write ``isruc-pyhealth.csv`` if it is not already on disk.
+
+        The CSV has one row per recording with ``patient_id``,
+        ``session_id``, ``signal_file`` and the two scoring files
+        ``label_file_1`` and ``label_file_2`` (empty when missing). In
+        subgroups I and III the session is ``"1"``. An existing CSV, in
+        ``root`` or in the cache, is left untouched.
+
+        Returns:
+            None. The CSV path is either ``<root>/isruc-pyhealth.csv`` or
+            ``~/.cache/pyhealth/isruc/<hash of root>/isruc-pyhealth.csv``.
+        """
+        root = Path(self.root)
+        if metadata_csv_exists(root, "isruc", _CSV_NAME):
+            return
+
+        rows = []
+        for path in _find_recordings(root):
+            parts = path.relative_to(root).parts
+            patient_id = parts[0]
+            session_id = parts[1] if len(parts) == 3 else "1"
+            signal_file = path
+            if path.suffix.lower() == ".rec":
+                signal_file = _edf_path(path, root, f"{patient_id}_{session_id}.edf")
+                if signal_file is None:
+                    continue
+            rows.append(
                 {
-                    "load_from_path": raw_dir,
-                    "signal_file": f"{subject_id}/{subject_id}.edf",
-                    "label1_file": f"{subject_id}/{subject_id}_1.txt",
-                    "label2_file": f"{subject_id}/{subject_id}_2.txt",
-                    "save_to_path": self.filepath,
-                    "subject_id": subject_id,
+                    "patient_id": patient_id,
+                    "session_id": session_id,
+                    "signal_file": str(signal_file.absolute()),
+                    "label_file_1": _scoring_file(path, 1),
+                    "label_file_2": _scoring_file(path, 2),
                 }
-            ]
-            for subject_id in subject_ids
-        }
-        return subjects
+            )
+        if not rows:
+            logger.warning("No ISRUC recordings found under %s", root)
+            return
 
+        rows.sort(key=_sort_key)
+        write_metadata_csv(pd.DataFrame(rows), root, "isruc", _CSV_NAME)
 
-if __name__ == "__main__":
-    dataset = ISRUCDataset(
-        root="/srv/local/data/trash/",
-        dev=True,
-        refresh_cache=True,
-        download=True,
-    )
+    @property
+    def default_task(self) -> SleepStagingISRUC:
+        """Return the default ISRUC sleep staging task.
 
-    dataset.stat()
-    dataset.info()
-    print(list(dataset.patients.items())[0])
+        Returns:
+            A :class:`~pyhealth.tasks.SleepStagingISRUC` on the six EEG
+            channels with 30 second epochs and the first expert's scoring.
+        """
+        return SleepStagingISRUC()

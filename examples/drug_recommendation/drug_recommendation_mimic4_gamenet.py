@@ -1,3 +1,19 @@
+"""Drug recommendation on MIMIC-IV with GAMENet.
+
+Loads diagnoses, procedures and prescriptions, applies
+``DrugRecommendationMIMIC4`` (multilabel: drugs prescribed at each visit,
+from the visit history), and trains GAMENet for 20 epochs with weight decay,
+reporting Jaccard, accuracy, Hamming loss, precision/recall, PR-AUC and F1.
+
+Data: MIMIC-IV from PhysioNet (https://physionet.org/content/mimiciv/,
+credentialed). Set MIMIC4_ROOT below to the folder that contains ``hosp/``
+(not ``hosp/`` itself). Set _DEV = True for a quick run on a subset.
+
+Run: ``python examples/drug_recommendation/drug_recommendation_mimic4_gamenet.py``
+(GPU recommended for the full dataset). Without credentials, set
+MIMIC4_ROOT to ``test-resources/core/mimic4demo`` and _EPOCHS = 1.
+"""
+
 # import mimic4 dataset and drug recommendation task
 from pyhealth.datasets import MIMIC4Dataset
 from pyhealth.tasks import DrugRecommendationMIMIC4
@@ -11,6 +27,7 @@ from pyhealth.models import GAMENet
 # import trainer
 from pyhealth.trainer import Trainer
 
+MIMIC4_ROOT = "/path/to/mimiciv/2.2"
 _DEV = False
 _EPOCHS = 20
 _LR = 1e-3
@@ -19,7 +36,7 @@ _DECAY_WEIGHT = 1e-5
 
 def prepare_drug_task_data():
     mimicvi = MIMIC4Dataset(
-        ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
+        ehr_root=MIMIC4_ROOT,
         ehr_tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
         dev=_DEV,
     )

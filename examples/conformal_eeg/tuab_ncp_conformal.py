@@ -15,6 +15,14 @@ Example (from repo root):
   python examples/conformal_eeg/tuab_ncp_conformal.py --root /srv/local/data/TUH/tuh_eeg_abnormal/v3.0.0/edf
   python examples/conformal_eeg/tuab_ncp_conformal.py --quick-test --log-file quicktest_ncp.log
   python examples/conformal_eeg/tuab_ncp_conformal.py --alpha 0.1 --n-seeds 5 --split-seed 0 --log-file ncp_seeds5.log
+
+Data: TUAB v3.0.0 (TUH Abnormal EEG) from the Temple University EEG Corpus,
+https://isip.piconepress.com/projects/nedc/html/tuh_eeg/ (free, registration
+required). Pass its edf/ folder (with train/ and eval/) as --root. The full
+run trains on CPU or GPU (--device); --quick-test caps the data at 2000
+samples and 2 epochs for a check that finishes in minutes.
+--model tfm skips training and needs the released TFM-Tokenizer checkpoints
+(--tokenizer-weights and --weights-dir).
 """
 
 from __future__ import annotations

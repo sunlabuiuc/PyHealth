@@ -11,6 +11,13 @@ For class-specific risk control instead of the marginal/class-conditional
 mis-coverage guarantees LABEL and CovariateLabel provide, see
 pyhealth.calib.predictionset.SCRIB, which minimizes ambiguity subject to
 per-class risk targets (see its docstring for usage).
+
+Data: the COVID-19 Radiography Database,
+https://www.kaggle.com/datasets/tawsifurrahman/covid19-radiography-database
+(open download, no credentials). Set ``root`` in step 1 to the folder with the
+four class folders and their ``*.metadata.xlsx`` files, then run
+``python examples/cxr/covid19cxr_conformal.py``. ResNet-18 starts from ImageNet
+weights (downloaded by torchvision); 5 epochs on ~21k images want a GPU.
 """
 
 import numpy as np
@@ -39,7 +46,7 @@ print("=" * 80)
 print("STEP 1: Loading COVID-19 CXR Dataset")
 print("=" * 80)
 
-root = "/home/johnwu3/projects/PyHealth_Branch_Testing/datasets/COVID-19_Radiography_Dataset"
+root = "/path/to/COVID-19_Radiography_Dataset"
 base_dataset = COVID19CXRDataset(root)
 sample_dataset = base_dataset.set_task()
 

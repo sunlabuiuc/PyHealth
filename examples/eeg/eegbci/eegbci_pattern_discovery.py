@@ -1,3 +1,23 @@
+"""EEGBCI pattern discovery: per-window bandpower profiles and a summary report.
+
+Loads PhysioNet's EEG Motor Movement/Imagery Dataset with ``EEGBCIDataset``,
+cuts each run into 2-second windows with ``EEGBCIPatternDiscovery`` (task label,
+Welch bandpower, frequency ratios), compares each window with the subject's
+rest windows, and writes a CSV plus a Markdown report. The interpretations are
+exploratory signal summaries, not clinical findings.
+
+Data: eegmmidb v1.0.0, https://physionet.org/content/eegmmidb/1.0.0/ (open
+access, no credentials). ``--download`` fetches the requested EDF files with
+MNE into ``--root``; one subject and run is a few MB.
+
+Run (about a minute on CPU)::
+
+    python examples/eeg/eegbci/eegbci_pattern_discovery.py \\
+        --subjects 1 --runs 3 --max-windows 20 --download
+
+See ``README.md`` in this folder for the output columns and citations.
+"""
+
 from __future__ import annotations
 
 import argparse
