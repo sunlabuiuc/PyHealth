@@ -184,7 +184,10 @@ supports ``len()`` and index access, ready for a DataLoader.
     sample_ds[0]     # a single sample dict with tensor values
 
 If you re-run ``set_task()`` with the same task and processor configuration,
-PyHealth detects the existing cache and skips reprocessing. During
+PyHealth detects the existing cache and skips reprocessing. The cache key holds
+the task's arguments and schemas but not its code, so after you edit a task's
+``__call__``, run ``dataset.clear_task_cache(task)`` (see *Task caches and when
+to clear them* in :doc:`datasets`). During
 development it is useful to set ``dev=True`` on the dataset, which limits
 processing to 1 000 patients so iterations are fast.
 
@@ -244,6 +247,7 @@ Available Tasks
     Readmission Prediction <tasks/pyhealth.tasks.readmission_prediction>
     Sleep Staging <tasks/pyhealth.tasks.sleep_staging>
     Sleep Staging (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSleepEDF>
+    Sleep Staging (ISRUC) <tasks/pyhealth.tasks.SleepStagingISRUC>
     Temple University EEG Tasks <tasks/pyhealth.tasks.temple_university_EEG_tasks>
     CHB-MIT Seizure Detection <tasks/pyhealth.tasks.SeizureDetectionCHBMIT>
     Ear-EEG Sleep Staging (EESM23) <tasks/pyhealth.tasks.SleepStagingEarEEG>

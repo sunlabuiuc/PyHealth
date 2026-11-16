@@ -2,6 +2,17 @@
 
 Uses the COVID-19 Radiography Database. Set ``root`` to the folder that holds
 its four class folders and their metadata spreadsheets.
+
+The images are loaded with ``COVID19CXRDataset`` and the
+``COVID19CXRImageGeneration`` task (grayscale, 128 x 128), the ``VAE`` is
+trained with ``Trainer``, and the script saves a real/reconstructed pair and
+four generated images as PNG files in the working directory.
+
+Data: https://www.kaggle.com/datasets/tawsifurrahman/covid19-radiography-database
+(open download, no credentials). Run with
+``python examples/cxr/chextXray_image_generation_VAE.py`` after setting the
+default ``root`` of ``main``. Ten epochs over ~21k images take a while on CPU;
+a GPU is recommended.
 """
 
 import matplotlib.pyplot as plt

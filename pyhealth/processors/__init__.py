@@ -72,6 +72,7 @@ from .timeseries_label_processor import (
     TimeseriesRegressionLabelProcessor,
 )
 from .time_image_processor import TimeImageProcessor
+from .time_region_image_processor import TimeRegionImageProcessor
 from .graph_processor import GraphProcessor
 from .audio_processor import AudioProcessor
 from .ignore_processor import IgnoreProcessor
@@ -140,6 +141,7 @@ __all__ = [
     "TimeseriesProcessor",
     "TimeseriesRegressionLabelProcessor",
     "TimeImageProcessor",
+    "TimeRegionImageProcessor",
     "GraphProcessor",
     "AudioProcessor",
     "IgnoreProcessor",

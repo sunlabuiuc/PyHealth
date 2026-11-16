@@ -1,0 +1,11 @@
+version: "1.0.0"
+tables:
+  recordings:
+    file_path: "isruc-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "session_id"
+    - "signal_file"
+    - "label_file_1"
+    - "label_file_2"

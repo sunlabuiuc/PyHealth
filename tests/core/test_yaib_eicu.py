@@ -196,7 +196,7 @@ class TestYAIBMortalityEICU(unittest.TestCase):
         self.assertAlmostEqual(values[8, CRP], 61.0)
         self.assertAlmostEqual(values[9, FIO2], 40.0)
         self.assertEqual(values[10, O2SAT], 95.0)
-        self.assertEqual(sample["static"]["time"], [0.0])
+        self.assertNotIn("time", sample["static"])
         self.assertEqual(sample["static"]["values"], [[60.0, 1.0, 180.0, 80.0]])
 
     def test_implausible_values_are_dropped(self):
@@ -495,7 +495,7 @@ class TestYAIBProcessingEICU(unittest.TestCase):
                     self.assertTrue((values[:5, TEMP] == 0).all())
                     filled = values[5:8, TEMP]
                     self.assertTrue((filled == filled[0]).all())
-                    static, static_mask, _ = dataset[i]["static"]
+                    static, static_mask = dataset[i]["static"]
                     self.assertTrue(torch.isfinite(static).all())
                     self.assertEqual(static_mask[0].bool().tolist(),
                                      [False, False, False, True])
