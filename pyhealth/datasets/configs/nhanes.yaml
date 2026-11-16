@@ -1,0 +1,22 @@
+version: "1.0"
+tables:
+  nhanes:
+    file_path: "nhanes-participants.parquet"
+    patient_id: "seqn"
+    timestamp: null
+    attributes:
+      - "cycle"
+      - "age"
+      - "sex"
+      - "income"
+      - "bmi"
+      - "waist"
+      - "sbp"
+      - "dbp"
+      - "eligstat"
+      - "mortstat"
+      - "permth_int"
+      - "permth_exm"
+      - "n_epochs"
+      - "n_wear_epochs"
+      - "epoch_file"
