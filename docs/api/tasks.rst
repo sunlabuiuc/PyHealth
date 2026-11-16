@@ -250,6 +250,7 @@ Available Tasks
     Sleep Staging (ISRUC) <tasks/pyhealth.tasks.SleepStagingISRUC>
     Temple University EEG Tasks <tasks/pyhealth.tasks.temple_university_EEG_tasks>
     CHB-MIT Seizure Detection <tasks/pyhealth.tasks.SeizureDetectionCHBMIT>
+    Helsinki Neonatal Seizure Detection <tasks/pyhealth.tasks.SeizureDetectionHelsinki>
     Ear-EEG Sleep Staging (EESM23) <tasks/pyhealth.tasks.SleepStagingEarEEG>
     IIIC Seizure Classification <tasks/pyhealth.tasks.iiic_seizure_classification>
     EEGBCI Tasks <tasks/pyhealth.tasks.eegbci>

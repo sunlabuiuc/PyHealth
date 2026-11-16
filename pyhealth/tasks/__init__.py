@@ -154,6 +154,9 @@ from .temple_university_EEG_tasks import (
     EEGEventsTUEV,
     EEGAbnormalTUAB
 )
+from .seizure_detection_helsinki import (
+    SeizureDetectionHelsinki as SeizureDetectionHelsinki,
+)
 from .seizure_detection_chbmit import (
     SeizureDetectionCHBMIT as SeizureDetectionCHBMIT,
 )

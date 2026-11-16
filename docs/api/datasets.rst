@@ -440,6 +440,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `PhysioNet <https://physionet.org/content/chbmit/1.0.0/>`__
      - No
      - —
+   * - :doc:`Helsinki Neonatal EEG <datasets/pyhealth.datasets.HelsinkiNeonatalDataset>`
+     - Open
+     - `Zenodo <https://zenodo.org/records/4940267>`__
+     - No
+     - —
    * - :doc:`EEG Motor Movement/Imagery <datasets/pyhealth.datasets.EEGBCIDataset>`
      - Open
      - `PhysioNet <https://physionet.org/content/eegmmidb/1.0.0/>`__
@@ -561,6 +566,7 @@ Available Datasets
     datasets/pyhealth.datasets.TUABDataset
     datasets/pyhealth.datasets.TUEVDataset
     datasets/pyhealth.datasets.CHBMITDataset
+    datasets/pyhealth.datasets.HelsinkiNeonatalDataset
     datasets/pyhealth.datasets.EESM23Dataset
     datasets/pyhealth.datasets.IIICDataset
     datasets/pyhealth.datasets.ClinVarDataset
