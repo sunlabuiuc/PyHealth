@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 # Visits published in the NSRR polysomnography release.
 _VALID_VISITS = ("shhs1", "shhs2")
 
-# Metadata CSV name for a single visit.
+# Metadata CSV name for a single visit. The visit is part of the name, so the
+# two tables never write to the same file even though they share a directory.
 _CSV_TEMPLATE = "{visit}-pyhealth.csv"
 
 # Candidate parents of the Profusion XML inside
@@ -92,6 +93,10 @@ def read_sleep_stages(annotation_file: str | Path) -> list[int]:
     Raises:
         ValueError: If the document has no ``SleepStages`` element or a stage
             is not an integer.
+        xml.etree.ElementTree.ParseError: If the file is not well-formed XML,
+            for example a truncated download or an HTML error page. Callers
+            that iterate a dataset should catch this alongside ``ValueError``
+            to skip one broken night instead of aborting the run.
 
     Examples:
         >>> from pyhealth.datasets.shhs import read_sleep_stages
@@ -122,7 +127,7 @@ def read_sleep_stages(annotation_file: str | Path) -> list[int]:
 
 
 def _normalize_visits(visits) -> list[str]:
-    """Validate a ``visits`` argument and return it as a sorted-by-input list."""
+    """Validate a ``visits`` argument and return the visits in the order given."""
     if visits is None:
         return list(_VALID_VISITS)
     if isinstance(visits, str):

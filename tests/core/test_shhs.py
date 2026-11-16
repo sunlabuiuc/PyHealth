@@ -138,7 +138,7 @@ class TestSHHSDatasetMetadata(unittest.TestCase):
     def test_default_task_is_sleep_staging(self):
         dataset = SHHSDataset.__new__(SHHSDataset)
         self.assertIsInstance(dataset.default_task, SleepStagingSHHS)
-        self.assertEqual(dataset.default_task.epoch_sec, 30.0)
+        self.assertEqual(dataset.default_task.epoch_seconds, 30)
 
 
 class TestSHHSModuleHelpers(unittest.TestCase):
