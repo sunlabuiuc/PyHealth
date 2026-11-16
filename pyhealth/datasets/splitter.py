@@ -113,8 +113,20 @@ class PatientSplit(Split):
         object.__setattr__(self, "ratios", ratios)
 
     def to_dict(self) -> dict:
-        """JSON-serialisable description, used in cache keys and metadata."""
-        return {"kind": "patient", "ratios": list(self.ratios), "seed": int(self.seed)}
+        """JSON-serialisable description, used in cache keys and metadata.
+
+        ``cuts`` names the rule that turns ratios into part sizes. Before the
+        float error described in :func:`_cut_index` was fixed, some sizes
+        differed by one patient, and the description had no ``cuts`` entry:
+        processed caches built with those sizes get a different key and are
+        not reused.
+        """
+        return {
+            "kind": "patient",
+            "ratios": list(self.ratios),
+            "seed": int(self.seed),
+            "cuts": _CUT_RULE,
+        }
 
     def split_indices(
         self, patient_to_index: Mapping[str, Sequence[int]]
@@ -252,6 +264,11 @@ class SubjectSplit(Split):
             indices.sort()
             parts.append(indices)
         return parts
+
+
+# Name of the rule below, stored in ``PatientSplit.to_dict``. Change it
+# whenever the rule changes, so that cached splits are rebuilt.
+_CUT_RULE = "floor of n * fraction rounded to 6 decimals"
 
 
 def _cut_index(n: int, fraction: float) -> int:

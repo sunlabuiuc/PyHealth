@@ -11,8 +11,11 @@ import unittest
 from fractions import Fraction
 from math import floor
 
+import numpy as np
+
 from pyhealth.datasets.sample_dataset import create_sample_dataset
 from pyhealth.datasets.splitter import (
+    _CUT_RULE,
     PatientSplit,
     _cut_index,
     split_by_patient,
@@ -139,6 +142,33 @@ class TestSplitSizes(unittest.TestCase):
         patient_to_index = {f"p{i:03d}": [i] for i in range(10)}
         parts = PatientSplit((0.7, 0.1, 0.2)).split_indices(patient_to_index)
         self.assertEqual(sizes(parts), [7, 1, 2])
+
+    def test_patient_split_description_names_the_cut_rule(self):
+        # The description is the processed-cache key: it has to differ from
+        # the one used when some sizes were off by one, which had no "cuts".
+        description = PatientSplit((0.7, 0.1, 0.2), seed=3).to_dict()
+        self.assertEqual(
+            description,
+            {
+                "kind": "patient",
+                "ratios": [0.7, 0.1, 0.2],
+                "seed": 3,
+                "cuts": _CUT_RULE,
+            },
+        )
+        self.assertIn("rounded", _CUT_RULE)
+
+    def test_only_one_item_moves_between_adjacent_parts(self):
+        # Same shuffle as before the fix: the second cut moves by one, so one
+        # patient goes from the test part to the validation part.
+        patient_to_index = {f"p{i:03d}": [i] for i in range(10)}
+        train, val, test = PatientSplit((0.7, 0.1, 0.2), seed=0).split_indices(
+            patient_to_index
+        )
+        order = np.random.default_rng(0).permutation(10)
+        self.assertEqual(sorted(train), sorted(order[:7]))
+        self.assertEqual(sorted(val), sorted(order[7:8]))  # was order[7:7]
+        self.assertEqual(sorted(test), sorted(order[8:]))  # was order[7:]
 
     def test_sizes_without_float_error_are_unchanged(self):
         for n, ratios in ((7, [0.5, 0.25, 0.25]), (10, [0.55, 0.25, 0.2])):
