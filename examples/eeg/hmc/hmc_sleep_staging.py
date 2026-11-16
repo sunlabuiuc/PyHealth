@@ -61,7 +61,7 @@ def main() -> None:
     if min(len(train_dataset), len(val_dataset), len(test_dataset)) == 0:
         raise ValueError(
             "Too few recordings for a train/validation/test split by subject "
-            f"with ratios {SPLIT_RATIOS}; use at least 10."
+            f"with ratios {SPLIT_RATIOS}: one of the three parts is empty."
         )
     print(
         "samples train/val/test",
