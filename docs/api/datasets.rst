@@ -445,6 +445,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `PhysioNet <https://physionet.org/content/eegmmidb/1.0.0/>`__
      - Yes
      - —
+   * - :doc:`HUP iEEG (epilepsy surgery) <datasets/pyhealth.datasets.HUPiEEGDataset>`
+     - Open
+     - `OpenNeuro <https://openneuro.org/datasets/ds004100>`__
+     - No
+     - —
    * - :doc:`ISRUC-Sleep <datasets/pyhealth.datasets.ISRUCDataset>`
      - Open
      - `ISRUC <https://sleeptight.isr.uc.pt/>`__
@@ -540,6 +545,7 @@ Available Datasets
     datasets/pyhealth.datasets.CardiologyDataset
     datasets/pyhealth.datasets.eICUDataset
     datasets/pyhealth.datasets.ISRUCDataset
+    datasets/pyhealth.datasets.HUPiEEGDataset
     datasets/pyhealth.datasets.MIMICExtractDataset
     datasets/pyhealth.datasets.OMOPDataset
     datasets/pyhealth.datasets.SyntheaCSVDataset
