@@ -25,6 +25,7 @@ from pyhealth.models.clip_stress_layers import (
     StressTabularResNet,
     stress_contrastive_loss,
 )
+from pyhealth.processors import LabelProcessor
 
 
 class CLIPStress(BaseModel):
@@ -177,7 +178,8 @@ class CLIPStress(BaseModel):
         )
         self.classifier = (
             nn.Linear(
-                projection_dim, 2 if self.mode == "binary" else self.get_output_size()
+                projection_dim,
+                2 if self.mode == "binary" else self.label_processor.output_size(),
             )
             if self.label_key is not None
             else None
@@ -191,6 +193,17 @@ class CLIPStress(BaseModel):
             else None
         )
         self.set_stage(stage)
+
+    @property
+    def label_processors(self) -> dict[str, LabelProcessor]:
+        """Label processors scored by ``Trainer``; none while pretraining.
+
+        Contrastive pretraining predicts batch pairings rather than the
+        dataset's label, so ``mode`` is ``None`` in the ``pretrain`` stage.
+        """
+        if self.__dict__.get("stage") == "pretrain":
+            return {}
+        return super().label_processors
 
     def _feature_width(self, key: str, rank: int) -> int:
         if key not in self.dataset.input_processors:
@@ -241,7 +254,6 @@ class CLIPStress(BaseModel):
         if stage != "pretrain" and self.classifier is None:
             raise ValueError("Classification requires a labeled dataset schema.")
         self.stage = stage
-        self.mode = None if stage == "pretrain" else self._classification_mode
         # Frozen parameters must not retain gradients from the previous stage.
         self.zero_grad(set_to_none=True)
         for module in (self.encoders, self.fusion, self.signal_projection):
@@ -372,7 +384,10 @@ class CLIPStress(BaseModel):
             logit = (
                 class_logits[:, 1:2] - class_logits[:, :1] if binary else class_logits
             )
-            result = {"logit": logit, "y_prob": self.prepare_y_prob(logit)}
+            result = {
+                "logit": logit,
+                "y_prob": self.label_processor.activation(logit),
+            }
             if self.label_key in kwargs:
                 target = kwargs[self.label_key].to(self.device).long().reshape(-1)
                 result["y_true"] = (
