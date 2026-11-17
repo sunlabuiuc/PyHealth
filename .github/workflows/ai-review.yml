@@ -26,7 +26,8 @@ name: AI Review
 # When an automatic PR switches to manual:
 # - right away, for prompt injection, and when the author's 10th requested AI
 #   decision since "status: automatic" was last added is posted (reviews a
-#   maintainer starts don't count);
+#   maintainer starts don't count), and when a /review from the author needs
+#   check runs approved but CI_QUOTA approvals were already used since then;
 # - after one warning, for a mistake the author can fix: changing files
 #   outside the allowed directories, touching the core, or a high-severity
 #   finding on a change Sonnet would approve. The first time, the decision is
@@ -69,11 +70,15 @@ env:
   ALLOWED_DIRS: 'docs/ examples/ pyhealth/ test-resources/ tests/'
   # AI decisions the author can request per "status: automatic" labeling
   REVIEW_QUOTA: '10'
+  # fork check runs the author's /review can approve per "status: automatic" labeling
+  CI_QUOTA: '10'
 
 jobs:
   # Accepts a /review comment from someone allowed on a commit not yet reviewed:
   # marks it with 👀 (queued), and dispatches the review if the required checks
-  # have already passed. Anything else is ignored silently.
+  # have already passed. On an automatic PR it approves check runs waiting for
+  # a maintainer's approval (first-time contributors' forks), within CI_QUOTA.
+  # Anything else is ignored silently.
   request:
     if: >-
       github.event_name == 'issue_comment' &&
@@ -81,6 +86,11 @@ jobs:
       github.event.comment.user.type != 'Bot' &&
       startsWith(github.event.comment.body, '/review')
     runs-on: ubuntu-latest
+    # one request at a time per PR, so two /review comments can't both spend
+    # the same CI approval
+    concurrency:
+      group: ai-review-request-${{ github.event.issue.number }}
+      cancel-in-progress: false
     permissions:
       actions: write
       contents: read
@@ -118,18 +128,81 @@ jobs:
               /<!-- ai-review:(decision|previous decision) -->/.test(r.body ?? ''));
             if (reviewed) return ignore('the current commit has already been reviewed');
 
-            await github.rest.reactions.createForIssueComment({ ...repo, comment_id: comment.id, content: 'eyes' });
+            const { data: eyes } = await github.rest.reactions.createForIssueComment({
+              ...repo, comment_id: comment.id, content: 'eyes',
+            });
 
             // while the checks run the request waits; "resume" picks it up
+            const pending = []; // runs waiting for a maintainer's approval
+            let unfinished = null;
             for (const workflow of ['test.yml', 'pr_contribution_rules.yml']) {
               const { data } = await github.rest.actions.listWorkflowRuns({
                 ...repo, workflow_id: workflow, head_sha: pr.head.sha, event: 'pull_request', per_page: 50,
               });
               const latest = data.workflow_runs.sort((a, b) => b.run_number - a.run_number)[0];
-              if (latest?.status !== 'completed' || latest.conclusion !== 'success') {
-                return core.info(`queued: ${workflow} has not passed yet`);
-              }
+              if (latest?.status === 'action_required' || latest?.conclusion === 'action_required') pending.push(latest);
+              else if (latest?.status !== 'completed' || latest.conclusion !== 'success') unfinished ??= workflow;
             }
+            if (pending.length) {
+              if (mode !== LABEL_AUTO) return core.info('queued: the checks wait for a maintainer to approve them');
+              const sha = pr.head.sha.slice(0, 7);
+              const say = (body) => github.rest.issues.createComment({
+                ...repo, issue_number: pr.number, body: body.replace(/@(?=[A-Za-z0-9_-])/g, '@​'),
+              });
+
+              // a fork's runs use the PR's own workflow files and build config,
+              // so only PRs confined to the allowed directories are started here
+              const ALLOWED = process.env.ALLOWED_DIRS.split(' ');
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                ...repo, pull_number: pr.number, per_page: 100,
+              });
+              const outside = files.flatMap((f) => [f.filename, f.previous_filename]).filter(Boolean)
+                .filter((p) => !ALLOWED.some((d) => p.startsWith(d)));
+              if (outside.length) {
+                await say(`The checks on commit ${sha} are waiting for a maintainer to approve them. They can't be ` +
+                  `started by \`/review\` because this PR changes files outside \`${ALLOWED.join('`, `')}\`: ` +
+                  outside.slice(0, 10).map((p) => `\`${p.replace(/`/g, '')}\``).join(', ') +
+                  (outside.length > 10 ? ', ...' : '') + '. Revert those files, or ask a maintainer.');
+                return core.info('queued: changes outside the allowed directories');
+              }
+
+              // the budget counts the approvals the author asked for since
+              // "status: automatic" was last added; a maintainer's are free
+              const quota = Number(process.env.CI_QUOTA);
+              const timeline = await github.paginate(github.rest.issues.listEventsForTimeline, {
+                ...repo, issue_number: pr.number, per_page: 100,
+              });
+              const automaticSince = Math.max(0, ...timeline
+                .filter((e) => e.event === 'labeled' && e.label?.name === LABEL_AUTO)
+                .map((e) => Date.parse(e.created_at) || 0));
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                ...repo, issue_number: pr.number, per_page: 100,
+              });
+              const tracker = comments.find((c) => c.user?.login === BOT && c.body?.includes('<!-- ai-review:ci '));
+              const m = tracker?.body.match(/<!-- ai-review:ci since=(\d+) count=(\d+) -->/);
+              let used = m && Number(m[1]) === automaticSince ? Number(m[2]) : 0;
+              if (!writer && used >= quota) {
+                await github.rest.issues.removeLabel({ ...repo, issue_number: pr.number, name: LABEL_AUTO })
+                  .catch((e) => { if (e.status !== 404) throw e; });
+                await github.rest.issues.addLabels({ ...repo, issue_number: pr.number, labels: [LABEL_MANUAL] });
+                await github.rest.reactions.deleteForIssueComment({ ...repo, comment_id: comment.id, reaction_id: eyes.id });
+                await say(`Thank you for all the effort you've put into this PR! It has used all ${quota} check runs ` +
+                  `that \`/review\` can start since \`${LABEL_AUTO}\` was added, so it's now labeled ` +
+                  `\`${LABEL_MANUAL}\` and a maintainer will take over the review from here.`);
+                return core.info('CI quota used up: switched to manual');
+              }
+
+              for (const run of pending) await github.rest.actions.approveWorkflowRun({ ...repo, run_id: run.id });
+              if (!writer) used += 1;
+              const body = `<!-- ai-review:ci since=${automaticSince} count=${used} -->\n` +
+                `Started the checks on commit ${sha} for \`/review\`; the review follows once they pass. ` +
+                `Check runs started this way: ${used} of ${quota} since \`${LABEL_AUTO}\` was added. ` +
+                `When they're used up, the PR switches to \`${LABEL_MANUAL}\`.`;
+              if (tracker) await github.rest.issues.updateComment({ ...repo, comment_id: tracker.id, body });
+              else await say(body);
+              return core.info(`queued: approved ${pending.length} check run(s), ${used} of ${quota} used`);
+            }
+            if (unfinished) return core.info(`queued: ${unfinished} has not passed yet`);
             await github.rest.actions.createWorkflowDispatch({
               ...repo, workflow_id: 'ai-review.yml', ref: context.payload.repository.default_branch,
               inputs: { pr: String(pr.number) },

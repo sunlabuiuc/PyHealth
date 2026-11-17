@@ -34,7 +34,9 @@ For a quick overview of what makes a good pull request, see
    - `status: manual`: wait for a maintainer to review and approve your pull
      request.
    - `status: automatic`: comment `/review` to get an AI review. Push your fixes
-     and comment `/review` again whenever you want another review. **Once the AI
+     and comment `/review` again whenever you want another review. If your
+     checks are waiting for a maintainer's approval (usual on a first pull
+     request), `/review` starts them for you. **Once the AI
      approves your latest commit, comment `/merge` to merge your pull request
      into PyHealth yourself.**
 
@@ -45,6 +47,8 @@ A pull request switches to `status: manual`:
 - when you've used up your 10 AI reviews. The limit counts the reviews you
   request since the `status: automatic` label was last added; reviews a
   maintainer starts don't count;
+- when `/review` needs to start your checks again after it has already started
+  them 10 times since the `status: automatic` label was last added;
 - after one warning, if it:
   - changes any file outside `docs/`, `examples/`, `pyhealth/`,
     `test-resources/` and `tests/`,
