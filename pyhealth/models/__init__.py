@@ -16,6 +16,7 @@ from .unet import (
     evaluate_segmentation as evaluate_segmentation,
     sliding_window_inference as sliding_window_inference,
 )
+from .clip_stress import CLIPStress as CLIPStress
 from .transformer_deid import TransformerDeID
 from .biot import BIOT
 from .cnn import CNN, CNNLayer
