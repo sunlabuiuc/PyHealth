@@ -614,7 +614,10 @@ def parse_args() -> argparse.Namespace:
         "which stops at update 3 with every token still kept)",
     )
     parser.add_argument(
-        "--tm_mask_init", type=float, default=2.0, help="starting mask logit (authors: 2.0)"
+        "--tm_mask_init",
+        type=float,
+        default=2.0,
+        help="starting mask logit (authors: 2.0)",
     )
     parser.add_argument(
         "--tm_baseline_id",

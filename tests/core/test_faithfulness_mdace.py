@@ -94,7 +94,8 @@ class TestHandComputed(unittest.TestCase):
 
     def test_sufficiency_clips_increases(self):
         model = one_token_model(strength=-4.0, bias=1.0)  # token 7 lowers p
-        out = faithfulness(model, self.ids, self.mask, [0.1, 0.9, 0.2, 0.3, 0.05], 0, MASK)
+        scores = [0.1, 0.9, 0.2, 0.3, 0.05]
+        out = faithfulness(model, self.ids, self.mask, scores, 0, MASK)
         self.assertEqual(out["sufficiency"], 0.0)
         self.assertLess(out["comprehensiveness"], 0.0)  # not clipped
 
@@ -162,7 +163,10 @@ class TestMatchesAuthors(unittest.TestCase):
 
         feature_map, ours_map = None, None
         if word_level:
-            names = ["Ġw" if t % 3 == 0 else ("Ġ" if t == 4 else "x") for t in body.tolist()]
+            names = [
+                "Ġw" if t % 3 == 0 else ("Ġ" if t == 4 else "x")
+                for t in body.tolist()
+            ]
             tokens = ["<s>", *names, "</s>"]
 
             class Tok:

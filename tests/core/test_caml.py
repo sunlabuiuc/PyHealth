@@ -105,7 +105,8 @@ class TestCAML(unittest.TestCase):
         with torch.no_grad():
             attention = self.model(**self.batch)["attention"]
         self.assertTrue(torch.allclose(attention.sum(-1), torch.ones(2, 3)))
-        self.assertTrue(torch.all(attention.masked_select(self.mask[:, None] == 0) == 0))
+        padded = attention.masked_select(self.mask[:, None] == 0)
+        self.assertTrue(torch.all(padded == 0))
 
     def test_conv_output_aligned_with_tokens(self):
         for kernel_size in (1, 3, 10):

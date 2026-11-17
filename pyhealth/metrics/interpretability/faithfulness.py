@@ -140,7 +140,9 @@ def perturbation_curve(
 
     num_steps = math.ceil((max_features or num_features) / step_size)
     # Sufficiency starts by removing everything outside the top max_features.
-    offset = max(num_features - max_features, 0) if not descending and max_features else 0
+    offset = 0
+    if not descending and max_features:
+        offset = max(num_features - max_features, 0)
     perturbed = input_ids.repeat(num_steps, 1)
     for step in range(num_steps):
         removed = order[: min(offset + step * step_size, num_features)]
@@ -179,7 +181,9 @@ def faithfulness(
         >>> faithfulness(model, ids[0], mask[0], scores, class_idx,
         ...              model.tokenizer.mask_token_id)
     """
-    args = (model, input_ids, attention_mask, attributions, class_idx, baseline_token_id)
+    args = (
+        model, input_ids, attention_mask, attributions, class_idx, baseline_token_id
+    )
     kwargs = dict(
         positions=positions,
         feature_map=feature_map,
