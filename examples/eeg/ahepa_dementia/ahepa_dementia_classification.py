@@ -13,6 +13,9 @@ data and inflates the scores. The scores printed here are per window; the
 studies on this dataset usually also report leave-one-subject-out results,
 which this short example does not do.
 
+This is a usage example, not a tuned model: with these settings (5 epochs,
+default optimizer) SparcNet stays close to chance on held-out subjects.
+
 The recordings are resampled from 500 to 125 Hz to keep the windows small.
 The artifact-cleaned recordings were band-pass filtered to 0.5-45 Hz, below
 half of that rate.
