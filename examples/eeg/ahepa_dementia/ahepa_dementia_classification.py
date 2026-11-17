@@ -1,112 +1,171 @@
-"""Alzheimer's disease against controls on the AHEPA EEG dataset with SparcNet.
+"""Band-power baseline on the AHEPA dementia EEG dataset, by subject.
 
 Author: Axel Coiffard-Donaty
 
-Loads the dataset (OpenNeuro ds004504) with ``AHEPADementiaDataset``, cuts
-the artifact-cleaned recordings into 4 second windows with 50% overlap
-with ``DementiaClassificationAHEPA``, splits by subject and trains
-``SparcNet``.
+Follows the classification benchmark of the data descriptor (Miltiadous et
+al., Data 8(6):95, 2023, section 3.3, https://doi.org/10.3390/data8060095):
 
-The split is by subject: every window of a subject carries that subject's
-diagnosis, so a split by window puts the same person in training and test
-data and inflates the scores. The scores printed here are per window; the
-studies on this dataset usually also report leave-one-subject-out results,
-which this short example does not do.
+1. ``AHEPADementiaDataset`` and ``DementiaClassificationAHEPA`` cut the
+   artifact-cleaned recordings into 4 second windows with 50% overlap;
+2. each window is described by its relative band power in the delta
+   (0.5-4 Hz), theta (4-8), alpha (8-13), beta (13-25) and gamma (25-45)
+   bands, from Welch's method, relative to 0.5-45 Hz;
+3. a k-nearest-neighbour classifier (k = 3) and a random forest are
+   evaluated with leave-one-subject-out validation: all the windows of one
+   subject are the test set, the others the training set, for every subject
+   in turn. Accuracy, sensitivity, specificity and F1 come from the pooled
+   confusion matrix, as in the paper.
 
-This is a usage example, not a tuned model: with these settings (5 epochs,
-default optimizer) SparcNet stays close to chance on held-out subjects.
+Every window of a subject carries that subject's diagnosis, so the split has
+to be by subject; a split by window puts the same person in training and
+test data and inflates the scores.
 
-The recordings are resampled from 500 to 125 Hz to keep the windows small.
-The artifact-cleaned recordings were band-pass filtered to 0.5-45 Hz, below
-half of that rate.
+Choices the paper does not specify: the five relative powers are averaged
+over the 19 channels (the paper reports 5 features per window; use
+``--per-channel`` for the 95 per-channel features), Welch segments last 2
+seconds, the random forest uses scikit-learn's defaults, and features are
+not scaled. The paper also evaluates LightGBM, an SVM and a multilayer
+perceptron, left out here. The recordings are resampled from 500 to 125 Hz,
+above twice the 45 Hz upper edge of the bands, to keep the windows small.
+
+``--reference average`` subtracts the mean over channels, which removes the
+signal that the mastoid reference adds to every channel (see the task's
+documentation).
 
 Data: open under CC0. Download https://openneuro.org/datasets/ds004504
 (5.8 GB, or about 3 GB for the ``derivatives`` folder and
 ``participants.tsv`` alone), then run::
 
-    python examples/eeg/ahepa_dementia/ahepa_dementia_classification.py \
+    python examples/eeg/ahepa_dementia/ahepa_dementia_classification.py \\
         --root /path/to/ds004504
 
 Other problems: ``--problem ftd_vs_cn``, ``ad_vs_ftd``, ``dementia_vs_cn``.
-``--reference average`` subtracts the mean over channels, which removes the
-signal that the mastoid reference adds to every channel (see the task's
-documentation).
 """
 
 import argparse
 
 import numpy as np
-import torch
+from scipy.signal import welch
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.neighbors import KNeighborsClassifier
 
-from pyhealth.datasets import AHEPADementiaDataset, get_dataloader, split_by_patient
-from pyhealth.models import SparcNet
+from pyhealth.datasets import AHEPADementiaDataset
 from pyhealth.tasks import DementiaClassificationAHEPA
 from pyhealth.tasks.dementia_classification_ahepa import REFERENCES
-from pyhealth.trainer import Trainer
 
 SEED = 0
-SPLIT_RATIOS = (0.6, 0.2, 0.2)  # train / validation / test, by subject
-RESAMPLE_RATE = 125  # Hz; the cleaned recordings are band-passed to 0.5-45 Hz
+RESAMPLE_RATE = 125  # Hz, above twice the 45 Hz upper edge of the bands
+WELCH_SECONDS = 2
+BANDS = {
+    "delta": (0.5, 4.0),
+    "theta": (4.0, 8.0),
+    "alpha": (8.0, 13.0),
+    "beta": (13.0, 25.0),
+    "gamma": (25.0, 45.0),
+}
 BINARY_PROBLEMS = ("ad_vs_cn", "ftd_vs_cn", "ad_vs_ftd", "dementia_vs_cn")
-METRICS = ["roc_auc", "pr_auc", "balanced_accuracy", "f1"]
+
+
+def relative_band_power(signal: np.ndarray, sfreq: float) -> np.ndarray:
+    """Relative power of each band, per channel.
+
+    Args:
+        signal: One window, shaped ``(channels, samples)``.
+        sfreq: Sampling rate in Hz.
+
+    Returns:
+        Array of shape ``(channels, 5)``: the share of the 0.5-45 Hz power in
+        each band of ``BANDS``.
+    """
+    freqs, power = welch(signal, fs=sfreq, nperseg=int(sfreq * WELCH_SECONDS))
+    total = power[:, (freqs >= 0.5) & (freqs < 45.0)].sum(axis=1)
+    bands = [
+        power[:, (freqs >= low) & (freqs < high)].sum(axis=1) / total
+        for low, high in BANDS.values()
+    ]
+    return np.stack(bands, axis=1)
+
+
+def leave_one_subject_out(features, labels, subjects, make_model) -> dict:
+    """Evaluate a classifier with leave-one-subject-out validation.
+
+    Args:
+        features: Array ``(windows, n_features)``.
+        labels: Array ``(windows,)`` of 0 and 1.
+        subjects: Array ``(windows,)`` with the subject of each window.
+        make_model: Function returning a new scikit-learn classifier.
+
+    Returns:
+        Accuracy, sensitivity, specificity and F1 from the confusion matrix
+        pooled over the left-out subjects, and the share of subjects whose
+        majority of windows is classified correctly.
+    """
+    predictions = np.zeros_like(labels)
+    for subject in np.unique(subjects):
+        test = subjects == subject
+        model = make_model().fit(features[~test], labels[~test])
+        predictions[test] = model.predict(features[test])
+    tp = int(((predictions == 1) & (labels == 1)).sum())
+    tn = int(((predictions == 0) & (labels == 0)).sum())
+    fp = int(((predictions == 1) & (labels == 0)).sum())
+    fn = int(((predictions == 0) & (labels == 1)).sum())
+    correct = predictions == labels
+    by_subject = [correct[subjects == s].mean() > 0.5 for s in np.unique(subjects)]
+    return {
+        "accuracy": (tp + tn) / len(labels),
+        "sensitivity": tp / (tp + fn),
+        "specificity": tn / (tn + fp),
+        "f1": 2 * tp / (2 * tp + fp + fn),
+        "subjects_correct": float(np.mean(by_subject)),
+    }
 
 
 def main() -> None:
-    """Train SparcNet on a binary dementia problem and print test metrics."""
+    """Run the band-power baseline and print its leave-one-subject-out scores."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument(
         "--root", required=True, help="BIDS root, the folder with participants.tsv."
     )
     parser.add_argument("--problem", default="ad_vs_cn", choices=BINARY_PROBLEMS)
     parser.add_argument("--reference", default="stored", choices=REFERENCES)
-    parser.add_argument("--epochs", type=int, default=5)
-    parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--device", default="cpu")
+    parser.add_argument(
+        "--per-channel",
+        action="store_true",
+        help="Use the 5 band powers of each channel (95 features) instead of "
+        "their average over channels (5 features).",
+    )
     args = parser.parse_args()
-    np.random.seed(SEED)
-    torch.manual_seed(SEED)
 
     dataset = AHEPADementiaDataset(root=args.root)
     dataset.stats()
-
     task = DementiaClassificationAHEPA(
         problem=args.problem,
         resample_rate=RESAMPLE_RATE,
         reference=args.reference,
     )
     samples = dataset.set_task(task)
-    train_dataset, val_dataset, test_dataset = split_by_patient(
-        samples, SPLIT_RATIOS, seed=SEED
-    )
-    if min(len(train_dataset), len(val_dataset), len(test_dataset)) == 0:
-        raise ValueError(
-            "Too few recordings for a train/validation/test split by subject "
-            f"with ratios {SPLIT_RATIOS}: one of the three parts is empty."
-        )
+
+    features, labels, subjects = [], [], []
+    for sample in samples:
+        power = relative_band_power(np.asarray(sample["signal"]), RESAMPLE_RATE)
+        features.append(power.ravel() if args.per_channel else power.mean(axis=0))
+        labels.append(int(sample["label"]))
+        subjects.append(sample["patient_id"])
+    features = np.stack(features)
+    labels = np.asarray(labels)
+    subjects = np.asarray(subjects)
     print(
-        "samples train/val/test",
-        len(train_dataset),
-        len(val_dataset),
-        len(test_dataset),
+        f"{len(labels)} windows of {len(np.unique(subjects))} subjects, "
+        f"{features.shape[1]} features, {int(labels.sum())} positive windows"
     )
 
-    train_loader = get_dataloader(
-        train_dataset, batch_size=args.batch_size, shuffle=True
-    )
-    val_loader = get_dataloader(val_dataset, batch_size=args.batch_size, shuffle=False)
-    test_loader = get_dataloader(
-        test_dataset, batch_size=args.batch_size, shuffle=False
-    )
-
-    model = SparcNet(dataset=samples)
-    trainer = Trainer(model=model, device=args.device, metrics=METRICS)
-    trainer.train(
-        train_dataloader=train_loader,
-        val_dataloader=val_loader,
-        epochs=args.epochs,
-        monitor="roc_auc",
-    )
-    print(trainer.evaluate(test_loader))
+    models = {
+        "kNN (k=3)": lambda: KNeighborsClassifier(n_neighbors=3),
+        "random forest": lambda: RandomForestClassifier(random_state=SEED, n_jobs=-1),
+    }
+    for name, make_model in models.items():
+        scores = leave_one_subject_out(features, labels, subjects, make_model)
+        print(name, {key: round(value, 4) for key, value in scores.items()})
 
 
 # set_task spawns worker processes, so the script needs a main guard.
