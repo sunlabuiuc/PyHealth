@@ -63,8 +63,15 @@ the paper's values in brackets). Each "+ indicators first" strategy run with its
 base strategy also gives order_shift.csv (how far the imputed values move) and
 order_paired.csv (paired bootstrap differences of every metric and gap).
 
-The MIMIC-III v1.4 results over split seeds 0-4 (reproduction, hypotheses and
-ablations) are in examples/mimic3_clinical_presence_mortality_logistic_regression.md.
+--reference-split organises the patients as the reference code does. With the
+default --split-ratios, the imputer is fit on an 80% pool, from which 64.8% of the
+cohort trains the classifier, 7.2% chooses C and 8% is an internal test; the other
+20% is an external test. Metrics are computed on both test parts together, as in
+the reference, and metrics_test_parts.csv repeats them on each part.
+
+The MIMIC-III v1.4 results over split seeds 0-4 (reproduction, hypotheses,
+ablations and the reference split) are in
+examples/mimic3_clinical_presence_mortality_logistic_regression.md.
 """
 
 import argparse
@@ -267,7 +274,7 @@ def load_arrays(sd):
         raise ValueError("Expected exactly one sample per (patient, draw).")
     meta = [first[p] for p in pids]
     fields = [f for f, _, _ in AXES.values()] + ["n_lab_orders", "n_observed_labs"]
-    return {
+    data = {
         "X": X,
         "pids": pids,
         "index": index,
@@ -276,6 +283,17 @@ def load_arrays(sd):
         "split": np.array([m["split"] for m in meta]),
         "fields": {f: np.array([int(m[f]) for m in meta]) for f in fields},
     }
+    if "imputer_fit" in rows[0]:  # reference split: 1 for the imputer's pool
+        data["imputer_fit"] = np.array([int(m["imputer_fit"]) for m in meta])
+    return data
+
+
+def eval_parts(data):
+    """The reference split's internal and external test masks; {} otherwise."""
+    if "imputer_fit" not in data:
+        return {}
+    te, pool = data["split"] == "test", data["imputer_fit"] == 1
+    return {"internal": te & pool, "external": te & ~pool}
 
 
 def _fit_lr(Xtr, ytr, Xva, yva, C, select_metric):
@@ -512,7 +530,7 @@ def order_comparison(seed, arrays, test_probs, args):
 
 def cohort_summary(data):
     """Aggregate cohort statistics, including the paper's Table 1 (t-tests)."""
-    y, f = data["y"], data["fields"]
+    y, f, parts = data["y"], data["fields"], eval_parts(data)
     out = {
         "patients": len(y),
         "positives": int(y.sum()),
@@ -520,6 +538,9 @@ def cohort_summary(data):
         "split_sizes": {
             s: int((data["split"] == s).sum()) for s in ("train", "val", "test")
         },
+        **(
+            {"test_parts": {k: int(m.sum()) for k, m in parts.items()}} if parts else {}
+        ),
         "features_per_draw": int(data["X"].shape[2]),
         "table1": {},
     }
@@ -602,6 +623,21 @@ def _table(header, rows):
     ]
 
 
+def reference_note(cohort):
+    """The reference split's pool and test parts, for the report's cohort line."""
+    parts = cohort.get("test_parts")
+    if not parts:
+        return ""
+    sizes = cohort["split_sizes"]
+    pool = sizes["train"] + sizes["val"] + parts["internal"]
+    return (
+        f" As in the reference code, the imputer was fit on a {pool:,}-patient pool: "
+        f"the training and validation patients and a {parts['internal']:,}-patient "
+        f"internal test. The other {parts['external']:,} patients are the external "
+        "test. metrics_test_parts.csv has every metric on each test part."
+    )
+
+
 def write_report(df, selection, cohorts, figures, out, args, shifts, paired):
     """report.md: Tables 1, 2 and 5-10 and the gaps, with paper values in brackets."""
     first = cohorts[f"seed {args.seeds[0]}"]
@@ -639,8 +675,13 @@ def write_report(df, selection, cohorts, figures, out, args, shifts, paired):
             "followed by ± the sd across seeds."
         ),
         (
-            "- Brackets hold the paper's value. The paper evaluated on 28% of its cohort, "
-            "so its sds are smaller."
+            "- Brackets hold the paper's value. This run evaluates on the reference "
+            "split's internal and external test together, "
+            f"{first['split_sizes']['test'] / first['patients']:.0%} of the cohort; the "
+            "paper's code evaluated on 28% the same way."
+            if args.reference_split
+            else "- Brackets hold the paper's value. The paper evaluated on 28% of its "
+            "cohort, so its sds are smaller."
         ),
         (
             "- Δ is the marginalised group (Black, female, publicly insured) minus the "
@@ -663,6 +704,7 @@ def write_report(df, selection, cohorts, figures, out, args, shifts, paired):
             f"{first['patients']:,} patients [{PAPER_COHORT:,}], of whom "
             f"{first['positives']:,} ({first['prevalence']:.2%}) died within 8 days of "
             f"admission. Split: {split} (train / validation / test)."
+            + reference_note(first)
         ),
         "",
     ]
@@ -1052,6 +1094,12 @@ def parse_args():
     ap.add_argument("--n-bootstrap", type=int, default=100)
     ap.add_argument("--split-ratios", nargs=3, type=float, default=[0.8, 0.1, 0.1])
     ap.add_argument(
+        "--reference-split",
+        action="store_true",
+        help="split as the reference code: the imputer is fit on a pool (the train "
+        "ratio) that includes an internal test; evaluate on it and the rest",
+    )
+    ap.add_argument(
         "--select-metric", choices=["accuracy", "roc_auc"], default="accuracy"
     )
     ap.add_argument(
@@ -1097,12 +1145,15 @@ def main():
     )
     base.stats()  # build the event table once, before any set_task
     records, selection, cohorts, shifts, paired = [], [], {}, [], []
+    part_records = []  # --reference-split: metrics on each test part
     for seed in args.seeds:
         datasets = {}  # task kwargs -> (SampleDataset, arrays); diagnostics reuse
         arrays, test_probs = {}, {}  # strategy -> this seed's, for order_comparison
         for name in args.strategies:
             kwargs, extra, family = STRATEGIES[name]
             kwargs = {**kwargs, "seed": seed, "split_ratios": args.split_ratios}
+            if args.reference_split:
+                kwargs["reference_split"] = True
             if kwargs["imputation"].endswith("mice"):
                 kwargs["n_draws"] = args.n_draws
             key = json.dumps(kwargs, sort_keys=True)
@@ -1154,6 +1205,16 @@ def main():
                     args.n_bootstrap,
                 ):
                     records.append((seed, model, name, family, *row))
+                for part, rows in eval_parts(data).items():
+                    fields = {f: v[rows] for f, v in data["fields"].items()}
+                    for row in evaluate(
+                        data["y"][rows],
+                        probs[rows],
+                        fields,
+                        args.capacities,
+                        args.n_bootstrap,
+                    ):
+                        part_records.append((seed, model, name, family, part, *row))
         seed_shifts, seed_paired = order_comparison(seed, arrays, test_probs, args)
         shifts += seed_shifts
         paired += seed_paired
@@ -1173,6 +1234,10 @@ def main():
         ],
     )
     df.to_csv(out / "metrics.csv", index=False)
+    if part_records:
+        columns = [*df.columns[:4], "test_part", *df.columns[4:]]
+        parts = pd.DataFrame(part_records, columns=columns)
+        parts.to_csv(out / "metrics_test_parts.csv", index=False)
     shifts = pd.DataFrame(
         shifts, columns=["seed", "strategy", "labs", "n_labs", "shift", "draw_spread"]
     )
