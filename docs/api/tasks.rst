@@ -278,3 +278,5 @@ Available Tasks
     YAIB Tasks (eICU) <tasks/pyhealth.tasks.yaib_eicu>
     Value Set Completion (VSAC) <tasks/pyhealth.tasks.ValueSetCompletion>
     Time-to-event survival (GBSG and SUPPORT) <tasks/pyhealth.tasks.survival_time_to_event>
+
+    Hourly remaining ICU LOS <tasks/pyhealth.tasks.tpc_eicu>

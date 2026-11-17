@@ -1,0 +1,6 @@
+patientunitstayid,patienthealthsystemstayid,gender,age,ethnicity,hospitalid,wardid,apacheadmissiondx,admissionheight,admissionweight,dischargeweight,hospitaladmittime24,hospitaladmitoffset,hospitaladmitsource,hospitaldischargeyear,hospitaldischargeoffset,hospitaldischargestatus,hospitaldischargetime24,unittype,unitadmittime24,unitadmitsource,unitvisitnumber,unitstaytype,unitdischargeoffset,unitdischargestatus,unitdischargetime24,unitdischargelocation,uniquepid
+101,101,Female,18,,1,,,165,65,,,0,,2020,750,Alive,,,,,1,,750,Alive,,,synthetic-101
+102,102,Female,60,,1,,,165,65,,,0,,2020,240,Alive,,,,,1,,240,Alive,,,synthetic-102
+103,103,Male,> 89,,1,,,165,65,,,0,,2020,24030,Alive,,,,,1,,24030,Alive,,,synthetic-103
+104,104,Female,17,,1,,,165,65,,,0,,2020,720,Alive,,,,,1,,720,Alive,,,synthetic-104
+105,105,Female,45,,1,,,,65,,,0,,2020,480,Alive,,,,,1,,480,Alive,,,synthetic-105

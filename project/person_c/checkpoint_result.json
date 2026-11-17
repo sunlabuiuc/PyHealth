@@ -1,0 +1,28 @@
+{
+  "status": "passed",
+  "synthetic_patients": 5,
+  "included_stays": [
+    101,
+    103,
+    105
+  ],
+  "excluded_stays": [
+    102,
+    104
+  ],
+  "train_patient": 101,
+  "heldout_patients": [
+    103,
+    105
+  ],
+  "training_labels": 8,
+  "heldout_labels": 336,
+  "model": "RNN_V2 / LSTM",
+  "decay_enabled": true,
+  "optimizer_steps": 1,
+  "finite_nonzero_gradients": true,
+  "parameters_changed": true,
+  "training_loss": 0.1641741394996643,
+  "heldout_loss": 1232.439697265625,
+  "interpretation": "Synthetic integration check only; not model performance evidence."
+}

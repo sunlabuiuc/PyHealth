@@ -212,3 +212,5 @@ def __getattr__(name: str):
 
         return PTBXLSuperclassClassification
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+from .tpc_eicu import TPCLengthOfStayEICU as TPCLengthOfStayEICU
