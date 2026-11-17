@@ -102,7 +102,7 @@ class FeatureAttentionLSTM(BaseModel):
 
     @staticmethod
     def _resolve_feature_dim(dataset: Any, feature_key: str) -> int:
-        """Resolve the input feature dimension from a PyHealth dataset."""
+        #Resolve the input feature dimension from a PyHealth dataset.
         input_info = getattr(dataset, "input_info", None)
         if isinstance(input_info, dict) and feature_key in input_info:
             feature_info = input_info[feature_key]
@@ -122,7 +122,7 @@ class FeatureAttentionLSTM(BaseModel):
 
     @staticmethod
     def _resolve_output_dim(dataset: Any, label_key: str, mode: str) -> int:
-        """Resolve the label output dimension from a PyHealth dataset."""
+        #Resolve the label output dimension from a PyHealth dataset.
         output_info = getattr(dataset, "output_info", None)
         if isinstance(output_info, dict) and label_key in output_info:
             label_info = output_info[label_key]
@@ -143,7 +143,7 @@ class FeatureAttentionLSTM(BaseModel):
         raise ValueError(f"Unsupported task mode: {mode}")
 
     def get_loss_function(self) -> Any:
-        """Return a PyHealth-compatible loss function for the configured label."""
+        #Return a PyHealth-compatible loss function for the configured label.
         dataset_loss = getattr(
             getattr(self, "dataset", None),
             "get_loss_function",
