@@ -52,11 +52,14 @@ class SleepKD(BaseModel):
             paper's weights for DeepSleepNet; for SalientSleepNet it uses
             0.3, 0.2, 0.4 and 0.1.
         feature_loss: ``"mse"`` (the paper, eq. 1-2) or ``"kl"``, the KL
-            divergence between softmaxes over the feature entries (the
-            official code uses a KL divergence). Default is ``"mse"``.
+            divergence between softmaxes over the feature entries of each
+            epoch, averaged over epochs like ``L_soft`` (the official code
+            uses a KL divergence). Default is ``"mse"``.
         align: The alignment of the teacher's features to the student's
             sizes. ``"maxpool"`` max-pools each feature vector to the
-            student's size in disjoint windows (no parameters);
+            student's size with ``F.adaptive_max_pool1d`` (no parameters),
+            whose windows are disjoint when the student's size divides the
+            teacher's and may overlap otherwise;
             ``"slidingmax"`` takes the maximum of every ``d_t - d_s + 1``
             consecutive entries, the alignment of the authors' code
             (https://github.com/AI4Brain/SleepKD), also without parameters;
@@ -197,9 +200,10 @@ class SleepKD(BaseModel):
     ) -> torch.Tensor:
         if self.feature_loss == "mse":
             return F.mse_loss(student, teacher)
+        # One distribution per epoch, so the mean is over epochs, as in L_soft.
         return F.kl_div(
-            F.log_softmax(student, dim=-1),
-            F.log_softmax(teacher, dim=-1),
+            F.log_softmax(student.flatten(0, -2), dim=-1),
+            F.log_softmax(teacher.flatten(0, -2), dim=-1),
             reduction="batchmean",
             log_target=True,
         )

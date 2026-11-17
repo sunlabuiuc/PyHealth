@@ -35,7 +35,12 @@ nights of subjects 0-19 (SC40xx-SC41xx), and only those should be present.
 
 Run: ``python examples/eeg/sleep_staging/sleepkd_sleepedf_deepsleepnet.py
 --root /path/to/sleep-edfx --run teacher``. On an Apple M4 Pro (``--device
-mps``), the teacher takes about 30 minutes and a student a few minutes.
+mps``), each run takes 8 to 16 minutes.
+
+Results: over seeds 0-2, accuracies are in the range of the paper's Table 3,
+but macro-F1 is 2 to 7 points higher than the paper's for every method; we
+have not found why. Each test set is only 2 subjects, and the spread between
+splits is larger than the gaps between methods.
 """
 
 import argparse

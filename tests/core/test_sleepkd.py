@@ -82,6 +82,20 @@ class TestSleepKD(unittest.TestCase):
         torch.testing.assert_close(out["loss_soft"], kl)
         torch.testing.assert_close(out["loss_hard"], F.cross_entropy(s, y))
 
+    def test_kl_feature_loss_is_the_mean_kl_per_epoch(self):
+        model = self._model(feature_loss="kl").eval()
+        out = model(**self.batch)
+        t = model.teacher.encode(self.batch["signal"])
+        s = model.student.encode(self.batch["signal"])
+        for term, key in (
+            ("loss_epoch", "epoch_feature"),
+            ("loss_seq", "sequence_feature"),
+        ):
+            p_t = model._align(key, t[key]).softmax(-1)
+            kl = (p_t * (p_t.log() - s[key].log_softmax(-1))).sum(-1)
+            self.assertEqual(kl.shape, (2, SEQ_LEN))
+            torch.testing.assert_close(out[term], kl.mean())
+
     def test_copy_of_the_teacher_has_no_distillation_loss(self):
         teacher = self._teacher()
         for feature_loss in ("mse", "kl"):
