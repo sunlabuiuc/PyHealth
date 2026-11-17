@@ -77,7 +77,7 @@ PAXRAW_COLUMNS = (
 # ``include_edge_cases`` is True. Everyone after them is randomly generated.
 EDGE_CASE_ROLES = (
     "died_within_5y",  # label 1; carries the planted wear patterns below.
-    "died_after_5y",  # MORTSTAT=1 but PERMTH_EXM > 60, so label 0.
+    "died_after_5y",  # MORTSTAT=1 but PERMTH_INT > 60, so label 0.
     "child",  # ELIGSTAT=2: under 18, no public mortality data.
     "not_examined",  # Interviewed only: no exam, no accelerometer.
     "ineligible_missing_covariates",  # ELIGSTAT=3, refused income, no BMX/BPX.
@@ -102,7 +102,10 @@ class SyntheticNHANES:
         paths: Maps "paxraw", "demo", "bmx", "bpx" and "mortality" to files.
         participants: One row per participant with SEQN, role, age, sex,
             eligibility, whether they have accelerometer data and the 5-year
-            mortality label (<NA> when not eligible).
+            mortality label: 1 if MORTSTAT is 1 and PERMTH_INT (months from
+            the interview) is at most 60, as in
+            :class:`~pyhealth.tasks.NHANESMortalityPrediction`; <NA> when not
+            eligible, or alive but followed for under 60 months.
         wear_truth: Maps SEQN to a boolean array, one entry per accelerometer
             minute, True where the device was actually worn. Minutes inside
             a planted spike count as non-wear, matching the Choi algorithm.
@@ -341,9 +344,11 @@ def _make_participants(
         else:
             permth_int = None
 
+        # Same rule as NHANESMortalityPrediction: months from the interview
+        # (PERMTH_INT); a survivor followed for under 60 months is unknown.
         label = pd.NA
-        if eligstat == 1 and permth_exm is not None:
-            label = int(mortstat == 1 and permth_exm <= 60)
+        if eligstat == 1 and (mortstat == 1 or permth_int >= 60):
+            label = int(mortstat == 1 and permth_int <= 60)
 
         rows.append(
             {
@@ -418,7 +423,7 @@ def generate_synthetic_nhanes(
         >>> with tempfile.TemporaryDirectory() as tmp:
         ...     data = generate_synthetic_nhanes(tmp, n_participants=5, n_days=1)
         ...     data.participants["died_within_5y"].tolist()
-        [1, 0, <NA>, <NA>, <NA>]
+        [1, 0, <NA>, 0, <NA>]
     """
     if cycle not in CYCLES:
         raise ValueError(f"cycle must be one of {sorted(CYCLES)}, got {cycle!r}")
@@ -567,7 +572,7 @@ def main(argv: list[str] | None = None) -> None:
         ... # doctest: +ELLIPSIS
         Wrote 5 participants to ...
           with accelerometer: 3
-          5-year deaths: 1 of 2 labeled
+          5-year deaths: 1 of 3 labeled
     """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("out_dir")

@@ -184,14 +184,41 @@ class TestSyntheticNHANES(unittest.TestCase):
         )
 
     def test_labels_match_mortality_file(self):
-        """Labels derived from the parsed file equal the returned labels."""
+        """Labels from the parsed file, by the task's PERMTH_INT rule, equal
+        the returned labels; the interview-only participant is labeled too."""
         mort = self.mortality
-        eligible = (mort["ELIGSTAT"] == 1) & mort["PERMTH_EXM"].notna()
-        label = ((mort["MORTSTAT"] == 1) & (mort["PERMTH_EXM"] <= 60)).astype("Int64")
-        label[~eligible] = pd.NA
+        dead = mort["MORTSTAT"] == 1
+        known = (mort["ELIGSTAT"] == 1) & (dead | (mort["PERMTH_INT"] >= 60))
+        label = (dead & (mort["PERMTH_INT"] <= 60)).astype("Int64")
+        label[~known] = pd.NA
         truth = self.data.participants["died_within_5y"]
         self.assertEqual(label.tolist(), truth.tolist())
         self.assertEqual(truth.tolist()[:2], [1, 0])
+        self.assertFalse(
+            pd.isna(truth[self.data.participants["role"] == "not_examined"].iloc[0])
+        )
+
+    def test_labels_match_task(self):
+        """Every labeled participant with accelerometer data gets the same
+        label from NHANESMortalityPrediction's rule."""
+        from types import SimpleNamespace
+
+        from pyhealth.tasks.nhanes_mortality_prediction import (
+            NHANESMortalityPrediction,
+        )
+
+        task = NHANESMortalityPrediction()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = generate_synthetic_nhanes(tmp, 300, n_days=1)
+        for person in data.participants.itertuples():
+            if person.eligstat != 1:
+                continue
+            event = SimpleNamespace(
+                mortstat=person.mortstat, permth_int=person.permth_int
+            )
+            expected = task._label(event)
+            truth = None if pd.isna(person.died_within_5y) else person.died_within_5y
+            self.assertEqual(truth, expected, person.SEQN)
 
     def test_covariates_for_ineligible_participant(self):
         """The ineligible participant refused income and has no BMX/BPX."""
@@ -369,7 +396,7 @@ class TestSyntheticNHANESOptions(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             main([str(self.root), "--n-participants", "5", "--n-days", "1"])
         self.assertTrue((self.root / "PAXRAW_C.csv").is_file())
-        self.assertIn("5-year deaths: 1 of 2 labeled", out.getvalue())
+        self.assertIn("5-year deaths: 1 of 3 labeled", out.getvalue())
 
     def test_invalid_arguments(self):
         """Unknown cycles and out-of-range counts raise ValueError."""
