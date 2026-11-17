@@ -46,6 +46,12 @@ class BaseTask(ABC):
     #: forgetting to allowlist a semantic arg silently reuses a stale cache.
     fingerprint_exclude: frozenset[str] = frozenset()
 
+    # The recorded init arguments live in a slot, not in ``__dict__``: they
+    # hold the raw arguments (objects, functions), whose default ``repr``
+    # carries a memory address, and ``vars(task)`` has to stay free of them
+    # for code that serialises it. Subclasses still get a ``__dict__``.
+    __slots__ = ("_pyhealth_init_args",)
+
     def __init_subclass__(cls, **kwargs) -> None:
         """Record the effective ``__init__`` arguments of every task instance."""
         super().__init_subclass__(**kwargs)

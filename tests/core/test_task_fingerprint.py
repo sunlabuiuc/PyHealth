@@ -6,9 +6,11 @@ rather than recomputing the hashing expression, so the implementation can be
 changed without rewriting the tests.
 """
 
+import copy
 import importlib.util
 import json
 import os
+import pickle
 import subprocess
 import sys
 import tempfile
@@ -249,6 +251,28 @@ class TestInitArgs(unittest.TestCase):
         recorded = getattr(Readmission(exclude_minors=False), "_pyhealth_init_args")
         self.assertIs(recorded["exclude_minors"], False)
         self.assertEqual(recorded["window"], timedelta(days=15))
+
+    def test_recorded_args_stay_out_of_vars(self):
+        # The recorded arguments are raw objects; code that serialises
+        # ``vars(task)`` must not see their address-bearing default repr.
+        task = Readmission(exclude_minors=False)
+        self.assertNotIn("_pyhealth_init_args", vars(task))
+        self.assertNotIn(" at 0x", json.dumps(vars(task), default=str))
+
+    def test_copies_and_pickles_keep_the_fingerprint(self):
+        task = Readmission(window=timedelta(days=30))
+        expected = task_fingerprint(task)
+        clones = (
+            copy.copy(task),
+            copy.deepcopy(task),
+            pickle.loads(pickle.dumps(task)),
+        )
+        for clone in clones:
+            self.assertEqual(task_fingerprint(clone), expected)
+            self.assertEqual(
+                clone._pyhealth_init_args["window"], timedelta(days=30)
+            )
+        self.assertNotEqual(expected, task_fingerprint(Readmission()))
 
     def test_fingerprint_exclude_is_honoured(self):
         class T(_Task):
