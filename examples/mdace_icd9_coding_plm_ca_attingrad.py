@@ -51,6 +51,35 @@ Deviations from the paper (for compute): label space restricted to MDACE
 codes, notes truncated to 4096 tokens instead of 6000, 2 epochs instead of
 20, fixed 0.5 decision threshold. Training uses 10% linear warmup then
 linear decay (``--warmup``) for both models.
+
+Results on real data (MDACE test, 62 discharge summaries, 566 (note, gold
+code) pairs; token-level plausibility in percent, thresholds tuned on MDACE
+val; one training run each):
+
+    Encoder / model        Attention  InputXGrad  AttInGrad  IntGrad  Att x IG
+    PLM-CA, RoBERTa-PM        31.1       31.5        40.6      31.1     40.1
+    PLM-CA, Bio_ClinicalBERT  20.1       20.3        30.1        -        -
+    CAML (epoch 15)           18.8       17.9        21.6      18.7     22.4
+    CAML + TM fine-tuning     18.6       18.1        21.7        -        -
+
+    Empty explanations (PLM-CA, RoBERTa-PM): Attention 39.9%, InputXGrad
+    17.5%, AttInGrad 13.3%. Recall@5: 36.0, 37.6, 45.2.
+
+Findings:
+
+* AttInGrad beats Attention and InputXGrad on every model (PLM-CA: +9.5 F1
+  over Attention, paired bootstrap 95% CI [+7.6, +11.5]).
+* Multiplying attention by any input-level gradient attribution gives the
+  gain: attention x IG matches AttInGrad (40.1 vs 40.6), while IG alone does
+  not (31.1).
+* The gain is smaller on the CNN model CAML (+2.8) than on PLM-CA (+9.5),
+  and token-masking fine-tuning barely changes CAML's explanations.
+* With ``--faithfulness`` (PLM-CA, 345 test pairs whose gold code is
+  predicted), AttInGrad is also more faithful than Attention:
+  comprehensiveness 0.902 vs 0.881, sufficiency 0.170 vs 0.277.
+* Bio_ClinicalBERT as the encoder (``--model_name``) trails RoBERTa-PM by
+  about 10 F1 for both coding (micro-F1 54.6 vs 60.6 on val) and
+  explanations, while AttInGrad still leads (+10.0 over Attention).
 """
 
 import argparse
