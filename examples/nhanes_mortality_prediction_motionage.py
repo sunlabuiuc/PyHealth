@@ -32,10 +32,20 @@ Steps:
      the AUROC of raw X.
    * AUROC of logistic regressions fitted on training participants, for
      [age, sex], [MotionAge, sex] and [acceleration, age, sex], as in the
-     authors' ``evaluation/secondary.py``.
+     authors' ``evaluation/secondary.py``, plus a covariates-only ablation
+     (no activity): [age, sex, BMI, waist, systolic and diastolic blood
+     pressure, income], read from the dataset events. BMI, waist and blood
+     pressure get the training median for missing values plus a missing flag
+     and are standardized on training participants; income is one-hot coded
+     (code 0 = missing, as in the task).
    * Extra, not in the paper: Harrell's C on the full linked follow-up
      (``permth_int``, months from interview, the variable the task's 5-year
      label uses; event = ``mortstat``). Skip with ``--no-harrell``.
+
+Ablations: ``--no-wear-aware`` (non-wear counts as zero activity),
+``--seq-len 288`` (1-day windows), ``--hidden-dim 32``, and ``--covariate-set``
+for the model variants. ``--patience N`` stops training after N epochs without
+a better validation AUPRC (the authors use 10); by default every epoch runs.
 
 The defaults (1000 synthetic participants, 7 days, 10 epochs, batch size 32,
 one split) run in about 2 minutes on a laptop CPU; each extra fold adds about
@@ -96,6 +106,9 @@ FEATURE_SETS = {
     "motionage": ["motion_age", "sex"],
     "acceleration": ["age_acceleration", "age", "sex"],
 }
+# Covariates-only ablation: raw values from the dataset events.
+NUMERIC_COVARIATES = ["bmi", "waist", "sbp", "dbp"]
+INCOME_CODES = range(14)  # 0 = missing, 1-13 = NHANES INDHHINC codes.
 
 
 def follow_up(dataset: NHANESDataset) -> pd.DataFrame:
@@ -107,6 +120,48 @@ def follow_up(dataset: NHANESDataset) -> pd.DataFrame:
     table.columns = ["patient_id", "mortstat", "permth_int"]
     table["patient_id"] = table["patient_id"].astype(str)
     return table
+
+
+def clinical_covariates(dataset: NHANESDataset) -> pd.DataFrame:
+    """Raw BMI, waist, blood pressure and income per participant."""
+    columns = [*NUMERIC_COVARIATES, "income"]
+    events = dataset.global_event_df.select(
+        ["patient_id", *(f"nhanes/{c}" for c in columns)]
+    ).collect()
+    table = events.to_pandas()
+    table.columns = ["patient_id", *columns]
+    table["patient_id"] = table["patient_id"].astype(str)
+    return table
+
+
+def covariate_design(
+    train: pd.DataFrame, test: pd.DataFrame
+) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
+    """Adds covariates-only model columns, fitted on the training rows.
+
+    Returns:
+        The training and test tables with the new columns, and the columns of
+        the covariates-only feature set (age and sex included).
+    """
+    train, test = train.copy(), test.copy()
+    columns = ["age", "sex"]
+    for name in NUMERIC_COVARIATES:
+        median = train[name].median()
+        filled = train[name].fillna(median)
+        mean, std = filled.mean(), filled.std(ddof=0) or 1.0
+        for frame in (train, test):
+            frame[f"{name}_missing"] = frame[name].isna().astype(float)
+            frame[f"{name}_z"] = (frame[name].fillna(median) - mean) / std
+        columns += [f"{name}_z", f"{name}_missing"]
+    for frame in (train, test):
+        income = frame["income"]
+        valid = income.notna() & income.isin([float(c) for c in INCOME_CODES[1:]])
+        code = income.where(valid, 0).astype(int)
+        for c in INCOME_CODES:
+            frame[f"income_{c}"] = (code == c).astype(float)
+    # Codes no training participant has carry no information; leave them out.
+    columns += [f"income_{c}" for c in INCOME_CODES if train[f"income_{c}"].any()]
+    return train, test, columns
 
 
 def five_year_labels(
@@ -265,16 +320,23 @@ def run_split(
     split: Split,
     args: argparse.Namespace,
     follow: pd.DataFrame | None = None,
+    covariates: pd.DataFrame | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Trains, calibrates and evaluates MotionAge on one train/val/test split.
 
     Returns:
         Tables ``cohort``, ``mapping``, ``concordance``, ``auroc``, ``harrell``
-        (empty without ``follow``) and ``participants``.
+        (empty without ``follow``) and ``participants``. With ``covariates``
+        (from :func:`clinical_covariates`), ``auroc`` has a ``covariates`` row.
     """
     parts = dataset.set_task(task, split=split)
     torch.manual_seed(args.seed)
-    model = MotionAge(parts[0], category_sizes=task.category_sizes, fusion=args.fusion)
+    model = MotionAge(
+        parts[0],
+        hidden_dim=args.hidden_dim,
+        category_sizes=task.category_sizes,
+        fusion=args.fusion,
+    )
     trainer = Trainer(model=model, metrics=["pr_auc", "roc_auc"], enable_logging=False)
     trainer.train(
         get_dataloader(parts[0], batch_size=args.batch_size, shuffle=True),
@@ -282,6 +344,7 @@ def run_split(
         epochs=args.epochs,
         optimizer_params={"lr": args.lr},
         monitor="pr_auc",
+        patience=args.patience,
     )
 
     participants = pd.concat(
@@ -331,7 +394,15 @@ def run_split(
             for name, col in PREDICTORS.items()
         ]
     )
-    auroc = evaluate_feature_sets(train, test, FEATURE_SETS, baseline="age")
+    feature_sets = dict(FEATURE_SETS)
+    fit, held_out = train, test
+    if covariates is not None:
+        fit, held_out = (
+            frame.merge(covariates, on="patient_id", how="left", validate="1:1")
+            for frame in (train, test)
+        )
+        fit, held_out, feature_sets["covariates"] = covariate_design(fit, held_out)
+    auroc = evaluate_feature_sets(fit, held_out, feature_sets, baseline="age")
     mapping_table = pd.DataFrame(
         [
             {"sex": sex, "alpha": alpha, "beta": beta}
@@ -392,7 +463,13 @@ def report(tables: dict[str, pd.DataFrame], n_folds: int = 1) -> None:
     with pd.option_context("display.float_format", "{:.3f}".format):
         for title, key in sections:
             if not tables[key].empty:
-                print(f"\n{title}\n{tables[key].to_string(index=False)}")
+                # The feature lists are long; they stay in the --out tables.
+                shown = tables[key].drop(columns=["features"], errors="ignore")
+                print(f"\n{title}\n{shown.to_string(index=False)}")
+    if "features" in tables["auroc"]:
+        covariates = tables["auroc"].set_index("feature_set")["features"]
+        if "covariates" in covariates:
+            print(f"Covariates-only features: {covariates['covariates']}")
 
 
 def save(tables: dict[str, pd.DataFrame], out: str) -> None:
@@ -432,9 +509,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="clinical = MotionAge-FRC, age_sex = -FA, none = wearable only (-F)",
     )
     model.add_argument("--fusion", default="late", choices=["late", "residual"])
+    model.add_argument(
+        "--seq-len",
+        type=int,
+        default=1008,
+        help="Window length in 5-minute epochs (1008 = 3.5 days, 288 = 1 day)",
+    )
+    model.add_argument(
+        "--no-wear-aware",
+        action="store_true",
+        help="Treat non-wear epochs as zero activity (wear-mask ablation)",
+    )
+    model.add_argument("--hidden-dim", type=int, default=64, help="GRU hidden size")
     model.add_argument("--epochs", type=int, default=10)
     model.add_argument("--batch-size", type=int, default=32)
     model.add_argument("--lr", type=float, default=1e-3)
+    model.add_argument(
+        "--patience",
+        type=int,
+        default=None,
+        help="Stop after this many epochs without a better val AUPRC",
+    )
     model.add_argument("--seed", type=int, default=0)
     evaluation = parser.add_argument_group("calibration and evaluation")
     evaluation.add_argument(
@@ -483,9 +578,12 @@ def main(argv: list[str] | None = None) -> dict[str, pd.DataFrame]:
             root=root, cache_dir=args.cache_dir or str(Path(tmp) / "cache")
         )
         task = NHANESMortalityPrediction(
-            covariate_set=None if args.covariate_set == "none" else args.covariate_set
+            seq_len=args.seq_len,
+            covariate_set=None if args.covariate_set == "none" else args.covariate_set,
+            wear_aware=not args.no_wear_aware,
         )
         follow = None if args.no_harrell else follow_up(dataset)
+        covariates = clinical_covariates(dataset)
         if args.n_folds == 1:
             tables = run_split(
                 dataset,
@@ -493,6 +591,7 @@ def main(argv: list[str] | None = None) -> dict[str, pd.DataFrame]:
                 PatientSplit(ratios=(0.6, 0.2, 0.2), seed=args.seed),
                 args,
                 follow,
+                covariates,
             )
         else:
             labels = five_year_labels(
@@ -502,7 +601,7 @@ def main(argv: list[str] | None = None) -> dict[str, pd.DataFrame]:
             for fold in range(args.n_folds):
                 print(f"\n=== Fold {fold + 1} of {args.n_folds} ===")
                 split = PatientKFold(args.n_folds, fold, labels, seed=args.seed)
-                folds.append(run_split(dataset, task, split, args, follow))
+                folds.append(run_split(dataset, task, split, args, follow, covariates))
             tables = summarize_folds(folds)
     report(tables, args.n_folds)
     if args.out:
