@@ -305,6 +305,44 @@ class TestHUPMetadata(_TempRoot):
         )
         self.assertTrue(all(Path(path).is_file() for path in table["electrodes_file"]))
 
+    def test_electrodes_file_matches_the_implant_of_the_recording(self):
+        _write_participants(self.root)
+        _write_recording(self.root, "sub-HUP060", run="01", acquisition="seeg")
+        _write_recording(self.root, "sub-HUP060", run="02", acquisition="ecog")
+        folder = self.root / "sub-HUP060" / "ses-presurgery" / "ieeg"
+        other = "sub-HUP060_ses-presurgery_acq-seeg_run-01_notelectrodes.tsv"
+        (folder / other).write_text("name\n")
+        table = _prepare(self.root).sort_values("acquisition")
+        self.assertEqual(
+            [Path(path).name for path in table["electrodes_file"]],
+            [
+                "sub-HUP060_ses-presurgery_acq-ecog_space-fsaverage_electrodes.tsv",
+                "sub-HUP060_ses-presurgery_acq-seeg_space-fsaverage_electrodes.tsv",
+            ],
+        )
+
+    def test_electrodes_file_without_acquisition_is_the_fallback(self):
+        _write_participants(self.root)
+        _write_recording(self.root, "sub-HUP060")
+        path = _electrodes_path(self.root, "sub-HUP060")
+        shared = path.with_name("sub-HUP060_ses-presurgery_electrodes.tsv")
+        shared.write_bytes(path.read_bytes())
+        self.assertEqual(Path(_prepare(self.root)["electrodes_file"][0]), path)
+        (self.root / "hup_ieeg-pyhealth.csv").unlink()
+        path.unlink()
+        self.assertEqual(Path(_prepare(self.root)["electrodes_file"][0]), shared)
+
+    def test_several_electrodes_files_warn(self):
+        _write_participants(self.root)
+        _write_recording(self.root, "sub-HUP060")
+        path = _electrodes_path(self.root, "sub-HUP060")
+        first = path.with_name(path.name.replace("fsaverage", "MNI152NLin6Asym"))
+        first.write_bytes(path.read_bytes())
+        with self.assertLogs("pyhealth.datasets.hup_ieeg", "WARNING") as logs:
+            table = _prepare(self.root)
+        self.assertIn("several electrodes files", logs.output[0])
+        self.assertEqual(Path(table["electrodes_file"][0]), first)
+
     def test_missing_electrodes_file_is_left_empty(self):
         _write_participants(self.root)
         _write_recording(self.root, "sub-HUP060")
@@ -479,6 +517,14 @@ class TestSOZLocalizationHUP(_TempRoot):
         samples = SOZLocalizationHUP(**RAW)(_patient("sub-HUP060", [event]))
         self.assertEqual(len(samples), 12)
         self.assertTrue(math.isnan(samples[0]["x"]))
+
+    def test_electrodes_file_that_no_longer_exists(self):
+        event = _event(self.edf, electrodes_file=str(self.root / "gone.tsv"))
+        with self.assertLogs("pyhealth.tasks.soz_localization_hup", "WARNING") as logs:
+            samples = SOZLocalizationHUP(**RAW)(_patient("sub-HUP060", [event]))
+        self.assertIn("No electrodes file", logs.output[0])
+        self.assertEqual(len(samples), 12)
+        self.assertTrue(all(math.isnan(s["y"]) for s in samples))
 
     def test_resect_target(self):
         samples = SOZLocalizationHUP(target="resect", **RAW)(self.patient)
@@ -742,6 +788,7 @@ class TestHUPSetTask(unittest.TestCase):
             for subject in ("sub-HUP060", "sub-HUP064", "sub-HUP151"):
                 _write_recording(root, subject)
                 _write_recording(root, subject, "ictal", "02")
+            _electrodes_path(root, "sub-HUP151").unlink()
             dataset = HUPiEEGDataset(root=str(root), cache_dir=str(Path(tmp) / "cache"))
             samples = dataset.set_task(SOZLocalizationHUP(**RAW), num_workers=1)
             # 3 patients, 4 good channels, 3 windows; ictal recordings unused.
@@ -756,15 +803,18 @@ class TestHUPSetTask(unittest.TestCase):
                 {sample["channel"] for sample in samples},
                 {"LA1", "LA2", "LA3", "LB1"},
             )
-            self.assertEqual(
-                {(s["channel"], float(s["x"]), float(s["z"])) for s in samples},
-                {
-                    ("LA1", -10.5, 0.0),
-                    ("LA2", -11.5, 3.25),
-                    ("LA3", -12.5, 6.5),
-                    ("LB1", -13.5, 9.75),
-                },
-            )
+            positions = {
+                (s["patient_id"], s["channel"]): (s["x"], s["y"], s["z"])
+                for s in samples
+            }
+            self.assertEqual(len(positions), 12)
+            for (patient_id, channel), position in positions.items():
+                self.assertTrue(all(type(value) is float for value in position))
+                if patient_id == "sub-HUP151":  # its electrodes.tsv is missing
+                    self.assertTrue(all(math.isnan(value) for value in position))
+                else:
+                    index = ["LA1", "LA2", "LA3", "LB1"].index(channel)
+                    self.assertEqual(position, _position(index))
             labels = sorted(int(sample["label"]) for sample in samples)
             self.assertEqual(labels, [0] * 18 + [1] * 18)
             samples.close()

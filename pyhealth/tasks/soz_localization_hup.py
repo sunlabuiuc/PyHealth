@@ -122,9 +122,9 @@ def read_hup_electrodes(
     """Read the position of the contacts of one patient.
 
     The values are returned as written in ``electrodes.tsv``. They are
-    millimetres, although ``coordsystem.json`` declares metres, in a
-    template space that the dataset gives as ``fsaverage`` in
-    ``coordsystem.json`` and as ICBM152 MNI in its README (see
+    millimetres, although ``coordsystem.json`` declares metres; the dataset
+    gives their space as ``fsaverage`` in ``coordsystem.json`` and as
+    ICBM152 MNI in its README (see
     :class:`~pyhealth.datasets.HUPiEEGDataset`). ``x`` is negative on the
     left.
 
@@ -134,7 +134,8 @@ def read_hup_electrodes(
     Returns:
         ``(x, y, z)`` for each electrode name; the three values are NaN when
         the file gives no position (``n/a``) or a value that is not a
-        number. A repeated name keeps its first row.
+        number. A repeated name keeps its first row, and rows without a
+        name are left out.
 
     Raises:
         ValueError: If the file lacks the ``name``, ``x``, ``y`` or ``z``
@@ -162,7 +163,7 @@ def read_hup_electrodes(
         positions: dict[str, tuple[float, float, float]] = {}
         for row in reader:
             name = (row["name"] or "").strip()
-            if name in positions:
+            if not name or name in positions:
                 continue
             try:
                 x, y, z = (float(row[axis]) for axis in ("x", "y", "z"))
@@ -258,12 +259,13 @@ class SOZLocalizationHUP(BaseTask):
     - ``label``: 1 if the contact carries the ``target`` mark, else 0
     - ``channel``: name of the contact in the recording
     - ``channel_type``: ``"SEEG"`` or ``"ECOG"``
-    - ``x``, ``y``, ``z``: position of the contact in millimetres in a
-      template space (see
-      :func:`~pyhealth.tasks.soz_localization_hup.read_hup_electrodes` for
-      what the dataset states about it), NaN when ``electrodes.tsv`` gives
-      none (126 of the 6119 good contacts of version 1.1.3). They are not
-      part of the model input by default.
+    - ``x``, ``y``, ``z``: position of the contact in millimetres, as
+      stored in ``electrodes.tsv`` (see
+      :class:`~pyhealth.datasets.HUPiEEGDataset` for what the dataset
+      states about their unit and space), NaN when the file gives none
+      (126 of the 6119 good contacts of version 1.1.3) or is missing, with
+      a warning in the second case. They are not part of the model input
+      by default.
     - ``run``: run number of the recording
     - ``start_second``: start of the window in the recording
 
@@ -481,7 +483,12 @@ class SOZLocalizationHUP(BaseTask):
             )
         electrodes_file = str(getattr(event, "electrodes_file", "") or "").strip()
         positions = {}
-        if electrodes_file.lower() not in _EMPTY:
+        if electrodes_file.lower() in _EMPTY or not Path(electrodes_file).is_file():
+            logger.warning(
+                "No electrodes file for %s; the positions of its contacts are NaN.",
+                signal_file,
+            )
+        else:
             positions = read_hup_electrodes(electrodes_file)
         for channel in channels:
             channel["position"] = positions.get(channel["name"], (math.nan,) * 3)

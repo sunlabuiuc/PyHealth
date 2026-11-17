@@ -101,6 +101,44 @@ def _read_participants(path: Path) -> pd.DataFrame:
     return participants.set_index("participant_id")
 
 
+def _electrodes_file(folder: Path, subject: str, session: str, acquisition: str) -> str:
+    """Find the ``electrodes.tsv`` of the recordings of one implant.
+
+    BIDS stores one ``electrodes.tsv`` per session, shared by its runs:
+    ``sub-<id>_ses-<id>[_acq-<name>][_space-<name>]_electrodes.tsv``.
+
+    Args:
+        folder: The ``ieeg`` folder of the session.
+        subject: Participant id, for example ``"sub-HUP060"``.
+        session: Session id, for example ``"ses-presurgery"``.
+        acquisition: Implant of the recording, ``"seeg"`` or ``"ecog"``.
+
+    Returns:
+        The absolute path of the file for this implant, or of the one
+        without an ``acq`` entity when there is none; an empty string when
+        the folder holds neither. With several candidates, for example one
+        per coordinate space, the first in alphabetical order is used, with
+        a warning.
+    """
+    for entities in (f"{subject}_{session}_acq-{acquisition}", f"{subject}_{session}"):
+        pattern = re.compile(re.escape(entities) + r"(_space-[^_]+)?_electrodes\.tsv")
+        found = sorted(
+            (p for p in folder.iterdir() if pattern.fullmatch(p.name)),
+            key=lambda p: p.name,
+        )
+        if len(found) > 1:
+            logger.warning(
+                "%s holds several electrodes files for %s, %s is used: %s",
+                folder,
+                entities,
+                found[0].name,
+                [p.name for p in found],
+            )
+        if found:
+            return str(found[0].absolute())
+    return ""
+
+
 def _seizure_times(events_file: Path) -> tuple[str, str]:
     """Read the seizure onset and offset of an ictal recording.
 
@@ -156,8 +194,8 @@ class HUPiEEGDataset(BaseDataset):
     recording found under ``root``) in ``root``, or under
     ``~/.cache/pyhealth/hup_ieeg/<hash of root>`` when ``root`` is not
     writable. Each row holds the recording (``signal_file``), its
-    ``channels.tsv`` (``channels_file``), the ``electrodes.tsv`` of the
-    patient (``electrodes_file``), its kind (``recording_type``:
+    ``channels.tsv`` (``channels_file``), the ``electrodes.tsv`` of its
+    patient and implant (``electrodes_file``), its kind (``recording_type``:
     ``"interictal"`` or ``"ictal"``), the implant of the recording
     (``acquisition``: ``"seeg"`` or ``"ecog"``), its run number, the seizure
     onset and offset in seconds for ictal recordings, and the columns of
@@ -174,25 +212,26 @@ class HUPiEEGDataset(BaseDataset):
     them.
 
     The position of the contacts is in ``electrodes.tsv`` (``x``, ``y``,
-    ``z``), read by
+    ``z``), one file per patient in version 1.1.3, read by
     :func:`~pyhealth.tasks.soz_localization_hup.read_hup_electrodes`. Two
     statements of the dataset about these coordinates disagree with each
-    other or with the values:
+    other or with the values. The figures below are for the 6119 good
+    contacts of the interictal recordings of version 1.1.3, of which 5993
+    have a position (119 of the 126 others belong to ``sub-HUP089``,
+    ``sub-HUP116`` and ``sub-HUP126``):
 
     - Unit: ``coordsystem.json`` declares metres, but the values are
-      millimetres. They lie between -104 and 92, and neighbouring contacts
-      of one electrode are a median of 5.6 apart for SEEG and 10.9 for ECoG
-      in version 1.1.3.
+      millimetres. They lie between -103.2 and 90.2, and two contacts of
+      one electrode with consecutive numbers (``LA1`` and ``LA2``) are a
+      median of 5.5 apart for SEEG and 10.9 for ECoG. These are distances
+      between the stored coordinates, not measures of the hardware.
     - Space: ``coordsystem.json`` declares ``fsaverage`` and the README of
       the dataset the ICBM152 MNI space. The files do not tell which one
-      holds; the two templates differ by a few millimetres. ``x`` is
-      negative on the left: of the 5666 good contacts whose name starts
-      with L or R and that lie more than 5 mm from the midline, 5661 are on
-      the side of their name.
-
-    In version 1.1.3, 5993 of the 6119 good contacts of the interictal
-    recordings have coordinates; 119 of the 126 others belong to
-    ``sub-HUP089``, ``sub-HUP116`` and ``sub-HUP126``.
+      holds.
+    - Side: ``x`` is negative on the left. Of the 5475 contacts whose
+      name, without its ``EEG`` prefix, starts with L or R and whose ``x``
+      is more than 5 mm from zero, 5470 are on the side of their name; the
+      5 others are named ``LOF`` or ``ROF`` and lie 9 to 14 mm across.
 
     The outcome and the Engel class are known only after surgery, and the
     ``resect`` marks describe the surgery itself: none of them should be an
@@ -306,13 +345,8 @@ class HUPiEEGDataset(BaseDataset):
             subject = match["subject"]
             stem = path.name[: -len("_ieeg.edf")]
             channels_file = path.with_name(f"{stem}_channels.tsv")
-            # One electrodes.tsv per session and implant, shared by its runs:
-            # sub-<id>_ses-<id>_acq-<name>_space-<name>_electrodes.tsv
-            electrodes_files = sorted(
-                path.parent.glob(
-                    f"{subject}_{match['session']}_acq-{match['acquisition']}"
-                    "_*electrodes.tsv"
-                )
+            electrodes_file = _electrodes_file(
+                path.parent, subject, match["session"], match["acquisition"]
             )
             onset, offset = "", ""
             if match["task"] == "ictal":
@@ -323,9 +357,7 @@ class HUPiEEGDataset(BaseDataset):
                 "channels_file": (
                     str(channels_file.absolute()) if channels_file.is_file() else ""
                 ),
-                "electrodes_file": (
-                    str(electrodes_files[0].absolute()) if electrodes_files else ""
-                ),
+                "electrodes_file": electrodes_file,
                 "recording_type": match["task"],
                 "acquisition": match["acquisition"],
                 "run": match["run"],

@@ -16,8 +16,8 @@ version 1.1.3, 538 of the 6119 contacts (8.8%) are in the seizure onset
 zone.
 
 Each sample also carries the name of its contact and its position ``x``,
-``y``, ``z`` in millimetres in a template space, NaN for the 2% of contacts
-without a position. They are not model inputs by default.
+``y``, ``z`` in millimetres, as stored in ``electrodes.tsv``, NaN for the 2%
+of contacts without a position. They are not model inputs by default.
 
 Task parameters:
 
