@@ -1,7 +1,4 @@
-from typing import Dict, List, Optional
-
 import numpy as np
-import pandas as pd
 import sklearn.metrics as sklearn_metrics
 
 import pyhealth.metrics.calibration as calib
@@ -11,13 +8,14 @@ import pyhealth.metrics.prediction_set as pset
 def multiclass_metrics_fn(
     y_true: np.ndarray,
     y_prob: np.ndarray,
-    metrics: Optional[List[str]] = None,
-    y_predset: Optional[np.ndarray] = None,
-) -> Dict[str, float]:
+    metrics: list[str] | None = None,
+    y_predset: np.ndarray | None = None,
+) -> dict[str, float]:
     """Computes metrics for multiclass classification.
 
     User can specify which metrics to compute by passing a list of metric names.
     The accepted metric names are:
+
         - roc_auc_macro_ovo: area under the receiver operating characteristic curve,
             macro averaged over one-vs-one multiclass classification
         - roc_auc_macro_ovr: area under the receiver operating characteristic curve,
@@ -49,6 +47,7 @@ def multiclass_metrics_fn(
             mean_reciprocal_rank
 
     The following metrics related to the prediction sets are accepted as well, but will be ignored if y_predset is None:
+
         - rejection_rate: Frequency of rejection, where rejection happens when the prediction set has cardinality other than 1. Check :func:`pyhealth.metrics.prediction_set.rejection_rate`.
         - set_size: Average size of the prediction sets. Check :func:`pyhealth.metrics.prediction_set.size`.
         - miscoverage_ps:  Prob(k not in prediction set). Check :func:`pyhealth.metrics.prediction_set.miscoverage_ps`.
@@ -65,8 +64,13 @@ def multiclass_metrics_fn(
     more information on the metrics, please refer to the documentation of the
     corresponding sklearn.metrics functions.
 
+    Undefined prediction-set measurements return NaN. Class averages exclude
+    classes without applicable observations and return NaN if none remain.
+    Empty batches and singleton error with no singleton predictions return NaN.
+
     Args:
-        y_true: True target values of shape (n_samples,).
+        y_true: True target values of shape (n_samples,). Prediction-set metrics
+            require integer labels: label k refers to column k of y_predset.
         y_prob: Predicted probabilities of shape (n_samples, n_classes).
         metrics: List of metrics to compute. Default is ["accuracy", "f1_macro",
             "f1_micro"].
@@ -186,13 +190,13 @@ def multiclass_metrics_fn(
             elif metric == "set_size":
                 output[metric] = pset.size(y_predset)
             elif metric == "miscoverage_mean_ps":
-                output[metric] = pset.miscoverage_ps(y_predset, y_true).mean()
+                output[metric] = pset.miscoverage_mean_ps(y_predset, y_true)
             elif metric == "miscoverage_ps":
                 output[metric] = pset.miscoverage_ps(y_predset, y_true)
             elif metric == "miscoverage_overall_ps":
                 output[metric] = pset.miscoverage_overall_ps(y_predset, y_true)
             elif metric == "error_mean_ps":
-                output[metric] = pset.error_ps(y_predset, y_true).mean()
+                output[metric] = pset.error_mean_ps(y_predset, y_true)
             elif metric == "error_ps":
                 output[metric] = pset.error_ps(y_predset, y_true)
             elif metric == "error_overall_ps":

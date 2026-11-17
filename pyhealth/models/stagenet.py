@@ -461,10 +461,16 @@ class StageNet(BaseModel, Interpretable):
             else:
                 mask = mask.to(self.device)
             
-            if value.dim() == 4:
-                # Nested sequences: [batch, seq_len, inner_len, embedding_dim]
-                value = value.sum(dim=2)        # Sum pool over inner dimension
-                mask = mask.any(dim=2).int()    # Update mask for nested sequences
+            # Nested sequences: [batch, seq_len, inner..., embedding_dim].
+            # Sum pool over the inner dimensions.
+            while value.dim() > 3:
+                value = value.sum(dim=2)
+            while mask.dim() > 2:
+                mask = mask.any(dim=-1).int()
+            if value.dim() == 2:
+                # One vector per patient (multi_hot, tensor): a single step.
+                value = value.unsqueeze(1)
+                mask = mask.reshape(-1, 1)
 
             # Pass through StageNet layer with embedded features
             last_output, _, cur_dis = self.stagenet[feature_key](

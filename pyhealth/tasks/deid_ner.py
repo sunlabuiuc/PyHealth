@@ -29,6 +29,8 @@ from pyhealth.tasks import BaseTask
 class DeIDNERTask(BaseTask):
     """Token-level NER task for clinical text de-identification.
 
+    Works with :class:`~pyhealth.datasets.PhysioNetDeIDDataset`.
+
     Each sample contains a list of tokens and their BIO labels over
     7 PHI categories: AGE, CONTACT, DATE, ID, LOCATION, NAME,
     PROFESSION.
