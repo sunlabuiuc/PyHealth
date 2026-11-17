@@ -99,6 +99,26 @@ class TestDeepSleepNet(unittest.TestCase):
         scores = trainer.evaluate(loader)
         self.assertEqual(set(scores), {"accuracy", "f1_macro", "loss"})
 
+    def test_batchnorm_never_sees_dropout(self):
+        # BatchNorm's running statistics must not depend on dropout, or they
+        # are wrong in evaluation, where dropout is off.
+        def running_stats(dropout_on):
+            torch.manual_seed(1)
+            model = self._model(n_conv=4)
+            model.train()
+            for m in model.modules():
+                if isinstance(m, torch.nn.Dropout) and not dropout_on:
+                    m.eval()
+            model(**self.batch)
+            return [
+                m.running_var.clone()
+                for m in model.modules()
+                if isinstance(m, torch.nn.BatchNorm1d)
+            ]
+
+        for on, off in zip(running_stats(True), running_stats(False)):
+            torch.testing.assert_close(on, off)
+
     def test_rejects_inputs_without_an_epoch_axis(self):
         with self.assertRaises(ValueError):
             DeepSleepNet(dataset=_dataset(shape=(SEQ_LEN, EPOCH_LEN)))

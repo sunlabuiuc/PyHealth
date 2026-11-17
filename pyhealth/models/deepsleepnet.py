@@ -53,7 +53,7 @@ class _SameMaxPool(nn.Module):
 class _Branch(nn.Module):
     """One CNN branch of DeepSleepNet's representation learning part.
 
-    A wide strided convolution with 64 filters, max-pooling, dropout, then
+    A wide strided convolution with 64 filters, max-pooling, then
     ``n_conv - 1`` convolutions with 128 filters and a second max-pooling.
     """
 
@@ -66,13 +66,11 @@ class _Branch(nn.Module):
         pool1: int,
         kernel_size2: int,
         pool2: int,
-        dropout: float,
     ):
         super().__init__()
         layers: list[nn.Module] = [
             _SameConvBlock(in_channels, 64, kernel_size, stride),
             _SameMaxPool(pool1),
-            nn.Dropout(dropout),
         ]
         channels = 64
         for _ in range(n_conv - 1):
@@ -116,11 +114,22 @@ class DeepSleepNet(BaseModel):
     ``n_conv=4, hidden_dim=512``. SleepKD (Liang et al., IJCAI 2023) distills
     it into a teacher assistant (2, 256) and a student (1, 128).
 
-    Differences from the reference: the model is trained end to end (the
-    reference first pre-trains the CNN on class-balanced epochs, then
-    fine-tunes the whole model), the LSTM has no peephole connections and
-    applies dropout between its layers only, and the L2 weight decay of the
-    reference's first convolutions is left to the optimizer.
+    Differences from the reference:
+
+    - No BatchNorm layer gets dropped-out inputs. The reference drops out
+      the input of the convolutions after the first max-pooling and of the
+      residual projection, all followed by BatchNorm. Dropout changes the
+      variance of what BatchNorm sees in training, so its running statistics
+      are wrong in evaluation: on Sleep-EDF-20, validation accuracy fell
+      from 0.71 with batch statistics to 0.35 with the running ones, for the
+      same weights. Here the CNN branches have no dropout and the residual
+      projection takes the epoch features before dropout; dropout remains on
+      the LSTM input and before the classifier.
+    - The model is trained end to end (the reference first pre-trains the
+      CNN on class-balanced epochs, then fine-tunes the whole model).
+    - The LSTM has no peephole connections and applies dropout between its
+      layers only, and the L2 weight decay of the reference's first
+      convolutions is left to the optimizer.
 
     The dataset needs one input, a ``(seq_len, n_channels, epoch_len)`` float
     tensor per sample, and one label, a ``(seq_len,)`` long tensor of class
@@ -209,7 +218,6 @@ class DeepSleepNet(BaseModel):
             pool1=8,
             kernel_size2=8,
             pool2=4,
-            dropout=dropout,
         )
         self.large = _Branch(
             in_channels,
@@ -219,7 +227,6 @@ class DeepSleepNet(BaseModel):
             pool1=4,
             kernel_size2=6,
             pool2=2,
-            dropout=dropout,
         )
         self.epoch_dim = self.small.output_dim(epoch_len) + self.large.output_dim(
             epoch_len
@@ -269,8 +276,9 @@ class DeepSleepNet(BaseModel):
         batch, seq_len = x.shape[:2]
         x = x.flatten(0, 1)
         epoch_feature = torch.cat([self.small(x), self.large(x)], dim=1)
+        # Dropout only where no BatchNorm follows (see the class docstring).
+        residual = self.residual(epoch_feature)
         h = self.epoch_dropout(epoch_feature)
-        residual = self.residual(h)
         lstm_out, _ = self.lstm(h.view(batch, seq_len, -1))
         sequence_feature = lstm_out + residual.view(batch, seq_len, -1)
         logit = self.fc(self.sequence_dropout(sequence_feature))
