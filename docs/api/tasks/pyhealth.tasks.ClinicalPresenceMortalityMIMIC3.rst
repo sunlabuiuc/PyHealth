@@ -47,6 +47,16 @@ default, fits the imputer and the scaler on the training patients only, and
 transforms the validation and test patients separately, so the training
 features never depend on them.
 
+``reference_split=True`` splits as the reference code does instead. The
+imputer is fit on a pool, the training fraction of ``split_ratios``. As the
+reference's two ``train_test_split(train_size=0.9)`` calls do, the pool keeps
+10% as an internal test and 10% of the rest for validation; the other 81% are
+the training patients, on which the scaler is fit. The patients outside the
+pool are an external test. Both test parts have ``split == "test"``, because
+the reference evaluates them together, and ``imputer_fit`` tells them apart.
+With the default ratios that is 64.8/7.2/28, and the pool is the training 80%
+of the default split with the same ``seed``.
+
 On MIMIC-III v1.4 the cohort has 36,313 patients, 6.75% of them positive, with
 40.6 of the 67 labs missing on average. The reference code gives 36,296; the
 differences are listed below.
@@ -173,14 +183,19 @@ Each cohort patient gives ``n_draws`` samples, which differ only in ``labs``,
    * - ``n_extreme_imputations``
      - ``int``
      - This draw's imputed labs beyond the training range ± 3 sd
+   * - ``imputer_fit``
+     - ``int``
+     - Only with ``reference_split=True``: 1 for the pool, so test samples
+       with 1 are the internal test
 
 .. warning::
 
    Select samples by their ``split`` field, and by ``draw``, and never re-split
    them, for example with ``split_by_patient``. The imputer and the scaler
-   were fit on the training patients, so a new split would let them see
-   evaluation patients. The split depends only on the cohort, ``seed`` and
-   ``split_ratios``, so all strategies with the same ``seed`` and ratios share
+   were fit on the training patients (the imputer on the pool, with
+   ``reference_split=True``), so a new split would let them see evaluation
+   patients. The split depends only on the cohort, ``seed``, ``split_ratios``
+   and ``reference_split``, so all strategies with the same settings share
    their test patients.
 
 Differences from the Reference Implementation
@@ -214,14 +229,19 @@ admission, not at the ICU admission as the text says. It departs from the code
        ``HADM_ID`` for ``LABEVENTS``. 37 patients move into or out of the
        cohort.
    * - Split
-     - The imputer is fit on 80% of patients; the classifier is trained on
-       64.8%, tuned on 7.2% and evaluated on the other 28%
+     - The imputer is fit on an 80% pool. The classifier is trained on 64.8%
+       and tuned on 7.2% of patients, both from the pool, and evaluated on the
+       other 28%: the pool's remaining 8%, which the imputer was fit on, and
+       the 20% outside it
      - 80/10/10. The imputer and the scaler are fit on the training 80%, which
-       is also the classifier's training set.
+       is also the classifier's training set. ``reference_split=True`` gives
+       the reference's split; on MIMIC-III v1.4 it changes no result beyond
+       chance.
    * - Missingness indicators
      - Appended before MICE, so they are also imputation predictors
      - Appended after imputation, as the paper's text says and as the authors'
-       later commit ``3fc2b65`` does
+       later commit ``3fc2b65`` does. ``indicators_in_imputation=True`` gives
+       the reference's order.
    * - Group MICE
      - Drops only the last of the three flag columns, so the Black flag and a
        constant column reach the classifier
@@ -250,7 +270,8 @@ Example and Results
 ``examples/mimic3_clinical_presence_mortality_logistic_regression.py`` runs the
 experiment: it trains a logistic regression on each imputation draw and writes
 the paper's tables and figures, with the paper's values alongside. Its results
-on MIMIC-III v1.4 over five split seeds, compared with the paper, are in
+on MIMIC-III v1.4 over five split seeds, compared with the paper and repeated
+on the reference's split (``--reference-split``), are in
 ``examples/mimic3_clinical_presence_mortality_logistic_regression.md``.
 
 Task Class

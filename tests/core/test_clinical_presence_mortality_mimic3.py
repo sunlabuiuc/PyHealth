@@ -21,6 +21,7 @@ import polars as pl
 import torch
 from sklearn.base import clone
 from sklearn.exceptions import ConvergenceWarning
+from sklearn.model_selection import train_test_split
 
 from pyhealth.data import Patient
 from pyhealth.datasets.base_dataset import BaseDataset
@@ -215,7 +216,10 @@ def random_events(n_patients: int = 60, seed: int = 0) -> pl.DataFrame:
 
 @functools.cache
 def random_cohort() -> dict:
-    """The random fixture's labs, flags, a 60/20/20 split and two draw seeds."""
+    """The random fixture's labs, flags, a 60/20/20 split and two draw seeds.
+
+    "reference" is the reference split of the same seed, with its pool mask.
+    """
     events = random_events()
     cohort = _extract_cohort(events.lazy())
     seeds = np.random.SeedSequence(0).spawn(3)
@@ -223,7 +227,8 @@ def random_cohort() -> dict:
         "events": events,
         "X": cohort.select(LAB_NAMES).to_numpy().astype(np.float64),
         "G": cohort.select(GROUP_FLAGS).to_numpy(),
-        "split": _assign_split(cohort.height, (0.6, 0.2, 0.2), seeds[0]),
+        "split": _assign_split(cohort.height, (0.6, 0.2, 0.2), seeds[0])[0],
+        "reference": _assign_split(cohort.height, (0.6, 0.2, 0.2), seeds[0], True),
         "draw_seeds": seeds[1:],
     }
 
@@ -233,15 +238,17 @@ def impute(
     X: np.ndarray | None = None,
     G: np.ndarray | None = None,
     indicators: bool = False,
+    reference: bool = False,
 ) -> np.ndarray:
     """Two fast draws of ``imputation`` on the random fixture, or on ``X``/``G``."""
     data = random_cohort()
     X = data["X"] if X is None else X
     G = data["G"] if G is None else G
+    split, fit = data["reference"] if reference else (data["split"], None)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", ConvergenceWarning)
         return _impute_draws(
-            X, G, data["split"], imputation, data["draw_seeds"], 2, FOREST, indicators
+            X, G, split, imputation, data["draw_seeds"], 2, FOREST, indicators, fit
         )
 
 
@@ -383,7 +390,7 @@ class TestSplit(unittest.TestCase):
         def split(n, ratios, n_children=1):
             return _assign_split(
                 n, ratios, np.random.SeedSequence(0).spawn(n_children)[0]
-            )
+            )[0]
 
         a = split(2670, (0.6, 0.1, 0.3))
         np.testing.assert_array_equal(a, split(2670, (0.6, 0.1, 0.3)))
@@ -401,6 +408,27 @@ class TestSplit(unittest.TestCase):
         mice = [row["split"] for row in fitted_task("mice", True)._state.fields]
         self.assertEqual(median, mice)
         self.assertEqual(median, random_cohort()["split"].tolist())
+
+    def test_reference_split(self):
+        n, seed = 36313, np.random.SeedSequence(0).spawn(1)[0]
+        flat, flat_fit = _assign_split(n, (0.8, 0.1, 0.1), seed)
+        split, fit = _assign_split(n, (0.8, 0.1, 0.1), seed, reference=True)
+        np.testing.assert_array_equal(flat_fit, flat == "train")
+        np.testing.assert_array_equal(fit, flat == "train")
+        test = split == "test"
+        sizes = (
+            int((split == "train").sum()),
+            int((split == "val").sum()),
+            int((fit & test).sum()),
+            int((~fit & test).sum()),
+        )
+        self.assertEqual(sizes, (23530, 2615, 2905, 7263))
+        # The reference's DataFrame.sample(frac=0.8), then two train_test_split
+        pool = round(0.8 * n)
+        rest, internal = train_test_split(np.arange(pool), train_size=0.9)
+        train, val = train_test_split(rest, train_size=0.9)
+        self.assertEqual(sizes, (len(train), len(val), len(internal), n - pool))
+        self.assertTrue(fit[split != "test"].all())
 
 
 class TestImputation(unittest.TestCase):
@@ -451,6 +479,26 @@ class TestImputation(unittest.TestCase):
                 self.assertFalse(np.array_equal(again[0], again[1]))
         with self.assertRaisesRegex(ValueError, "deterministic"):
             ClinicalPresenceMortalityMIMIC3(imputation="median", n_draws=2)
+
+    def test_reference_split_fits_on_pool(self):
+        split, fit = random_cohort()["reference"]
+        # The pool is the default split's training rows, so its draws are the same
+        np.testing.assert_array_equal(fit, self.train)
+        self.assertTrue((split[fit] == "test").any())
+        for imputation in ("median", "mice"):
+            with self.subTest(imputation=imputation):
+                np.testing.assert_array_equal(
+                    impute(imputation, reference=True)[:, fit],
+                    imputed(imputation)[:, fit],
+                )
+        np.testing.assert_array_equal(
+            impute("median", reference=True), imputed("median")
+        )
+        perturbed = self.X.copy()
+        perturbed[~fit] += 1.0
+        np.testing.assert_array_equal(
+            impute("mice", perturbed, reference=True)[:, fit], imputed("mice")[:, fit]
+        )
 
     def test_mice_missing_shares_draws(self):
         plain = fitted_task("mice")._state.features
@@ -682,6 +730,23 @@ class TestTask(unittest.TestCase):
             "Imputed labs beyond the training range ± 3 sd: 0.000%",
         ):
             self.assertIn(line, output)
+
+    def test_reference_split(self):
+        task = fast_task("mice", reference_split=True)
+        with self.assertLogs(TASK_LOGGER, "INFO") as logs:
+            task.pre_filter(random_cohort()["events"].lazy())
+        self.assertIn(
+            "Split (seed 0): 28 train / 4 val / 28 test; reference split: the "
+            "imputer is fit on a 36-patient pool that includes 4 test patients.",
+            "\n".join(logs.output),
+        )
+        fields = task._state.fields
+        self.assertEqual(sum(f["imputer_fit"] for f in fields), 36)
+        internal = [f for f in fields if f["split"] == "test" and f["imputer_fit"]]
+        self.assertEqual(len(internal), 4)
+        self.assertIn("imputer_fit", samples_for(task, "1000")[0])
+        self.assertNotIn("imputer_fit", samples_for(fitted_task("mice"), "1000")[0])
+        self.assertNotEqual(cache_key(task), cache_key(fast_task("mice")))
 
     def test_indicators_in_imputation(self):
         task = fast_task(

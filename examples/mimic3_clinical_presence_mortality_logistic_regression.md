@@ -17,7 +17,8 @@ MIMIC-III v1.4 and the default settings.
   each of 67 labs in the first 24 hours.
 - **Split.** 80/10/10 by patient (29,050 / 3,632 / 3,631), repeated over
   split seeds 0-4. The imputer, the scaler and the classifier are all fit on
-  the training 80%.
+  the training 80%. A third run repeats the main run on the reference code's
+  split (see "Split organisation" below).
 - **Strategies.** The MICE strategies make 10 imputation draws, the others
   one. One classifier is trained per draw, and the predicted probabilities
   are averaged over draws.
@@ -35,8 +36,9 @@ MIMIC-III v1.4 and the default settings.
 - **Compute.** 16 cores and 31 GB RAM. The main run (14 strategies, five
   seeds, both classifiers) takes about 7 h from an empty cache; the
   indicator-order run (six strategies, five seeds, scikit-learn only) took
-  4 h 18 min. Python 3.13.5, NumPy 2.5.4, pandas 2.3.3, scikit-learn 1.9.1,
-  PyHealth 2.0.2.
+  4 h 18 min, and the reference-split run 7 h 7 min. Python 3.13.5, NumPy
+  2.5.4, pandas 2.3.3, scikit-learn 1.9.1, PyHealth 2.0.2 (2.1.0 for the
+  reference-split run, whose cohort and Table 1 are identical).
 
 ## Reproduction
 
@@ -177,11 +179,44 @@ order:
   falls from 0.347 to 0.301 under Group MICE Missing.
 - **The Black-axis difference comes from the flag, not the order.** For
   Group MICE Missing, the Black flag alone covers 70% of the gap between the
-  paper's Black prioritisation and ours, and 90% of the FNR gap; the order
-  adds nothing measurable.
+  paper's Black prioritisation and ours, and over half of the FNR gap (90%
+  on the default split, 56% on the reference split); the order adds nothing
+  measurable.
 - **Extreme imputations rise 15-22 times** with the indicators first,
   reaching 50-65% of patients, because more labs then have fewer observed
   training rows than predictors.
+
+**Split organisation** (`--reference-split`). The paper's text splits
+80/10/10. Its code fits the imputer on an 80% pool, trains the classifier on
+64.8% of patients and chooses C on 7.2%, both from the pool, and evaluates on
+the other 28%: the pool's remaining 8%, which the imputer was fit on, and the
+20% outside it. The third run re-creates this for the main run's 14
+strategies. Its pool is the main run's training 80%, so the imputer is fit on
+the same patients, and only the classifier's training, validation and test
+patients change. Means over the 14 strategies, with one seed's bootstrap sd
+in parentheses:
+
+| Split | Test patients | Population AUC | Black prioritised | Black FNR | Δ prioritisation, Sex | Δ prioritisation, Insurance |
+|---|---|---|---|---|---|---|
+| Default | 3,631 | 0.776 (0.016) | 0.329 (0.029) | 0.273 (0.114) | +0.058 (0.016) | +0.152 (0.015) |
+| Reference | 10,168 | 0.773 (0.009) | 0.330 (0.017) | 0.233 (0.066) | +0.057 (0.009) | +0.147 (0.009) |
+
+- **No result moves beyond chance.** Of the 126 cells compared (population
+  AUC, Black prioritisation and FNR, and the six gaps, for 14 strategies), 2
+  move by 0.01 or more beyond 2 standard errors across seeds. Swapping the
+  two runs' values within seeds, chance alone flags a median of 4.5. Every
+  verdict above holds on both splits: H1-H3, the AUC gain from the
+  indicators, MissForest's gain over MICE, the corrected-MICE gaps and the
+  Black flag's effect.
+- **The noise shrinks as the larger test set predicts.** Bootstrap sds are
+  1.6-1.8 times smaller (1.67 expected), and each seed's test set holds about
+  36-47 Black deaths instead of 12-18. The Black FNR is 0.04 lower on
+  average, but lower in only three of the five seeds, and within the default
+  split's noise.
+- **It is not why our numbers differ from the paper's.** The mean deviations
+  from the paper are the same on both splits. Without the Black flag, our
+  Black FNRs fall further below the paper's (Median: 0.298 in the paper,
+  0.209 on the default split, 0.188 on the reference split).
 
 ## Differences from the paper
 
@@ -195,7 +230,7 @@ gives the full list.
 | Index admission | Last row of `ADMISSIONS.csv` | Latest admission time | 88 patients (0.24%) get a later admission |
 | Label | `DEATHTIME - ADMITTIME` under 8 days | `hospital_expire_flag` and `DISCHTIME - ADMITTIME` under 8 days | 0.2% of the positive labels differ |
 | Labs of the admission | `HADM_ID` and the 24-hour window | The window only | 37 patients move into or out of the cohort |
-| Split | Imputer fit on 80%; classifier evaluated on the other 28% | 80/10/10, with everything fit on the 80% | A test split 2.8 times smaller |
+| Split | Imputer fit on an 80% pool; classifier trained on 64.8% and tuned on 7.2%, both from the pool, and evaluated on the other 28%: the pool's remaining 8%, which the imputer was fit on, and the 20% outside it | 80/10/10, with everything fit on the 80%; `--reference-split` gives the code's split | A test split 2.8 times smaller; the code's split changes no result beyond chance |
 | Missingness indicators | Added before MICE | Added after, as the text says | See the indicator-order table |
 | Group MICE flags | Black flag left among the classifier's inputs | All group flags dropped | See the `+ Black flag` rows |
 | Sex flag | Always False | `gender == "F"` | Group MICE also conditions on sex |
@@ -217,7 +252,8 @@ effectively see 66 labs.
   0.11-0.14. Judge Black-axis cells on the five-seed means.
 - **One small test split per seed.** The reference evaluates on 28% of the
   cohort; we hold out 10%, so subgroup estimates are noisier than the
-  paper's.
+  paper's. On the reference split the bootstrap sds are 1.7 times smaller,
+  and no result moves beyond chance.
 - **The MICE classifiers are stopped early, as in the reference.** For each
   MICE strategy, 150 of the 200 scikit-learn fits (10 draws, 4 values of C,
   5 seeds) stop at `sag`'s 1,000 epochs.
@@ -244,8 +280,8 @@ python examples/mimic3_clinical_presence_mortality_logistic_regression.py \
 ```
 
 The results above come from MIMIC-III v1.4, which needs credentialed
-PhysioNet access, in two runs. Each runs its seeds in one command, because the
-report averages over seeds and separate runs cannot be merged:
+PhysioNet access, in three runs. Each runs its seeds in one command, because
+the report averages over seeds and separate runs cannot be merged:
 
 ```bash
 # The main run: every strategy outside the order family (about 7 h)
@@ -258,7 +294,14 @@ python examples/mimic3_clinical_presence_mortality_logistic_regression.py \
   --root /path/to/mimic-iii/1.4 --out results/order_s0-4 --seeds 0 1 2 3 4 \
   --strategies "MICE Missing" "Group MICE Missing" \
   "Group MICE Missing + Black flag" order
+
+# The main run on the reference code's split (7 h 7 min)
+python examples/mimic3_clinical_presence_mortality_logistic_regression.py \
+  --root /path/to/mimic-iii/1.4 --out results/refsplit_s0-4 --seeds 0 1 2 3 4 \
+  --strategies paper appendix ablation diagnostic sensitivity \
+  --reference-split --pyhealth-lr
 ```
 
 `report.md` in `--out` has every table, with the paper's values in brackets,
-and the figures.
+and the figures. With `--reference-split`, `metrics_test_parts.csv` also has
+every metric on the internal and the external test separately.
