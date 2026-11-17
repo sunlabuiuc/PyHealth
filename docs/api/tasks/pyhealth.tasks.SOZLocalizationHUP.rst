@@ -15,6 +15,10 @@ one patient, so windows of one patient must stay on one side of a split: use
 version 1.1.3, 538 of the 6119 contacts (8.8%) are in the seizure onset
 zone.
 
+Each sample also carries the name of its contact and its position ``x``,
+``y``, ``z`` in millimetres in a template space, NaN for the 2% of contacts
+without a position. They are not model inputs by default.
+
 Task parameters:
 
 - target: ``"soz"`` (default) or ``"resect"``
@@ -33,3 +37,5 @@ Task parameters:
     :show-inheritance:
 
 .. autofunction:: pyhealth.tasks.soz_localization_hup.read_hup_channels
+
+.. autofunction:: pyhealth.tasks.soz_localization_hup.read_hup_electrodes

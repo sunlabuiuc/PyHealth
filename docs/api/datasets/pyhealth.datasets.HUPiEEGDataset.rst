@@ -17,8 +17,9 @@ registration.
 
 Point ``root`` at the downloaded folder, the one holding
 ``participants.tsv`` and the ``sub-HUP*`` folders. The dataset writes one
-metadata row per recording, with its ``channels.tsv``, its kind (interictal
-or ictal), the seizure onset and offset of ictal recordings, and the
+metadata row per recording, with its ``channels.tsv``, the
+``electrodes.tsv`` of the patient (positions of the contacts), its kind
+(interictal or ictal), the seizure onset and offset of ictal recordings, and the
 clinical columns of the patient. The default task, ``SOZLocalizationHUP``,
 cuts the interictal recordings into single-channel windows labelled with the
 seizure onset zone. Split the windows by patient.

@@ -7,6 +7,7 @@ tables:
     attributes:
     - "signal_file"
     - "channels_file"
+    - "electrodes_file"
     - "recording_type"
     - "acquisition"
     - "run"

@@ -116,6 +116,64 @@ def read_hup_channels(channels_file: str | Path) -> list[dict[str, Any]]:
     return channels
 
 
+def read_hup_electrodes(
+    electrodes_file: str | Path,
+) -> dict[str, tuple[float, float, float]]:
+    """Read the position of the contacts of one patient.
+
+    The values are returned as written in ``electrodes.tsv``. They are
+    millimetres, although ``coordsystem.json`` declares metres, in a
+    template space that the dataset gives as ``fsaverage`` in
+    ``coordsystem.json`` and as ICBM152 MNI in its README (see
+    :class:`~pyhealth.datasets.HUPiEEGDataset`). ``x`` is negative on the
+    left.
+
+    Args:
+        electrodes_file: Path to the BIDS ``*_electrodes.tsv`` file.
+
+    Returns:
+        ``(x, y, z)`` for each electrode name; the three values are NaN when
+        the file gives no position (``n/a``) or a value that is not a
+        number. A repeated name keeps its first row.
+
+    Raises:
+        ValueError: If the file lacks the ``name``, ``x``, ``y`` or ``z``
+            column.
+
+    Examples:
+        >>> from pyhealth.tasks.soz_localization_hup import read_hup_electrodes
+        >>> positions = read_hup_electrodes(
+        ...     "/path/to/ds004100/sub-HUP064/ses-presurgery/ieeg/"
+        ...     "sub-HUP064_ses-presurgery_acq-ecog_space-fsaverage"
+        ...     "_electrodes.tsv"
+        ... )
+        >>> positions["EEG LF 01-Ref"]
+        (-1.46523, 56.6861, -20.215324097541)
+    """
+    with open(electrodes_file, encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        columns = reader.fieldnames or []
+        missing = [c for c in ("name", "x", "y", "z") if c not in columns]
+        if missing:
+            raise ValueError(
+                f"{electrodes_file} has no {missing} column(s); its columns are "
+                f"{columns}."
+            )
+        positions: dict[str, tuple[float, float, float]] = {}
+        for row in reader:
+            name = (row["name"] or "").strip()
+            if name in positions:
+                continue
+            try:
+                x, y, z = (float(row[axis]) for axis in ("x", "y", "z"))
+            except (TypeError, ValueError):
+                x = y = z = math.nan
+            if not all(math.isfinite(value) for value in (x, y, z)):
+                x = y = z = math.nan
+            positions[name] = (x, y, z)
+    return positions
+
+
 def _is_positive_number(value: Any) -> bool:
     """Whether ``value`` is a finite number above zero (booleans excluded)."""
     return (
@@ -200,6 +258,12 @@ class SOZLocalizationHUP(BaseTask):
     - ``label``: 1 if the contact carries the ``target`` mark, else 0
     - ``channel``: name of the contact in the recording
     - ``channel_type``: ``"SEEG"`` or ``"ECOG"``
+    - ``x``, ``y``, ``z``: position of the contact in millimetres in a
+      template space (see
+      :func:`~pyhealth.tasks.soz_localization_hup.read_hup_electrodes` for
+      what the dataset states about it), NaN when ``electrodes.tsv`` gives
+      none (126 of the 6119 good contacts of version 1.1.3). They are not
+      part of the model input by default.
     - ``run``: run number of the recording
     - ``start_second``: start of the window in the recording
 
@@ -376,11 +440,13 @@ class SOZLocalizationHUP(BaseTask):
         Args:
             patient_id: Participant id, for example ``"sub-HUP060"``.
             event: A ``recordings`` event with ``signal_file``,
-                ``channels_file``, ``recording_type`` and ``outcome``.
+                ``channels_file``, ``electrodes_file``, ``recording_type``
+                and ``outcome``.
 
         Returns:
             ``(signal_file, channels)`` with the good channels of
-            ``channels.tsv``, a repeated name kept once; None when the
+            ``channels.tsv``, a repeated name kept once, each with its
+            ``position`` from ``electrodes.tsv``; None when the
             recording is not interictal, the patient's outcome is not in
             ``outcomes``, or a file is missing.
         """
@@ -413,6 +479,12 @@ class SOZLocalizationHUP(BaseTask):
                 channels_file,
                 sorted(set(repeated)),
             )
+        electrodes_file = str(getattr(event, "electrodes_file", "") or "").strip()
+        positions = {}
+        if electrodes_file.lower() not in _EMPTY:
+            positions = read_hup_electrodes(electrodes_file)
+        for channel in channels:
+            channel["position"] = positions.get(channel["name"], (math.nan,) * 3)
         return signal_file, channels
 
     def _samples_from_recording(
@@ -484,6 +556,7 @@ class SOZLocalizationHUP(BaseTask):
 
         samples: list[dict[str, Any]] = []
         for index, channel in enumerate(channels):
+            x, y, z = channel["position"]
             for start in range(0, signal.shape[1] - window_len + 1, stride_len):
                 window = signal[index : index + 1, start : start + window_len]
                 samples.append(
@@ -491,6 +564,9 @@ class SOZLocalizationHUP(BaseTask):
                         "patient_id": patient_id,
                         "channel": channel["name"],
                         "channel_type": channel["type"],
+                        "x": x,
+                        "y": y,
+                        "z": z,
                         "run": run,
                         "start_second": start / self.resample_rate,
                         "signal": window.astype(np.float32),

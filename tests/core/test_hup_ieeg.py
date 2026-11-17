@@ -1,5 +1,6 @@
 """HUPiEEGDataset and SOZLocalizationHUP, using small EDF files written here."""
 
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,7 +11,10 @@ import pandas as pd
 
 from pyhealth.datasets import HUPiEEGDataset
 from pyhealth.tasks import SOZLocalizationHUP
-from pyhealth.tasks.soz_localization_hup import read_hup_channels
+from pyhealth.tasks.soz_localization_hup import (
+    read_hup_channels,
+    read_hup_electrodes,
+)
 
 SFREQ = 200
 SECONDS = 6
@@ -117,6 +121,33 @@ def _stem(subject: str, kind: str, run: str, acquisition: str = "seeg") -> str:
     return f"{subject}_ses-presurgery_task-{kind}_acq-{acquisition}_run-{run}"
 
 
+def _electrodes_path(root: Path, subject: str, acquisition: str = "seeg") -> Path:
+    name = f"{subject}_ses-presurgery_acq-{acquisition}_space-fsaverage_electrodes.tsv"
+    return root / subject / "ses-presurgery" / "ieeg" / name
+
+
+def _position(index: int) -> tuple[float, float, float]:
+    """The position written for the channel at ``index`` of ``channels.tsv``."""
+    return (-10.5 - index, 20.0 + index, 3.25 * index)
+
+
+def _write_electrodes(path: Path, channels=CHANNELS) -> None:
+    """Write an ``electrodes.tsv`` like the real ones.
+
+    Channel ``i`` is at ``_position(i)``; ECG channels have no position, as
+    in the real files.
+    """
+    lines = ["name\tx\ty\tz\tsize"]
+    for index, (name, _, _) in enumerate(channels):
+        if name.strip().startswith("EKG"):
+            lines.append(f"{name}\tn/a\tn/a\tn/a\tn/a")
+        else:
+            x, y, z = _position(index)
+            lines.append(f"{name}\t{x}\t{y}\t{z}\tn/a")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines), encoding="utf-8-sig")
+
+
 def _write_recording(
     root: Path,
     subject: str,
@@ -135,6 +166,7 @@ def _write_recording(
     edf = folder / f"{stem}_ieeg.edf"
     _write_edf(edf, names, _signal(len(names), seconds, sfreq), sfreq)
     _write_channels(folder / f"{stem}_channels.tsv", channels)
+    _write_electrodes(_electrodes_path(root, subject, acquisition), channels)
     if kind == "ictal":
         (folder / f"{stem}_events.tsv").write_text(
             "onset\tduration\ttrial_type\tvalue\tsample\n"
@@ -157,6 +189,7 @@ def _event(edf: Path, **overrides) -> SimpleNamespace:
     fields = {
         "signal_file": str(edf),
         "channels_file": str(edf).replace("_ieeg.edf", "_channels.tsv"),
+        "electrodes_file": str(next(edf.parent.glob("*_electrodes.tsv"), "")),
         "recording_type": "interictal",
         "run": "01",
         "outcome": "S",
@@ -256,6 +289,29 @@ class TestHUPMetadata(_TempRoot):
         table = _prepare(self.root)
         self.assertEqual(table["channels_file"][0], "")
 
+    def test_electrodes_file_of_the_implant(self):
+        _write_participants(self.root)
+        _write_recording(self.root, "sub-HUP060", "ictal", "02")
+        _write_recording(self.root, "sub-HUP060", "interictal", "01")
+        _write_recording(self.root, "sub-HUP064", acquisition="ecog")
+        table = _prepare(self.root)
+        self.assertEqual(
+            [Path(path).name for path in table["electrodes_file"]],
+            [
+                "sub-HUP060_ses-presurgery_acq-seeg_space-fsaverage_electrodes.tsv",
+                "sub-HUP060_ses-presurgery_acq-seeg_space-fsaverage_electrodes.tsv",
+                "sub-HUP064_ses-presurgery_acq-ecog_space-fsaverage_electrodes.tsv",
+            ],
+        )
+        self.assertTrue(all(Path(path).is_file() for path in table["electrodes_file"]))
+
+    def test_missing_electrodes_file_is_left_empty(self):
+        _write_participants(self.root)
+        _write_recording(self.root, "sub-HUP060")
+        _electrodes_path(self.root, "sub-HUP060").unlink()
+        table = _prepare(self.root)
+        self.assertEqual(table["electrodes_file"][0], "")
+
     def test_unexpected_events_leave_the_seizure_times_empty(self):
         _write_participants(self.root)
         edf = _write_recording(self.root, "sub-HUP060", "ictal")
@@ -334,6 +390,40 @@ class TestReadChannels(_TempRoot):
             read_hup_channels(path)
 
 
+class TestReadElectrodes(_TempRoot):
+    def test_positions(self):
+        path = self.root / "electrodes.tsv"
+        _write_electrodes(path)
+        positions = read_hup_electrodes(path)
+        self.assertEqual(list(positions), [name for name, _, _ in CHANNELS])
+        self.assertEqual(positions["LA1"], (-10.5, 20.0, 0.0))
+        self.assertEqual(positions["LB1"], (-13.5, 23.0, 9.75))
+        self.assertTrue(all(math.isnan(value) for value in positions["EKG1"]))
+
+    def test_incomplete_or_invalid_position_is_nan(self):
+        path = self.root / "electrodes.tsv"
+        path.write_text(
+            "name\tx\ty\tz\n"
+            "LA1\t1.0\tn/a\t3.0\n"
+            "LA2\tleft\t2.0\t3.0\n"
+            "LA3\t\t\t\n"
+            "LA4\tinf\t2.0\t3.0\n"
+            " LA5 \t1.5\t2.5\t3.5\n"
+            "LA5\t9.0\t9.0\t9.0\n"
+        )
+        positions = read_hup_electrodes(path)
+        for name in ("LA1", "LA2", "LA3", "LA4"):
+            self.assertTrue(all(math.isnan(value) for value in positions[name]), name)
+        # The name is stripped, and a repeated name keeps its first row.
+        self.assertEqual(positions["LA5"], (1.5, 2.5, 3.5))
+
+    def test_missing_column(self):
+        path = self.root / "electrodes.tsv"
+        path.write_text("name\tx\ty\nLA1\t1\t2\n")
+        with self.assertRaisesRegex(ValueError, "'z'"):
+            read_hup_electrodes(path)
+
+
 class TestSOZLocalizationHUP(_TempRoot):
     def setUp(self):
         super().setUp()
@@ -361,6 +451,34 @@ class TestSOZLocalizationHUP(_TempRoot):
         seconds = np.repeat([0, 1], SFREQ)
         np.testing.assert_allclose(first["signal"][0], seconds, atol=1e-3)
         np.testing.assert_allclose(last["signal"][0], 300 + 4 + seconds, atol=1e-3)
+
+    def test_position_of_each_contact(self):
+        samples = SOZLocalizationHUP(**RAW)(self.patient)
+        for sample in samples:
+            index = [name for name, _, _ in CHANNELS].index(sample["channel"])
+            self.assertEqual((sample["x"], sample["y"], sample["z"]), _position(index))
+        self.assertEqual(samples[-1]["x"], -13.5)
+
+    def test_contact_without_position_is_nan(self):
+        # A contact with n/a, one absent from electrodes.tsv, and no file.
+        channels = [("LA1", "good", "soz"), ("EKG9", "good", "n/a")]
+        edf = _write_recording(self.root, "sub-HUP064", channels=channels)
+        path = _electrodes_path(self.root, "sub-HUP064")
+        path.write_text("name\tx\ty\tz\nLA1\tn/a\tn/a\tn/a\n")
+        for overrides in ({}, {"electrodes_file": ""}, {"electrodes_file": None}):
+            patient = _patient("sub-HUP064", [_event(edf, **overrides)])
+            samples = SOZLocalizationHUP(**RAW)(patient)
+            self.assertEqual(len(samples), 6)
+            for sample in samples:
+                position = (sample["x"], sample["y"], sample["z"])
+                self.assertTrue(all(math.isnan(value) for value in position))
+
+    def test_event_without_electrodes_column(self):
+        event = _event(self.edf)
+        del event.electrodes_file
+        samples = SOZLocalizationHUP(**RAW)(_patient("sub-HUP060", [event]))
+        self.assertEqual(len(samples), 12)
+        self.assertTrue(math.isnan(samples[0]["x"]))
 
     def test_resect_target(self):
         samples = SOZLocalizationHUP(target="resect", **RAW)(self.patient)
@@ -637,6 +755,15 @@ class TestHUPSetTask(unittest.TestCase):
             self.assertEqual(
                 {sample["channel"] for sample in samples},
                 {"LA1", "LA2", "LA3", "LB1"},
+            )
+            self.assertEqual(
+                {(s["channel"], float(s["x"]), float(s["z"])) for s in samples},
+                {
+                    ("LA1", -10.5, 0.0),
+                    ("LA2", -11.5, 3.25),
+                    ("LA3", -12.5, 6.5),
+                    ("LB1", -13.5, 9.75),
+                },
             )
             labels = sorted(int(sample["label"]) for sample in samples)
             self.assertEqual(labels, [0] * 18 + [1] * 18)

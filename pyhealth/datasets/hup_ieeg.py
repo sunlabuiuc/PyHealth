@@ -156,7 +156,8 @@ class HUPiEEGDataset(BaseDataset):
     recording found under ``root``) in ``root``, or under
     ``~/.cache/pyhealth/hup_ieeg/<hash of root>`` when ``root`` is not
     writable. Each row holds the recording (``signal_file``), its
-    ``channels.tsv`` (``channels_file``), its kind (``recording_type``:
+    ``channels.tsv`` (``channels_file``), the ``electrodes.tsv`` of the
+    patient (``electrodes_file``), its kind (``recording_type``:
     ``"interictal"`` or ``"ictal"``), the implant of the recording
     (``acquisition``: ``"seeg"`` or ``"ecog"``), its run number, the seizure
     onset and offset in seconds for ictal recordings, and the columns of
@@ -171,6 +172,27 @@ class HUPiEEGDataset(BaseDataset):
     the resected or ablated tissue.
     :func:`~pyhealth.tasks.soz_localization_hup.read_hup_channels` reads
     them.
+
+    The position of the contacts is in ``electrodes.tsv`` (``x``, ``y``,
+    ``z``), read by
+    :func:`~pyhealth.tasks.soz_localization_hup.read_hup_electrodes`. Two
+    statements of the dataset about these coordinates disagree with each
+    other or with the values:
+
+    - Unit: ``coordsystem.json`` declares metres, but the values are
+      millimetres. They lie between -104 and 92, and neighbouring contacts
+      of one electrode are a median of 5.6 apart for SEEG and 10.9 for ECoG
+      in version 1.1.3.
+    - Space: ``coordsystem.json`` declares ``fsaverage`` and the README of
+      the dataset the ICBM152 MNI space. The files do not tell which one
+      holds; the two templates differ by a few millimetres. ``x`` is
+      negative on the left: of the 5666 good contacts whose name starts
+      with L or R and that lie more than 5 mm from the midline, 5661 are on
+      the side of their name.
+
+    In version 1.1.3, 5993 of the 6119 good contacts of the interictal
+    recordings have coordinates; 119 of the 126 others belong to
+    ``sub-HUP089``, ``sub-HUP116`` and ``sub-HUP126``.
 
     The outcome and the Engel class are known only after surgery, and the
     ``resect`` marks describe the surgery itself: none of them should be an
@@ -236,11 +258,12 @@ class HUPiEEGDataset(BaseDataset):
 
         The CSV has one row per ``*_ieeg.edf`` file under
         ``root/sub-*/ses-*/ieeg``, sorted by path, with ``patient_id``,
-        ``signal_file``, ``channels_file``, ``recording_type``,
-        ``acquisition``, ``run``, ``seizure_onset_second``,
-        ``seizure_offset_second`` and the columns of ``participants.tsv``.
-        ``channels_file`` is empty when the recording has no
-        ``channels.tsv``, the seizure times are empty for interictal
+        ``signal_file``, ``channels_file``, ``electrodes_file``,
+        ``recording_type``, ``acquisition``, ``run``,
+        ``seizure_onset_second``, ``seizure_offset_second`` and the columns
+        of ``participants.tsv``. ``channels_file`` and ``electrodes_file``
+        are empty when the recording has no ``channels.tsv`` or
+        ``electrodes.tsv``, the seizure times are empty for interictal
         recordings, and the participant columns are empty for a patient that
         ``participants.tsv`` does not list (with a warning). An existing
         CSV, in ``root`` or in the cache, is left untouched: delete it to
@@ -283,6 +306,14 @@ class HUPiEEGDataset(BaseDataset):
             subject = match["subject"]
             stem = path.name[: -len("_ieeg.edf")]
             channels_file = path.with_name(f"{stem}_channels.tsv")
+            # One electrodes.tsv per session and implant, shared by its runs:
+            # sub-<id>_ses-<id>_acq-<name>_space-<name>_electrodes.tsv
+            electrodes_files = sorted(
+                path.parent.glob(
+                    f"{subject}_{match['session']}_acq-{match['acquisition']}"
+                    "_*electrodes.tsv"
+                )
+            )
             onset, offset = "", ""
             if match["task"] == "ictal":
                 onset, offset = _seizure_times(path.with_name(f"{stem}_events.tsv"))
@@ -291,6 +322,9 @@ class HUPiEEGDataset(BaseDataset):
                 "signal_file": str(path.absolute()),
                 "channels_file": (
                     str(channels_file.absolute()) if channels_file.is_file() else ""
+                ),
+                "electrodes_file": (
+                    str(electrodes_files[0].absolute()) if electrodes_files else ""
                 ),
                 "recording_type": match["task"],
                 "acquisition": match["acquisition"],
