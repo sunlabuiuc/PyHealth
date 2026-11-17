@@ -19,17 +19,33 @@ import them from ``pyhealth.metrics.motionage``.
         label_concordance,
         participant_fields,
     )
+    from pyhealth.datasets import get_dataloader
     from pyhealth.models.motionage import MotionAgeMapping
 
-    y_true, y_prob, _, ids = trainer.inference(loader, return_patient_ids=True)
-    table = aggregate_window_predictions(ids, y_prob, y_true).merge(
-        participant_fields(samples), on="patient_id"
-    )
+    # train_samples, test_samples: from set_task(task, split=PatientSplit(...));
+    # trainer: a pyhealth.trainer.Trainer with a trained MotionAge model.
+    def participants(samples):
+        loader = get_dataloader(samples, batch_size=64, shuffle=False)
+        # Returns y_true, y_prob, mean loss, patient IDs, in that order.
+        y_true, y_prob, _, ids = trainer.inference(loader, return_patient_ids=True)
+        risk = aggregate_window_predictions(ids, y_prob, y_true)
+        return risk.merge(participant_fields(samples), on="patient_id")
+
+    train, test = participants(train_samples), participants(test_samples)
     mapping = MotionAgeMapping().fit(train["risk"], train["age"], train["sex"])
-    table["motion_age"] = mapping.transform(table["risk"], table["sex"])
-    table["age_acceleration"] = age_acceleration(table["motion_age"], table["age"])
-    c_index = label_concordance(table["label"], table["motion_age"])
-    # evaluate_feature_sets(train, test, {"age": ["age", "sex"], ...})
+    for table in (train, test):
+        table["motion_age"] = mapping.transform(table["risk"], table["sex"])
+        table["age_acceleration"] = age_acceleration(
+            table["motion_age"], table["age"]
+        )
+
+    c_index = label_concordance(test["label"], test["motion_age"])
+    auroc = evaluate_feature_sets(
+        train,
+        test,
+        {"age": ["age", "sex"], "motionage": ["motion_age", "sex"]},
+        baseline="age",
+    )
 
 .. currentmodule:: pyhealth.metrics.motionage
 
