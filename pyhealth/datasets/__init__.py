@@ -116,6 +116,11 @@ from .splitter import (
 )
 from .gold_test_split import GoldTestSplit as GoldTestSplit
 from .mimic4_imagenome import MIMIC4ImaGenomeDataset as MIMIC4ImaGenomeDataset
+from .medmod_mimic4 import (
+    MedModMIMIC4Dataset as MedModMIMIC4Dataset,
+    MedModSplit as MedModSplit,
+    split_by_medmod as split_by_medmod,
+)
 from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
 from .iiic import IIICDataset as IIICDataset
 from .tuab import TUABDataset
