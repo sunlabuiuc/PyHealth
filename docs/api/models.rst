@@ -309,6 +309,7 @@ API Reference
     models/pyhealth.models.MoleRec
     models/pyhealth.models.ARMR
     models/pyhealth.models.Deepr
+    models/pyhealth.models.feature_attention_lstm
     models/pyhealth.models.EHRMamba
     models/pyhealth.models.EHRMambaCEHR
     models/pyhealth.models.ETHOS
