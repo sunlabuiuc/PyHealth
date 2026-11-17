@@ -101,7 +101,14 @@ class TestTokenMasking(unittest.TestCase):
         self.assertEqual(iterations, 3)
         self.assertTrue((soft > 0.5).all())
         soft, iterations = optimize_token_mask(
-            model, ids, mask, baseline, diet_constant=0.01, lr=1.0, max_iter=20, min_iter=20
+            model,
+            ids,
+            mask,
+            baseline,
+            diet_constant=0.01,
+            lr=1.0,
+            max_iter=20,
+            min_iter=20,
         )
         self.assertEqual(iterations, 20)
         self.assertTrue((soft < 0.5).any())
@@ -137,7 +144,8 @@ class TestTokenMasking(unittest.TestCase):
             out["mask"].bool(), ids, model.tokenizer.mask_token_id
         )
         with torch.no_grad():
-            probs = torch.sigmoid(model.forward_from_embedding(embed(ids), mask)["logit"])
+            logits = model.forward_from_embedding(embed(ids), mask)["logit"]
+            probs = torch.sigmoid(logits)
             masked = torch.sigmoid(
                 model.forward_from_embedding(embed(masked_ids), mask)["logit"]
             )

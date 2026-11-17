@@ -159,7 +159,8 @@ class TestAttInGrad(unittest.TestCase):
     def test_att_deeplift_is_product_of_parts(self):
         product = self.explain("attention") * self.explain("deeplift")
         expected = product / product.sum(-1, keepdim=True)
-        self.assertTrue(torch.allclose(self.explain("att_deeplift"), expected, atol=1e-6))
+        got = self.explain("att_deeplift")
+        self.assertTrue(torch.allclose(got, expected, atol=1e-6))
 
     def test_deeplift_on_plm_ca_uses_linear_rule(self):
         # PLMCA has no hooked activation on the logit path (GELU and the

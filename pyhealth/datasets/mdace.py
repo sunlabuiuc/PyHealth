@@ -249,7 +249,10 @@ class MDACEDataset(BaseDataset):
                     ),
                     "spans": json.dumps(
                         [
-                            [list(trim_span(s, text)) for s in note["codes"][c]["spans"]]
+                            [
+                                list(trim_span(s, text))
+                                for s in note["codes"][c]["spans"]
+                            ]
                             for c in codes
                         ]
                     ),

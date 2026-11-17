@@ -95,7 +95,8 @@ def optimize_token_mask(
         optimizer.step()
         optimizer.zero_grad()
         iterations += 1
-        if iterations >= min_iter and 0.97 * prev_prev_loss < value < 1.03 * prev_prev_loss:
+        converged = 0.97 * prev_prev_loss < value < 1.03 * prev_prev_loss
+        if iterations >= min_iter and converged:
             break
         prev_prev_loss, prev_loss = prev_loss, value
     model.train(was_training)
