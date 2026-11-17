@@ -106,6 +106,9 @@ from .seizure_detection_chbmit import (
 from .sleep_staging_ear_eeg import (
     SleepStagingEarEEG as SleepStagingEarEEG,
 )
+from .nhanes_mortality_prediction import (
+    NHANESMortalityPrediction as NHANESMortalityPrediction,
+)
 from .eegbci import (
     EEGBCIPatternDiscovery as EEGBCIPatternDiscovery,
     EEGMotorImageryEEGBCI as EEGMotorImageryEEGBCI,
