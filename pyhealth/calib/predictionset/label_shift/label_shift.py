@@ -238,11 +238,11 @@ class LabelShift(BaseConformal):
             a single float in (0, 1): P(Y not in C(X)) <= alpha for
             (X, Y) drawn from Q.
         score_type: Type of nonconformity score to use: "threshold"
-            (default) or "aps". See
+            (default), "aps", or "raps". See
             :mod:`pyhealth.calib.predictionset.scores` for the exact
             formulas.
         random_state: Optional int seed for the RNG used by
-            score_type="aps". Ignored for score_type="threshold".
+            score_type="aps" and score_type="raps". Ignored for score_type="threshold".
         debug: Whether to use debug mode (processes fewer samples).
 
     Examples:
@@ -283,6 +283,8 @@ class LabelShift(BaseConformal):
         score_type: str = "threshold",
         random_state: int | None = None,
         debug: bool = False,
+        raps_lambda: float = 0.1,
+        raps_kreg: int = 1,
         **kwargs,
     ) -> None:
         if model.mode != "multiclass":
@@ -301,6 +303,8 @@ class LabelShift(BaseConformal):
             score_type=score_type,
             random_state=random_state,
             debug=debug,
+            raps_lambda=raps_lambda,
+            raps_kreg=raps_kreg,
             **kwargs,
         )
         self.alpha = float(alpha)
@@ -383,7 +387,12 @@ class LabelShift(BaseConformal):
 
         # Non-conformity scores of the true labels (higher = less conforming)
         nc_scores = true_class_nc_scores(
-            y_prob, y_true, score_type=self.score_type, rng=self.rng
+            y_prob,
+            y_true,
+            score_type=self.score_type,
+            rng=self.rng,
+            raps_lambda=self.raps_lambda,
+            raps_kreg=self.raps_kreg,
         )
 
         thresholds, label_ratios = _compute_label_shift_thresholds(

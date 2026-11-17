@@ -8,9 +8,12 @@ techniques for uncertainty quantification.
 ``BaseConformal``, ``LABEL``, ``ClusterLabel``, ``CovariateLabel``,
 ``LabelShift``, ``RC3P``, and ``NeighborhoodLabel`` all accept a ``score_type`` argument selecting the
 nonconformity/conformity score used for calibration and set construction:
-either ``"threshold"`` (the default, unchanged from prior releases) or
+``"threshold"`` (the default, unchanged from prior releases),
 ``"aps"`` (Adaptive Prediction Sets, Romano, Sesia, and Candes 2020), which
-adapts the prediction set size to the model's per-input confidence. See
+adapts the prediction set size to the model's per-input confidence, or
+``"raps"`` (Regularized Adaptive Prediction Sets, Angelopoulos et al. 2021),
+which adds a penalty for low-ranked classes and takes hyperparameters
+``raps_lambda`` (default 0.1) and ``raps_kreg`` (default 1). See
 :mod:`pyhealth.calib.predictionset.scores` for the exact score formulas.
 ``SCRIB`` and ``FavMac`` are not included since their calibration
 procedures aren't a score-then-quantile pattern.
