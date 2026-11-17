@@ -652,7 +652,7 @@ class TestYAIBProcessingMIMIC3(unittest.TestCase):
             torch.testing.assert_close(mask.float(), old[:, 4:])
 
     def test_static_matches_the_previous_tensor_preprocessing(self):
-        # The t = 0 series reproduces TensorProcessor with z-score, missing
+        # The single level reproduces TensorProcessor with z-score, missing
         # indicators and zero fill.
         rows = [
             [60.0, 1.0, 170.0, np.nan],
@@ -662,15 +662,14 @@ class TestYAIBProcessingMIMIC3(unittest.TestCase):
         ]
         schema = YAIBMortalityMIMIC3.input_schema["static"][1]
         v2 = SequenceProcessorV2(**schema)
-        v2.fit([{"x": YAIBMortalityMIMIC3._static_series(r)} for r in rows], "x")
+        v2.fit([{"x": YAIBMortalityMIMIC3._static_record(r)} for r in rows], "x")
         v1 = TensorProcessor(
             normalization="zscore", missing_indicators=True, impute_strategy="zero"
         )
         v1.fit([{"x": r} for r in rows], "x")
         for row in rows:
-            values, mask, time = v2.process(YAIBMortalityMIMIC3._static_series(row))
+            values, mask = v2.process(YAIBMortalityMIMIC3._static_record(row))
             old = v1.process(row)
-            self.assertEqual(time.tolist(), [0.0])
             torch.testing.assert_close(values[0], old[:4])
             torch.testing.assert_close(mask[0].float(), old[4:])
 
@@ -695,10 +694,9 @@ class TestYAIBProcessingMIMIC3(unittest.TestCase):
                     filled = values[5:8, TEMP]
                     self.assertTrue((filled == filled[0]).all())
 
-                    static, static_mask, static_time = dataset[i]["static"]
+                    static, static_mask = dataset[i]["static"]
                     self.assertEqual(tuple(static.shape), (1, 4))
                     self.assertTrue(torch.isfinite(static).all())
-                    self.assertEqual(static_time.tolist(), [0.0])
                     self.assertEqual(
                         static_mask[0].bool().tolist(),
                         [False, False, True, True],  # height and weight missing

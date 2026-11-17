@@ -1,0 +1,21 @@
+version: "1.0"
+tables:
+  images:
+    file_path: "rsna-pneumonia-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "record_id"
+      - "image_path"
+      - "study_id"
+      - "series_id"
+      - "sop_id"
+      - "modality"
+      - "view_position"
+      - "rows"
+      - "columns"
+      - "label"
+      - "annotation_label"
+      - "subset_init_label"
+      - "orig_labels"
+      - "fold"

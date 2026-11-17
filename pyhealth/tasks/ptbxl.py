@@ -155,6 +155,8 @@ def _to_bool(value: Any) -> bool:
 class PTBXLSuperclassClassification(BaseTask):
     """5-superclass multi-label classification on PTB-XL.
 
+    Works with :class:`~pyhealth.datasets.PTBXLDataset`.
+
     Labels are the official diagnostic superclasses
     ``NORM``, ``MI``, ``STTC``, ``CD``, ``HYP`` obtained by mapping diagnostic
     SCP statements via ``scp_statements.csv``.

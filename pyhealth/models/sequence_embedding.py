@@ -1,4 +1,4 @@
-"""Embeddings for the packed records of :class:`SequenceProcessorV2` fields."""
+"""Embeddings for the packed records of :class:`JaggedFeatureProcessor` fields."""
 
 import math
 from collections.abc import Mapping, Sequence
@@ -8,8 +8,8 @@ import torch
 from torch import nn
 
 from ..datasets import SampleDataset
-from ..processors import SequenceProcessorV2
-from ..processors.sequence_processor_v2 import FieldKey
+from ..processors import BridgeDataset, JaggedFeatureProcessor, transform_batch
+from ..processors.jagged_processor import FieldKey
 from .base_model import BaseModel
 from .embedding import init_embedding_with_pretrained
 
@@ -83,7 +83,7 @@ class _FieldEmbedding(nn.Module):
     def __init__(
         self,
         field: str,
-        processor: SequenceProcessorV2,
+        processor: JaggedFeatureProcessor,
         dims: Sequence[LevelEmbedding],
         flatten_spatial: Sequence[bool],
         mask: MaskMode,
@@ -239,12 +239,16 @@ class _FieldEmbedding(nn.Module):
 
 
 class SequenceEmbeddingModel(BaseModel):
-    """Embeds the packed records of every :class:`SequenceProcessorV2` field.
+    """Embeds the packed records of every :class:`JaggedFeatureProcessor` field.
 
     Like :class:`~pyhealth.models.EmbeddingModel`, it is a building block for
     other models: :meth:`forward` maps each V2 field of a batch (the tuple of
-    :meth:`SequenceProcessorV2.collate`) to embeddings. Fields of other
-    processors are ignored and left out of the output.
+    :meth:`JaggedFeatureProcessor.collate`) to embeddings. A legacy field
+    is read as the levels of its :class:`~pyhealth.processors.UnifiedBridge`:
+    the model wraps its dataset in a
+    :class:`~pyhealth.processors.BridgeDataset` and converts each batch
+    (nested in a model that already converts, it passes batches through).
+    Fields of other processors are ignored and left out of the output.
 
     A record's embedding at level ``l`` is the concatenation of one
     ``nn.Embedding`` per token namespace (``<pad>`` embeds to zeros) and a
@@ -277,7 +281,7 @@ class SequenceEmbeddingModel(BaseModel):
         ... ]
         >>> levels = [{"ordering": "set", "tokens": 1}, {"ordering": "sequence"}]
         >>> dataset = create_sample_dataset(
-        ...     samples, {"visits": ("sequence_v2", {"levels": levels})}, {"label": "binary"}
+        ...     samples, {"visits": ("jagged", {"levels": levels})}, {"label": "binary"}
         ... )
         >>> model = SequenceEmbeddingModel(dataset, embedding_dim={"visits": [{"tokens": (8,)}, {}]})
         >>> proc = dataset.input_processors["visits"]
@@ -295,13 +299,13 @@ class SequenceEmbeddingModel(BaseModel):
         pretrain: Sequence[PretrainedEmbedding] | None = None,
         mask: MaskMode = "ignore",
     ):
-        super().__init__(dataset)
+        super().__init__(BridgeDataset(dataset))
         if mask not in ("ignore", "concat"):
             raise ValueError(f"mask must be 'ignore' or 'concat', got {mask!r}.")
         processors = {
             field: processor
-            for field, processor in dataset.input_processors.items()
-            if isinstance(processor, SequenceProcessorV2)
+            for field, processor in self.dataset.input_processors.items()
+            if isinstance(processor, JaggedFeatureProcessor)
         }
         flatten_spatial = dict(flatten_spatial or {})
         for name, config in (
@@ -312,7 +316,7 @@ class SequenceEmbeddingModel(BaseModel):
             if unknown:
                 raise ValueError(
                     f"{name} names {sorted(unknown)}, which are not "
-                    f"SequenceProcessorV2 fields ({sorted(processors)})."
+                    f"JaggedFeatureProcessor fields ({sorted(processors)})."
                 )
         missing = processors.keys() - set(embedding_dim)
         if missing:
@@ -341,7 +345,7 @@ class SequenceEmbeddingModel(BaseModel):
             >>> labs = {"tokens": [("Glucose", "mg/dL")], "values": [[1.0]]}
             >>> samples = [{"patient_id": f"p{i}", "labs": labs, "y": i} for i in range(2)]
             >>> dataset = create_sample_dataset(
-            ...     samples, {"labs": ("sequence_v2", {"levels": [{"tokens": 2, "values": [1]}]})}, {"y": "binary"}
+            ...     samples, {"labs": ("jagged", {"levels": [{"tokens": 2, "values": [1]}]})}, {"y": "binary"}
             ... )
             >>> model = SequenceEmbeddingModel(dataset, embedding_dim={"labs": [{"tokens": (8, 4), "values": 16}]})
             >>> model.embedding_dim_per_level("labs")
@@ -352,7 +356,7 @@ class SequenceEmbeddingModel(BaseModel):
     def _load_pretrained(
         self,
         entry: PretrainedEmbedding,
-        processors: Mapping[str, SequenceProcessorV2],
+        processors: Mapping[str, JaggedFeatureProcessor],
         seen: set[tuple[str, int, int]],
     ) -> None:
         if (
@@ -370,7 +374,7 @@ class SequenceEmbeddingModel(BaseModel):
             )
         field, level, namespace = entry["field"], entry["level"], entry["namespace"]
         if field not in processors:
-            raise ValueError(f"pretrain: '{field}' is not a SequenceProcessorV2 field.")
+            raise ValueError(f"pretrain: '{field}' is not a JaggedFeatureProcessor field.")
         vocab_size = processors[field].vocab_size()
         if not (
             isinstance(level, int)
@@ -418,6 +422,7 @@ class SequenceEmbeddingModel(BaseModel):
             the top level), "time": [N_l] or None}``.
         """
         device = self.device
+        inputs = transform_batch(self.dataset.input_processors, inputs)
         return {
             field: layers(tuple(tensor.to(device) for tensor in inputs[field]))
             for field, layers in self.embedding_layers.items()

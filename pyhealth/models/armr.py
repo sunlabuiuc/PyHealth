@@ -15,7 +15,6 @@ from __future__ import annotations
 import math
 import os
 
-import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -30,6 +29,7 @@ from pyhealth.models.utils import (
     ehr_cooccurrence_adjacency,
     gcn_normalize_adjacency,
     history_to_label_index,
+    save_ddi_adj,
 )
 
 
@@ -274,11 +274,12 @@ class ARMR(BaseModel):
             self.register_buffer("ddi_adj_norm", gcn_normalize_adjacency(ddi_adj))
             self.gcn_ehr = nn.ModuleList([nn.Linear(dim, dim), nn.Linear(dim, dim)])
             self.gcn_ddi = nn.ModuleList([nn.Linear(dim, dim), nn.Linear(dim, dim)])
-        # the "ddi" metric (pyhealth.metrics.multilabel) reads this file, as
-        # for GAMENet, SafeDrug, MICRON and MoleRec; written with or without
-        # the graphs so that metric works either way
-        os.makedirs(CACHE_PATH, exist_ok=True)
-        np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj.numpy())
+        # Trainer.evaluate passes ddi_adj_matrix to the "ddi" metric; the file
+        # is the fallback for callers of the metric that don't pass a matrix,
+        # as for GAMENet, SafeDrug, MICRON and MoleRec
+        self.ddi_adj_matrix = save_ddi_adj(
+            ddi_adj, os.path.join(CACHE_PATH, "ddi_adj.npy")
+        )
 
         # Joint recommendation (Eq. 16-19)
         patient_size = 4 * n_recent * dim

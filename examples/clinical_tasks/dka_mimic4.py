@@ -13,6 +13,18 @@ Target Population:
     - Label: 1 if patient has ANY DKA diagnosis, 0 otherwise
 
 Note: For T1DM-specific DKA prediction, see t1dka_mimic4.py
+
+The saved processors and ``output/<timestamp>/best.ckpt`` are the inputs of
+``examples/interpretability/dka_stagenet_mimic4_interpret.py``.
+
+Data: MIMIC-IV v2.2 hosp tables (credentialed PhysioNet access:
+https://physionet.org/content/mimiciv/2.2/).
+Run: set MIMIC4_ROOT, DATASET_CACHE_DIR and PROCESSOR_DIR in ``main()``, then
+    python examples/clinical_tasks/dka_mimic4.py
+Full MIMIC-IV with 50 epochs needs a GPU and a few hours. To try it without
+credentials, set MIMIC4_ROOT to ``test-resources/core/mimic4demo``; the demo
+yields only 6 samples, so use it only to check the pipeline runs
+(set ``epochs`` low).
 """
 
 import os
@@ -33,10 +45,10 @@ def main():
     """Main function to run DKA prediction pipeline on general population."""
 
     # Configuration
-    MIMIC4_ROOT = "/srv/local/data/physionet.org/files/mimiciv/2.2/"
-    DATASET_CACHE_DIR = "/shared/rsaas/pyhealth/cache/mimic4_dataset"
-    PROCESSOR_DIR = "/shared/rsaas/pyhealth/processors/stagenet_dka_general_mimic4"
-    DEVICE = "cuda:5" if torch.cuda.is_available() else "cpu"
+    MIMIC4_ROOT = "/path/to/mimiciv/2.2/"
+    DATASET_CACHE_DIR = "/path/to/cache/mimic4_dataset"
+    PROCESSOR_DIR = "/path/to/processors/stagenet_dka_general_mimic4"
+    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
     print("=" * 60)
     print("DKA PREDICTION (GENERAL POPULATION) WITH STAGENET ON MIMIC-IV")

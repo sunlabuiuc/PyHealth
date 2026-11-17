@@ -7,7 +7,12 @@ import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import LevelEmbedding, SequenceEmbeddingModel
-from pyhealth.processors import LevelConfig, SequenceProcessorV2
+from pyhealth.processors import (
+    BridgeDataset,
+    JaggedFeatureProcessor,
+    LevelConfig,
+    UnifiedBridge,
+)
 
 NAN = float("nan")
 # stays (series) -> labs (series) with tokens (test, unit) and a value
@@ -24,7 +29,7 @@ ECG: list[LevelConfig] = [
 
 def _dataset(**fields: Any):
     schema = {
-        name: ("sequence_v2", {"levels": levels})
+        name: ("jagged", {"levels": levels})
         for name, (levels, _) in fields.items()
     }
     samples = [
@@ -71,7 +76,7 @@ def _layer(model: SequenceEmbeddingModel, field: str, level: int, name: str) -> 
 
 def _batch(dataset, field: str):
     proc = dataset.input_processors[field]
-    assert isinstance(proc, SequenceProcessorV2)
+    assert isinstance(proc, JaggedFeatureProcessor)
     return proc.collate([dataset[i][field] for i in range(len(dataset))])
 
 
@@ -123,19 +128,52 @@ class TestConfiguration(unittest.TestCase):
 
     def test_ignores_fields_of_other_processors(self):
         samples = [
+            {"patient_id": "p0", "labs": LAB_RECORDS[0], "note": "a", "y": 0},
+            {"patient_id": "p1", "labs": LAB_RECORDS[1], "note": "b", "y": 1},
+        ]
+        dataset = create_sample_dataset(
+            samples,
+            {"labs": ("jagged", {"levels": LABS}), "note": "raw"},
+            {"y": "binary"},
+        )
+        model = SequenceEmbeddingModel(dataset, embedding_dim=LAB_DIMS)
+        with self.assertRaises(ValueError):  # "note" is not a V2 field
+            SequenceEmbeddingModel(dataset, embedding_dim={**LAB_DIMS, "note": [{}]})
+        batch = next(iter(get_dataloader(dataset, batch_size=2)))
+        self.assertEqual(set(model(batch)), {"labs"})
+
+    def test_legacy_fields_are_read_through_their_bridges(self):
+        samples = [
             {"patient_id": "p0", "labs": LAB_RECORDS[0], "age": [60.0], "y": 0},
             {"patient_id": "p1", "labs": LAB_RECORDS[1], "age": [70.0], "y": 1},
         ]
         dataset = create_sample_dataset(
             samples,
-            {"labs": ("sequence_v2", {"levels": LABS}), "age": "tensor"},
+            {"labs": ("jagged", {"levels": LABS}), "age": "tensor"},
             {"y": "binary"},
         )
-        model = SequenceEmbeddingModel(dataset, embedding_dim=LAB_DIMS)
-        with self.assertRaises(ValueError):  # "age" is not a V2 field
-            SequenceEmbeddingModel(dataset, embedding_dim={**LAB_DIMS, "age": [{}]})
+        with self.assertRaisesRegex(ValueError, "no entry for \\['age'\\]"):
+            SequenceEmbeddingModel(dataset, embedding_dim=LAB_DIMS)
+        model = SequenceEmbeddingModel(
+            dataset, embedding_dim={**LAB_DIMS, "age": [{"values": 4}]}
+        )
+        self.assertIsInstance(model.dataset, BridgeDataset)
+        self.assertIsInstance(model.dataset.input_processors["age"], UnifiedBridge)
+        self.assertIs(model.dataset.dataset, dataset)
         batch = next(iter(get_dataloader(dataset, batch_size=2)))
-        self.assertEqual(set(model(batch)), {"labs"})
+        out = model(batch)
+        self.assertEqual(out["age"][0]["embedding"].shape, (2, 4))
+        self.assertEqual(out["age"][0]["offsets"].tolist(), [0, 1, 2])
+        # The native field embeds exactly as without the legacy one.
+        plain_dataset = _dataset(labs=(LABS, LAB_RECORDS[:2]))
+        plain = SequenceEmbeddingModel(plain_dataset, embedding_dim=LAB_DIMS)
+        plain.load_state_dict(
+            {k: v for k, v in model.state_dict().items() if "age" not in k}
+        )
+        plain_batch = next(iter(get_dataloader(plain_dataset, batch_size=2)))
+        torch.testing.assert_close(
+            plain(plain_batch)["labs"][0]["embedding"], out["labs"][0]["embedding"]
+        )
 
 
 class TestLevels(unittest.TestCase):
@@ -307,7 +345,7 @@ class TestPretrain(unittest.TestCase):
         )
         embedding = _layer(model, "labs", 0, "token_0")
         proc = self.dataset.input_processors["labs"]
-        assert isinstance(proc, SequenceProcessorV2)
+        assert isinstance(proc, JaggedFeatureProcessor)
         index = proc.vocab(0, 0)["Glucose"]
         self.assertEqual(embedding.weight[index].tolist(), [1.0, 2.0, 3.0, 4.0])
         self.assertTrue(torch.all(embedding.weight[0] == 0))  # <pad>

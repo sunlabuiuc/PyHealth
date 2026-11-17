@@ -1,3 +1,20 @@
+"""Fairness metrics for a MIMIC-III readmission model.
+
+Trains a ``Transformer`` on ``ReadmissionPredictionMIMIC3``, collects test-set
+predictions with their patient ids (``trainer.inference(...,
+return_patient_ids=True)``), maps each patient to a protected group (here
+gender == "F") and reports disparate impact and statistical parity
+difference with ``pyhealth.metrics.fairness_metrics_fn``.
+
+Data: by default ``root`` points at the public Synthetic MIMIC-III copy
+(downloaded on the fly, no credentials); for real MIMIC-III (credentialed)
+set ``root`` to your local folder.
+
+Run: ``python examples/readmission/readmission_mimic3_fairness.py`` (CPU).
+Offline: set ``root`` to ``test-resources/core/mimic3demo``; with only 100
+patients the test split can lack a group, making disparate impact undefined.
+"""
+
 from pyhealth.datasets import MIMIC3Dataset
 from pyhealth.tasks import ReadmissionPredictionMIMIC3
 from pyhealth.datasets import split_by_patient, get_dataloader

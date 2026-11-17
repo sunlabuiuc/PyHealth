@@ -133,6 +133,34 @@ class TestBaseDataset(unittest.TestCase):
                 "cached global_event_df parquet must be sorted by patient_id",
             )
 
+    def test_dev_mode_keeps_1000_patients_across_partitions(self):
+        # The patients are spread over many partitions. Dev mode must keep
+        # 1000 of them, not only those in the first partition.
+        data = dd.from_pandas(
+            pd.DataFrame(
+                {
+                    "patient_id": [str(i) for i in range(1500)],
+                    "event_type": ["test"] * 1500,
+                    "timestamp": [None] * 1500,
+                    "test/value": list(range(1500)),
+                }
+            ),
+            npartitions=10,
+        )
+        with tempfile.TemporaryDirectory() as cache_root, patch(
+            "pyhealth.datasets.base_dataset.platformdirs.user_cache_dir",
+            return_value=cache_root,
+        ):
+            dataset = MockDataset(
+                data=data,
+                root="/data/root_dev",
+                tables=["table_a"],
+                dataset_name="DevDataset",
+                dev=True,
+            )
+            patients = dataset.global_event_df.select("patient_id").collect()
+            self.assertEqual(patients["patient_id"].n_unique(), 1000)
+
     @unittest.skipIf(os.name == "nt", "open file descriptor counts are POSIX-only")
     def test_event_df_build_does_not_leak_file_descriptors(self):
         # Each build starts and closes a dask LocalCluster. A leak here exhausts the

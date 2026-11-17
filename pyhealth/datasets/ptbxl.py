@@ -324,6 +324,12 @@ class PTBXLDataset(BaseDataset):
     and no ``cache_dir`` they are still written to ``metadata_cache_dir``
     before ``BaseDataset`` raises.
 
+    Getting the data:
+        - Access: open, no account needed (about 3 GB).
+        - Download: ``wget -r -N -c -np https://physionet.org/files/ptb-xl/1.0.3/``
+        - ``root``: the version folder holding ``ptbxl_database.csv`` and
+          ``records100/``/``records500/``.
+
     Args:
         root (str): Version root of the PTB-XL download (signal + official CSVs).
         dataset_name (str | None): Optional name prefix; defaults to

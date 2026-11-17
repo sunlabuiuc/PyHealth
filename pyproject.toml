@@ -42,8 +42,9 @@ dependencies = [
   "pydantic>=2.11,<3",
   "dask[complete]>=2026.1.0",
   # >=0.2.64: worker indexes merge in numeric rank order (patient_to_index relies
-  # on it).
-  "litdata>=0.2.64",
+  # on it). >=0.2.71: map-style readers use mmap, so forked workers do not share
+  # a chunk handle.
+  "litdata>=0.2.71",
   "pyarrow>=23.0.1",
   "orjson~=3.10",
   "narwhals>=2.13,<3",
@@ -87,6 +88,7 @@ classifiers = [
 imaging = [
   "pydicom>=3.0",
   "nibabel>=5.0",
+  "monai>=1.6.1,<2",
 ]
 graph = [
   "torch-geometric>=2.6.0",
@@ -175,6 +177,7 @@ pydicom = ">=3.0"
 nibabel = ">=5.0"
 
 [tool.pixi.feature.test.pypi-dependencies]
+monai = ">=1.6.1,<2"
 pyhealth = { path = ".", editable = true, extras = ["ptbxl"] }
 
 [tool.pixi.feature.nlp.pypi-dependencies]
