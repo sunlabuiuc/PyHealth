@@ -8,6 +8,7 @@ https://proceedings.mlr.press/v287/yang25a.html
 
 import copy
 import io
+import re
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -18,7 +19,11 @@ from torch import nn
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import CLIPStress
-from pyhealth.models.clip_stress_utils import build_stress_prompt, encode_stress_prompts
+from pyhealth.models.clip_stress_utils import (
+    build_reference_stress_prompt,
+    build_stress_prompt,
+    encode_stress_prompts,
+)
 from pyhealth.trainer import Trainer
 
 
@@ -361,6 +366,21 @@ class TestStressPrompts(unittest.TestCase):
         self.assertIn("kurtosis is 0, skewness is 0, IQR is 0", prompt)
         self.assertIn("age: 30", prompt)
         self.assertNotIn("nan", prompt)
+
+    def test_reference_template_paper_statistics_add_only_quartiles(self):
+        signal = np.arange(120, dtype=float).reshape(24, 5)
+        reference = build_reference_stress_prompt(signal, {"gender": "FEMALE"})
+        paper = build_reference_stress_prompt(
+            signal, {"gender": "FEMALE"}, statistics="paper"
+        )
+        for line in paper.splitlines()[:5]:
+            self.assertEqual(line.count(" is "), 11)
+        self.assertIn("max is 115.0, 25th percentile is", paper)
+        self.assertIn(", 75th percentile is", paper)
+        quartiles = re.compile(r", (25th|75th) percentile is [^,]+")
+        self.assertEqual(quartiles.sub("", paper), reference)
+        with self.assertRaisesRegex(ValueError, "statistics"):
+            build_reference_stress_prompt(signal, {}, statistics="nine")
 
     def test_rejects_labels_and_nonfinite_values(self):
         for key in ("label", "STRESS", "stai_stress_category", "custom_outcome"):

@@ -15,6 +15,7 @@ from lifesnaps_stress_clip_stress import (
     experiment_identity,
     experiment_jobs,
     parser,
+    random_folds,
     subject_folds,
 )
 from support2_mortality_clip_stress import (
@@ -106,14 +107,28 @@ class TestRecordedExperiments(unittest.TestCase):
             )
 
     def test_shards_cover_matrix_and_resume_identity_rejects_changed_budget(self):
-        args = parser().parse_args(["--output-dir", "/tmp/example", "--folds", "5"])
+        args = parser().parse_args(
+            [
+                "--output-dir",
+                "/tmp/example",
+                "--folds",
+                "5",
+                "--seeds",
+                "0",
+                "1",
+                "2",
+                "3",
+            ]
+        )
         jobs = experiment_jobs(args)
-        self.assertEqual(len(jobs), 20)
-        self.assertEqual(len(set(jobs)), 20)
-        shards = [jobs[i::2] for i in range(2)]
+        self.assertEqual(len(jobs), 40)
+        self.assertEqual(len(set(jobs)), 40)
+        self.assertEqual({tau for *_, tau in jobs}, {None, args.temperature})
+        self.assertEqual({seed for seed, *_ in jobs}, {0, 1, 2, 3})
+        shards = [jobs[i::4] for i in range(4)]
         self.assertEqual(sorted(job for shard in shards for job in shard), sorted(jobs))
         self.assertEqual(
-            [sum(tau is not None for _, _, tau in shard) for shard in shards], [8, 7]
+            [sum(tau is not None for *_, tau in shard) for shard in shards], [5] * 4
         )
         before, _ = experiment_identity(args)
         args.device, args.worker_index = "cuda:0", 1
@@ -132,6 +147,51 @@ class TestRecordedExperiments(unittest.TestCase):
             tested.extend(split["test"])
         self.assertEqual(len(tested), len(set(tested)))
         self.assertEqual(set(tested), set(map(str, range(20))))
+
+    def test_paper_random_folds_are_stratified_and_cover_every_row_once(self):
+        labels = np.array([-1] * 50 + [0] * 30 + [1] * 20)
+        splits = random_folds(labels, 5)
+        tested = np.concatenate([split["test"] for split in splits])
+        self.assertEqual(sorted(tested.tolist()), list(range(100)))
+        for split in splits:
+            self.assertFalse(set(split["train"]) & set(split["test"]))
+            self.assertEqual(len(split["validation"]), 0)
+            np.testing.assert_array_equal(
+                np.bincount(labels[split["test"]] + 1), [10, 6, 4]
+            )
+        again = random_folds(labels, 5)
+        for a, b in zip(splits, again):
+            np.testing.assert_array_equal(a["test"], b["test"])
+
+    def test_row_splits_let_a_subject_appear_in_train_and_test(self):
+        from clip_stress import synthetic_data
+
+        data = synthetic_data(7)
+        split = random_folds(data["label"], 3)[0]
+        args = build_parser().parse_args(
+            [
+                "--ablation",
+                "supervised",
+                "--epochs",
+                "1",
+                "--checkpoint-selection",
+                "final",
+            ]
+        )
+        result = run(args, data=data, sample_splits=split)
+        self.assertTrue(
+            set(result["subjects"]["train"]) & set(result["subjects"]["test"])
+        )
+        self.assertEqual(result["sample_counts"]["test"], len(split["test"]))
+        predictions = result["details"]["supervised/finetune"]["predictions"]
+        self.assertEqual(predictions["source_row"], sorted(split["test"].tolist()))
+        np.testing.assert_array_equal(
+            predictions["y_true"], data["label"][predictions["source_row"]]
+        )
+        with self.assertRaisesRegex(ValueError, "disjoint"):
+            run(
+                args, data=data, sample_splits=dict(split, validation=split["test"][:1])
+            )
 
     def test_support2_outcomes_and_held_out_values_do_not_change_training_features(
         self,

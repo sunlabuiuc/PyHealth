@@ -81,10 +81,17 @@ def prepare_datasets(
     subject_splits: dict[str, list[str]] | None = None,
     normalization: str = "quantile",
     pretrain_sampling: str = "all",
+    sample_splits: dict[str, np.ndarray] | None = None,
 ) -> tuple:
-    """Split subjects before fitting normalization or label processors."""
+    """Split subjects (or given rows) before fitting normalization or labels.
+
+    ``sample_splits`` gives train/validation/test row indices for the paper's
+    random splitting, in which a participant may appear in several splits.
+    """
     if not 0 < label_fraction <= 1:
         raise ValueError("label_fraction must be in (0, 1].")
+    if subject_splits is not None and sample_splits is not None:
+        raise ValueError("Use subject_splits or sample_splits, not both.")
     required = {"signal", "tabular", "label", "patient_id"}
     if require_text or "text_embedding" in data:
         required.add("text_embedding")
@@ -123,7 +130,25 @@ def prepare_datasets(
     if len(patients) < 5:
         raise ValueError("At least five subjects are needed for disjoint splits.")
     rng.shuffle(patients)
-    if subject_splits is None:
+    if sample_splits is not None:
+        names = ("train", "validation", "test")
+        if not isinstance(sample_splits, dict) or set(sample_splits) != set(names):
+            raise ValueError("sample_splits requires train, validation and test.")
+        rows = [
+            np.sort(np.asarray(sample_splits[name], dtype=np.int64).reshape(-1))
+            for name in names
+        ]
+        combined = np.concatenate(rows)
+        if (
+            not len(rows[0])
+            or not len(rows[2])
+            or len(np.unique(combined)) != len(combined)
+            or combined.min() < 0
+            or combined.max() >= count
+        ):
+            raise ValueError("Sample splits must be nonempty, disjoint row indices.")
+        groups = tuple(np.unique(data["patient_id"][idx]) for idx in rows)
+    elif subject_splits is None:
         n_test = max(1, len(patients) // 5)
         groups = (
             patients[2 * n_test :],
@@ -146,7 +171,12 @@ def prepare_datasets(
             raise ValueError("Subject splits must be disjoint without duplicates.")
         if set(combined) != set(patients):
             raise ValueError("Subject splits must cover every subject exactly once.")
-    indices = [np.flatnonzero(np.isin(data["patient_id"], group)) for group in groups]
+    if sample_splits is not None:
+        indices = rows
+    else:
+        indices = [
+            np.flatnonzero(np.isin(data["patient_id"], group)) for group in groups
+        ]
     data = {k: np.array(data[k], copy=True) for k in required}
     if __package__:
         from .clip_stress_experiment_utils import normalize_stress_inputs
@@ -237,8 +267,9 @@ def run(
     args: argparse.Namespace,
     data: dict | None = None,
     subject_splits: dict[str, list[str]] | None = None,
+    sample_splits: dict[str, np.ndarray] | None = None,
 ) -> dict:
-    """Evaluate fixed recipes on identical subject splits and initialization seeds."""
+    """Evaluate fixed recipes on identical splits and initialization seeds."""
     torch.set_num_threads(args.threads)
     validate_args(args)
     if data is None:
@@ -255,6 +286,13 @@ def run(
         subject_splits=subject_splits,
         normalization=args.normalization,
         pretrain_sampling=args.pretrain_sampling,
+        sample_splits=sample_splits,
+    )
+    labels = np.asarray(data["label"])
+    test_rows = (
+        np.sort(np.asarray(sample_splits["test"], dtype=np.int64))
+        if sample_splits is not None
+        else np.flatnonzero(np.isin(data["patient_id"].astype(str), splits["test"]))
     )
     batch_size = args.batch_size
     variants = (
@@ -399,10 +437,9 @@ def run(
             )
             details["pretraining_seconds"] = pretraining_seconds
             # Input archive row numbers disambiguate repeated participant windows.
-            details["predictions"]["source_row"] = np.flatnonzero(
-                np.isin(data["patient_id"].astype(str), splits["test"])
-                & (data["label"] >= 0)
-            ).tolist()
+            details["predictions"]["source_row"] = test_rows[
+                labels[test_rows] >= 0
+            ].tolist()
             results["results"][f"{variant}/{stage}"] = metrics
             results["details"][f"{variant}/{stage}"] = details
     return results

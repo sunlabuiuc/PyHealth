@@ -65,7 +65,7 @@ class CLIPStress(BaseModel):
         positive-class probability for the PyHealth binary contract.
         Linear probing freezes encoder and projection parameters. As in the
         reference training loop, train() still enables dropout and BatchNorm
-        updates; eval() is deterministic. Old MLP checkpoints are incompatible.
+        updates; eval() is deterministic.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset, get_dataloader

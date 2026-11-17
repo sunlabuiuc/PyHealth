@@ -16,13 +16,16 @@ import numpy as np
 import torch
 
 
-def build_reference_stress_prompt(signal, survey):
+def build_reference_stress_prompt(signal, survey, statistics: str = "reference"):
     """Author-code LifeSnaps template with the label explicitly excluded.
 
-    Nine rounded statistics match the public implementation (the paper lists
-    eleven). Constant-channel skew/kurtosis produce the reference's ``nan``
-    text. Survey names refer to the original categorical fields, not ordinals.
-    For the quantile-global experiment pass fold-normalized sensor values.
+    ``statistics="reference"`` uses the nine rounded statistics of the public
+    implementation. ``statistics="paper"`` uses the eleven statistics listed in
+    the paper (Section 2.1.2), adding the 25th and 75th percentiles in the
+    paper's order. Constant-channel skew/kurtosis produce the reference's
+    ``nan`` text. Survey names refer to the original categorical fields, not
+    ordinals. For the quantile-global experiment pass fold-normalized sensor
+    values.
 
     Examples:
         >>> signal = np.arange(120, dtype=float).reshape(24, 5)
@@ -32,6 +35,8 @@ def build_reference_stress_prompt(signal, survey):
     """
     from scipy import stats
 
+    if statistics not in ("reference", "paper"):
+        raise ValueError("statistics must be reference or paper.")
     signal = np.asarray(signal, dtype=np.float64)
     if signal.shape != (24, 5) or not np.isfinite(signal).all():
         raise ValueError("Reference prompts require a finite (24, 5) window.")
@@ -44,34 +49,26 @@ def build_reference_stress_prompt(signal, survey):
         x = signal[:, column]
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
-            values = (
-                np.mean(x),
-                np.std(x),
-                np.min(x),
-                np.max(x),
-                np.median(x),
-                np.sqrt(np.mean(x**2)),
-                stats.kurtosis(x),
-                stats.skew(x),
-                stats.iqr(x),
-            )
-        names = (
-            "mean",
-            "standard deviation",
-            "min",
-            "max",
-            "median",
-            "root mean squared",
-            "kurtosis",
-            "skewness",
-            "interquartile range",
-        )
+            q25, q75 = np.percentile(x, [25, 75])
+            values = {
+                "mean": np.mean(x),
+                "standard deviation": np.std(x),
+                "min": np.min(x),
+                "max": np.max(x),
+                "25th percentile": q25,
+                "median": np.median(x),
+                "75th percentile": q75,
+                "root mean squared": np.sqrt(np.mean(x**2)),
+                "kurtosis": stats.kurtosis(x),
+                "skewness": stats.skew(x),
+                "interquartile range": stats.iqr(x),
+            }
+        if statistics == "reference":
+            del values["25th percentile"], values["75th percentile"]
         lines.append(
             name
             + ": "
-            + ", ".join(
-                f"{key} is {round(value, 1)}" for key, value in zip(names, values)
-            )
+            + ", ".join(f"{key} is {round(value, 1)}" for key, value in values.items())
         )
     gender = survey.get("gender")
     if gender in ("MALE", "FEMALE"):
