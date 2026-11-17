@@ -38,8 +38,10 @@ is the one that matters for localizing the zone in a new patient.
 On version 1.1.3 (6119 contacts of 56 patients, 538 in the seizure onset
 zone) this gives an area of 0.594 over all contacts (interval 0.551 to
 0.636) and a median of 0.592 inside a patient (quartiles 0.485 and 0.718):
-above chance, far from a usable localization. It is a starting point to
-compare models against, not a result to match.
+above chance, far from a usable localization. With ``--target resect
+--seizure-free`` (3667 contacts of 36 patients, 456 resected) the areas are
+0.601 (0.558 to 0.650) and 0.669 (0.569 and 0.750). These are starting
+points to compare models against, not results to match.
 
 Data: open under CC0. Download https://openneuro.org/datasets/ds004100
 (14.2 GB, or 5.4 GB for the interictal recordings), then run::
