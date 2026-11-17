@@ -1,11 +1,14 @@
-"""
-Group-Conditional (Fair) Conformal Prediction.
+"""Group-Conditional (Fair) Conformal Prediction.
 
-Paper:
-    Lu, Charles, Andreanne Lemay, Ken Chang, Katharina Hobel, and
+Contributor: Ibrahim Rabiu (GitHub: @alhibb, alhibb01@gmail.com)
+Paper: Lu, Charles, Andreanne Lemay, Ken Chang, Katharina Hobel, and
     Jayashree Kalpathy-Cramer. "Fair Conformal Predictors for Applications
     in Medical Imaging." AAAI Conference on Artificial Intelligence (2022).
-    https://arxiv.org/abs/2109.02058
+Paper link: https://arxiv.org/abs/2109.02058
+
+Constructs prediction sets with guaranteed equalized coverage across
+demographic subgroups (e.g., race, sex, age, skin tone) by computing
+group-specific nonconformity thresholds.
 """
 
 from typing import Any

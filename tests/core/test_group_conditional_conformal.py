@@ -1,4 +1,7 @@
-"""Tests for GroupConditionalConformal (Lu et al., AAAI 2022)."""
+"""Tests for GroupConditionalConformal (Lu et al., AAAI 2022).
+
+Contributor: Ibrahim Rabiu (GitHub: @alhibb)
+"""
 
 import unittest
 
