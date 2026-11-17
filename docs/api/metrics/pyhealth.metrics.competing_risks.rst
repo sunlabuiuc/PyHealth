@@ -19,6 +19,10 @@ For a target event at ``t``, strictly later comparators require censoring
 survival through ``t`` and use ``1 / (G(t-) G(t))``. An earlier competing
 event at ``s`` instead uses ``1 / (G(t-) G(s-))``.
 
+``competing_risk_brier`` returns a ``float``. ``competing_risk_concordance``
+returns ``(score, pairs)``: the IPCW-weighted score and the unweighted number
+of comparable pairs.
+
 IPCW requires independent censoring and supported follow-up. Metrics with
 exhausted support or no eligible pairs raise ``MetricSupportError``. Malformed
 inputs instead raise ``ValueError``. Report unsupported Brier/concordance

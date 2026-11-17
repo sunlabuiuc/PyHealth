@@ -18,7 +18,12 @@ from .configs.config import load_yaml_config
 
 
 class PBCDataset(BaseDataset):
-    """Load the author's longitudinal pbc2.csv without learned preprocessing.
+    """Load longitudinal PBC data from Jeanselme's DeepSurvivalMachines fork.
+
+    The source ``pbc2.csv`` is distributed in the pinned
+    `DeepSurvivalMachines fork
+    <https://github.com/Jeanselme/DeepSurvivalMachines/tree/e4b07b3f497f2266eaa71d0e182195e95663d367>`_.
+    This loader does not perform learned preprocessing.
 
     The source contains 312 randomized PBC participants, with death and liver
     transplantation as competing first events. Supply a local CSV and review

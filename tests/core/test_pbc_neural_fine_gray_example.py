@@ -8,6 +8,7 @@ https://proceedings.mlr.press/v209/jeanselme23a.html
 
 import importlib.util
 import json
+import sys
 import tempfile
 import unittest
 from argparse import Namespace
@@ -28,13 +29,14 @@ def load_example() -> ModuleType:
         Path(__file__).resolve().parents[2]
         / "examples"
         / "pbc_neural_fine_gray"
-        / "pbc_competing_risks_neural_fine_gray.py"
+        / "pbc_neural_fine_gray_replication.py"
     )
     specification = importlib.util.spec_from_file_location("pbc_example", path)
     if specification is None or specification.loader is None:
         raise RuntimeError(f"Cannot load the checked-out example: {path}")
     module = importlib.util.module_from_spec(specification)
-    specification.loader.exec_module(module)
+    with patch.object(sys, "path", [str(path.parent), *sys.path]):
+        specification.loader.exec_module(module)
     return module
 
 
@@ -46,9 +48,9 @@ class TestPBCExample(unittest.TestCase):
     def test_corruption_is_nested_and_native_missingness_preserved(self) -> None:
         example = self.example
         samples = [{"features": [1.0] * 25} for _ in range(4)]
-        samples[0]["features"][example.PBC_MASK_INDICES[0]] = np.nan
-        low = example.corrupt(samples, 0.1, 7)
-        high = example.corrupt(samples, 0.3, 7)
+        samples[0]["features"][example.experiment.PBC_MASK_INDICES[0]] = np.nan
+        low = example.experiment.corrupt(samples, 0.1, 7)
+        high = example.experiment.corrupt(samples, 0.3, 7)
         for original, left, right in zip(samples, low, high):
             native, low_mask, high_mask = (
                 np.isnan(row["features"]) for row in (original, left, right)
@@ -56,7 +58,7 @@ class TestPBCExample(unittest.TestCase):
             self.assertTrue((~low_mask | high_mask).all())
             self.assertTrue((~native | low_mask).all())
             changed = np.flatnonzero(high_mask & ~native)
-            self.assertTrue(set(changed).issubset(example.PBC_MASK_INDICES))
+            self.assertTrue(set(changed).issubset(example.experiment.PBC_MASK_INDICES))
 
     def test_metric_grid_and_matched_reporting(self) -> None:
         example = self.example
@@ -72,20 +74,20 @@ class TestPBCExample(unittest.TestCase):
                 "status": "ok",
                 "value": 0.1 if mode == "augmented" else 0.2,
             }
-            for mode in (*example.MODES, *example.COMPARATORS)
-            for rate in example.RATES
-            for horizon in example.HORIZONS
+            for mode in (*example.experiment.MODES, *example.experiment.COMPARATORS)
+            for rate in example.experiment.RATES
+            for horizon in example.experiment.HORIZONS
             for risk in (1, 2)
             for metric in ("brier", "concordance")
         ]
         self.assertEqual(len(rows), 288)
-        example.validate_rows(rows, [0], False)
+        example.evaluation.validate_rows(rows, [0], False)
         with self.assertRaises(ValueError):
-            example.validate_rows(rows[:-1], [0], False)
+            example.evaluation.validate_rows(rows[:-1], [0], False)
         with self.assertRaises(ValueError):
-            example.validate_rows(rows + [rows[0]], [0], False)
+            example.evaluation.validate_rows(rows + [rows[0]], [0], False)
         with tempfile.TemporaryDirectory() as directory:
-            example.report(Path(directory), rows)
+            example.evaluation.report(Path(directory), rows)
             h2 = json.loads((Path(directory) / "h2.json").read_text())
             self.assertTrue(h2["directional_criteria_met"])
 
@@ -94,15 +96,18 @@ class TestPBCExample(unittest.TestCase):
         train, test = [{"time": 1.0, "event": 1}], [{"time": 4.0, "event": 0}]
         with tempfile.TemporaryDirectory() as directory:
             for name, h2, horizons in (
-                ("primary", True, example.HORIZONS),
-                ("paper", False, example.PAPER_HORIZONS),
+                ("primary", True, example.experiment.HORIZONS),
+                ("paper", False, example.experiment.PAPER_HORIZONS),
             ):
                 with self.subTest(name=name):
                     rows = []
-                    for mode in (*example.MODES, *example.COMPARATORS):
-                        for rate in example.RATES:
+                    for mode in (
+                        *example.experiment.MODES,
+                        *example.experiment.COMPARATORS,
+                    ):
+                        for rate in example.experiment.RATES:
                             rows.extend(
-                                example.evaluate(
+                                example.evaluation.evaluate(
                                     np.zeros((1, len(horizons), 2)),
                                     train,
                                     test,
@@ -112,9 +117,11 @@ class TestPBCExample(unittest.TestCase):
                                     horizons=horizons,
                                 )
                             )
-                    example.validate_rows(rows, [0], False, horizons=horizons)
+                    example.evaluation.validate_rows(
+                        rows, [0], False, horizons=horizons
+                    )
                     path = Path(directory) / name
-                    example.report(path, rows, h2=h2)
+                    example.evaluation.report(path, rows, h2=h2)
                     frame = pd.read_csv(path / "metrics.csv")
                     self.assertEqual(len(frame), len(rows))
                     self.assertTrue((frame.status == "unsupported").all())
@@ -148,11 +155,13 @@ class TestPBCExample(unittest.TestCase):
         prediction = np.zeros((1, 4, 2))
         with (
             patch.object(
-                example, "competing_risk_brier", side_effect=ValueError("bug")
+                example.evaluation,
+                "competing_risk_brier",
+                side_effect=ValueError("bug"),
             ),
             self.assertRaisesRegex(ValueError, "bug"),
         ):
-            example.evaluate(prediction, train, test, 0, "original", 0.0)
+            example.evaluation.evaluate(prediction, train, test, 0, "original", 0.0)
 
     def test_historical_metrics_preserve_reference_inputs_and_rows(self) -> None:
         example = self.example
@@ -176,7 +185,9 @@ class TestPBCExample(unittest.TestCase):
             "sys.modules",
             {"sksurv": ModuleType("sksurv"), "sksurv.metrics": metrics},
         ):
-            rows = example.historical_metrics(predictions, train, test, fold=3)
+            rows = example.evaluation.historical_metrics(
+                predictions, train, test, fold=3
+            )
         self.assertEqual(len(rows), 12)
         self.assertTrue(all(row["status"] == "ok" for row in rows))
         self.assertTrue(all(row["lane"] == "paper_binary_cause" for row in rows))
@@ -190,7 +201,9 @@ class TestPBCExample(unittest.TestCase):
             horizon = (3.19, 4.95, 7.45)[index % 3]
             selected = selections[risk]
             train_labels, test_labels, survival, times = call.args
-            np.testing.assert_array_equal(train_labels["event"], [risk == 1, risk == 2, False])
+            np.testing.assert_array_equal(
+                train_labels["event"], [risk == 1, risk == 2, False]
+            )
             np.testing.assert_array_equal(train_labels["time"], [2.0, 6.0, 10.0])
             np.testing.assert_array_equal(
                 test_labels["event"], [test[i]["event"] == risk for i in selected]
@@ -198,7 +211,9 @@ class TestPBCExample(unittest.TestCase):
             np.testing.assert_array_equal(
                 test_labels["time"], [test[i]["time"] for i in selected]
             )
-            cif = predictions[selected, example.HORIZONS.index(horizon), risk - 1]
+            cif = predictions[
+                selected, example.experiment.HORIZONS.index(horizon), risk - 1
+            ]
             np.testing.assert_array_equal(survival, (1 - cif)[:, None])
             self.assertEqual(times, [horizon])
             concordance = metrics.concordance_index_ipcw.call_args_list[index]
@@ -231,7 +246,7 @@ class TestPBCExample(unittest.TestCase):
                 ):
                     with self.subTest(metric=metric, message=message):
                         function.side_effect = ValueError(message)
-                        rows = self.example.historical_metrics(
+                        rows = self.example.evaluation.historical_metrics(
                             np.zeros((1, 4, 2)), train, test, fold=0
                         )
                         unsupported = [row for row in rows if row["metric"] == metric]
@@ -266,7 +281,7 @@ class TestPBCExample(unittest.TestCase):
                     error = ValueError("unexpected prediction shape")
                     function.side_effect = error
                     with self.assertRaises(ValueError) as raised:
-                        self.example.historical_metrics(
+                        self.example.evaluation.historical_metrics(
                             np.zeros((1, 4, 2)), train, test, fold=0
                         )
                     self.assertIs(raised.exception, error)
@@ -282,7 +297,7 @@ class TestPBCExample(unittest.TestCase):
                         with self.assertRaisesRegex(
                             FloatingPointError, "Nonfinite historical score"
                         ):
-                            self.example.historical_metrics(
+                            self.example.evaluation.historical_metrics(
                                 np.zeros((1, 4, 2)), train, test, fold=0
                             )
                 function.return_value = original
@@ -319,14 +334,14 @@ class TestPBCExample(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as directory,
             patch.object(
-                example.Trainer,
+                example.experiment.Trainer,
                 "train",
                 autospec=True,
                 side_effect=fake_train,
             ) as train,
         ):
             path = Path(directory)
-            model, first = example.fit_model(
+            model, first = example.experiment.fit_model(
                 samples,
                 samples,
                 config,
@@ -334,7 +349,7 @@ class TestPBCExample(unittest.TestCase):
                 path,
                 args,
             )
-            restored, second = example.fit_model(
+            restored, second = example.experiment.fit_model(
                 samples,
                 samples,
                 config,
@@ -344,7 +359,7 @@ class TestPBCExample(unittest.TestCase):
             )
             self.assertEqual(train.call_count, 1)
             self.assertEqual(first, second)
-            _, seeded = example.fit_model(
+            _, seeded = example.experiment.fit_model(
                 samples,
                 samples,
                 config,
@@ -356,7 +371,7 @@ class TestPBCExample(unittest.TestCase):
             self.assertEqual(seeded["identity"]["seed"], 8)
             self.assertEqual(args.seed, 7)
             with self.assertRaisesRegex(ValueError, "identity/hash mismatch"):
-                example.fit_model(
+                example.experiment.fit_model(
                     samples,
                     samples,
                     config,
@@ -370,12 +385,16 @@ class TestPBCExample(unittest.TestCase):
                 restored.predict_cif([[0.0] * 25], [1.0]),
             )
             with self.assertRaisesRegex(ValueError, "identity/hash mismatch"):
-                example.fit_model(samples, samples, config, "constant", path, args)
+                example.experiment.fit_model(
+                    samples, samples, config, "constant", path, args
+                )
             metadata = json.loads((path / "fit.json").read_text())
             metadata["checkpoint_sha256"] = "wrong"
             (path / "fit.json").write_text(json.dumps(metadata))
             with self.assertRaisesRegex(ValueError, "identity/hash mismatch"):
-                example.fit_model(samples, samples, config, "original", path, args)
+                example.experiment.fit_model(
+                    samples, samples, config, "original", path, args
+                )
 
     def test_budget_validation(self) -> None:
         with self.assertRaises(SystemExit):
@@ -421,17 +440,21 @@ class TestPBCExample(unittest.TestCase):
 
         def fake_fit(samples, penalty):
             self.assertIs(samples, train)
-            return [StubCox(penalty), StubCox(penalty)], [example.PBC_FEATURES[0]]
+            return [StubCox(penalty), StubCox(penalty)], [
+                example.experiment.PBC_FEATURES[0]
+            ]
 
-        with patch.object(example, "fit_cox", side_effect=fake_fit) as fitted:
-            models, columns, selection = example.select_cox(
+        with patch.object(
+            example.experiment, "fit_cox", side_effect=fake_fit
+        ) as fitted:
+            models, columns, selection = example.experiment.select_cox(
                 train, validation, list(scores)
             )
         self.assertEqual(fitted.call_count, 3)
         self.assertEqual([model.penalty for model in models], [1.0, 1.0])
         self.assertEqual(selection["selected_penalty"], 1.0)
         self.assertFalse(selection["refit_on_validation"])
-        self.assertEqual(columns, [example.PBC_FEATURES[0]])
+        self.assertEqual(columns, [example.experiment.PBC_FEATURES[0]])
         self.assertEqual(len(scored), 6)
         for frame, method in scored:
             self.assertEqual(method, "log_likelihood")
@@ -440,13 +463,13 @@ class TestPBCExample(unittest.TestCase):
             self.assertEqual(frame.observed.sum(), 1)
         for penalties in ([], [0.1, 0.1], [0.0], [float("nan")]):
             with self.subTest(penalties=penalties), self.assertRaises(ValueError):
-                example.select_cox(train, validation, penalties)
+                example.experiment.select_cox(train, validation, penalties)
         scores[1.0] = float("nan")
         with (
-            patch.object(example, "fit_cox", side_effect=fake_fit),
+            patch.object(example.experiment, "fit_cox", side_effect=fake_fit),
             self.assertRaises(FloatingPointError),
         ):
-            example.select_cox(train, validation, [1.0])
+            example.experiment.select_cox(train, validation, [1.0])
 
     def test_architecture_cases_freeze_other_selected_settings(self) -> None:
         selected = {
@@ -457,7 +480,7 @@ class TestPBCExample(unittest.TestCase):
             "learning_rate": 0.001,
         }
         original = json.loads(json.dumps(selected))
-        cases = self.example.architecture_configurations(selected)
+        cases = self.example.experiment.architecture_configurations(selected)
         self.assertEqual(len(cases), 7)
         self.assertEqual(selected, original)
         for label, config in cases.items():
@@ -495,7 +518,7 @@ class TestPBCExample(unittest.TestCase):
         first, second = StubNeural(), StubNeural()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            primary, paper = example.score_neural(
+            primary, paper = example.evaluation.score_neural(
                 first,
                 processor,
                 samples,
@@ -506,7 +529,7 @@ class TestPBCExample(unittest.TestCase):
                 123,
                 paper_time=True,
             )
-            example.score_neural(
+            example.evaluation.score_neural(
                 second,
                 processor,
                 samples,
@@ -517,20 +540,20 @@ class TestPBCExample(unittest.TestCase):
                 123,
             )
             self.assertEqual(first.masks, second.masks)
-            example.validate_rows(primary, [0], False, modes=("original",))
-            example.validate_rows(
+            example.evaluation.validate_rows(primary, [0], False, modes=("original",))
+            example.evaluation.validate_rows(
                 paper,
                 [0],
                 False,
                 modes=("original",),
-                horizons=example.PAPER_HORIZONS,
+                horizons=example.experiment.PAPER_HORIZONS,
             )
             self.assertEqual(len(primary), 48)
             self.assertEqual(len(paper), 36)
             with np.load(root / "first" / "private_predictions_0.0.npz") as saved:
                 self.assertEqual(saved["cif"].shape, (4, 4, 2))
                 self.assertEqual(saved["paper_cif"].shape, (4, 3, 2))
-            example.report(root / "paper", paper, h2=False)
+            example.evaluation.report(root / "paper", paper, h2=False)
             self.assertFalse((root / "paper" / "h2.json").exists())
 
     def test_wholly_unsupported_sensitivity_reports_keep_score_schema(self) -> None:
@@ -540,10 +563,10 @@ class TestPBCExample(unittest.TestCase):
             {**row, "training_seed": seed}
             for seed in (8, 9)
             for fold in (0, 1)
-            for mode in example.MODES
-            for rate in example.RATES
-            for row in example.evaluate(
-                np.zeros((1, len(example.HORIZONS), 2)),
+            for mode in example.experiment.MODES
+            for rate in example.experiment.RATES
+            for row in example.evaluation.evaluate(
+                np.zeros((1, len(example.experiment.HORIZONS), 2)),
                 train,
                 test,
                 fold,
@@ -554,7 +577,7 @@ class TestPBCExample(unittest.TestCase):
         self.assertTrue(all("value" not in row for row in rows))
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            example.report_sensitivity(root, rows, [0, 1], [8, 9])
+            example.evaluation.report_sensitivity(root, rows, [0, 1], [8, 9])
             aggregate = pd.read_csv(root / "metrics.csv")
             self.assertEqual(len(aggregate), 768)
             self.assertTrue(aggregate.value.isna().all())
@@ -601,15 +624,15 @@ class TestPBCExample(unittest.TestCase):
             }
             for seed in (8, 9)
             for fold in (0, 1)
-            for mode in example.MODES
-            for rate in example.RATES
-            for horizon in example.HORIZONS
+            for mode in example.experiment.MODES
+            for rate in example.experiment.RATES
+            for horizon in example.experiment.HORIZONS
             for risk in (1, 2)
             for metric in ("brier", "concordance")
         ]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            example.report_sensitivity(root, rows, [0, 1], [8, 9])
+            example.evaluation.report_sensitivity(root, rows, [0, 1], [8, 9])
             decision = json.loads((root / "h2.json").read_text())
             self.assertEqual(decision["directional_criteria_met_count"], 1)
             self.assertTrue(decision["primary_analysis_unchanged"])
@@ -617,9 +640,9 @@ class TestPBCExample(unittest.TestCase):
                 pd.read_csv(root / "metrics.csv"), pd.DataFrame(rows), check_exact=True
             )
             with self.assertRaisesRegex(ValueError, "seed grid"):
-                example.report_sensitivity(root, rows, [0, 1], [8, 9, 10])
+                example.evaluation.report_sensitivity(root, rows, [0, 1], [8, 9, 10])
             with self.assertRaisesRegex(ValueError, "Incomplete"):
-                example.report_sensitivity(root, rows[:-1], [0, 1], [8, 9])
+                example.evaluation.report_sensitivity(root, rows[:-1], [0, 1], [8, 9])
 
     def test_pipeline_hashes_cover_shared_and_new_library_sources(self) -> None:
         example = self.example
@@ -631,7 +654,8 @@ class TestPBCExample(unittest.TestCase):
                 "pyhealth/processors/base_processor.py",
                 "pyhealth/datasets/configs/pbc.yaml",
                 "pyproject.toml",
-                "examples/pbc_neural_fine_gray/pbc_competing_risks_neural_fine_gray.py",
+                "examples/pbc_neural_fine_gray/pbc_experiment.py",
+                "examples/pbc_neural_fine_gray/pbc_evaluation.py",
                 "examples/pbc_neural_fine_gray/pbc_neural_fine_gray_replication.py",
                 "examples/pbc_neural_fine_gray/requirements-neural-fine-gray.txt",
             )
@@ -639,21 +663,24 @@ class TestPBCExample(unittest.TestCase):
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("original")
-            original = example.pipeline_source_hashes(root)
+            original = example.experiment.pipeline_source_hashes(root)
             self.assertEqual(set(original), set(names))
-            for name in names[:3]:
+            for name in names:
                 (root / name).write_text("changed")
                 self.assertNotEqual(
-                    original[name], example.pipeline_source_hashes(root)[name]
+                    original[name],
+                    example.experiment.pipeline_source_hashes(root)[name],
                 )
             added = root / "pyhealth/processors/new_processor.py"
             added.write_text("new")
             self.assertIn(
                 "pyhealth/processors/new_processor.py",
-                example.pipeline_source_hashes(root),
+                example.experiment.pipeline_source_hashes(root),
             )
             added.with_suffix(".pyc").write_bytes(b"cache")
-            self.assertEqual(len(example.pipeline_source_hashes(root)), len(names) + 1)
+            self.assertEqual(
+                len(example.experiment.pipeline_source_hashes(root)), len(names) + 1
+            )
 
     def test_rejected_cohort_preserves_audit_even_in_audit_only_mode(self) -> None:
         example = self.example
@@ -661,13 +688,13 @@ class TestPBCExample(unittest.TestCase):
             root = Path(directory)
             audit = root / "cohort_audit.json"
             audit.write_bytes(b'{"sha256": "original"}\n')
-            example.write_json(
+            example.experiment.write_json(
                 root / "manifest.json", {"audit": {"sha256": "original"}}
             )
             for extra in ([], ["--audit-only"]):
                 with (
                     patch.object(
-                        example,
+                        example.experiment,
                         "load_samples",
                         return_value=([], {"sha256": "changed"}),
                     ),
@@ -695,13 +722,17 @@ class TestPBCExample(unittest.TestCase):
         samples = [{"features": [0.0] * 25}]
         first = StubCox([0.0, np.log(2), np.log(4)])
         second = StubCox([0.0, np.log(2), np.log(2)])
-        columns = [self.example.PBC_FEATURES[0]]
-        curves = self.example.predict_cox([first, second], columns, samples, horizons)
+        columns = [self.example.experiment.PBC_FEATURES[0]]
+        curves = self.example.experiment.predict_cox(
+            [first, second], columns, samples, horizons
+        )
         np.testing.assert_allclose(
             curves[0], [[0, 0], [0, 0], [0.375, 0.375], [0.5, 0.375]]
         )
-        self.assertTrue(all(self.example.curve_checks(curves, origin=True).values()))
-        single = self.example.predict_cox(
+        self.assertTrue(
+            all(self.example.evaluation.curve_checks(curves, origin=True).values())
+        )
+        single = self.example.experiment.predict_cox(
             [first, StubCox([0.0, 0.0, 0.0])], columns, samples, horizons
         )
         np.testing.assert_allclose(single[0], [[0, 0], [0, 0], [0.5, 0], [0.75, 0]])
@@ -735,13 +766,13 @@ class TestPBCExample(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as directory,
             patch.object(torch.nn.Module, "to", autospec=True, side_effect=cpu_only_to),
-            patch.object(self.example.Trainer, "train"),
+            patch.object(self.example.experiment.Trainer, "train"),
             patch.object(torch.cuda, "reset_peak_memory_stats") as reset,
             patch.object(
                 torch.cuda, "max_memory_allocated", return_value=7 * 2**20
             ) as peak,
         ):
-            _, info = self.example.fit_model(
+            _, info = self.example.experiment.fit_model(
                 samples,
                 samples,
                 config,
@@ -789,7 +820,7 @@ class TestPBCExample(unittest.TestCase):
             }
             if directory.name == "trial-0":
                 directory.mkdir(exist_ok=True)
-                example.write_json(directory / "fit.json", info)
+                example.experiment.write_json(directory / "fit.json", info)
             return StubNeural(), info
 
         lifelines = ModuleType("lifelines")
@@ -798,21 +829,27 @@ class TestPBCExample(unittest.TestCase):
             tempfile.TemporaryDirectory() as directory,
             patch.dict("sys.modules", {"lifelines": lifelines}),
             patch.object(
-                example, "load_samples", return_value=(samples, {"sha256": "synthetic"})
+                example.experiment,
+                "load_samples",
+                return_value=(samples, {"sha256": "synthetic"}),
             ),
             patch.object(
                 example,
                 "train_test_split",
                 side_effect=lambda indices, **kwargs: (indices, indices),
             ),
-            patch.object(example, "fit_model", side_effect=fake_fit),
+            patch.object(example.experiment, "fit_model", side_effect=fake_fit),
             patch.object(
-                example, "pipeline_source_hashes", return_value={"stub.py": "synthetic"}
+                example.experiment,
+                "pipeline_source_hashes",
+                return_value={"stub.py": "synthetic"},
             ),
             patch.object(example, "version", return_value="test"),
-            patch.object(example, "select_cox", return_value=([], [], {"stub": True})),
             patch.object(
-                example,
+                example.experiment, "select_cox", return_value=([], [], {"stub": True})
+            ),
+            patch.object(
+                example.experiment,
                 "predict_cox",
                 side_effect=lambda models, columns, samples, horizons: np.zeros(
                     (len(samples), len(horizons), 2)

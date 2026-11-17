@@ -5,6 +5,11 @@ using [Neural Fine-Gray (Jeanselme et al., CHIL 2023)](https://proceedings.mlr.p
 It connects `PBCDataset`, `CompetingRisksPBC`, train-only preprocessing, and
 `NeuralFineGray` through PyHealth's `Trainer`.
 
+The replication script is the single command-line entry point.
+`pbc_experiment.py` contains data loading, model fitting, comparators, and
+provenance checks. `pbc_evaluation.py` contains scoring, curve diagnostics,
+and aggregate reports.
+
 ## Setup
 
 From the PyHealth checkout:
