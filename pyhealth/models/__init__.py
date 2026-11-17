@@ -21,6 +21,7 @@ from .biot import BIOT
 from .cnn import CNN, CNNLayer
 from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D
+from .deepsleepnet import DeepSleepNet as DeepSleepNet
 from .deepr import Deepr, DeeprLayer
 from .embedding import EmbeddingModel
 from .sequence_embedding import (
@@ -48,6 +49,7 @@ from .rnn import MultimodalRNN, RNN, RNNLayer
 from .rnn import RNN_V2 as RNN_V2
 from .safedrug import SafeDrug, SafeDrugLayer
 from .shy import SHy as SHy
+from .sleepkd import SleepKD as SleepKD
 from .sparcnet import DenseBlock, DenseLayer, SparcNet, TransitionLayer
 from .stagenet import StageNet, StageNetLayer
 from .stagenet_mha import StageAttentionNet, StageNetAttentionLayer
