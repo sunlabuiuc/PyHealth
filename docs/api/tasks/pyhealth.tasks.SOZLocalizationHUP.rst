@@ -11,8 +11,9 @@ the resected tissue, with ``target="resect"``) and 0 otherwise.
 
 All the windows of a contact carry the same label, and a contact belongs to
 one patient, so windows of one patient must stay on one side of a split: use
-``split_by_patient`` or ``PatientSplit``, never a split by sample. About 8%
-of the contacts are in the seizure onset zone.
+``split_by_patient`` or ``PatientSplit``, never a split by sample. In
+version 1.1.3, 538 of the 6119 contacts (8.8%) are in the seizure onset
+zone.
 
 Task parameters:
 

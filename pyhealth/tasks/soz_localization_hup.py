@@ -49,7 +49,7 @@ HUP_OUTCOMES: dict[str, str] = {
 }
 """Outcome codes of ``participants.tsv``."""
 
-# Quality factor of the notch filter: a 2 Hz wide notch at 60 Hz.
+# Quality factor of the notch filter (60 Hz / 30: about 2 Hz wide per pass).
 _NOTCH_QUALITY = 30.0
 
 # Order of the Butterworth band-pass filter (Bernabei et al., 2022).
@@ -116,6 +116,16 @@ def read_hup_channels(channels_file: str | Path) -> list[dict[str, Any]]:
     return channels
 
 
+def _is_positive_number(value: Any) -> bool:
+    """Whether ``value`` is a finite number above zero (booleans excluded)."""
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value > 0
+    )
+
+
 class SOZLocalizationHUP(BaseTask):
     """Seizure onset zone localization on the HUP iEEG dataset.
 
@@ -123,8 +133,8 @@ class SOZLocalizationHUP(BaseTask):
     recording of a patient this task:
 
     1. reads ``channels.tsv`` and keeps the channels with status ``good``
-       (this drops the scalp and ECG channels and the contacts that the
-       dataset authors marked bad)
+       (the dataset marks as bad the ECG channels, almost all scalp channels
+       and some intracranial contacts)
     2. reads these channels in microvolts and re-references them
        (``reference``)
     3. filters them (``notch``, ``bandpass``) and resamples them
@@ -141,11 +151,21 @@ class SOZLocalizationHUP(BaseTask):
     lie well within the resected or ablated tissue. ``outcomes=("S",)``
     restricts the task to the patients who became seizure free (``S`` is
     seizure freedom and ``F`` recurring seizures in ``participants.tsv``).
-    A recording in which no good channel carries the mark is skipped with a
-    warning, because the mark is then missing, not negative (no recording of
-    version 1.1.3 is in this case). In version 1.1.3, 532 of the 6119 good
-    contacts are in the seizure onset zone, a median of 8% per patient, so
-    the classes are unbalanced.
+
+    A contact is labelled 1 when it carries the mark in at least one
+    interictal recording of the patient, so that its label is the same in
+    every recording; a warning lists the contacts whose mark differs between
+    recordings. In version 1.1.3 this concerns ``sub-HUP180``: its second
+    interictal recording marks 2 seizure onset contacts and all its other
+    recordings 8, and that file is the only ``channels.tsv`` of the patient
+    that version 1.1.3, which corrected its seizure onset zone, did not
+    update. A patient without any marked good contact is skipped with a
+    warning, because the mark is then missing, not negative (no patient of
+    version 1.1.3 is in this case).
+
+    In version 1.1.3 the task covers 56 patients (``sub-HUP158`` has no
+    interictal recording) and 6119 good contacts, of which 538 (8.8%) are in
+    the seizure onset zone: the classes are unbalanced.
 
     Preprocessing defaults follow Bernabei, Sinha et al. (2022), who studied
     interictal recordings of the same hospital: a first-order Butterworth
@@ -154,13 +174,14 @@ class SOZLocalizationHUP(BaseTask):
     needs the layout of each electrode and is not built here;
     ``reference="average"`` subtracts the mean over the good channels of the
     recording instead, and ``"stored"`` keeps the referential signal of the
-    files (their reference electrode is not documented). The paper does not
-    give the direction of filtering or the width of the notch: filters run
-    forward and backward (zero phase) and the notch has a quality factor of
-    30. Resampling is needed in any case, since the recordings come at 256,
-    500, 512 or 1024 Hz. The 30 second windows match the clips of that
-    study (two 30 second clips per patient); the recordings here last 5
-    minutes or more, so each contact gives several windows.
+    files (their reference electrode is not documented). Choices where the
+    paper is silent: filters run forward and backward (zero phase), the
+    notch has a quality factor of 30, and the resampling filter continues
+    the signal linearly past its two ends. Resampling is needed in any case,
+    since the recordings come at 256, 500, 512 or 1024 Hz. That study used
+    two 30 second clips per patient; the interictal recordings here last 5
+    minutes, so the default 30 second windows give 10 samples per contact
+    and recording.
 
     Limits: a sample holds one contact, so it carries no information on the
     other contacts. Bernabei, Sinha et al. (2022) separated resected seizure
@@ -193,17 +214,18 @@ class SOZLocalizationHUP(BaseTask):
             filter. The recordings come from the United States (60 Hz).
         reference: ``"average"`` to subtract the mean over the good
             channels, or ``"stored"`` to keep the reference of the file.
-        outcomes: Outcome codes of the patients to keep, for example
-            ``("S",)``, or None to keep every patient.
+        outcomes: Outcome codes of the patients to keep, among the keys of
+            ``HUP_OUTCOMES``, for example ``("S",)``; None keeps every
+            patient.
 
     Raises:
         ValueError: If ``target`` or ``reference`` is unknown, a duration or
             a rate isn't a positive number, ``bandpass`` isn't an increasing
-            pair of positive numbers, or ``outcomes`` is empty. When a
-            recording is read: if a filter edge isn't below half its
-            sampling rate, if a window or the stride covers less than one
-            sample, or if ``resample_rate`` cannot be reached from the
-            recording's rate with a ratio of integers up to 1000.
+            pair of positive numbers, or ``outcomes`` is empty or holds an
+            unknown code. When a recording is read: if a filter edge isn't
+            below half its sampling rate, if a window or the stride covers
+            less than one sample, or if ``resample_rate`` cannot be reached
+            from the recording's rate with a ratio of integers up to 1000.
 
     Examples:
         >>> from pyhealth.datasets import HUPiEEGDataset, split_by_patient
@@ -244,23 +266,34 @@ class SOZLocalizationHUP(BaseTask):
             ("resample_rate", resample_rate),
             ("notch", notch),
         ):
-            if value is not None and not (math.isfinite(value) and value > 0):
-                raise ValueError(f"{name} must be a positive number, got {value}.")
+            if value is not None and not _is_positive_number(value):
+                raise ValueError(f"{name} must be a positive number, got {value!r}.")
         if bandpass is not None:
-            if len(bandpass) != 2 or not (
-                all(math.isfinite(edge) for edge in bandpass)
-                and 0 < bandpass[0] < bandpass[1]
+            if not (
+                isinstance(bandpass, (tuple, list))
+                and len(bandpass) == 2
+                and all(_is_positive_number(edge) for edge in bandpass)
+                and bandpass[0] < bandpass[1]
             ):
                 raise ValueError(
-                    f"bandpass must be (low, high) with 0 < low < high, got {bandpass}."
+                    f"bandpass must be (low, high) with 0 < low < high, got "
+                    f"{bandpass!r}."
                 )
             bandpass = (float(bandpass[0]), float(bandpass[1]))
         if outcomes is not None:
             if isinstance(outcomes, str):
                 outcomes = (outcomes,)
+            if not isinstance(outcomes, (tuple, list, set, frozenset)):
+                raise ValueError(
+                    f"outcomes must be a tuple of codes or None, got {outcomes!r}."
+                )
             outcomes = tuple(str(code).strip().upper() for code in outcomes)
-            if not outcomes:
-                raise ValueError("outcomes must hold at least one code, or be None.")
+            unknown = [code for code in outcomes if code not in HUP_OUTCOMES]
+            if not outcomes or unknown:
+                raise ValueError(
+                    f"outcomes must hold codes among {tuple(HUP_OUTCOMES)}, got "
+                    f"{outcomes}."
+                )
         self.target = target
         self.window_seconds = float(window_seconds)
         self.stride_seconds = float(stride_seconds)
@@ -284,6 +317,13 @@ class SOZLocalizationHUP(BaseTask):
             ValueError: If a filter edge isn't below ``sfreq / 2``, or
                 ``resample_rate`` cannot be reached from ``sfreq`` with a
                 ratio of integers up to 1000.
+
+        Examples:
+            >>> import numpy as np
+            >>> from pyhealth.tasks import SOZLocalizationHUP
+            >>> task = SOZLocalizationHUP()
+            >>> task.preprocess(np.random.randn(4, 5120), sfreq=512.0).shape
+            (4, 2000)
         """
         if self.reference == "average":
             data = data - data.mean(axis=0, keepdims=True)
@@ -310,8 +350,10 @@ class SOZLocalizationHUP(BaseTask):
             ratio = Fraction(self.resample_rate / sfreq).limit_denominator(
                 _MAX_RESAMPLING_TERM
             )
-            if ratio <= 0 or not math.isclose(
-                sfreq * ratio, self.resample_rate, rel_tol=1e-9
+            if (
+                ratio <= 0
+                or ratio.numerator > _MAX_RESAMPLING_TERM
+                or not math.isclose(sfreq * ratio, self.resample_rate, rel_tol=1e-9)
             ):
                 raise ValueError(
                     f"resample_rate={self.resample_rate} Hz cannot be reached from "
@@ -326,28 +368,29 @@ class SOZLocalizationHUP(BaseTask):
             )
         return data
 
-    def _samples_from_event(self, patient_id: str, event: Any) -> list[dict[str, Any]]:
-        """Turn one recording into single-channel window samples.
+    def _good_channels(
+        self, patient_id: str, event: Any
+    ) -> tuple[str, list[dict[str, Any]]] | None:
+        """Read the good channels of one interictal recording.
 
         Args:
             patient_id: Participant id, for example ``"sub-HUP060"``.
             event: A ``recordings`` event with ``signal_file``,
-                ``channels_file``, ``recording_type``, ``run`` and
-                ``outcome``.
+                ``channels_file``, ``recording_type`` and ``outcome``.
 
         Returns:
-            One sample dict per good channel and window; empty when the
+            ``(signal_file, channels)`` with the good channels of
+            ``channels.tsv``, a repeated name kept once; None when the
             recording is not interictal, the patient's outcome is not in
-            ``outcomes``, or the recording is skipped.
+            ``outcomes``, or a file is missing.
         """
         recording_type = str(getattr(event, "recording_type", "") or "").strip()
         if recording_type.lower() != "interictal":
-            return []
+            return None
         if self.outcomes is not None:
             outcome = str(getattr(event, "outcome", "") or "").strip().upper()
             if outcome not in self.outcomes:
-                return []
-
+                return None
         signal_file = str(getattr(event, "signal_file", "") or "").strip()
         channels_file = str(getattr(event, "channels_file", "") or "").strip()
         if signal_file.lower() in _EMPTY or channels_file.lower() in _EMPTY:
@@ -355,34 +398,69 @@ class SOZLocalizationHUP(BaseTask):
                 "Skipping a recording of %s, it has no signal or channels file.",
                 patient_id,
             )
-            return []
+            return None
+        channels, repeated = [], []
+        for channel in read_hup_channels(channels_file):
+            if not channel["good"]:
+                continue
+            if any(channel["name"] == kept["name"] for kept in channels):
+                repeated.append(channel["name"])
+                continue
+            channels.append(channel)
+        if repeated:
+            logger.warning(
+                "%s lists %s more than once; the first row of each is used.",
+                channels_file,
+                sorted(set(repeated)),
+            )
+        return signal_file, channels
 
-        channels = [c for c in read_hup_channels(channels_file) if c["good"]]
+    def _samples_from_recording(
+        self,
+        patient_id: str,
+        run: str,
+        signal_file: str,
+        channels: list[dict[str, Any]],
+        marked: set[str],
+    ) -> list[dict[str, Any]]:
+        """Turn one recording into single-channel window samples.
+
+        Args:
+            patient_id: Participant id, for example ``"sub-HUP060"``.
+            run: Run number of the recording.
+            signal_file: Path to the EDF file.
+            channels: Good channels of the recording, from
+                ``_good_channels``.
+            marked: Names of the contacts labelled 1 for this patient.
+
+        Returns:
+            One sample dict per good channel and window; empty when the
+            recording is skipped.
+        """
         raw = mne.io.read_raw_edf(signal_file, preload=False, verbose="error")
         absent = [c["name"] for c in channels if c["name"] not in raw.ch_names]
         if absent:
             logger.warning(
-                "%s lists %d good channel(s) that %s does not hold; they are "
-                "left out: %s",
-                channels_file,
-                len(absent),
+                "%s does not hold %d channel(s) that its channels.tsv marks "
+                "good; they are left out: %s",
                 signal_file,
+                len(absent),
                 absent,
             )
             channels = [c for c in channels if c["name"] in raw.ch_names]
-        if not any(c[self.target] for c in channels):
+        if self.reference == "average" and len(channels) < 2:
             logger.warning(
-                "Skipping %s, none of its good channels is marked %r in %s.",
+                "Skipping %s, an average reference needs at least 2 good "
+                "channels and it has %d.",
                 signal_file,
-                self.target,
-                channels_file,
+                len(channels),
             )
+            return []
+        if not channels:
+            logger.warning("Skipping %s, it has no good channel.", signal_file)
             return []
 
         sfreq = float(raw.info["sfreq"])
-        data = raw.get_data(picks=[c["name"] for c in channels], units="uV")
-        signal = self.preprocess(data, sfreq)
-
         window_len = round(self.window_seconds * self.resample_rate)
         stride_len = round(self.stride_seconds * self.resample_rate)
         if window_len < 1 or stride_len < 1:
@@ -391,16 +469,19 @@ class SOZLocalizationHUP(BaseTask):
                 f"stride_seconds={self.stride_seconds} must each cover at least "
                 f"one sample at {self.resample_rate} Hz."
             )
-        if signal.shape[1] < window_len:
+        seconds = raw.n_times / sfreq
+        if round(seconds * self.resample_rate) < window_len:
             logger.warning(
                 "Skipping %s, it is shorter (%.1f s) than one window (%.1f s).",
                 signal_file,
-                signal.shape[1] / self.resample_rate,
+                seconds,
                 self.window_seconds,
             )
             return []
 
-        run = str(getattr(event, "run", "") or "").strip()
+        data = raw.get_data(picks=[c["name"] for c in channels], units="uV")
+        signal = self.preprocess(data, sfreq)
+
         samples: list[dict[str, Any]] = []
         for index, channel in enumerate(channels):
             for start in range(0, signal.shape[1] - window_len + 1, stride_len):
@@ -413,7 +494,7 @@ class SOZLocalizationHUP(BaseTask):
                         "run": run,
                         "start_second": start / self.resample_rate,
                         "signal": window.astype(np.float32),
-                        "label": int(channel[self.target]),
+                        "label": int(channel["name"] in marked),
                     }
                 )
         return samples
@@ -426,9 +507,53 @@ class SOZLocalizationHUP(BaseTask):
                 rows of ``hup_ieeg-pyhealth.csv``.
 
         Returns:
-            Window samples of the interictal recordings of that patient.
+            Window samples of the interictal recordings of that patient;
+            empty when none of its good contacts carries the mark.
         """
-        samples: list[dict[str, Any]] = []
+        patient_id = patient.patient_id
+        recordings = []
         for event in patient.get_events("recordings"):
-            samples.extend(self._samples_from_event(patient.patient_id, event))
+            loaded = self._good_channels(patient_id, event)
+            if loaded is not None:
+                run = str(getattr(event, "run", "") or "").strip()
+                recordings.append((run, *loaded))
+        if not recordings:
+            return []
+
+        marks = [
+            {c["name"] for c in channels if c[self.target]}
+            for _, _, channels in recordings
+        ]
+        marked = set().union(*marks)
+        if not marked:
+            logger.warning(
+                "Skipping %s, none of its good channels is marked %r.",
+                patient_id,
+                self.target,
+            )
+            return []
+        listed = [{c["name"] for c in channels} for _, _, channels in recordings]
+        differing = sorted(
+            name
+            for name in marked
+            if any(
+                name in names and name not in mark for names, mark in zip(listed, marks)
+            )
+        )
+        if differing:
+            logger.warning(
+                "The %r mark of %s differs between the interictal recordings "
+                "of %s; these contacts are labelled 1 in all of them.",
+                self.target,
+                differing,
+                patient_id,
+            )
+
+        samples: list[dict[str, Any]] = []
+        for run, signal_file, channels in recordings:
+            samples.extend(
+                self._samples_from_recording(
+                    patient_id, run, signal_file, channels, marked
+                )
+            )
         return samples

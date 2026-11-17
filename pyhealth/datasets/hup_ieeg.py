@@ -5,7 +5,7 @@ Author: Axel Coiffard-Donaty
 Intracranial EEG of 57 patients with drug-resistant epilepsy, recorded at
 the Hospital of the University of Pennsylvania before surgical resection or
 laser ablation, with subdural grids, strips and depth electrodes (ECoG) or
-stereotactic depth electrodes only (SEEG). Each patient has interictal
+stereotactic depth electrodes only (SEEG). The dataset holds interictal
 recordings and recordings of seizures, in EDF, organized with BIDS. For
 every recording, ``channels.tsv`` marks the contacts of the clinically
 determined seizure onset zone and those that overlap with the resected or
@@ -144,8 +144,9 @@ class HUPiEEGDataset(BaseDataset):
     ablation; 36 became seizure free. Version 1.1.3 holds 319 EDF
     recordings: 111 interictal ones of 5 minutes (two for 55 patients, one
     for ``sub-HUP064``, none for ``sub-HUP158``) and 208 with one seizure
-    each. The sampling rate is 256, 500, 512 or 1024 Hz and a recording has
-    52 to 232 channels, depending on the patient. ``patient_id`` is the BIDS
+    each (none for ``sub-HUP165``). The sampling rate is 256, 500, 512 or
+    1024 Hz and a recording has 52 to 232 channels, depending on the
+    patient. ``patient_id`` is the BIDS
     participant id, for example ``"sub-HUP060"``.
 
     ``participants.tsv`` lists a 58th patient, ``sub-HUP132``, who has no
@@ -164,7 +165,7 @@ class HUPiEEGDataset(BaseDataset):
     onset). The default task is :class:`~pyhealth.tasks.SOZLocalizationHUP`.
 
     The channel marks are in ``channels.tsv``: ``status`` is ``good`` or
-    ``bad`` (the scalp and ECG channels of a recording are marked bad), and
+    ``bad`` (the ECG channels and almost all scalp channels are marked bad), and
     ``status_description`` lists ``soz`` for the contacts of the clinically
     determined seizure onset zone and ``resect`` for those that overlap with
     the resected or ablated tissue.
@@ -173,17 +174,19 @@ class HUPiEEGDataset(BaseDataset):
 
     The outcome and the Engel class are known only after surgery, and the
     ``resect`` marks describe the surgery itself: none of them should be an
-    input of a model meant to guide surgery.
+    input of a model meant to guide surgery (the marks are labels in
+    :class:`~pyhealth.tasks.SOZLocalizationHUP`, never inputs).
 
     Getting the data:
         - Source: https://openneuro.org/datasets/ds004100 (version 1.1.3)
         - Access: open, CC0 license.
         - Download: with the OpenNeuro command line tool or DataLad, as
           the download page of the dataset explains, 14.2 GB (5.4 GB for
-          the interictal recordings). Prefer them to ``aws s3 sync``: on
-          2026-11-17 the bucket ``s3://openneuro.org/ds004100`` also served
-          the files of ``sub-HUP132`` and an older version of 13 text files
-          of ictal recordings, which are not in version 1.1.3.
+          the interictal recordings). Prefer them to ``aws s3 sync``: when
+          this loader was written (November 2026), the bucket
+          ``s3://openneuro.org/ds004100`` also served files that are not
+          in version 1.1.3 (those of ``sub-HUP132`` and an older version
+          of 13 text files of ictal recordings).
         - ``root``: the downloaded folder, the one holding
           ``participants.tsv`` and the ``sub-HUP*`` folders.
         - The EDF files are read with MNE; no extra package is needed.

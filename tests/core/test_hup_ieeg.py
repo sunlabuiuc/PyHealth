@@ -10,11 +10,7 @@ import pandas as pd
 
 from pyhealth.datasets import HUPiEEGDataset
 from pyhealth.tasks import SOZLocalizationHUP
-from pyhealth.tasks.soz_localization_hup import (
-    HUP_REFERENCES,
-    HUP_TARGETS,
-    read_hup_channels,
-)
+from pyhealth.tasks.soz_localization_hup import read_hup_channels
 
 SFREQ = 200
 SECONDS = 6
@@ -29,12 +25,16 @@ CHANNELS = (
     ("EKG1", "bad", "n/a"),
 )
 PARTICIPANTS = (
-    # id, age, sex, hand, outcome, engel, therapy, implant, target, lesion, onset
-    ("sub-HUP060", "42", "F", "R", "F", "3A", "ABLATION", "SEEG", "FRONTAL", "n/a", "12"),
-    ("sub-HUP064", "21", "M", "L", "S", "1D", "RESECTION", "ECOG", "FRONTAL", "LESIONAL", "3"),
+    # id, age, sex, hand, outcome, engel, therapy, implant, target, lesion,
+    # age at onset
+    ("sub-HUP060", "42", "F", "R", "F", "3A", "ABLATION", "SEEG", "FRONTAL")
+    + ("n/a", "12"),
+    ("sub-HUP064", "21", "M", "L", "S", "1D", "RESECTION", "ECOG", "FRONTAL")
+    + ("LESIONAL", "3"),
     # The real file writes this id with a trailing space.
-    ("sub-HUP151 ", "33", "M", "R", "F", "2A", "ABLATION", "SEEG", "MFL", "NON-LESIONAL", "6"),
-)  # fmt: skip
+    ("sub-HUP151 ", "33", "M", "R", "F", "2A", "ABLATION", "SEEG", "MFL")
+    + ("NON-LESIONAL", "6"),
+)
 PARTICIPANT_COLUMNS = (
     "participant_id", "age", "sex", "hand", "outcome", "engel", "therapy",
     "implant", "target", "lesion_status", "age_onset",
@@ -333,10 +333,6 @@ class TestReadChannels(_TempRoot):
         with self.assertRaisesRegex(ValueError, "status_description"):
             read_hup_channels(path)
 
-    def test_constants(self):
-        self.assertEqual(HUP_TARGETS, ("soz", "resect"))
-        self.assertEqual(HUP_REFERENCES, ("average", "stored"))
-
 
 class TestSOZLocalizationHUP(_TempRoot):
     def setUp(self):
@@ -446,6 +442,95 @@ class TestSOZLocalizationHUP(_TempRoot):
             with self.assertLogs("pyhealth.tasks.soz_localization_hup", "WARNING"):
                 self.assertEqual(SOZLocalizationHUP(**RAW)(patient), [])
 
+    def test_mark_differing_between_recordings(self):
+        # The second recording marks LA1 only, as one file of sub-HUP180.
+        stale = [
+            ("LA1", "good", "soz"),
+            ("LA2", "good", "resect"),
+            ("LA3", "good", "resect"),
+            ("LB1", "good", "n/a"),
+        ]
+        second = _write_recording(self.root, "sub-HUP060", run="02", channels=stale)
+        patient = _patient("sub-HUP060", [_event(self.edf), _event(second, run="02")])
+        with self.assertLogs("pyhealth.tasks.soz_localization_hup", "WARNING") as logs:
+            samples = SOZLocalizationHUP(**RAW)(patient)
+        self.assertIn("LA2", logs.output[0])
+        self.assertNotIn("LA1", logs.output[0])
+        labels = {(s["run"], s["channel"]): s["label"] for s in samples}
+        for run in ("01", "02"):
+            self.assertEqual(
+                [labels[(run, name)] for name in ("LA1", "LA2", "LA3", "LB1")],
+                [1, 1, 0, 0],
+            )
+
+    def test_mark_in_one_recording_labels_the_patient(self):
+        unmarked = [(name, status, "n/a") for name, status, _ in CHANNELS]
+        second = _write_recording(self.root, "sub-HUP060", run="02", channels=unmarked)
+        patient = _patient("sub-HUP060", [_event(second, run="02"), _event(self.edf)])
+        with self.assertLogs("pyhealth.tasks.soz_localization_hup", "WARNING"):
+            samples = SOZLocalizationHUP(**RAW)(patient)
+        self.assertEqual(sum(s["label"] for s in samples), 12)
+
+    def test_average_reference_needs_two_good_channels(self):
+        channels = [("LA1", "good", "soz"), ("LA2", "bad", "n/a")]
+        edf = _write_recording(self.root, "sub-HUP064", channels=channels)
+        patient = _patient("sub-HUP064", [_event(edf)])
+        task = SOZLocalizationHUP(**{**RAW, "reference": "average"})
+        with self.assertLogs("pyhealth.tasks.soz_localization_hup", "WARNING"):
+            self.assertEqual(task(patient), [])
+        self.assertEqual(len(SOZLocalizationHUP(**RAW)(patient)), 3)
+
+    def test_repeated_channel_name_is_used_once(self):
+        channels = [("LA1", "good", "soz"), ("LA1", "good", "n/a"), *CHANNELS[1:]]
+        edf = _write_recording(
+            self.root,
+            "sub-HUP064",
+            channels=channels,
+            edf_names=[name for name, _, _ in CHANNELS],
+        )
+        patient = _patient("sub-HUP064", [_event(edf)])
+        with self.assertLogs("pyhealth.tasks.soz_localization_hup", "WARNING"):
+            samples = SOZLocalizationHUP(**RAW)(patient)
+        self.assertEqual(len(samples), 12)
+        self.assertEqual([s["label"] for s in samples[:3]], [1, 1, 1])
+
+    def test_short_recording_is_skipped_before_filtering(self):
+        edf = _write_recording(self.root, "sub-HUP064", seconds=1, sfreq=256)
+        patient = _patient("sub-HUP064", [_event(edf)])
+        with self.assertLogs("pyhealth.tasks.soz_localization_hup", "WARNING"):
+            self.assertEqual(SOZLocalizationHUP()(patient), [])
+
+    def test_default_chain_keeps_a_rhythm_and_removes_the_shared_signal(self):
+        # 10 Hz on LA1 only, plus 60 Hz and an offset shared by all channels.
+        sfreq, seconds = 256, 62
+        times = np.arange(seconds * sfreq) / sfreq
+        shared = 400 * np.sin(2 * np.pi * 60 * times) + 1000
+        data = np.stack([shared] * 6)
+        data[0] += 2000 * np.sin(2 * np.pi * 10 * times)
+        folder = self.root / "sub-HUP064" / "ses-presurgery" / "ieeg"
+        stem = _stem("sub-HUP064", "interictal", "01")
+        edf = folder / f"{stem}_ieeg.edf"
+        _write_edf(edf, [name for name, _, _ in CHANNELS], data, sfreq)
+        _write_channels(folder / f"{stem}_channels.tsv")
+        samples = SOZLocalizationHUP()(_patient("sub-HUP064", [_event(edf)]))
+
+        self.assertEqual(len(samples), 8)
+        # LA1 keeps 3/4 of the rhythm after the average over 4 good channels,
+        # sampled at 200 Hz; the others hold the remaining quarter, inverted.
+        expected = 1500 * np.sin(2 * np.pi * 10 * np.arange(6000) / 200)
+        middle = slice(1000, 5000)
+        np.testing.assert_allclose(
+            samples[0]["signal"][0, middle], expected[middle], atol=15
+        )
+        np.testing.assert_allclose(
+            samples[2]["signal"][0, middle], -expected[middle] / 3, atol=15
+        )
+
+    def test_window_shorter_than_one_sample(self):
+        task = SOZLocalizationHUP(**{**RAW, "window_seconds": 0.001})
+        with self.assertRaisesRegex(ValueError, "at least one sample"):
+            task(self.patient)
+
     def test_default_settings(self):
         edf = _write_recording(self.root, "sub-HUP064", seconds=65, sfreq=256)
         samples = SOZLocalizationHUP()(_patient("sub-HUP064", [_event(edf)]))
@@ -471,6 +556,12 @@ class TestSOZLocalizationHUP(_TempRoot):
             {"bandpass": (0, 80)},
             {"bandpass": (0.5,)},
             {"outcomes": ()},
+            {"outcomes": ("X",)},
+            {"outcomes": 1},
+            {"window_seconds": "30"},
+            {"window_seconds": True},
+            {"bandpass": 5},
+            {"bandpass": ("a", "b")},
         ):
             with self.subTest(options), self.assertRaises(ValueError):
                 SOZLocalizationHUP(**options)
@@ -520,8 +611,9 @@ class TestPreprocess(unittest.TestCase):
             self._task(bandpass=(0.5, 80)).preprocess(data, 160)
 
     def test_unreachable_rate(self):
-        with self.assertRaisesRegex(ValueError, "cannot be reached"):
-            self._task(resample_rate=np.pi).preprocess(np.zeros((1, 400)), SFREQ)
+        for rate in (np.pi, 100000):
+            with self.assertRaisesRegex(ValueError, "cannot be reached"):
+                self._task(resample_rate=rate).preprocess(np.zeros((1, 400)), 256.0)
 
 
 class TestHUPSetTask(unittest.TestCase):
@@ -537,6 +629,15 @@ class TestHUPSetTask(unittest.TestCase):
             # 3 patients, 4 good channels, 3 windows; ictal recordings unused.
             self.assertEqual(len(samples), 36)
             self.assertEqual(tuple(samples[0]["signal"].shape), (1, 2 * SFREQ))
+            self.assertEqual(
+                {sample["patient_id"] for sample in samples},
+                {"sub-HUP060", "sub-HUP064", "sub-HUP151"},
+            )
+            self.assertEqual({sample["run"] for sample in samples}, {"01"})
+            self.assertEqual(
+                {sample["channel"] for sample in samples},
+                {"LA1", "LA2", "LA3", "LB1"},
+            )
             labels = sorted(int(sample["label"]) for sample in samples)
             self.assertEqual(labels, [0] * 18 + [1] * 18)
             samples.close()

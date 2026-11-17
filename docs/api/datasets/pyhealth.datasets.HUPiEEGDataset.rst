@@ -7,8 +7,8 @@ Overview
 The HUP iEEG dataset holds intracranial EEG of 57 patients with
 drug-resistant epilepsy, recorded at the Hospital of the University of
 Pennsylvania before resection or laser ablation, with ECoG or SEEG
-electrodes. Each patient has interictal recordings of 5 minutes and
-recordings of seizures, 319 EDF files in total, at 256 to 1024 Hz and with
+electrodes. It holds interictal recordings of 5 minutes and recordings of
+seizures, 319 EDF files in total, at 256 to 1024 Hz and with
 52 to 232 channels. For every recording the dataset marks the contacts of
 the clinically determined seizure onset zone and those that overlap with the
 resected or ablated tissue, and it gives the surgical outcome of each

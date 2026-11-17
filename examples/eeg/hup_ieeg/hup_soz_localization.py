@@ -30,9 +30,16 @@ Choices of this example: the median over windows, the standardization within
 the patient, and scikit-learn's default random forest.
 
 Reported: the area under the ROC curve over all held-out contacts, as in the
-paper, with a 95% percentile bootstrap interval that resamples patients; and
+paper, with a 95% percentile bootstrap interval that resamples patients
+(their held-out scores, without refitting the model); and
 the area under the curve inside each patient (median and quartiles), which
 is the one that matters for localizing the zone in a new patient.
+
+On version 1.1.3 (6119 contacts of 56 patients, 538 in the seizure onset
+zone) this gives an area of 0.594 over all contacts (interval 0.551 to
+0.636) and a median of 0.592 inside a patient (quartiles 0.485 and 0.718):
+above chance, far from a usable localization. It is a starting point to
+compare models against, not a result to match.
 
 Data: open under CC0. Download https://openneuro.org/datasets/ds004100
 (14.2 GB, or 5.4 GB for the interictal recordings), then run::
@@ -92,6 +99,8 @@ def relative_band_power(signal: np.ndarray, sfreq: float = SFREQ) -> np.ndarray:
         noverlap=int(sfreq * WELCH_OVERLAP_SECONDS),
     )
     total = power[(freqs >= 0.5) & (freqs < 80.0)].sum()
+    if total == 0:  # flat window: no power to share out
+        return np.zeros(len(BANDS))
     return np.array(
         [
             power[(freqs >= low) & (freqs < high)].sum() / total
@@ -143,11 +152,19 @@ def cross_validate(
 
     Returns:
         Array ``(contacts,)``: the predicted probability of the positive
-        class, from ``N_FOLDS``-fold cross-validation by patient (fewer
-        folds when there are fewer patients).
+        class, from ``N_FOLDS``-fold cross-validation by patient (one fold
+        per patient when there are fewer patients).
+
+    Raises:
+        ValueError: If the contacts come from a single patient.
     """
+    n_patients = len(np.unique(patients))
+    if n_patients < 2:
+        raise ValueError(
+            f"Cross-validation by patient needs at least 2 patients, got {n_patients}."
+        )
     scores = np.zeros(len(labels))
-    folds = GroupKFold(n_splits=min(N_FOLDS, len(np.unique(patients))))
+    folds = GroupKFold(n_splits=min(N_FOLDS, n_patients))
     for train, test in folds.split(features, labels, groups=patients):
         model = RandomForestClassifier(random_state=SEED, n_jobs=-1)
         model.fit(features[train], labels[train])
@@ -186,7 +203,7 @@ def summarize(
         chosen = np.concatenate([rows[name] for name in rng.choice(names, len(names))])
         draws.append(roc_auc_score(labels[chosen], scores[chosen]))
     low, high = np.percentile(draws, [2.5, 97.5])
-    q1, median, q3 = np.percentile(inside, [25, 50, 75])
+    q1, median, q3 = np.percentile(inside, [25, 50, 75]) if inside else [np.nan] * 3
     return {
         "auc": roc_auc_score(labels, scores),
         "auc_low": low,
