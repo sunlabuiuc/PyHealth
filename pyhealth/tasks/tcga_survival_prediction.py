@@ -25,11 +25,10 @@ COHORT_TO_INT: dict[str, int] = {c: i for i, c in enumerate(TCGA_COHORTS)}
 class TCGASurvivalPrediction(BaseTask):
     """Survival prediction from TCGA bulk RNA-seq.
 
-     Input: ``embedding`` — the **cached** 256-d BulkRNABert embedding of the
+    Input: ``embedding`` — the cached 256-d BulkRNABert embedding of the
     patient's bulk RNA-seq profile. This task does not accept raw
-    ~19,062-gene TPM vectors; see ``BulkRNABert(use_cached_embeddings=False)``
-    for the raw-expression path, which is not exercised by the reference
-    pipeline this task supports
+    ~19,062-gene TPM vectors; embeddings are generated offline by the
+    frozen BulkRNABert encoder (see the accompanying research repository).
 
     Outputs (all ``"tensor"``, so no ``LabelProcessor`` is created):
         - ``duration``: (1,) float tensor (days).

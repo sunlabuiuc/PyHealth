@@ -6,12 +6,12 @@ models" (ML4H 2025). Full PyHealth contribution:
 
     TCGARNASeqDataset -> TCGASurvivalPrediction -> BulkRNABert -> Cox loss
 
-Two modes:
+Three modes:
 
-1. Synthetic (default): generates 120 synthetic patients in a temp dir and
-   trains on them. Runs in ~30s on CPU. No downloads, no TCGA data.
-2. Real (``--artifacts-dir``): points at the reference repo's artifacts and
-   trains on the real 256-d BulkRNABert embeddings for all of TCGA.
+1. Synthetic (default): generates 120 synthetic patients in a temp dir.
+2. Local CSV (``--data-dir DIR``): reads ``tcga_rna_seq.csv`` from DIR.
+3. Download (``--download``): fetches ``tcga_rna_seq.csv`` (~56 MB) from
+   the Hugging Face Dataset ``cstein2/TCGABulkBertRNAEmbeddings``.
 
 **Ablation.** Compares global Cox partial likelihood (paper default) against
 cohort-restricted Cox risk sets (our extension). Both arms use identical
@@ -184,7 +184,6 @@ def train(
 
     model = BulkRNABert(
         dataset=train_ds,
-        use_cached_embeddings=True,
         cox_loss_mode=loss_mode,
     )
     optim = torch.optim.Adam(
@@ -310,10 +309,27 @@ def main() -> None:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    data_group = parser.add_mutually_exclusive_group()
+    data_group.add_argument(
+        "--data-dir",
+        type=Path,
+        default=None,
+        help="Directory containing tcga_rna_seq.csv.",
+    )
+    data_group.add_argument(
+        "--download",
+        action="store_true",
+        help="Download tcga_rna_seq.csv from Hugging Face.",
+    )
     parser.add_argument(
-        "--artifacts-dir", type=Path, default=None,
-        help="Directory with samples.tsv + survival_labels.tsv + embeddings_repo.npy. "
-             "Omit for the synthetic demo.",
+        "--hf-repo",
+        default=TCGARNASeqDataset.HF_REPO_ID,
+        help="Hugging Face Dataset repo ID.",
+    )
+    parser.add_argument(
+        "--hf-revision",
+        default=TCGARNASeqDataset.HF_REVISION,
+        help="Hugging Face revision to pin.",
     )
     parser.add_argument(
         "--seeds", type=int, nargs="+", default=[0],
@@ -332,17 +348,30 @@ def main() -> None:
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
-        tmp = Path(tmp)
-        if args.artifacts_dir is None:
-            print("Synthetic mode: generating 120 synthetic patients.")
-            _write_synthetic_csv(tmp)
-            dataset = TCGARNASeqDataset(root=str(tmp), cache_dir=str(tmp / "cache"))
-        else:
-            print(f"Real mode: reading artifacts from {args.artifacts_dir}")
+        tmp_path = Path(tmp)
+
+        if args.data_dir is not None:
+            print(f"Real mode (local CSV): {args.data_dir}")
             dataset = TCGARNASeqDataset(
-                root=str(args.artifacts_dir),
-                artifacts_dir=str(args.artifacts_dir),
-                cache_dir=str(tmp / "cache"),
+                root=str(args.data_dir),
+                cache_dir=str(tmp_path / "cache"),
+            )
+        elif args.download:
+            print(
+                f"Real mode (download): "
+                f"{args.hf_repo}@{args.hf_revision}"
+            )
+            dataset = TCGARNASeqDataset.from_huggingface(
+                repo_id=args.hf_repo,
+                revision=args.hf_revision,
+                cache_dir=str(tmp_path / "cache"),
+            )
+        else:
+            print("Synthetic mode: generating 120 synthetic patients.")
+            _write_synthetic_csv(tmp_path)
+            dataset = TCGARNASeqDataset(
+                root=str(tmp_path),
+                cache_dir=str(tmp_path / "cache"),
             )
 
         task = TCGASurvivalPrediction()

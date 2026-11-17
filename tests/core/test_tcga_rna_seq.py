@@ -1,99 +1,84 @@
-"""Synthetic unit tests for TCGASurvivalPrediction."""
-
 import json
+import shutil
+import tempfile
+from pathlib import Path
+from unittest import mock
 
 import numpy as np
+import pandas as pd
 import pytest
 
-from pyhealth.tasks import TCGASurvivalPrediction
+from pyhealth.datasets import TCGARNASeqDataset
+from pyhealth.datasets import tcga_rna_seq as dsmod
 
 
-class FakePatient:
-    """Minimal stand-in for ``pyhealth.data.Patient``."""
-
-    def __init__(self, patient_id: str, events: dict) -> None:
-        self.patient_id = patient_id
-        self._events = events
-
-    def get_events(self, event_type: str):
-        return self._events.get(event_type, [])
-
-
-def make_patient(pid="P1", cohort="BRCA", time=120.0, event=1,
-                 n_genes=256, seed=0):
+def _write_csv(root: Path, seed: int = 0) -> Path:
     rng = np.random.default_rng(seed)
-    event_attrs = {
-        "cohort": f"TCGA-{cohort}",
-        "duration": time,   # CSV column name (dataset's internal field)
-        "event": event,
-        "embedding": json.dumps(
-            rng.standard_normal(n_genes).astype(np.float32).tolist()
-        ),
-    }
-    return FakePatient(pid, {"tcga_rna_seq": [event_attrs]})
+    cohorts = ["TCGA-BRCA", "TCGA-LUAD", "TCGA-KIRC"]
+    rows = []
+    for i, cohort in enumerate(cohorts):
+        rows.append({
+            "patient_id": f"TCGA-{cohort[5:]}-{i:04d}",
+            "cohort": cohort,
+            "duration": 100.0 + 100 * i,
+            "event": 1 if i % 2 == 0 else 0,
+            "embedding": json.dumps(
+                rng.standard_normal(256).astype(np.float32).tolist()
+            ),
+        })
+    csv_path = root / "tcga_rna_seq.csv"
+    pd.DataFrame(rows).to_csv(csv_path, index=False)
+    return csv_path
 
 
-def test_task_produces_correctly_shaped_sample():
-    task = TCGASurvivalPrediction()
-    samples = task(make_patient())
-    assert len(samples) == 1
-    s = samples[0]
-    assert s["duration"] == [120.0]
-    assert s["event"] == [1.0]
-    assert isinstance(s["cohort"], list) and isinstance(s["cohort"][0], float)
-    assert s["embedding"].shape == (256,)
+def test_dataset_loads_and_exposes_patients():
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        _write_csv(tmp)
+        ds = TCGARNASeqDataset(
+            root=str(tmp), cache_dir=str(tmp / "cache")
+        )
+        assert ds.dataset_name == "tcga_rna_seq"
+        assert len(ds.unique_patient_ids) == 3
+
+        p = ds.get_patient("TCGA-BRCA-0000")
+        events = p.get_events(event_type="tcga_rna_seq")
+        assert len(events) == 1
+        assert float(events[0]["duration"]) == 100.0
+        assert int(float(events[0]["event"])) == 1
+        assert str(events[0]["cohort"]) == "TCGA-BRCA"
+        assert len(json.loads(events[0]["embedding"])) == 256
 
 
-def test_task_rejects_invalid_duration():
-    task = TCGASurvivalPrediction()
-    with pytest.raises(ValueError, match="duration"):
-        task(make_patient(time=-1.0))
-    with pytest.raises(ValueError, match="duration"):
-        task(make_patient(time=0.0))
-    with pytest.raises(ValueError, match="duration"):
-        task(make_patient(time=float("nan")))
+def test_dataset_raises_on_missing_csv():
+    with tempfile.TemporaryDirectory() as tmp:
+        with pytest.raises(FileNotFoundError, match="tcga_rna_seq.csv"):
+            TCGARNASeqDataset(
+                root=tmp, cache_dir=str(Path(tmp) / "cache")
+            )
 
 
-def test_task_rejects_invalid_event():
-    task = TCGASurvivalPrediction()
-    with pytest.raises(ValueError, match="[Ee]vent must be 0 or 1"):
-        task(make_patient(event=0.5))
-    with pytest.raises(ValueError, match="[Ee]vent must be 0 or 1"):
-        task(make_patient(event=2))
+def test_from_huggingface_downloads_and_loads():
+    """Mock hf_hub_download so the test never touches the network."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        fake_hf_dir = tmp / "fake_hf_cache"
+        fake_hf_dir.mkdir()
+        _write_csv(fake_hf_dir)
 
+        with mock.patch(
+            "huggingface_hub.hf_hub_download",
+            return_value=str(fake_hf_dir / "tcga_rna_seq.csv"),
+        ) as mocked:
+            ds = TCGARNASeqDataset.from_huggingface(
+                repo_id="cstein2/TCGABulkBertRNAEmbeddings",
+                cache_dir=str(tmp / "cache"),
+            )
 
-def test_task_rejects_wrong_embedding_dimension():
-    task = TCGASurvivalPrediction()
-    with pytest.raises(ValueError, match="256"):
-        task(make_patient(n_genes=128))
-
-
-def test_task_rejects_multiple_events():
-    task = TCGASurvivalPrediction()
-    p = make_patient()
-    p._events["tcga_rna_seq"].append(dict(p._events["tcga_rna_seq"][0]))
-    with pytest.raises(ValueError, match="[Ee]xactly one"):
-        task(p)
-
-
-def test_task_rejects_unknown_cohort():
-    task = TCGASurvivalPrediction()
-    with pytest.raises(ValueError, match="Unknown TCGA cohort"):
-        task(make_patient(cohort="XYZ"))
-
-
-def test_task_returns_empty_for_missing_events():
-    p = FakePatient("P2", {})
-    assert TCGASurvivalPrediction()(p) == []
-
-
-def test_cohort_mapping_is_reversible():
-    for cohort, idx in TCGASurvivalPrediction.COHORT_TO_INT.items():
-        assert TCGASurvivalPrediction.INT_TO_COHORT[idx] == cohort
-
-
-def test_cohort_int_is_stable_for_known_cohorts():
-    idx = TCGASurvivalPrediction.COHORT_TO_INT
-    assert idx["BRCA"] == 2
-    assert idx["LUAD"] == 16
-    assert idx["KIRC"] == 11
+        mocked.assert_called_once_with(
+            repo_id="cstein2/TCGABulkBertRNAEmbeddings",
+            filename="tcga_rna_seq.csv",
+            repo_type="dataset",
+            revision="c1cca7f308c5d92b3337c6c36bdb3e857ba7991e",
+        )
+        assert len(ds.unique_patient_ids) == 3
