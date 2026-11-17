@@ -21,6 +21,12 @@ References:
       AHEPA EEG benchmark: setting the standard for machine learning in
       dementia diagnosis, a scoping review. Cognitive Neurodynamics 20(1),
       2026. https://doi.org/10.1007/s11571-026-10464-w
+    - Reference electrodes: Bigdely-Shamlo, N. et al. The PREP pipeline:
+      standardized preprocessing for large-scale EEG analysis. Frontiers in
+      Neuroinformatics 9:16, 2015. https://doi.org/10.3389/fninf.2015.00016
+    - Lei, X., Liao, K. Understanding the Influences of EEG Reference: A
+      Large-Scale Brain Network Perspective. Frontiers in Neuroscience
+      11:205, 2017. https://doi.org/10.3389/fnins.2017.00205
 """
 
 import logging
@@ -101,6 +107,22 @@ class DementiaClassificationAHEPA(BaseTask):
     with 15 seconds of overlap for the authors' DICE-net model, so both are
     parameters.
 
+    Reference: the artifact-cleaned recordings are referenced to the average
+    of the mastoid electrodes A1 and A2 (data descriptor, section 3.2), so
+    whatever these two electrodes pick up is added to all 19 channels. In
+    the 88 cleaned recordings of version 1.0.9, the mean over channels
+    carries a median of 94% of the signal variance (90% to 96% for the
+    middle half of the subjects), mostly below 4 Hz. Bigdely-Shamlo et al.
+    (2015) describe a mastoid reference as a single point of failure whose
+    noise is common to all channels, and report that re-referencing such
+    data to the average gives essentially the same result as an average
+    reference from the start. ``reference="average"`` subtracts the mean
+    over the 19 channels at each time. The default, ``"stored"``, keeps the
+    recordings as distributed, which the data descriptor encourages using.
+    An average over 19 scalp channels is not a neutral reference either:
+    Lei and Liao (2017) note that it is valid only with sufficient electrode
+    density and coverage of the head.
+
     Split by patient: every window of a subject carries the same label, and
     the review asks for complete subject-level independence between
     training and test data; the data descriptor uses leave-one-subject-out
@@ -129,9 +151,11 @@ class DementiaClassificationAHEPA(BaseTask):
             or ``"raw"`` for the unprocessed ones.
         resample_rate: Sampling rate of the output in Hz, or None to keep
             the 500 Hz of the recordings.
+        reference: ``"stored"`` to keep the reference of the file, or
+            ``"average"`` to subtract the mean over the 19 channels.
 
     Raises:
-        ValueError: If ``problem`` or ``variant`` is unknown, or
+        ValueError: If ``problem``, ``variant`` or ``reference`` is unknown, or
             ``window_seconds``, ``stride_seconds`` or ``resample_rate`` isn't
             positive.
 

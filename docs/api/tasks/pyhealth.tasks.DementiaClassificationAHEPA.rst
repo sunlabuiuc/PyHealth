@@ -20,6 +20,7 @@ Task parameters:
 - stride_seconds: float, default=2
 - variant: ``"derivatives"`` (default) or ``"raw"``
 - resample_rate: float or None, default=None (500 Hz)
+- reference: ``"stored"`` (default) or ``"average"``
 
 .. autoclass:: pyhealth.tasks.DementiaClassificationAHEPA
     :members:

@@ -25,6 +25,9 @@ Data: open under CC0. Download https://openneuro.org/datasets/ds004504
         --root /path/to/ds004504
 
 Other problems: ``--problem ftd_vs_cn``, ``ad_vs_ftd``, ``dementia_vs_cn``.
+``--reference average`` subtracts the mean over channels, which removes the
+signal that the mastoid reference adds to every channel (see the task's
+documentation).
 """
 
 import argparse
@@ -35,6 +38,7 @@ import torch
 from pyhealth.datasets import AHEPADementiaDataset, get_dataloader, split_by_patient
 from pyhealth.models import SparcNet
 from pyhealth.tasks import DementiaClassificationAHEPA
+from pyhealth.tasks.dementia_classification_ahepa import REFERENCES
 from pyhealth.trainer import Trainer
 
 SEED = 0
@@ -51,6 +55,7 @@ def main() -> None:
         "--root", required=True, help="BIDS root, the folder with participants.tsv."
     )
     parser.add_argument("--problem", default="ad_vs_cn", choices=BINARY_PROBLEMS)
+    parser.add_argument("--reference", default="stored", choices=REFERENCES)
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--device", default="cpu")
@@ -62,7 +67,9 @@ def main() -> None:
     dataset.stats()
 
     task = DementiaClassificationAHEPA(
-        problem=args.problem, resample_rate=RESAMPLE_RATE
+        problem=args.problem,
+        resample_rate=RESAMPLE_RATE,
+        reference=args.reference,
     )
     samples = dataset.set_task(task)
     train_dataset, val_dataset, test_dataset = split_by_patient(
