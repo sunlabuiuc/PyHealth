@@ -56,9 +56,13 @@ class SleepKD(BaseModel):
             official code uses a KL divergence). Default is ``"mse"``.
         align: The alignment of the teacher's features to the student's
             sizes. ``"maxpool"`` max-pools each feature vector to the
-            student's size (no parameters); ``"conv"`` is a learned 1x1
-            convolution over the feature entries of each epoch, trained with
-            the student. Default is ``"maxpool"``.
+            student's size in disjoint windows (no parameters);
+            ``"slidingmax"`` takes the maximum of every ``d_t - d_s + 1``
+            consecutive entries, the alignment of the authors' code
+            (https://github.com/AI4Brain/SleepKD), also without parameters;
+            ``"conv"`` is a learned 1x1 convolution over the feature entries
+            of each epoch, trained with the student. Default is
+            ``"maxpool"``.
         temperature: Softmax temperature of ``L_soft``, which is scaled by
             ``temperature ** 2`` (Hinton et al., 2015). The paper gives none,
             i.e. 1. Default is 1.0.
@@ -100,7 +104,7 @@ class SleepKD(BaseModel):
         gamma: float = 1.0,
         delta: float = 1.0,
         feature_loss: Literal["mse", "kl"] = "mse",
-        align: Literal["maxpool", "conv"] = "maxpool",
+        align: Literal["maxpool", "slidingmax", "conv"] = "maxpool",
         temperature: float = 1.0,
     ):
         super().__init__(dataset=dataset)
@@ -119,8 +123,10 @@ class SleepKD(BaseModel):
             raise ValueError(
                 f"feature_loss must be 'mse' or 'kl', got {feature_loss!r}."
             )
-        if align not in ("maxpool", "conv"):
-            raise ValueError(f"align must be 'maxpool' or 'conv', got {align!r}.")
+        if align not in ("maxpool", "slidingmax", "conv"):
+            raise ValueError(
+                f"align must be 'maxpool', 'slidingmax' or 'conv', got {align!r}."
+            )
         if temperature <= 0:
             raise ValueError(f"temperature must be positive, got {temperature}.")
         self.teacher = teacher
@@ -144,6 +150,14 @@ class SleepKD(BaseModel):
         self.feature_dims = {
             key: (t_out[key].shape[-1], s_out[key].shape[-1]) for key in FEATURES
         }
+        if align != "conv":
+            for key, (d_t, d_s) in self.feature_dims.items():
+                if d_t < d_s:
+                    raise ValueError(
+                        f"align={align!r} needs teacher features at least as "
+                        f"large as the student's; {key} has {d_t} < {d_s}. "
+                        "Use align='conv'."
+                    )
         self.aligners = nn.ModuleDict(
             {
                 key: nn.Conv1d(d_t, d_s, kernel_size=1)
@@ -171,7 +185,11 @@ class SleepKD(BaseModel):
         if d_t == d_s:
             return feature
         batch, seq_len, _ = feature.shape
-        pooled = F.adaptive_max_pool1d(feature.reshape(-1, 1, d_t), d_s)
+        flat = feature.reshape(-1, 1, d_t)
+        if self.align == "slidingmax":
+            pooled = F.max_pool1d(flat, kernel_size=d_t - d_s + 1, stride=1)
+        else:
+            pooled = F.adaptive_max_pool1d(flat, d_s)
         return pooled.view(batch, seq_len, d_s)
 
     def _feature_distance(

@@ -110,6 +110,18 @@ class TestSleepKD(unittest.TestCase):
         )
         self.assertEqual(len(list(model.aligners.parameters())), 0)
 
+    def test_slidingmax_takes_the_max_of_overlapping_windows(self):
+        model = self._model(align="slidingmax")
+        t = model.teacher.encode(self.batch["signal"])
+        s = model.student.encode(self.batch["signal"])
+        for key in ("epoch_feature", "sequence_feature"):
+            self.assertEqual(model._align(key, t[key]).shape, s[key].shape)
+        # Sequence features: entry i is the max of teacher entries i..i+16.
+        seq = t["sequence_feature"]
+        expected = seq.unfold(-1, 17, 1).amax(-1)
+        torch.testing.assert_close(model._align("sequence_feature", seq), expected)
+        self.assertEqual(len(list(model.aligners.parameters())), 0)
+
     def test_only_the_student_and_conv_aligners_learn(self):
         model = self._model(align="conv")
         model(**self.batch)["loss"].backward()
@@ -142,6 +154,12 @@ class TestSleepKD(unittest.TestCase):
             self._model(feature_loss="l1")
         with self.assertRaises(ValueError):
             self._model(align="avgpool")
+        for align in ("maxpool", "slidingmax"):
+            with self.assertRaises(ValueError):
+                # Teacher features smaller than the student's.
+                self._model(
+                    teacher=self._student(), student=self._teacher(), align=align
+                )
         with self.assertRaises(TypeError):
             self._model(teacher=torch.nn.Linear(2, 2))
 
