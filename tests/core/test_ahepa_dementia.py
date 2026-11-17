@@ -1,20 +1,23 @@
 """AHEPADementiaDataset and DementiaClassificationAHEPA, on small .set files."""
 
+import math
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 import scipy.io
 
 from pyhealth.datasets import AHEPADementiaDataset
+from pyhealth.datasets.metadata_csv import resolve_metadata_root
 from pyhealth.tasks import DementiaClassificationAHEPA
 from pyhealth.tasks.dementia_classification_ahepa import (
     AHEPA_CHANNELS,
     AHEPA_GROUPS,
-    PROBLEMS,
+    AHEPA_PROBLEMS,
 )
 
 SFREQ = 20
@@ -172,6 +175,92 @@ class TestAHEPAMetadata(_TempDir):
                 ds.prepare_metadata()
             self.assertFalse((self.root / "ahepa_dementia-pyhealth.csv").exists())
 
+    def test_existing_csv_is_left_untouched(self):
+        _write_dataset(self.root, participants=PARTICIPANTS[:2])
+        _set_path(self.root, "sub-002", True).unlink()
+        _set_path(self.root, "sub-002", False).unlink()
+        with self.assertLogs(
+            "pyhealth.datasets.ahepa_dementia", level="WARNING"
+        ) as logs:
+            _prepare(self.root)
+        csv_path = self.root / "ahepa_dementia-pyhealth.csv"
+        first = csv_path.read_bytes()
+        # The warning says how to index a recording downloaded later.
+        self.assertIn("Delete ahepa_dementia-pyhealth.csv", logs.output[0])
+        _write_set(_set_path(self.root, "sub-002", True), _signal(10))
+
+        df = _prepare(self.root)
+
+        self.assertEqual(csv_path.read_bytes(), first)
+        self.assertEqual(list(df["patient_id"]), ["sub-001"])
+
+    def test_metadata_goes_to_the_home_cache_when_root_is_read_only(self):
+        _write_dataset(self.root, participants=PARTICIPANTS[:2])
+        home = self.root.parent / "home"
+        real_to_csv = pd.DataFrame.to_csv
+
+        def to_csv(df, path_or_buf=None, *args, **kwargs):
+            # Stands in for a read-only root: chmod has no effect on Windows.
+            if str(path_or_buf).startswith(str(self.root)):
+                raise PermissionError(f"read-only: {path_or_buf}")
+            return real_to_csv(df, path_or_buf, *args, **kwargs)
+
+        with (
+            patch.object(pd.DataFrame, "to_csv", to_csv),
+            patch("pyhealth.datasets.metadata_csv.Path.home", return_value=home),
+        ):
+            ds = AHEPADementiaDataset.__new__(AHEPADementiaDataset)
+            ds.root = str(self.root)
+            ds.prepare_metadata()
+            metadata_root = Path(
+                resolve_metadata_root(
+                    self.root, "ahepa_dementia", "ahepa_dementia-pyhealth.csv"
+                )
+            )
+
+        self.assertFalse((self.root / "ahepa_dementia-pyhealth.csv").exists())
+        self.assertTrue(metadata_root.is_relative_to(home))
+        cached = pd.read_csv(metadata_root / "ahepa_dementia-pyhealth.csv", dtype=str)
+        self.assertEqual(list(cached["patient_id"]), ["sub-001", "sub-002"])
+
+    def test_participants_rows_are_cleaned(self):
+        _write_dataset(self.root, participants=PARTICIPANTS[:3])
+        header = "participant_id\tGender\tAge\tGroup\tMMSE\n"
+        (self.root / "participants.tsv").write_text(
+            header
+            + " sub-001 \tF\t57\t a \t16\n"  # spaces, lower-case group
+            + "\tM\t70\tA\t14\n"  # no id
+            + "sub-037\tM\t57\tC\t30\n"
+            + "sub-037\tF\t62\tF\t20\n"  # repeated id
+        )
+
+        with self.assertLogs(
+            "pyhealth.datasets.ahepa_dementia", level="WARNING"
+        ) as logs:
+            df = _prepare(self.root)
+
+        self.assertEqual(list(df["patient_id"]), ["sub-001", "sub-037"])
+        self.assertEqual(list(df["group"]), ["A", "C"])
+        self.assertIn("sub-037", logs.output[0])
+
+    def test_malformed_participants_file_raises(self):
+        self.root.mkdir(parents=True)
+        contents = {
+            "empty": "",
+            "comma separated": "participant_id,Gender,Group\nsub-001,F,A\n",
+            "no Group column": "participant_id\tGender\nsub-001\tF\n",
+        }
+        for name, content in contents.items():
+            (self.root / "participants.tsv").write_text(content)
+            ds = AHEPADementiaDataset.__new__(AHEPADementiaDataset)
+            ds.root = str(self.root)
+            with self.subTest(name), self.assertRaises(ValueError):
+                ds.prepare_metadata()
+
+    def test_default_task(self):
+        ds = AHEPADementiaDataset.__new__(AHEPADementiaDataset)
+        self.assertIsInstance(ds.default_task, DementiaClassificationAHEPA)
+
 
 class TestDementiaClassificationAHEPA(_TempDir):
     def setUp(self):
@@ -203,7 +292,7 @@ class TestDementiaClassificationAHEPA(_TempDir):
             "dementia_vs_cn": {"A": 1, "F": 1, "C": 0},
             "three_class": {"A": 1, "F": 2, "C": 0},
         }
-        self.assertEqual(set(expected), set(PROBLEMS))
+        self.assertEqual(set(expected), set(AHEPA_PROBLEMS))
         subject = {"A": "sub-001", "F": "sub-066", "C": "sub-037"}
         self.assertEqual(set(subject), set(AHEPA_GROUPS))
         for problem, labels in expected.items():
@@ -217,8 +306,12 @@ class TestDementiaClassificationAHEPA(_TempDir):
                         self.assertEqual({s["label"] for s in samples}, {label})
 
     def test_output_schema_follows_the_problem(self):
-        for problem in PROBLEMS:
-            kind = "multiclass" if problem == "three_class" else "binary"
+        for problem in AHEPA_PROBLEMS:
+            # The three classes are fixed, so that a label keeps its meaning
+            # when a group is absent.
+            kind = (
+                ("multiclass", {"labels": 3}) if problem == "three_class" else "binary"
+            )
             with self.subTest(problem=problem):
                 task = DementiaClassificationAHEPA(problem=problem)
                 self.assertEqual(task.output_schema, {"label": kind})
@@ -278,12 +371,72 @@ class TestDementiaClassificationAHEPA(_TempDir):
         ):
             self.assertEqual(_task()(_patient(self.root, "sub-001", "X")), [])
 
-    def test_resampling_halves_the_samples(self):
+    def test_resampling_halves_the_samples_and_keeps_the_values(self):
         samples = _task(resample_rate=SFREQ / 2)(_patient(self.root, "sub-001", "A"))
 
         self.assertEqual(len(samples), 4)
         self.assertEqual(samples[0]["signal"].shape, (19, 4 * SFREQ // 2))
         self.assertEqual([s["start_second"] for s in samples], [0.0, 2.0, 4.0, 6.0])
+        # The file holds a ramp on every channel; at half the rate each window
+        # is every other sample of it, including the first and last windows,
+        # where zero-padding in the resampler would bend the ramp.
+        every_other = _signal(10)[:, ::2]
+        for index, sample in enumerate(samples):
+            start = index * 2 * SFREQ // 2
+            np.testing.assert_allclose(
+                sample["signal"],
+                every_other[:, start : start + 4 * SFREQ // 2],
+                atol=1e-3,
+            )
+
+    def test_resample_rate_that_cannot_be_reached_raises(self):
+        with self.assertRaises(ValueError):
+            _task(resample_rate=math.pi)(_patient(self.root, "sub-001", "A"))
+
+    def test_recording_shorter_than_a_window_is_skipped(self):
+        _write_set(_set_path(self.root, "sub-001", True), _signal(3))
+
+        with self.assertLogs(
+            "pyhealth.tasks.dementia_classification_ahepa", level="WARNING"
+        ) as logs:
+            samples = _task()(_patient(self.root, "sub-001", "A"))
+
+        self.assertEqual(samples, [])
+        self.assertIn("shorter than one window", logs.output[0])
+
+    def test_tail_that_does_not_fill_a_window_is_dropped(self):
+        _write_set(_set_path(self.root, "sub-001", True), _signal(11))
+
+        samples = _task()(_patient(self.root, "sub-001", "A"))
+
+        # 11 s: the window starting at 8 s would end at 12 s.
+        self.assertEqual([s["start_second"] for s in samples], [0.0, 2.0, 4.0, 6.0])
+
+    def test_window_or_stride_below_one_sample_raises(self):
+        for kwargs in ({"window_seconds": 0.01}, {"stride_seconds": 0.01}):
+            with self.subTest(**kwargs), self.assertRaises(ValueError):
+                _task(**kwargs)(_patient(self.root, "sub-001", "A"))
+
+    def test_extra_channels_of_the_file_are_left_out(self):
+        data = np.concatenate([_signal(10), np.full((1, 10 * SFREQ), 9999.0)])
+        _write_set(
+            _set_path(self.root, "sub-001", True), data, names=(*AHEPA_CHANNELS, "ECG")
+        )
+
+        stored = _task()(_patient(self.root, "sub-001", "A"))
+        average = _task(reference="average")(_patient(self.root, "sub-001", "A"))
+
+        np.testing.assert_allclose(stored[0]["signal"], _signal(10)[:, : 4 * SFREQ])
+        # The mean is taken over the 19 EEG channels only.
+        constants = 100.0 * np.arange(19)
+        np.testing.assert_allclose(
+            average[0]["signal"][:, 0], constants - constants.mean(), atol=1e-3
+        )
+
+    def test_group_code_is_read_without_case_or_spaces(self):
+        samples = _task()(_patient(self.root, "sub-001", " a "))
+        self.assertEqual({s["label"] for s in samples}, {1})
+        self.assertEqual({s["group"] for s in samples}, {"A"})
 
     def test_default_window_and_stride(self):
         task = DementiaClassificationAHEPA()
@@ -301,7 +454,9 @@ class TestDementiaClassificationAHEPA(_TempDir):
             {"variant": "cleaned"},
             {"reference": "cz"},
             {"window_seconds": 0},
+            {"window_seconds": float("nan")},
             {"stride_seconds": -1},
+            {"stride_seconds": float("inf")},
             {"resample_rate": 0},
         )
         for kwargs in cases:
@@ -324,6 +479,20 @@ class TestAHEPAEndToEnd(_TempDir):
         self.assertEqual(len(samples), 16)
         self.assertEqual(sum(int(s["label"]) for s in samples), 8)
         self.assertEqual(tuple(samples[0]["signal"].shape), (19, 4 * SFREQ))
+
+    def test_three_class_labels_keep_their_meaning_without_controls(self):
+        patients = tuple(p for p in PARTICIPANTS if p[3] != "C")
+        _write_dataset(self.root, participants=patients)
+
+        dataset = AHEPADementiaDataset(
+            root=str(self.root), cache_dir=str(self.root.parent / "cache")
+        )
+        samples = dataset.set_task(_task(problem="three_class"))
+
+        # Alzheimer's disease stays 1 and frontotemporal dementia 2, although
+        # no sample has the control label 0.
+        by_group = {s["group"]: int(s["label"]) for s in samples}
+        self.assertEqual(by_group, {"A": 1, "F": 2})
 
 
 if __name__ == "__main__":

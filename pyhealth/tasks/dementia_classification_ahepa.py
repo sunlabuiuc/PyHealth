@@ -30,6 +30,7 @@ References:
 """
 
 import logging
+import math
 from fractions import Fraction
 from typing import Any, ClassVar
 
@@ -63,11 +64,14 @@ _PROBLEMS: dict[str, dict[str, int]] = {
     "three_class": {"C": 0, "A": 1, "F": 2},
 }
 
-PROBLEMS: tuple[str, ...] = tuple(_PROBLEMS)
+AHEPA_PROBLEMS: tuple[str, ...] = tuple(_PROBLEMS)
 
-VARIANTS: tuple[str, ...] = ("derivatives", "raw")
+AHEPA_VARIANTS: tuple[str, ...] = ("derivatives", "raw")
 
-REFERENCES: tuple[str, ...] = ("stored", "average")
+AHEPA_REFERENCES: tuple[str, ...] = ("stored", "average")
+
+# Largest numerator or denominator of the resampling ratio.
+_MAX_RESAMPLING_TERM = 1000
 
 _VARIANT_COLUMN: dict[str, str] = {
     "derivatives": "signal_file",
@@ -97,10 +101,11 @@ class DementiaClassificationAHEPA(BaseTask):
     - ``"three_class"``: control 0, Alzheimer's disease 1, frontotemporal
       dementia 2 (a ``multiclass`` label; the others are ``binary``)
 
-    Defaults: the data descriptor (Miltiadous et al., 2023, section 3.3)
-    benchmarks Alzheimer's disease against controls and frontotemporal
-    dementia against controls on 4 second windows with 50% overlap, and
-    encourages the use of the artifact-cleaned recordings. The authors'
+    Defaults: the data descriptor (Miltiadous et al., 2023) benchmarks
+    Alzheimer's disease against controls and frontotemporal dementia against
+    controls on 4 second windows with 50% overlap (section 3.3), and
+    encourages the use of the artifact-cleaned recordings (section 4). The
+    authors'
     review (Miltiadous et al., 2026) counts Alzheimer's disease against
     controls as the most studied problem (40 studies). Window lengths in the
     reviewed studies range from 1 to 240 seconds, for example 30 seconds
@@ -121,7 +126,10 @@ class DementiaClassificationAHEPA(BaseTask):
     recordings as distributed, which the data descriptor encourages using.
     An average over 19 scalp channels is not a neutral reference either:
     Lei and Liao (2017) note that it is valid only with sufficient electrode
-    density and coverage of the head.
+    density and coverage of the head. For the unprocessed recordings, the
+    BIDS sidecar files give A1 and A2 as reference, while the data
+    descriptor mentions a referential montage that uses Cz for common mode
+    rejection; they are not re-referenced here unless ``reference="average"``.
 
     Split by patient: every window of a subject carries the same label, and
     the review asks for complete subject-level independence between
@@ -131,8 +139,10 @@ class DementiaClassificationAHEPA(BaseTask):
     :class:`~pyhealth.datasets.PatientSplit`, never a split by sample.
 
     A subject without the recording of ``variant``, or whose recording
-    misses one of the 19 channels, is skipped with a warning. The end of a
-    recording that does not fill a window is dropped.
+    misses one of the 19 channels or is shorter than one window, is skipped
+    with a warning. The end of a recording that does not fill a window is
+    dropped. A binary problem needs subjects of both groups: with one group
+    only, the binary label processor of ``set_task`` raises an error.
 
     Each sample contains:
 
@@ -143,7 +153,7 @@ class DementiaClassificationAHEPA(BaseTask):
     - ``start_second``: start of the window in the recording
 
     Args:
-        problem: Classification problem, one of ``PROBLEMS``.
+        problem: Classification problem, one of ``AHEPA_PROBLEMS``.
         window_seconds: Window length in seconds.
         stride_seconds: Shift between windows in seconds.
         variant: ``"derivatives"`` for the artifact-cleaned recordings
@@ -157,7 +167,10 @@ class DementiaClassificationAHEPA(BaseTask):
     Raises:
         ValueError: If ``problem``, ``variant`` or ``reference`` is unknown, or
             ``window_seconds``, ``stride_seconds`` or ``resample_rate`` isn't
-            positive.
+            a positive number. When a recording is read: if a window or the
+            stride covers less than one sample, or if ``resample_rate``
+            cannot be reached from the recording's rate with a ratio of
+            integers up to 1000.
 
     Examples:
         >>> from pyhealth.datasets import AHEPADementiaDataset, split_by_patient
@@ -185,19 +198,20 @@ class DementiaClassificationAHEPA(BaseTask):
     ) -> None:
         super().__init__()
         if problem not in _PROBLEMS:
-            raise ValueError(f"problem must be one of {PROBLEMS}, got {problem}.")
-        if variant not in VARIANTS:
-            raise ValueError(f"variant must be one of {VARIANTS}, got {variant}.")
-        if reference not in REFERENCES:
-            raise ValueError(f"reference must be one of {REFERENCES}, got {reference}.")
+            raise ValueError(f"problem must be one of {AHEPA_PROBLEMS}, got {problem}.")
+        if variant not in AHEPA_VARIANTS:
+            raise ValueError(f"variant must be one of {AHEPA_VARIANTS}, got {variant}.")
+        if reference not in AHEPA_REFERENCES:
+            raise ValueError(
+                f"reference must be one of {AHEPA_REFERENCES}, got {reference}."
+            )
         for name, value in (
             ("window_seconds", window_seconds),
             ("stride_seconds", stride_seconds),
+            ("resample_rate", resample_rate),
         ):
-            if value <= 0:
-                raise ValueError(f"{name} must be positive, got {value}.")
-        if resample_rate is not None and resample_rate <= 0:
-            raise ValueError(f"resample_rate must be positive, got {resample_rate}.")
+            if value is not None and not (math.isfinite(value) and value > 0):
+                raise ValueError(f"{name} must be a positive number, got {value}.")
         self.problem = problem
         self.window_seconds = float(window_seconds)
         self.stride_seconds = float(stride_seconds)
@@ -205,8 +219,11 @@ class DementiaClassificationAHEPA(BaseTask):
         self.reference = reference
         self.resample_rate = None if resample_rate is None else float(resample_rate)
         self._labels = _PROBLEMS[problem]
-        if len(set(self._labels.values())) > 2:
-            self.output_schema = {"label": "multiclass"}
+        n_classes = len(set(self._labels.values()))
+        if n_classes > 2:
+            # Fixed classes: the labels keep their meaning when a group is
+            # absent, for example after a partial download.
+            self.output_schema = {"label": ("multiclass", {"labels": n_classes})}
 
     def read_recording(self, signal_file: str) -> tuple[np.ndarray, float] | None:
         """Load the 19 channels of one recording in microvolts.
@@ -234,9 +251,24 @@ class DementiaClassificationAHEPA(BaseTask):
         if self.reference == "average":
             data = data - data.mean(axis=0, keepdims=True)
         if self.resample_rate is not None and self.resample_rate != sfreq:
-            ratio = Fraction(self.resample_rate / sfreq).limit_denominator(1000)
-            data = resample_poly(data, ratio.numerator, ratio.denominator, axis=-1)
-            sfreq = sfreq * ratio.numerator / ratio.denominator
+            ratio = Fraction(self.resample_rate / sfreq).limit_denominator(
+                _MAX_RESAMPLING_TERM
+            )
+            if ratio <= 0 or not math.isclose(
+                sfreq * ratio, self.resample_rate, rel_tol=1e-9
+            ):
+                raise ValueError(
+                    f"resample_rate={self.resample_rate} Hz cannot be reached from "
+                    f"the {sfreq} Hz of {signal_file} with a ratio of integers up "
+                    f"to {_MAX_RESAMPLING_TERM}."
+                )
+            # padtype="line" continues the signal past its two ends; the
+            # default pads with zeros, which distorts the first and last
+            # samples of a recording that is not centred on zero.
+            data = resample_poly(
+                data, ratio.numerator, ratio.denominator, axis=-1, padtype="line"
+            )
+            sfreq = self.resample_rate
         return data, sfreq
 
     def _samples_from_event(self, patient_id: str, event: Any) -> list[dict[str, Any]]:
@@ -251,7 +283,7 @@ class DementiaClassificationAHEPA(BaseTask):
             One sample dict per window; empty when the subject's group is
             not part of ``problem``.
         """
-        group = str(getattr(event, "group", "") or "").strip()
+        group = str(getattr(event, "group", "") or "").strip().upper()
         label = self._labels.get(group)
         if label is None:
             if group not in AHEPA_GROUPS:
@@ -277,6 +309,21 @@ class DementiaClassificationAHEPA(BaseTask):
 
         window_len = round(self.window_seconds * sfreq)
         stride_len = round(self.stride_seconds * sfreq)
+        if window_len < 1 or stride_len < 1:
+            raise ValueError(
+                f"window_seconds={self.window_seconds} and "
+                f"stride_seconds={self.stride_seconds} must each cover at least "
+                f"one sample at {sfreq} Hz."
+            )
+        if signal.shape[1] < window_len:
+            logger.warning(
+                "Skipping %s, its recording (%.1f s) is shorter than one window "
+                "(%.1f s).",
+                patient_id,
+                signal.shape[1] / sfreq,
+                self.window_seconds,
+            )
+            return []
         samples: list[dict[str, Any]] = []
         for start in range(0, signal.shape[1] - window_len + 1, stride_len):
             samples.append(

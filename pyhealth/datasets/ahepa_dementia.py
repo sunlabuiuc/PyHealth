@@ -43,6 +43,8 @@ _NAME = "ahepa_dementia"
 _CSV_NAME = "ahepa_dementia-pyhealth.csv"
 _RECORDING = "{subject}_task-eyesclosed_eeg.set"
 
+_REQUIRED_COLUMNS: tuple[str, ...] = ("participant_id", "Group")
+
 # Columns of participants.tsv and their names in the metadata.
 _PARTICIPANT_COLUMNS: dict[str, str] = {
     "Group": "group",
@@ -50,6 +52,49 @@ _PARTICIPANT_COLUMNS: dict[str, str] = {
     "Age": "age",
     "MMSE": "mmse",
 }
+
+
+def _read_participants(path: Path) -> pd.DataFrame:
+    """Read and check ``participants.tsv``.
+
+    Args:
+        path: Path to the tab-separated participants file.
+
+    Returns:
+        The participants, one row per id, with ``participant_id`` stripped
+        and the ``Group`` codes stripped and in upper case. Rows without an
+        id are dropped, and so are repeated ids, with a warning.
+
+    Raises:
+        ValueError: If the file is empty or lacks the ``participant_id`` or
+            ``Group`` column.
+    """
+    try:
+        participants = pd.read_csv(path, sep="\t", dtype=str)
+    except pd.errors.EmptyDataError as error:
+        raise ValueError(f"{path} is empty.") from error
+    missing = [c for c in _REQUIRED_COLUMNS if c not in participants.columns]
+    if missing:
+        raise ValueError(
+            f"{path} has no {missing} column(s); its columns are "
+            f"{list(participants.columns)}. It has to be the tab-separated "
+            "participants.tsv of the dataset."
+        )
+    participants["participant_id"] = participants["participant_id"].str.strip()
+    participants["Group"] = participants["Group"].str.strip().str.upper()
+    has_id = participants["participant_id"].notna() & (
+        participants["participant_id"] != ""
+    )
+    participants = participants[has_id]
+    repeated = participants["participant_id"].duplicated()
+    if repeated.any():
+        logger.warning(
+            "%s lists %s more than once; the first row of each is used.",
+            path,
+            sorted(participants.loc[repeated, "participant_id"].unique()),
+        )
+        participants = participants[~repeated]
+    return participants.reset_index(drop=True)
 
 
 def _recording(folder: Path, subject: str) -> str:
@@ -152,12 +197,17 @@ class AHEPADementiaDataset(BaseDataset):
         ``gender``, ``age`` and ``mmse``. A missing recording is left empty,
         and subjects with neither recording, for example after a partial
         download, are left out with a warning. An existing CSV, in ``root``
-        or in the cache, is left untouched.
+        or in the cache, is left untouched: delete it to index recordings
+        downloaded later.
 
         Returns:
             None. The CSV path is ``<root>/ahepa_dementia-pyhealth.csv`` or
             the same file name under
             ``~/.cache/pyhealth/ahepa_dementia/<hash of root>``.
+
+        Raises:
+            ValueError: If ``participants.tsv`` is empty or lacks the
+                ``participant_id`` or ``Group`` column.
         """
         root = Path(self.root)
         if metadata_csv_exists(root, _NAME, _CSV_NAME):
@@ -167,12 +217,12 @@ class AHEPADementiaDataset(BaseDataset):
         if not participants_file.is_file():
             logger.warning("No participants.tsv found under %s", root)
             return
-        participants = pd.read_csv(participants_file, sep="\t", dtype=str)
+        participants = _read_participants(participants_file)
 
         rows = []
         missing = []
         for _, participant in participants.iterrows():
-            subject = participant["participant_id"].strip()
+            subject = participant["participant_id"]
             signal_file = _recording(root / "derivatives", subject)
             raw_signal_file = _recording(root, subject)
             if not signal_file and not raw_signal_file:
@@ -190,10 +240,12 @@ class AHEPADementiaDataset(BaseDataset):
         if missing:
             logger.warning(
                 "%d of %d subjects of participants.tsv have no recording under "
-                "%s and are left out.",
+                "%s and are left out. Delete %s to index them once they are "
+                "downloaded.",
                 len(missing),
                 len(participants),
                 root,
+                _CSV_NAME,
             )
         if not rows:
             logger.warning("No AHEPA recordings found under %s", root)

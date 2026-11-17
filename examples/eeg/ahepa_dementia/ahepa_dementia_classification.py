@@ -2,8 +2,9 @@
 
 Author: Axel Coiffard-Donaty
 
-Follows the classification benchmark of the data descriptor (Miltiadous et
-al., Data 8(6):95, 2023, section 3.3, https://doi.org/10.3390/data8060095):
+Follows the protocol of the classification benchmark of the data descriptor
+(Miltiadous et al., Data 8(6):95, 2023, section 3.3,
+https://doi.org/10.3390/data8060095):
 
 1. ``AHEPADementiaDataset`` and ``DementiaClassificationAHEPA`` cut the
    artifact-cleaned recordings into 4 second windows with 50% overlap;
@@ -43,15 +44,17 @@ Other problems: ``--problem ftd_vs_cn``, ``ad_vs_ftd``, ``dementia_vs_cn``.
 """
 
 import argparse
+from collections.abc import Callable
 
 import numpy as np
 from scipy.signal import welch
+from sklearn.base import ClassifierMixin
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
 
 from pyhealth.datasets import AHEPADementiaDataset
 from pyhealth.tasks import DementiaClassificationAHEPA
-from pyhealth.tasks.dementia_classification_ahepa import REFERENCES
+from pyhealth.tasks.dementia_classification_ahepa import AHEPA_REFERENCES
 
 SEED = 0
 RESAMPLE_RATE = 125  # Hz, above twice the 45 Hz upper edge of the bands
@@ -86,7 +89,12 @@ def relative_band_power(signal: np.ndarray, sfreq: float) -> np.ndarray:
     return np.stack(bands, axis=1)
 
 
-def leave_one_subject_out(features, labels, subjects, make_model) -> dict:
+def leave_one_subject_out(
+    features: np.ndarray,
+    labels: np.ndarray,
+    subjects: np.ndarray,
+    make_model: Callable[[], ClassifierMixin],
+) -> dict[str, float]:
     """Evaluate a classifier with leave-one-subject-out validation.
 
     Args:
@@ -127,7 +135,7 @@ def main() -> None:
         "--root", required=True, help="BIDS root, the folder with participants.tsv."
     )
     parser.add_argument("--problem", default="ad_vs_cn", choices=BINARY_PROBLEMS)
-    parser.add_argument("--reference", default="stored", choices=REFERENCES)
+    parser.add_argument("--reference", default="stored", choices=AHEPA_REFERENCES)
     parser.add_argument(
         "--per-channel",
         action="store_true",
