@@ -604,7 +604,8 @@ Review Process
    - ``status: automatic``: comment ``/review`` to get an AI review. Push your fixes
      and comment ``/review`` again whenever you want another review. If your
      checks are waiting for a maintainer's approval (usual on a first pull
-     request), ``/review`` starts them for you. **Once the AI
+     request), ``/review`` starts them for you, and so does a maintainer adding
+     the ``status: automatic`` label. **Once the AI
      approves your latest commit, comment** ``/merge`` **to merge your pull request
      into PyHealth yourself.**
 

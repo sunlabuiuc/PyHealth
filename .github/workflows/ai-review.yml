@@ -37,11 +37,12 @@ name: AI Review
 #   reviewed instead), or for a review that couldn't finish (unreadable
 #   coverage, a model error): those post no decision.
 #
-# Four jobs: "request" accepts a /review comment (marking it with 👀) and
+# Five jobs: "request" accepts a /review comment (marking it with 👀) and
 # "resume" picks up waiting requests when the required checks finish; both only
 # dispatch "review" with the PR number. Every review run therefore joins one
 # queue per PR, so the same commit is never reviewed twice at once. "merge"
-# handles /merge.
+# handles /merge, and "unlock" starts the waiting checks when a maintainer
+# adds "status: automatic".
 #
 # Runs in the context of the base repository and never executes PR code: the
 # only checkout is of the base commit, and PR files are fetched as data. Label
@@ -50,6 +51,9 @@ name: AI Review
 on:
   issue_comment:
     types: [created]
+  # base-repository context: runs this file from master, never the PR's
+  pull_request_target:
+    types: [labeled]
   workflow_run:
     workflows: ['Python Test', 'PR Contribution Rules']
     types: [completed]
@@ -267,6 +271,61 @@ jobs:
               inputs: { pr: String(pr.number) },
             });
             core.info(`dispatched the review of PR #${pr.number}`);
+
+  # When a maintainer adds "status: automatic", approves the check runs on the
+  # PR's latest commit that wait for a maintainer's approval (first-time
+  # contributors' forks), so the author can comment /review right away. Free:
+  # it doesn't count toward CI_QUOTA. Later commits are started by /review.
+  unlock:
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.label.name == 'status: automatic'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ai-review-request-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Start the waiting checks
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const repo = context.repo;
+            const login = context.payload.sender.login;
+            let writer = false;
+            try {
+              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({ ...repo, username: login });
+              writer = ['admin', 'write'].includes(data.permission);
+            } catch {}
+            if (!writer) return core.info(`ignored: ${login} isn't a maintainer`);
+
+            const { data: pr } = await github.rest.pulls.get({ ...repo, pull_number: context.payload.pull_request.number });
+            if (pr.state !== 'open') return core.info('ignored: the PR is not open');
+            // the same rule as /review: fork runs use the PR's own workflow
+            // files and build config, so those PRs stay with the maintainer
+            const ALLOWED = process.env.ALLOWED_DIRS.split(' ');
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              ...repo, pull_number: pr.number, per_page: 100,
+            });
+            if (files.flatMap((f) => [f.filename, f.previous_filename]).filter(Boolean)
+              .some((p) => !ALLOWED.some((d) => p.startsWith(d)))) {
+              return core.info('not started: the PR changes files outside the allowed directories');
+            }
+            let approved = 0;
+            for (const workflow of ['test.yml', 'pr_contribution_rules.yml']) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                ...repo, workflow_id: workflow, head_sha: pr.head.sha, event: 'pull_request', per_page: 50,
+              });
+              const latest = data.workflow_runs.sort((a, b) => b.run_number - a.run_number)[0];
+              if (latest?.status === 'action_required' || latest?.conclusion === 'action_required') {
+                await github.rest.actions.approveWorkflowRun({ ...repo, run_id: latest.id });
+                approved += 1;
+              }
+            }
+            core.info(`approved ${approved} check run(s) on ${pr.head.sha}`);
 
   # Merges an automatic PR when its author (or a maintainer) comments /merge and
   # the AI approved the PR's latest commit, which has passed the required
