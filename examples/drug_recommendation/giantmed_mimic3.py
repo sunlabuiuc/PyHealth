@@ -2,7 +2,7 @@
 
 Run from the repository root::
 
-    python examples/drug_recommendation/giantmed_mimic3.py --model Qwen/Qwen3-8B
+    python examples/drug_recommendation/giantmed_mimic3.py --ndc-rxcui /path/to/ndc2rxnorm_mapping.txt --ndc-atc /path/to/ndc2atc_level4.csv --model Qwen/Qwen3-8B
 
 The demo is tiny and is intended only to exercise the pipeline, not to
 reproduce the paper. The model and code-mapping resources may need downloads.
@@ -11,19 +11,22 @@ The optional MEDI evidence filter is enabled only when its files are supplied.
 """
 
 import argparse
-from collections import Counter, defaultdict
+import ast
+import csv
+import gzip
 import json
 import os
 import tempfile
 import urllib.request
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import numpy as np
 import torch
 
 from pyhealth.datasets import MIMIC3Dataset, PatientSplit, get_dataloader
-from pyhealth.metrics import ddi_rate_score, multilabel_metrics_fn
 from pyhealth.medcode import ATC, ICD9CM, ICD9PROC
+from pyhealth.metrics import ddi_rate_score, multilabel_metrics_fn
 from pyhealth.models import (
     GiantMed,
     HuggingFaceGiantMedGenerator,
@@ -31,7 +34,6 @@ from pyhealth.models import (
     SafeDrug,
 )
 from pyhealth.tasks import DrugRecommendationMIMIC3
-from pyhealth.tasks.drug_recommendation import _map_ndc_list_to_atc3
 from pyhealth.trainer import Trainer
 
 
@@ -140,6 +142,40 @@ def evaluate_predictions(y_true, scores, patient_ids, ddi):
     return metrics
 
 
+def load_reference_ndc_atc3(ndc_rxcui_path, ndc_atc_path):
+    """Construct the reference's NDC -> RxCUI -> first ATC3 mapping."""
+    ndc_rxcui = ast.literal_eval(Path(ndc_rxcui_path).read_text(encoding="utf-8-sig"))
+    rxcui_atc = {}
+    with open(ndc_atc_path, encoding="utf-8-sig", newline="") as stream:
+        reader = csv.DictReader(stream)
+        if not {"RXCUI", "ATC4"}.issubset(reader.fieldnames or []):
+            raise ValueError("NDC-to-ATC file must contain RXCUI and ATC4")
+        for row in reader:
+            rx, atc = str(row["RXCUI"]).strip(), str(row["ATC4"]).strip()
+            if rx and atc:
+                rxcui_atc.setdefault(rx, atc[:4])
+    return {
+        str(ndc).strip(): rxcui_atc[str(rx).strip()]
+        for ndc, rx in ndc_rxcui.items()
+        if str(rx).strip() in rxcui_atc
+    }
+
+
+def ndc_coverage(prescriptions_path, ndc_map):
+    """Count usable prescription NDC rows mapped by the selected vocabulary."""
+    total = mapped = 0
+    with gzip.open(
+        prescriptions_path, "rt", encoding="utf-8-sig", newline=""
+    ) as stream:
+        for row in csv.DictReader(stream):
+            ndc = str(row.get("ndc", row.get("NDC", ""))).strip()
+            if not ndc or ndc == "0" or ndc.lower() in {"nan", "none", "<na>"}:
+                continue
+            total += 1
+            mapped += int(ndc in ndc_map)
+    return mapped, total
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -208,9 +244,11 @@ def main():
         parser.error("choose only one model or demo responder")
     if args.openrouter_model and not os.environ.get("OPENROUTER_API_KEY"):
         parser.error("OPENROUTER_API_KEY must be set in the environment")
+    if not args.ndc_rxcui or not args.ndc_atc:
+        parser.error("supply --ndc-rxcui and --ndc-atc for reference medication labels")
+    if bool(args.medi) != bool(args.ingredient_cache):
+        parser.error("supply --medi and --ingredient-cache together")
     filter_files = [args.medi, args.ndc_rxcui, args.ndc_atc, args.ingredient_cache]
-    if any(filter_files) and not all(filter_files):
-        parser.error("supply all four MEDI mapping arguments together")
     torch.manual_seed(0)
     np.random.seed(0)
     with tempfile.TemporaryDirectory() as cache:
@@ -219,7 +257,17 @@ def main():
             tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
             cache_dir=cache,
         )
-        task = DrugRecommendationMIMIC3()
+        ndc_map = load_reference_ndc_atc3(args.ndc_rxcui, args.ndc_atc)
+        mapped_rows, usable_rows = ndc_coverage(
+            Path(args.root) / "PRESCRIPTIONS.csv.gz", ndc_map
+        )
+        print(
+            f"Reference label coverage: {mapped_rows}/{usable_rows} usable prescription rows; unmapped rows excluded."
+        )
+        task = DrugRecommendationMIMIC3(ndc_to_atc3=ndc_map)
+        print(
+            f"Reference NDC-to-ATC3 mappings: {len(ndc_map)}; unmapped NDCs are excluded."
+        )
         train, val, test = dataset.set_task(
             task, split=PatientSplit((0.8, 0.1, 0.1), seed=0)
         )
@@ -324,7 +372,7 @@ def main():
                 args.ndc_rxcui,
                 args.ndc_atc,
                 args.ingredient_cache,
-                ndc_to_atc3=lambda ndc: _map_ndc_list_to_atc3([ndc]),
+                ndc_to_atc3=lambda ndc: task.map_drugs([ndc]),
             )
             print(
                 "MEDI filter:",

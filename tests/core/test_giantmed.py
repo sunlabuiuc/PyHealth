@@ -149,6 +149,7 @@ def test_medi_reference_files_restricts_training_and_profile(tmp_path):
 
 def test_huggingface_adapter_decodes_only_generated_tokens():
     import torch
+
     from pyhealth.models.giantmed import HuggingFaceGiantMedGenerator
 
     class Batch(dict):
@@ -227,6 +228,7 @@ def test_medi_rejects_missing_columns(tmp_path):
 
 def test_openrouter_example_adapter_uses_environment_and_returns_content(monkeypatch):
     import json
+
     from examples.drug_recommendation.giantmed_mimic3 import OpenRouterGenerator
 
     captured = {}
@@ -305,6 +307,7 @@ def test_chat_token_counter_counts_ids_not_encoding_keys():
 def test_openrouter_stops_if_provider_reports_over_limit(monkeypatch):
     import io
     import json
+
     from examples.drug_recommendation.giantmed_mimic3 import OpenRouterGenerator
 
     class Response:
@@ -701,3 +704,62 @@ def test_medi_uses_same_ndc_label_mapping_as_task(tmp_path):
         filt.evidence_status(query, {"patient_id": "2", "visit_id": "22"}, "B01A")
         == "missing_mapping"
     )
+
+
+def test_reference_ndc_mapping_matches_task_and_excludes_unmapped(tmp_path):
+    from examples.drug_recommendation.giantmed_mimic3 import load_reference_ndc_atc3
+    from pyhealth.tasks import DrugRecommendationMIMIC3
+
+    ndc_path = tmp_path / "ndc.txt"
+    atc_path = tmp_path / "atc.csv"
+    ndc_path.write_text("{'111': '1', '222': '2', 'bad': '999'}")
+    atc_path.write_text("RXCUI,ATC4\n1,A10AB\n1,B01AA\n2,C03CA\n")
+    mapping = load_reference_ndc_atc3(ndc_path, atc_path)
+    assert mapping == {"111": "A10A", "222": "C03C"}
+    task = DrugRecommendationMIMIC3(ndc_to_atc3=mapping)
+    assert task.map_drugs(["111", "bad", "111", "222"]) == ["A10A", "C03C"]
+    assert task.map_drugs(["bad"]) == []
+    assert task.ndc_to_atc3 == mapping
+
+
+def test_mimic3_task_applies_custom_mapping_to_labels_and_history():
+    from types import SimpleNamespace
+
+    import polars as pl
+
+    from pyhealth.tasks import DrugRecommendationMIMIC3
+
+    class Patient:
+        patient_id = "p1"
+
+        def get_events(self, event_type, filters=None, return_df=False):
+            if event_type == "admissions":
+                return [SimpleNamespace(hadm_id="v1"), SimpleNamespace(hadm_id="v2")]
+            visit = filters[0][2]
+            values = {
+                "diagnoses_icd": ("diagnoses_icd/icd9_code", ["123"]),
+                "procedures_icd": ("procedures_icd/icd9_code", ["42"]),
+                "prescriptions": (
+                    "prescriptions/ndc",
+                    ["111", "bad"] if visit == "v1" else ["222"],
+                ),
+            }
+            name, rows = values[event_type]
+            return pl.DataFrame({name: rows})
+
+    task = DrugRecommendationMIMIC3(ndc_to_atc3={"111": "A10A", "222": "C03C"})
+    first, second = task(Patient())
+    assert first["drugs"] == ["A10A"]
+    assert second["drugs"] == ["C03C"]
+    assert second["drugs_hist"] == [["A10A"], []]
+
+
+def test_ndc_coverage_excludes_missing_codes(tmp_path):
+    import gzip
+
+    from examples.drug_recommendation.giantmed_mimic3 import ndc_coverage
+
+    path = tmp_path / "prescriptions.csv.gz"
+    with gzip.open(path, "wt") as stream:
+        stream.write("ndc\n111\n222\n0\n111\n")
+    assert ndc_coverage(path, {"111": "A10A"}) == (2, 3)
