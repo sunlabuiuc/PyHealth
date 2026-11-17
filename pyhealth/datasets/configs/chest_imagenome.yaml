@@ -1,0 +1,55 @@
+version: "1.0.0"  # Chest ImaGenome, PhysioNet credentialed access
+tables:
+  # Written by ChestImaGenomeDataset from the raw scene graphs and gold file.
+  silver_images:
+    file_path: "chest_imagenome-pyhealth-silver-images.csv"
+    patient_id: "subject_id"
+    timestamp: "study_datetime"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    attributes:
+      - "study_id"
+      - "dicom_id"
+      - "study_order"
+      - "viewpoint"
+      - "gender"
+      - "age_decile"
+  silver_objects:
+    file_path: "chest_imagenome-pyhealth-silver-objects.csv"
+    patient_id: "subject_id"
+    timestamp: "study_datetime"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    attributes:
+      - "study_id"
+      - "dicom_id"
+      - "bbox_name"
+      - "original_x1"
+      - "original_y1"
+      - "original_x2"
+      - "original_y2"
+  silver_comparisons:
+    file_path: "chest_imagenome-pyhealth-silver-comparisons.csv"
+    patient_id: "subject_id"
+    timestamp: "study_datetime"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    attributes:
+      - "study_id"
+      - "dicom_id"
+      - "previous_study_id"
+      - "previous_dicom_id"
+      - "bbox_name"
+      - "findings"
+      - "finding_polarities"
+      - "comparisons"
+  gold_comparisons:
+    file_path: "chest_imagenome-pyhealth-gold-comparisons.csv"
+    patient_id: "subject_id"
+    timestamp: "study_datetime"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    attributes:
+      - "study_id"
+      - "dicom_id"
+      - "previous_study_id"
+      - "previous_dicom_id"
+      - "bbox_name"
+      - "finding"
+      - "comparison"

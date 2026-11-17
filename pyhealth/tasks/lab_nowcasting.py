@@ -97,6 +97,9 @@ def _number(column: str) -> pl.Expr:
 class LabNowcasting(BaseTask):
     """Nowcast the laboratory events of the next blood draw in an admission.
 
+    Works with :class:`~pyhealth.datasets.MIMIC4EHRDataset` and
+    :class:`~pyhealth.datasets.MIMIC3Dataset`.
+
     For each hospital admission, events from ``event_tables`` that fall
     between admission and discharge form a trajectory of ``(code, time)``
     pairs. Laboratory events are coded with their result flag,
@@ -322,6 +325,8 @@ class LabNowcasting(BaseTask):
 class LabNowcastingMIMIC4(LabNowcasting):
     """:class:`LabNowcasting` on MIMIC-IV: laboratory results and medications.
 
+    Works with :class:`~pyhealth.datasets.MIMIC4EHRDataset`.
+
     Laboratory codes carry a high/low/normal flag from the numeric result
     and its reference range (``"A"`` when only the ``flag`` column marks a
     result abnormal), as in the paper's MIMIC-IV setup. Medications come
@@ -353,6 +358,8 @@ class LabNowcastingMIMIC4(LabNowcasting):
 
 class LabNowcastingMIMIC3(LabNowcasting):
     """:class:`LabNowcasting` on MIMIC-III: laboratory results only.
+
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
 
     MIMIC-III's ``LABEVENTS`` has no reference range, so laboratory codes
     carry a binary flag, ``"A"`` (abnormal) or ``"N"``, as in the paper's

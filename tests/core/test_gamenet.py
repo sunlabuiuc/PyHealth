@@ -206,6 +206,35 @@ class TestGAMENetLayerDynamicMemoryMasking(unittest.TestCase):
         layer.eval()
         return layer
 
+    def test_initialized_parameters_do_not_read_uninitialized_memory(self):
+        # Deterministic filling exposes uninitialized floating tensors as NaN,
+        # independent of the allocator state left behind by earlier tests.
+        deterministic = torch.are_deterministic_algorithms_enabled()
+        warn_only = torch.is_deterministic_algorithms_warn_only_enabled()
+        fill_memory = torch.utils.deterministic.fill_uninitialized_memory
+
+        with torch.random.fork_rng(devices=[]):
+            try:
+                torch.use_deterministic_algorithms(True)
+                torch.utils.deterministic.fill_uninitialized_memory = True
+                layer = self._make_layer(hidden_size=8, num_drugs=5)
+                self.assertTrue(torch.isfinite(layer.beta).all())
+
+                with torch.no_grad():
+                    loss, y_prob = layer(
+                        torch.zeros(1, 2, 8),
+                        torch.zeros(1, 2, 5),
+                        torch.zeros(1, 5),
+                        torch.tensor([[1.0, 0.0]]),
+                    )
+
+                self.assertTrue(torch.isfinite(loss).all())
+                self.assertTrue(torch.isfinite(y_prob).all())
+
+            finally:
+                torch.utils.deterministic.fill_uninitialized_memory = fill_memory
+                torch.use_deterministic_algorithms(deterministic, warn_only=warn_only)
+
     def test_dynamic_memory_ignores_own_current_visit_and_padding(self):
         """Perturbing prev_drugs at a shorter patient's own current-visit
         slot and at padding positions -- both of which fall inside the

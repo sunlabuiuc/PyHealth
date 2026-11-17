@@ -31,6 +31,8 @@ IIIC_CLASSES: dict[int, str] = {
 class EEGSeizureIIIC(BaseTask):
     """Multi-class EEG classification task for the IIIC Seizure (SPaRCNet) dataset.
 
+    Works with :class:`~pyhealth.datasets.IIICDataset`.
+
     Classifies 10-second, 16-channel longitudinal bipolar (TCP) montage EEG
     segments into one of six Ictal-Interictal-Injury Continuum (IIIC) classes:
       - ``0``: Other

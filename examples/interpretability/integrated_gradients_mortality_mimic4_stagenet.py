@@ -7,14 +7,23 @@ This example demonstrates:
 3. Applying the MortalityPredictionStageNetMIMIC4 task with processors
 4. Saving newly created processors for future reuse
 5. Training a StageNet model
-6. Using Integrated Gradients for interpretability
+6. Using Integrated Gradients for interpretability (attributions for one test
+   patient toward mortality and toward survival, decoded to codes/lab names)
+
+Data: MIMIC-IV v2.2 hosp tables (credentialed PhysioNet access:
+https://physionet.org/content/mimiciv/2.2/).
+Run (set MIMIC4_ROOT and CHECKPOINT_PATH below):
+    python examples/interpretability/integrated_gradients_mortality_mimic4_stagenet.py
+If CHECKPOINT_PATH does not exist, StageNet is trained for EPOCHS epochs first
+(use a GPU for full MIMIC-IV). To try it without credentials, set MIMIC4_ROOT
+to ``test-resources/core/mimic4demo``.
 
 Processor Caching:
     The script automatically checks if processors have been saved previously.
     - If processors exist: loads and reuses them (faster, consistent encoding)
     - If not: creates new processors and saves them for future runs
 
-    Processor location: ../../output/processors/stagenet_mortality_mimic4/
+    Processor location: ../output/processors/stagenet_mortality_mimic4/
     To force recreation: delete the processor files in the output directory
 
 Lab Feature Mapping:
@@ -50,6 +59,11 @@ from pyhealth.interpret.methods import IntegratedGradients
 from pyhealth.models import StageNet
 from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
 from pyhealth.trainer import Trainer
+
+# Paths: edit before running.
+MIMIC4_ROOT = "/path/to/mimiciv/2.2/"
+CHECKPOINT_PATH = "/path/to/output/stagenet_mortality/best.ckpt"
+EPOCHS = 5  # only used when CHECKPOINT_PATH does not exist
 
 
 # ============================================================================
@@ -281,7 +295,7 @@ def main():
     """Main execution function for StageNet mortality prediction with IG."""
     # STEP 1: Load MIMIC-IV base dataset
     base_dataset = MIMIC4Dataset(
-        ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
+        ehr_root=MIMIC4_ROOT,
         ehr_tables=[
             "patients",
             "admissions",
@@ -339,7 +353,7 @@ def main():
     print(f"  - Output processors: {len(sample_dataset.output_processors)} keys")
 
     # Inspect a sample
-    sample = sample_dataset.samples[0]
+    sample = sample_dataset[0]
     print("\nSample structure:")
     print(f"  Patient ID: {sample['patient_id']}")
     print(f"ICD Codes: {sample['icd_codes']}")
@@ -373,12 +387,7 @@ def main():
     print("LOADING PRE-TRAINED MODEL")
     print(f"{'='*60}")
 
-    checkpoint_path = (
-        "/home/johnwu3/projects/PyHealth_Branch_Testing/PyHealth/output/"
-        "20251028-191219/best.ckpt"
-    )
-
-    print(f"✓ Loading checkpoint: {checkpoint_path}")
+    checkpoint_path = CHECKPOINT_PATH
 
     # Initialize trainer
     trainer = Trainer(
@@ -387,9 +396,13 @@ def main():
         metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
     )
 
-    # Load the checkpoint
-    trainer.load_ckpt(checkpoint_path)
-    print("✓ Checkpoint loaded successfully")
+    if Path(checkpoint_path).exists():
+        print(f"✓ Loading checkpoint: {checkpoint_path}")
+        trainer.load_ckpt(checkpoint_path)
+        print("✓ Checkpoint loaded successfully")
+    else:
+        print(f"No checkpoint at {checkpoint_path}; training for {EPOCHS} epochs.")
+        trainer.train(train_dataloader=train_loader, epochs=EPOCHS)
 
     # STEP 6: Interpretability with Integrated Gradients
     print(f"\n{'='*60}")

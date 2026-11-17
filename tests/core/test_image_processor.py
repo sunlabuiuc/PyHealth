@@ -161,5 +161,57 @@ class TestImageProcessor(unittest.TestCase):
         self.assertEqual(result.shape, (3, 100, 100))
 
 
+class TestImageProcessorFit(unittest.TestCase):
+    """fit() records the widest (C, H, W) the processor will output."""
+
+    setUp = TestImageProcessor.setUp
+    tearDown = TestImageProcessor.tearDown
+
+    def _samples(self, *paths):
+        return [{"image": path} for path in paths]
+
+    def test_widest_mode_without_a_mode(self):
+        processor = ImageProcessor(image_size=32)
+        processor.fit(self._samples(self.gray_path, self.rgb_path, self.rgba_path), "image")
+        self.assertEqual(processor._shape, (4, 32, 32))
+        processor.fit(self._samples(self.gray_path, self.rgb_path), "image")
+        self.assertEqual(processor._shape, (3, 32, 32))
+
+    def test_widest_size_without_an_image_size(self):
+        processor = ImageProcessor(image_size=None, mode="L")
+        processor.fit(self._samples(self.gray_path, self.rgba_path, self.rgb_path), "image")
+        self.assertEqual(processor._shape, (1, 100, 100))
+        wide = os.path.join(self.temp_dir, "wide.png")
+        Image.new("RGB", (120, 40)).save(wide)
+        processor.fit(self._samples(self.gray_path, wide), "image")
+        self.assertEqual(processor._shape, (1, 50, 120))  # (C, H, W)
+
+    def test_mode_and_image_size_need_no_images(self):
+        processor = ImageProcessor(image_size=16, mode="RGBA")
+        processor.fit(self._samples("/does/not/exist.png"), "image")
+        self.assertEqual(processor._shape, (4, 16, 16))
+
+    def test_missing_values_are_skipped(self):
+        processor = ImageProcessor(image_size=8)
+        processor.fit([{"image": None}, {}], "image")
+        self.assertIsNone(processor._shape)
+        processor.fit([{"image": None}, {"image": self.gray_path}], "image")
+        self.assertEqual(processor._shape, (1, 8, 8))
+
+    def test_fitted_shape_matches_process(self):
+        for mode in (None, "L", "RGB"):
+            with self.subTest(mode=mode):
+                processor = ImageProcessor(image_size=24, mode=mode)
+                processor.fit(self._samples(self.rgb_path), "image")
+                self.assertEqual(
+                    processor._shape, tuple(processor.process(self.rgb_path).shape)
+                )
+
+    def test_processors_pickled_before_fit_have_no_shape(self):
+        processor = ImageProcessor(image_size=8)
+        processor.__dict__.pop("_shape", None)
+        self.assertIsNone(processor._shape)
+
+
 if __name__ == '__main__':
     unittest.main()

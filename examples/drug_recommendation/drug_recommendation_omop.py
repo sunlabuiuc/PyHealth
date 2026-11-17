@@ -1,6 +1,16 @@
-"""Drug recommendation on an OMOP CDM dataset.
+"""Drug recommendation samples from an OMOP CDM dataset.
 
-Run with a local OMOP CDM v5.3 export, e.g. the CMS SynPUF 1k sample.
+Loads condition, procedure and drug tables from an OMOP CDM v5.3 export,
+applies ``DrugRecommendationOMOP``, prints one sample and one batch from a
+patient-level split. It stops before modelling; plug the samples into any
+multilabel model (see the MIMIC-III drug recommendation examples).
+
+Data: any OMOP CDM v5.3 CSV export, e.g. the CMS SynPUF 1k sample or the
+open-access MIMIC-IV demo in OMOP format
+(https://physionet.org/content/mimic-iv-demo-omop/). Set ``root`` below.
+
+Run: ``python examples/drug_recommendation/drug_recommendation_omop.py``.
+Without downloading anything, set ``root`` to ``test-resources/omop``.
 """
 
 from pyhealth.datasets import OMOPDataset, get_dataloader, split_by_patient

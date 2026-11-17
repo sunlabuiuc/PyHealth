@@ -270,6 +270,14 @@ class MetabricDataset(BaseDataset):
         MLHC 2022, PMLR 182:224-248.
         https://proceedings.mlr.press/v182/han22a.html
 
+    Getting the data:
+        - Source: the Survival MDN split files,
+          https://github.com/XintianHan/Survival-MDN
+        - Access: open, no account needed.
+        - Download: pass ``download=True``.
+        - ``root``: the folder holding ``metabric.csv``, or the split files that
+          :func:`prepare_metabric` builds it from.
+
     Args:
         root: Directory holding ``metabric.csv`` or the split files.
         tables: Tables to load. Defaults to ``["metabric"]``, the only one.

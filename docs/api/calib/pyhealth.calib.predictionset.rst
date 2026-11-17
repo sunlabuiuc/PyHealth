@@ -80,6 +80,30 @@ FavMac (Fast Value-Maximizing Prediction Sets)
    :undoc-members:
    :show-inheritance:
 
+For evaluation, pass the original ``cost_weights``, ``value_weights`` and
+``target_cost`` used to construct FavMac, without normalizing them. Both weights
+default to 1.0. With ``delta=None``, compare ``fp_cost`` with ``target_cost``.
+With delta specified, compare ``fp_cost_violation_rate`` with delta instead.
+delta is not an input to either metric.
+
+For example, given these test labels and prediction sets::
+
+    import numpy as np
+    from pyhealth.metrics import multilabel_metrics_fn
+
+    y_true = np.array([[1, 0], [0, 1]])
+    y_predset = np.array([[1, 1], [0, 1]])
+    scores = multilabel_metrics_fn(
+        y_true,
+        np.zeros_like(y_true, dtype=float),  # Probabilities are unused here.
+        metrics=["fp_cost", "tp_value", "fp_cost_violation_rate"],
+        y_predset=y_predset,
+        cost_weights=np.array([2.0, 3.0]),
+        value_weights=np.array([1.0, 4.0]),
+        target_cost=2.0,
+    )
+    assert scores == {"fp_cost": 1.5, "tp_value": 2.5, "fp_cost_violation_rate": 0.5}
+
 CovariateLabel (Covariate Shift Adaptive)
 ------------------------------------------
 

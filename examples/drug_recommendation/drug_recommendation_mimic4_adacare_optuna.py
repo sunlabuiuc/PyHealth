@@ -19,6 +19,16 @@ Note:
     r_v, r_c, activation, dropout) must not be passed to AdaCare() directly.
     The tunable surface here covers the explicit named parameters
     (embedding_dim, hidden_dim) and the optimizer settings.
+
+Data: MIMIC-IV 2.2 from PhysioNet (https://physionet.org/content/mimiciv/,
+credentialed). Set MIMIC4_ROOT and CACHE_DIR below.
+
+Run: ``pip install optuna``, then
+``python examples/drug_recommendation/drug_recommendation_mimic4_adacare_optuna.py``.
+10 trials x 10 epochs plus a 50-epoch final run on full MIMIC-IV needs a GPU
+and many hours. Without credentials, set MIMIC4_ROOT to
+``test-resources/core/mimic4demo`` and lower N_TRIALS, TUNE_EPOCHS and the
+final epochs to check that the code runs.
 """
 
 import torch
@@ -33,13 +43,16 @@ from pyhealth.models import AdaCare
 from pyhealth.tasks import DrugRecommendationMIMIC4
 from pyhealth.trainer import Trainer
 
+MIMIC4_ROOT = "/path/to/mimiciv/2.2"
+CACHE_DIR = "/path/to/pyhealth_cache"
+
 if __name__ == "__main__":
     # ---------------------------------------------------------------------------
     # STEP 1: Load MIMIC-IV base dataset
     # ---------------------------------------------------------------------------
     base_dataset = MIMIC4Dataset(
-        ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
-        cache_dir="/shared/eng/pyhealth_agent/baselines",
+        ehr_root=MIMIC4_ROOT,
+        cache_dir=CACHE_DIR,
         ehr_tables=[
             "patients",
             "admissions",
@@ -70,7 +83,7 @@ if __name__ == "__main__":
     # ---------------------------------------------------------------------------
     # STEP 4: Define Optuna objective
     # ---------------------------------------------------------------------------
-    DEVICE = "cuda:3"   # or "cpu"
+    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
     TUNE_EPOCHS = 10    # lightweight training per trial
     N_TRIALS = 10
 

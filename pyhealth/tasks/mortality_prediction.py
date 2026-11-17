@@ -7,6 +7,8 @@ from .base_task import BaseTask
 class MortalityPredictionMIMIC3(BaseTask):
     """Task for predicting mortality using MIMIC-III dataset with text data.
 
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
+
     This task aims to predict whether the patient will decease in the next
     hospital visit based on clinical information from the current visit.
 
@@ -85,6 +87,8 @@ class MortalityPredictionMIMIC3(BaseTask):
 
 class MultimodalMortalityPredictionMIMIC3(BaseTask):
     """Task for predicting mortality using MIMIC-III dataset with text data.
+
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
 
     This task aims to predict whether the patient will decease in the next
     hospital visit based on clinical information from the current visit.
@@ -171,6 +175,8 @@ class MultimodalMortalityPredictionMIMIC3(BaseTask):
 
 class MortalityPredictionMIMIC4(BaseTask):
     """Task for predicting mortality using MIMIC-IV EHR data only.
+
+    Works with :class:`~pyhealth.datasets.MIMIC4EHRDataset`.
 
     Examples:
         >>> from pyhealth.datasets import MIMIC4EHRDataset
@@ -302,6 +308,9 @@ class MortalityPredictionMIMIC4(BaseTask):
 class MultimodalMortalityPredictionMIMIC4(BaseTask):
     """Task for predicting patient-level mortality using MIMIC-IV multimodal data.
 
+    Works with :class:`~pyhealth.datasets.MIMIC4Dataset` loaded with its EHR,
+    note and CXR sources.
+
     This task combines multiple modalities for mortality prediction at the
     PATIENT LEVEL (not visit level). All core modalities are required for
     each sample.
@@ -336,8 +345,10 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
         - Returns ONE sample per patient with aggregated multimodal data
 
     Modality Coverage:
-        - No modality requirements - returns all patients
-        - Coverage analysis should be done downstream
+        - Patients missing any required modality above are skipped
+        - The dataset must be loaded with at least one note table
+          (``discharge`` or ``radiology``) and the CXR ``metadata`` table;
+          otherwise the task raises a ``ValueError`` naming what to load
         - Discharge and radiology notes are returned as lists (raw processor)
         - lab_values uses nested_sequence_floats processor for 10D vectors
         - lab_times is a separate list of time offsets (raw processor)
@@ -407,6 +418,39 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
         }
         self.output_schema: Dict[str, str] = {"mortality": "binary"}
         super().__init__(**kwargs)
+
+    @staticmethod
+    def _has_table(patient: Any, table: str) -> bool:
+        """Whether the dataset behind ``patient`` loaded ``table``.
+
+        Patients without a ``data_source`` (e.g. test doubles) are assumed to
+        have every table.
+        """
+        data = getattr(patient, "data_source", None)
+        if data is None:
+            return True
+        prefix = f"{table}/"
+        return any(c.startswith(prefix) for c in data.columns)
+
+    def _check_tables(self, patient: Any) -> None:
+        """Raises if the dataset lacks a source every sample needs."""
+        missing = []
+        if not (
+            self._has_table(patient, "discharge")
+            or self._has_table(patient, "radiology")
+        ):
+            missing.append(
+                "a note table (note_root with note_tables=['discharge'] "
+                "and/or ['radiology'])"
+            )
+        if not self._has_table(patient, "metadata"):
+            missing.append("the CXR metadata (cxr_root with cxr_tables=['metadata'])")
+        if missing:
+            raise ValueError(
+                f"{self.task_name} needs notes and chest X-rays for every "
+                f"sample, but the dataset was loaded without "
+                f"{' and '.join(missing)}. Load them in MIMIC4Dataset."
+            )
 
     def _clean_sequence(self, sequence: Optional[List[Any]]) -> List[str]:
         """Clean a sequence by removing None values and converting to strings."""
@@ -535,6 +579,8 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
 
         Returns ONE sample per patient with aggregated multimodal data.
         """
+        self._check_tables(patient)
+
         # Get demographic info to filter by age
         demographics = patient.get_events(event_type="patients")
         if not demographics:
@@ -677,12 +723,14 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
                 filters=[("hadm_id", "==", admission.hadm_id)],
             )
 
-            # Get notes using hadm_id filtering
-            discharge_notes = patient.get_events(
-                event_type="discharge", filters=[("hadm_id", "==", admission.hadm_id)]
-            )
-            radiology_notes = patient.get_events(
-                event_type="radiology", filters=[("hadm_id", "==", admission.hadm_id)]
+            # Get notes using hadm_id filtering; either note table may be absent
+            discharge_notes, radiology_notes = (
+                patient.get_events(
+                    event_type=table, filters=[("hadm_id", "==", admission.hadm_id)]
+                )
+                if self._has_table(patient, table)
+                else []
+                for table in ("discharge", "radiology")
             )
 
             # Extract clinical codes per visit (nested structure)
@@ -799,6 +847,8 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
 class MortalityPredictionEICU(BaseTask):
     """Task for predicting mortality using eICU dataset.
 
+    Works with :class:`~pyhealth.datasets.eICUDataset`.
+
     This task aims to predict whether the patient will decease in the next hospital
     visit based on clinical information from the current visit.
 
@@ -908,6 +958,8 @@ class MortalityPredictionEICU(BaseTask):
 
 class MortalityPredictionEICU2(BaseTask):
     """Task for predicting mortality using eICU dataset with alternative coding.
+
+    Works with :class:`~pyhealth.datasets.eICUDataset`.
 
     This task aims to predict whether the patient will decease in the next hospital
     visit based on clinical information from the current visit.
@@ -1023,6 +1075,8 @@ class MortalityPredictionEICU2(BaseTask):
 
 class MortalityPredictionOMOP(BaseTask):
     """Task for predicting mortality using OMOP CDM dataset.
+
+    Works with :class:`~pyhealth.datasets.OMOPDataset`.
 
     This task predicts whether a patient has a death record (binary
     mortality prediction) based on clinical information from each visit.

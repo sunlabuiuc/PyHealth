@@ -8,7 +8,7 @@ Overview
 scores to input features. It works with any PyHealth model and needs no
 gradients, and it is intended as a sanity-check baseline: a meaningful
 attribution method should be clearly more faithful to the model than random
-scores. See ``examples/interpretability/interpret_playground.py`` for usage
+scores. See ``examples/interpretability/mp_transformer_mimic4_interpret.py`` (``--methods random,ig,shap``) for usage
 alongside other methods.
 
 API Reference

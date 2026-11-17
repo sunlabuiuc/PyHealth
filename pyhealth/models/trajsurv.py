@@ -261,9 +261,9 @@ class TrajSurv(BaseModel):
 
     The input is an hourly multivariate series, such as the ``dynamic``
     field of :class:`~pyhealth.tasks.InHospitalSurvivalMIMIC4`
-    (a :class:`~pyhealth.processors.SequenceProcessorV2` series, already
+    (a :class:`~pyhealth.processors.JaggedFeatureProcessor` series, already
     imputed and standardized by the processor) or a dense ``[T, F]`` tensor.
-    Only single-level ``sequence_v2`` series are supported; every series
+    Only single-level ``jagged`` series are supported; every series
     needs at least one record.
     The CDE's control path has ``1 + 2F`` channels: time (divided by
     ``time_scale``), the ``F`` values, and for each feature the fraction of
@@ -458,7 +458,7 @@ class TrajSurv(BaseModel):
         if "values" not in roles:
             raise ValueError(f"{key!r} has no values; TrajSurv needs numeric series")
         if any(isinstance(entry, tuple) for entry in entries):
-            # SequenceProcessorV2's collate appends the offsets of the packed
+            # JaggedFeatureProcessor's collate appends the offsets of the packed
             # records after the schema's tensors.
             roles.setdefault("offsets", len(entries))
         return roles
