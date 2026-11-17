@@ -49,13 +49,27 @@ class TestBEHRT(unittest.TestCase):
         self.assertEqual(self.model.embedding_dim, 64)
         self.assertEqual(self.model.heads, 2)
         self.assertEqual(self.model.num_layers, 1)
-        self.assertEqual(len(self.model.feature_keys), 2)
+        self.assertEqual(len(self.model.code_feature_keys), 2)
         self.assertEqual(self.model.pooling, "cls")
 
     def test_invalid_pooling_raises(self):
         """Ensures invalid pooling modes raise ValueError."""
         with self.assertRaises(ValueError):
             BEHRT(dataset=self.dataset, pooling="unsupported_pool")
+
+    def test_empty_code_features_raises(self):
+        """Ensures initializing without code features raises ValueError."""
+        dummy_ds = create_sample_dataset(
+            samples=[
+                {"patient_id": "p0", "age": [50], "label": 1},
+                {"patient_id": "p1", "age": [60], "label": 0},
+            ],
+            input_schema={"age": "sequence"},
+            output_schema={"label": "binary"},
+            dataset_name="test_empty",
+        )
+        with self.assertRaises(ValueError):
+            BEHRT(dataset=dummy_ds)
 
     def test_embedding_layer_standalone(self):
         """Verifies BEHRTEmbedding combines codes, age, segments, and positions."""
@@ -82,6 +96,21 @@ class TestBEHRT(unittest.TestCase):
         )
         self.assertEqual(out_1d.shape, (2, 5, 32))
 
+    def test_mismatched_temporal_lengths_padded_and_truncated(self):
+        """Verifies age and segment inputs with mismatched lengths are aligned."""
+        layer = BEHRTEmbedding(embedding_dim=32, max_age=100, max_segments=30)
+        code_embs = torch.randn(2, 6, 32)  # target seq_len is 6
+
+        # age is shorter (length 3), segment is longer (length 9)
+        short_age = torch.tensor([[40, 41, 42], [55, 55, 56]])
+        long_segment = torch.tensor(
+            [[0, 0, 1, 1, 2, 2, 3, 3, 4], [0, 1, 1, 2, 2, 3, 3, 4, 4]]
+        )
+
+        out = layer(code_embs, age_ids=short_age, segment_ids=long_segment)
+        self.assertEqual(out.shape, (2, 6, 32))
+        self.assertFalse(torch.isnan(out).any())
+
     def test_behrt_layer_standalone(self):
         """Verifies BEHRTLayer encoder stack and attention masking."""
         layer = BEHRTLayer(hidden_size=32, heads=2, num_layers=2)
@@ -89,6 +118,17 @@ class TestBEHRT(unittest.TestCase):
         mask = torch.tensor([[1, 1, 1, 1, 0, 0], [1, 1, 1, 0, 0, 0]], dtype=torch.bool)
         out = layer(x, mask=mask)
         self.assertEqual(out.shape, (2, 6, 32))
+        self.assertFalse(torch.isnan(out).any())
+
+    def test_padding_mask_correctness(self):
+        """Ensures fully masked tokens do not cause NaN attention outputs."""
+        layer = BEHRTLayer(hidden_size=32, heads=2, num_layers=1)
+        x = torch.randn(2, 4, 32)
+        # Sequence 0 has tokens, sequence 1 is all padding
+        mask = torch.tensor([[1, 1, 0, 0], [0, 0, 0, 0]], dtype=torch.bool)
+        out = layer(x, mask=mask)
+        self.assertEqual(out.shape, (2, 4, 32))
+        self.assertFalse(torch.isnan(out).any())
 
     def test_binary_classification_forward(self):
         """Tests forward pass on binary classification dataset."""
@@ -132,7 +172,6 @@ class TestBEHRT(unittest.TestCase):
 
         self.assertEqual(out["logit"].shape, (3, 3))
         self.assertEqual(out["y_prob"].shape, (3, 3))
-        # Probabilities sum to 1 across classes
         sums = out["y_prob"].sum(dim=-1)
         self.assertTrue(torch.allclose(sums, torch.ones_like(sums), atol=1e-5))
 
@@ -167,9 +206,51 @@ class TestBEHRT(unittest.TestCase):
         loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
         batch = next(iter(loader))
 
-        # Add explicit age and segment tensors
         batch["age"] = torch.tensor([[55, 55, 56], [70, 70, 71]])
         batch["segment"] = torch.tensor([[0, 0, 1], [0, 1, 1]])
+
+        out = self.model(**batch)
+        self.assertEqual(out["logit"].shape, (2, 1))
+        self.assertIn("loss", out)
+
+    def test_protect_age_and_segment_in_dataset_schema(self):
+        """Ensures age and segment in input_schema are not treated as code tokens."""
+        ds_with_age = create_sample_dataset(
+            samples=[
+                {
+                    "patient_id": "p0",
+                    "conditions": ["c1", "c2"],
+                    "age": [45, 45],
+                    "label": 1,
+                },
+                {
+                    "patient_id": "p1",
+                    "conditions": ["c2", "c3"],
+                    "age": [60, 60],
+                    "label": 0,
+                },
+            ],
+            input_schema={"conditions": "sequence", "age": "sequence"},
+            output_schema={"label": "binary"},
+            dataset_name="test_protected",
+        )
+        model = BEHRT(dataset=ds_with_age, embedding_dim=32, heads=1, num_layers=1)
+        self.assertEqual(model.code_feature_keys, ["conditions"])
+        self.assertEqual(model.fc.in_features, 32)
+
+        loader = get_dataloader(ds_with_age, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+        out = model(**batch)
+        self.assertEqual(out["logit"].shape, (2, 1))
+
+    def test_tuple_valued_features(self):
+        """Tests that features returned as tuples (value, mask) forward correctly."""
+        loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+        # Wrap conditions into (value, mask) tuple format
+        cond_val = batch["conditions"]
+        cond_mask = torch.ones_like(cond_val, dtype=torch.bool)
+        batch["conditions"] = (cond_val, cond_mask)
 
         out = self.model(**batch)
         self.assertEqual(out["logit"].shape, (2, 1))
@@ -189,6 +270,23 @@ class TestBEHRT(unittest.TestCase):
         out = mean_model(**batch)
         self.assertEqual(out["logit"].shape, (2, 1))
 
+    def test_forward_from_embedding_direct(self):
+        """Tests direct call to forward_from_embedding with pre-embedded features."""
+        loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+        embedded = self.model.embedding_model(
+            {"conditions": batch["conditions"], "procedures": batch["procedures"]}
+        )
+        direct_kwargs = {
+            "conditions": (embedded["conditions"],),
+            "procedures": (embedded["procedures"],),
+            "label": batch["label"],
+            "age": torch.tensor([[45, 45, 46], [60, 60, 61]]),
+        }
+        out = self.model.forward_from_embedding(**direct_kwargs)
+        self.assertEqual(out["logit"].shape, (2, 1))
+        self.assertIn("loss", out)
+
     def test_embed_flag_and_backward(self):
         """Verifies patient embedding output and gradient flow."""
         loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
@@ -196,7 +294,9 @@ class TestBEHRT(unittest.TestCase):
         out = self.model(**batch, embed=True)
 
         self.assertIn("embed", out)
-        self.assertEqual(out["embed"].shape, (2, 64 * len(self.model.feature_keys)))
+        self.assertEqual(
+            out["embed"].shape, (2, 64 * len(self.model.code_feature_keys))
+        )
 
         loss = out["loss"]
         loss.backward()
