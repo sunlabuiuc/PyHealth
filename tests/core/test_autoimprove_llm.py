@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import sys
 import unittest
@@ -12,7 +13,12 @@ from pyhealth.autoimprove import GeminiLLM, OpenAILLM
 
 
 class TestOpenAILLM(unittest.TestCase):
-    def _client(self, content: object = "hello", refusal: str | None = None):
+    def _client(
+        self,
+        content: object = "hello",
+        refusal: str | None = None,
+        base_url: str | None = None,
+    ):
         calls: list[dict] = []
 
         def create(**kwargs):
@@ -21,14 +27,18 @@ class TestOpenAILLM(unittest.TestCase):
             return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
 
         client = SimpleNamespace(
-            chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+            base_url=base_url,
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create)),
         )
         return client, calls
 
     def test_request_shape_and_token_parameter(self):
-        client, calls = self._client()
+        client, calls = self._client(base_url="https://api.openai.com/v1/")
         extra = {"chat_template_kwargs": {"enable_thinking": False}}
-        with mock.patch.dict(os.environ, {}, clear=True):
+        # An injected client's own base_url takes priority over OPENAI_BASE_URL
+        with mock.patch.dict(
+            os.environ, {"OPENAI_BASE_URL": "http://localhost:8000/v1"}, clear=True
+        ):
             self.assertEqual(
                 OpenAILLM(client=client, extra_body=extra)("sys", "hi"),
                 "hello",
@@ -45,21 +55,24 @@ class TestOpenAILLM(unittest.TestCase):
                 ],
             )
 
-            # Compatible endpoints (e.g. vLLM / Ollama) receive max_tokens
-            OpenAILLM(
-                client=client, base_url="http://localhost:8000/v1"
-            )("sys", "hi")
-            self.assertEqual(calls[1]["max_tokens"], 16000)
-            self.assertNotIn("max_completion_tokens", calls[1])
+        # Compatible endpoints (e.g. vLLM / Ollama) receive max_tokens
+        vllm_client, vllm_calls = self._client(
+            base_url="http://localhost:8000/v1/"
+        )
+        OpenAILLM(client=vllm_client)("sys", "hi")
+        self.assertEqual(vllm_calls[0]["max_tokens"], 16000)
+        self.assertNotIn("max_completion_tokens", vllm_calls[0])
 
     def test_env_fallbacks_and_vlm_content_blocks(self):
         parts = [SimpleNamespace(text="part1 "), {"text": "part2"}]
-        client, calls = self._client(content=parts)
-        client.base_url = "http://127.0.0.1:8000/v1/"
+        client, calls = self._client(
+            content=parts, base_url="http://127.0.0.1:8000/v1/"
+        )
 
         created: list[dict] = []
         fake_openai = SimpleNamespace(
-            OpenAI=lambda **kw: (created.append(kw) or client)
+            __version__="1.45.0",
+            OpenAI=lambda **kw: (created.append(kw) or client),
         )
         env = {
             "OPENAI_BASE_URL": "http://127.0.0.1:8000/v1",
@@ -87,12 +100,29 @@ class TestOpenAILLM(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             OpenAILLM(client=empty)("sys", "hi")
 
-    def test_missing_sdk_raises_import_error(self):
+    def test_missing_or_old_sdk_is_refused(self):
         with (
             mock.patch.dict(sys.modules, {"openai": None}),
-            self.assertRaisesRegex(ImportError, "openai>=1.0"),
+            self.assertRaisesRegex(ImportError, "openai>=1.45"),
         ):
             OpenAILLM()
+
+        old = SimpleNamespace(__version__="1.44.0", OpenAI=lambda **kw: None)
+        with (
+            mock.patch.dict(sys.modules, {"openai": old}),
+            self.assertRaisesRegex(ImportError, "openai>=1.45"),
+        ):
+            OpenAILLM()
+
+    @unittest.skipUnless(
+        os.environ.get("OPENAI_API_KEY") and importlib.util.find_spec("openai"),
+        "needs OPENAI_API_KEY and the openai package",
+    )
+    def test_live_request(self):
+        reply = OpenAILLM(max_tokens=256)(
+            "Answer in one word.", "What colour is the sky on a clear day?"
+        )
+        self.assertTrue(reply.strip())
 
 
 class TestGeminiLLM(unittest.TestCase):
@@ -174,6 +204,18 @@ class TestGeminiLLM(unittest.TestCase):
             self.assertRaisesRegex(ImportError, "google-genai>=1.0"),
         ):
             GeminiLLM()
+
+    @unittest.skipUnless(
+        (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
+        and importlib.util.find_spec("google") is not None
+        and importlib.util.find_spec("google.genai") is not None,
+        "needs GEMINI_API_KEY/GOOGLE_API_KEY and the google-genai package",
+    )
+    def test_live_request(self):
+        reply = GeminiLLM(max_tokens=1024)(
+            "Answer in one word.", "What colour is the sky on a clear day?"
+        )
+        self.assertTrue(reply.strip())
 
 
 if __name__ == "__main__":
