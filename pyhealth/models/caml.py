@@ -145,7 +145,7 @@ class CAML(BaseModel):
             )
         embed_dim = self.embedding.embedding_dim
 
-        num_classes = self.get_output_size()
+        num_classes = self.label_processor.output_size()
         self.embed_dropout = nn.Dropout(dropout)
         self.conv = nn.Conv1d(embed_dim, num_filters, kernel_size)
         self.attention_vectors = nn.Parameter(torch.empty(num_classes, num_filters))
@@ -241,12 +241,12 @@ class CAML(BaseModel):
         logits = (pooled * self.output_weights).sum(-1) + self.output_bias
         results = {
             "logit": logits,
-            "y_prob": self.prepare_y_prob(logits),
+            "y_prob": self.label_processor.activation(logits),
             "attention": attention,
         }
         if self.label_key in kwargs:
             y_true = kwargs[self.label_key].to(self.device)
-            results["loss"] = self.get_loss_function()(logits, y_true)
+            results["loss"] = self.label_processor.loss(logits, y_true)
             results["y_true"] = y_true
         return results
 
