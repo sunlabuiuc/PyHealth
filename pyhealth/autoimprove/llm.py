@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+import urllib.parse
 from collections.abc import Callable
 from typing import Any
 
@@ -103,11 +104,12 @@ class ClaudeLLM:
 class OpenAILLM:
     """Calls OpenAI or an OpenAI-compatible server through the OpenAI SDK.
 
-    Credentials come from ``api_key`` or ``OPENAI_API_KEY``. Setting
-    ``base_url`` (or ``OPENAI_BASE_URL``) connects to OpenAI-compatible LLM or
-    VLM servers such as vLLM, SGLang or Ollama, using ``"EMPTY"`` when no API
-    key is set. Only the prompts built by the proposer are sent; no patient
-    records are sent.
+    Credentials come from ``api_key`` or ``OPENAI_API_KEY``. Official OpenAI
+    endpoints receive ``max_completion_tokens`` (accepted by both chat and
+    reasoning models); custom ``base_url`` endpoints (or ``OPENAI_BASE_URL``,
+    such as vLLM, SGLang or Ollama) receive ``max_tokens`` and default
+    ``api_key`` to ``"EMPTY"`` when unset. Only the prompts built by the
+    proposer are sent; no patient records are sent.
 
     Args:
         model: Model id (defaults to ``OPENAI_MODEL`` or ``"gpt-4o"``).
@@ -132,6 +134,7 @@ class OpenAILLM:
         extra_body: dict[str, Any] | None = None,
         client: Any = None,
     ):
+        resolved_url = base_url or os.environ.get("OPENAI_BASE_URL")
         if client is None:
             try:
                 import openai
@@ -139,11 +142,22 @@ class OpenAILLM:
                 raise ImportError(
                     'OpenAILLM needs the openai package: pip install "openai>=1.0"'
                 ) from e
-            resolved_url = base_url or os.environ.get("OPENAI_BASE_URL")
             resolved_key = api_key or os.environ.get("OPENAI_API_KEY")
             if resolved_url and not resolved_key:
                 resolved_key = "EMPTY"
             client = openai.OpenAI(api_key=resolved_key, base_url=resolved_url)
+        elif resolved_url is None and getattr(client, "base_url", None):
+            resolved_url = str(client.base_url)
+        host = (
+            urllib.parse.urlparse(resolved_url).hostname
+            if resolved_url
+            else "api.openai.com"
+        )
+        is_openai = bool(
+            host == "api.openai.com"
+            or (host and host.endswith(".api.openai.com"))
+        )
+        self._token_key = "max_completion_tokens" if is_openai else "max_tokens"
         self.client = client
         self.model = model or os.environ.get("OPENAI_MODEL", "gpt-4o")
         self.max_tokens = max_tokens
@@ -157,7 +171,7 @@ class OpenAILLM:
         """
         kwargs: dict[str, Any] = {
             "model": self.model,
-            "max_tokens": self.max_tokens,
+            self._token_key: self.max_tokens,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},

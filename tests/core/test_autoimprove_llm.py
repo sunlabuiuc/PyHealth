@@ -25,43 +25,57 @@ class TestOpenAILLM(unittest.TestCase):
         )
         return client, calls
 
-    def test_request_shape_and_extra_body(self):
+    def test_request_shape_and_token_parameter(self):
         client, calls = self._client()
         extra = {"chat_template_kwargs": {"enable_thinking": False}}
-        self.assertEqual(
-            OpenAILLM(client=client, extra_body=extra)("sys", "hi"), "hello"
-        )
-        self.assertEqual(calls[0]["model"], "gpt-4o")
-        self.assertEqual(calls[0]["max_tokens"], 16000)
-        self.assertEqual(calls[0]["extra_body"], extra)
-        self.assertEqual(
-            calls[0]["messages"],
-            [
-                {"role": "system", "content": "sys"},
-                {"role": "user", "content": "hi"},
-            ],
-        )
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(
+                OpenAILLM(client=client, extra_body=extra)("sys", "hi"),
+                "hello",
+            )
+            self.assertEqual(calls[0]["model"], "gpt-4o")
+            self.assertEqual(calls[0]["max_completion_tokens"], 16000)
+            self.assertNotIn("max_tokens", calls[0])
+            self.assertEqual(calls[0]["extra_body"], extra)
+            self.assertEqual(
+                calls[0]["messages"],
+                [
+                    {"role": "system", "content": "sys"},
+                    {"role": "user", "content": "hi"},
+                ],
+            )
 
-    def test_vlm_content_blocks_and_base_url_without_key(self):
+            # Compatible endpoints (e.g. vLLM / Ollama) receive max_tokens
+            OpenAILLM(
+                client=client, base_url="http://localhost:8000/v1"
+            )("sys", "hi")
+            self.assertEqual(calls[1]["max_tokens"], 16000)
+            self.assertNotIn("max_completion_tokens", calls[1])
+
+    def test_env_fallbacks_and_vlm_content_blocks(self):
         parts = [SimpleNamespace(text="part1 "), {"text": "part2"}]
-        client, _ = self._client(content=parts)
-        self.assertEqual(OpenAILLM(client=client)("sys", "hi"), "part1 part2")
+        client, calls = self._client(content=parts)
+        client.base_url = "http://127.0.0.1:8000/v1/"
 
         created: list[dict] = []
         fake_openai = SimpleNamespace(
             OpenAI=lambda **kw: (created.append(kw) or client)
         )
+        env = {
+            "OPENAI_BASE_URL": "http://127.0.0.1:8000/v1",
+            "OPENAI_MODEL": "local-vlm",
+        }
         with (
-            mock.patch.dict(os.environ, {}, clear=True),
+            mock.patch.dict(os.environ, env, clear=True),
             mock.patch.dict(sys.modules, {"openai": fake_openai}),
         ):
-            llm = OpenAILLM(
-                model="local-vlm", base_url="http://localhost:8000/v1"
-            )
+            llm = OpenAILLM()
+            self.assertEqual(llm("sys", "hi"), "part1 part2")
         self.assertEqual(llm.model, "local-vlm")
+        self.assertEqual(calls[0]["max_tokens"], 16000)
         self.assertEqual(
             created[0],
-            {"api_key": "EMPTY", "base_url": "http://localhost:8000/v1"},
+            {"api_key": "EMPTY", "base_url": "http://127.0.0.1:8000/v1"},
         )
 
     def test_refusal_and_empty_reply_raise(self):
@@ -107,9 +121,10 @@ class TestGeminiLLM(unittest.TestCase):
         )
         return client, calls
 
-    def test_request_shape_and_skips_thoughts(self):
+    def test_request_shape_and_env_fallbacks(self):
         client, calls = self._client()
-        self.assertEqual(GeminiLLM(client=client)("sys", "hi"), "hello")
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(GeminiLLM(client=client)("sys", "hi"), "hello")
         self.assertEqual(calls[0]["model"], "gemini-2.5-pro")
         self.assertEqual(calls[0]["contents"], "hi")
         self.assertEqual(
@@ -127,21 +142,22 @@ class TestGeminiLLM(unittest.TestCase):
         )
         self.assertEqual(GeminiLLM(client=text_only)("sys", "hi"), "direct")
 
-        # SDK Client initialized with GEMINI_API_KEY from environment
+        # SDK Client initialized with GOOGLE_API_KEY and GEMINI_MODEL fallbacks
         created: list[dict] = []
         fake_genai = SimpleNamespace(
             Client=lambda **kw: (created.append(kw) or client)
         )
         fake_google = SimpleNamespace(genai=fake_genai)
+        env = {"GOOGLE_API_KEY": "g-key", "GEMINI_MODEL": "gemini-2.5-flash"}
         with (
-            mock.patch.dict(os.environ, {"GEMINI_API_KEY": "k1"}, clear=True),
+            mock.patch.dict(os.environ, env, clear=True),
             mock.patch.dict(
                 sys.modules, {"google": fake_google, "google.genai": fake_genai}
             ),
         ):
-            llm = GeminiLLM(model="gemini-2.5-flash")
+            llm = GeminiLLM()
         self.assertEqual(llm.model, "gemini-2.5-flash")
-        self.assertEqual(created[0], {"api_key": "k1"})
+        self.assertEqual(created[0], {"api_key": "g-key"})
 
     def test_refusal_and_empty_reply_raise(self):
         blocked, _ = self._client(block_reason="SAFETY")
