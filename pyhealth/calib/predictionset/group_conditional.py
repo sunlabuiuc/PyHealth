@@ -11,6 +11,7 @@ demographic subgroups (e.g., race, sex, age, skin tone) by computing
 group-specific nonconformity thresholds.
 """
 
+import warnings
 from typing import Any
 
 import numpy as np
@@ -18,7 +19,6 @@ import torch
 from torch import Tensor
 
 from pyhealth.calib.base_classes import SetPredictor
-from pyhealth.calib.predictionset.base_conformal import _query_quantile
 from pyhealth.calib.predictionset.scores import (
     SUPPORTED_SCORE_TYPES,
     all_class_nc_scores,
@@ -27,6 +27,23 @@ from pyhealth.calib.predictionset.scores import (
 from pyhealth.calib.utils import prepare_numpy_dataset
 
 __all__ = ["GroupConditionalConformal"]
+
+
+def _query_quantile(nc_scores: np.ndarray, alpha: float) -> float:
+    """Compute the conformal quantile threshold on nonconformity scores.
+
+    Implements the standard split conformal quantile:
+        q = ceil((1 - alpha) * (N + 1)) - 1 (0-indexed).
+
+    Returns +inf when the calibration set is too small (N < 1/alpha - 1),
+    meaning all classes are included to preserve coverage.
+    """
+    nc_scores = np.sort(nc_scores)
+    n = len(nc_scores)
+    loc = int(np.ceil((1.0 - alpha) * (n + 1))) - 1
+    if loc >= n:
+        return float(np.inf)
+    return float(nc_scores[loc])
 
 
 class GroupConditionalConformal(SetPredictor):
@@ -98,6 +115,18 @@ class GroupConditionalConformal(SetPredictor):
         debug: bool = False,
     ) -> None:
         super().__init__(model)
+        if hasattr(self.model, "mode") and self.model.mode != "multiclass":
+            raise NotImplementedError(
+                f"GroupConditionalConformal only supports multiclass classification, "
+                f"got {self.model.mode}"
+            )
+        # Freeze model parameters and set eval mode
+        if hasattr(self.model, "parameters"):
+            for param in self.model.parameters():
+                param.requires_grad = False
+        if hasattr(self.model, "eval"):
+            self.model.eval()
+
         if isinstance(alpha, (int, float)):
             if not 0.0 < float(alpha) < 1.0:
                 raise ValueError(f"alpha must be in (0, 1), got {alpha}")
@@ -158,8 +187,12 @@ class GroupConditionalConformal(SetPredictor):
             groups: Demographic subgroup indicators of shape :math:`(N,)`.
 
         Raises:
-            ValueError: If neither ``cal_dataset`` nor array inputs are provided.
+            ValueError: If neither ``cal_dataset`` nor array inputs are provided,
+                or if shapes do not match, or if task is not multiclass.
         """
+        if hasattr(self.model, "eval"):
+            self.model.eval()
+
         if cal_dataset is not None:
             data = prepare_numpy_dataset(
                 self.model,
@@ -190,6 +223,12 @@ class GroupConditionalConformal(SetPredictor):
         else:
             raise ValueError(
                 "Either cal_dataset or all of (scores, labels, groups) must be provided."
+            )
+
+        if y_prob.ndim != 2 or y_prob.shape[1] < 2:
+            raise ValueError(
+                f"GroupConditionalConformal requires multiclass probabilities of "
+                f"shape (N, K) with K >= 2, got shape {y_prob.shape}"
             )
 
         if y_true.ndim > 1 and y_true.shape[1] == 1:
@@ -230,14 +269,16 @@ class GroupConditionalConformal(SetPredictor):
 
         Args:
             **kwargs: Input features passed to the base model, optionally including
-                the group attribute specified by ``self.group_key`` and ground truth labels.
+                the group attribute specified by ``self.group_key``, predicted probabilities
+                ``"y_prob"``, and model outputs (e.g. ``"logit"``, ``"loss"``, ``"y_true"``).
 
         Returns:
             Dictionary containing:
                 - ``"y_predset"``: Boolean tensor of shape :math:`(N, K)` indicating
                   whether class :math:`k` is included in the prediction set.
                 - ``"y_prob"``: Predicted class probabilities tensor of shape :math:`(N, K)`.
-                - Passthrough entries from model (e.g. ``"logit"``, ``"loss"``, ``"y_true"``).
+                - Model outputs (e.g. ``"logit"``, ``"loss"``, ``"y_true"``) when
+                  forwarding through the base model, or passed through if provided.
         """
         if not self.calibrated:
             raise RuntimeError(
@@ -253,8 +294,9 @@ class GroupConditionalConformal(SetPredictor):
                 else torch.from_numpy(y_prob_raw)
             )
             res: dict[str, Any] = {"y_prob": y_prob}
-            if "logit" in kwargs:
-                res["logit"] = kwargs["logit"]
+            for passthrough_k in ["logit", "loss", "y_true"]:
+                if passthrough_k in kwargs:
+                    res[passthrough_k] = kwargs[passthrough_k]
         else:
             res = self.model(**kwargs)
             y_prob = res["y_prob"]
@@ -265,7 +307,12 @@ class GroupConditionalConformal(SetPredictor):
         # Retrieve subgroup values from kwargs
         subgroups = kwargs.get(self.group_key)
         if subgroups is None:
-            # Fall back to marginal threshold if subgroup feature is absent
+            warnings.warn(
+                f"Subgroup key '{self.group_key}' not found in forward kwargs; "
+                "falling back to marginal threshold for all samples.",
+                UserWarning,
+                stacklevel=2,
+            )
             q_values = np.full(n_samples, self.q_hat_marginal)
         else:
             if isinstance(subgroups, Tensor):
@@ -278,6 +325,13 @@ class GroupConditionalConformal(SetPredictor):
                 g = subgroups[i]
                 if isinstance(g, np.ndarray) and g.ndim == 0:
                     g = g.item()
+                if g not in self.q_hat:
+                    warnings.warn(
+                        f"Unseen subgroup '{g}' encountered; falling back to "
+                        "marginal conformal threshold.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
                 q_values[i] = self.q_hat.get(g, self.q_hat_marginal)
 
         # Calculate all-class nonconformity scores
@@ -292,4 +346,3 @@ class GroupConditionalConformal(SetPredictor):
         res["y_predset"] = torch.from_numpy(y_predset_np).to(device)
 
         return res
-
