@@ -54,6 +54,7 @@ SampleSignalDataset = _removed_1x_class(
 
 
 from .base_dataset import BaseDataset
+from .pbc import PBCDataset as PBCDataset
 from .imaging.patches import PatchDataset as PatchDataset
 from .imaging.stats import (
     compute_foreground_intensity_stats as compute_foreground_intensity_stats,

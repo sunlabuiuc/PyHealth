@@ -214,6 +214,8 @@ Available Tasks
 
     Base Task <tasks/pyhealth.tasks.BaseTask>
     Task Card <tasks/pyhealth.tasks.TaskCard>
+    PBC Competing Risks <tasks/pyhealth.tasks.competing_risks_pbc>
+    Competing-Risk Preprocessing <tasks/pyhealth.tasks.competing_risks>
     In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
     In-Hospital Mortality (MEDS) <tasks/pyhealth.tasks.InHospitalMortalityMEDS>
     ICU Admission (MEDS) <tasks/pyhealth.tasks.ICUAdmissionMEDS>
