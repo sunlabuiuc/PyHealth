@@ -18,6 +18,10 @@ they need from there, so train them in this order::
     sleepkd_ta teacher -> TA           SleepKD, first step
     sleepkd    sleepkd_ta -> student   SleepKD, second step
 
+The models are the SleepKD paper's variant of DeepSleepNet (``--layout
+sleepkd``, one LSTM layer), whose sizes match its Table 5; ``--layout
+supratak`` uses the original DeepSleepNet (two LSTM layers) instead.
+
 Settings follow the paper: 20-epoch sequences of Fpz-Cz at 100 Hz, AASM
 stages, Adam with learning rate 1e-5, batch size 20, 200 epochs, and loss
 weights alpha=1.0, beta=0.1, gamma=delta=1.0. The 8:1:1 split is by subject
@@ -64,9 +68,15 @@ RUNS = {
 METRICS = ["accuracy", "f1_macro", "cohen_kappa"]
 
 
-def deepsleepnet(dataset, size):
+def deepsleepnet(dataset, size, layout):
     n_conv, hidden_dim = SIZES[size]
-    return DeepSleepNet(dataset=dataset, n_conv=n_conv, hidden_dim=hidden_dim)
+    return DeepSleepNet(
+        dataset=dataset,
+        n_conv=n_conv,
+        hidden_dim=hidden_dim,
+        n_rnn_layers=1 if layout == "sleepkd" else 2,
+        layout=layout,
+    )
 
 
 def main():
@@ -74,6 +84,7 @@ def main():
     parser.add_argument("--root", required=True)
     parser.add_argument("--run", required=True, choices=RUNS)
     parser.add_argument("--out", default="sleepkd_runs")
+    parser.add_argument("--layout", default="sleepkd", choices=["sleepkd", "supratak"])
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--epochs", type=int, default=200)
     parser.add_argument("--lr", type=float, default=1e-5)
@@ -89,10 +100,10 @@ def main():
 
     torch.manual_seed(args.seed)
     size, source, weights = RUNS[args.run]
-    model = deepsleepnet(samples, size)
+    model = deepsleepnet(samples, size, args.layout)
     trained = model
     if source is not None:
-        teacher = deepsleepnet(samples, RUNS[source][0])
+        teacher = deepsleepnet(samples, RUNS[source][0], args.layout)
         state = torch.load(out / f"{source}.pt", map_location="cpu", weights_only=True)
         teacher.load_state_dict(state)
         trained = SleepKD(dataset=samples, teacher=teacher, student=model, **weights)
@@ -115,7 +126,13 @@ def main():
     print(f"{args.run} test: {scores}")
 
     torch.save(model.state_dict(), out / f"{args.run}.pt")
-    result = {"run": args.run, "seed": args.seed, "epochs": args.epochs, **scores}
+    result = {
+        "run": args.run,
+        "layout": args.layout,
+        "seed": args.seed,
+        "epochs": args.epochs,
+        **scores,
+    }
     (out / f"{args.run}.json").write_text(json.dumps(result, indent=2))
 
 

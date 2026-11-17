@@ -59,6 +59,39 @@ class TestDeepSleepNet(unittest.TestCase):
         self.assertEqual(student.epoch_dim, 16 * 64 + 8 * 64)
         self.assertEqual(student.sequence_dim, 256)
 
+    def test_sleepkd_layout_has_the_parameters_of_sleepkd_table_5(self):
+        # Counted as Keras does: BatchNorm moving statistics included, one
+        # LSTM bias vector per gate instead of PyTorch's two.
+        def keras_count(model):
+            count = sum(p.numel() for p in model.parameters())
+            for m in model.modules():
+                if isinstance(m, torch.nn.BatchNorm1d):
+                    count += m.running_mean.numel() + m.running_var.numel()
+            return count - sum(
+                p.numel() for n, p in model.lstm.named_parameters() if "bias_hh" in n
+            )
+
+        for (n_conv, hidden_dim), expected in {
+            (4, 512): 5_502_474,
+            (1, 128): 1_552_906,
+        }.items():
+            model = self._model(
+                n_conv=n_conv, hidden_dim=hidden_dim, n_rnn_layers=1, layout="sleepkd"
+            )
+            self.assertEqual(keras_count(model), expected)
+
+    def test_sleepkd_layout_features(self):
+        model = self._model(layout="sleepkd").eval()
+        out = model.encode(self.batch["signal"])
+        self.assertEqual(model.epoch_dim, 1024)
+        self.assertEqual(out["epoch_feature"].shape, (2, SEQ_LEN, 1024))
+        self.assertEqual(out["sequence_feature"].shape, (2, SEQ_LEN, 16))
+        self.assertEqual(out["logit"].shape, (2, SEQ_LEN, 5))
+        # The sequence features are the LSTM output alone.
+        lstm_input = model.epoch_head(out["epoch_feature"])
+        lstm_out, _ = model.lstm(lstm_input)
+        torch.testing.assert_close(out["sequence_feature"], lstm_out)
+
     def test_encode_returns_features_of_the_announced_sizes(self):
         model = self._model()
         out = model.encode(self.batch["signal"])
@@ -102,9 +135,9 @@ class TestDeepSleepNet(unittest.TestCase):
     def test_batchnorm_never_sees_dropout(self):
         # BatchNorm's running statistics must not depend on dropout, or they
         # are wrong in evaluation, where dropout is off.
-        def running_stats(dropout_on):
+        def running_stats(dropout_on, layout):
             torch.manual_seed(1)
-            model = self._model(n_conv=4)
+            model = self._model(n_conv=4, layout=layout)
             model.train()
             for m in model.modules():
                 if isinstance(m, torch.nn.Dropout) and not dropout_on:
@@ -116,8 +149,12 @@ class TestDeepSleepNet(unittest.TestCase):
                 if isinstance(m, torch.nn.BatchNorm1d)
             ]
 
-        for on, off in zip(running_stats(True), running_stats(False)):
-            torch.testing.assert_close(on, off)
+        for layout in ("supratak", "sleepkd"):
+            with self.subTest(layout=layout):
+                for on, off in zip(
+                    running_stats(True, layout), running_stats(False, layout)
+                ):
+                    torch.testing.assert_close(on, off)
 
     def test_rejects_inputs_without_an_epoch_axis(self):
         with self.assertRaises(ValueError):
@@ -126,6 +163,10 @@ class TestDeepSleepNet(unittest.TestCase):
     def test_rejects_no_convolution(self):
         with self.assertRaises(ValueError):
             self._model(n_conv=0)
+
+    def test_rejects_unknown_layout(self):
+        with self.assertRaises(ValueError):
+            self._model(layout="keras")
 
 
 if __name__ == "__main__":

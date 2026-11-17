@@ -1,4 +1,5 @@
 import math
+from typing import Literal
 
 import torch
 import torch.nn.functional as F
@@ -17,36 +18,60 @@ def _same_padding(length: int, kernel_size: int, stride: int) -> tuple[int, int]
     return total // 2, total - total // 2
 
 
-class _SameConvBlock(nn.Module):
-    """Conv1d with "SAME" padding, no bias, then BatchNorm and ReLU."""
+class _ConvBlock(nn.Module):
+    """Conv1d, then BatchNorm and ReLU.
+
+    With ``same=True`` the padding is TensorFlow's "SAME", otherwise none
+    ("VALID").
+    """
 
     def __init__(
-        self, in_channels: int, out_channels: int, kernel_size: int, stride: int
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        stride: int,
+        same: bool,
+        bias: bool,
+        momentum: float,
     ):
         super().__init__()
         self.kernel_size = kernel_size
         self.stride = stride
+        self.same = same
         self.conv = nn.Conv1d(
-            in_channels, out_channels, kernel_size, stride=stride, bias=False
+            in_channels, out_channels, kernel_size, stride=stride, bias=bias
         )
-        # The reference's moving averages decay by 0.999 per step.
-        self.bn = nn.BatchNorm1d(out_channels, momentum=0.001)
+        self.bn = nn.BatchNorm1d(out_channels, momentum=momentum)
+
+    def output_length(self, length: int) -> int:
+        if self.same:
+            return math.ceil(length / self.stride)
+        return (length - self.kernel_size) // self.stride + 1
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = F.pad(x, _same_padding(x.shape[-1], self.kernel_size, self.stride))
+        if self.same:
+            x = F.pad(x, _same_padding(x.shape[-1], self.kernel_size, self.stride))
         return F.relu(self.bn(self.conv(x)))
 
 
-class _SameMaxPool(nn.Module):
-    """MaxPool1d with "SAME" padding (padded steps never win the max)."""
+class _MaxPool(nn.Module):
+    """MaxPool1d with "SAME" (padded steps never win the max) or no padding."""
 
-    def __init__(self, kernel_size: int):
+    def __init__(self, kernel_size: int, same: bool):
         super().__init__()
         self.kernel_size = kernel_size
+        self.same = same
+
+    def output_length(self, length: int) -> int:
+        if self.same:
+            return math.ceil(length / self.kernel_size)
+        return length // self.kernel_size
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        pad = _same_padding(x.shape[-1], self.kernel_size, self.kernel_size)
-        x = F.pad(x, pad, value=float("-inf"))
+        if self.same:
+            pad = _same_padding(x.shape[-1], self.kernel_size, self.kernel_size)
+            x = F.pad(x, pad, value=float("-inf"))
         return F.max_pool1d(x, self.kernel_size)
 
 
@@ -55,6 +80,8 @@ class _Branch(nn.Module):
 
     A wide strided convolution with 64 filters, max-pooling, then
     ``n_conv - 1`` convolutions with 128 filters and a second max-pooling.
+    In the ``"sleepkd"`` layout the first convolution and the poolings have
+    no padding, and the convolutions have biases.
     """
 
     def __init__(
@@ -66,25 +93,31 @@ class _Branch(nn.Module):
         pool1: int,
         kernel_size2: int,
         pool2: int,
+        layout: str,
     ):
         super().__init__()
+        same = layout == "supratak"
+        # The reference's moving averages decay by 0.999 per step, Keras's
+        # (the SleepKD code) by 0.99.
+        block = {"bias": not same, "momentum": 0.001 if same else 0.01}
         layers: list[nn.Module] = [
-            _SameConvBlock(in_channels, 64, kernel_size, stride),
-            _SameMaxPool(pool1),
+            _ConvBlock(in_channels, 64, kernel_size, stride, same=same, **block),
+            _MaxPool(pool1, same=same),
         ]
         channels = 64
         for _ in range(n_conv - 1):
-            layers.append(_SameConvBlock(channels, 128, kernel_size2, 1))
+            layers.append(
+                _ConvBlock(channels, 128, kernel_size2, 1, same=True, **block)
+            )
             channels = 128
-        layers.append(_SameMaxPool(pool2))
+        layers.append(_MaxPool(pool2, same=same))
         self.layers = nn.Sequential(*layers)
         self.out_channels = channels
-        self._strides = (stride, pool1, pool2)
 
     def output_dim(self, length: int) -> int:
         """Size of the flattened output for an input of ``length`` steps."""
-        for stride in self._strides:
-            length = math.ceil(length / stride)
+        for layer in self.layers:
+            length = layer.output_length(length)
         return self.out_channels * length
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -113,6 +146,26 @@ class DeepSleepNet(BaseModel):
     ``n_conv`` and ``hidden_dim`` scale the model: the paper's model is
     ``n_conv=4, hidden_dim=512``. SleepKD (Liang et al., IJCAI 2023) distills
     it into a teacher assistant (2, 256) and a student (1, 128).
+
+    ``layout="sleepkd"`` is the smaller variant that SleepKD actually uses,
+    rebuilt from the layout of its authors' Keras code
+    (https://github.com/AI4Brain/SleepKD); with ``n_rnn_layers=1`` its
+    teacher (4, 512) and student (1, 128) have the 5,502,474 and 1,552,906
+    parameters of the SleepKD paper's Table 5, counted as Keras does. In it:
+
+    - The first convolutions and the poolings have no padding, and the
+      convolutions have biases.
+    - The CNN output goes through a 1024-unit linear layer (the epoch
+      features) and a linear layer to ``n_classes`` scores. The authors
+      apply dropout between the two, whose output reaches BatchNorm through
+      the residual projection; here there is none (see below).
+    - The LSTM and the residual projection read those ``n_classes`` scores
+      instead of the CNN output, and the sequence features are the LSTM
+      output, before the residual is added.
+    - The authors' LSTM uses ReLU activations; this one keeps tanh. The
+      authors also pre-train the CNN on single epochs before training the
+      sequence model, which the paper does not describe; here the model is
+      trained end to end.
 
     Differences from the reference:
 
@@ -149,8 +202,12 @@ class DeepSleepNet(BaseModel):
             Default is 4.
         hidden_dim: Hidden size of each direction of the LSTM. The sequence
             features have ``2 * hidden_dim`` entries. Default is 512.
-        n_rnn_layers: Number of LSTM layers. Default is 2.
+        n_rnn_layers: Number of LSTM layers. Default is 2 (the SleepKD
+            layout uses 1).
         dropout: Dropout rate. Default is 0.5.
+        layout: ``"supratak"``, the DeepSleepNet paper's model, or
+            ``"sleepkd"``, the variant of the SleepKD paper (see above).
+            Default is ``"supratak"``.
 
     Examples:
         >>> import numpy as np
@@ -187,6 +244,7 @@ class DeepSleepNet(BaseModel):
         hidden_dim: int = 512,
         n_rnn_layers: int = 2,
         dropout: float = 0.5,
+        layout: Literal["supratak", "sleepkd"] = "supratak",
     ):
         super().__init__(dataset=dataset)
         if len(self.feature_keys) != 1 or len(self.label_keys) != 1:
@@ -196,6 +254,9 @@ class DeepSleepNet(BaseModel):
             )
         if n_conv < 1:
             raise ValueError(f"n_conv must be at least 1, got {n_conv}.")
+        if layout not in ("supratak", "sleepkd"):
+            raise ValueError(f"layout must be 'supratak' or 'sleepkd', got {layout!r}.")
+        self.layout = layout
         self.feature_key = self.feature_keys[0]
         self.label_key = self.label_keys[0]
         self.n_classes = n_classes
@@ -218,6 +279,7 @@ class DeepSleepNet(BaseModel):
             pool1=8,
             kernel_size2=8,
             pool2=4,
+            layout=layout,
         )
         self.large = _Branch(
             in_channels,
@@ -227,19 +289,28 @@ class DeepSleepNet(BaseModel):
             pool1=4,
             kernel_size2=6,
             pool2=2,
+            layout=layout,
         )
-        self.epoch_dim = self.small.output_dim(epoch_len) + self.large.output_dim(
-            epoch_len
-        )
+        cnn_dim = self.small.output_dim(epoch_len) + self.large.output_dim(epoch_len)
         self.sequence_dim = 2 * hidden_dim
         self.epoch_dropout = nn.Dropout(dropout)
+        if layout == "sleepkd":
+            self.epoch_dim = 1024
+            self.epoch_fc = nn.Linear(cnn_dim, self.epoch_dim)
+            self.epoch_head = nn.Linear(self.epoch_dim, n_classes)
+            lstm_input = n_classes
+            residual_bias, momentum = True, 0.01
+        else:
+            self.epoch_dim = cnn_dim
+            lstm_input = cnn_dim
+            residual_bias, momentum = False, 0.001
         self.residual = nn.Sequential(
-            nn.Linear(self.epoch_dim, self.sequence_dim, bias=False),
-            nn.BatchNorm1d(self.sequence_dim, momentum=0.001),
+            nn.Linear(lstm_input, self.sequence_dim, bias=residual_bias),
+            nn.BatchNorm1d(self.sequence_dim, momentum=momentum),
             nn.ReLU(),
         )
         self.lstm = nn.LSTM(
-            self.epoch_dim,
+            lstm_input,
             hidden_dim,
             num_layers=n_rnn_layers,
             batch_first=True,
@@ -268,20 +339,32 @@ class DeepSleepNet(BaseModel):
 
         Returns:
             A dict with ``epoch_feature`` ``(batch, seq_len, epoch_dim)``, the
-            CNN output of each epoch; ``sequence_feature`` ``(batch, seq_len,
-            2 * hidden_dim)``, the LSTM output plus the residual; and
-            ``logit`` ``(batch, seq_len, n_classes)``. The features are taken
-            before dropout.
+            CNN output of each epoch (in the ``"sleepkd"`` layout, the
+            1024-unit layer after it); ``sequence_feature`` ``(batch, seq_len,
+            2 * hidden_dim)``, the LSTM output plus the residual (in the
+            ``"sleepkd"`` layout, the LSTM output alone); and ``logit``
+            ``(batch, seq_len, n_classes)``. The features are taken before
+            dropout.
         """
         batch, seq_len = x.shape[:2]
         x = x.flatten(0, 1)
         epoch_feature = torch.cat([self.small(x), self.large(x)], dim=1)
+        if self.layout == "sleepkd":
+            epoch_feature = self.epoch_fc(epoch_feature)
+            h = self.epoch_head(epoch_feature)
+        else:
+            h = epoch_feature
         # Dropout only where no BatchNorm follows (see the class docstring).
-        residual = self.residual(epoch_feature)
-        h = self.epoch_dropout(epoch_feature)
+        residual = self.residual(h)
+        h = self.epoch_dropout(h)
         lstm_out, _ = self.lstm(h.view(batch, seq_len, -1))
-        sequence_feature = lstm_out + residual.view(batch, seq_len, -1)
-        logit = self.fc(self.sequence_dropout(sequence_feature))
+        residual = residual.view(batch, seq_len, -1)
+        if self.layout == "sleepkd":
+            sequence_feature = lstm_out
+            hidden = lstm_out + residual
+        else:
+            sequence_feature = hidden = lstm_out + residual
+        logit = self.fc(self.sequence_dropout(hidden))
         return {
             "epoch_feature": epoch_feature.view(batch, seq_len, -1),
             "sequence_feature": sequence_feature,
