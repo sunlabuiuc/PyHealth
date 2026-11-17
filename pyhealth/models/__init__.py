@@ -7,6 +7,11 @@ from .apn import (
     masked_mse as masked_mse,
 )
 from .base_model import BaseModel
+from .behrt import (
+    BEHRT as BEHRT,
+    BEHRTEmbedding as BEHRTEmbedding,
+    BEHRTLayer as BEHRTLayer,
+)
 from .neural_fine_gray import NeuralFineGray as NeuralFineGray
 from .unet import (
     DiceLoss as DiceLoss,
