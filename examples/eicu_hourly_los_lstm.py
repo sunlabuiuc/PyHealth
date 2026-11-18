@@ -1,139 +1,49 @@
-"""Synthetic missingness ablation for the hourly LOS task.
+"""Training and ablation extension points for the hourly ICU LOS task.
 
 Contributor: Xiao Luo; UIUC NetID: xiaoluo6.
 Paper: Temporal Pointwise Convolutional Networks for Length of Stay Prediction
 in the Intensive Care Unit, https://arxiv.org/abs/2007.09483.
 
-Run from the repository root:
-    python -m examples.eicu_hourly_los_lstm --output /tmp/tpc_ablation.json
+STATUS: scaffold. This file does not yet train a model or report results.
+The runnable data/task check is:
+    python -m examples.tpc_support.checkpoint
 
-Five invented patients; 101 trains, 103/105 test, 102/104 are excluded.
-Two LSTMs train on 0%/10% removed hourly cells; both evaluate at 0%/10%/20%.
-Shared initialization and test masks; processors fit on each training variant.
-Default MSE on train-scaled targets, not the paper's logarithmic loss.
-MAD in days; log1p-MSE in days is explicitly not the paper's log-MSE metric.
-This runnable example checks experimental wiring only; clinical results and
-novelty claims require a real-data experiment and review.
-
-Recorded synthetic findings (seed 42, three steps): all six configurations
-produced 336 finite predictions; MAD was approximately 9.46 days. Training on
-one 12.5-hour stay and testing on a 400.5-hour stay creates severe distribution
-shift. These results do not support a robustness conclusion. Detailed values
-are in examples/tpc_support/synthetic_ablation.json. Raw activated predictions
-are converted to days for MAD; negatives are counted and clipped only for
-log1p-MSE. No patient appears in both training and held-out data.
+TODO(A): implement patient-disjoint splits, training, metrics and the 2x3
+missingness experiment below. Use the fixture generator for smoke checks;
+use authorized eICU data for final findings. TODO(B): implement nonzero
+missingness and decay in TPCLengthOfStayEICU before enabling those settings.
 """
 
-import argparse
-import json
-from pathlib import Path
-import tempfile
-import numpy as np
-import torch
-from pyhealth.datasets import eICUDataset, create_sample_dataset, get_dataloader
-from pyhealth.models import RNN_V2
-from pyhealth.tasks import TPCLengthOfStayEICU
-from examples.tpc_support.generate_synthetic import TABLES, generate
+from typing import Any
 
 
-def run(steps: int = 3) -> list[dict]:
-    """Run the six synthetic configurations and return measured metrics."""
-    if steps < 1:
-        raise ValueError("steps must be positive")
-    torch.set_num_threads(1)
-    results = []
-    with tempfile.TemporaryDirectory(prefix="tpc-ablation-") as temporary:
-        root = Path(temporary)
-        generate(root / "csv")
-        data = eICUDataset(
-            root=str(root / "csv"), tables=TABLES, cache_dir=root / "cache"
-        )
-        patients = {
-            sid: data.get_patient(f"synthetic-{sid}") for sid in (101, 103, 105)
-        }
-        for train_rate in (0.0, 0.1):
-            torch.manual_seed(42)
-            task = TPCLengthOfStayEICU(train_rate, seed=42, include_decay=True)
-            train = create_sample_dataset(
-                task(patients[101]), task.input_schema, task.output_schema
-            )
-            model = RNN_V2(
-                train,
-                embedding_dim={
-                    "dynamic": [{"values": 8}],
-                    "static": [{"values": 4}],
-                    "decay": [{"values": 8}],
-                },
-                hidden_dim=8,
-                rnn_type="LSTM",
-                mask="concat",
-            )
-            optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-            batch = next(iter(get_dataloader(train, batch_size=1, shuffle=False)))
-            for _ in range(steps):
-                optimizer.zero_grad()
-                loss = model(**batch)["loss"]
-                if not torch.isfinite(loss):
-                    raise RuntimeError("Nonfinite training loss")
-                loss.backward()
-                optimizer.step()
-            model.eval()
-            for test_rate in (0.0, 0.1, 0.2):
-                evaluation_task = TPCLengthOfStayEICU(
-                    test_rate, seed=42, include_decay=True
-                )
-                samples = [evaluation_task(patients[sid])[0] for sid in (103, 105)]
-                evaluation = create_sample_dataset(
-                    samples,
-                    task.input_schema,
-                    task.output_schema,
-                    input_processors=train.input_processors,
-                    output_processors=train.output_processors,
-                )
-                with torch.no_grad():
-                    out = model(
-                        **next(
-                            iter(
-                                get_dataloader(evaluation, batch_size=2, shuffle=False)
-                            )
-                        )
-                    )
-                # activation() reverses label normalization; y_prob is in hours.
-                pred = out["y_prob"].numpy().reshape(-1) / 24
-                truth = (
-                    np.concatenate(
-                        [np.asarray(s["los"]["values"]).ravel() for s in samples]
-                    )
-                    / 24
-                )
-                if not np.isfinite(pred).all() or pred.shape != truth.shape:
-                    raise RuntimeError("Invalid predictions")
-                results.append(
-                    {
-                        "train_missing_rate": train_rate,
-                        "test_missing_rate": test_rate,
-                        "mad_days": float(np.abs(pred - truth).mean()),
-                        "log1p_mse_days": float(
-                            (
-                                (np.log1p(np.maximum(pred, 0)) - np.log1p(truth)) ** 2
-                            ).mean()
-                        ),
-                        "negative_predictions_clipped_for_log1p": int((pred < 0).sum()),
-                        "prediction_count": len(truth),
-                        "steps": steps,
-                        "seed": 42,
-                        "data": "synthetic; not evidence of clinical performance",
-                    }
-                )
-    return results
+def train_and_evaluate() -> list[dict[str, Any]]:
+    """Run the final experiment once the extension points are complete.
+
+    TODO(A):
+        1. Load eICUDataset; split unique patient IDs into train/validation/test.
+        2. Fit processors on training patients only; reuse on held-out patients.
+        3. Explicitly select RNN_V2(rnn_type="LSTM") and agreed input embeddings.
+        4. Train with 0% and 10% extra observation removal, keeping other
+           settings controlled. Evaluate each at 0%, 10%, and 20% removal.
+        5. Reuse test masks for both models; use seeded, documented repeats.
+        6. Return metrics and experimental settings. Raw targets/activated
+           predictions are hours; convert together for day-based comparisons.
+           Specify a zero-target policy and paper-compatible MSLE convention.
+        7. Document measured findings and differences from the original paper.
+
+    Returns:
+        One result dictionary per experimental configuration.
+
+    Raises:
+        NotImplementedError: Until the training implementation is supplied.
+    """
+    raise NotImplementedError(
+        "TODO(A): implement training and ablations; "
+        "TODO(B): complete missingness/decay. "
+        "Run python -m examples.tpc_support.checkpoint for data/task validation."
+    )
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--steps", type=int, default=3)
-    parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args()
-    results = run(args.steps)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(results, indent=2) + "\n")
-    print(json.dumps(results, indent=2))
+    train_and_evaluate()

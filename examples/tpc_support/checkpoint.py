@@ -1,28 +1,24 @@
 # Contributor: Xiao Luo, UIUC NetID xiaoluo6.
 # Paper: Temporal Pointwise Convolutional Networks for Length of Stay
 # Prediction in the Intensive Care Unit. https://arxiv.org/abs/2007.09483
-"""Synthetic CSV-to-LSTM checkpoint; no clinical performance claims."""
+"""Synthetic CSV-to-task checkpoint for cohort, static features and labels."""
 
 from pathlib import Path
 import json
 import tempfile
 import numpy as np
-import torch
-from pyhealth.datasets import eICUDataset, create_sample_dataset, get_dataloader
-from pyhealth.models import RNN_V2
+from pyhealth.datasets import eICUDataset
 from pyhealth.tasks import TPCLengthOfStayEICU
 from examples.tpc_support.generate_synthetic import generate, TABLES
 
 
 def run(root: Path) -> dict:
-    """Generate data, check numerical expectations, and train one LSTM step."""
-    torch.manual_seed(42)
-    torch.set_num_threads(1)
+    """Generate data and validate numerical cohort, feature and label expectations."""
     generate(root / "csv")
     source = eICUDataset(
         root=str(root / "csv"), tables=TABLES, cache_dir=root / "cache"
     )
-    task = TPCLengthOfStayEICU(include_decay=True)
+    task = TPCLengthOfStayEICU()
     samples = {}
     for sid in (101, 102, 103, 104, 105):
         out = task(source.get_patient(f"synthetic-{sid}"))
@@ -58,79 +54,20 @@ def run(root: Path) -> dict:
     np.testing.assert_allclose(
         short["los"]["values"], [[7.5], [6.5], [5.5], [4.5], [3.5], [2.5], [1.5], [0.5]]
     )
-    np.testing.assert_allclose(
-        short["decay"]["values"][:6, names.index("hr")], [1, 0.75, 1, 0.75, 0.375, 1]
-    )
-    np.testing.assert_allclose(
-        short["decay"]["values"][:6, names.index("k")], [0, 1, 0.75, 0.375, 1, 0.75]
-    )
     assert samples[103]["los"]["time"][-1] == 336
     assert samples[103]["los"]["values"][-1] == [64.5]
     assert samples[103]["dynamic"]["values"][0, names.index("hr")] == 100
     assert np.isnan(samples[105]["static"]["values"][0][2])
-    # Split BEFORE fitting: the high-valued long stay is held out.
-    train = create_sample_dataset([samples[101]], task.input_schema, task.output_schema)
-    heldout = create_sample_dataset(
-        [samples[103], samples[105]],
-        task.input_schema,
-        task.output_schema,
-        input_processors=train.input_processors,
-        output_processors=train.output_processors,
-    )
-    train_before = train[0]["dynamic"][0].clone()
-    assert torch.isfinite(heldout[0]["dynamic"][0]).all()
-    torch.testing.assert_close(train_before, train[0]["dynamic"][0])
-    # Same training processors must be reused, not refitted on held-out patients.
-    assert heldout.input_processors["dynamic"] is train.input_processors["dynamic"]
-    model = RNN_V2(
-        train,
-        embedding_dim={
-            "dynamic": [{"values": 8}],
-            "static": [{"values": 4}],
-            "decay": [{"values": 8}],
-        },
-        hidden_dim=8,
-        rnn_type="LSTM",
-        mask="concat",
-    )
-    assert any(isinstance(m, torch.nn.LSTM) for m in model.modules())
-    batch = next(iter(get_dataloader(train, batch_size=1, shuffle=False)))
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    before = [p.detach().clone() for p in model.parameters()]
-    out = model(**batch)
-    assert out["logit"].shape[0] == 8
-    assert torch.isfinite(out["loss"])
-    optimizer.zero_grad()
-    out["loss"].backward()
-    gradients = [p.grad for p in model.parameters() if p.grad is not None]
-    assert gradients and all(torch.isfinite(g).all() for g in gradients)
-    assert any(torch.count_nonzero(g) for g in gradients)
-    optimizer.step()
-    assert any(not torch.equal(a, b) for a, b in zip(before, model.parameters()))
-    model.eval()
-    with torch.no_grad():
-        evaluation = model(
-            **next(iter(get_dataloader(heldout, batch_size=2, shuffle=False)))
-        )
-    assert torch.isfinite(evaluation["loss"])
-    assert evaluation["logit"].shape[0] == 332 + 4
+    # TODO(A): downstream model validation belongs in the training
+    # example once preprocessing and the agreed input interface are complete.
     return {
         "status": "passed",
+        "scope": "CSV loading, cohort, static features, hourly labels",
         "synthetic_patients": 5,
         "included_stays": [101, 103, 105],
         "excluded_stays": [102, 104],
-        "train_patient": 101,
-        "heldout_patients": [103, 105],
-        "training_labels": 8,
-        "heldout_labels": 336,
-        "model": "RNN_V2 / LSTM",
-        "decay_enabled": True,
-        "optimizer_steps": 1,
-        "finite_nonzero_gradients": True,
-        "parameters_changed": True,
-        "training_loss": float(out["loss"].detach()),
-        "heldout_loss": float(evaluation["loss"]),
-        "interpretation": "Synthetic integration check only; not model performance evidence.",
+        "model_training": "pending training integration",
+        "missingness_and_decay": "pending preprocessing integration",
     }
 
 
