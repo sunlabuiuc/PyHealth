@@ -257,7 +257,7 @@ class TestBEHRT(unittest.TestCase):
         self.assertIn("loss", out)
 
     def test_mean_pooling_strategy(self):
-        """Tests mean pooling across valid sequence tokens."""
+        """Tests mean pooling across valid tokens and verifies pad invariance."""
         mean_model = BEHRT(
             dataset=self.dataset,
             embedding_dim=32,
@@ -269,6 +269,43 @@ class TestBEHRT(unittest.TestCase):
         batch = next(iter(loader))
         out = mean_model(**batch)
         self.assertEqual(out["logit"].shape, (2, 1))
+
+        # Padded tokens with mask=False do not affect mean pooling of valid tokens
+        mask = torch.tensor(
+            [[True, True, False, False], [True, True, False, False]], dtype=torch.bool
+        )
+        layer = BEHRTLayer(hidden_size=16, heads=2, num_layers=1)
+        layer.eval()
+        x = torch.zeros(2, 4, 16)
+        x[:, 0:2, :] = 1.0
+        x[1, 2:, :] = 42.0  # arbitrary pad values in sequence 1
+
+        with torch.no_grad():
+            enc = layer(x, mask=mask)
+        mask_exp = mask.unsqueeze(-1).float()
+        pooled = (enc * mask_exp).sum(dim=1) / mask_exp.sum(dim=1)
+        self.assertTrue(torch.allclose(pooled[0], pooled[1], atol=1e-5))
+
+    def test_odd_embedding_dim(self):
+        """Verifies odd embedding_dim support in embedding layer and model."""
+        odd_emb = BEHRTEmbedding(embedding_dim=63)
+        code_embs = torch.randn(2, 5, 63)
+        out = odd_emb(code_embs)
+        self.assertEqual(out.shape, (2, 5, 63))
+
+        odd_model = BEHRT(
+            dataset=self.dataset,
+            embedding_dim=63,
+            heads=1,
+            num_layers=1,
+        )
+        loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+        model_out = odd_model(**batch)
+        self.assertEqual(model_out["logit"].shape, (2, 1))
+
+        with self.assertRaises(ValueError):
+            BEHRT(dataset=self.dataset, embedding_dim=63, heads=2)
 
     def test_forward_from_embedding_direct(self):
         """Tests direct call to forward_from_embedding with pre-embedded features."""

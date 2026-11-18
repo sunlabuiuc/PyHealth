@@ -8,10 +8,10 @@ Scientific Reports 10.1 (2020): 7155.
 Paper link: https://www.nature.com/articles/s41598-020-62922-y
 
 Temporal Features:
-- ``age``: Patient chronological age (integer or float tensor of shape ``[batch_size, seq_len]`` or ``[batch_size]``).
-  When supplied in the input batch, it maps each clinical token to an age embedding. Defaults to 0 when omitted.
+- ``age``: Patient chronological age (integer or float tensor of shape ``[batch_size, seq_len]`` or ``[batch_size]`` with values in ``[0, max_age - 1]``).
+  Users can pass integer age tensors directly in batch kwargs (e.g. ``kwargs["age"]``). Note that standard categorical sequence processors map unique tokens to arbitrary vocabulary indices rather than biological ages; to preserve true chronological ages, provide pre-binned integer tensors. When omitted, age embeddings are skipped.
 - ``segment``: Visit segment indicators (integer tensor of shape ``[batch_size, seq_len]`` or ``[batch_size]``) distinguishing
-  consecutive hospital visits. Defaults to 0 when omitted.
+  consecutive hospital visits. When omitted, segment embeddings are skipped.
 - If neither is provided, BEHRT operates as a standard position-aware Transformer baseline.
 
 Sequence Pooling:

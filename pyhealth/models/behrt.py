@@ -78,8 +78,10 @@ class BEHRTEmbedding(nn.Module):
             torch.arange(0, self.embedding_dim, 2, dtype=torch.float)
             * (-math.log(10000.0) / self.embedding_dim)
         )
-        weight[:, 0::2] = torch.sin(position * div_term)
-        weight[:, 1::2] = torch.cos(position * div_term)
+        sin_term = torch.sin(position * div_term)
+        cos_term = torch.cos(position * div_term)
+        weight[:, 0::2] = sin_term[:, : weight[:, 0::2].size(1)]
+        weight[:, 1::2] = cos_term[:, : weight[:, 1::2].size(1)]
         self.position_embeddings.weight.data.copy_(weight)
 
     @staticmethod
@@ -251,10 +253,15 @@ class BEHRT(BaseModel):
     Temporal feature sources:
         - ``age``: Patient chronological age (integer or float tensor of shape
           ``[batch_size, seq_len]`` or ``[batch_size]``) representing age at each
-          clinical encounter. If omitted from inputs, age embeddings default to 0.
+          clinical encounter, with values in ``[0, max_age - 1]``. Users can supply
+          integer age tensors directly in batch kwargs (e.g. ``kwargs["age"]``).
+          Note that categorical sequence processors like ``SequenceProcessor`` map
+          unique tokens to arbitrary vocabulary indices rather than biological ages;
+          to preserve true chronological ages, provide pre-binned integer tensors.
+          If omitted from inputs, age embeddings are skipped.
         - ``segment``: Visit segment indicators (integer tensor of shape
           ``[batch_size, seq_len]`` or ``[batch_size]``) distinguishing consecutive
-          visits (e.g. ``[0, 0, 1, 1, 2]``). If omitted, segment embeddings default to 0.
+          visits (e.g. ``[0, 0, 1, 1, 2]``). If omitted, segment embeddings are skipped.
         When neither ``age`` nor ``segment`` is provided, BEHRT functions as a
         position-aware Transformer baseline over medical code sequences.
 
@@ -277,6 +284,7 @@ class BEHRT(BaseModel):
             ``"mean"`` (average over valid tokens). Default is ``"cls"``.
 
     Examples:
+        >>> import torch
         >>> from pyhealth.datasets import create_sample_dataset
         >>> from pyhealth.models import BEHRT
         >>> samples = [
@@ -324,6 +332,10 @@ class BEHRT(BaseModel):
         super().__init__(dataset=dataset)
         if pooling not in ("cls", "mean"):
             raise ValueError(f"pooling must be 'cls' or 'mean', got {pooling!r}")
+        if embedding_dim % heads != 0:
+            raise ValueError(
+                f"embedding_dim ({embedding_dim}) must be divisible by heads ({heads})."
+            )
 
         assert len(self.label_keys) == 1, "BEHRT only supports a single label key"
         self.label_key = self.label_keys[0]
