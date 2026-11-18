@@ -36,6 +36,9 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.MLP`
      - Features are static numeric vectors (aggregated lab values, demographics)
      - Fully connected; no notion of sequence order
+   * - :doc:`models/pyhealth.models.neural_fg`
+     - You need time-to-event predictions with multiple competing risks
+     - Monotonic neural networks estimate event-specific cumulative incidence functions (CIFs)
    * - ``MultimodalRNN``
      - Features mix sequential codes with static tensors or multi-hot encodings
      - Auto-routes sequential features to RNN layers and non-sequential features to linear layers; good default for EHR
@@ -289,6 +292,7 @@ API Reference
 
     models/pyhealth.models.BaseModel
     models/pyhealth.models.NeuralFineGray
+    models/pyhealth.models.neural_fg
     models/pyhealth.models.LogisticRegression
     models/pyhealth.models.MLP
     models/pyhealth.models.CNN
