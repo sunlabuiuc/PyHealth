@@ -225,3 +225,4 @@ def __getattr__(name: str):
 
         return PTBXLSuperclassClassification
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+from .ptbxl_71_scp import PTBXLAllDiagnosticClassification as PTBXLAllDiagnosticClassification
