@@ -82,6 +82,10 @@ from .in_hospital_mortality_meds import (
     InHospitalMortalityMEDS as InHospitalMortalityMEDS,
 )
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
+from .kits23_classification import (
+    KiTS23MalignancyClassification as KiTS23MalignancyClassification,
+    KiTS23MalignancySliceClassification as KiTS23MalignancySliceClassification,
+)
 from .lab_nowcasting import (
     LabNowcasting as LabNowcasting,
     LabNowcastingMIMIC3 as LabNowcastingMIMIC3,

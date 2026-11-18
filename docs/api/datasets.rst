@@ -475,6 +475,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `NIH <https://nihcc.app.box.com/v/ChestXray-NIHCC>`__
      - Yes
      - —
+   * - :doc:`KiTS23 (kidney tumour CT) <datasets/pyhealth.datasets.KiTS23Dataset>`
+     - Open (CC BY-NC-SA 4.0)
+     - `GitHub <https://github.com/neheller/kits23>`__ + `Hugging Face <https://huggingface.co/datasets/neheller/KiTS-Challenge-Imaging>`__
+     - No (``kits23_download_data``)
+     - —
    * - :doc:`Medical Segmentation Decathlon <datasets/pyhealth.datasets.MSDSegmentationDataset>`
      - Open
      - `MSD <http://medicaldecathlon.com/>`__
@@ -542,6 +547,7 @@ Available Datasets
     datasets/pyhealth.datasets.MSDSpleenDataset
     datasets/pyhealth.datasets.CHAOSDataset
     datasets/pyhealth.datasets.RSNAPneumoniaDataset
+    datasets/pyhealth.datasets.KiTS23Dataset
     datasets/pyhealth.datasets.MIMIC3Dataset
     datasets/pyhealth.datasets.MIMIC4Dataset
     datasets/pyhealth.datasets.MIMIC4EHRDataset
