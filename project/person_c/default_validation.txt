@@ -1,0 +1,8 @@
+...........................s                                             [100%]
+============================= slowest 5 durations ==============================
+0.05s call     tests/core/test_tpc_eicu.py::test_cohort[4.99-60-False]
+0.02s call     tests/core/test_tpc_eicu.py::test_static_features
+0.01s call     tests/core/test_tpc_eicu.py::test_combined_mask_fill_and_decay[0]
+0.01s call     tests/core/test_tpc_eicu.py::test_combined_mask_fill_and_decay[0.1]
+0.01s call     tests/core/test_tpc_eicu.py::test_combined_mask_fill_and_decay[0.2]
+27 passed, 1 skipped in 21.62s

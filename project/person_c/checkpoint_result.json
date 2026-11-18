@@ -22,7 +22,7 @@
   "optimizer_steps": 1,
   "finite_nonzero_gradients": true,
   "parameters_changed": true,
-  "training_loss": 0.1641741394996643,
-  "heldout_loss": 1232.439697265625,
+  "training_loss": 0.16046194732189178,
+  "heldout_loss": 1232.579833984375,
   "interpretation": "Synthetic integration check only; not model performance evidence."
 }

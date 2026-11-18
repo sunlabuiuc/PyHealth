@@ -1,3 +1,6 @@
+# Contributor: Xiao Luo, UIUC NetID xiaoluo6.
+# Paper: Temporal Pointwise Convolutional Networks for Length of Stay
+# Prediction in the Intensive Care Unit. https://arxiv.org/abs/2007.09483
 """Person C: synthetic cohort and hourly-label regression tests.
 
 Reference: https://arxiv.org/abs/2007.09483. No clinical records used.
@@ -43,7 +46,7 @@ def test_labels_and_horizon():
     assert sample["los"]["time"] == list(range(5, 337))
     assert _labels(sample["los"])[0] == 395.5
     assert _labels(sample["los"])[-1] == 64.5
-    assert sample["dynamic"]["values"].shape == (337, 48)
+    assert sample["dynamic"]["values"].shape == (336, 48)
     assert _labels(task(_patient(hours=5, hr_hours=[]))[0]["los"]) == [0]
 
 
@@ -198,3 +201,20 @@ def test_combined_mask_fill_and_decay(rate):
     else:
         assert not filled.any()
         assert not sample["decay"]["values"].any()
+
+
+def test_incomplete_hour_cannot_enter_prediction():
+    task = TPCLengthOfStayEICU(include_decay=True)
+    baseline = task(_patient(hours=8, hr_hours=[]))[0]
+    changed = task(_patient(hours=8, hr_hours=[], extra=[_lab(359, "potassium", 5)]))[0]
+    for sample in [baseline, changed]:
+        assert sample["dynamic"]["time"] == list(range(1, 9))
+        assert sample["decay"]["time"] == sample["dynamic"]["time"]
+    for field in ["dynamic", "decay"]:
+        times = np.asarray(changed[field]["time"])
+        np.testing.assert_equal(
+            baseline[field]["values"][times <= 5], changed[field]["values"][times <= 5]
+        )
+    k = task.DYNAMIC_FEATURES.index("k")
+    assert changed["dynamic"]["values"][5, k] == 5
+    assert changed["dynamic"]["time"][5] == 6

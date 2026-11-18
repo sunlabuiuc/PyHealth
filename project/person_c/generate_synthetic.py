@@ -1,3 +1,6 @@
+# Contributor: Xiao Luo, UIUC NetID xiaoluo6.
+# Paper: Temporal Pointwise Convolutional Networks for Length of Stay
+# Prediction in the Intensive Care Unit. https://arxiv.org/abs/2007.09483
 """Write five invented patients in the shipped eICU CSV schema."""
 
 import csv

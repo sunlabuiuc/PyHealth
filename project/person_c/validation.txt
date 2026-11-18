@@ -1,4 +1,4 @@
-...........................                                              [100%]
+............................                                             [100%]
 =============================== warnings summary ===============================
 tests/integration/test_tpc_checkpoint.py::test_csv_to_lstm
   /Users/luoxiao/.codex/.chatgpt-projects/g-p-6ac07c55e33881918976b24c72891f67/PyHealth/pyhealth/datasets/sample_dataset.py:208: FutureWarning: SequenceProcessorV2 and the 'sequence_v2' processor name are deprecated and will be removed in a future release; use JaggedFeatureProcessor and 'jagged', which behave identically.
@@ -6,18 +6,19 @@ tests/integration/test_tpc_checkpoint.py::test_csv_to_lstm
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 ============================= slowest 30 durations =============================
-4.47s call     tests/integration/test_tpc_checkpoint.py::test_csv_to_lstm
-0.05s call     tests/core/test_tpc_eicu.py::test_cohort[4.99-60-False]
+5.13s call     tests/integration/test_tpc_checkpoint.py::test_csv_to_lstm
+0.07s call     tests/core/test_tpc_eicu.py::test_cohort[4.99-60-False]
 0.02s call     tests/core/test_tpc_eicu.py::test_static_features
-0.01s call     tests/core/test_tpc_eicu.py::test_future_observations_do_not_change_earlier_hours
-0.01s call     tests/core/test_tpc_eicu.py::test_hourly_measurements_and_missing_data
-0.01s call     tests/core/test_tpc_eicu.py::test_combined_mask_fill_and_decay[0.2]
-0.01s call     tests/core/test_tpc_eicu.py::test_combined_mask_fill_and_decay[0]
-0.01s call     tests/core/test_tpc_eicu.py::test_combined_mask_fill_and_decay[1]
+0.02s call     tests/core/test_tpc_eicu.py::test_combined_mask_fill_and_decay[0]
 0.01s call     tests/core/test_tpc_eicu.py::test_combined_mask_fill_and_decay[0.1]
-0.01s call     tests/core/test_tpc_eicu.py::test_stays_are_isolated
+0.01s call     tests/core/test_tpc_eicu.py::test_combined_mask_fill_and_decay[1]
+0.01s call     tests/core/test_tpc_eicu.py::test_combined_mask_fill_and_decay[0.2]
+0.01s call     tests/core/test_tpc_eicu.py::test_hourly_measurements_and_missing_data
+0.01s call     tests/core/test_tpc_eicu.py::test_future_observations_do_not_change_earlier_hours
 0.01s call     tests/core/test_tpc_eicu.py::test_labels_and_horizon
+0.01s call     tests/core/test_tpc_eicu.py::test_stays_are_isolated
+0.01s call     tests/core/test_tpc_eicu.py::test_incomplete_hour_cannot_enter_prediction
 0.01s call     tests/core/test_tpc_eicu.py::test_cohort[5-18-True]
 
-(18 durations < 0.005s hidden.  Use -vv to show these durations.)
-27 passed, 1 warning in 11.78s
+(17 durations < 0.005s hidden.  Use -vv to show these durations.)
+28 passed, 1 warning in 13.47s

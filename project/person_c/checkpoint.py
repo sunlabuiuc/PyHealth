@@ -1,3 +1,6 @@
+# Contributor: Xiao Luo, UIUC NetID xiaoluo6.
+# Paper: Temporal Pointwise Convolutional Networks for Length of Stay
+# Prediction in the Intensive Care Unit. https://arxiv.org/abs/2007.09483
 """Synthetic CSV-to-LSTM checkpoint; no clinical performance claims."""
 
 from pathlib import Path
