@@ -588,6 +588,37 @@ class TestEEGAbnormalTUABRobustness(unittest.TestCase):
         self.assertIn("/dummy/path.edf", logs.output[0])
         self.assertIn("bad EDF header", logs.output[0])
 
+    def test_recording_missing_an_electrode_is_skipped_with_a_warning(self):
+        # The bipolar montage needs all 16 electrodes; a recording without
+        # one used to raise from convert_to_bipolar and stop set_task.
+        task = EEGAbnormalTUAB(compute_stft=False)
+        ch_names = [c for c in self.CH_NAMES if c != "EEG T5-REF"]
+        raw = np.random.randn(len(ch_names), 200 * 25)
+        patient = _DummyPatient(
+            patient_id="patient-0",
+            events=[
+                _DummyEvent(signal_file="/dummy/path.edf", label="normal"),
+                _DummyEvent(signal_file="/dummy/full.edf", label="abnormal"),
+            ],
+        )
+        full = (np.random.randn(len(self.CH_NAMES), 200 * 25), list(self.CH_NAMES))
+        with (
+            patch.object(
+                EEGAbnormalTUAB,
+                "read_and_process_edf",
+                side_effect=[(raw, ch_names), full],
+            ),
+            self.assertLogs(
+                "pyhealth.tasks.temple_university_EEG_tasks", level="WARNING"
+            ) as logs,
+        ):
+            samples = task(patient)
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("/dummy/path.edf", logs.output[0])
+        self.assertIn("EEG T5-REF", logs.output[0])
+        self.assertEqual({s["signal_file"] for s in samples}, {"/dummy/full.edf"})
+        self.assertEqual(len(samples), 2)
+
 
 class TestTUABMetadataCachePerRoot(unittest.TestCase):
     """Two dataset roots must never share cached metadata.

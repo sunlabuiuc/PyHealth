@@ -275,6 +275,9 @@ class EEGAbnormalTUAB(BaseTask):
       4) assigns a binary label (1 = abnormal, 0 = normal) derived from the
          metadata ``label`` attribute
 
+    Recordings that cannot be read, or that lack one of the 16 ``EEG XX-REF``
+    electrodes of the bipolar montage, are skipped with a warning.
+
     Each returned sample contains:
       - "signal": torch.FloatTensor, shape (16, round(10 * resample_rate));
         a window is exactly 10 s only when ``10 * resample_rate`` is a
@@ -437,7 +440,17 @@ class EEGAbnormalTUAB(BaseTask):
                     logger.warning("Skipping %s: %s", edf_path, exc)
                     continue
 
-                bipolar_data = self.convert_to_bipolar(raw_data, ch_name)
+                try:
+                    bipolar_data = self.convert_to_bipolar(raw_data, ch_name)
+                except ValueError as exc:
+                    # list.index raises ValueError for a missing electrode.
+                    logger.warning(
+                        "Skipping %s: %s. The bipolar montage needs the 16 "
+                        "EEG XX-REF electrodes.",
+                        edf_path,
+                        exc,
+                    )
+                    continue
 
                 # Slice indices must be ints, and resample_rate may be a float.
                 window = round(fs * 10)
