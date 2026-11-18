@@ -470,7 +470,7 @@ class BCSSDataset(BaseDataset):
         if val_ratio <= 0:
             return SubjectSplit((train, test))
         order = np.random.default_rng(seed).permutation(len(train))
-        n_val = max(1, int(round(len(train) * val_ratio)))
+        n_val = max(1, round(len(train) * val_ratio))
         if n_val >= len(train):
             raise ValueError("val_ratio leaves no training patients.")
         val = [train[i] for i in order[:n_val]]

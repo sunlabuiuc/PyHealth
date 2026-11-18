@@ -58,7 +58,7 @@ from .imaging.patches import PatchDataset as PatchDataset
 from .imaging.stats import (
     compute_foreground_intensity_stats as compute_foreground_intensity_stats,
 )
-from .bcss import BCSSDataset as BCSSDataset  # noqa: E402
+from .bcss import BCSSDataset as BCSSDataset
 from .cardiology import CardiologyDataset
 from .chaos import CHAOSDataset as CHAOSDataset
 from .chest_imagenome import ChestImaGenomeDataset as ChestImaGenomeDataset
