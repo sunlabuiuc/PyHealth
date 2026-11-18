@@ -5,7 +5,9 @@ map is the synthetic fixture test-resources/core/ptbxl/scp_statements.csv
 (not real PhysioNet data), and waveforms are generated at test time.
 
 Authors:
-    Bjorn Elvar (bthor5@illinois.edu), Rohan Vanjani
+    Allen Zhang             (allenz3@illinois.edu)
+    Bjorn Thorleifsson      (bthor5@illinois.edu)
+    Rohan Vanjani           (vanjani3@illinois.edu)
 """
 
 import shutil

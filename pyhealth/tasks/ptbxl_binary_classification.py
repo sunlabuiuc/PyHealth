@@ -1,7 +1,9 @@
 """Binary detection of one PTB-XL diagnostic superclass.
 
 Authors:
-    Bjorn Elvar (bthor5@illinois.edu), Rohan Vanjani
+    Allen Zhang             (allenz3@illinois.edu)
+    Bjorn Thorleifsson      (bthor5@illinois.edu)
+    Rohan Vanjani           (vanjani3@illinois.edu)
 
 Paper:
     Aniruddh Raghu, Divya Shanmugam, Eugene Pomerantsev, John Guttag and
@@ -11,10 +13,9 @@ Paper link:
     https://proceedings.mlr.press/v174/raghu22a.html
 
 Description:
-    The paper's PTB-XL setup: one binary target per ECG (does it carry a
-    statement of the chosen diagnostic superclass?) on a 250 Hz, 2496-sample
-    signal. It is the task :class:`~pyhealth.models.TaskAug` trains on, since
-    its augmentation strengths are indexed by a binary label.
+    The paper's PTB-XL setup: does an ECG, at 250 Hz and 2496 samples, carry
+    a statement of one diagnostic superclass? :class:`~pyhealth.models.TaskAug`
+    needs a binary label like this one.
 """
 
 from __future__ import annotations
@@ -31,41 +32,27 @@ from pyhealth.tasks.base_task import BaseTask
 class PTBXLBinaryClassification(BaseTask):
     """Binary detection of one diagnostic superclass on PTB-XL ECGs.
 
-    The label is 1 when any diagnostic SCP statement of the ECG maps to
-    ``target`` in ``scp_statements.csv`` and 0 otherwise. Every ECG gives a
-    sample: one with no diagnostic superclass at all (mainly pacemaker ECGs)
-    is a negative, as in the reference loader of Raghu et al. (2022).
-
-    Unlike :class:`~pyhealth.tasks.PTBXLSuperclassClassification` and
-    :class:`~pyhealth.tasks.PTBXLMultilabelClassification`, which are
-    multi-label at the dataset's own rate, this task has a ``"binary"`` label
-    and resamples the signal. Build the dataset with
-    ``PTBXLDataset(..., sampling_rate=500)`` to get the paper's 250 Hz input.
-
-    The signal is not normalized: fit normalization statistics on your
-    training split and apply them to all splits.
+    The label is 1 when any diagnostic statement of the ECG maps to
+    ``target``; ECGs with no diagnostic superclass are negatives, as in the
+    reference loader. The signal is decimated (every n-th sample, no low-pass
+    filter, as in the reference loader) and cropped or zero-padded to
+    ``length``. It is not normalized: fit statistics on the training split.
+    For the paper's 250 Hz input, build the dataset with ``sampling_rate=500``.
 
     Args:
-        scp_statements_path: Path to ``scp_statements.csv`` from the PTB-XL
-            download. Use ``dataset.scp_statements_path``.
-        target: The diagnostic superclass to detect: ``"MI"``, ``"HYP"``,
-            ``"STTC"``, ``"CD"`` or ``"NORM"``. Defaults to ``"MI"``.
-        sampling_rate: Output sampling rate in Hz. It must divide the
-            dataset's rate. The signal is decimated by keeping every n-th
-            sample, without a low-pass filter, as in the reference loader.
-            Defaults to 250.
-        length: Number of samples kept from the start of the resampled signal;
-            shorter signals are zero-padded at the end. ``None`` keeps the
-            signal as is. Defaults to 2496, the reference loader's length (10 s
-            at 250 Hz minus 4 samples).
+        scp_statements_path: ``scp_statements.csv`` of the PTB-XL download,
+            such as ``dataset.scp_statements_path``.
+        target: ``"MI"``, ``"HYP"``, ``"STTC"``, ``"CD"`` or ``"NORM"``.
+        sampling_rate: Output rate in Hz; it must divide the dataset's rate.
+        length: Samples kept, or ``None`` for all. The default is the
+            reference loader's: 10 s at 250 Hz, minus 4 samples.
 
     Attributes:
-        task_name (str): ``"PTBXLBinaryClassification"``.
-        input_schema (dict): ``{"signal": "tensor"}``.
+        input_schema (dict): ``{"signal": "tensor"}``, shaped ``(12, length)``.
         output_schema (dict): ``{"label": "binary"}``.
 
     Raises:
-        ValueError: If ``target`` is not a diagnostic superclass, or if
+        ValueError: If ``target`` is not a diagnostic superclass, or
             ``sampling_rate`` or ``length`` is not positive.
 
     Examples:
@@ -111,14 +98,7 @@ class PTBXLBinaryClassification(BaseTask):
         super().__init__()
 
     def _prepare_signal(self, signal_file: str, source_rate: int) -> np.ndarray:
-        """Loads one ECG, decimates it and crops or pads it to ``length``.
-
-        Args:
-            signal_file: WFDB record path without extension.
-            source_rate: Sampling rate of the stored record in Hz.
-
-        Returns:
-            Float32 array of shape ``(12, length)``.
+        """Loads one WFDB record, decimates it and crops or pads it.
 
         Raises:
             ValueError: If ``sampling_rate`` does not divide ``source_rate``.
@@ -148,8 +128,8 @@ class PTBXLBinaryClassification(BaseTask):
                 :class:`~pyhealth.datasets.PTBXLDataset`.
 
         Returns:
-            A list of dicts with ``patient_id``, ``record_id``, ``strat_fold``,
-            ``signal`` (float32 array ``(12, length)``) and ``label`` (0 or 1).
+            Dicts with ``patient_id``, ``record_id``, ``strat_fold``, ``signal``
+            (float32, ``(12, length)``) and ``label`` (0 or 1).
         """
         from pyhealth.tasks.ptbxl import (
             aggregate_diagnostic_superclasses,

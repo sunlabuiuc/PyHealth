@@ -5,12 +5,13 @@ Electrocardiograms" (CHIL 2022, https://proceedings.mlr.press/v174/raghu22a.html
 with ``PTBXLDataset``, ``PTBXLBinaryClassification`` and ``TaskAug``.
 
 Authors:
-    Bjorn Elvar (bthor5@illinois.edu), Rohan Vanjani
+    Allen Zhang             (allenz3@illinois.edu)
+    Bjorn Thorleifsson      (bthor5@illinois.edu)
+    Rohan Vanjani           (vanjani3@illinois.edu)
 
 Usage
 -----
-No download needed; runs every experiment on synthetic signals, with a
-narrow ResNet, in a couple of minutes on a laptop CPU::
+On synthetic signals, no download needed (a few minutes on a laptop CPU)::
 
     python examples/ecg/ptbxl/ptbxl_binary_classification_taskaug.py --synthetic
 
@@ -20,42 +21,69 @@ On PTB-XL v1.0.3 (https://physionet.org/content/ptb-xl/1.0.3/, open access;
     python examples/ecg/ptbxl/ptbxl_binary_classification_taskaug.py \\
         --root /data/ptb-xl/1.0.3 --experiment main hparam transfer
 
+Each finished run is a line of ``results.jsonl`` in ``--output-dir``, and the
+run in progress is checkpointed every epoch. Rerunning the command skips
+finished runs and resumes the unfinished one.
+
 Setup
 -----
-Data. Each ECG is read at 500 Hz, decimated to 250 Hz and cut to 2496
-samples, with a binary label for one diagnostic superclass (``--target``,
-default MI). Fold 10 is the test set. A development set of ``--n-dev``
-(default 1000) ECGs is drawn from folds 1 to 9 by patient and split 80/20 by
-patient into training and validation sets, anew for every seed. Signals are
-standardized with the mean and standard deviation of the training set.
-
-Training. Every arm uses ``train_taskaug``: Adam (learning rate 1e-3), batch
-size 128, 100 epochs, and the weights of the epoch with the lowest validation
-loss on signals that are not augmented. The test metrics are AUROC and AUPRC
-from ``Trainer.evaluate``.
-
-Long jobs. Each finished run is a line of ``results.jsonl`` in
-``--output-dir``, and the run in progress is checkpointed there after every
-epoch. Running the same command again skips the finished runs and continues
-the unfinished one, so a job may be stopped at any time.
+- Data: 12-lead ECGs at 250 Hz (2496 samples), with a binary label for one
+  diagnostic superclass (``--target``, default MI). Fold 10 is the test set.
+  For each seed, 1000 ECGs (``--n-dev``) are drawn by patient from folds 1 to
+  9 and split 80/20 by patient into training and validation. Signals are
+  standardized with training-set statistics.
+- Training: ``train_taskaug`` for every arm. Adam at 1e-3, batch 128, 100
+  epochs, keeping the epoch with the lowest unaugmented validation loss.
+  TaskAug's policy: 2 stages, RMSprop at 1e-2, after 5 warm-up epochs.
+- Metrics: test AUROC and AUPRC from ``Trainer.evaluate``.
 
 Experiments (``--experiment``):
 
-- ``main``: four arms on the paper's ResNet. ``noaug`` uses no augmentation,
-  ``timemask`` zeroes a random 10% window, ``initaug`` is the TaskAug policy
-  left at its initial values, and ``taskaug`` learns the policy (RMSprop,
-  learning rate 1e-2, after 5 warm-up epochs, 2 stages).
-- ``hparam``: TaskAug with 1, 2 or 3 stages and a policy learning rate of
-  1e-3, 1e-2 or 1e-1.
-- ``transfer`` (our extension): is a policy learned with the ResNet useful
-  to another architecture? SparcNet is trained with no augmentation, with
-  the initial policy, and with the frozen policy the ResNet learned on the
-  same split.
+- ``main``: the paper's ResNet with no augmentation (``noaug``), a random 10%
+  time mask (``timemask``), the TaskAug policy frozen at its initial values
+  (``initaug``) and the learned policy (``taskaug``).
+- ``hparam``: TaskAug with 1 to 3 stages and a policy learning rate of 1e-3,
+  1e-2 or 1e-1. The paper fixes both.
+- ``transfer`` (our extension): SparcNet trained with no augmentation, the
+  initial policy, or the policy the ResNet learned on the same split.
 
 Results
 -------
-Not run to completion yet: see the pull request description for the current
-numbers and how they compare with the paper's Table 2.
+MI, N = 1000, two Kaggle T4s. Percent, mean ± standard error over seeds.
+
+Main, 20 seeds, against the paper's Tables 2 and 5 (5 splits)::
+
+    arm        AUROC        AUPRC        paper AUROC   paper AUPRC
+    noaug      80.6 ± 0.6   60.4 ± 0.8   80.0 ± 0.8    59.2 ± 2.1
+    timemask   81.0 ± 0.4   60.8 ± 0.8   81.1 ± 1.3    60.3 ± 1.3
+    initaug    80.0 ± 0.5   60.3 ± 0.7
+    taskaug    80.5 ± 0.4   60.5 ± 0.8   82.3 ± 0.5    63.1 ± 1.7
+
+Hyperparameter ablation, AUROC, seeds 0 to 2 (no augmentation: 81.3 ± 0.9)::
+
+               policy lr 1e-3   1e-2         1e-1
+    K = 1      82.6 ± 0.8       82.1 ± 0.8   81.3 ± 0.1
+    K = 2      81.8 ± 0.3       81.5 ± 0.6   81.1 ± 2.1
+    K = 3      81.0 ± 0.8       79.6 ± 0.2   81.8 ± 0.9
+
+Transfer to SparcNet, AUROC, seeds 0 to 2: no augmentation 73.0 ± 2.7, initial
+policy 74.5 ± 2.0, transferred policy 76.4 ± 2.9.
+
+Findings:
+
+- The baseline reproduces, but TaskAug's gain does not. Paired by seed,
+  TaskAug minus no augmentation is -0.0 ± 0.7 AUROC points (95% CI -1.4 to
+  +1.3); the paper reports +2.3. Time masking gives +0.4 ± 0.5 (paper +1.1).
+- Seeds matter more than arms: AUROC varies by 2.5 points between splits.
+  Our first 5 seeds put the baseline at 82.2, two points above the paper.
+- In the ablation no setting clearly beats the default. Fewer stages tend to
+  do better; the best cell (K = 1, lr 1e-3) is the best of nine on 3 seeds.
+- The transferred policy helps SparcNet by +3.4 ± 4.7 points, paired:
+  the right direction, but inconclusive with 3 seeds.
+- Cost on a T4: 2.6 min for a fixed-policy run, 20.6 min for TaskAug.
+- Protocol differences from the reference code: patient-level splits (it
+  splits records at random), training-set normalization only, a 10% time
+  mask (its policy uses 5%), and the policy step reuses the training batch.
 """
 
 from __future__ import annotations

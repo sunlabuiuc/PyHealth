@@ -4,7 +4,9 @@ All data is synthetic: eight random 3-lead signals of 128 samples, and
 backbones a few channels wide, so every test runs in milliseconds.
 
 Authors:
-    Bjorn Elvar (bthor5@illinois.edu), Rohan Vanjani
+    Allen Zhang             (allenz3@illinois.edu)
+    Bjorn Thorleifsson      (bthor5@illinois.edu)
+    Rohan Vanjani           (vanjani3@illinois.edu)
 """
 
 import copy
