@@ -3,10 +3,9 @@
 UIUC NetID: xiaoluo6.
 Paper: Temporal Pointwise Convolutional Networks for Length of Stay
 Prediction in the Intensive Care Unit, https://arxiv.org/abs/2007.09483.
-Reuses YAIB extraction; adds five-hour cohort, masking and optional decay.
+Implements five-hour cohort and labels; exposes preprocessing extension points.
 """
 
-import hashlib
 from copy import deepcopy
 from typing import Any, ClassVar
 
@@ -27,20 +26,22 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
     Dynamic timestamps mark completed bins: bin [h-1,h) is available at h.
     Remaining LOS is not clipped to 14 days. Dynamic values remain raw with
     NaNs; sequence_v2 processors fit normalization on training patients and
-    forward-fill after observation masking. Optional decay is a separate input.
+    forward-fill using inherited YAIB processors. Nonzero missingness and decay
+    are explicit placeholders pending preprocessing implementation.
 
     Args:
-        missing_rate: Fraction of observed hourly cells hidden, in [0, 1].
+        missing_rate: Planned removal fraction in [0, 1]. Only 0 works until
+            the preprocessing extension point is implemented.
         seed: Seed combined with each stay ID for repeatable masking.
-        include_decay: Add a separate 48-channel decay series. Defaults to
-            False for compatibility with the team prototype.
+        include_decay: Planned separate 48-channel decay series. Leave False
+            until the preprocessing extension point is implemented.
     Examples:
         >>> from pyhealth.tasks import TPCLengthOfStayEICU
-        >>> task = TPCLengthOfStayEICU(missing_rate=0.1, include_decay=True)
+        >>> task = TPCLengthOfStayEICU()
         >>> task.START_HOUR, task.MAX_HOURS
         (5, 336)
-        >>> "decay" in task.input_schema
-        True
+        >>> task.missing_rate
+        0.0
 
     """
 
@@ -95,66 +96,33 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
             and static[stay_id][0] >= 18
         ]
         stays = stays.filter(pl.col("stay_id").is_in(keep))
+        # TODO(B): review feature coverage and aggregation. This
+        # existing YAIB path is a provisional baseline, not a new implementation.
         hourly = self._hourly(self._measurements(patient, stays, _DYNAMIC_FEATURES))
         return stays, hourly, {key: static[key] for key in keep}
 
     @staticmethod
     def _decay(values: np.ndarray) -> np.ndarray:
-        """Compute causal observation recency after masking.
+        """Extension point for observation-recency features.
 
-        Reimplements the original TPC preprocessing formula: 0 before the
-        first observation, 1 when observed, 1 / (gap * 4/3) afterwards.
-        Source: EmmaRocheteau/TPC-LoS-prediction/eICU_preprocessing/timeseries.py.
-        No forward-looking information or cross-stay state is used.
-
-        Args:
-            values: Masked hourly matrix, with NaN for absent observations.
-
-        Returns:
-            A finite matrix of the same shape containing observation recency.
+        TODO(B): implement after agreeing on the decay formula.
+        Expected shape equals values.shape; compute AFTER observation removal,
+        separately per stay. Do not read future values.
         """
-        result = np.zeros_like(values, dtype=float)
-        last = np.full(values.shape[1], -1, dtype=int)
-        for hour, row in enumerate(values):
-            observed = np.isfinite(row)
-            last[observed] = hour
-            seen = last >= 0
-            gap = hour - last[seen]
-            result[hour, seen] = 1.0 / np.maximum(1.0, gap * (4.0 / 3.0))
-        return result
+        raise NotImplementedError(
+            "TODO(B): implement _decay before include_decay=True."
+        )
 
     def _apply_missingness(self, values: np.ndarray, stay_id: Any) -> np.ndarray:
-        """Randomly hide a fraction of originally observed values.
+        """Extension point for reproducible observation removal.
 
-        Args:
-            values: Raw hourly matrix, with NaN for missing cells.
-            stay_id: Stable identifier used to seed this stay's removal mask.
-
-        Returns:
-            A copy with round(observed_count * missing_rate) cells set to NaN.
-            The input matrix and originally missing cells are unchanged.
+        TODO(B): implement seeded masking for nonzero rates before
+        imputation. Agree whether removal applies to raw rows or hourly cells.
+        The zero-removal baseline returns an independent unchanged copy.
         """
-        values = values.copy()
-
         if self.missing_rate == 0.0:
-            return values
-
-        observed = np.argwhere(~np.isnan(values))
-        n_hide = round(len(observed) * self.missing_rate)
-
-        if n_hide == 0:
-            return values
-
-        key = f"{self.seed}:{stay_id}".encode()
-        stay_seed = int.from_bytes(hashlib.sha256(key).digest()[:8], "little")
-        rng = np.random.default_rng(stay_seed)
-
-        selected = rng.choice(len(observed), size=n_hide, replace=False)
-
-        rows, cols = observed[selected].T
-        values[rows, cols] = np.nan
-
-        return values
+            return values.copy()
+        raise NotImplementedError("TODO(B): implement masking before missing_rate > 0.")
 
     def __call__(self, patient: Any) -> list[dict[str, Any]]:
         """Generate hourly ICU samples with uncapped remaining LOS labels.
