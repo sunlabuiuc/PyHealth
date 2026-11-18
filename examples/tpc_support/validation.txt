@@ -1,7 +1,7 @@
 ............................                                             [100%]
 =============================== warnings summary ===============================
 tests/integration/test_tpc_checkpoint.py::test_csv_to_lstm
-  /Users/luoxiao/.codex/.chatgpt-projects/g-p-6ac07c55e33881918976b24c72891f67/PyHealth/pyhealth/datasets/sample_dataset.py:208: FutureWarning: SequenceProcessorV2 and the 'sequence_v2' processor name are deprecated and will be removed in a future release; use JaggedFeatureProcessor and 'jagged', which behave identically.
+  pyhealth/datasets/sample_dataset.py:208: FutureWarning: SequenceProcessorV2 and the 'sequence_v2' processor name are deprecated and will be removed in a future release; use JaggedFeatureProcessor and 'jagged', which behave identically.
     return get_processor(spec)(**kwargs)
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
