@@ -24,11 +24,11 @@ silently poison a downstream average across folds/seeds.
 .. autofunction:: sensitive_attributes_from_patient_ids
 
 ``capacity_fairness_metrics`` evaluates a risk score used to prioritise care
-when only a fixed share of patients, the ``capacity``, can be acted on: the
+when only a fixed share of patients, the ``capacity``, can be acted on. The
 highest-scoring share is prioritised, and AUC, prioritisation rate, FNR and FPR
-are compared between the protected and unprotected groups at that one shared
-threshold. Each group is bootstrapped, and with the default seed the results
-match the reference code of Jeanselme et al., "Imputation Strategies Under
-Clinical Presence" (ML4H 2022).
+are compared between the protected and unprotected groups at that shared
+threshold, with bootstrapped standard deviations. With the default seed, the results match the
+reference code of Jeanselme et al., "Imputation Strategies Under Clinical
+Presence" (ML4H 2022).
 
 .. autofunction:: capacity_fairness_metrics

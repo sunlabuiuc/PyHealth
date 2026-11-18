@@ -21,11 +21,11 @@ follows the authors' `reference code
 Cohort
 ------
 
-Load the dataset with ``MIMIC3Dataset(root, tables=["labevents"])``; the
+Load the dataset with ``MIMIC3Dataset(root, tables=["labevents"])``, the
 ``patients`` and ``admissions`` tables are added automatically.
 
 - **Index admission.** Each adult's last hospital admission. Age is the days
-  from birth to admission divided by 365 and must exceed 18; patients over 89,
+  from birth to admission divided by 365 and must exceed 18, while patients over 89,
   whose birth dates MIMIC-III shifts by about 300 years, stay in.
 - **Stay.** The index admission must last at least 24 hours. A patient whose
   last admission is shorter is dropped, even if an earlier one qualifies.
@@ -48,17 +48,16 @@ transforms the validation and test patients separately, so the training
 features never depend on them.
 
 ``reference_split=True`` splits as the reference code does instead. The
-imputer is fit on a pool, the training fraction of ``split_ratios``. As the
-reference's two ``train_test_split(train_size=0.9)`` calls do, the pool keeps
-10% as an internal test and 10% of the rest for validation; the other 81% are
-the training patients, on which the scaler is fit. The patients outside the
-pool are an external test. Both test parts have ``split == "test"``, because
-the reference evaluates them together, and ``imputer_fit`` tells them apart.
-With the default ratios that is 64.8/7.2/28, and the pool is the training 80%
-of the default split with the same ``seed``.
+imputer is fit on a pool, the training fraction of ``split_ratios``, which the
+reference's two ``train_test_split(train_size=0.9)`` calls divide 81/9/10 into
+training (where the scaler is fit), validation and an internal test. The
+patients outside the pool are an external test. Both test parts have
+``split == "test"``, as the reference evaluates them together, and ``imputer_fit``
+tells them apart. With the default ratios the split is 64.8/7.2/28, and the
+pool is the default split's training 80% for the same ``seed``.
 
 On MIMIC-III v1.4 the cohort has 36,313 patients, 6.75% of them positive, with
-40.6 of the 67 labs missing on average. The reference code gives 36,296; the
+40.6 of the 67 labs missing on average. The reference code gives 36,296, and the
 differences are listed below.
 
 .. note::
@@ -121,22 +120,23 @@ Strategies
 - **Group** strategies add the three flags as predictors of the imputation
   only.
 - **Missing** strategies append one indicator per lab, 1 where the lab is
-  missing, after imputation, so the imputers never see them.
+  missing, after imputation, so the imputers never see them (unless
+  ``indicators_in_imputation=True``).
 - **MissForest-style** strategies chain scikit-learn's ``ExtraTreesRegressor``
-  in an ``IterativeImputer``: 50 trees, the square root of the number of
-  features per split, at least 5 samples per leaf, and one draw;
-  ``forest_params`` overrides these settings. They stop on scikit-learn's
-  ``tol``, not on Stekhoven and Bühlmann's rule, and on MIMIC-III they run all
-  ``max_iter`` sweeps.
+  in an ``IterativeImputer`` and make one draw. ``forest_params`` overrides
+  the trees' settings: 50 trees, the square root of the features per split
+  and at least 5 samples per leaf. They stop on scikit-learn's ``tol``, not on
+  Stekhoven and Bühlmann's rule, and on MIMIC-III they run all ``max_iter``
+  sweeps.
 - **Corrected MICE** exists because linear MICE is ill-posed for rare labs. On
   MIMIC-III, six labs have fewer observed training patients than the 66
-  predictors, and about 0.05% of imputed values land far outside the training
-  range, up to hundreds of standard deviations from the mean. Those labs also
-  fit their few rows exactly, which makes the noise of most labs collapse to
-  almost zero after the first sweep. The corrected strategies fit a lab by its
-  training mean when it has fewer than 10 observed values per predictor, draw
-  noise from N(0, sd of the residuals), and keep imputed values within the
-  training range.
+  predictors, and about 0.1% of imputed values land beyond the training range
+  ± 3 sd, some hundreds of sds from the mean. Those labs also fit their few
+  rows exactly, which makes the noise of most labs collapse to almost zero
+  after the first sweep. The corrected strategies fit a lab by its training
+  mean when it has fewer than 10 observed values per predictor, draw noise
+  from N(0, sd of the residuals), and keep imputed values within the training
+  range.
 
 Samples
 -------
@@ -221,22 +221,18 @@ admission, not at the ICU admission as the text says. It departs from the code
    * - Label
      - Death time minus admission time under 8 days
      - ``hospital_expire_flag`` is 1 and the discharge time is under 8 days
-       after admission, because PyHealth's MIMIC-III config does not load
-       ``DEATHTIME``. 5 labels differ.
+       after admission. 0.2% of the positive labels differ.
    * - Labs of the admission
      - Matched by ``HADM_ID`` and the window
-     - Matched by the window only, because the config does not load
-       ``HADM_ID`` for ``LABEVENTS``. 37 patients move into or out of the
+     - Matched by the window only. 37 patients move into or out of the
        cohort.
    * - Split
      - The imputer is fit on an 80% pool. The classifier is trained on 64.8%
        and tuned on 7.2% of patients, both from the pool, and evaluated on the
-       other 28%: the pool's remaining 8%, which the imputer was fit on, and
-       the 20% outside it
-     - 80/10/10. The imputer and the scaler are fit on the training 80%, which
-       is also the classifier's training set. ``reference_split=True`` gives
-       the reference's split; on MIMIC-III v1.4 it changes no result beyond
-       chance.
+       other 28%, which includes the pool's remaining 8%
+     - 80/10/10, with the imputer, the scaler and the classifier all fit on
+       the training 80%. ``reference_split=True`` gives the reference's split,
+       on MIMIC-III v1.4 it changes no result beyond chance.
    * - Missingness indicators
      - Appended before MICE, so they are also imputation predictors
      - Appended after imputation, as the paper's text says and as the authors'
@@ -260,9 +256,11 @@ admission, not at the ICU admission as the text says. It departs from the code
        labs are visited in order of missingness over the training patients,
        which moves 2 of 67 positions
 
-On MIMIC-III v1.4 these give 36,313 patients against the reference's 36,296.
-For the 36,192 patients that both cohorts share with the same index admission,
-every lab value, lab-order count and group flag matches.
+The label and lab rules are stand-ins from when PyHealth's MIMIC-III config
+loaded neither ``DEATHTIME`` nor ``HADM_ID`` for ``LABEVENTS``. It now loads
+both, so the reference's rules are a possible follow-up. On MIMIC-III v1.4
+the differences give 36,313 patients against the reference's 36,296. For the 36,192 patients that both cohorts share with the same index
+admission, every lab value, lab-order count and group flag matches.
 
 Example and Results
 -------------------
