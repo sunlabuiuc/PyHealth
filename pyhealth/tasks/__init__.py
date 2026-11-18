@@ -154,6 +154,9 @@ from .generate_ehr import (
     decode_dataset,
     to_evaluation_dataframe,
 )
+from .bcss_tile_classification import (
+    BCSSTileClassification as BCSSTileClassification,
+)
 from .patient_linkage import patient_linkage_mimic3_fn
 from .rsna_pneumonia_classification import (
     RSNAPneumoniaClassification as RSNAPneumoniaClassification,
