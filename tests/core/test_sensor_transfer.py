@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
+from pyhealth.models.ipd import decay_rates
 from pyhealth.models.sensor_lstm import SensorLSTM
 from pyhealth.models.sensor_transfer import (
     compute_source_distances,
@@ -30,7 +31,7 @@ def _make_loader():
                 "patient_id": f"p{i}",
                 "signal": signal,
                 "source_near": signal + 0.01 * rng.normal(size=signal.shape),
-                "source_far": rng.normal(size=(STEPS, CHANNELS)),
+                "source_far": rng.normal(size=(STEPS, CHANNELS)) + 3.0,
                 "label": label,
             }
         )
@@ -44,7 +45,7 @@ def _make_loader():
         output_schema={"label": "multiclass"},
         dataset_name="transfer-test",
     )
-    return dataset, get_dataloader(dataset, batch_size=len(LABELS))
+    return dataset, get_dataloader(dataset, batch_size=len(LABELS), shuffle=False)
 
 
 class TestSensorTransfer(unittest.TestCase):
@@ -54,28 +55,52 @@ class TestSensorTransfer(unittest.TestCase):
         torch.manual_seed(0)
         self.dataset, self.loader = _make_loader()
         self.sources = ["source_near", "source_far"]
+        self.distances = {"source_near": 1.0, "source_far": 9.0}
+        self.alphas = decay_rates(self.distances, "ipd")
 
     def _model(self):
+        torch.manual_seed(0)
         return SensorLSTM(self.dataset, hidden_dim=4)
 
     def test_distances_rank_the_near_source_closer(self):
         d = compute_source_distances(
-            self.loader, "signal", self.sources, max_pairs=4, window=3
+            self.loader, "signal", self.sources, max_pairs=6, window=3
         )
         self.assertEqual(set(d), set(self.sources))
         self.assertLess(d["source_near"], d["source_far"])
+
+    def test_distances_are_reproducible_for_a_seed(self):
+        first = compute_source_distances(
+            self.loader, "signal", self.sources, max_pairs=4, window=3, seed=5
+        )
+        again = compute_source_distances(
+            self.loader, "signal", self.sources, max_pairs=4, window=3, seed=5
+        )
+        self.assertEqual(first, again)
+
+    def test_more_pairs_than_samples_uses_all_samples(self):
+        d = compute_source_distances(
+            self.loader, "signal", self.sources, max_pairs=1000, window=3
+        )
+        self.assertEqual(set(d), set(self.sources))
 
     def test_train_epochs_returns_one_loss_per_epoch(self):
         losses = train_epochs(self._model(), self.loader, lr=1e-2, epochs=2)
         self.assertEqual(len(losses), 2)
         self.assertTrue(all(np.isfinite(losses)))
 
+    def test_zero_decay_freezes_the_model_after_the_first_epoch(self):
+        once = self._model()
+        train_epochs(once, self.loader, lr=1e-2, epochs=1)
+        twice = self._model()
+        train_epochs(twice, self.loader, lr=1e-2, epochs=2, lr_decay=0.0)
+        for a, b in zip(once.parameters(), twice.parameters()):
+            self.assertTrue(torch.allclose(a, b, atol=1e-6))
+
     def test_pretraining_updates_weights_and_restores_input_key(self):
         model = self._model()
         before = [p.detach().clone() for p in model.parameters()]
-        history = pretrain_on_sources(
-            model, self.loader, {"source_near": 0.8, "source_far": 0.2}
-        )
+        history = pretrain_on_sources(model, self.loader, self.distances, self.alphas)
         self.assertEqual(set(history), set(self.sources))
         self.assertEqual(model.input_key, "signal")
         changed = any(
@@ -84,17 +109,28 @@ class TestSensorTransfer(unittest.TestCase):
         self.assertTrue(changed)
 
     def test_source_order(self):
-        weights = {"source_near": 0.8, "source_far": 0.2}
-        ascending = pretrain_on_sources(
-            self._model(), self.loader, weights, order="ascending_weight"
-        )
-        self.assertEqual(list(ascending), ["source_far", "source_near"])
         descending = pretrain_on_sources(
-            self._model(), self.loader, weights, order="descending_weight"
+            self._model(), self.loader, self.distances, self.alphas
         )
-        self.assertEqual(list(descending), ["source_near", "source_far"])
+        self.assertEqual(list(descending), ["source_far", "source_near"])
+        ascending = pretrain_on_sources(
+            self._model(),
+            self.loader,
+            self.distances,
+            self.alphas,
+            order="ascending_distance",
+        )
+        self.assertEqual(list(ascending), ["source_near", "source_far"])
         with self.assertRaises(ValueError):
-            pretrain_on_sources(self._model(), self.loader, weights, order="random")
+            pretrain_on_sources(
+                self._model(), self.loader, self.distances, self.alphas, order="x"
+            )
+
+    def test_mismatched_keys_raise(self):
+        with self.assertRaises(ValueError):
+            pretrain_on_sources(
+                self._model(), self.loader, self.distances, {"source_near": 1.0}
+            )
 
     def test_finetune_switches_to_the_target(self):
         model = self._model()
@@ -117,24 +153,25 @@ class TestSensorTransfer(unittest.TestCase):
                     "signal",
                     self.sources,
                     weighting=weighting,
-                    max_pairs=4,
+                    max_pairs=6,
                 )
-                self.assertAlmostEqual(sum(result["weights"].values()), 1.0)
+                self.assertAlmostEqual(sum(result["alphas"].values()), 1.0)
                 self.assertEqual(set(result["pretrain_losses"]), set(self.sources))
                 self.assertGreaterEqual(result["rcc"], 0.0)
 
     def test_weighting_direction_in_results(self):
         ipd = transfer_learn(
             self._model(), self.loader, self.loader, "signal", self.sources,
-            weighting="ipd", max_pairs=4,
+            weighting="ipd", max_pairs=6,
         )
         inverse = transfer_learn(
             self._model(), self.loader, self.loader, "signal", self.sources,
             weighting="inverse", distances=ipd["distances"],
         )
-        self.assertGreater(ipd["weights"]["source_near"], ipd["weights"]["source_far"])
-        self.assertLess(
-            inverse["weights"]["source_near"], inverse["weights"]["source_far"]
+        # IPD: the closer source decays more slowly (smaller alpha).
+        self.assertLess(ipd["alphas"]["source_near"], ipd["alphas"]["source_far"])
+        self.assertGreater(
+            inverse["alphas"]["source_near"], inverse["alphas"]["source_far"]
         )
 
     def test_no_transfer_baseline_skips_pretraining(self):
@@ -143,14 +180,14 @@ class TestSensorTransfer(unittest.TestCase):
             weighting=None,
         )
         self.assertEqual(result["pretrain_losses"], {})
-        self.assertEqual(result["weights"], {})
+        self.assertEqual(result["alphas"], {})
         self.assertEqual(len(result["finetune_losses"]), 1)
 
     def test_invalid_weighting_raises(self):
         with self.assertRaises(ValueError):
             transfer_learn(
                 self._model(), self.loader, self.loader, "signal", self.sources,
-                weighting="random", max_pairs=4,
+                weighting="random", max_pairs=6,
             )
 
 
