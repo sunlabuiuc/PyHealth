@@ -12,7 +12,8 @@ number below is an aggregate.
 The runs used MIMIC-III v1.4 and the script's default settings, which its
 docstring describes. Every number comes from the main run (`results/full_s0-4`
 under "How to reproduce") unless the text names another source: the
-indicator-order run, the reference-split run or a check of the cohort.
+indicator-order run, the reference-split run, a re-run of seed 0 or a check of
+the cohort.
 
 - **Cohort.** 36,313 patients (the paper reports 36,296), of whom 2,450
   (6.75%) died within 8 days of admission. Features are the latest value of
@@ -29,7 +30,11 @@ indicator-order run, the reference-split run or a check of the cohort.
   validation accuracy), and PyHealth's `LogisticRegression` (`--pyhealth-lr`:
   PyHealth's `Trainer`, up to 20 epochs, early stopping on validation ROC
   AUC). It skips the `+ Black flag` rows, whose extra input it does not take,
-  and the `+ indicators first` rows were run without it.
+  and the `+ indicators first` rows were run without it. The PyHealth columns
+  depend on the order in which PyHealth's cache stores the samples: when seed
+  0 was re-run on PyHealth 2.1.0 with a rebuilt cache, its PyHealth values
+  moved by up to 0.003 in population AUC and 0.08 in the Black-patient table,
+  while every scikit-learn value stayed the same.
 - **Metrics.** The mean over 100 bootstrap resamples of the 3,631 test
   patients, then over the five seeds. Black, female and publicly insured
   patients are compared with the rest at a care capacity of 5%, 30% and 50%:
