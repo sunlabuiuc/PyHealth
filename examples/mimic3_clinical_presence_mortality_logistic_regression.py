@@ -61,7 +61,9 @@ strategy's share of extreme imputations), fig_deltas_<model>_<capacity>.png
 (Tables 1, 2 and 5-10, the gaps, the chosen C and the extreme imputations, with
 the paper's values in brackets). Each "+ indicators first" strategy run with its
 base strategy also gives order_shift.csv (how far the imputed values move) and
-order_paired.csv (paired bootstrap differences of every metric and gap).
+order_paired.csv (paired bootstrap differences of every metric and gap). With
+--pyhealth-lr, pyhealth_runs/ holds each PyHealth model's training log and
+checkpoints.
 
 --reference-split organises the patients as the reference code does. With the
 default --split-ratios, the imputer is fit on an 80% pool, from which 64.8% of the
@@ -219,6 +221,9 @@ GROUP_AXIS = {
     "Population": "Overall",
     **{g: axis for axis, (_, a, b) in AXES.items() for g in (a, b)},
 }
+# Gap columns of the report, (metric, axis), and each metric's name in headers
+GAPS = tuple((m, a) for m in ("prioritization_rate", "fnr") for a in AXES)
+SHORT_NAMES = {"auc": "AUC", "prioritization_rate": "prio", "fnr": "FNR"}
 # Paper Table 1 (36,296 patients): (lab orders, missing labs) as (mean, sd). The paper
 # marks every contrast p < 0.001 and calls missing labs "distinct tests".
 PAPER_COHORT = 36296
@@ -329,16 +334,18 @@ def sklearn_probs(data, extra_flags, select_metric, n_jobs=1):
         grid = fits[d * len(C_GRID) : (d + 1) * len(C_GRID)]
         scores = [score for _, score in grid]
         best = scores.index(max(scores))  # first wins ties, as the reference's strict <
-        rows += [
-            (d, C, score, int(m.n_iter_[0]), k == best)
-            for k, (C, (m, score)) in enumerate(zip(C_GRID, grid))
-        ]
-        probs.append(grid[best][0].predict_proba(Xd)[:, 1])
+        for k, (C, (model, score)) in enumerate(zip(C_GRID, grid)):
+            rows.append((d, C, score, int(model.n_iter_[0]), k == best))
+        best_model = grid[best][0]
+        probs.append(best_model.predict_proba(Xd)[:, 1])
     return np.mean(probs, axis=0), rows
 
 
 def pyhealth_probs(sd, data, out_dir, epochs, seed):
-    """One PyHealth LogisticRegression per draw on (split, draw) subsets; averaged."""
+    """One PyHealth LogisticRegression per draw on (split, draw) subsets; averaged.
+
+    Only the test patients are scored, so the other patients get NaN.
+    """
     by_pid = defaultdict(list)
     trainer_log = logging.getLogger("pyhealth.trainer")
     for d in range(data["X"].shape[0]):
@@ -370,9 +377,11 @@ def pyhealth_probs(sd, data, out_dir, epochs, seed):
             h.close()
         for pid, prob in zip(pids, np.ravel(y_prob)):
             by_pid[pid].append(float(prob))
-    return np.array(
-        [np.mean(by_pid[p]) if p in by_pid else np.nan for p in data["pids"]]
-    )
+    probs = np.full(len(data["pids"]), np.nan)
+    for j, pid in enumerate(data["pids"]):
+        if pid in by_pid:
+            probs[j] = np.mean(by_pid[pid])
+    return probs
 
 
 def evaluate(y, p, fields, capacities, n_bootstrap):
@@ -425,19 +434,29 @@ def order_shift(first, after, min_rows=ORDER_MIN_ROWS):
     """
     if first["pids"] != after["pids"]:
         raise ValueError("The two strategies have different cohorts.")
-    A, B = first["X"][..., :N_LABS], after["X"][..., :N_LABS]
-    ind = after["X"][0, :, N_LABS:]
-    missing = ind > ind.min(axis=0)  # a standardised indicator is larger where missing
-    rows = (~missing[after["split"] == "train"]).sum(axis=0)
+    first_labs = first["X"][..., :N_LABS]
+    after_labs = after["X"][..., :N_LABS]
+    indicators = after["X"][0, :, N_LABS:]
+    # A standardised indicator is larger where the lab is missing
+    missing = indicators > indicators.min(axis=0)
+    n_observed = (~missing[after["split"] == "train"]).sum(axis=0)
+    shifts = np.abs(first_labs - after_labs)
+    spreads = np.abs(np.diff(after_labs, axis=0))  # between consecutive draws
+    lab_sets = {
+        "all labs": n_observed >= 0,
+        "well-posed labs": n_observed >= min_rows,
+    }
     out = {}
-    for label, labs in (("all labs", rows >= 0), ("well-posed labs", rows >= min_rows)):
-        m = missing & labs
-        shift = float(np.abs(A - B)[:, m].mean()) if m.any() else None
-        spread = (
-            float(np.abs(np.diff(B, axis=0))[:, m].mean())
-            if m.any() and len(B) > 1
-            else None
-        )
+    for label, labs in lab_sets.items():
+        cells = missing & labs
+        if cells.any():
+            shift = float(shifts[:, cells].mean())
+        else:
+            shift = None
+        if cells.any() and len(after_labs) > 1:
+            spread = float(spreads[:, cells].mean())
+        else:
+            spread = None
         out[label] = (int(labs.sum()), shift, spread)
     return out
 
@@ -457,23 +476,26 @@ def paired_differences(y, p_first, p_after, fields, cap, n_bootstrap):
         rng = np.random.RandomState(42)  # capacity_fairness_metrics' default seed
         if flag is None:
             return _bootstrap(y, p, threshold, n_bootstrap, rng, "population")
-        a, b = (
-            _bootstrap(y[m], p[m], threshold, n_bootstrap, rng, "")
-            for m in (flag == 1, flag == 0)
-        )
+        marg, rest = flag == 1, flag == 0
+        # The protected group first, as capacity_fairness_metrics resamples
+        a = _bootstrap(y[marg], p[marg], threshold, n_bootstrap, rng, "protected")
+        b = _bootstrap(y[rest], p[rest], threshold, n_bootstrap, rng, "unprotected")
         return {key: a[key] - b[key] for key in a}
 
+    flags = {"Overall": None}
+    for axis, (field, _, _) in AXES.items():
+        flags[axis] = fields[field]
     rows = []
-    for axis, flag in (
-        ("Overall", None),
-        *((a, fields[f]) for a, (f, _, _) in AXES.items()),
-    ):
+    for axis, flag in flags.items():
         try:
             d1, d2 = draws(p_first, flag), draws(p_after, flag)
         except ValueError as e:  # only on tiny evaluation sets (demo, --dev)
             logger.warning("order %s @ %.2f skipped: %s", axis, cap, e)
             continue
-        group = "Population" if flag is None else "Delta"
+        if flag is None:
+            group = "Population"
+        else:
+            group = "Delta"
         rows += [
             (
                 axis,
@@ -487,6 +509,13 @@ def paired_differences(y, p_first, p_after, fields, cap, n_bootstrap):
     return rows
 
 
+def _fmt_sd(value):
+    """An order_shift value for the log: 4 decimals, or n/a if undefined."""
+    if value is None:
+        return "n/a"
+    return f"{value:.4f}"
+
+
 def order_comparison(seed, arrays, test_probs, args):
     """order_shift and paired_differences rows of each + indicators first strategy."""
     shifts, paired = [], []
@@ -496,10 +525,10 @@ def order_comparison(seed, arrays, test_probs, args):
             logger.warning("%s: also run %r to compare the indicator order", name, base)
             continue
         after = arrays[base]
-        if not STRATEGIES[name][1]:  # a + Black flag row shares these imputations
-            for labs, (n_labs, shift, spread) in order_shift(
-                arrays[name], after
-            ).items():
+        _, extra_flags, _ = STRATEGIES[name]
+        if not extra_flags:  # a + Black flag row shares these imputations
+            moved = order_shift(arrays[name], after)
+            for labs, (n_labs, shift, spread) in moved.items():
                 shifts.append((seed, name, labs, n_labs, shift, spread))
                 logger.info(
                     "%s, seed %d, %d %s: imputed cells moved %s sd; draws "
@@ -508,23 +537,21 @@ def order_comparison(seed, arrays, test_probs, args):
                     seed,
                     n_labs,
                     labs,
-                    "n/a" if shift is None else f"{shift:.4f}",
-                    "n/a" if spread is None else f"{spread:.4f}",
+                    _fmt_sd(shift),
+                    _fmt_sd(spread),
                 )
         te = after["split"] == "test"
         fields = {f: v[te] for f, v in after["fields"].items()}
         for cap in args.capacities:
-            paired += [
-                (seed, name, cap, *row)
-                for row in paired_differences(
-                    after["y"][te],
-                    test_probs[name],
-                    test_probs[base],
-                    fields,
-                    cap,
-                    args.n_bootstrap,
-                )
-            ]
+            rows = paired_differences(
+                after["y"][te],
+                test_probs[name],
+                test_probs[base],
+                fields,
+                cap,
+                args.n_bootstrap,
+            )
+            paired += [(seed, name, cap, *row) for row in rows]
     return shifts, paired
 
 
@@ -538,29 +565,32 @@ def cohort_summary(data):
         "split_sizes": {
             s: int((data["split"] == s).sum()) for s in ("train", "val", "test")
         },
-        **(
-            {"test_parts": {k: int(m.sum()) for k, m in parts.items()}} if parts else {}
-        ),
-        "features_per_draw": int(data["X"].shape[2]),
-        "table1": {},
     }
-    missing = N_LABS - f["n_observed_labs"]
-    contrasts = {
-        "Outcome": (y == 0, y == 1, "Alive", "Dead"),
-        **{
-            axis: (f[field] == 1, f[field] == 0, marg, rest)
-            for axis, (field, marg, rest) in AXES.items()
-        },
+    if parts:  # reference split
+        out["test_parts"] = {part: int(mask.sum()) for part, mask in parts.items()}
+    out["features_per_draw"] = int(data["X"].shape[2])
+    out["table1"] = {}
+
+    def mean_sd(v):
+        # ddof=1 as pandas, like the paper
+        return [round(float(v.mean()), 2), round(float(v.std(ddof=1)), 2)]
+
+    columns = {
+        "orders": f["n_lab_orders"],
+        "missing_labs": N_LABS - f["n_observed_labs"],
     }
-    for name, (a, b, la, lb) in contrasts.items():  # ddof=1 as pandas, like the paper
-        out["table1"][name] = {"patients": {la: int(a.sum()), lb: int(b.sum())}} | {
-            col: {
-                la: [round(float(v[a].mean()), 2), round(float(v[a].std(ddof=1)), 2)],
-                lb: [round(float(v[b].mean()), 2), round(float(v[b].std(ddof=1)), 2)],
+    contrasts = {"Outcome": (y == 0, y == 1, "Alive", "Dead")}
+    for axis, (field, marg, rest) in AXES.items():
+        contrasts[axis] = (f[field] == 1, f[field] == 0, marg, rest)
+    for name, (a, b, label_a, label_b) in contrasts.items():
+        table = {"patients": {label_a: int(a.sum()), label_b: int(b.sum())}}
+        for col, v in columns.items():
+            table[col] = {
+                label_a: mean_sd(v[a]),
+                label_b: mean_sd(v[b]),
                 "t_test_p": float(stats.ttest_ind(v[a], v[b]).pvalue),
             }
-            for col, v in (("orders", f["n_lab_orders"]), ("missing_labs", missing))
-        }
+        out["table1"][name] = table
     return out
 
 
@@ -570,17 +600,26 @@ def extreme_summary(data):
     A cell is extreme beyond the training range widened by 3 sd. Each share is
     [mean over draws, largest in a draw], overall and, for patients, by group.
     """
-    E, f = data["n_extreme"], data["fields"]
-    hit = E > 0  # (draw, patient)
-    cells = E.sum(axis=1) / max((N_LABS - f["n_observed_labs"]).sum(), 1)
-    shares = {"cells": cells, "patients": hit.mean(axis=1)}
-    for field, marg, rest in AXES.values():
-        for label, m in ((marg, f[field] == 1), (rest, f[field] == 0)):
-            shares[label] = hit[:, m].mean(axis=1) if m.any() else None
-    return {
-        k: None if v is None else [round(float(x), 7) for x in (v.mean(), v.max())]
-        for k, v in shares.items()
+    n_extreme, f = data["n_extreme"], data["fields"]
+    hit = n_extreme > 0  # (draw, patient)
+    n_imputed = (N_LABS - f["n_observed_labs"]).sum()
+    shares = {
+        "cells": n_extreme.sum(axis=1) / max(n_imputed, 1),
+        "patients": hit.mean(axis=1),
     }
+    for field, marg, rest in AXES.values():
+        for label, in_group in ((marg, f[field] == 1), (rest, f[field] == 0)):
+            if in_group.any():
+                shares[label] = hit[:, in_group].mean(axis=1)
+            else:
+                shares[label] = None
+    summary = {}
+    for key, share in shares.items():
+        if share is None:
+            summary[key] = None
+        else:
+            summary[key] = [round(float(share.mean()), 7), round(float(share.max()), 7)]
+    return summary
 
 
 def _paper(strategy, metric, group):
@@ -589,38 +628,92 @@ def _paper(strategy, metric, group):
     The paper's Group MICE code also passed the Black flag to the classifier, and
     its Missing strategies also used the indicators as imputation predictors.
     """
-    vals = PAPER[metric].get(strategy.split(" + ")[0])
-    return None if vals is None else vals[GROUP_ROWS.index(group)]
+    values = PAPER[metric].get(strategy.split(" + ")[0])
+    if values is None:
+        return None
+    return values[GROUP_ROWS.index(group)]
 
 
 def _paper_gap(strategy, metric, axis):
+    """The paper's Δ (marginalised - rest) at 30%, or None."""
     _, marg, rest = AXES[axis]
-    a, b = _paper(strategy, metric, marg), _paper(strategy, metric, rest)
-    return None if a is None else a - b
+    paper_marg = _paper(strategy, metric, marg)
+    if paper_marg is None:
+        return None
+    return paper_marg - _paper(strategy, metric, rest)
 
 
 def _cell(d, axis, strategy, group, metric, paper=None, sign=""):
     """mean (bootstrap sd), then ± the sd across seeds if several, then [paper]."""
-    s = d[
+    rows = d[
         (d.axis == axis)
         & (d.strategy == strategy)
         & (d.group == group)
         & (d.metric == metric)
     ]
-    if s.empty:
+    if rows.empty:
         return "—"
-    txt = f"{s['mean'].mean():{sign}.3f} ({s['std'].mean():.3f})"
-    if len(s) > 1:
-        txt += f" ±{s['mean'].std():.3f}"
-    return txt if paper is None else f"{txt} [{paper:{sign}.3f}]"
+    txt = f"{rows['mean'].mean():{sign}.3f} ({rows['std'].mean():.3f})"
+    if len(rows) > 1:
+        txt += f" ±{rows['mean'].std():.3f}"
+    if paper is not None:
+        txt += f" [{paper:{sign}.3f}]"
+    return txt
+
+
+def _seed_mean(values):
+    """The mean over seeds, then ± the sd across seeds if several."""
+    values = values.astype(float).dropna()
+    if values.empty:
+        return "—"
+    txt = f"{values.mean():.3f}"
+    if len(values) > 1:
+        txt += f" ±{values.std():.3f}"
+    return txt
 
 
 def _table(header, rows):
+    """A Markdown table: the header, the rule, then one line per row."""
     return [
         "| " + " | ".join(header) + " |",
         "|---" * len(header) + "|",
         *("| " + " | ".join(r) + " |" for r in rows),
     ]
+
+
+def _group_table(d, strategies, metric, with_paper):
+    """Each strategy's metric in the population and in each group."""
+    groups = ["Population", *(g for g in GROUP_ROWS if g != "Population")]
+    rows = []
+    for s in strategies:
+        cells = [s]
+        for group in groups:
+            if with_paper:
+                paper = _paper(s, metric, group)
+            else:
+                paper = None
+            cells.append(_cell(d, GROUP_AXIS[group], s, group, metric, paper))
+        rows.append(cells)
+    return _table(["Strategy", *groups], rows)
+
+
+def _gap_table(d, strategies, gaps, with_paper):
+    """Each strategy's gaps, one column per (metric, axis) in gaps."""
+    rows = []
+    for s in strategies:
+        cells = [s]
+        for metric, axis in gaps:
+            if with_paper:
+                paper = _paper_gap(s, metric, axis)
+            else:
+                paper = None
+            cells.append(_cell(d, axis, s, "Delta", metric, paper, "+"))
+        rows.append(cells)
+    return _table(["Strategy", *(f"Δ {SHORT_NAMES[m]} {a}" for m, a in gaps)], rows)
+
+
+def _figure_file(model, cap):
+    return f"fig_deltas_{model}_{round(cap * 100)}.png"
 
 
 def reference_note(cohort):
@@ -638,65 +731,76 @@ def reference_note(cohort):
     )
 
 
-def write_report(df, selection, cohorts, figures, out, args, shifts, paired):
-    """report.md: Tables 1, 2 and 5-10 and the gaps, with paper values in brackets."""
-    first = cohorts[f"seed {args.seeds[0]}"]
-    split = " / ".join(f"{n:,}" for n in first["split_sizes"].values())
-    order_note = (
-        [
-            (
-                "- The + indicators first rows also use the indicators as imputation "
-                "predictors, as the paper's code did, so the paper's Group MICE Missing "
-                "values come from the pipeline closest to the + indicators first + Black "
-                "flag row."
-            )
-        ]
-        if any(ORDER in s for s in set(df.strategy))
-        else []
+def _intro_lines(df, first, args):
+    """The report's title, the run's settings and how to read the tables."""
+    seed_list = ", ".join(map(str, args.seeds))
+    if len(args.seeds) > 1:
+        seeds = f"Split seeds {seed_list}"
+    else:
+        seeds = f"Split seed {seed_list}"
+    capacities = ", ".join(f"{c:.0%}" for c in args.capacities)
+    settings = (
+        f"{seeds}; {args.n_bootstrap} bootstrap resamples of the "
+        f"{first['split_sizes']['test']:,}-patient test split; capacities "
+        f"{capacities}. Python {platform.python_version()}, NumPy {np.__version__}, "
+        f"pandas {pd.__version__}, scikit-learn {sklearn.__version__}, PyHealth "
+        f"{pyhealth.__version__}."
     )
-    lines = [
-        "# Imputation strategies under clinical presence: results",
-        "",
-        (
-            f"Split seed{'s' * (len(args.seeds) > 1)} {', '.join(map(str, args.seeds))}; "
-            f"{args.n_bootstrap} bootstrap "
-            f"resamples of the {first['split_sizes']['test']:,}-patient test split; "
-            f"capacities {', '.join(f'{c:.0%}' for c in args.capacities)}. "
-            f"Python {platform.python_version()}, NumPy {np.__version__}, pandas "
-            f"{pd.__version__}, scikit-learn {sklearn.__version__}, PyHealth "
-            f"{pyhealth.__version__}."
-        ),
-        "",
-        "How to read the tables:",
-        "",
-        (
-            "- A cell is the mean over bootstrap resamples, with their sd in parentheses. "
-            "With several seeds, it is the mean over seeds and the mean bootstrap sd, "
-            "followed by ± the sd across seeds."
-        ),
-        (
+    if args.reference_split:
+        test_share = first["split_sizes"]["test"] / first["patients"]
+        brackets = (
             "- Brackets hold the paper's value. This run evaluates on the reference "
-            "split's internal and external test together, "
-            f"{first['split_sizes']['test'] / first['patients']:.0%} of the cohort; the "
-            "paper's code evaluated on 28% the same way."
-            if args.reference_split
-            else "- Brackets hold the paper's value. The paper evaluated on 28% of its "
+            f"split's internal and external test together, {test_share:.0%} of the "
+            "cohort; the paper's code evaluated on 28% the same way."
+        )
+    else:
+        brackets = (
+            "- Brackets hold the paper's value. The paper evaluated on 28% of its "
             "cohort, so its sds are smaller."
+        )
+    notes = [
+        (
+            "- A cell is the mean over bootstrap resamples, with their sd in "
+            "parentheses. With several seeds, it is the mean over seeds and the mean "
+            "bootstrap sd, followed by ± the sd across seeds."
         ),
+        brackets,
         (
             "- Δ is the marginalised group (Black, female, publicly insured) minus the "
             "rest. A positive Δ means the marginalised group has the larger value."
         ),
         (
             "- The paper's code for Group MICE also passed the Black flag to the "
-            "classifier, so its Group MICE values are bracketed in the + Black flag rows "
-            "too."
+            "classifier, so its Group MICE values are bracketed in the + Black flag "
+            "rows too."
         ),
-        *order_note,
-        (
-            "- Figure error bars are 1.96 bootstrap sds. The paper's figures divide "
-            "that by 10."
-        ),
+    ]
+    if any(ORDER in s for s in set(df.strategy)):
+        notes.append(
+            "- The + indicators first rows also use the indicators as imputation "
+            "predictors, as the paper's code did, so the paper's Group MICE Missing "
+            "values come from the pipeline closest to the + indicators first + Black "
+            "flag row."
+        )
+    notes.append(
+        "- Figure error bars are 1.96 bootstrap sds. The paper's figures divide "
+        "that by 10."
+    )
+    return [
+        "# Imputation strategies under clinical presence: results",
+        "",
+        settings,
+        "",
+        "How to read the tables:",
+        "",
+        *notes,
+    ]
+
+
+def _cohort_lines(first):
+    """Table 1: lab orders and missing labs by outcome and group, with t-tests."""
+    split = " / ".join(f"{n:,}" for n in first["split_sizes"].values())
+    lines = [
         "",
         "## Cohort (Table 1)",
         "",
@@ -710,19 +814,21 @@ def write_report(df, selection, cohorts, figures, out, args, shifts, paired):
     ]
     rows = []
     for block in first["table1"].values():
-        for i, g in enumerate(block["patients"]):
-            cells = [g, f"{block['patients'][g]:,}"]
+        p_values = ", ".join(
+            f"{block[col]['t_test_p']:.1g}" for col in ("orders", "missing_labs")
+        )
+        for i, group in enumerate(block["patients"]):
+            cells = [group, f"{block['patients'][group]:,}"]
             for k, col in enumerate(("orders", "missing_labs")):
-                (m, s), (pm, ps) = block[col][g], PAPER_TABLE1[g][k]
-                cells.append(f"{m:.2f} ({s:.2f}) [{pm:.2f} ({ps:.2f})]")
-            cells.append(
-                ""
-                if i
-                else ", ".join(
-                    f"{block[c]['t_test_p']:.1g}" for c in ("orders", "missing_labs")
+                mean, sd = block[col][group]
+                paper_mean, paper_sd = PAPER_TABLE1[group][k]
+                cells.append(
+                    f"{mean:.2f} ({sd:.2f}) [{paper_mean:.2f} ({paper_sd:.2f})]"
                 )
-                + " [< 0.001]"
-            )
+            if i == 0:  # a contrast's p-values go on its first row
+                cells.append(f"{p_values} [< 0.001]")
+            else:
+                cells.append("")
             rows.append(cells)
     lines += _table(
         [
@@ -742,250 +848,235 @@ def write_report(df, selection, cohorts, figures, out, args, shifts, paired):
             "v1.4, which agrees with this script; its missing labs match."
         ),
     ]
+    return lines
 
-    ext = defaultdict(list)
+
+def _extreme_lines(cohorts):
+    """Each strategy's shares of extreme imputations; [] if there are none."""
+    by_strategy = defaultdict(list)  # one extreme_summary per seed
     for summary in cohorts.values():
-        for s, e in summary.get("extreme_imputations", {}).items():
-            ext[s].append(e)
-    groups = [g for _, a, b in AXES.values() for g in (a, b)]
+        for s, extremes in summary.get("extreme_imputations", {}).items():
+            by_strategy[s].append(extremes)
+    groups = [g for _, marg, rest in AXES.values() for g in (marg, rest)]
     rows = []
-    for s in [s for s in STRATEGIES if s in ext]:
-        cells = []
-        for k in ("cells", "patients", *groups):
-            v = np.array([e[k] for e in ext[s] if e[k] is not None]).reshape(-1, 2)
-            fmt = ".3%" if k == "cells" else ".2%"
-            cells.append(
-                f"{v[:, 0].mean():{fmt}} ({v[:, 1].max():{fmt}})" if len(v) else "—"
-            )
-        rows.append([s, *cells])
-    if rows:
-        lines += [
-            "",
-            "## Extreme imputations",
-            "",
-            (
-                "Share of imputed cells beyond the training range widened by 3 "
-                "training sds, and share of patients with at least one: the mean "
-                "over draws (and seeds), then the largest share in any one draw."
-            ),
-            "",
-        ]
-        lines += _table(["Strategy", "Imputed cells", "Patients", *groups], rows)
+    for s in [s for s in STRATEGIES if s in by_strategy]:
+        cells = [s]
+        for key in ("cells", "patients", *groups):
+            per_seed = [e[key] for e in by_strategy[s] if e[key] is not None]
+            shares = np.array(per_seed).reshape(-1, 2)  # [mean, largest] per seed
+            if key == "cells":
+                fmt = ".3%"
+            else:
+                fmt = ".2%"
+            if len(shares):
+                mean, largest = shares[:, 0].mean(), shares[:, 1].max()
+                cells.append(f"{mean:{fmt}} ({largest:{fmt}})")
+            else:
+                cells.append("—")
+        rows.append(cells)
+    if not rows:
+        return []
+    return [
+        "",
+        "## Extreme imputations",
+        "",
+        (
+            "Share of imputed cells beyond the training range widened by 3 "
+            "training sds, and share of patients with at least one: the mean "
+            "over draws (and seeds), then the largest share in any one draw."
+        ),
+        "",
+        *_table(["Strategy", "Imputed cells", "Patients", *groups], rows),
+    ]
 
-    if len(selection):
-        rows = []
-        for s in [s for s in STRATEGIES if s in set(selection.strategy)]:
-            g = selection[selection.strategy == s]
-            counts = g[g.chosen].C.value_counts().sort_index()
+
+def _selection_lines(selection, args):
+    """The C chosen for each draw, and the fits that stopped at max_iter."""
+    if selection.empty:
+        return []
+    rows = []
+    for s in [s for s in STRATEGIES if s in set(selection.strategy)]:
+        fits = selection[selection.strategy == s]
+        counts = fits[fits.chosen].C.value_counts().sort_index()
+        rows.append(
+            [
+                s,
+                ", ".join(f"{C:g} ×{n}" for C, n in counts.items()),
+                f"{int((fits.n_iter == MAX_ITER).sum())} of {len(fits)}",
+            ]
+        )
+    return [
+        "",
+        "## Choosing C (scikit-learn)",
+        "",
+        (
+            f"One fit per draw and C in {', '.join(f'{C:g}' for C in C_GRID)}; "
+            f"C is chosen by validation {args.select_metric}, the first winning "
+            f"ties. sag stops after {MAX_ITER} epochs."
+        ),
+        "",
+        *_table(["Strategy", "Chosen C: draws", "Fits stopped at max_iter"], rows),
+    ]
+
+
+def _model_lines(dm, model, main_cap, figures, capacities):
+    """One model's AUC, prioritisation and FNR tables, then its gaps."""
+    strategies = [s for s in STRATEGIES if s in set(dm.strategy)]
+    d = dm[np.isclose(dm.capacity, main_cap)]
+    at_30 = bool(np.isclose(main_cap, 0.3))
+    prioritisation = f"Prioritisation at {main_cap:.0%} capacity"
+    fnr = f"False negative rate at {main_cap:.0%} capacity"
+    if at_30:
+        prioritisation += " (Tables 6 and 9)"
+        fnr += " (Tables 7 and 10)"
+    lines = ["", f"## {MODEL_NAMES.get(model, model)}"]
+    # AUC does not depend on the capacity, so the paper's AUC always applies
+    lines += ["", "### AUC-ROC (Tables 2, 5 and 8)", ""]
+    lines += [
+        "AUC does not depend on the capacity. The Population column is Table 2.",
+        "",
+    ]
+    lines += _group_table(d, strategies, "auc", with_paper=True)
+    lines += ["", "### AUC gaps", ""]
+    lines += _gap_table(d, strategies, [("auc", a) for a in AXES], with_paper=True)
+    for metric, title in (("prioritization_rate", prioritisation), ("fnr", fnr)):
+        lines += ["", f"### {title}", ""]
+        lines += _group_table(d, strategies, metric, with_paper=at_30)
+    for cap in capacities:
+        title = f"### Gaps at {cap:.0%} capacity"
+        figure = FIGURES.get(round(cap, 2))
+        if figure:
+            title += f" ({figure})"
+        dc = dm[np.isclose(dm.capacity, cap)]
+        lines += ["", title, ""]
+        lines += _gap_table(dc, strategies, GAPS, with_paper=np.isclose(cap, 0.3))
+        fig = _figure_file(model, cap)
+        if fig in figures:
+            lines += ["", f"![Gaps at {cap:.0%} capacity]({fig})"]
+    return lines
+
+
+def _shift_lines(shifts):
+    """How far the + indicators first imputations move, against the draw spread."""
+    well_posed = shifts[shifts.labs == "well-posed labs"].n_labs
+    if well_posed.min() == well_posed.max():
+        n_well_posed = f"{well_posed.min()}"
+    else:
+        n_well_posed = f"{well_posed.min()}–{well_posed.max()}"
+    rows = []
+    for s in [s for s in STRATEGIES if s in set(shifts.strategy)]:
+        for labs in ("all labs", "well-posed labs"):
+            subset = shifts[(shifts.strategy == s) & (shifts.labs == labs)]
+            shift = subset["shift"].astype(float).mean()
+            spread = subset["draw_spread"].astype(float).mean()
+            if spread > 0:
+                ratio = f"{shift / spread:.2f}"
+            else:
+                ratio = "—"
             rows.append(
                 [
                     s,
-                    ", ".join(f"{C:g} ×{k}" for C, k in counts.items()),
-                    f"{int((g.n_iter == MAX_ITER).sum())} of {len(g)}",
+                    labs,
+                    _seed_mean(subset["shift"]),
+                    _seed_mean(subset["draw_spread"]),
+                    ratio,
                 ]
             )
-        lines += [
-            "",
-            "## Choosing C (scikit-learn)",
-            "",
-            (
-                f"One fit per draw and C in {', '.join(f'{C:g}' for C in C_GRID)}; "
-                f"C is chosen by validation {args.select_metric}, the first winning "
-                f"ties. sag stops after {MAX_ITER} epochs."
-            ),
-            "",
-        ]
-        lines += _table(
-            ["Strategy", "Chosen C: draws", "Fits stopped at max_iter"], rows
-        )
+    return [
+        "",
+        "### Imputed values",
+        "",
+        (
+            "Mean |first − after| over the missing lab cells (shift), and the "
+            "same between consecutive draws of the after strategy (draw "
+            "spread), in training sds, then ± the sd across seeds if several. "
+            f"Well-posed labs have at least {ORDER_MIN_ROWS} observed training "
+            f"rows: {n_well_posed} of {N_LABS}."
+        ),
+        "",
+        *_table(["Strategy", "Labs", "Shift", "Draw spread", "Shift / spread"], rows),
+    ]
 
-    cols = ["Population", *(g for g in GROUP_ROWS if g != "Population")]
-    gaps = [(m, a) for m in ("prioritization_rate", "fnr") for a in AXES]
-    short = {"prioritization_rate": "prio", "fnr": "FNR"}
+
+def _paired_lines(paired, main_cap, capacities):
+    """Paired bootstrap differences, first − after, of AUC and of the gaps."""
+    strategies = [s for s in STRATEGIES if s in set(paired.strategy)]
+    d = paired[np.isclose(paired.capacity, main_cap)]
+    rows = []
+    for s in strategies:
+        population = _cell(d, "Overall", s, "Population", "auc", sign="+")
+        gaps = [_cell(d, a, s, "Delta", "auc", sign="+") for a in AXES]
+        rows.append([s, population, *gaps])
+    lines = [
+        "",
+        "### Paired differences: AUC",
+        "",
+        (
+            "First − after: the mean over resamples (paired bootstrap sd), "
+            "then ± the sd across seeds if several. The Δ columns are changes "
+            "of the gaps (marginalised − rest)."
+        ),
+        "",
+        *_table(["Strategy", "AUC Population", *(f"Δ AUC {a}" for a in AXES)], rows),
+    ]
+    for cap in capacities:
+        dc = paired[np.isclose(paired.capacity, cap)]
+        lines += ["", f"### Paired differences: gaps at {cap:.0%} capacity", ""]
+        lines += _gap_table(dc, strategies, GAPS, with_paper=False)
+    return lines
+
+
+def _order_lines(shifts, paired, main_cap, capacities):
+    """Each + indicators first strategy against its base; [] if none ran."""
+    if shifts.empty and paired.empty:
+        return []
+    lines = [
+        "",
+        "## Indicator order",
+        "",
+        (
+            "Each + indicators first strategy against the same strategy with "
+            "the indicators added after imputation. Both draw the same random "
+            "numbers and give the classifier the same columns, and the "
+            "bootstrap resamples the same patients, so the differences are "
+            "paired. scikit-learn only."
+        ),
+    ]
+    if not shifts.empty:
+        lines += _shift_lines(shifts)
+    if not paired.empty:
+        lines += _paired_lines(paired, main_cap, capacities)
+    return lines
+
+
+def write_report(df, selection, cohorts, figures, out, args, shifts, paired):
+    """report.md: Tables 1, 2 and 5-10 and the gaps, with paper values in brackets."""
+    first = cohorts[f"seed {args.seeds[0]}"]
+    # The paper's tables are at 30% capacity, else the first capacity is shown
     main_cap = next(
         (c for c in args.capacities if np.isclose(c, 0.3)), args.capacities[0]
     )
-    at_30 = bool(np.isclose(main_cap, 0.3))
+    lines = _intro_lines(df, first, args)
+    lines += _cohort_lines(first)
+    lines += _extreme_lines(cohorts)
+    lines += _selection_lines(selection, args)
     for model in [m for m in MODEL_NAMES if m in set(df.model)]:  # scikit-learn first
         dm = df[df.model == model]
-        d = dm[np.isclose(dm.capacity, main_cap)]
-        strategies = [s for s in STRATEGIES if s in set(dm.strategy)]
-        lines += ["", f"## {MODEL_NAMES.get(model, model)}"]
-        for metric, title in (
-            ("auc", "AUC-ROC (Tables 2, 5 and 8)"),
-            (
-                "prioritization_rate",
-                f"Prioritisation at {main_cap:.0%} capacity"
-                + (" (Tables 6 and 9)" if at_30 else ""),
-            ),
-            (
-                "fnr",
-                f"False negative rate at {main_cap:.0%} capacity"
-                + (" (Tables 7 and 10)" if at_30 else ""),
-            ),
-        ):
-            paper = metric == "auc" or at_30  # AUC does not depend on the capacity
-            rows = [
-                [
-                    s,
-                    *(
-                        _cell(
-                            d,
-                            GROUP_AXIS[g],
-                            s,
-                            g,
-                            metric,
-                            _paper(s, metric, g) if paper else None,
-                        )
-                        for g in cols
-                    ),
-                ]
-                for s in strategies
-            ]
-            lines += ["", f"### {title}", ""]
-            if metric == "auc":
-                lines += [
-                    (
-                        "AUC does not depend on the capacity. The Population column "
-                        "is Table 2."
-                    ),
-                    "",
-                ]
-            lines += _table(["Strategy", *cols], rows)
-            if metric == "auc":
-                rows = [
-                    [
-                        s,
-                        *(
-                            _cell(d, a, s, "Delta", "auc", _paper_gap(s, "auc", a), "+")
-                            for a in AXES
-                        ),
-                    ]
-                    for s in strategies
-                ]
-                lines += ["", "### AUC gaps", ""]
-                lines += _table(["Strategy", *(f"Δ AUC {a}" for a in AXES)], rows)
-        for cap in args.capacities:
-            dc = dm[np.isclose(dm.capacity, cap)]
-            ref = FIGURES.get(round(cap, 2))
-            rows = [
-                [
-                    s,
-                    *(
-                        _cell(
-                            dc,
-                            a,
-                            s,
-                            "Delta",
-                            m,
-                            _paper_gap(s, m, a) if np.isclose(cap, 0.3) else None,
-                            "+",
-                        )
-                        for m, a in gaps
-                    ),
-                ]
-                for s in strategies
-            ]
-            lines += [
-                "",
-                f"### Gaps at {cap:.0%} capacity" + (f" ({ref})" if ref else ""),
-                "",
-            ]
-            lines += _table(["Strategy", *(f"Δ {short[m]} {a}" for m, a in gaps)], rows)
-            fig = f"fig_deltas_{model}_{round(cap * 100)}.png"
-            if fig in figures:
-                lines += ["", f"![Gaps at {cap:.0%} capacity]({fig})"]
-
-    def seed_mean(v):
-        v = v.astype(float).dropna()
-        return (
-            "—"
-            if v.empty
-            else (f"{v.mean():.3f}" + (f" ±{v.std():.3f}" if len(v) > 1 else ""))
-        )
-
-    if len(shifts) or len(paired):
-        lines += [
-            "",
-            "## Indicator order",
-            "",
-            (
-                "Each + indicators first strategy against the same strategy with "
-                "the indicators added after imputation. Both draw the same random "
-                "numbers and give the classifier the same columns, and the "
-                "bootstrap resamples the same patients, so the differences are "
-                "paired. scikit-learn only."
-            ),
-        ]
-    if len(shifts):
-        wp = shifts[shifts.labs == "well-posed labs"].n_labs
-        n_wp = f"{wp.min()}" if wp.min() == wp.max() else f"{wp.min()}–{wp.max()}"
-        lines += [
-            "",
-            "### Imputed values",
-            "",
-            (
-                "Mean |first − after| over the missing lab cells (shift), and the "
-                "same between consecutive draws of the after strategy (draw "
-                "spread), in training sds, then ± the sd across seeds if several. "
-                f"Well-posed labs have at least {ORDER_MIN_ROWS} observed training "
-                f"rows: {n_wp} of {N_LABS}."
-            ),
-            "",
-        ]
-        rows = []
-        for s in [s for s in STRATEGIES if s in set(shifts.strategy)]:
-            for labs in ("all labs", "well-posed labs"):
-                g = shifts[(shifts.strategy == s) & (shifts.labs == labs)]
-                shift = g["shift"].astype(float).mean()
-                spread = g["draw_spread"].astype(float).mean()
-                ratio = shift / spread if spread > 0 else np.nan
-                rows.append(
-                    [
-                        s,
-                        labs,
-                        seed_mean(g["shift"]),
-                        seed_mean(g["draw_spread"]),
-                        "—" if np.isnan(ratio) else f"{ratio:.2f}",
-                    ]
-                )
-        lines += _table(
-            ["Strategy", "Labs", "Shift", "Draw spread", "Shift / spread"], rows
-        )
-    if len(paired):
-        strategies = [s for s in STRATEGIES if s in set(paired.strategy)]
-        d = paired[np.isclose(paired.capacity, main_cap)]
-        rows = [
-            [
-                s,
-                _cell(d, "Overall", s, "Population", "auc", sign="+"),
-                *(_cell(d, a, s, "Delta", "auc", sign="+") for a in AXES),
-            ]
-            for s in strategies
-        ]
-        lines += [
-            "",
-            "### Paired differences: AUC",
-            "",
-            (
-                "First − after: the mean over resamples (paired bootstrap sd), "
-                "then ± the sd across seeds if several. The Δ columns are changes "
-                "of the gaps (marginalised − rest)."
-            ),
-            "",
-        ]
-        lines += _table(
-            ["Strategy", "AUC Population", *(f"Δ AUC {a}" for a in AXES)], rows
-        )
-        for cap in args.capacities:
-            dc = paired[np.isclose(paired.capacity, cap)]
-            rows = [
-                [s, *(_cell(dc, a, s, "Delta", m, sign="+") for m, a in gaps)]
-                for s in strategies
-            ]
-            lines += ["", f"### Paired differences: gaps at {cap:.0%} capacity", ""]
-            lines += _table(["Strategy", *(f"Δ {short[m]} {a}" for m, a in gaps)], rows)
+        lines += _model_lines(dm, model, main_cap, figures, args.capacities)
+    lines += _order_lines(shifts, paired, main_cap, args.capacities)
     (out / "report.md").write_text("\n".join(lines) + "\n")
+
+
+def _hatch(strategy):
+    """The bars' hatch: /// for + Black flag, ... for + indicators first."""
+    hatch = ""
+    if "Black flag" in strategy:
+        hatch += "///"
+    if "indicators first" in strategy:
+        hatch += "..."
+    if not hatch:
+        return None
+    return hatch
 
 
 def plot_deltas(df, out):
@@ -1015,7 +1106,7 @@ def plot_deltas(df, out):
             ("prioritization_rate", "fnr"),
             ("Δ prioritisation", "Δ false negative rate"),
         ):
-            shown = False
+            paper_shown = False
             for k, s in enumerate(strategies):  # first strategy on top
                 e = (
                     d[(d.strategy == s) & (d.metric == metric)]
@@ -1031,16 +1122,18 @@ def plot_deltas(df, out):
                     xerr=1.96 * e["std"],
                     label=s,
                     color=tab20[COLOURS.get(s.split(" + ")[0], 14)],
-                    hatch=(
-                        "///" * ("Black flag" in s) + "..." * ("indicators first" in s)
-                    )
-                    or None,
+                    hatch=_hatch(s),
                     edgecolor="white",
                     linewidth=0.5,
                     error_kw={"lw": 0.8},
                 )
                 paper = [_paper_gap(s, metric, a) for a in AXES]
                 if np.isclose(cap, 0.3) and None not in paper:
+                    # A label starting with "_" stays out of the legend
+                    if paper_shown:
+                        paper_label = "_"
+                    else:
+                        paper_label = "paper"
                     ax.scatter(
                         paper,
                         y,
@@ -1048,9 +1141,9 @@ def plot_deltas(df, out):
                         s=12,
                         color="black",
                         zorder=3,
-                        label="_" if shown else "paper",
+                        label=paper_label,
                     )
-                    shown = True
+                    paper_shown = True
             ax.axvline(0, color="k", lw=0.8, ls="--")
             ax.set_yticks(base, list(AXES))
             ax.set_xlabel(label)
@@ -1063,14 +1156,15 @@ def plot_deltas(df, out):
             loc="center left",
             bbox_to_anchor=(1, 0.5),
         )
-        ref, seeds = FIGURES.get(round(cap, 2)), d.seed.nunique()
-        fig.suptitle(
-            f"{MODEL_NAMES.get(model, model)}, {cap:.0%} capacity"
-            + (f" (paper: {ref})" if ref else "")
-            + (f", mean of {seeds} seeds" if seeds > 1 else "")
-            + "\nΔ = marginalised − rest; bars: 1.96 × bootstrap sd"
-        )
-        name = f"fig_deltas_{model}_{round(cap * 100)}.png"
+        title = f"{MODEL_NAMES.get(model, model)}, {cap:.0%} capacity"
+        figure = FIGURES.get(round(cap, 2))
+        if figure:
+            title += f" (paper: {figure})"
+        n_seeds = d.seed.nunique()
+        if n_seeds > 1:
+            title += f", mean of {n_seeds} seeds"
+        fig.suptitle(f"{title}\nΔ = marginalised − rest; bars: 1.96 × bootstrap sd")
+        name = _figure_file(model, cap)
         fig.savefig(out / name, dpi=150, bbox_inches="tight")
         written.add(name)
         plt.close(fig)
@@ -1171,9 +1265,8 @@ def main():
             sd, data = datasets[key]
             summary = cohorts.setdefault(f"seed {seed}", cohort_summary(data))
             if not extra:  # the diagnostics reuse their base strategy's imputations
-                summary.setdefault("extreme_imputations", {})[name] = extreme_summary(
-                    data
-                )
+                extremes = summary.setdefault("extreme_imputations", {})
+                extremes[name] = extreme_summary(data)
             te = data["split"] == "test"
             fields_te = {f: v[te] for f, v in data["fields"].items()}
             t = time.perf_counter()
@@ -1197,24 +1290,26 @@ def main():
                     sd, data, run_dir, args.epochs, seed
                 )
             for model, probs in models.items():
-                for row in evaluate(
+                rows = evaluate(
                     data["y"][te],
                     probs[te],
                     fields_te,
                     args.capacities,
                     args.n_bootstrap,
-                ):
-                    records.append((seed, model, name, family, *row))
-                for part, rows in eval_parts(data).items():
-                    fields = {f: v[rows] for f, v in data["fields"].items()}
-                    for row in evaluate(
-                        data["y"][rows],
-                        probs[rows],
+                )
+                records += [(seed, model, name, family, *row) for row in rows]
+                for part, mask in eval_parts(data).items():
+                    fields = {f: v[mask] for f, v in data["fields"].items()}
+                    rows = evaluate(
+                        data["y"][mask],
+                        probs[mask],
                         fields,
                         args.capacities,
                         args.n_bootstrap,
-                    ):
-                        part_records.append((seed, model, name, family, part, *row))
+                    )
+                    part_records += [
+                        (seed, model, name, family, part, *row) for row in rows
+                    ]
         seed_shifts, seed_paired = order_comparison(seed, arrays, test_probs, args)
         shifts += seed_shifts
         paired += seed_paired

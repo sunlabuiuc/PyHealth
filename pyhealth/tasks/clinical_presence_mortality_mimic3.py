@@ -7,9 +7,9 @@ The cohort is each adult's last hospital admission, kept if it lasts at least
 24 hours. Features are the latest value of each of 67 lab tests drawn in the
 first 24 hours, with missing values imputed at the cohort level (median, MICE,
 group MICE, a corrected version of either, or MissForest-style; fit on training
-patients only, or on the reference code's pool). The label is
-death within 8 days of admission. Black, female and public-insurance flags
-travel with each sample for subgroup evaluation, but are never features.
+patients only, or on the reference code's pool). The label is in-hospital death
+within 8 days of admission. Black, female and public-insurance flags travel
+with each sample for subgroup evaluation, but are never features.
 
 Dataset link:
     https://physionet.org/content/mimiciii/1.4/
@@ -156,7 +156,7 @@ _REFERENCE_TRAIN_SIZE = 0.9
 
 
 def _check_columns(df: pl.LazyFrame) -> None:
-    """Raises ValueError if ``df`` lacks column that ``_extract_cohort`` reads."""
+    """Raises ValueError if ``df`` lacks a column that ``_extract_cohort`` reads."""
     present = set(df.collect_schema().names())
     missing = [col for col in _REQUIRED_COLUMNS if col not in present]
     if missing:
@@ -267,19 +267,17 @@ def _extract_cohort(
     died_in_horizon = (pl.col("expire") == 1) & (
         pl.col("dischtime") - pl.col("admittime") < pl.duration(days=horizon_days)
     )
+    black = pl.col("ethnicity").str.contains("BLACK", literal=True).fill_null(False)
+    female = (pl.col("gender") == "F").fill_null(False)
+    public_insurance = (pl.col("insurance") != "Private").fill_null(True)
     return (
         cohort.join(wide, on="patient_id", how="inner")
         .join(orders, on="patient_id", how="left")
         .with_columns(
             mortality=died_in_horizon.cast(pl.Int8),
-            black=pl.col("ethnicity")
-            .str.contains("BLACK", literal=True)
-            .fill_null(False)
-            .cast(pl.Int8),
-            female=(pl.col("gender") == "F").fill_null(False).cast(pl.Int8),
-            public_insurance=(pl.col("insurance") != "Private")
-            .fill_null(True)
-            .cast(pl.Int8),
+            black=black.cast(pl.Int8),
+            female=female.cast(pl.Int8),
+            public_insurance=public_insurance.cast(pl.Int8),
         )
         .select(
             "patient_id",
@@ -313,7 +311,7 @@ def _assign_split(
         ratios: Train, validation and test fractions, summing to 1. With
             ``reference``, the first is the pool's fraction.
         seed_seq: Child 0 of ``SeedSequence(seed).spawn(1 + n_draws)``, so the
-            split depends only on the cohort and the seed.
+            split does not depend on the strategy or the number of draws.
         reference: Split as the reference code at fcb580b does.
 
     Returns:
@@ -364,7 +362,10 @@ class _OLSResidualNoise(RegressorMixin, BaseEstimator):
             self.coef_ = np.linalg.lstsq(Xc.T @ Xc, Xc.T @ (y - y_mean), rcond=None)[0]
             self.intercept_ = y_mean - x_mean @ self.coef_
         resid = y - self.predict(X)
-        self.sigma_ = float(np.std(resid if self.proper_noise else np.abs(resid)))
+        if self.proper_noise:
+            self.sigma_ = float(np.std(resid))
+        else:
+            self.sigma_ = float(np.std(np.abs(resid)))
         return self
 
     def predict(
@@ -427,9 +428,8 @@ def _make_imputer(
         estimator = _OLSResidualNoise(min_rows_per_feature=10, proper_noise=True)
         return IterativeImputer(estimator=estimator, sample_posterior=True, **common)
     if imputation.endswith("mice"):
-        return IterativeImputer(
-            estimator=_OLSResidualNoise(), sample_posterior=True, **common
-        )
+        estimator = _OLSResidualNoise()
+        return IterativeImputer(estimator=estimator, sample_posterior=True, **common)
     if imputation.endswith("missforest"):
         params = {
             "n_estimators": 50,
@@ -479,19 +479,25 @@ def _impute_draws(
     Returns:
         Imputed labs, float32 of shape (len(draw_seeds), n, n_labs).
     """
-    extra = [G] if imputation.startswith("group_") else []
+    extra = []
     if indicators:
-        extra.insert(0, np.isnan(X))
+        extra.append(np.isnan(X))
+    if imputation.startswith("group_"):
+        extra.append(G)
     Z = np.hstack([X, *extra]).astype(np.float64)
-    train = split == "train" if fit is None else fit
-    bounds = (-np.inf, np.inf)
+    if fit is None:
+        train = split == "train"
+    else:
+        train = fit
     if "corrected" in imputation:
-        bounds = _training_range(Z[train])
+        lo, hi = _training_range(Z[train])
+    else:
+        lo, hi = -np.inf, np.inf
     out = np.empty((len(draw_seeds), *X.shape), dtype=np.float32)
     for draw, seed_seq in enumerate(draw_seeds):
         random_state = int(seed_seq.generate_state(1)[0])
         imputer = _make_imputer(
-            imputation, random_state, max_iter, forest_params, *bounds
+            imputation, random_state, max_iter, forest_params, lo, hi
         )
         imputed = np.empty_like(Z)
         imputed[train] = imputer.fit_transform(Z[train])
@@ -512,8 +518,9 @@ def _assemble(
 ) -> np.ndarray:
     """Builds each draw's features from its imputed labs.
 
-    Missingness indicators are appended after imputation, so the imputers never
-    see them. Each draw is standardised with its own training-row statistics.
+    Missingness indicators are appended after imputation, so the imputers see
+    them only with ``indicators_in_imputation``. Each draw is standardised with
+    its own training-row statistics.
 
     Args:
         imputed: Imputed labs from ``_impute_draws``, shape (n_draws, n, n_labs).
@@ -528,7 +535,10 @@ def _assemble(
         2 * n_labs) with indicators, in ``_feature_names`` order.
     """
     n_draws, n, n_labs = imputed.shape
-    width = 2 * n_labs if add_missing_indicators else n_labs
+    if add_missing_indicators:
+        width = 2 * n_labs
+    else:
+        width = n_labs
     out = np.empty((n_draws, n, width), dtype=np.float32)
     out[:, :, :n_labs] = imputed
     if add_missing_indicators:
@@ -571,7 +581,7 @@ def _extreme_imputations(
     hi = np.full(X.shape[1], np.inf)
     lo[seen] = np.nanmin(observed, axis=0) - 3 * sd
     hi[seen] = np.nanmax(observed, axis=0) + 3 * sd
-    # a lab with one training value has lo == hi
+    # In the imputed dtype, so a lab with one training value (lo == hi) is not flagged
     lo, hi = lo.astype(imputed.dtype), hi.astype(imputed.dtype)
     return (((imputed < lo) | (imputed > hi)) & np.isnan(X)).sum(axis=2)
 
@@ -627,11 +637,12 @@ class ClinicalPresenceMortalityMIMIC3(BaseTask):
     80% (``reference_split=True`` gives the reference's split); indicators are
     appended after imputation (``indicators_in_imputation=True`` gives the
     reference's order); Group MICE drops all three flags; the sex flag is real;
-    MICE noise is seeded per draw.
+    MICE solves the normal equations, visits labs in the training rows' order of
+    missingness and seeds its noise per draw.
 
-    Select samples by their ``split`` field and never re-split them: the
-    imputer and the scaler were fit on the training patients, or the imputer
-    on the pool.
+    Select samples by their ``split`` and ``draw`` fields and never re-split
+    them: the imputer and the scaler were fit on the training patients, or the
+    imputer on the pool.
 
     Each sample has ``patient_id``, ``hadm_id``, ``labs`` (float32, in
     ``feature_names()`` order), ``mortality``, ``split``, ``draw``, the three
@@ -646,7 +657,8 @@ class ClinicalPresenceMortalityMIMIC3(BaseTask):
         n_draws: Imputation draws per patient. Defaults to 10 for the MICE
             strategies and 1 otherwise.
         seed: Seeds the split and the draws. The split depends only on the
-            cohort and the seed, so every strategy shares it.
+            cohort, the seed, ``split_ratios`` and ``reference_split``, so every
+            strategy with the same settings shares it.
         max_iter: Sweeps of the iterative imputers.
         split_ratios: Train, validation and test fractions.
         standardize: Scale every feature to mean 0 and sd 1 over the training
@@ -711,7 +723,10 @@ class ClinicalPresenceMortalityMIMIC3(BaseTask):
                 f"imputation must be one of {self.IMPUTATIONS}, got {imputation!r}."
             )
         if n_draws is None:
-            n_draws = 10 if imputation.endswith("mice") else 1
+            if imputation.endswith("mice"):
+                n_draws = 10
+            else:
+                n_draws = 1
         if n_draws < 1 or max_iter < 1:
             raise ValueError(
                 f"n_draws and max_iter must be at least 1, got {n_draws} and "
@@ -799,8 +814,7 @@ class ClinicalPresenceMortalityMIMIC3(BaseTask):
         )
         state.n_extreme = _extreme_imputations(imputed, X, fit)
         n_observed = (~np.isnan(X)).sum(axis=1)
-        pool = [pl.Series("imputer_fit", fit.astype(np.int64), dtype=pl.Int64)]
-        state.fields = cohort.select(
+        fields = [
             "patient_id",
             pl.col("hadm_id").cast(pl.String),
             pl.col("mortality").cast(pl.Int64),
@@ -808,8 +822,11 @@ class ClinicalPresenceMortalityMIMIC3(BaseTask):
             pl.col("n_lab_orders").fill_null(0).cast(pl.Int64),
             pl.Series("n_observed_labs", n_observed, dtype=pl.Int64),
             pl.Series("split", split, dtype=pl.String),
-            *(pool if self.reference_split else []),
-        ).to_dicts()
+        ]
+        if self.reference_split:
+            fit_flags = fit.astype(np.int64)
+            fields.append(pl.Series("imputer_fit", fit_flags, dtype=pl.Int64))
+        state.fields = cohort.select(fields).to_dicts()
         ids = cohort["patient_id"].to_list()
         state.row = {pid: row for row, pid in enumerate(ids)}
 
@@ -842,14 +859,18 @@ class ClinicalPresenceMortalityMIMIC3(BaseTask):
         sizes = " / ".join(
             f"{(split == p).sum()} {p}" for p in ("train", "val", "test")
         )
-        pool = (
-            f"; reference split: the imputer is fit on a {fit.sum()}-patient pool "
-            f"that includes {(fit & (split == 'test')).sum()} test patients"
-            if self.reference_split
-            else ""
-        )
+        if self.reference_split:
+            pool = (
+                f"; reference split: the imputer is fit on a {fit.sum()}-patient pool "
+                f"that includes {(fit & (split == 'test')).sum()} test patients"
+            )
+        else:
+            pool = ""
         logger.info(f"Split (seed {self.seed}): {sizes}{pool}.")
-        order = " (indicators in imputation)" if self.indicators_in_imputation else ""
+        if self.indicators_in_imputation:
+            order = " (indicators in imputation)"
+        else:
+            order = ""
         logger.info(
             f"Imputation {self.imputation!r}{order}: {self.n_draws} draw(s) in "
             f"{elapsed:.0f} s."
@@ -861,7 +882,9 @@ class ClinicalPresenceMortalityMIMIC3(BaseTask):
             )
 
         def share(mask: np.ndarray) -> str:
-            return f"{mask.mean():.2%}" if mask.size else "n/a"
+            if mask.size == 0:
+                return "n/a"
+            return f"{mask.mean():.2%}"
 
         affected = n_extreme > 0
         by_group = ", ".join(
