@@ -1,4 +1,4 @@
-"""Hourly remaining-LOS task, contributed by Xiao Luo (Person C).
+"""Hourly remaining-LOS task, contributed by Xiao Luo.
 
 UIUC NetID: xiaoluo6.
 Paper: Temporal Pointwise Convolutional Networks for Length of Stay

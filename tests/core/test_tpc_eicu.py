@@ -1,7 +1,7 @@
 # Contributor: Xiao Luo, UIUC NetID xiaoluo6.
 # Paper: Temporal Pointwise Convolutional Networks for Length of Stay
 # Prediction in the Intensive Care Unit. https://arxiv.org/abs/2007.09483
-"""Person C: synthetic cohort and hourly-label regression tests.
+"""Synthetic cohort and hourly-label regression tests.
 
 Reference: https://arxiv.org/abs/2007.09483. No clinical records used.
 """
