@@ -1,6 +1,6 @@
 """Eight-class (or CLIMB five-class) diagnosis task for ISIC 2019."""
 
-from typing import Any
+from typing import Any, ClassVar
 
 from .base_task import BaseTask
 
@@ -63,10 +63,10 @@ class ISIC2019Classification(BaseTask):
     """
 
     task_name: str = "ISIC2019Classification"
-    input_schema: dict[str, Any] = {
+    input_schema: ClassVar[dict[str, Any]] = {
         "image": ("image", {"image_size": 224, "mode": "RGB"})
     }
-    output_schema: dict[str, Any] = {
+    output_schema: ClassVar[dict[str, Any]] = {
         "diagnosis": ("multiclass", {"labels": list(_ISIC8)})
     }
 
