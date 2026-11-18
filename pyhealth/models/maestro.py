@@ -22,11 +22,11 @@ factor gate then adapts the sparsity of each modality's attention.
 from __future__ import annotations
 
 import math
-from typing import Dict, List, Optional, cast
+from typing import cast
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models.base_model import BaseModel
@@ -44,6 +44,13 @@ class ProbSparseAttention(nn.Module):
         n_heads: Number of attention heads.
         dropout: Dropout applied to the attention output.
         factor: Sparsity factor; ``u = factor * ceil(log L)`` queries are kept.
+
+    Examples:
+        >>> import torch
+        >>> from pyhealth.models.maestro import ProbSparseAttention
+        >>> attn = ProbSparseAttention(d_model=8, n_heads=2)
+        >>> attn(torch.randn(3, 6, 8), factor=2).shape
+        torch.Size([3, 6, 8])
     """
 
     def __init__(
@@ -106,6 +113,13 @@ class SparseMoEFeedForward(nn.Module):
         expert_dim: Hidden width of each expert.
         num_experts: Number of expert MLPs.
         k: Number of experts each token is routed to.
+
+    Examples:
+        >>> import torch
+        >>> from pyhealth.models.maestro import SparseMoEFeedForward
+        >>> moe = SparseMoEFeedForward(d_model=8, expert_dim=16, num_experts=3)
+        >>> moe(torch.randn(2, 5, 8)).shape
+        torch.Size([2, 5, 8])
     """
 
     def __init__(
@@ -153,6 +167,13 @@ class ModalityPositionalEncoder(nn.Module):
         d_model: Embedding width.
         max_len: Longest supported sequence length.
         num_modalities: Number of modalities.
+
+    Examples:
+        >>> import torch
+        >>> from pyhealth.models.maestro import ModalityPositionalEncoder
+        >>> enc = ModalityPositionalEncoder(d_model=8, max_len=10, num_modalities=2)
+        >>> enc(torch.zeros(1, 4, 8), modality_id=1).shape
+        torch.Size([1, 4, 8])
     """
 
     def __init__(self, d_model: int, max_len: int, num_modalities: int) -> None:
@@ -176,6 +197,13 @@ class TemporalPositionalEncoder(nn.Module):
     Args:
         d_model: Embedding width.
         max_len: Longest supported sequence length.
+
+    Examples:
+        >>> import torch
+        >>> from pyhealth.models.maestro import TemporalPositionalEncoder
+        >>> enc = TemporalPositionalEncoder(d_model=8, max_len=10)
+        >>> enc(torch.zeros(1, 4, 8)).shape
+        torch.Size([1, 4, 8])
     """
 
     def __init__(self, d_model: int, max_len: int) -> None:
@@ -210,6 +238,13 @@ class InformerEncoderLayer(nn.Module):
         moe: Use a :class:`SparseMoEFeedForward` instead of a dense MLP.
         num_experts: Number of experts when ``moe`` is true.
         k: Experts per token when ``moe`` is true.
+
+    Examples:
+        >>> import torch
+        >>> from pyhealth.models.maestro import InformerEncoderLayer
+        >>> layer = InformerEncoderLayer(d_model=8, n_heads=2, d_ff=16)
+        >>> layer(torch.randn(2, 9, 8), factor=2).shape
+        torch.Size([2, 5, 8])
     """
 
     def __init__(
@@ -253,17 +288,17 @@ class InformerEncoderLayer(nn.Module):
 
 
 def _modality_dropout(
-    inputs: Dict[str, torch.Tensor],
-    keys: List[str],
+    inputs: dict[str, torch.Tensor],
+    keys: list[str],
     drop_prob: float,
     training: bool,
-) -> List[float]:
+) -> list[float]:
     """Zero out whole modalities at random for the batch; return presence flags.
 
     The draw is per modality and shared by the whole batch, as in the official
     implementation.
     """
-    present: List[float] = []
+    present: list[float] = []
     for key in keys:
         dropped = training and drop_prob > 0 and bool(torch.rand(1).item() < drop_prob)
         if dropped:
@@ -356,8 +391,8 @@ class MAESTRO(BaseModel):
             raise ValueError("input_length and base_factor must be positive.")
 
         self.label_key = self.label_keys[0]
-        self.modalities: List[str] = list(self.feature_keys)
-        self.variates: Dict[str, int] = {
+        self.modalities: list[str] = list(self.feature_keys)
+        self.variates: dict[str, int] = {
             key: self._infer_variates(key) for key in self.modalities
         }
         self.modality_dropout_prob = modality_dropout
@@ -435,7 +470,7 @@ class MAESTRO(BaseModel):
     def forward(
         self,
         **kwargs: torch.Tensor | tuple[torch.Tensor, ...],
-    ) -> Dict[str, torch.Tensor]:
+    ) -> dict[str, torch.Tensor]:
         """Classify a batch of multimodal time series.
 
         Args:
@@ -447,7 +482,7 @@ class MAESTRO(BaseModel):
             A dictionary with ``logit`` and ``y_prob``. When the label key is
             present, it also contains ``loss`` and ``y_true``.
         """
-        inputs: Dict[str, torch.Tensor] = {}
+        inputs: dict[str, torch.Tensor] = {}
         for key in self.modalities:
             if key not in kwargs:
                 raise ValueError(f"Missing modality input '{key}'.")
@@ -494,7 +529,7 @@ class MAESTRO(BaseModel):
 
         logits = self.classifier(fused.mean(dim=1))
         y_prob = self.label_processor.activation(logits)
-        results: Dict[str, torch.Tensor] = {"logit": logits, "y_prob": y_prob}
+        results: dict[str, torch.Tensor] = {"logit": logits, "y_prob": y_prob}
         if self.label_key in kwargs:
             y_true = cast(torch.Tensor, kwargs[self.label_key]).to(self.device)
             results["loss"] = self.label_processor.loss(logits, y_true)
