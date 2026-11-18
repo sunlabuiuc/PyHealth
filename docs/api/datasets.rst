@@ -470,6 +470,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `OpenNeuro <https://openneuro.org/datasets/ds005178>`__
      - No
      - —
+   * - :doc:`Jichi DR fundus <datasets/pyhealth.datasets.JichiDRDataset>`
+     - Open
+     - `figshare <https://figshare.com/articles/dataset/4879853>`__
+     - No
+     - —
    * - :doc:`NIH ChestX-ray14 <datasets/pyhealth.datasets.ChestXray14Dataset>`
      - Open
      - `NIH <https://nihcc.app.box.com/v/ChestXray-NIHCC>`__
@@ -542,6 +547,7 @@ Available Datasets
     datasets/pyhealth.datasets.MSDSpleenDataset
     datasets/pyhealth.datasets.CHAOSDataset
     datasets/pyhealth.datasets.RSNAPneumoniaDataset
+    datasets/pyhealth.datasets.JichiDRDataset
     datasets/pyhealth.datasets.MIMIC3Dataset
     datasets/pyhealth.datasets.MIMIC4Dataset
     datasets/pyhealth.datasets.MIMIC4EHRDataset

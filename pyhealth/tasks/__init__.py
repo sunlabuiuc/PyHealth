@@ -153,6 +153,7 @@ from .generate_ehr import (
     decode_dataset,
     to_evaluation_dataframe,
 )
+from .jichi_davis_grading import JichiDavisGrading as JichiDavisGrading
 from .patient_linkage import patient_linkage_mimic3_fn
 from .rsna_pneumonia_classification import (
     RSNAPneumoniaClassification as RSNAPneumoniaClassification,
