@@ -47,16 +47,16 @@ class TestMAESTRO(unittest.TestCase):
 
     @staticmethod
     def _build(dataset, **overrides):
-        kwargs = dict(
-            d_model=16,
-            n_heads=2,
-            num_layers_per_modal=1,
-            num_layers=1,
-            num_experts=2,
-            dropout=0.0,
-            modality_dropout=0.0,
-            input_length=16,
-        )
+        kwargs = {
+            "d_model": 16,
+            "n_heads": 2,
+            "num_layers_per_modal": 1,
+            "num_layers": 1,
+            "num_experts": 2,
+            "dropout": 0.0,
+            "modality_dropout": 0.0,
+            "input_length": 16,
+        }
         kwargs.update(overrides)
         return MAESTRO(dataset=dataset, **kwargs)
 
