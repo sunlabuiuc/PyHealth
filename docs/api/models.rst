@@ -361,6 +361,9 @@ API Reference
     models/pyhealth.models.APN
     models/pyhealth.models.TRACE
     models/pyhealth.models.MIRA
+    models/pyhealth.models.SensorLSTM
+    models/pyhealth.models.sensor_transfer
+    models/pyhealth.models.ipd
     models/pyhealth.models.UDC
     models/pyhealth.models.DescEmb
     models/pyhealth.models.DearLLM

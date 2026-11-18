@@ -9,11 +9,17 @@ Description: Runs the full pipeline (DSADataset -> DSAActivityClassification
     classifier, subject split, preprocessing and target sensor:
 
     * ``no_transfer``: train on the target sensor only (baseline).
-    * ``ipd``: sources pretrained with IPD-weighted learning rates, so more
-      similar sources get more influence (the paper's method).
-    * ``equal``: sources pretrained with equal weights.
-    * ``inverse``: the weighting direction reversed (less similar sources
-      get more influence).
+    * ``no_transfer_matched``: target sensor only, but with as many epochs
+      as the transfer arms use in total (source + target), so any gain of
+      transfer is not just from training longer.
+    * ``ipd``: sources pretrained as in the paper. Each source starts from
+      the same learning rate, multiplied by ``1 - alpha`` after every epoch,
+      where ``alpha`` is the source's share of the total IPD. Closer sources
+      keep a larger learning rate for longer and the farthest source is
+      trained first.
+    * ``equal``: every source gets the same ``alpha``.
+    * ``inverse``: the direction reversed (``alpha`` proportional to one over
+      the IPD), so closer sources decay faster. The source order is unchanged.
 
     Comparing ``ipd`` with ``equal`` and ``inverse`` shows whether the gain
     comes from the IPD weighting itself or only from pretraining on sources.
@@ -46,6 +52,7 @@ Results:
 """
 
 import argparse
+import json
 import os
 import shutil
 import tempfile
@@ -64,7 +71,7 @@ from pyhealth.models.sensor_transfer import (
 )
 from pyhealth.tasks import DSAActivityClassification
 
-ARMS = ("no_transfer", "ipd", "equal", "inverse")
+ARMS = ("no_transfer", "no_transfer_matched", "ipd", "equal", "inverse")
 
 
 def make_synthetic_dsa(
@@ -113,6 +120,62 @@ def make_synthetic_dsa(
                 )
 
 
+def load_results(path: str) -> dict[str, dict[str, float]]:
+    """Loads saved results: ``{arm: {seed: RCC}}`` (empty if no file).
+
+    Args:
+        path: Path of a results JSON file.
+
+    Returns:
+        The saved results.
+
+    Examples:
+        >>> load_results("does-not-exist.json")
+        {}
+    """
+    if os.path.exists(path):
+        with open(path) as f:
+            return json.load(f)
+    return {}
+
+
+def save_result(path: str, arm: str, seed: int, rcc: float) -> None:
+    """Adds one result to a results JSON file, so a long run loses nothing.
+
+    Args:
+        path: Path of the results JSON file.
+        arm: The arm name.
+        seed: The repetition (seed).
+        rcc: The RCC of this arm and seed.
+
+    Examples:
+        >>> save_result("results.json", "ipd", 0, 0.5)  # doctest: +SKIP
+    """
+    data = load_results(path)
+    data.setdefault(arm, {})[str(seed)] = rcc
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def merge_results(paths: list[str]) -> dict[str, list[float]]:
+    """Merges results files into RCC lists per arm, in the order of ARMS.
+
+    Args:
+        paths: Results JSON files, e.g. from separate runs of other seeds.
+
+    Returns:
+        Maps each arm to its RCC values.
+
+    Examples:
+        >>> merge_results(["run_a.json", "run_b.json"])  # doctest: +SKIP
+    """
+    merged: dict[str, dict[str, float]] = {}
+    for path in paths:
+        for arm, by_seed in load_results(path).items():
+            merged.setdefault(arm, {}).update(by_seed)
+    return {arm: list(merged[arm].values()) for arm in ARMS if arm in merged}
+
+
 def summarize(results: dict[str, list[float]]) -> str:
     """Formats mean and standard deviation of RCC per arm as a table.
 
@@ -120,20 +183,32 @@ def summarize(results: dict[str, list[float]]) -> str:
         results: Maps each arm to its RCC values across repetitions.
 
     Returns:
-        A Markdown table, with the change from ``no_transfer``.
+        A Markdown table. The change from ``no_transfer`` and from
+        ``no_transfer_matched`` (the fairer baseline) is shown when those
+        arms were run, and ``n/a`` otherwise.
 
     Examples:
-        >>> print(summarize({"no_transfer": [0.5, 0.7], "ipd": [0.8, 0.9]}))
+        >>> print(summarize({"no_transfer": [0.5], "ipd": [0.6]}))
         ... # doctest: +SKIP
     """
-    base = float(np.mean(results["no_transfer"]))
+
+    def mean_of(arm: str) -> float | None:
+        return float(np.mean(results[arm])) if arm in results else None
+
+    def delta(mean: float, base: float | None) -> str:
+        return "n/a" if base is None else f"{mean - base:+.4f}"
+
+    base, matched = mean_of("no_transfer"), mean_of("no_transfer_matched")
     lines = [
-        "| arm | mean RCC | std | change vs no_transfer |",
-        "|---|---|---|---|",
+        "| arm | mean RCC | std | vs no_transfer | vs matched |",
+        "|---|---|---|---|---|",
     ]
     for arm, values in results.items():
         mean, std = float(np.mean(values)), float(np.std(values))
-        lines.append(f"| {arm} | {mean:.4f} | {std:.4f} | {mean - base:+.4f} |")
+        lines.append(
+            f"| {arm} | {mean:.4f} | {std:.4f} | {delta(mean, base)} "
+            f"| {delta(mean, matched)} |"
+        )
     return "\n".join(lines)
 
 
@@ -169,8 +244,8 @@ def run(args: argparse.Namespace) -> dict[str, list[float]]:
         samples = dataset.set_task(task)
         source_keys = [f"source_{name}" for name in task.source_sensors]
 
-        results: dict[str, list[float]] = {arm: [] for arm in ARMS}
-        for seed in range(args.seeds):
+        results: dict[str, list[float]] = {arm: [] for arm in args.arms}
+        for seed in range(args.seed_start, args.seed_start + args.seeds):
             train_ds, val_ds, test_ds = split_by_patient(
                 samples, [0.75, 0.125, 0.125], seed=seed
             )
@@ -179,7 +254,11 @@ def run(args: argparse.Namespace) -> dict[str, list[float]]:
                 f"{len(test_ds)} test samples"
             )
             train_loader = get_dataloader(
-                train_ds, batch_size=args.batch_size, shuffle=True
+                train_ds, batch_size=args.batch_size, shuffle=True, seed=seed
+            )
+            # Unshuffled, so the same pairs are used for the IPD every run.
+            distance_loader = get_dataloader(
+                train_ds, batch_size=args.batch_size, shuffle=False
             )
             val_loader = get_dataloader(
                 val_ds, batch_size=args.batch_size, shuffle=False
@@ -188,10 +267,13 @@ def run(args: argparse.Namespace) -> dict[str, list[float]]:
                 test_ds, batch_size=args.batch_size, shuffle=False
             )
             distances = compute_source_distances(
-                train_loader, "signal", source_keys, args.max_pairs
+                distance_loader, "signal", source_keys, args.max_pairs, seed=seed
             )
             print(f"seed {seed}: IPD {distances}")
-            for arm in ARMS:
+            for arm in args.arms:
+                target_epochs = args.finetune_epochs
+                if arm == "no_transfer_matched":
+                    target_epochs += len(source_keys) * args.source_epochs
                 torch.manual_seed(seed)
                 model = SensorLSTM(samples, hidden_dim=args.hidden_dim)
                 out = transfer_learn(
@@ -200,18 +282,25 @@ def run(args: argparse.Namespace) -> dict[str, list[float]]:
                     val_loader,
                     "signal",
                     source_keys,
-                    weighting=None if arm == "no_transfer" else arm,
+                    weighting=None if arm.startswith("no_transfer") else arm,
                     distances=distances,
-                    base_lr=args.lr,
+                    base_lr=args.source_lr,
                     epochs_per_source=args.source_epochs,
-                    finetune_epochs=args.finetune_epochs,
+                    finetune_epochs=target_epochs,
                     finetune_lr=args.lr,
                 )
                 # After fine-tuning the model reads the target sensor, so it
                 # can be scored on the second held-out subject directly.
                 rcc = (out["rcc"] + evaluate_rcc(model, test_loader)) / 2
                 results[arm].append(rcc)
+                if args.results_json:
+                    save_result(args.results_json, arm, seed, rcc)
                 print(f"seed {seed} {arm}: RCC {rcc:.4f}")
+                if out["alphas"]:
+                    alphas = {k: round(v, 3) for k, v in out["alphas"].items()}
+                    print(f"seed {seed} {arm}: alpha {alphas}")
+                losses = [round(x, 3) for x in out["finetune_losses"]]
+                print(f"seed {seed} {arm}: target-epoch losses {losses}")
         return results
     finally:
         for path in tmp_dirs:
@@ -236,12 +325,32 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--root", help="DSA folder (required with --real)")
     parser.add_argument("--cache-dir", help="PyHealth cache directory")
     parser.add_argument("--target-sensor", default="right_arm")
+    parser.add_argument(
+        "--arms",
+        nargs="+",
+        choices=ARMS,
+        default=list(ARMS),
+        help="which arms to run (default: all)",
+    )
     parser.add_argument("--seeds", type=int, default=3, help="repetitions")
+    parser.add_argument("--seed-start", type=int, default=0, help="first seed")
+    parser.add_argument(
+        "--results-json", help="save each RCC here as soon as it is computed"
+    )
+    parser.add_argument(
+        "--summarize",
+        nargs="+",
+        metavar="JSON",
+        help="only print the table of saved results files (no training)",
+    )
     parser.add_argument("--source-epochs", type=int, default=1)
     parser.add_argument("--finetune-epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--hidden-dim", type=int, default=32)
-    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument(
+        "--source-lr", type=float, default=5e-4, help="initial lr of each source"
+    )
+    parser.add_argument("--lr", type=float, default=1e-3, help="target lr")
     parser.add_argument("--max-pairs", type=int, default=32, help="pairs for IPD")
     parser.add_argument("--out", help="write the results table to this file")
     args = parser.parse_args(argv)
@@ -251,9 +360,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main() -> None:
-    """Runs the ablation and prints (and optionally saves) the table."""
+    """Runs the ablation (or summarizes saved results) and prints the table."""
     args = parse_args()
-    table = summarize(run(args))
+    results = merge_results(args.summarize) if args.summarize else run(args)
+    table = summarize(results)
     print("\n" + table)
     if args.out:
         with open(args.out, "w") as f:

@@ -5,10 +5,17 @@ Paper: Zhang et al. (2024), "Daily Physical Activity Monitoring: Adaptive
     Learning from Multi-source Motion Sensor Data", CHIL 2024.
     https://proceedings.mlr.press/v248/zhang24a.html
 Description: Pretrains a :class:`~pyhealth.models.SensorLSTM` on the source
-    sensors one after another, scaling each source's learning rate by its
-    similarity to the target (IPD), then fine-tunes on the target sensor.
-    The weighting can be switched to equal or inverse weights, or turned off
-    for a no-transfer baseline, to run the weighting ablation.
+    sensors one after another, then fine-tunes it on the target sensor. Every
+    source starts from the same learning rate, which is multiplied by
+    ``1 - alpha`` after each epoch, where ``alpha`` comes from the source's IPD
+    (see :mod:`pyhealth.models.ipd`): closer sources keep a larger learning
+    rate for longer. The weighting can be switched to equal or inverse, or
+    turned off for a no-transfer baseline, to run the weighting ablation.
+
+Differences from the paper: fine-tuning uses a fixed learning rate and a fixed
+    number of epochs. The paper's rule scales the target learning rate by one
+    minus the validation loss and stops early; as written it would give a
+    negative learning rate whenever the loss is above one.
 """
 
 from collections.abc import Sequence
@@ -17,10 +24,10 @@ from typing import Any
 import numpy as np
 import torch
 
-from .ipd import learning_rate_scales, paired_ipd, source_weights
+from .ipd import decay_rates, paired_ipd
 from .sensor_lstm import SensorLSTM
 
-ORDERS = ("ascending_weight", "descending_weight", "given")
+ORDERS = ("descending_distance", "ascending_distance", "given")
 
 
 def _stream(batch: dict[str, Any], key: str) -> torch.Tensor:
@@ -37,15 +44,22 @@ def compute_source_distances(
     source_keys: Sequence[str],
     max_pairs: int = 64,
     window: int | None = 10,
+    seed: int = 0,
 ) -> dict[str, float]:
     """Computes the IPD between each source stream and the target stream.
+
+    All paired segments of the loader are collected, then ``max_pairs`` of
+    them are drawn at random with ``seed`` (DTW is slow). The draw picks
+    positions, so pass an unshuffled loader (``shuffle=False``) to get the
+    same pairs, and so the same IPD, on every run.
 
     Args:
         loader: A dataloader whose batches hold the target and source keys.
         target_key: Name of the target feature, e.g. ``"signal"``.
         source_keys: Names of the source features, e.g. ``["source_torso"]``.
-        max_pairs: Maximum number of paired segments to use (DTW is slow).
+        max_pairs: Maximum number of paired segments to use.
         window: Sakoe-Chiba band half-width.
+        seed: Seed of the random choice of pairs and of the smooth bootstrap.
 
     Returns:
         Maps each source key to its IPD to the target.
@@ -57,31 +71,42 @@ def compute_source_distances(
     """
     target: list[np.ndarray] = []
     sources: dict[str, list[np.ndarray]] = {key: [] for key in source_keys}
-    count = 0
     for batch in loader:
         target.append(_stream(batch, target_key).float().cpu().numpy())
         for key in source_keys:
             sources[key].append(_stream(batch, key).float().cpu().numpy())
-        count += len(target[-1])
-        if count >= max_pairs:
-            break
-    target_all = np.concatenate(target)[:max_pairs]
+    target_all = np.concatenate(target)
+    rng = np.random.default_rng(seed)
+    chosen = np.sort(
+        rng.choice(len(target_all), size=min(max_pairs, len(target_all)), replace=False)
+    )
     return {
-        key: paired_ipd(np.concatenate(parts)[:max_pairs], target_all, window)
+        key: paired_ipd(
+            np.concatenate(parts)[chosen], target_all[chosen], window, seed=seed
+        )
         for key, parts in sources.items()
     }
 
 
 def train_epochs(
-    model: SensorLSTM, loader: Any, lr: float, epochs: int = 1
+    model: SensorLSTM,
+    loader: Any,
+    lr: float,
+    epochs: int = 1,
+    max_grad_norm: float | None = 1.0,
+    lr_decay: float = 1.0,
 ) -> list[float]:
     """Trains the model on its current ``input_key`` stream.
 
     Args:
         model: The model to train.
         loader: Training dataloader.
-        lr: Learning rate of the Adam optimizer.
+        lr: Initial learning rate of the Adam optimizer.
         epochs: Number of passes over the loader.
+        max_grad_norm: Gradient-norm clipping threshold, which keeps LSTM
+            training stable at higher learning rates; ``None`` turns it off.
+        lr_decay: The learning rate is multiplied by this after every epoch
+            (``1.0`` keeps it constant).
 
     Returns:
         The mean training loss of each epoch.
@@ -98,56 +123,66 @@ def train_epochs(
             optimizer.zero_grad()
             loss = model(**batch)["loss"]
             loss.backward()
+            if max_grad_norm is not None:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
             optimizer.step()
             total += float(loss.detach())
             batches += 1
         history.append(total / max(batches, 1))
+        for group in optimizer.param_groups:
+            group["lr"] *= lr_decay
     return history
 
 
 def pretrain_on_sources(
     model: SensorLSTM,
     loader: Any,
-    weights: dict[str, float],
-    base_lr: float = 1e-3,
+    distances: dict[str, float],
+    alphas: dict[str, float],
+    base_lr: float = 5e-4,
     epochs_per_source: int = 1,
-    order: str = "ascending_weight",
+    order: str = "descending_distance",
 ) -> dict[str, list[float]]:
-    """Trains on the source sensors in turn, scaling the learning rates.
+    """Trains on the source sensors in turn with a per-source learning decay.
 
-    Each source is trained with ``base_lr`` times its learning-rate scale
-    (see :func:`~pyhealth.models.ipd.learning_rate_scales`), so more similar
-    sources influence the weights more. The model's ``input_key`` is restored
+    Each source starts at ``base_lr`` and its learning rate is multiplied by
+    ``1 - alpha`` after every epoch, so a source with a small ``alpha`` keeps
+    teaching the model for longer. The model's ``input_key`` is restored
     afterwards.
 
     Args:
         model: The model to pretrain.
         loader: Training dataloader holding every source key.
-        weights: Maps each source key to its weight.
-        base_lr: Learning rate before scaling.
+        distances: Maps each source key to its IPD (used only for the order).
+        alphas: Maps each source key to its decay rate, from
+            :func:`~pyhealth.models.ipd.decay_rates`.
+        base_lr: Initial learning rate of every source.
         epochs_per_source: Epochs spent on each source.
-        order: ``"ascending_weight"`` (most similar source last),
-            ``"descending_weight"`` or ``"given"`` (the order of ``weights``).
+        order: ``"descending_distance"`` (the paper: the farthest source first,
+            the most similar last), ``"ascending_distance"`` or ``"given"``
+            (the order of ``distances``).
 
     Returns:
         Maps each source key to its per-epoch losses.
 
     Raises:
-        ValueError: If ``order`` is unknown.
+        ValueError: If ``order`` is unknown or the keys of ``distances`` and
+            ``alphas`` differ.
 
     Examples:
         >>> history = pretrain_on_sources(
-        ...     model, loader, {"source_torso": 1.0}
+        ...     model, loader, {"source_torso": 1.0}, {"source_torso": 1.0}
         ... )  # doctest: +SKIP
     """
     if order not in ORDERS:
         raise ValueError(f"order must be one of {ORDERS}, got '{order}'")
-    scales = learning_rate_scales(weights)
-    keys = list(weights)
-    if order == "ascending_weight":
-        keys.sort(key=lambda k: weights[k])
-    elif order == "descending_weight":
-        keys.sort(key=lambda k: -weights[k])
+    if set(distances) != set(alphas):
+        raise ValueError("distances and alphas must have the same keys")
+    keys = list(distances)
+    if order == "descending_distance":
+        keys.sort(key=lambda k: -distances[k])
+    elif order == "ascending_distance":
+        keys.sort(key=lambda k: distances[k])
 
     original_key = model.input_key
     history: dict[str, list[float]] = {}
@@ -155,7 +190,11 @@ def pretrain_on_sources(
         for key in keys:
             model.input_key = key
             history[key] = train_epochs(
-                model, loader, base_lr * scales[key], epochs_per_source
+                model,
+                loader,
+                base_lr,
+                epochs_per_source,
+                lr_decay=1.0 - alphas[key],
             )
     finally:
         model.input_key = original_key
@@ -175,7 +214,7 @@ def finetune(
         model: The (pretrained) model.
         loader: Training dataloader.
         target_key: Name of the target feature.
-        lr: Learning rate.
+        lr: Learning rate (kept constant).
         epochs: Number of epochs.
 
     Returns:
@@ -221,52 +260,62 @@ def transfer_learn(
     source_keys: Sequence[str],
     weighting: str | None = "ipd",
     distances: dict[str, float] | None = None,
-    base_lr: float = 1e-3,
+    base_lr: float = 5e-4,
     epochs_per_source: int = 1,
     finetune_epochs: int = 1,
     finetune_lr: float = 1e-3,
-    order: str = "ascending_weight",
+    order: str = "descending_distance",
     max_pairs: int = 64,
+    seed: int = 0,
 ) -> dict[str, Any]:
     """Runs the full pipeline: IPD, source pretraining, fine-tuning, RCC.
 
     Args:
         model: A freshly initialized model.
-        train_loader: Training dataloader with target and source keys.
+        train_loader: Training dataloader with target and source keys. It is
+            used to compute the IPD, so pass ``distances`` (from an unshuffled
+            loader) for reproducible runs.
         val_loader: Validation dataloader used for the final RCC.
         target_key: Name of the target feature.
         source_keys: Names of the source features.
         weighting: ``"ipd"``, ``"equal"`` or ``"inverse"`` to pretrain with
-            that weighting, or ``None`` to skip pretraining (the no-transfer
-            baseline).
+            that decay rule (see :func:`~pyhealth.models.ipd.decay_rates`), or
+            ``None`` to skip pretraining (the no-transfer baseline).
         distances: Precomputed IPDs, to avoid recomputing them for each
             weighting of an ablation.
-        base_lr: Source learning rate before scaling.
+        base_lr: Source learning rate at the start of each source.
         epochs_per_source: Epochs spent on each source.
         finetune_epochs: Epochs on the target.
         finetune_lr: Target learning rate.
         order: Order of the sources, see :func:`pretrain_on_sources`.
         max_pairs: Pairs used for the IPD.
+        seed: Seed of the IPD estimate.
 
     Returns:
-        A dict with ``rcc``, ``distances``, ``weights``,
-        ``pretrain_losses`` and ``finetune_losses``.
+        A dict with ``rcc``, ``distances``, ``alphas``, ``pretrain_losses``
+        and ``finetune_losses``.
 
     Examples:
         >>> result = transfer_learn(
         ...     model, train_loader, val_loader, "signal", ["source_torso"]
         ... )  # doctest: +SKIP
     """
-    weights: dict[str, float] = {}
+    alphas: dict[str, float] = {}
     pretrain_losses: dict[str, list[float]] = {}
     if weighting is not None and source_keys:
         if distances is None:
             distances = compute_source_distances(
-                train_loader, target_key, source_keys, max_pairs
+                train_loader, target_key, source_keys, max_pairs, seed=seed
             )
-        weights = source_weights(distances, weighting)
+        alphas = decay_rates(distances, weighting)
         pretrain_losses = pretrain_on_sources(
-            model, train_loader, weights, base_lr, epochs_per_source, order
+            model,
+            train_loader,
+            distances,
+            alphas,
+            base_lr,
+            epochs_per_source,
+            order,
         )
     finetune_losses = finetune(
         model, train_loader, target_key, finetune_lr, finetune_epochs
@@ -274,7 +323,7 @@ def transfer_learn(
     return {
         "rcc": evaluate_rcc(model, val_loader),
         "distances": distances or {},
-        "weights": weights,
+        "alphas": alphas,
         "pretrain_losses": pretrain_losses,
         "finetune_losses": finetune_losses,
     }
