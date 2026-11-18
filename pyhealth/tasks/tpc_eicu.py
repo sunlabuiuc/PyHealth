@@ -116,13 +116,17 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
     def _apply_missingness(self, values: np.ndarray, stay_id: Any) -> np.ndarray:
         """Extension point for reproducible observation removal.
 
-        TODO(B): implement seeded masking for nonzero rates before
-        imputation. Agree whether removal applies to raw rows or hourly cells.
-        The zero-removal baseline returns an independent unchanged copy.
+        TODO(A/B): integrate the existing _apply_missingness implementation
+        from the repository-root tpc_eicu.py prototype. Do not reimplement
+        working team code. Confirm its removal unit and seed behavior before
+        integration; run the pending masking tests afterwards. The zero-removal
+        baseline returns an independent unchanged copy.
         """
         if self.missing_rate == 0.0:
             return values.copy()
-        raise NotImplementedError("TODO(B): implement masking before missing_rate > 0.")
+        raise NotImplementedError(
+            "TODO(A/B): integrate existing prototype masking before missing_rate > 0."
+        )
 
     def __call__(self, patient: Any) -> list[dict[str, Any]]:
         """Generate hourly ICU samples with uncapped remaining LOS labels.
