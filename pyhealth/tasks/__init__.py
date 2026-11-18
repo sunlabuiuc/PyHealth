@@ -18,6 +18,9 @@ from .cardiology_detect import (
 )
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
+from .ham10000_classification import (
+    HAM10000Classification as HAM10000Classification,
+)
 from .chaos_segmentation import (
     CHAOSAbdominalSegmentationCTMRI as CHAOSAbdominalSegmentationCTMRI,
     CHAOSAbdominalSegmentationMRIonly as CHAOSAbdominalSegmentationMRIonly,
