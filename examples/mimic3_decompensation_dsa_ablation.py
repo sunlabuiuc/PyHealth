@@ -19,6 +19,14 @@ split and training settings, and are scored on the same hourly binary label
     The same model with the default initialization: the ablation of the bias
     initialization.
 
+Besides the time-step ROC-AUC and PR-AUC, the risks of the test stays go
+through an alarm policy (a threshold with silencing) and are scored with the
+event-level metrics of Section 4.1 of the paper (:mod:`pyhealth.metrics.event_alarm`):
+the area under the alarm precision / event recall curve, the event recall at
+alarm precisions of 60, 70 and 80%, and the distance of the first alarm to the
+event. They show how early and how often a model warns, which time-step scores
+do not. The per-step test risks of each run are saved as ``*_test_risks.npz``.
+
 Each model is trained once per seed on a fixed patient split, and the test
 scores are reported as mean and 95% confidence interval over seeds, with the
 paired differences between arms.
@@ -36,10 +44,14 @@ import argparse
 import json
 import math
 from datetime import datetime
+from itertools import pairwise
 from pathlib import Path
 from statistics import mean, stdev
 
+import numpy as np
+
 from pyhealth.datasets import MIMIC3Dataset, PatientSplit, get_dataloader
+from pyhealth.metrics import event_alarm_metrics
 from pyhealth.models import RNN_V2, DynamicSurvivalRNN
 from pyhealth.tasks import DecompensationMIMIC3
 from pyhealth.trainer import Trainer
@@ -51,6 +63,13 @@ DEFAULT_CONFIG = (
 )
 ARMS = ("eep", "dsa_prior", "dsa_noprior")
 METRICS = ["roc_auc", "pr_auc"]
+# Event-level metrics of the alarm policy (see pyhealth.metrics.event_alarm).
+PRECISIONS = (0.6, 0.7, 0.8)
+EVENT_METRICS = (
+    ["alarm_event_auprc"]
+    + [f"event_recall@{round(p * 100)}" for p in PRECISIONS]
+    + [f"first_alarm_distance@{round(p * 100)}" for p in PRECISIONS]
+)
 
 # Two-sided 95% critical values of Student's t, by degrees of freedom.
 T_95 = {
@@ -109,8 +128,54 @@ def build_model(arm, args, binary_train, survival_train):
     )
 
 
-def train_and_test(model, loaders, args, output_dir, name):
-    """Trains with early stopping on the validation loss; scores the test set."""
+def stay_labels(loader):
+    """Per stay of a survival-mode loader: step times, time to event, event, label.
+
+    Read in loader order, so the loader must not shuffle.
+    """
+    stays = []
+    for batch in loader:
+        tte, time, offsets = (np.asarray(t.cpu()) for t in batch["time_to_event"])
+        event = np.asarray(batch["event"][0].cpu()).reshape(-1)
+        label = np.asarray(batch["decompensation"][0].cpu()).reshape(-1)
+        tte = tte.reshape(-1)
+        for a, b in pairwise(offsets):
+            stays.append(
+                {
+                    "times": time[a:b],
+                    "time_to_event": tte[a:b],
+                    "event": event[a:b],
+                    "label": label[a:b],
+                }
+            )
+    return stays
+
+
+def event_scores(risks, stays, args):
+    """Alarm metrics of per-stay risks, checked against the stays' labels."""
+    if len(risks) != len(stays):
+        raise RuntimeError(f"{len(risks)} predicted stays, {len(stays)} labelled.")
+    risks = [np.asarray(r, dtype=float).reshape(-1) for r in risks]
+    for r, s in zip(risks, stays):
+        if len(r) != len(s["times"]):
+            raise RuntimeError("A stay's predictions and labels differ in length.")
+    return event_alarm_metrics(
+        scores=risks,
+        times=[s["times"] for s in stays],
+        time_to_event=[s["time_to_event"] for s in stays],
+        event=[s["event"] for s in stays],
+        horizon=args.horizon,
+        silence=args.silence_hours,
+        precisions=PRECISIONS,
+    )
+
+
+def train_and_test(model, loaders, args, output_dir, name, stays):
+    """Trains with early stopping on the validation loss; scores the test set.
+
+    Besides the time-step metrics, the risks of the test stays are scored with
+    the alarm policy, and saved next to the logs.
+    """
     train_loader, val_loader, test_loader = loaders
     trainer = Trainer(
         model=model,
@@ -129,12 +194,28 @@ def train_and_test(model, loaders, args, output_dir, name):
         load_best_model_at_last=True,
         max_grad_norm=5.0,
     )
-    return {k: float(v) for k, v in trainer.evaluate(test_loader).items()}
+    scores = {k: float(v) for k, v in trainer.evaluate(test_loader).items()}
+    y_true, risks, _ = trainer.inference(test_loader)
+    for truth, s in zip(y_true, stays):
+        if not np.array_equal(np.asarray(truth).reshape(-1), s["label"]):
+            raise RuntimeError("Predicted stays are not in the order of the labels.")
+    scores.update(event_scores(risks, stays, args))
+    np.savez_compressed(
+        output_dir / f"{name}_test_risks.npz",
+        **{f"stay{i}": np.asarray(r).reshape(-1) for i, r in enumerate(risks)},
+    )
+    return scores
 
 
 def aggregate(runs, arms):
     """Mean and 95% CI of every metric per arm, and paired differences."""
-    metrics = [m for m in METRICS if m in runs[arms[0]][0]]
+    # a metric is reported if every run has it (first-alarm distances are NaN
+    # where no precision level is reached)
+    metrics = [
+        m
+        for m in METRICS + EVENT_METRICS
+        if all(m in r and not math.isnan(r[m]) for arm in arms for r in runs[arm])
+    ]
     summary = {arm: {m: summarize([r[m] for r in runs[arm]]) for m in metrics}
                for arm in arms}
     pairs = {}
@@ -148,18 +229,20 @@ def aggregate(runs, arms):
 
 
 def print_table(summary, pairs):
-    print("\nTest metrics, mean +- 95% CI over seeds")
-    for arm, metrics in summary.items():
-        cells = "  ".join(
-            f"{m} {s['mean']:.4f} +- {s['ci95']:.4f}" for m, s in metrics.items()
-        )
-        print(f"  {arm:12s} {cells}  (n={next(iter(metrics.values()))['n']})")
+    arms = list(summary)
+    metrics = list(summary[arms[0]])
+    n = summary[arms[0]][metrics[0]]["n"]
+    print(f"\nTest metrics, mean +- 95% CI over {n} seeds")
+    for m in metrics:
+        print(f"  {m}")
+        for arm in arms:
+            s = summary[arm][m]
+            print(f"    {arm:12s} {s['mean']:.4f} +- {s['ci95']:.4f}")
     print("Paired differences, mean +- 95% CI")
-    for pair, metrics in pairs.items():
-        cells = "  ".join(
-            f"{m} {s['mean']:+.4f} +- {s['ci95']:.4f}" for m, s in metrics.items()
-        )
-        print(f"  {pair:28s} {cells}")
+    for pair, per_metric in pairs.items():
+        print(f"  {pair}")
+        for m, s in per_metric.items():
+            print(f"    {m:26s} {s['mean']:+.4f} +- {s['ci95']:.4f}")
 
 
 def main():
@@ -173,6 +256,12 @@ def main():
     parser.add_argument("--horizon", type=int, default=24, help="Whole hours")
     parser.add_argument("--arms", nargs="+", choices=ARMS, default=list(ARMS))
     parser.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4])
+    parser.add_argument(
+        "--silence-hours",
+        type=float,
+        default=1.0,
+        help="Silence after an alarm; the paper uses 1 h on MIMIC-III",
+    )
     parser.add_argument("--split-seed", type=int, default=0)
     parser.add_argument("--ratios", type=float, nargs=3, default=[0.7, 0.15, 0.15])
     parser.add_argument("--epochs", type=int, default=10)
@@ -221,6 +310,9 @@ def main():
         "eep": [make_loader(d, args, i == 0) for i, d in enumerate(binary)],
         "dsa": [make_loader(d, args, i == 0) for i, d in enumerate(survival)],
     }
+    stays = stay_labels(loaders["dsa"][2])
+    n_events = sum(bool(np.any(s["event"])) for s in stays)
+    print(f"test stays: {len(stays)}, with an event: {n_events}", flush=True)
     runs = {arm: [] for arm in args.arms}
     for seed in args.seeds:
         for arm in args.arms:
@@ -232,6 +324,7 @@ def main():
                 args,
                 output_dir,
                 f"{arm}_seed{seed}",
+                stays,
             )
             print(f"seed {seed} {arm}: {scores}", flush=True)
             runs[arm].append(scores)
