@@ -11,7 +11,7 @@ import torch
 from pyhealth.datasets import eICUDataset, create_sample_dataset, get_dataloader
 from pyhealth.models import RNN_V2
 from pyhealth.tasks import TPCLengthOfStayEICU
-from project.person_c.generate_synthetic import generate, TABLES
+from examples.tpc_support.generate_synthetic import generate, TABLES
 
 
 def run(root: Path) -> dict:
@@ -140,7 +140,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    with tempfile.TemporaryDirectory(prefix="person-c-checkpoint-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="tpc-checkpoint-") as tmp:
         report = run(Path(tmp))
     text = json.dumps(report, indent=2)
     print(text)

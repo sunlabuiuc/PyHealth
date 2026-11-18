@@ -40,7 +40,7 @@ It is calculated after observation removal and is not standardized. Add the
 False for compatibility with the team prototype.
 
 The runnable synthetic checkpoint is
-``python -m project.person_c.checkpoint``. It exercises CSV loading, task
+``python -m examples.tpc_support.checkpoint``. It exercises CSV loading, task
 processing, train-only processor fitting, an LSTM update, and held-out
 inference. This is an integration check, not a clinical performance study.
 

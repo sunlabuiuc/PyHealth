@@ -1,6 +1,6 @@
 """Synthetic missingness ablation for the hourly LOS task.
 
-Contributor: Xiao Luo (Person C); UIUC NetID: xiaoluo6.
+Contributor: Xiao Luo; UIUC NetID: xiaoluo6.
 Paper: Temporal Pointwise Convolutional Networks for Length of Stay Prediction
 in the Intensive Care Unit, https://arxiv.org/abs/2007.09483.
 
@@ -25,7 +25,7 @@ import torch
 from pyhealth.datasets import eICUDataset, create_sample_dataset, get_dataloader
 from pyhealth.models import RNN_V2
 from pyhealth.tasks import TPCLengthOfStayEICU
-from project.person_c.generate_synthetic import TABLES, generate
+from examples.tpc_support.generate_synthetic import TABLES, generate
 
 
 def run(steps: int = 3) -> list[dict]:
