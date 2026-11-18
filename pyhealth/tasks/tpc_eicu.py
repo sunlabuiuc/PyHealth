@@ -1,3 +1,11 @@
+"""Hourly remaining-LOS task, contributed by Xiao Luo (Person C).
+
+UIUC NetID: xiaoluo6.
+Paper: Temporal Pointwise Convolutional Networks for Length of Stay
+Prediction in the Intensive Care Unit, https://arxiv.org/abs/2007.09483.
+Reuses YAIB extraction; adds five-hour cohort, masking and optional decay.
+"""
+
 from copy import deepcopy
 import hashlib
 from typing import Any, ClassVar
@@ -16,6 +24,7 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
     are age, sex (male=1, female=0), admission height and weight, inherited
     from YAIB. Unknown sex and invalid height/weight remain NaN.
     Labels are HOURS, from hour 5 through min(floor(LOS), 336), inclusive.
+    Dynamic timestamps mark completed bins: bin [h-1,h) is available at h.
     Remaining LOS is not clipped to 14 days. Dynamic values remain raw with
     NaNs; sequence_v2 processors fit normalization on training patients and
     forward-fill after observation masking. Optional decay is a separate input.
@@ -59,6 +68,14 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
 
         YAIB's six-hour and measurement-density exclusions do not implement
         this project's cohort. Missing age is excluded conservatively.
+
+        Args:
+            patient: PyHealth patient containing eICU events.
+            stays: Parsed stays with stay_id and los_hours columns.
+
+        Returns:
+            Eligible stays, aggregated measurements, and static features
+            indexed by stay ID.
         """
         static = self._static(patient, stays)
         keep = [
@@ -81,6 +98,12 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
         first observation, 1 when observed, 1 / (gap * 4/3) afterwards.
         Source: EmmaRocheteau/TPC-LoS-prediction/eICU_preprocessing/timeseries.py.
         No forward-looking information or cross-stay state is used.
+
+        Args:
+            values: Masked hourly matrix, with NaN for absent observations.
+
+        Returns:
+            A finite matrix of the same shape containing observation recency.
         """
         result = np.zeros_like(values, dtype=float)
         last = np.full(values.shape[1], -1, dtype=int)
@@ -93,7 +116,16 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
         return result
 
     def _apply_missingness(self, values: np.ndarray, stay_id: Any) -> np.ndarray:
-        """Randomly hide a fraction of originally observed values."""
+        """Randomly hide a fraction of originally observed values.
+
+        Args:
+            values: Raw hourly matrix, with NaN for missing cells.
+            stay_id: Stable identifier used to seed this stay's removal mask.
+
+        Returns:
+            A copy with round(observed_count * missing_rate) cells set to NaN.
+            The input matrix and originally missing cells are unchanged.
+        """
         values = values.copy()
 
         if self.missing_rate == 0.0:
@@ -117,7 +149,17 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
         return values
 
     def __call__(self, patient: Any) -> list[dict[str, Any]]:
-        """Generate hourly ICU samples with uncapped remaining LOS labels."""
+        """Generate hourly ICU samples with uncapped remaining LOS labels.
+
+        Args:
+            patient: PyHealth patient with eICU admission and measurement events.
+
+        Returns:
+            One dictionary per eligible stay containing patient_id, stay_id,
+            dynamic, static, los, and optional decay series. Returns an empty
+            list when no eligible stays exist. Dynamic/decay time marks bin
+            completion; los time marks the prediction hour. Labels are hours.
+        """
         all_stays = self._stays(patient)
 
         if all_stays.height == 0:
@@ -135,7 +177,10 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
 
             last_hour = min(end, self.MAX_HOURS)
 
-            dynamic = self._dynamic(hourly, stay_id, last_hour)
+            # Bin b contains offsets [60*b, 60*(b+1)); it is only
+            # available at b+1. Never expose an unfinished bin at label h.
+            dynamic = self._dynamic(hourly, stay_id, last_hour - 1)
+            dynamic["time"] = [float(h) for h in range(1, last_hour + 1)]
 
             # Keep all observations from hour 0 onward.
             dynamic["values"] = self._apply_missingness(dynamic["values"], stay_id)

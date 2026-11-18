@@ -12,7 +12,7 @@ python project/person_c/generate_synthetic.py project/person_c/synthetic_eicu
 # Fast in-memory task checks; imports still add startup overhead.
 python -m pytest tests/core/test_tpc_eicu.py -v --durations=5
 # Real CSV loader + preprocessing + LSTM optimizer step.
-python -m pytest tests/integration/test_tpc_checkpoint.py -v
+PYHEALTH_RUN_TPC_INTEGRATION=1 python -m pytest tests/integration/test_tpc_checkpoint.py -v
 # Independently runnable checkpoint, with machine-readable evidence.
 python -m project.person_c.checkpoint --output project/person_c/checkpoint_result.json
 ```
@@ -73,3 +73,17 @@ limitations/conclusions 5:00–5:40.
 AI assistance: code, tests and slide draft were produced with Codex. Review
 and understand the changes and accurately disclose assistance in the required
 course form. Reference: https://arxiv.org/abs/2007.09483.
+
+## November 17 rubric audit
+
+Read `RUBRIC_AUDIT.md` for compatibility, `PR_DRAFT.md` for the prepared PR,
+`AI_USAGE.md` for an honest assistance record, and `VIDEO_SCRIPT.md` for the
+narration plan. The required example now lives at
+`examples/eicu_hourly_los_lstm.py`; six measured synthetic configurations are
+in `synthetic_ablation.json` and `SYNTHETIC_RESULTS.md`.
+
+A correctness fix changed dynamic/decay timestamps to **completed-bin times**
+1..H (H rows). Labels remain at 5..H. Earlier snapshots timestamped floor bins
+at their start, exposing later within-hour measurements. Rerun A's integration
+with this revision and do not reuse older cached task samples.
+The slow CSV-to-LSTM pytest is opt-in; the standalone checkpoint always runs.

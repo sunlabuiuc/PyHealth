@@ -14,7 +14,7 @@ task = TPCLengthOfStayEICU(missing_rate=0.1, seed=42, include_decay=True)
 ```
 
 One sample per ICU stay: patient_id (unique person), stay_id, dynamic, static,
-los, and optional decay. Dynamic is {time: 0..H, values: (H+1,48)}; static is
+los, and optional decay. Dynamic is {time: 1..H, values: (H,48)}; static is
 {time:[0], values:(1,4)}; los is {time:5..H, values:(H-4,1)}; decay mirrors
 dynamic's time and dimensions. H=min(floor(total LOS hours),336).
 
@@ -44,3 +44,11 @@ Integration command (from repository root):
 This generates temporary CSVs, reads actual eICUDataset patients, applies the
 actual task and processors, runs a true LSTM optimizer step and evaluates the
 held-out batch. All temporary data/cache files are cleaned up.
+
+Timing correction (November 17 audit): array row b represents the interval
+[b,b+1) and is timestamped b+1, when that bin is complete. A prediction at
+hour 5 uses only bins 0–4. The 336-hour cap yields 336 rows, not 337.
+The oracle's hour/bin numbers identify array rows, not availability timestamps.
+Exact-boundary observations at minute 300 enter bin 5, available at hour 6.
+This conservative floor-bin convention differs from the paper's right-closed
+resampling, but prevents sub-hour look-ahead.

@@ -49,3 +49,11 @@ https://github.com/EmmaRocheteau/TPC-LoS-prediction/blob/master/eICU_preprocessi
 Additional tiny unit fixtures cover exactly five hours, unknown age/sex,
 invalid height/weight, no measurements, two stays of the same patient,
 future-observation invariance and zero/10%/20%/100% removal.
+
+Timing correction (November 17 audit): array row b represents the interval
+[b,b+1) and is timestamped b+1, when that bin is complete. A prediction at
+hour 5 uses only bins 0–4. The 336-hour cap yields 336 rows, not 337.
+The oracle's hour/bin numbers identify array rows, not availability timestamps.
+Exact-boundary observations at minute 300 enter bin 5, available at hour 6.
+This conservative floor-bin convention differs from the paper's right-closed
+resampling, but prevents sub-hour look-ahead.
