@@ -86,6 +86,7 @@ from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
 from .mimic4 import MIMIC4EDDataset as MIMIC4EDDataset
 from .fhir import FHIRDataset, MIMIC4FHIR
+from .lndb import LNDbDataset as LNDbDataset
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
 from .physionet_deid import PhysioNetDeIDDataset

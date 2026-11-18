@@ -475,6 +475,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `NIH <https://nihcc.app.box.com/v/ChestXray-NIHCC>`__
      - Yes
      - —
+   * - :doc:`LNDb (lung nodule CT) <datasets/pyhealth.datasets.LNDbDataset>`
+     - Open (CC BY 4.0 or CC BY-NC-ND 4.0; the record states both)
+     - `Zenodo <https://doi.org/10.5281/zenodo.8348419>`__
+     - No (RAR archives)
+     - —
    * - :doc:`Medical Segmentation Decathlon <datasets/pyhealth.datasets.MSDSegmentationDataset>`
      - Open
      - `MSD <http://medicaldecathlon.com/>`__
@@ -542,6 +547,7 @@ Available Datasets
     datasets/pyhealth.datasets.MSDSpleenDataset
     datasets/pyhealth.datasets.CHAOSDataset
     datasets/pyhealth.datasets.RSNAPneumoniaDataset
+    datasets/pyhealth.datasets.LNDbDataset
     datasets/pyhealth.datasets.MIMIC3Dataset
     datasets/pyhealth.datasets.MIMIC4Dataset
     datasets/pyhealth.datasets.MIMIC4EHRDataset

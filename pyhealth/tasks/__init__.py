@@ -88,6 +88,9 @@ from .lab_nowcasting import (
     LabNowcastingMIMIC4 as LabNowcastingMIMIC4,
     lab_flag as lab_flag,
 )
+from .lndb_classification import (
+    LNDbFindingClassification as LNDbFindingClassification,
+)
 from .length_of_stay_prediction import (
     LengthOfStayPredictioneICU,
     LengthOfStayPredictionMIMIC3,
