@@ -27,7 +27,7 @@ hourly aggregation, before processor imputation. Forward filling and training
 normalization are inherited; optional paper-formula decay is described below.
 
 Run ``pytest tests/core/test_tpc_eicu.py`` for fast synthetic regression tests;
-run ``pytest tests/integration/test_tpc_checkpoint.py`` for CSV-to-LSTM coverage.
+run the opt-in command below for CSV-to-LSTM coverage.
 
 Optional decay input
 --------------------
@@ -60,3 +60,61 @@ trains two synthetic LSTM configurations and evaluates each at three removal
 rates. It reports MAD and explicitly named log1p-MSE in days. The latter is
 not the original paper's log-MSE. These synthetic results demonstrate execution
 only. Set ``PYHEALTH_RUN_TPC_INTEGRATION=1`` to enable the slow integration test.
+
+Reproducing and extending the example
+------------------------------------
+
+Use a repository checkout and Python 3.12 or 3.13. Install the package and
+pytest in an isolated environment, then run these commands from the repository
+root (no credentialed data is needed)::
+
+    python -m pip install -e . pytest
+    python -m pytest tests/core/test_tpc_eicu.py -q --durations=5
+    PYHEALTH_RUN_TPC_INTEGRATION=1 python -m pytest tests/integration/test_tpc_checkpoint.py -q
+    python -m examples.tpc_support.checkpoint --output /tmp/tpc_checkpoint.json
+    python -m examples.eicu_hourly_los_lstm --steps 3 --output /tmp/tpc_ablation.json
+    python examples/tpc_support/generate_synthetic.py /tmp/tpc_synthetic
+
+The synthetic generator, numerical expectations, model update checks, and
+sample experiment use ``examples/tpc_support``. The rich CSV integration check
+starts a local processing server and is intentionally opt-in. The regular core
+checks use in-memory synthetic events. Import time is separate from the small
+per-test execution time; the entire process is not guaranteed below one second.
+
+Input contract for another training script:
+
+* One sample per stay. Split on ``patient_id`` (unique person), not ``stay_id``.
+* ``dynamic`` has ``time=1..H`` and ``values`` of shape ``(H, 48)``;
+  ``H=min(floor(total stay hours), 336)``. Values are raw with NaN gaps.
+* ``static`` has one record at time zero, ordered as age, sex, height, weight.
+* ``los`` has times ``5..H`` and values of shape ``(H-4, 1)`` in hours.
+  Exact-discharge labels may be zero. Remaining LOS is not capped at 336.
+* ``decay`` is optional, with the same times and dimensions as dynamic;
+  enable it with ``include_decay=True`` and include it in model embeddings.
+* Use ``RNN_V2(..., rnn_type="LSTM")`` explicitly: its default is GRU.
+* Fit processors on training patients and reuse them on validation/test data.
+  ``set_task(..., split=...)`` is appropriate for the full dataset path.
+* The inherited label processor min-max scales targets during training.
+  Its activated predictions are returned in original hours; do not unscale
+  ``y_prob`` a second time. Convert both predictions and targets to days when
+  comparing daily errors. Define a zero-target policy before using log(y),
+  MAPE or other metrics that cannot accept zero targets.
+
+The example's ``run`` function implements the two training-removal conditions
+and three test-removal conditions. To run a real experiment, replace its
+synthetic generation and hard-coded patient IDs with an authorized dataset
+and patient-disjoint train/validation/test split. Keep initialization, test
+masks and preprocessing policies controlled across conditions. Add repeated
+seeds, final training settings and paper-compatible metrics before making
+performance claims. The three-step synthetic example is not a final study.
+
+This task implements the hourly prediction problem rather than the TPC model.
+Differences include the YAIB feature set, completed floor bins with median
+aggregation, training-fitted z-score preprocessing and default scaled-MSE
+training. Missingness is applied to aggregated hourly cells. The proposed
+extension is the training/test missingness grid; merely removing decay repeats
+an ablation already present in the original paper.
+
+Cached task samples from versions with start-of-bin timestamps must be
+regenerated. Rerun the core and integration checks after changing extraction,
+labels, missingness, processor schemas or the model interface.
