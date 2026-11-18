@@ -1,0 +1,53 @@
+pyhealth.models.DescEmb
+=======================
+
+Overview
+--------
+
+DescEmb (Yoon et al., `Description-based Medical Code Embeddings for
+Electronic Health Records <https://arxiv.org/abs/2208.06648>`_, Machine
+Learning for Healthcare / MLHC 2022) embeds medical concepts directly from
+their standardized clinical text descriptions.
+
+Traditional EHR architectures assign arbitrary integer indices to medical
+codes (such as ICD-9, ICD-10, or OMOP), creating models that cannot
+generalize or transfer across distinct hospital datasets or coding systems.
+DescEmb resolves this by representing codes via their clinical text descriptions
+(e.g., "Essential (primary) hypertension"):
+
+1. **Description Text Encoding**: Standardized textual descriptions are
+   encoded using a bidirectional recurrent neural network (BiGRU) via
+   :class:`~pyhealth.models.descemb.DescEmbCodeEncoder`. The endpoints are
+   pooled to construct semantically grounded code representations.
+2. **Feature Embedding & Intra-Visit Pooling**: Input features are
+   embedded with :class:`~pyhealth.models.EmbeddingModel`. Nested visit
+   sequences are pooled across events using configurable intra-visit
+   pooling (``sum``, ``mean``, ``max``, or ``attention``).
+3. **Cross-System Generalization**: By mapping code tokens to their textual
+   descriptions via :meth:`~pyhealth.models.DescEmb.initialize_with_descriptions`,
+   representations readily transfer across hospital datasets and coding vocabularies.
+4. **Longitudinal Visit Modeling**: A temporal sequence model (GRU, LSTM,
+   or Transformer) aggregates patient trajectories across visits.
+5. **Outcome Prediction**: Last-visit patient representations are mapped
+   to outcome predictions across binary, multiclass, and multilabel tasks.
+
+Inputs and Outputs
+------------------
+
+DescEmb accepts standard PyHealth :class:`~pyhealth.datasets.SampleDataset`
+batches. Both 2D sequences (``SequenceProcessor``) and 3D nested sequences
+(``NestedSequenceProcessor``) are supported. Binary, multiclass, and
+multilabel classification tasks are fully supported.
+
+API
+---
+
+.. autoclass:: pyhealth.models.DescEmb
+   :members:
+   :show-inheritance:
+
+.. autoclass:: pyhealth.models.descemb.DescEmbCodeEncoder
+   :members:
+   :show-inheritance:
+
+.. autofunction:: pyhealth.models.descemb.simple_subword_tokenize

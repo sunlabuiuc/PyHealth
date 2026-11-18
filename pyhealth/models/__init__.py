@@ -124,3 +124,9 @@ from .mira import (
     MIRAConfig as MIRAConfig,
     load_mira_checkpoint as load_mira_checkpoint,
 )
+from .descemb import (
+    DescEmb as DescEmb,
+    DescEmbCodeEncoder as DescEmbCodeEncoder,
+    simple_subword_tokenize as simple_subword_tokenize,
+)
+
