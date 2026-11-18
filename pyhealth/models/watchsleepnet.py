@@ -129,7 +129,6 @@ class WatchSleepNet(BaseModel):
         use_attention: Include multi-head attention. Default True.
         bidirectional: Use a BiLSTM. If False the model is causal: the LSTM
             is unidirectional and attention is causally masked. Default True.
-        class_weights: Optional per-class loss weights.
         focal_gamma: Focal-loss gamma; 0 gives plain cross-entropy.
         ignore_index: Label value to ignore in the loss. Default -100.
 
@@ -167,7 +166,6 @@ class WatchSleepNet(BaseModel):
         use_tcn: bool = True,
         use_attention: bool = True,
         bidirectional: bool = True,
-        class_weights: Sequence[float] | None = None,
         focal_gamma: float = 0.0,
         ignore_index: int = -100,
     ) -> None:
@@ -225,13 +223,6 @@ class WatchSleepNet(BaseModel):
         self.fc = nn.Linear(out_dim, num_classes)
         self.softmax = nn.Softmax(dim=-1)
 
-        weight = (
-            torch.tensor(class_weights, dtype=torch.float)
-            if class_weights is not None
-            else None
-        )
-        self.register_buffer("class_weights", weight)
-
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         """Maps IBI epochs to per-epoch logits.
 
@@ -278,7 +269,6 @@ class WatchSleepNet(BaseModel):
         ce = F.cross_entropy(
             flat_logits,
             flat_true,
-            weight=self.class_weights,
             ignore_index=self.ignore_index,
             reduction="none",
         )
@@ -305,30 +295,3 @@ class WatchSleepNet(BaseModel):
             results["loss"] = self.compute_loss(logits, y_true)
             results["y_true"] = y_true
         return results
-
-
-# class ResNetBlock(nn.Module):
-#     def __init__(
-#         self, num_input_channels: int = 32, num_channels: int = 4, kernel_size: int = 5
-#     ):
-#         super().__init__()
-#         self.conv = nn.Conv1d(num_input_channels, num_channels, kernel_size)
-#
-#     @override
-#     def forward(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-#         return {}
-#
-#
-# class WatchSleepNet(BaseModel):
-#     def __init__(
-#         self,
-#         dataset: SampleDataset,
-#         num_input_channels: int = 1,
-#         num_channels: int = 256,
-#         kernel_size: int = 5,
-#         hidden_dim: int = 256,
-#         tcn_layers: int = 3,
-#         num_layers: int = 4,
-#         num_heads: int = 6,
-#     ):
-#         super().__init__(dataset=dataset)

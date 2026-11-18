@@ -1,4 +1,3 @@
-// TODO: Complete
 pyhealth.models.WatchSleepNet
 ===================================
 
