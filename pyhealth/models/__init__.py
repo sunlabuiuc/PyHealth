@@ -46,6 +46,7 @@ from .graphcare import GraphCare
 from .grasp import GRASP, GRASPLayer
 from .dipro import DiPro as DiPro
 from .daft import DAFT as DAFT, DAFTBlock as DAFTBlock, DAFTLayer as DAFTLayer
+from .maestro import MAESTRO
 from .medfuse import MedFuse, MedFuseLayer
 from .medlink import MedLink
 from .micron import MICRON, MICRONLayer
