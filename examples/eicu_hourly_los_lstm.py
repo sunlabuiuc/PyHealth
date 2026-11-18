@@ -13,7 +13,15 @@ Shared initialization and test masks; processors fit on each training variant.
 Default MSE on train-scaled targets, not the paper's logarithmic loss.
 MAD in days; log1p-MSE in days is explicitly not the paper's log-MSE metric.
 This runnable example checks experimental wiring only; clinical results and
-novelty claims require A's real-data experiment and team review.
+novelty claims require a real-data experiment and review.
+
+Recorded synthetic findings (seed 42, three steps): all six configurations
+produced 336 finite predictions; MAD was approximately 9.46 days. Training on
+one 12.5-hour stay and testing on a 400.5-hour stay creates severe distribution
+shift. These results do not support a robustness conclusion. Detailed values
+are in examples/tpc_support/synthetic_ablation.json. Raw activated predictions
+are converted to days for MAD; negatives are counted and clipped only for
+log1p-MSE. No patient appears in both training and held-out data.
 """
 
 import argparse

@@ -34,6 +34,14 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
         seed: Seed combined with each stay ID for repeatable masking.
         include_decay: Add a separate 48-channel decay series. Defaults to
             False for compatibility with the team prototype.
+    Examples:
+        >>> from pyhealth.tasks import TPCLengthOfStayEICU
+        >>> task = TPCLengthOfStayEICU(missing_rate=0.1, include_decay=True)
+        >>> task.START_HOUR, task.MAX_HOURS
+        (5, 336)
+        >>> "decay" in task.input_schema
+        True
+
     """
 
     task_name: str = "TPCLengthOfStayEICU"
