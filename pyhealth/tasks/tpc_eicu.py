@@ -6,14 +6,14 @@ Prediction in the Intensive Care Unit, https://arxiv.org/abs/2007.09483.
 Reuses YAIB extraction; adds five-hour cohort, masking and optional decay.
 """
 
-from copy import deepcopy
 import hashlib
+from copy import deepcopy
 from typing import Any, ClassVar
 
 import numpy as np
 import polars as pl
 
-from .yaib_eicu import YAIBLengthOfStayEICU, _DYNAMIC_FEATURES
+from .yaib_eicu import _DYNAMIC_FEATURES, YAIBLengthOfStayEICU
 
 
 class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
@@ -145,7 +145,7 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
         if n_hide == 0:
             return values
 
-        key = f"{self.seed}:{stay_id}".encode("utf-8")
+        key = f"{self.seed}:{stay_id}".encode()
         stay_seed = int.from_bytes(hashlib.sha256(key).digest()[:8], "little")
         rng = np.random.default_rng(stay_seed)
 
