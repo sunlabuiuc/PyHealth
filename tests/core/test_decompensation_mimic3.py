@@ -355,13 +355,13 @@ def test_task_default_mode_unchanged():
 def test_task_survival_schema_and_name():
     task = DecompensationMIMIC3(label_mode="survival")
     assert task.output_schema == {
-        "decompensation": "timeseries_binary",
-        "time_to_event": "timeseries_regression",
-        "event": "timeseries_binary",
+        "decompensation": ("timeseries_binary", {"timeline": ["dynamic"]}),
+        "time_to_event": ("timeseries_regression", {"timeline": ["dynamic"]}),
+        "event": ("timeseries_binary", {"timeline": ["dynamic"]}),
     }
     assert task.task_name == "DecompensationMIMIC3_survival"
     assert DecompensationMIMIC3.output_schema == {
-        "decompensation": "timeseries_binary"
+        "decompensation": ("timeseries_binary", {"timeline": ["dynamic"]})
     }  # the class (and other instances) keep the binary schema
     assert DecompensationMIMIC3(12, label_mode="survival").task_name == (
         "DecompensationMIMIC3_h12_survival"

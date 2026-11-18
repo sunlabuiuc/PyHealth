@@ -695,7 +695,7 @@ class DecompensationMIMIC3(BaseTask):
         ),
     }
     output_schema: ClassVar[dict[str, Any]] = {
-        "decompensation": "timeseries_binary"
+        "decompensation": ("timeseries_binary", {"timeline": ["dynamic"]})
     }
 
     def __init__(
@@ -720,8 +720,11 @@ class DecompensationMIMIC3(BaseTask):
         if label_mode == "survival":
             self.output_schema = {
                 **type(self).output_schema,
-                "time_to_event": "timeseries_regression",
-                "event": "timeseries_binary",
+                "time_to_event": (
+                    "timeseries_regression",
+                    {"timeline": ["dynamic"]},
+                ),
+                "event": ("timeseries_binary", {"timeline": ["dynamic"]}),
             }
         # Samples differ by these options, so keep their caches apart.
         if self.horizon != 24.0:
