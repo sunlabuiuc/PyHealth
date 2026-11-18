@@ -325,6 +325,7 @@ API Reference
     models/pyhealth.models.Agent
     models/pyhealth.models.GRASP
     models/pyhealth.models.MedFuse
+    models/pyhealth.models.DAFT
     models/pyhealth.models.DiPro
     models/pyhealth.models.MedLink
     models/pyhealth.models.TCN

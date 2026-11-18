@@ -85,6 +85,9 @@ from .length_of_stay_prediction import (
 )
 from .length_of_stay_stagenet_mimic4 import LengthOfStayStageNetMIMIC4
 from .medical_coding import MIMIC3ICD9Coding
+from .medmod_decompensation_mimic4 import (
+    MedModDecompensationMIMIC4 as MedModDecompensationMIMIC4,
+)
 from .meds_outcome_tasks import (
     HospitalReadmissionMEDS as HospitalReadmissionMEDS,
     ICUAdmissionMEDS as ICUAdmissionMEDS,
