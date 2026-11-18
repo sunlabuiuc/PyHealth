@@ -134,7 +134,7 @@ def generate(root: Path) -> None:
             )
         )
         with (root / cfg["file_path"]).open("w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fields)
+            writer = csv.DictWriter(f, fieldnames=fields, lineterminator="\n")
             writer.writeheader()
             writer.writerows(values)
 
