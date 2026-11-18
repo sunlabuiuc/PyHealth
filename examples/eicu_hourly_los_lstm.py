@@ -8,10 +8,12 @@ STATUS: scaffold. This file does not yet train a model or report results.
 The runnable data/task check is:
     python -m examples.tpc_support.checkpoint
 
-TODO(A): implement patient-disjoint splits, training, metrics and the 2x3
+TODO(A): integrate existing code for splits, training, metrics and the 2x3
 missingness experiment below. Use the fixture generator for smoke checks;
-use authorized eICU data for final findings. TODO(B): implement nonzero
-missingness and decay in TPCLengthOfStayEICU before enabling those settings.
+use authorized eICU data for final findings. TODO(A/B): reuse the masking
+implementation in repository-root tpc_eicu.py; integrate preprocessing and
+complete decay before enabling those settings. Existing working code should
+be merged and validated, not written again.
 """
 
 from typing import Any

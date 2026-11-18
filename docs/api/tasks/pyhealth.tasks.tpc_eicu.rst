@@ -22,10 +22,14 @@ Extension points
 ----------------
 
 * ``TODO(B)`` in ``pyhealth/tasks/tpc_eicu.py``: review dynamic feature coverage
-  and hourly aggregation, implement reproducible observation removal before
-  imputation, confirm training-only normalization/forward fill, and implement
-  decay after removal. Confirm raw-row versus aggregated-cell removal.
-* ``TODO(A)`` in ``examples/eicu_hourly_los_lstm.py``: implement explicit LSTM
+  and hourly aggregation, confirm training-only normalization/forward fill,
+  and integrate decay after removal. For masking, A/B should reuse the existing
+  ``_apply_missingness`` in the repository-root ``tpc_eicu.py`` prototype after
+  checking compatibility. It already implements seeded removal of hourly cells;
+  this placeholder is an integration boundary, not a request to write it again.
+  Confirm raw-row versus aggregated-cell removal and rerun the pending tests.
+* ``TODO(A)`` in ``examples/eicu_hourly_los_lstm.py``: integrate existing training
+  work where available and complete explicit LSTM
   training, patient-disjoint splits, agreed losses/metrics and the two-training
   by three-test missingness study. This file is a scaffold and raises until
   implemented. The example filename is present but the rubric's working
