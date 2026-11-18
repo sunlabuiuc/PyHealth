@@ -83,25 +83,33 @@ def _admission(
     ethnicity="WHITE",
     insurance="Medicare",
 ):
+    if died:
+        expire_flag = "1"
+    else:
+        expire_flag = "0"
     return {
         "patient_id": pid,
         "event_type": "admissions",
         "timestamp": start,
         "admissions/hadm_id": hadm,
         "admissions/dischtime": (start + timedelta(hours=stay_hours)).strftime(FMT),
-        "admissions/hospital_expire_flag": "1" if died else "0",
+        "admissions/hospital_expire_flag": expire_flag,
         "admissions/ethnicity": ethnicity,
         "admissions/insurance": insurance,
     }
 
 
 def _lab(pid, hours, itemid, value, start=T0):
+    if value is None:
+        valuenum = None
+    else:
+        valuenum = str(value)
     return {
         "patient_id": pid,
         "event_type": "labevents",
         "timestamp": start + timedelta(hours=hours),
         "labevents/itemid": str(itemid),
-        "labevents/valuenum": None if value is None else str(value),
+        "labevents/valuenum": valuenum,
     }
 
 
@@ -191,19 +199,26 @@ def random_events(n_patients: int = 60, seed: int = 0) -> pl.DataFrame:
     rows = _simple("999", "99901", age=10)
     for k in range(n_patients):
         pid = str(1000 + k)
+        # Draws in a fixed order, which the tests' expected values depend on
         severity = rng.normal()
+        age = int(rng.integers(20, 90))
+        if rng.random() < 0.5:
+            gender = "F"
+        else:
+            gender = "M"
+        died = bool(rng.random() < 0.2)
+        if rng.random() < 0.3:
+            ethnicity = "BLACK/AFRICAN AMERICAN"
+        else:
+            ethnicity = "WHITE"
+        if rng.random() < 0.5:
+            insurance = "Private"
+        else:
+            insurance = "Medicare"
         rows += [
-            _patient(
-                pid,
-                age=int(rng.integers(20, 90)),
-                gender="F" if rng.random() < 0.5 else "M",
-            ),
+            _patient(pid, age=age, gender=gender),
             _admission(
-                pid,
-                f"{pid}01",
-                died=bool(rng.random() < 0.2),
-                ethnicity="BLACK/AFRICAN AMERICAN" if rng.random() < 0.3 else "WHITE",
-                insurance="Private" if rng.random() < 0.5 else "Medicare",
+                pid, f"{pid}01", died=died, ethnicity=ethnicity, insurance=insurance
             ),
         ]
         for lab, p in zip(RANDOM_LABS, observe):
@@ -242,9 +257,14 @@ def impute(
 ) -> np.ndarray:
     """Two fast draws of ``imputation`` on the random fixture, or on ``X``/``G``."""
     data = random_cohort()
-    X = data["X"] if X is None else X
-    G = data["G"] if G is None else G
-    split, fit = data["reference"] if reference else (data["split"], None)
+    if X is None:
+        X = data["X"]
+    if G is None:
+        G = data["G"]
+    if reference:
+        split, fit = data["reference"]
+    else:
+        split, fit = data["split"], None
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", ConvergenceWarning)
         return _impute_draws(
@@ -258,8 +278,12 @@ def imputed(imputation: str) -> np.ndarray:
 
 
 def fast_task(imputation: str = "mice", **kwargs) -> ClinicalPresenceMortalityMIMIC3:
+    if imputation == "median":
+        n_draws = 1
+    else:
+        n_draws = 2
     params = {
-        "n_draws": 1 if imputation == "median" else 2,
+        "n_draws": n_draws,
         "max_iter": 2,
         "split_ratios": (0.6, 0.2, 0.2),
         "forest_params": FOREST,

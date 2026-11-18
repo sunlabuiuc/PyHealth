@@ -219,7 +219,10 @@ class TestHandComputed(unittest.TestCase):
                 if key.endswith("_std"):
                     self.assertAlmostEqual(value, 0.0, places=12, msg=key)
         for group, expected in HAND_EXPECTED.items():
-            result = population if group == "population" else grouped
+            if group == "population":
+                result = population
+            else:
+                result = grouped
             for m, value in zip(METRICS, expected):
                 with self.subTest(group=group, metric=m):
                     self.assertAlmostEqual(result[f"{m}_{group}"], value, places=12)
