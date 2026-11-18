@@ -54,6 +54,7 @@ SampleSignalDataset = _removed_1x_class(
 
 
 from .base_dataset import BaseDataset
+from .pbc import PBCDataset as PBCDataset
 from .imaging.patches import PatchDataset as PatchDataset
 from .imaging.stats import (
     compute_foreground_intensity_stats as compute_foreground_intensity_stats,
@@ -118,10 +119,12 @@ from .gold_test_split import GoldTestSplit as GoldTestSplit
 from .mimic4_imagenome import MIMIC4ImaGenomeDataset as MIMIC4ImaGenomeDataset
 from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
 from .ahepa_dementia import AHEPADementiaDataset as AHEPADementiaDataset
+from .hup_ieeg import HUPiEEGDataset as HUPiEEGDataset
 from .iiic import IIICDataset as IIICDataset
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
 from .chbmit import CHBMITDataset as CHBMITDataset
+from .helsinki_neonatal import HelsinkiNeonatalDataset as HelsinkiNeonatalDataset
 from .eesm23 import EESM23Dataset as EESM23Dataset
 from .utils import (
     collate_fn_dict,

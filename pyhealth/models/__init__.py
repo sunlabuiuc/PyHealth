@@ -7,6 +7,12 @@ from .apn import (
     masked_mse as masked_mse,
 )
 from .base_model import BaseModel
+from .behrt import (
+    BEHRT as BEHRT,
+    BEHRTEmbedding as BEHRTEmbedding,
+    BEHRTLayer as BEHRTLayer,
+)
+from .neural_fine_gray import NeuralFineGray as NeuralFineGray
 from .unet import (
     DiceLoss as DiceLoss,
     SegmentationLoss as SegmentationLoss,
@@ -21,6 +27,7 @@ from .biot import BIOT
 from .cnn import CNN, CNNLayer
 from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D
+from .deepsleepnet import DeepSleepNet as DeepSleepNet
 from .deepr import Deepr, DeeprLayer
 from .embedding import EmbeddingModel
 from .sequence_embedding import (
@@ -38,6 +45,7 @@ from .graph_torchvision_model import Graph_TorchvisionModel
 from .graphcare import GraphCare
 from .grasp import GRASP, GRASPLayer
 from .dipro import DiPro as DiPro
+from .daft import DAFT as DAFT, DAFTBlock as DAFTBlock, DAFTLayer as DAFTLayer
 from .medfuse import MedFuse, MedFuseLayer
 from .medlink import MedLink
 from .micron import MICRON, MICRONLayer
@@ -48,6 +56,7 @@ from .rnn import MultimodalRNN, RNN, RNNLayer
 from .rnn import RNN_V2 as RNN_V2
 from .safedrug import SafeDrug, SafeDrugLayer
 from .shy import SHy as SHy
+from .sleepkd import SleepKD as SleepKD
 from .sparcnet import DenseBlock, DenseLayer, SparcNet, TransitionLayer
 from .stagenet import StageNet, StageNetLayer
 from .stagenet_mha import StageAttentionNet, StageNetAttentionLayer
