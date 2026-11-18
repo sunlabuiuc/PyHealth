@@ -1,6 +1,6 @@
 """Seven-class (or CLIMB five-class) diagnosis task for HAM10000."""
 
-from typing import Any
+from typing import Any, ClassVar
 
 from .base_task import BaseTask
 
@@ -49,10 +49,10 @@ class HAM10000Classification(BaseTask):
     """
 
     task_name: str = "HAM10000Classification"
-    input_schema: dict[str, Any] = {
+    input_schema: ClassVar[dict[str, Any]] = {
         "image": ("image", {"image_size": 224, "mode": "RGB"})
     }
-    output_schema: dict[str, Any] = {
+    output_schema: ClassVar[dict[str, Any]] = {
         "diagnosis": ("multiclass", {"labels": list(_HAM7)})
     }
 
