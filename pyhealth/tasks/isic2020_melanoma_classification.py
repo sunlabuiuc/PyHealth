@@ -1,6 +1,6 @@
 """Benign vs. malignant classification task for ISIC 2020."""
 
-from typing import Any
+from typing import Any, ClassVar
 
 from .base_task import BaseTask
 
@@ -39,10 +39,10 @@ class ISIC2020MelanomaClassification(BaseTask):
     """
 
     task_name: str = "ISIC2020MelanomaClassification"
-    input_schema: dict[str, Any] = {
+    input_schema: ClassVar[dict[str, Any]] = {
         "image": ("image", {"image_size": 224, "mode": "RGB"})
     }
-    output_schema: dict[str, str] = {"malignant": "binary"}
+    output_schema: ClassVar[dict[str, str]] = {"malignant": "binary"}
 
     def __init__(self, image_size: int = 224) -> None:
         super().__init__()
