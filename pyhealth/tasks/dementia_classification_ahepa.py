@@ -24,9 +24,6 @@ References:
     - Reference electrodes: Bigdely-Shamlo, N. et al. The PREP pipeline:
       standardized preprocessing for large-scale EEG analysis. Frontiers in
       Neuroinformatics 9:16, 2015. https://doi.org/10.3389/fninf.2015.00016
-    - Lei, X., Liao, K. Understanding the Influences of EEG Reference: A
-      Large-Scale Brain Network Perspective. Frontiers in Neuroscience
-      11:205, 2017. https://doi.org/10.3389/fnins.2017.00205
 """
 
 import logging
@@ -105,31 +102,21 @@ class DementiaClassificationAHEPA(BaseTask):
     Alzheimer's disease against controls and frontotemporal dementia against
     controls on 4 second windows with 50% overlap (section 3.3), and
     encourages the use of the artifact-cleaned recordings (section 4). The
-    authors'
-    review (Miltiadous et al., 2026) counts Alzheimer's disease against
-    controls as the most studied problem (40 studies). Window lengths in the
-    reviewed studies range from 1 to 240 seconds, for example 30 seconds
-    with 15 seconds of overlap for the authors' DICE-net model, so both are
-    parameters.
+    authors' review (Miltiadous et al., 2026) counts Alzheimer's disease
+    against controls as the most studied problem (40 studies). Window
+    lengths in the reviewed studies range from 1 to 240 seconds, for
+    example 30 seconds with 15 seconds of overlap for the authors' DICE-net
+    model, so both are parameters.
 
-    Reference: the artifact-cleaned recordings are referenced to the average
-    of the mastoid electrodes A1 and A2 (data descriptor, section 3.2), so
-    whatever these two electrodes pick up is added to all 19 channels. In
-    the 88 cleaned recordings of version 1.0.9, the mean over channels
-    carries a median of 94% of the signal variance (90% to 96% for the
-    middle half of the subjects), mostly below 4 Hz. Bigdely-Shamlo et al.
-    (2015) describe a mastoid reference as a single point of failure whose
-    noise is common to all channels, and report that re-referencing such
-    data to the average gives essentially the same result as an average
-    reference from the start. ``reference="average"`` subtracts the mean
-    over the 19 channels at each time. The default, ``"stored"``, keeps the
-    recordings as distributed, which the data descriptor encourages using.
-    An average over 19 scalp channels is not a neutral reference either:
-    Lei and Liao (2017) note that it is valid only with sufficient electrode
-    density and coverage of the head. For the unprocessed recordings, the
-    BIDS sidecar files give A1 and A2 as reference, while the data
-    descriptor mentions a referential montage that uses Cz for common mode
-    rejection; they are not re-referenced here unless ``reference="average"``.
+    Reference: ``reference="stored"`` (the default) keeps the recordings as
+    distributed, as the data descriptor encourages (section 4). The cleaned
+    recordings are referenced to the mastoids A1-A2 (section 3.2), and in
+    version 1.0.9 the mean over channels carries a median of 94% of their
+    variance, mostly below 4 Hz: a signal common to all channels, as
+    Bigdely-Shamlo et al. (2015) describe for mastoid references.
+    ``reference="average"`` subtracts the mean over the 19 channels at each
+    time. The API page of this task gives the measurements and the limits of
+    either choice.
 
     Split by patient: every window of a subject carries the same label, and
     the review asks for complete subject-level independence between
