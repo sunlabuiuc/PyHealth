@@ -41,9 +41,9 @@ def _dataset(outputs=None):
         },
     ]
     schema = outputs or {
-        "decompensation": "timeseries_binary",
-        "time_to_event": "timeseries_regression",
-        "event": "timeseries_binary",
+        "decompensation": ("timeseries_binary", {"timeline": ["x"]}),
+        "time_to_event": ("timeseries_regression", {"timeline": ["x"]}),
+        "event": ("timeseries_binary", {"timeline": ["x"]}),
     }
     samples = [{k: v for k, v in s.items() if k in schema or k in {"patient_id", "x"}}
                for s in samples]
@@ -115,7 +115,9 @@ class TestModel(unittest.TestCase):
         self.assertEqual(model.mode, "timeseries_binary")
 
     def test_needs_the_survival_outputs(self):
-        dataset = _dataset({"decompensation": "timeseries_binary"})
+        dataset = _dataset(
+            {"decompensation": ("timeseries_binary", {"timeline": ["x"]})}
+        )
         with self.assertRaisesRegex(ValueError, "survival mode"):
             DynamicSurvivalRNN(
                 dataset, horizon=HORIZON, embedding_dim={"x": [{"values": 3}]}
