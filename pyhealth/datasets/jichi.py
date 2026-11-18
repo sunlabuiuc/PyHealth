@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 
 JICHI_LIST_CSV = "list.csv"
 _DERIVED_CSV = "jichi-metadata-pyhealth.csv"
-_FILENAME = re.compile(r"^(?P<patient>\d+)_(?P<index>\d+)_(?P<eye>[LR])\.jpg$", re.I)
+_FILENAME = re.compile(
+    r"^(?P<patient>\d+)_(?P<index>\d+)_(?P<eye>[LR])\.jpg$", re.IGNORECASE
+)
 _LABEL_COLUMNS = {
     "Davis_grading_of_one_figure": "davis_one",
     "Davis_grading_of_concatenated_figures": "davis_concatenated",
