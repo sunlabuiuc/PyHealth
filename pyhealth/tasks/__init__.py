@@ -1,4 +1,5 @@
 from .base_task import BaseTask
+from .ecg_delineation_ludb import ECGDelineationLUDB as ECGDelineationLUDB
 from .task_card import (
     DIRECTIONS as DIRECTIONS,
     FeatureInfo as FeatureInfo,

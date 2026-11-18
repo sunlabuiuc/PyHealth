@@ -268,6 +268,7 @@ Available Tasks
     BCI Competition IV 2a Left vs Right Hand <tasks/pyhealth.tasks.BCIIV2aLeftRightImagery>
     MIT-BIH ECG Anomaly Detection <tasks/pyhealth.tasks.mitbih>
     PTB-XL Tasks <tasks/pyhealth.tasks.ptbxl>
+    LUDB ECG Delineation <tasks/pyhealth.tasks.ecg_delineation_ludb>
     Sleep Staging v2 <tasks/pyhealth.tasks.sleep_staging_v2>
     Benchmark EHRShot <tasks/pyhealth.tasks.benchmark_ehrshot>
     EHR Text Serialization (LLM encoders) <tasks/pyhealth.tasks.ehr_text_serialization>

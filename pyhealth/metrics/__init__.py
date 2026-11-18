@@ -19,6 +19,11 @@ from .competing_risks import (
     competing_risk_concordance,
 )
 from .drug_recommendation import ddi_rate_score
+from .ecg_delineation import (
+    assemble_ecg_sequences,
+    ecg_delineation_metrics,
+    segment_mean_iou,
+)
 from .fairness import fairness_metrics_fn
 from .generative import (
     calc_membership_inference,
@@ -63,6 +68,9 @@ from .survival_curve import (
 )
 
 __all__ = [
+    "assemble_ecg_sequences",
+    "ecg_delineation_metrics",
+    "segment_mean_iou",
     "CensoringDistribution",
     "MetricSupportError",
     "competing_risk_brier",

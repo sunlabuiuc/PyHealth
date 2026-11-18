@@ -1,0 +1,17 @@
+version: "1.0.1-frozen-windows-v1"
+tables:
+  windows:
+    file_path: "window_manifest.csv"
+    patient_id: "patient_id"
+    # Windows have sample positions, not fabricated clinical timestamps.
+    timestamp: null
+    timestamp_format: null
+    attributes:
+      - "lead"
+      - "lead_index"
+      - "split"
+      - "window_index"
+      - "start_sample"
+      - "end_sample_exclusive"
+      - "window_length"
+      - "has_supervised_points"
