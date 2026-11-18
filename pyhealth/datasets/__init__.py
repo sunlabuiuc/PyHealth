@@ -88,6 +88,7 @@ from .mimic4 import MIMIC4EDDataset as MIMIC4EDDataset
 from .fhir import FHIRDataset, MIMIC4FHIR
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
+from .pad_ufes_20 import PADUFES20Dataset as PADUFES20Dataset  # noqa: E402
 from .physionet_deid import PhysioNetDeIDDataset
 from .rsna_pneumonia import RSNAPneumoniaDataset as RSNAPneumoniaDataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset

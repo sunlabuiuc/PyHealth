@@ -1,0 +1,24 @@
+version: "1.0"
+tables:
+  pad_ufes_20:
+    file_path: "pad_ufes_20-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "image_id"
+      - "path"
+      - "lesion_id"
+      - "diagnostic"
+      - "biopsed"
+      - "age"
+      - "gender"
+      - "fitspatrick"
+      - "region"
+      - "diameter_1"
+      - "diameter_2"
+      - "itch"
+      - "grew"
+      - "hurt"
+      - "changed"
+      - "bleed"
+      - "elevation"
