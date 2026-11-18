@@ -119,6 +119,7 @@ from .splitter import (
 from .gold_test_split import GoldTestSplit as GoldTestSplit
 from .mimic4_imagenome import MIMIC4ImaGenomeDataset as MIMIC4ImaGenomeDataset
 from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
+from .bciiv2a import BCICompetitionIV2aDataset as BCICompetitionIV2aDataset
 from .hup_ieeg import HUPiEEGDataset as HUPiEEGDataset
 from .iiic import IIICDataset as IIICDataset
 from .tuab import TUABDataset
