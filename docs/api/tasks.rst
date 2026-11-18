@@ -252,6 +252,7 @@ Available Tasks
     Sleep Staging (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSleepEDF>
     Sleep Staging Sequences (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSequenceSleepEDF>
     Sleep Staging (ISRUC) <tasks/pyhealth.tasks.SleepStagingISRUC>
+    Sleep Staging Sequences (ISRUC) <tasks/pyhealth.tasks.SleepStagingSequenceISRUC>
     Seizure Onset Zone Localization (HUP iEEG) <tasks/pyhealth.tasks.SOZLocalizationHUP>
     Temple University EEG Tasks <tasks/pyhealth.tasks.temple_university_EEG_tasks>
     CHB-MIT Seizure Detection <tasks/pyhealth.tasks.SeizureDetectionCHBMIT>
