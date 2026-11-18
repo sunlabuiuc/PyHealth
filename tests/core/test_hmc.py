@@ -82,17 +82,22 @@ def _signal(seconds: int, channels: list[str]) -> np.ndarray:
     return np.stack([100 * i + second for i in range(len(channels))])
 
 
+# Default onset of ``Lights on``: inside the last epoch.
+_LAST_EPOCH = object()
+
+
 def _scoring_text(
     stages: Sequence[str],
     lights_off: float | None = 33.43,
-    lights_on: float | None = None,
+    lights_on: float | None | object = _LAST_EPOCH,
 ) -> str:
     """An HMC ``_sleepscoring.txt`` body with the markers where HMC has them.
 
     By default ``Lights off`` falls inside the second epoch and ``Lights on``
-    inside the last one, as in most HMC v1.1 recordings.
+    inside the last one, as in most HMC v1.1 recordings. A marker set to
+    None is left out of the file.
     """
-    if lights_on is None:
+    if lights_on is _LAST_EPOCH:
         lights_on = 30 * (len(stages) - 1) + 28.74
     rows = [(30.0 * i, 30, f"Sleep stage {s}", "") for i, s in enumerate(stages)]
     if lights_off is not None:
@@ -232,17 +237,24 @@ class TestSleepStagingHMC(_TempDir):
         self.assertEqual([s["label"] for s in samples], [0, 0, 1, 2, 3, 4, 0])
 
     def test_missing_markers_keep_every_epoch_with_a_warning(self):
-        _write_recording(
-            self.root, "SN001", ["W", "N1", "W"], lights_off=None, lights_on=None
-        )
+        for markers in (
+            {"lights_off": None},
+            {"lights_on": None},
+            {"lights_off": None, "lights_on": None},
+        ):
+            with self.subTest(**markers):
+                _write_recording(self.root, "SN001", ["W", "N1", "W"], **markers)
+                text = (self.root / "SN001_sleepscoring.txt").read_text()
+                self.assertEqual("Lights off" in text, "lights_off" not in markers)
+                self.assertEqual("Lights on" in text, "lights_on" not in markers)
 
-        with self.assertLogs(
-            "pyhealth.tasks.sleep_staging_hmc", level="WARNING"
-        ) as logs:
-            samples = SleepStagingHMC()(_patient(self.root, "SN001"))
+                with self.assertLogs(
+                    "pyhealth.tasks.sleep_staging_hmc", level="WARNING"
+                ) as logs:
+                    samples = SleepStagingHMC()(_patient(self.root, "SN001"))
 
-        self.assertEqual(len(samples), 3)
-        self.assertIn("lights", logs.output[0])
+                self.assertEqual(len(samples), 3)
+                self.assertIn("lights", logs.output[0])
 
     def test_shorter_epochs_split_each_score(self):
         _write_recording(self.root, "SN001", self.STAGES)
