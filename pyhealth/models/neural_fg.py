@@ -6,7 +6,6 @@ from torch import Tensor, nn
 from pyhealth.datasets import SampleDataset
 from pyhealth.models.base_model import BaseModel
 
-
 __all__ = ["NeuralFG"]
 
 
@@ -56,6 +55,17 @@ class PositiveLinear(nn.Module):
     Neural Fine-Gray constrains monotonic-network weights to be
     positive. The trainable raw weights remain unconstrained, while
     their squared values are used during the forward pass.
+
+    Examples:
+        >>> import torch
+        >>> from pyhealth.models.neural_fg import PositiveLinear
+        >>> layer = PositiveLinear(in_features=3, out_features=2)
+        >>> x = torch.ones(4, 3)
+        >>> y = layer(x)
+        >>> y.shape
+        torch.Size([4, 2])
+        >>> bool(torch.all(layer.positive_weight >= 0))
+        True
     """
 
     def __init__(
@@ -124,6 +134,21 @@ class MonotonicNetwork(nn.Module):
 
     The final Softplus guarantees a positive output
     M_r(t, E(x)).
+
+    Examples:
+        >>> import torch
+        >>> from pyhealth.models.neural_fg import MonotonicNetwork
+        >>> net = MonotonicNetwork(
+        ...     input_dim=3,
+        ...     hidden_dim=8,
+        ...     num_hidden_layers=2,
+        ... )
+        >>> x = torch.tensor([[0.5, 0.2, 0.3]])
+        >>> output = net(x)
+        >>> output.shape
+        torch.Size([1, 1])
+        >>> bool(torch.all(output > 0))
+        True
     """
 
     def __init__(
@@ -800,6 +825,35 @@ class NeuralFG(BaseModel):
         time_grid:
             Time points at which forward() returns CIF
             predictions.
+
+    Examples:
+        >>> import torch
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> from pyhealth.models.neural_fg import NeuralFG
+        >>> samples = [
+        ...     {"patient_id": "p0", "features": [0.1, 0.2],
+        ...      "duration": [1.0], "event": [1]},
+        ...     {"patient_id": "p1", "features": [0.3, 0.4],
+        ...      "duration": [2.0], "event": [0]},
+        ...     {"patient_id": "p2", "features": [0.5, 0.6],
+        ...      "duration": [3.0], "event": [2]},
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={"features": "tensor"},
+        ...     output_schema={"duration": "tensor", "event": "tensor"},
+        ... )
+        >>> model = NeuralFG(
+        ...     dataset=dataset,
+        ...     num_risks=2,
+        ...     hidden_dim=8,
+        ...     embedding_dim=8,
+        ...     dropout=0.0,
+        ... )
+        >>> times = torch.tensor([0.5, 1.0, 2.0])
+        >>> features = torch.tensor([[0.1, 0.2]])
+        >>> model.predict_cif(features, times).shape
+        torch.Size([1, 3, 2])
     """
 
     def __init__(
