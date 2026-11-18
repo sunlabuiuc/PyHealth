@@ -158,6 +158,9 @@ from .patient_linkage import patient_linkage_mimic3_fn
 from .rsna_pneumonia_classification import (
     RSNAPneumoniaClassification as RSNAPneumoniaClassification,
 )
+from .covid_blues_classification import (
+    COVIDBLUESFrameClassification as COVIDBLUESFrameClassification,
+)
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
     ReadmissionPredictionMIMIC3,

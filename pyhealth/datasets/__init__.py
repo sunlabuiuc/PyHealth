@@ -65,6 +65,7 @@ from .chestxray14 import ChestXray14Dataset
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
 from .covid19_cxr import COVID19CXRDataset
+from .covid_blues import COVIDBLUESDataset as COVIDBLUESDataset
 from .ptbxl import PTBXLDataset as PTBXLDataset
 from .chapman_shaoxing import ChapmanShaoxingDataset as ChapmanShaoxingDataset
 from .physionet2012 import PhysioNet2012Dataset as PhysioNet2012Dataset

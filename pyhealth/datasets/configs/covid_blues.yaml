@@ -1,0 +1,15 @@
+version: "1.0"
+tables:
+  frames:
+    file_path: "covid-blues-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "record_id"
+      - "video_id"
+      - "blue_point"
+      - "repeat"
+      - "frame_index"
+      - "image_path"
+      - "covid"
+      - "severity_score"

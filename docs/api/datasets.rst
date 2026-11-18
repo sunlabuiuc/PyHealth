@@ -480,6 +480,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `MSD <http://medicaldecathlon.com/>`__
      - Yes
      - —
+   * - :doc:`COVID-BLUES (lung ultrasound) <datasets/pyhealth.datasets.COVIDBLUESDataset>`
+     - Open (CC BY-NC-ND)
+     - `GitHub <https://github.com/NinaWie/COVID-BLUES>`__
+     - No (``git clone``)
+     - —
    * - :doc:`BMD-HS <datasets/pyhealth.datasets.BMDHSDataset>`
      - Open
      - `GitHub <https://github.com/sani002/BMD-HS-Dataset>`__
@@ -570,6 +575,7 @@ Available Datasets
     datasets/pyhealth.datasets.GBSGDataset
     datasets/pyhealth.datasets.BMDHSDataset
     datasets/pyhealth.datasets.COVID19CXRDataset
+    datasets/pyhealth.datasets.COVIDBLUESDataset
     datasets/pyhealth.datasets.ChestXray14Dataset
     datasets/pyhealth.datasets.ChestImaGenomeDataset
     datasets/pyhealth.datasets.PhysioNetDeIDDataset
