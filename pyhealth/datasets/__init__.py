@@ -89,6 +89,7 @@ from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
 from .physionet_deid import PhysioNetDeIDDataset
 from .rsna_pneumonia import RSNAPneumoniaDataset as RSNAPneumoniaDataset
+from .cmmd import CMMDDataset as CMMDDataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset

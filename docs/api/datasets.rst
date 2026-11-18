@@ -480,6 +480,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `MSD <http://medicaldecathlon.com/>`__
      - Yes
      - —
+   * - :doc:`CMMD <datasets/pyhealth.datasets.CMMDDataset>`
+     - Open
+     - `TCIA <https://www.cancerimagingarchive.net/collection/cmmd/>`__
+     - No (NBIA Data Retriever)
+     - —
    * - :doc:`BMD-HS <datasets/pyhealth.datasets.BMDHSDataset>`
      - Open
      - `GitHub <https://github.com/sani002/BMD-HS-Dataset>`__
@@ -542,6 +547,7 @@ Available Datasets
     datasets/pyhealth.datasets.MSDSpleenDataset
     datasets/pyhealth.datasets.CHAOSDataset
     datasets/pyhealth.datasets.RSNAPneumoniaDataset
+    datasets/pyhealth.datasets.CMMDDataset
     datasets/pyhealth.datasets.MIMIC3Dataset
     datasets/pyhealth.datasets.MIMIC4Dataset
     datasets/pyhealth.datasets.MIMIC4EHRDataset
