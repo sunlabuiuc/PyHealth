@@ -410,6 +410,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `Kaggle <https://www.kaggle.com/datasets/tawsifurrahman/covid19-radiography-database>`__
      - No
      - —
+   * - :doc:`ISIC 2019 <datasets/pyhealth.datasets.ISIC2019Dataset>`
+     - Open (CC BY-NC 4.0)
+     - `ISIC <https://challenge.isic-archive.com/data/#2019>`__
+     - Yes
+     - —
    * - :doc:`Medical Transcriptions <datasets/pyhealth.datasets.MedicalTranscriptionsDataset>`
      - Open (Kaggle account)
      - `Kaggle <https://www.kaggle.com/datasets/tboyle10/medicaltranscriptions>`__
@@ -570,6 +575,7 @@ Available Datasets
     datasets/pyhealth.datasets.GBSGDataset
     datasets/pyhealth.datasets.BMDHSDataset
     datasets/pyhealth.datasets.COVID19CXRDataset
+    datasets/pyhealth.datasets.ISIC2019Dataset
     datasets/pyhealth.datasets.ChestXray14Dataset
     datasets/pyhealth.datasets.ChestImaGenomeDataset
     datasets/pyhealth.datasets.PhysioNetDeIDDataset
