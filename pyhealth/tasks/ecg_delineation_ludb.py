@@ -8,6 +8,7 @@ Dataset: https://physionet.org/content/ludb/1.0.1/.
 import hashlib
 import json
 from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
 import pandas as pd
@@ -46,7 +47,7 @@ class ECGDelineationLUDB(BaseTask):
     """
 
     task_name = "ecg_delineation_ludb"
-    input_schema = {
+    input_schema: ClassVar[dict] = {
         "signal": ("tensor", {"dtype": torch.float32}),
         "ignore_mask": ("tensor", {"dtype": torch.bool}),
         "patient_context": "raw",
@@ -55,8 +56,12 @@ class ECGDelineationLUDB(BaseTask):
         "end_sample_exclusive": "raw",
         "manifest_order": "raw",
     }
-    output_schema = {
-        "label": ("timeseries_multiclass", {"labels": [0, 1, 2, 3]}),
+    output_schema: ClassVar[dict] = {
+        # The label's times are sample indices of the signal window.
+        "label": (
+            "timeseries_multiclass",
+            {"labels": [0, 1, 2, 3], "timeline": ["signal"]},
+        ),
         "dense_label": ("tensor", {"dtype": torch.long}),
     }
 

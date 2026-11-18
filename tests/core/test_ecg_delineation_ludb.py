@@ -3,8 +3,10 @@
 Contributors: Thi Van Trinh Tran and Zexi Li.
 """
 
+import sys
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -13,11 +15,34 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import torch
+from distributed import LocalCluster
 
 from pyhealth.data import Patient
 from pyhealth.datasets import LUDBDataset, create_sample_dataset, get_dataloader
 from pyhealth.tasks.ecg_delineation_ludb import ECGDelineationLUDB
 from tests.core.test_ludb import _artifacts
+
+
+@contextmanager
+def _fake_wfdb(module):
+    # Swap only sys.modules["wfdb"]: patch.dict("sys.modules", ...) would also
+    # drop every module first imported inside the block (e.g. dask/pyarrow
+    # parts loaded by set_task), breaking later tests in the same process.
+    saved = sys.modules.get("wfdb")
+    sys.modules["wfdb"] = module
+    try:
+        yield
+    finally:
+        if saved is None:
+            sys.modules.pop("wfdb", None)
+        else:
+            sys.modules["wfdb"] = saved
+
+
+def _threaded_cluster(**kwargs):
+    # Same Dask work in worker threads instead of child processes, which take
+    # seconds to start; as in tests/core/survival_test_utils.py.
+    return LocalCluster(**{**kwargs, "processes": False})
 
 
 def _patient(args, pid=2):
@@ -42,10 +67,10 @@ def _record(*args):
 
 class TestECGDelineationLUDB(unittest.TestCase):
     def test_frozen_arrays_and_native_label_packing(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as directory:
             args = _artifacts(Path(directory))
             task = LUDBDataset(**args).default_task
-            with patch.dict("sys.modules", {"wfdb": SimpleNamespace(rdrecord=_record)}):
+            with _fake_wfdb(SimpleNamespace(rdrecord=_record)):
                 samples = task(_patient(args))
             self.assertEqual(len(samples), 2)  # all-ignored sample retained
             np.testing.assert_array_equal(samples[0]["signal"], np.arange(512))
@@ -68,10 +93,12 @@ class TestECGDelineationLUDB(unittest.TestCase):
             self.assertNotIn("dense_label", dataset.input_schema)
 
     def test_native_dataset_set_task_end_to_end(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as directory:
             args = _artifacts(Path(directory))
             raw = LUDBDataset(**args)
-            with patch.dict("sys.modules", {"wfdb": SimpleNamespace(rdrecord=_record)}):
+            with _fake_wfdb(SimpleNamespace(rdrecord=_record)), patch(
+                "pyhealth.datasets.base_dataset.DaskCluster", _threaded_cluster
+            ):
                 train, test = raw.set_task(split=raw.manifest_split, num_workers=1)
             self.assertEqual(len(train), 2)
             self.assertEqual(len(test), 2)
@@ -81,32 +108,32 @@ class TestECGDelineationLUDB(unittest.TestCase):
             self.assertEqual(sum(int(row["ignore_mask"].sum()) for row in train), 522)
 
     def test_bad_lead_order_and_bounds_are_errors(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as directory:
             args = _artifacts(Path(directory))
             task = LUDBDataset(**args).default_task
             record = _record()
             record.sig_name = list(reversed(record.sig_name))
-            with patch.dict("sys.modules", {"wfdb": SimpleNamespace(
+            with _fake_wfdb(SimpleNamespace(
                 rdrecord=lambda _: record,
-            )}):
+            )):
                 with self.assertRaisesRegex(ValueError, "lead orders"):
                     task(_patient(args))
             frame = pd.read_csv(args["manifest_path"])
             frame.loc[frame.patient_id == 2, "window_length"] = 511
             frame.to_csv(args["manifest_path"], index=False)
-            with patch.dict("sys.modules", {"wfdb": SimpleNamespace(rdrecord=_record)}):
+            with _fake_wfdb(SimpleNamespace(rdrecord=_record)):
                 with self.assertRaisesRegex(ValueError, "window bounds"):
                     task(_patient(args))
 
     def test_task_is_stateless_across_patient_calls(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as directory:
             args = _artifacts(Path(directory))
             task = ECGDelineationLUDB(
                 args["records_root"], args["mask_root"], args["metadata_path"],
                 patient_ids=[2, 10],
             )
             before = repr(vars(task))
-            with patch.dict("sys.modules", {"wfdb": SimpleNamespace(rdrecord=_record)}):
+            with _fake_wfdb(SimpleNamespace(rdrecord=_record)):
                 task(_patient(args, 2))
                 task(_patient(args, 10))
             self.assertEqual(before, repr(vars(task)))

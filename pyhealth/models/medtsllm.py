@@ -287,11 +287,11 @@ class MedTsLLM(BaseModel):
             values.min() < 0 or values.max() > 3
         )):
             raise ValueError("Packed labels must be integer classes 0..3")
-        if dense_label is not None:
-            if dense_label.shape != signal.shape or not torch.equal(
-                dense_label.to(self.device)[valid], values,
-            ):
-                raise ValueError("Packed values disagree with dense frozen labels")
+        if dense_label is not None and (
+            dense_label.shape != signal.shape
+            or not torch.equal(dense_label.to(self.device)[valid], values)
+        ):
+            raise ValueError("Packed values disagree with dense frozen labels")
         packed = logits.permute(0, 2, 1)[valid]
         result.update({
             "logit": packed, "y_prob": packed.softmax(dim=-1),
