@@ -31,6 +31,10 @@ from .covid19_cxr_generation import (
 )
 from .ptbxl_multilabel_classification import PTBXLMultilabelClassification as PTBXLMultilabelClassification
 from .ptbxl_heartlang import PTBXLHeartLangClassification as PTBXLHeartLangClassification
+from .chapman_shaoxing_classification import (
+    ChapmanShaoxingSNOMEDClassification as ChapmanShaoxingSNOMEDClassification,
+    ChapmanShaoxingSuperclassClassification as ChapmanShaoxingSuperclassClassification,
+)
 from .physionet2012_forecasting import (
     PhysioNet2012Forecasting as PhysioNet2012Forecasting,
     physionet2012_benchmark_split as physionet2012_benchmark_split,

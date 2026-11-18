@@ -430,6 +430,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `PhysioNet <https://physionet.org/content/ptb-xl/1.0.3/>`__
      - No
      - —
+   * - :doc:`Chapman-Shaoxing 12-lead ECG <datasets/pyhealth.datasets.ChapmanShaoxingDataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/ecg-arrhythmia/1.0.0/>`__
+     - No
+     - —
    * - :doc:`Sleep-EDF <datasets/pyhealth.datasets.SleepEDFDataset>`
      - Open
      - `PhysioNet <https://physionet.org/content/sleep-edfx/1.0.0/>`__
@@ -549,6 +554,7 @@ Available Datasets
     datasets/pyhealth.datasets.MIMIC4FHIR
     datasets/pyhealth.datasets.MedicalTranscriptionsDataset
     datasets/pyhealth.datasets.CardiologyDataset
+    datasets/pyhealth.datasets.ChapmanShaoxingDataset
     datasets/pyhealth.datasets.eICUDataset
     datasets/pyhealth.datasets.ISRUCDataset
     datasets/pyhealth.datasets.HUPiEEGDataset
