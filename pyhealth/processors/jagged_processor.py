@@ -23,7 +23,7 @@ from .base_processor import FeatureProcessor, TokenProcessorInterface
 if TYPE_CHECKING:
     from pyhealth.medcode import CrossMap
 
-OrderType = Literal["set", "sequence", "series"]
+OrderType = Literal["set", "sequence", "series", "single"]
 Role = Literal["tokens", "values", "mask", "time", "offsets"]
 FieldKey = tuple[int, Role]
 CodeMapping = tuple[str, str]
@@ -54,6 +54,9 @@ class Records(TypedDict, total=False):
     level's time has its own unit and origin (e.g. hours since admission for
     stays, minutes since the stay's start for its labs), so times are only
     compared within a level, never across levels.
+
+    A ``single`` level (see :class:`LevelConfig`) holds exactly one record,
+    the sample's own, so each of its columns has length 1.
 
     Keys:
         time: ``[N]`` numbers in this level's own unit and origin. Read on
@@ -259,9 +262,14 @@ class LevelConfig(TypedDict, total=False):
     normalization).
 
     Keys:
-        ordering: ``"set"``, ``"sequence"`` (default) or ``"series"``.
-            Describes the raw input; ``series`` levels carry ``time``, in
-            the level's own unit (see :class:`Records`).
+        ordering: ``"set"``, ``"sequence"`` (default), ``"series"`` or
+            ``"single"``. Describes the raw input; ``series`` levels carry
+            ``time``, in the level's own unit (see :class:`Records`). A
+            ``single`` level holds exactly one record, the sample's own
+            (e.g. a patient's demographics above their visits): its columns
+            have length 1, it needs ``tokens`` or ``values``, and it has no
+            order or time. Only the outermost level can be ``single``; below
+            it, a record's one child would hold what its parent can.
         tokens: Number of token namespaces ``K``; the level's records have
             ``tokens``, plain strings when ``K = 1`` and ``K``-tuples otherwise.
         values: Value shape ``S``, e.g. ``[1]`` for scalars; the level's
@@ -300,6 +308,17 @@ class LevelConfig(TypedDict, total=False):
         ... ]
         >>> JaggedFeatureProcessor(levels=levels).schema()
         ((0, 'tokens'), (0, 'values'), (0, 'mask'), (0, 'time'), (0, 'offsets'))
+
+        A patient's sex, insurance and age above their timed visits of codes,
+        as a ``single`` level with one record per sample:
+
+        >>> levels = [
+        ...     {"ordering": "set", "tokens": 1},
+        ...     {"ordering": "series"},
+        ...     {"ordering": "single", "tokens": 2, "values": [1]},
+        ... ]
+        >>> JaggedFeatureProcessor(levels=levels).schema()[-3:]
+        ((1, 'offsets'), (2, 'tokens'), (2, 'values'))
     """
 
     ordering: OrderType
@@ -468,6 +487,11 @@ class _InternalLevelConfig:
             )
         values = tuple(values)
 
+        if ordering == "single" and not tokens and not values:
+            raise ValueError(
+                f"Level {level}: a 'single' level holds the sample's own record, "
+                "so it needs 'tokens' or 'values'."
+            )
         if level == 0 and ordering != "series" and not tokens and not values:
             raise ValueError(
                 "Level 0: set 'tokens' or 'values', or use ordering 'series'."
@@ -578,7 +602,7 @@ class _InternalLevelConfig:
                 raise ValueError(
                     f"Level {level}: impute method {method!r} needs values."
                 )
-            if method in _ALONG_TIME and ordering == "set":
+            if method in _ALONG_TIME and ordering not in ("sequence", "series"):
                 raise ValueError(
                     f"Level {level}: impute method {method!r} works along time, so the "
                     "level must be a 'sequence' or 'series'."
@@ -1058,6 +1082,10 @@ class JaggedFeatureProcessor(FeatureProcessor):
     :meth:`fit` only builds the vocabularies and the statistics of imputation
     and normalization.
 
+    The outermost level can be ``single``: exactly one record per sample, the
+    sample's own (e.g. demographics). Its tensors are ``[1, ...]`` per sample
+    and ``[B, ...]`` per batch, and its batch offsets are ``0 .. B``.
+
     Subclasses are configuration only: their ``__init__`` passes fixed
     ``levels`` to ``super().__init__()`` and adds no logic.
 
@@ -1089,6 +1117,14 @@ class JaggedFeatureProcessor(FeatureProcessor):
             _InternalLevelConfig.parse(level, config)
             for level, config in enumerate(levels)
         ]
+        for level, config in enumerate(self._config[:-1]):
+            if config.ordering == "single":
+                raise ValueError(
+                    f"Level {level}: only the outermost level (level "
+                    f"{len(self._config) - 1}) can be 'single', as its one record "
+                    "is the sample's own; below it, put the record's tokens and "
+                    "values on its parent."
+                )
         self.levels = [config.copy() for config in levels]
         self._mappers = [
             self._load_mappers(config.code_mapping) for config in self._config
@@ -1452,6 +1488,12 @@ class JaggedFeatureProcessor(FeatureProcessor):
                         n = len(tokens)
                     count += n
                 counts.append(count)
+            if config.ordering == "single" and counts != [1]:
+                # Only the outermost level can be single; its one group is the sample.
+                raise ValueError(
+                    f"Level {level}: a 'single' level has exactly one record, the "
+                    f"sample's own, so its columns must have length 1, got {counts[0]}."
+                )
 
             columns: dict[Role, np.ndarray] = {
                 role: np.concatenate(part) for role, part in parts.items()
@@ -1614,6 +1656,18 @@ class JaggedFeatureProcessor(FeatureProcessor):
                 raise ValueError(
                     f"{(level, 'offsets')}: last offset must equal the level's record count."
                 )
+            if self._config[level].ordering == "single":
+                # A batch has offsets for this outermost level; a sample has none.
+                one_each = (
+                    bool((offsets.diff() == 1).all())
+                    if offsets is not None
+                    else next(iter(sizes.values())) == 1
+                )
+                if not one_each:
+                    raise ValueError(
+                        f"Level {level}: a 'single' level has exactly one record per "
+                        "sample."
+                    )
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}(levels={self.levels})"

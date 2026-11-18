@@ -44,6 +44,40 @@ under ``tmp/`` in the cache directory. Each dataset removes only the folders it
 created, so a job that finishes does not delete the temporary files of another
 job using the same ``cache_dir``.
 
+Task caches and when to clear them
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``set_task()`` caches its output under ``tasks/`` in the dataset's cache
+directory, in two layers:
+
+- ``tasks/<task_name>_<hash>/task_df.ld`` holds the raw samples the task
+  returned. The hash covers the task's attributes (its constructor arguments
+  and anything else set on ``self``) and its ``input_schema`` and
+  ``output_schema``.
+- ``samples_<hash>.ld`` inside it holds the processed samples. This hash also
+  covers any processors you passed in, the split (with ``set_task(split=...)``)
+  and the storage format.
+
+So changing a task argument, a schema, the processors or the split gives a new
+cache automatically. **Editing the task's code does not**: the hash does not see
+the body of ``__call__``. Neither does upgrading PyHealth to a version whose
+task or processor code changed. In those cases the old samples are reused
+without a warning. Clear the cache to rebuild them:
+
+.. code-block:: python
+
+    dataset.clear_task_cache(task)   # this task's samples only
+    dataset.clear_cache()            # the event table and every task's samples
+
+``clear_task_cache()`` returns ``False`` when there was nothing to delete.
+Both delete only the cache of this dataset configuration; other
+configurations, and other datasets sharing ``cache_dir``, keep theirs. Close
+any :class:`~pyhealth.datasets.SampleDataset` built from the deleted cache
+first, because it reads its files lazily.
+
+Deleting the folders by hand works too. ``dataset.cache_dir`` is this
+configuration's folder, and its task caches are under ``tasks/``.
+
 The result is a :class:`~pyhealth.datasets.BaseDataset` — a structured
 patient→event tree. It is different from a PyTorch Dataset: it has no integer
 length and you cannot index into it with ``dataset[i]``. Think of it as a
@@ -406,15 +440,25 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `PhysioNet <https://physionet.org/content/chbmit/1.0.0/>`__
      - No
      - —
+   * - :doc:`Helsinki Neonatal EEG <datasets/pyhealth.datasets.HelsinkiNeonatalDataset>`
+     - Open
+     - `Zenodo <https://zenodo.org/records/4940267>`__
+     - No
+     - —
    * - :doc:`EEG Motor Movement/Imagery <datasets/pyhealth.datasets.EEGBCIDataset>`
      - Open
      - `PhysioNet <https://physionet.org/content/eegmmidb/1.0.0/>`__
      - Yes
      - —
+   * - :doc:`HUP iEEG (epilepsy surgery) <datasets/pyhealth.datasets.HUPiEEGDataset>`
+     - Open
+     - `OpenNeuro <https://openneuro.org/datasets/ds004100>`__
+     - No
+     - —
    * - :doc:`ISRUC-Sleep <datasets/pyhealth.datasets.ISRUCDataset>`
      - Open
      - `ISRUC <https://sleeptight.isr.uc.pt/>`__
-     - Yes (needs ``7zzs``)
+     - No
      - —
    * - :doc:`EESM23 (ear-EEG) <datasets/pyhealth.datasets.EESM23Dataset>`
      - Open
@@ -484,6 +528,7 @@ Available Datasets
     :maxdepth: 3
 
     datasets/pyhealth.datasets.BaseDataset
+    datasets/pyhealth.datasets.PBCDataset
     datasets/pyhealth.datasets.SampleDataset
     datasets/pyhealth.datasets.PatchDataset
     MSD Base Loader <datasets/pyhealth.datasets.MSDSegmentationDataset>
@@ -506,6 +551,7 @@ Available Datasets
     datasets/pyhealth.datasets.CardiologyDataset
     datasets/pyhealth.datasets.eICUDataset
     datasets/pyhealth.datasets.ISRUCDataset
+    datasets/pyhealth.datasets.HUPiEEGDataset
     datasets/pyhealth.datasets.MIMICExtractDataset
     datasets/pyhealth.datasets.OMOPDataset
     datasets/pyhealth.datasets.SyntheaCSVDataset
@@ -527,6 +573,7 @@ Available Datasets
     datasets/pyhealth.datasets.TUABDataset
     datasets/pyhealth.datasets.TUEVDataset
     datasets/pyhealth.datasets.CHBMITDataset
+    datasets/pyhealth.datasets.HelsinkiNeonatalDataset
     datasets/pyhealth.datasets.EESM23Dataset
     datasets/pyhealth.datasets.IIICDataset
     datasets/pyhealth.datasets.ClinVarDataset

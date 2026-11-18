@@ -14,6 +14,14 @@ Multi-seed usage (recommended for papers):
   python examples/conformal_eeg/tuab_conventional_conformal.py \\
       --root downloads/tuab/v3.0.0/edf --n-seeds 5 --seed 42 --alpha 0.1 \\
       --log-file tuab_conventional_alpha0.1_5seeds.log
+
+Data: TUAB v3.0.0 (TUH Abnormal EEG) from the Temple University EEG Corpus,
+https://isip.piconepress.com/projects/nedc/html/tuh_eeg/ (free, registration
+required). Pass its edf/ folder (with train/ and eval/) as --root. The full
+run trains on CPU or GPU (--device); --quick-test caps the data at 2000
+samples and 2 epochs for a check that finishes in minutes.
+--model tfm skips training and needs the released TFM-Tokenizer checkpoints
+(--tokenizer-weights and --weights-dir).
 """
 
 from __future__ import annotations

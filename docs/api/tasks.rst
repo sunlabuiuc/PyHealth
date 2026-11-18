@@ -184,7 +184,10 @@ supports ``len()`` and index access, ready for a DataLoader.
     sample_ds[0]     # a single sample dict with tensor values
 
 If you re-run ``set_task()`` with the same task and processor configuration,
-PyHealth detects the existing cache and skips reprocessing. During
+PyHealth detects the existing cache and skips reprocessing. The cache key holds
+the task's arguments and schemas but not its code, so after you edit a task's
+``__call__``, run ``dataset.clear_task_cache(task)`` (see *Task caches and when
+to clear them* in :doc:`datasets`). During
 development it is useful to set ``dev=True`` on the dataset, which limits
 processing to 1 000 patients so iterations are fast.
 
@@ -211,6 +214,8 @@ Available Tasks
 
     Base Task <tasks/pyhealth.tasks.BaseTask>
     Task Card <tasks/pyhealth.tasks.TaskCard>
+    PBC Competing Risks <tasks/pyhealth.tasks.competing_risks_pbc>
+    Competing-Risk Preprocessing <tasks/pyhealth.tasks.competing_risks>
     In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
     In-Hospital Mortality (MEDS) <tasks/pyhealth.tasks.InHospitalMortalityMEDS>
     ICU Admission (MEDS) <tasks/pyhealth.tasks.ICUAdmissionMEDS>
@@ -231,6 +236,7 @@ Available Tasks
     Drug Recommendation <tasks/pyhealth.tasks.drug_recommendation>
     EHR + CXR In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.EHRCXRMortalityMIMIC4>
     EHR + CXR Phenotyping (MIMIC-IV) <tasks/pyhealth.tasks.EHRCXRPhenotypingMIMIC4>
+    EHR + CXR Decompensation (MIMIC-IV, MedMod) <tasks/pyhealth.tasks.MedModDecompensationMIMIC4>
     EHR Generation <tasks/pyhealth.tasks.generate_ehr>
     Length of Stay Prediction <tasks/pyhealth.tasks.length_of_stay_prediction>
     Length of Stay Prediction (StageNet MIMIC-IV) <tasks/pyhealth.tasks.length_of_stay_stagenet_mimic4>
@@ -244,8 +250,12 @@ Available Tasks
     Readmission Prediction <tasks/pyhealth.tasks.readmission_prediction>
     Sleep Staging <tasks/pyhealth.tasks.sleep_staging>
     Sleep Staging (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSleepEDF>
+    Sleep Staging Sequences (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSequenceSleepEDF>
+    Sleep Staging (ISRUC) <tasks/pyhealth.tasks.SleepStagingISRUC>
+    Seizure Onset Zone Localization (HUP iEEG) <tasks/pyhealth.tasks.SOZLocalizationHUP>
     Temple University EEG Tasks <tasks/pyhealth.tasks.temple_university_EEG_tasks>
     CHB-MIT Seizure Detection <tasks/pyhealth.tasks.SeizureDetectionCHBMIT>
+    Helsinki Neonatal Seizure Detection <tasks/pyhealth.tasks.SeizureDetectionHelsinki>
     Ear-EEG Sleep Staging (EESM23) <tasks/pyhealth.tasks.SleepStagingEarEEG>
     IIIC Seizure Classification <tasks/pyhealth.tasks.iiic_seizure_classification>
     EEGBCI Tasks <tasks/pyhealth.tasks.eegbci>

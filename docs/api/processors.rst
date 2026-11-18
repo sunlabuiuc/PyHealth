@@ -49,6 +49,8 @@ MLP and others) train on a field of that type.
 - ``TimeseriesMultiLabelProcessor``: A set of labels per given time (``"timeseries_multilabel"``), values ``[ΣN, K]``, in the same packed format
 - ``TimeseriesRegressionLabelProcessor``: Real-valued labels at given times (``"timeseries_regression"``), in the same packed format, with the same ``normalization`` option
 
+Each takes a required ``timeline``: the input fields on the label's timeline (their top-level times share the label's unit and origin), e.g. ``("timeseries_binary", {"timeline": ["dynamic"]})``. Other input fields hold for every label record.
+
 **Data Type Processors:**
 
 - ``ImageProcessor``: For image data (e.g., chest X-rays)
@@ -391,7 +393,7 @@ Common string keys for automatic processor selection:
 - ``"multiclass"``: For multi-class labels  
 - ``"multilabel"``: For multi-label classification
 - ``"regression"``: For regression targets
-- ``"timeseries_binary"``, ``"timeseries_multiclass"``, ``"timeseries_multilabel"``, ``"timeseries_regression"``: For labels given at time points
+- ``("timeseries_binary", {"timeline": [...]})``, and likewise ``"timeseries_multiclass"``, ``"timeseries_multilabel"``, ``"timeseries_regression"``: For labels given at time points; ``timeline`` is required (see the time-series label processors above)
 - ``"text"``: For text data
 - ``"tuple_time_text"``: For text paired with temporal information
 - ``"image"``: For image data

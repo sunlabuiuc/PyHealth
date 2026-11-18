@@ -4,6 +4,8 @@ from .task_card import (
     FeatureInfo as FeatureInfo,
     TaskCard as TaskCard,
 )
+from .competing_risks import CompetingRisksPreprocessor as CompetingRisksPreprocessor
+from .competing_risks_pbc import CompetingRisksPBC as CompetingRisksPBC
 from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
@@ -83,6 +85,9 @@ from .length_of_stay_prediction import (
 )
 from .length_of_stay_stagenet_mimic4 import LengthOfStayStageNetMIMIC4
 from .medical_coding import MIMIC3ICD9Coding
+from .medmod_decompensation_mimic4 import (
+    MedModDecompensationMIMIC4 as MedModDecompensationMIMIC4,
+)
 from .meds_outcome_tasks import (
     HospitalReadmissionMEDS as HospitalReadmissionMEDS,
     ICUAdmissionMEDS as ICUAdmissionMEDS,
@@ -148,16 +153,24 @@ from .sleep_staging import (
     sleep_staging_shhs_fn,
     sleep_staging_sleepedf_fn,
 )
+from .sleep_staging_v2 import SleepStagingSequenceSleepEDF as SleepStagingSequenceSleepEDF
 from .sleep_staging_v2 import SleepStagingSleepEDF
+from .sleep_staging_isruc import SleepStagingISRUC as SleepStagingISRUC
 from .temple_university_EEG_tasks import (
     EEGEventsTUEV,
     EEGAbnormalTUAB
+)
+from .seizure_detection_helsinki import (
+    SeizureDetectionHelsinki as SeizureDetectionHelsinki,
 )
 from .seizure_detection_chbmit import (
     SeizureDetectionCHBMIT as SeizureDetectionCHBMIT,
 )
 from .sleep_staging_ear_eeg import (
     SleepStagingEarEEG as SleepStagingEarEEG,
+)
+from .soz_localization_hup import (
+    SOZLocalizationHUP as SOZLocalizationHUP,
 )
 from .eegbci import (
     EEGBCIPatternDiscovery as EEGBCIPatternDiscovery,

@@ -1,4 +1,15 @@
-"""Demonstrate valid and invalid patient split ratios on synthetic data."""
+"""Demonstrate valid and invalid patient split ratios on synthetic data.
+
+``split_by_patient`` puts each patient's records in exactly one split. The
+script splits 12 synthetic records (6 patients) with valid ratios, checks
+that no patient appears in two splits and every record is used once, and
+shows the error raised for a negative ratio (each must be in [0, 1]).
+
+Runs in a few seconds on CPU; no download.
+
+Usage:
+    python examples/split_ratio_validation.py
+"""
 
 from pyhealth.datasets import create_sample_dataset, split_by_patient
 

@@ -22,3 +22,5 @@ patients and reuse those same values for validation and test patients.
 .. autoclass:: pyhealth.tasks.SurvivalTimeToEventSupport2
     :members:
     :show-inheritance:
+
+See :doc:`../../survival_pipeline` for examples and manual acceptance checks.
