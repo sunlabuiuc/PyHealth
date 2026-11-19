@@ -229,6 +229,39 @@ class TestTask(unittest.TestCase):
                          ["X/SNOMED/3950001", "X/Gender/F", "X/LOINC/2236-8"])
         self.assertEqual(sample["birth_datetime"], T0 - timedelta(days=1))
 
+    def _other(self, **sample):
+        class Other(BaseTask):
+            task_name = "other"
+            input_schema: ClassVar[dict] = {"codes": "sequence"}
+            output_schema: ClassVar[dict] = {"y": "binary"}
+
+            def __call__(self, patient):
+                return [{"codes": [], "y": 1, **sample}]
+
+        return Other()
+
+    def test_missing_prediction_time_key_raises(self):
+        sources = {"ehrshot": EventSource("code")}
+        for sample in ({}, {"when": None}):
+            task = EHRFoundationModelTask(self._other(**sample),
+                                          event_sources=sources,
+                                          prediction_time="when")
+            with self.assertRaises(ValueError):
+                task(_ehrshot_patient())
+
+    def test_callable_prediction_time(self):
+        sources = {"ehrshot": EventSource("code")}
+        cutoff = EHRFoundationModelTask(
+            self._other(), event_sources=sources,
+            prediction_time=lambda patient, sample, i: T0)
+        self.assertEqual([e[1] for e in cutoff(_ehrshot_patient())[0]["events"]],
+                         ["SNOMED/3950001", "Gender/F"])
+        everything = EHRFoundationModelTask(
+            self._other(), event_sources=sources,
+            prediction_time=lambda patient, sample, i: None)
+        full = everything.timeline(_ehrshot_patient())
+        self.assertEqual(everything(_ehrshot_patient())[0]["events"], full)
+
 
 class TestHFEHRFoundationModel(unittest.TestCase):
     def setUp(self):
@@ -350,6 +383,42 @@ class TestHFEHRFoundationModel(unittest.TestCase):
         out = _model(dataset)(**_batch(dataset, 3))
         self.assertEqual(out["y_prob"].shape, (3, 3))
         self.assertTrue(torch.isfinite(out["loss"]))
+
+    def test_multilabel_label(self):
+        dataset = _dataset([
+            {"patient_id": f"p{i}", "label": [str(i % 3), "x"],
+             "birth_datetime": T0, "events": _events(i + 1)} for i in range(3)],
+            label="multilabel")
+        out = _model(dataset)(**_batch(dataset, 3))
+        self.assertEqual(out["y_prob"].shape, (3, 4))
+        self.assertTrue(torch.isfinite(out["loss"]))
+
+    def test_regression_label(self):
+        dataset = _dataset([
+            {"patient_id": f"p{i}", "label": float(i), "birth_datetime": T0,
+             "events": _events(i + 1)} for i in range(3)], label="regression")
+        out = _model(dataset)(**_batch(dataset, 3))
+        self.assertEqual(out["y_prob"].shape, (3, 1))
+        self.assertTrue(torch.isfinite(out["loss"]))
+
+    def test_unlabeled_forward(self):
+        model = _model(self.dataset)
+        out = model(events=[_events(2), []])
+        self.assertEqual(out["y_prob"].shape, (2, 1))
+        self.assertNotIn("loss", out)
+        self.assertNotIn("y_true", out)
+
+    def test_trainer_finetunes_backbone(self):
+        model = _model(self.dataset, mode="finetune")
+        before = [p.detach().clone() for p in model.backbone.parameters()]
+        loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        trainer = Trainer(model=model, metrics=["roc_auc"], enable_logging=False)
+        trainer.train(train_dataloader=loader, epochs=1,
+                      optimizer_params={"lr": 1e-2})
+        after = list(model.backbone.parameters())
+        self.assertTrue(any(not torch.equal(a, b) for a, b in zip(after, before)))
+        y_true, y_prob, loss = trainer.inference(loader)
+        self.assertEqual(len(y_prob), len(self.dataset))
 
     def test_context_length_from_config(self):
         self.assertEqual(_model(self.dataset, max_length=None).max_length, 32)

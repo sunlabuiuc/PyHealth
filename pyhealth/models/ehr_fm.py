@@ -47,8 +47,8 @@ logger = logging.getLogger(__name__)
 FM_MODES = ("frozen", "finetune")
 
 _FM_EXTRA_HINT = (
-    "this needs the EHR foundation-model dependencies; install them with "
-    "`pip install pyhealth[fm]`"
+    "it ships with PyHealth's transformers dependency; reinstall it with "
+    "`pip install transformers huggingface-hub safetensors`"
 )
 
 
@@ -293,19 +293,28 @@ class EHRFoundationModelBase(BaseModel):
         return torch.stack([found[k] for k in keys]).to(self.device)
 
     # ------------------------------------------------------------- forward
-    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
-        """Tokenizes the timelines, embeds them and applies the linear head.
+    def embed_events(
+        self,
+        events: Sequence[Sequence[Sequence[Any]] | None],
+        births: Sequence[Any] | None = None,
+    ) -> torch.Tensor:
+        """Tokenizes a batch of timelines and embeds them, one row each.
+
+        In ``"frozen"`` mode this runs without gradients and reads and fills
+        the embedding cache; in ``"finetune"`` mode gradients flow into the
+        backbone. Also counts vocabulary coverage (:meth:`coverage_report`).
+
+        Args:
+            events: One list of ``(timestamp, code, value, unit)`` per sample.
+            births: One birth time per sample, or ``None``.
 
         Returns:
-            ``logit``, ``y_prob`` and ``embed``, plus ``loss`` and ``y_true``
-            when the label is given.
+            A float tensor of shape ``(batch, embedding_dim)``.
         """
-        batch = kwargs[self.events_key]
-        births = kwargs.get(self.birth_key) if self.birth_key else None
         if births is None:
-            births = [None] * len(batch)
-        timelines = [self.tokenize(events or [], birth)
-                     for events, birth in zip(batch, births)]
+            births = [None] * len(events)
+        timelines = [self.tokenize(sample or [], birth)
+                     for sample, birth in zip(events, births)]
         for timeline in timelines:
             self._count(timeline)
         if not self._coverage_logged:
@@ -314,17 +323,36 @@ class EHRFoundationModelBase(BaseModel):
                         type(self).__name__, report)
             self._coverage_logged = True
         if self.fm_mode == "frozen":
-            embeddings = self._embed_frozen(timelines)
-        else:
-            embeddings = self.encode(timelines).float()
+            return self._embed_frozen(timelines)
+        return self.encode(timelines).float()
+
+    def apply_head(self, embeddings: torch.Tensor,
+                y_true: torch.Tensor | None = None) -> dict[str, torch.Tensor]:
+        """Applies the linear head, and the label's loss if ``y_true`` is given.
+
+        Returns:
+            ``logit``, ``y_prob`` and ``embed``, plus ``loss`` and ``y_true``
+            when ``y_true`` is given.
+        """
         logits = self.fc(embeddings)
         out = {"logit": logits, "y_prob": self.label_processor.activation(logits),
                "embed": embeddings}
-        if self.label_key in kwargs:
-            y_true = kwargs[self.label_key].to(self.device)
+        if y_true is not None:
+            y_true = y_true.to(self.device)
             out["loss"] = self.label_processor.loss(logits, y_true)
             out["y_true"] = y_true
         return out
+
+    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
+        """Embeds the batch's timelines and applies the linear head.
+
+        Returns:
+            ``logit``, ``y_prob`` and ``embed``, plus ``loss`` and ``y_true``
+            when the label is in the batch.
+        """
+        births = kwargs.get(self.birth_key) if self.birth_key else None
+        embeddings = self.embed_events(kwargs[self.events_key], births)
+        return self.apply_head(embeddings, kwargs.get(self.label_key))
 
 
 # ---------------------------------------------------------------------------
@@ -525,6 +553,19 @@ class HFEHRFoundationModel(EHRFoundationModelBase):
     embeddings with less compute. Other backbones (mamba, hyena) are padded
     to ``max_length``.
 
+    Values: EHRSHOT stores every value as text, so a value that parses as a
+    number is read as one (:func:`as_value`). A numeric-looking category,
+    e.g. ``"1"`` on a code with only categorical entries, therefore matches
+    no category and becomes the code's plain token (or nothing).
+
+    Training: ``forward()`` returns ``loss``, ``y_prob``, ``y_true`` and
+    ``logit`` like every PyHealth model, so :class:`~pyhealth.trainer.Trainer`
+    trains and evaluates it directly. In ``"frozen"`` mode only the linear
+    head has gradients; in ``"finetune"`` mode the backbone trains too (use
+    a small learning rate, e.g. ``optimizer_params={"lr": 1e-5}``). The
+    model classifies or regresses from a patient embedding; it does not
+    generate events.
+
     Access: the checkpoints are gated on the Hugging Face Hub under
     CC-BY-NC-4.0. Request access on the model page (it requires a current
     CITI "Data or Specimens Only Research" certificate and agreeing to the
@@ -696,6 +737,10 @@ class HFEHRFoundationModel(EHRFoundationModelBase):
                  ) -> TokenizedTimeline:
         """Token ids of one timeline, truncated to the most recent tokens.
 
+        ``birth`` is unused: the hf_ehr models take no ages. It is part of the
+        :class:`EHRFoundationModelBase` interface for models that do (e.g.
+        CLMBR-T's age positions).
+
         Examples:
             >>> model.tokenize([(t, "SNOMED/3950001", None, None)]).ids  # doctest: +SKIP
             [7]
@@ -746,3 +791,40 @@ class HFEHRFoundationModel(EHRFoundationModelBase):
         else:
             hidden = out.last_hidden_state if hasattr(out, "last_hidden_state") else out[0]
         return hidden[:, -1, :]
+
+    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
+        """Predicts the label of each sample from its raw event timeline.
+
+        The batch is what :func:`~pyhealth.datasets.get_dataloader` yields
+        for a :class:`~pyhealth.tasks.EHRFoundationModelTask` dataset, so
+        :class:`~pyhealth.trainer.Trainer` can call it directly. All
+        FM-specific processing happens here, not in the task:
+
+        1. each timeline's events are mapped to hf_ehr token ids
+           (:class:`HFEHRTokenizer`), keeping the most recent ``max_length``;
+        2. the timelines are left-padded and run through the backbone
+           (without gradients and through the cache in ``"frozen"`` mode);
+        3. the last token's final hidden state goes through the linear head.
+
+        Args:
+            **kwargs: The batch. ``events`` (one list of ``(timestamp, code,
+                value, unit)`` per sample) is required; the label (e.g.
+                ``label``) is optional, so the model also predicts on
+                unlabeled timelines. Other keys, such as ``patient_id`` or
+                ``birth_datetime``, are ignored.
+
+        Returns:
+            A dict with ``logit`` and ``y_prob`` (``(batch, output_size)``)
+            and ``embed`` (``(batch, embedding_dim)``, the patient
+            representation), plus ``loss`` and ``y_true`` when the label is
+            in the batch.
+
+        Examples:
+            >>> loader = get_dataloader(dataset, batch_size=32)  # doctest: +SKIP
+            >>> Trainer(model=model, metrics=["roc_auc"]).train(  # doctest: +SKIP
+            ...     train_dataloader=loader, epochs=10)
+            >>> model(events=[timeline])["y_prob"]  # unlabeled  # doctest: +SKIP
+            tensor([[0.31]])
+        """
+        embeddings = self.embed_events(kwargs[self.events_key])
+        return self.apply_head(embeddings, kwargs.get(self.label_key))

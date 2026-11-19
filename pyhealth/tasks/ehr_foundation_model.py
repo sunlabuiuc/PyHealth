@@ -135,17 +135,21 @@ class EHRFoundationModelTask(BaseTask):
         base_task: The task to wrap, e.g. ``BenchmarkEHRShot("guo_icu")``.
         event_sources: Event table to :class:`EventSource`. Defaults to
             :data:`EHRSHOT_EVENTS` for BenchmarkEHRShot; required otherwise.
-        prediction_time: The sample key holding its prediction time, or
+        prediction_time: The sample key holding its prediction time (a
+            sample without it raises ``ValueError``), or
             ``prediction_time(patient, sample, index) -> datetime | None``
-            (``None`` keeps all events). Defaults to the label times for
-            BenchmarkEHRShot; required otherwise.
+            (``None`` keeps all events, on purpose). Defaults to the label
+            times for BenchmarkEHRShot; required otherwise.
         birth_fn: ``birth_fn(patient) -> datetime | None``, e.g. from a
             demographics table. Defaults to the first event with a code in
             ``birth_codes``, then the earliest event.
         birth_codes: Codes that mark birth.
         max_events: Keep only each sample's most recent ``max_events``
             events, to bound the cache size. ``None`` keeps all; the model
-            truncates to its own context length anyway.
+            truncates to its own context length anyway. Each sample stores
+            its own copy of the events up to its prediction time, so for
+            tasks with many labels per patient set this to about the
+            model's context length.
         keep_inputs: Also keep the wrapped task's input fields, e.g. for a
             count-based baseline on the same samples.
 
@@ -275,7 +279,15 @@ class EHRFoundationModelTask(BaseTask):
         if spec is None:
             return _ehrshot_prediction_times(self.base_task, patient, samples)
         if isinstance(spec, str):
-            return [sample.get(spec) for sample in samples]
+            times = [sample.get(spec) for sample in samples]
+            if any(t is None for t in times):
+                # keeping the whole timeline here could leak the label
+                raise ValueError(
+                    f"{self.task_name}: a sample has no {spec!r} prediction "
+                    "time; use a prediction_time function that returns None "
+                    "to keep all of its events on purpose"
+                )
+            return times
         return [spec(patient, sample, i) for i, sample in enumerate(samples)]
 
     def __call__(self, patient: Any) -> list[dict[str, Any]]:
