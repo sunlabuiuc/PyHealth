@@ -520,7 +520,7 @@ class UDC(BaseModel):
                 - logit: Raw output logits.
                 - embed: Patient-level latent representations from the last visit.
                 - vq_loss: Residual vector quantization loss.
-                - vq_indices: Discrete prototype indices (during inference).
+                - vq_indices: Discrete prototype indices from vector quantization.
         """
         # Unpack tuple inputs if any
         cleaned_kwargs: dict[str, Any] = {}
@@ -554,11 +554,18 @@ class UDC(BaseModel):
 
         for feature_key in self.feature_keys:
             feat = embedded[feature_key]
+            if feat.dim() > 4:
+                raise ValueError(
+                    f"Unsupported feature dimension {feat.dim()} for "
+                    f"feature '{feature_key}'. Only 2D sequences (B, D), "
+                    "3D sequences (B, T, D), and 4D nested sequences "
+                    "(B, T, K, D) are supported."
+                )
             v_mask = None
             # Nested sequences: (B, T, K, D)
-            while feat.dim() > 3:
+            if feat.dim() == 4:
                 mask = raw_masks.get(feature_key)
-                if mask is not None and mask.dim() == feat.dim() - 1:
+                if mask is not None and mask.dim() == 3:
                     code_mask = mask != 0
                 else:
                     code_mask = (feat != 0).any(dim=-1)
@@ -620,9 +627,24 @@ class UDC(BaseModel):
         if self.temporal_model_name in ("gru", "lstm"):
             temporal_out, _ = self.temporal_encoder(fused_visits)
         else:  # transformer
+            if overall_mask is not None:
+                all_pad_patients = (~overall_mask).all(dim=-1)
+                padding_mask = ~overall_mask
+                # Unmask position 0 for all-pad patients so softmax is finite
+                if all_pad_patients.any():
+                    padding_mask = padding_mask.clone()
+                    padding_mask[all_pad_patients, 0] = False
+            else:
+                padding_mask = None
+                all_pad_patients = None
+
             temporal_out = self.temporal_encoder(
-                fused_visits, src_key_padding_mask=~overall_mask
+                fused_visits, src_key_padding_mask=padding_mask
             )
+            if all_pad_patients is not None and all_pad_patients.any():
+                temporal_out = temporal_out.masked_fill(
+                    all_pad_patients.unsqueeze(-1).unsqueeze(-1), 0.0
+                )
 
         # Extract patient representation from the last valid visit
         patient_emb = get_last_visit(temporal_out, overall_mask)

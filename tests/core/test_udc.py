@@ -398,7 +398,7 @@ class TestUDC(unittest.TestCase):
         self.assertTrue(torch.isfinite(out["loss"]))
         # For p0, visits 2 and 3 are padding; verify embedding does not have -1e9
         self.assertFalse(torch.isnan(out["embed"]).any())
-        self.assertTrue(torch.all(out["embed"] > -1e5))
+        self.assertTrue(torch.all(out["embed"].abs() < 50.0))
 
     def test_padding_invariance(self):
         """Verifies a patient's prediction and embedding do not change when padded."""
@@ -455,6 +455,67 @@ class TestUDC(unittest.TestCase):
                 ),
                 f"Embed padding variance on {temp_model}",
             )
+
+    def test_empty_patient_with_transformer(self):
+        """Verifies transformer handles all-pad patient without producing NaNs."""
+        samples = [
+            {
+                "patient_id": "p0",
+                "visit_id": "v0",
+                "conditions": [["c1", "c2"]],
+                "label": 1,
+            },
+            {
+                "patient_id": "p1",
+                "visit_id": "v1",
+                "conditions": [["c3"]],
+                "label": 0,
+            },
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"conditions": "nested_sequence"},
+            output_schema={"label": "binary"},
+        )
+        model = UDC(
+            dataset=dataset,
+            embedding_dim=16,
+            hidden_dim=16,
+            temporal_model="transformer",
+            dropout=0.0,
+        )
+        loader = get_dataloader(dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+        batch["conditions"][1].zero_()
+
+        out = model(**batch)
+        self.assertFalse(torch.isnan(out["logit"]).any())
+        self.assertFalse(torch.isnan(out["embed"]).any())
+        self.assertTrue(torch.isfinite(out["loss"]))
+        out["loss"].backward()
+        for p in model.parameters():
+            if p.grad is not None:
+                self.assertTrue(torch.isfinite(p.grad).all())
+
+    def test_unsupported_high_dim_feature(self):
+        """Verifies ValueError is raised for features with more than 4 dimensions."""
+        dataset = create_sample_dataset(
+            samples=self.samples,
+            input_schema=self.input_schema,
+            output_schema={"label": "binary"},
+        )
+        model = UDC(
+            dataset=dataset,
+            embedding_dim=16,
+            hidden_dim=16,
+        )
+        original_embed = model.embedding_model.forward
+        model.embedding_model.forward = lambda kw: {
+            "conditions": torch.zeros((2, 3, 4, 5, 16))
+        }
+        with self.assertRaises(ValueError):
+            model(conditions=torch.zeros((2, 3, 4, 5)))
+        model.embedding_model.forward = original_embed
 
 
 if __name__ == "__main__":
