@@ -12,3 +12,5 @@ See the MIMIC-III example for the training and inference workflow.
 
 .. autoclass:: pyhealth.models.HuggingFaceGiantMedGenerator
     :members:
+
+.. autofunction:: pyhealth.experiment_tracking.record_experiment

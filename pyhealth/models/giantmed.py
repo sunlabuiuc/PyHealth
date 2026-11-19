@@ -8,13 +8,26 @@ trained model. Retrieval must be fitted on training patients only.
 import ast
 import csv
 import gzip
+import hashlib
 import json
 import math
 import re
+import string
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 import numpy as np
+
+_DEFAULT_PROMPT_TEMPLATE = (
+    "You are a clinical pharmacy expert. Revise medication probabilities "
+    "in {boundary} predicted by a deep model. "
+    "A score >= 0.5 recommends a drug. Use the current visit, prior "
+    "medication history, similar training visits and potential interactions. "
+    "Treat model scores as priors, not sufficient justification. Raise "
+    "clinically necessary medications toward 0.70-0.90 and lower unsupported "
+    "ones; avoid leaving scores in the ambiguous boundary. Avoid recommending "
+    "medications with serious interactions or functional redundancy."
+)
 
 
 class GiantMed:
@@ -39,6 +52,9 @@ class GiantMed:
             the chat template. Required with ``max_prompt_tokens``.
         max_prompt_tokens: Maximum counted prompt tokens, after any caller's
             reserved provider overhead. Supporting evidence may be truncated.
+        prompt_template: Optional single-line instruction template containing
+            ``{boundary}``. The renderer retains control of evidence and output
+            format. The template must not contain patient-specific information.
         candidate_batch_size: Optional maximum target medications per prompt.
             Requires a token counter and budget. Each batch includes every
             boundary interaction involving its targets, including interactions
@@ -73,6 +89,7 @@ class GiantMed:
         prompt_token_counter: Callable | None = None,
         max_prompt_tokens: int | None = None,
         candidate_batch_size: int | None = None,
+        prompt_template: str | None = None,
     ):
         self.codes = list(medication_codes)
         if not all(isinstance(code, str) and code for code in self.codes):
@@ -89,6 +106,33 @@ class GiantMed:
         if not isinstance(top_k, int) or isinstance(top_k, bool) or top_k < 1:
             raise ValueError("top_k must be positive")
         self.low, self.high, self.top_k = boundary_low, boundary_high, top_k
+        if prompt_template is not None:
+            if (
+                not isinstance(prompt_template, str)
+                or not prompt_template.strip()
+                or len(prompt_template.splitlines()) != 1
+            ):
+                raise ValueError(
+                    "prompt_template must be a nonempty single-line string"
+                )
+            try:
+                fields = [
+                    (field, spec, conversion)
+                    for _, field, spec, conversion in string.Formatter().parse(
+                        prompt_template
+                    )
+                    if field is not None
+                ]
+            except ValueError as exc:
+                raise ValueError("invalid prompt_template") from exc
+            if not fields or any(
+                field != "boundary" or spec or conversion
+                for field, spec, conversion in fields
+            ):
+                raise ValueError(
+                    "prompt_template must use only the {boundary} placeholder"
+                )
+        self.prompt_template = prompt_template
         self.generate = generate
         self.names = dict(code_names or {})
         self.evidence_filter = evidence_filter
@@ -153,16 +197,24 @@ class GiantMed:
     def _instructions(self):
         """Shared clinical guidance for every prompt format."""
         bracket = "]" if self.upper_inclusive else ")"
-        return (
-            "You are a clinical pharmacy expert. Revise medication probabilities "
-            f"in [{self.low}, {self.high}{bracket} predicted by a deep model. "
-            "A score >= 0.5 recommends a drug. Use the current visit, prior "
-            "medication history, similar training visits and potential interactions. "
-            "Treat model scores as priors, not sufficient justification. Raise "
-            "clinically necessary medications toward 0.70-0.90 and lower unsupported "
-            "ones; avoid leaving scores in the ambiguous boundary. Avoid recommending "
-            "medications with serious interactions or functional redundancy."
+        return (self.prompt_template or _DEFAULT_PROMPT_TEMPLATE).format(
+            boundary=f"[{self.low}, {self.high}{bracket}"
         )
+
+    def prompt_metadata(self):
+        """Return patient-independent template identity and renderer version.
+
+        Examples:
+            >>> model = GiantMed(["A"], [[0]], lambda p: "{}", [])
+            >>> model.prompt_metadata()["renderer_version"]
+            'giantmed-renderer-v1'
+        """
+        source = self.prompt_template or _DEFAULT_PROMPT_TEMPLATE
+        return {
+            "template": source,
+            "template_sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+            "renderer_version": "giantmed-renderer-v1",
+        }
 
     def build_prompt(self, sample, probabilities, indices, neighbours):
         """Construct the evidence prompt without current-visit target drugs."""

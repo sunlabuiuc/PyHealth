@@ -14,6 +14,7 @@ import argparse
 import ast
 import csv
 import gzip
+import hashlib
 import json
 import os
 import tempfile
@@ -25,6 +26,7 @@ import numpy as np
 import torch
 
 from pyhealth.datasets import MIMIC3Dataset, PatientSplit, get_dataloader
+from pyhealth.experiment_tracking import record_experiment
 from pyhealth.medcode import ATC, ICD9CM, ICD9PROC
 from pyhealth.metrics import ddi_rate_score, multilabel_metrics_fn
 from pyhealth.models import (
@@ -218,6 +220,26 @@ def main():
     parser.add_argument(
         "--prompt-tokenizer", help="Hugging Face tokenizer name or local path"
     )
+    parser.add_argument(
+        "--prompt-template-file",
+        help="patient-independent single-line instruction template containing {boundary}",
+    )
+    parser.add_argument(
+        "--tracking", choices=("none", "local", "mlflow"), default="none"
+    )
+    parser.add_argument(
+        "--tracking-dir",
+        help="local manifest directory (or MLflow fallback with --tracking-fallback)",
+    )
+    parser.add_argument("--tracking-uri", help="explicit MLflow tracking URI")
+    parser.add_argument(
+        "--experiment-name", default="PyHealth", help="MLflow experiment name"
+    )
+    parser.add_argument(
+        "--tracking-fallback",
+        action="store_true",
+        help="fall back to --tracking-dir if MLflow fails",
+    )
     parser.add_argument("--boundary-low", type=float, default=0.3)
     parser.add_argument("--boundary-high", type=float, default=0.7)
     parser.add_argument(
@@ -270,6 +292,19 @@ def main():
     if bool(args.medi) != bool(args.ingredient_cache):
         parser.error("supply --medi and --ingredient-cache together")
     filter_files = [args.medi, args.ndc_rxcui, args.ndc_atc, args.ingredient_cache]
+    if args.tracking == "local" and not args.tracking_dir:
+        parser.error("--tracking local requires --tracking-dir")
+    if args.tracking == "mlflow" and not args.tracking_uri:
+        parser.error("--tracking mlflow requires --tracking-uri")
+    if args.tracking_fallback and (args.tracking != "mlflow" or not args.tracking_dir):
+        parser.error(
+            "--tracking-fallback requires --tracking mlflow and --tracking-dir"
+        )
+    prompt_template = None
+    if args.prompt_template_file:
+        prompt_template = (
+            Path(args.prompt_template_file).read_text(encoding="utf-8").rstrip("\r\n")
+        )
     torch.manual_seed(0)
     np.random.seed(0)
     with tempfile.TemporaryDirectory() as cache:
@@ -434,6 +469,7 @@ def main():
             if token_counter
             else None,
             candidate_batch_size=args.candidate_batch_size,
+            prompt_template=prompt_template,
         )
         y_true, baseline, refined, patient_ids = [], [], [], []
         statuses = Counter()
@@ -553,11 +589,104 @@ def main():
                 for item in generate.usage
             ):
                 print("WARNING: provider reported an input above the requested limit.")
+        all_metrics = {}
         for name, scores in (("SafeDrug", baseline), ("GiantMed", refined)):
             # Reference averages visits within patient, then patients. Its DDI
             # rate is computed over all predicted pairs across visits.
             metrics = evaluate_predictions(y_true, scores, patient_ids, refiner.ddi)
             print(name, metrics)
+            all_metrics.update(
+                {f"{name.lower()}_{key}": value for key, value in metrics.items()}
+            )
+        if args.tracking != "none":
+            import pyhealth.models.giantmed as giantmed_module
+
+            source_sha = hashlib.sha256(
+                Path(giantmed_module.__file__).read_bytes()
+            ).hexdigest()
+            params = {
+                "dataset": "mimic3",
+                "seed": 0,
+                "epochs": args.epochs,
+                "split": "patient:0.8,0.1,0.1;seed=0",
+                "training_batch_size": 8,
+                "checkpoint_selection": "final_epoch",
+                "decision_threshold": 0.5,
+                "backbone": "SafeDrug",
+                "llm_model": args.openrouter_model
+                or args.model
+                or ("demo" if args.demo_refinement else "none"),
+                "boundary_low": args.boundary_low,
+                "boundary_high": args.boundary_high,
+                "boundary_upper_inclusive": refiner.upper_inclusive,
+                "token_budget_enabled": bool(token_counter),
+                "prompt_tokenizer": (
+                    "local:" + Path(tokenizer_name).name
+                    if tokenizer_name and Path(tokenizer_name).exists()
+                    else tokenizer_name or "none"
+                ),
+                "torch_version": str(torch.__version__),
+                "candidate_batch_size": args.candidate_batch_size or 0,
+                "max_input_tokens": args.max_input_tokens,
+                "input_token_reserve": args.input_token_reserve,
+                "max_new_tokens": args.max_new_tokens,
+                "medi_enabled": bool(evidence_filter),
+                "giantmed_source_sha256": source_sha,
+            }
+            if args.openrouter_model or args.model:
+                params.update({"generation_temperature": 0.6, "generation_top_p": 0.95})
+            all_metrics.update(
+                {
+                    "visits": len(y_true),
+                    "candidates": candidate_count,
+                    "accepted_scores": updated_count,
+                    "changed_scores": changed_count,
+                    "decision_changes": int(decision_changes),
+                }
+            )
+            all_metrics.update(
+                {f"status_{key}": value for key, value in statuses.items()}
+            )
+            all_metrics.update(
+                {f"medi_{key}": value for key, value in evidence_outcomes.items()}
+            )
+            all_metrics.update(
+                {
+                    f"decision_{key}": value
+                    for key, value in summarize_decision_changes(
+                        y_true, baseline, refined
+                    ).items()
+                }
+            )
+            if budgets and all("ddi_pairs" in item for item in budgets):
+                all_metrics["ddi_pairs_retained"] = sum(
+                    item["ddi_pairs"][0] for item in budgets
+                )
+                all_metrics["ddi_pairs_total"] = sum(
+                    item["ddi_pairs"][1] for item in budgets
+                )
+            if args.openrouter_model and generate.usage:
+                if all(
+                    item.get("prompt_tokens") is not None for item in generate.usage
+                ):
+                    all_metrics["provider_prompt_tokens"] = sum(
+                        item["prompt_tokens"] for item in generate.usage
+                    )
+                if all(item.get("cost") is not None for item in generate.usage):
+                    all_metrics["provider_cost"] = sum(
+                        item["cost"] for item in generate.usage
+                    )
+            tracking = record_experiment(
+                params=params,
+                metrics=all_metrics,
+                prompt=refiner.prompt_metadata(),
+                backend=args.tracking,
+                local_dir=args.tracking_dir,
+                tracking_uri=args.tracking_uri,
+                experiment_name=args.experiment_name,
+                fallback_dir=args.tracking_dir if args.tracking_fallback else None,
+            )
+            print("Experiment tracking:", json.dumps(tracking))
         print("Demo results are not a reproduction of the paper.")
 
 

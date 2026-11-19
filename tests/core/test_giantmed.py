@@ -779,3 +779,55 @@ def test_decision_change_summary_counts_against_recorded_labels():
     }
     with pytest.raises(ValueError, match="matching shapes"):
         summarize_decision_changes(target, baseline, [[0.1]])
+
+
+@pytest.mark.parametrize("mode", ["plain", "budget", "batch"])
+def test_custom_instruction_template_preserves_prompt_contract(mode):
+    options = {"prompt_template": "CUSTOM guidance for {boundary}: be conservative."}
+    if mode != "plain":
+        options.update(prompt_token_counter=len, max_prompt_tokens=10000)
+    if mode == "batch":
+        options["candidate_batch_size"] = 1
+    response = '{"0":0.8}' if mode == "batch" else '{"A":0.8}'
+    model = GiantMed(["A"], [[0]], lambda p: response, [], **options)
+    result = model.refine_with_details(
+        {"patient_id": "p", "drugs": ["SECRET_TARGET"]}, [0.5]
+    )
+    assert result["probabilities"].tolist() == [0.8]
+    assert "CUSTOM guidance for [0.3, 0.7)" in result["prompt"]
+    assert "JSON object" in result["prompt"]
+    assert "SECRET_TARGET" not in result["prompt"]
+    if mode != "plain":
+        assert len(result["prompt"]) <= 10000
+    if mode == "batch":
+        assert "Only the first 1 rows are targets" in result["prompt"]
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "",
+        "no boundary",
+        "bad {secret}",
+        "{boundary!r}",
+        "{boundary:>10}",
+        "{boundary}\nextra",
+        "{boundary}\vextra",
+        "{boundary.__class__}",
+        "{boundary",
+    ],
+)
+def test_invalid_prompt_template_rejected(template):
+    with pytest.raises(ValueError, match="prompt_template"):
+        GiantMed(["A"], [[0]], lambda p: "{}", [], prompt_template=template)
+
+
+def test_prompt_metadata_has_stable_patient_independent_hash():
+    import hashlib
+
+    template = "Risk boundary {boundary}; evaluate interactions."
+    model = GiantMed(["A"], [[0]], lambda p: "{}", [], prompt_template=template)
+    metadata = model.prompt_metadata()
+    assert metadata["template"] == template
+    assert metadata["template_sha256"] == hashlib.sha256(template.encode()).hexdigest()
+    assert model._instructions() == "Risk boundary [0.3, 0.7); evaluate interactions."
