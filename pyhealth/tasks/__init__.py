@@ -86,6 +86,9 @@ from .kits23_classification import (
     KiTS23MalignancyClassification as KiTS23MalignancyClassification,
     KiTS23MalignancySliceClassification as KiTS23MalignancySliceClassification,
 )
+from .kits23_segmentation import (
+    KiTS23Segmentation as KiTS23Segmentation,
+)
 from .lab_nowcasting import (
     LabNowcasting as LabNowcasting,
     LabNowcastingMIMIC3 as LabNowcastingMIMIC3,

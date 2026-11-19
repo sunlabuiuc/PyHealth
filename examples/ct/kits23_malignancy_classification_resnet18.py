@@ -17,8 +17,12 @@ https://github.com/neheller/kits23, ``pip install -e kits23`` and run
 Cases whose ``imaging.nii.gz`` is not downloaded are skipped, so a few dozen
 cases from https://huggingface.co/datasets/neheller/KiTS-Challenge-Imaging
 are enough to try it. Reading each full CT makes the first ``set_task`` slow;
-it is cached afterwards. One epoch shows the pipeline works; it is not a
-benchmark result.
+it is cached afterwards. For a quick smoke run add ``--max-samples 10
+--epochs 1``; a small subset must still hold both benign and malignant
+cases. One epoch shows the pipeline works; it is not a benchmark result.
+
+The 3D variant, ``KiTS23MalignancyClassification``, has no example: PyHealth
+has no basic 3D classifier yet (``CNN`` does not take NIfTI volumes).
 """
 
 import argparse
@@ -29,7 +33,7 @@ from pyhealth.tasks import KiTS23MalignancySliceClassification
 from pyhealth.trainer import Trainer
 
 SEED = 0
-SPLIT_RATIOS = (0.7, 0.1, 0.2)  # train / validation / test, by patient
+SPLIT_RATIOS = (0.6, 0.2, 0.2)  # train / validation / test, by patient
 
 
 def main() -> None:
@@ -38,12 +42,18 @@ def main() -> None:
     parser.add_argument("--root", required=True, help="The KiTS23 dataset/ folder.")
     parser.add_argument("--cache-dir", default=None)
     parser.add_argument("--epochs", type=int, default=1)
+    parser.add_argument(
+        "--max-samples", type=int, default=None,
+        help="Keep only the first N cases (quick smoke run).",
+    )
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
 
     dataset = KiTS23Dataset(root=args.root, cache_dir=args.cache_dir)
     dataset.stats()
     samples = dataset.set_task(KiTS23MalignancySliceClassification())
+    if args.max_samples is not None and args.max_samples < len(samples):
+        samples = samples.subset(list(range(args.max_samples)))
 
     train_ds, val_ds, test_ds = split_by_patient(samples, SPLIT_RATIOS, seed=SEED)
     if min(len(train_ds), len(val_ds), len(test_ds)) == 0:
