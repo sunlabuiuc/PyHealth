@@ -297,6 +297,7 @@ API Reference
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
     models/pyhealth.models.BEHRT
+    models/pyhealth.models.BiteNet
     models/pyhealth.models.TransformersModel
     models/pyhealth.models.LLMEHREncoder
     models/pyhealth.models.MEME
@@ -325,6 +326,7 @@ API Reference
     models/pyhealth.models.Agent
     models/pyhealth.models.GRASP
     models/pyhealth.models.MedFuse
+    models/pyhealth.models.MAESTRO
     models/pyhealth.models.DAFT
     models/pyhealth.models.DiPro
     models/pyhealth.models.MedLink
@@ -337,6 +339,7 @@ API Reference
     models/pyhealth.models.PromptEHR
     models/pyhealth.models.MedGAN
     models/pyhealth.models.CorGAN
+    models/pyhealth.models.TarDiff
     models/pyhealth.models.Synthea
     models/pyhealth.models.SDOH
     models/pyhealth.models.SequenceEmbeddingModel
@@ -357,4 +360,7 @@ API Reference
     models/pyhealth.models.APN
     models/pyhealth.models.TRACE
     models/pyhealth.models.MIRA
+    models/pyhealth.models.UDC
+    models/pyhealth.models.DescEmb
+    models/pyhealth.models.DearLLM
 

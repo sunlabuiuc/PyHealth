@@ -12,6 +12,12 @@ from .behrt import (
     BEHRTEmbedding as BEHRTEmbedding,
     BEHRTLayer as BEHRTLayer,
 )
+from .bitenet import (
+    AttentionPooling as AttentionPooling,
+    BiteNet as BiteNet,
+    BiteNetEncoder as BiteNetEncoder,
+    BiteNetTemporalEncoding as BiteNetTemporalEncoding,
+)
 from .neural_fine_gray import NeuralFineGray as NeuralFineGray
 from .unet import (
     DiceLoss as DiceLoss,
@@ -46,6 +52,7 @@ from .graphcare import GraphCare
 from .grasp import GRASP, GRASPLayer
 from .dipro import DiPro as DiPro
 from .daft import DAFT as DAFT, DAFTBlock as DAFTBlock, DAFTLayer as DAFTLayer
+from .maestro import MAESTRO as MAESTRO
 from .medfuse import MedFuse, MedFuseLayer
 from .medlink import MedLink
 from .micron import MICRON, MICRONLayer
@@ -98,6 +105,7 @@ from .generators.promptehr import PromptEHR
 from .generators.medgan import MedGAN
 from .generators.synthea import Synthea as Synthea
 from .generators.corgan import CorGAN as CorGAN
+from .generators.tardiff import TarDiff as TarDiff
 from .survival_mdn import SurvivalMDN as SurvivalMDN
 from .personalized_survival_moe import PersonalizedSurvivalMoE as PersonalizedSurvivalMoE
 from .cet import CET as CET
@@ -124,4 +132,19 @@ from .mira import (
     MIRABackbone as MIRABackbone,
     MIRAConfig as MIRAConfig,
     load_mira_checkpoint as load_mira_checkpoint,
+)
+from .udc import (
+    UDC as UDC,
+    DiscreteClueEncoder as DiscreteClueEncoder,
+    ResidualVectorQuantizer as ResidualVectorQuantizer,
+)
+from .descemb import (
+    DescEmb as DescEmb,
+    DescEmbCodeEncoder as DescEmbCodeEncoder,
+    simple_subword_tokenize as simple_subword_tokenize,
+    simple_word_tokenize as simple_word_tokenize,
+)
+from .dearllm import (
+    DearLLM as DearLLM,
+    DearLLMGraphEncoder as DearLLMGraphEncoder,
 )
