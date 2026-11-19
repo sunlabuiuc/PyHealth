@@ -22,6 +22,30 @@ logger = logging.getLogger(__name__)
 PAD_UFES_20_METADATA_CSV = "metadata.csv"
 _DERIVED_CSV = "pad_ufes_20-metadata-pyhealth.csv"
 _REQUIRED_COLUMNS = ("patient_id", "lesion_id", "img_id", "diagnostic")
+PAD_UFES_20_CLINICAL_COLUMNS: tuple[str, ...] = (
+    "smoke",
+    "drink",
+    "background_father",
+    "background_mother",
+    "age",
+    "pesticide",
+    "gender",
+    "skin_cancer_history",
+    "cancer_history",
+    "has_piped_water",
+    "has_sewage_system",
+    "fitspatrick",
+    "region",
+    "diameter_1",
+    "diameter_2",
+    "itch",
+    "grew",
+    "hurt",
+    "changed",
+    "bleed",
+    "elevation",
+)
+"""The 21 clinical columns of ``metadata.csv``, all kept as event attributes."""
 
 
 def _find_images(image_root: Path) -> dict[str, str]:
@@ -47,57 +71,70 @@ class PADUFES20Dataset(BaseDataset):
     diagnoses: actinic keratosis (ACK), basal cell carcinoma (BCC), melanoma
     (MEL), nevus (NEV), squamous cell carcinoma including Bowen's disease
     (SCC) and seborrheic keratosis (SEK). About 58% are biopsy-proven
-    (``biopsed``). Up to 22 clinical features (age, Fitzpatrick type, body
-    region, lesion diameters, itch/bleed/growth flags, ...) come with each
-    image and are kept as event attributes. These are clinical photos taken
-    with smartphones, not dermoscopy images.
+    (``biopsed``). These are clinical photos taken with smartphones, not
+    dermoscopy images.
 
     One event is created per image. ``patient_id`` is the PAD patient id
     (``PAT_xxx``), so :class:`~pyhealth.datasets.PatientSplit` keeps every
-    image and lesion of a patient in one split; ``lesion_id`` is kept as an
-    attribute. Most PNGs are RGBA, so image tasks should convert to RGB (the
-    bundled :class:`~pyhealth.tasks.PADUFES20Classification` does).
+    image and lesion of a patient in one split. Every other column of
+    ``metadata.csv`` is an event attribute: ``image_id`` (the ``img_id``
+    column), ``path``, ``lesion_id``, ``diagnostic``, ``biopsed`` and all
+    21 clinical columns: ``smoke``, ``drink``, ``background_father``,
+    ``background_mother``, ``age``, ``pesticide``, ``gender``,
+    ``skin_cancer_history``, ``cancer_history``, ``has_piped_water``,
+    ``has_sewage_system``, ``fitspatrick``, ``region``, ``diameter_1``,
+    ``diameter_2``, ``itch``, ``grew``, ``hurt``, ``changed``, ``bleed``
+    and ``elevation``. Many are empty for some patients, and a clinical
+    column absent from ``metadata.csv`` is kept as an empty attribute.
+    Most PNGs are RGBA, so image tasks should convert to RGB (the bundled
+    :class:`~pyhealth.tasks.PADUFES20Classification` does).
 
-    The derived metadata CSV is written to a metadata directory (by default
-    under the PyHealth cache, keyed by a hash of ``root``, the source
-    ``metadata.csv`` and the image file names), never into ``root``. Rows whose image file is missing
-    are dropped with a warning.
-
-    Differences from CLIMB:
-        - CLIMB splits images at random (stratified 80/20), so images of one
-          patient and one lesion land in both train and test. Here splits
-          are meant to be made by ``patient_id``, for example with
-          :class:`~pyhealth.datasets.PatientSplit`.
-        - CLIMB trains on five grouped classes. The default task uses the
-          six official diagnoses; ``label_scheme="climb5"`` reproduces the
-          CLIMB grouping (ACK + SCC as AKIEC, SEK as OTHER).
-        - CLIMB expects a flat ``images/`` folder; the official
-          ``imgs_part_*`` sub-folders are found here as well.
-        - CLIMB's hard-coded download URL now returns HTTP 403, so there is
-          no ``download=True``; download from Mendeley Data as below.
+    The derived metadata CSV is written to a metadata directory, never into
+    ``root``. By default that directory is under the PyHealth cache, keyed
+    by a hash of ``root``, the source ``metadata.csv`` and the image file
+    names. Rows whose image file is missing are dropped with a warning.
 
     Getting the data:
         - Source: https://data.mendeley.com/datasets/zr7vgbcyr2/1
-          (DOI 10.17632/zr7vgbcyr2.1).
-        - Access: open, no account needed.
-        - Download: use "Download All" on the Mendeley Data page (about
-          3.6 GB). The archive holds ``metadata.csv`` and
-          ``images/imgs_part_{1,2,3}.zip``; unzip the three inner archives
-          in place.
-        - ``root``: the folder holding ``metadata.csv`` and ``images/``. The
-          PNGs may sit directly in ``images/`` or in its ``imgs_part_*``
-          sub-folders.
+          (Mendeley Data, DOI 10.17632/zr7vgbcyr2.1).
+        - Access: open. No account, registration or data-use agreement.
+        - Download: four files, 3.6 GB in total: ``metadata.csv``
+          (316 KB) and ``imgs_part_1.zip`` (1.2 GB), ``imgs_part_2.zip``
+          (1.1 GB) and ``imgs_part_3.zip`` (1.2 GB). Either click
+          "Download All" on the Mendeley Data page (one zip of the same
+          files; unzip it and move ``metadata.csv`` into ``root`` and the
+          three image archives into ``root/images/``), or fetch each file
+          from its permanent public link::
+
+              BASE=https://data.mendeley.com/public-files/datasets/zr7vgbcyr2/files
+              mkdir -p pad_ufes_20/images && cd pad_ufes_20
+              wget -O metadata.csv $BASE/fa850265-57da-48f0-ba3e-998b3e44b1f6/file_downloaded
+              wget -O images/imgs_part_1.zip $BASE/1cc2f71f-20a2-412d-b746-a9b9bc20c966/file_downloaded
+              wget -O images/imgs_part_2.zip $BASE/559a60ed-5504-475d-996c-6a8bc253b5e7/file_downloaded
+              wget -O images/imgs_part_3.zip $BASE/34dcdf8e-e5f1-4b35-aa0b-5135051ff852/file_downloaded
+
+        - Unpack: unzip each image archive inside ``images/``
+          (``cd images && for f in imgs_part_*.zip; do unzip -q "$f"; done``).
+          Each creates an ``imgs_part_<n>/`` folder of PNGs. The zips can
+          then be deleted.
+        - ``root`` layout (PNGs may also sit directly in ``images/``)::
+
+              pad_ufes_20/              <- root
+                  metadata.csv
+                  images/
+                      imgs_part_1/PAT_100_393_595.png ...
+                      imgs_part_2/...
+                      imgs_part_3/...
 
     Licence:
-        CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).
+        CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/):
+        commercial use and derivatives allowed, with attribution.
 
     Citation:
         Pacheco AGC, Lima GR, Salomao AS, et al. PAD-UFES-20: a skin lesion
         dataset composed of patient data and clinical images collected from
         smartphones. Data in Brief 32, 106221 (2020).
         https://doi.org/10.1016/j.dib.2020.106221
-
-    Benchmarked in CLIMB (Dai et al., 2025, https://github.com/DDVD233/CLIMB).
 
     Args:
         root: Folder holding ``metadata.csv`` and ``images/``.
@@ -165,9 +202,7 @@ class PADUFES20Dataset(BaseDataset):
                 self.prepare_metadata()
 
         if config_path is None:
-            config_path = str(
-                Path(__file__).parent / "configs" / "pad_ufes_20.yaml"
-            )
+            config_path = str(Path(__file__).parent / "configs" / "pad_ufes_20.yaml")
         super().__init__(
             root=str(self.metadata_dir),
             tables=[self.default_table],
@@ -192,9 +227,10 @@ class PADUFES20Dataset(BaseDataset):
         meta = pd.read_csv(self.metadata_csv)
         missing_cols = [c for c in _REQUIRED_COLUMNS if c not in meta.columns]
         if missing_cols:
-            raise ValueError(
-                f"{self.metadata_csv} is missing columns {missing_cols}."
-            )
+            raise ValueError(f"{self.metadata_csv} is missing columns {missing_cols}.")
+        for column in (*PAD_UFES_20_CLINICAL_COLUMNS, "biopsed"):
+            if column not in meta.columns:
+                meta[column] = None
         meta["path"] = meta["img_id"].map(self._images)
         n_missing = int(meta["path"].isna().sum())
         if n_missing == len(meta):
@@ -213,9 +249,7 @@ class PADUFES20Dataset(BaseDataset):
         tmp_path = self.metadata_path.with_suffix(".csv.tmp")
         meta.to_csv(tmp_path, index=False)
         os.replace(tmp_path, self.metadata_path)
-        logger.info(
-            "Wrote %d PAD-UFES-20 images to %s", len(meta), self.metadata_path
-        )
+        logger.info("Wrote %d PAD-UFES-20 images to %s", len(meta), self.metadata_path)
 
     @property
     def default_task(self) -> PADUFES20Classification:

@@ -471,7 +471,7 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - No
      - —
    * - :doc:`PAD-UFES-20 <datasets/pyhealth.datasets.PADUFES20Dataset>`
-     - Open
+     - Open (CC BY 4.0)
      - `Mendeley Data <https://data.mendeley.com/datasets/zr7vgbcyr2/1>`__
      - No
      - —

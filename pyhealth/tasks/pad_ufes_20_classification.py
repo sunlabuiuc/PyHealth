@@ -67,8 +67,7 @@ class PADUFES20Classification(BaseTask):
     def __init__(self, label_scheme: str = "pad6", image_size: int = 224) -> None:
         if label_scheme not in _SCHEMES:
             raise ValueError(
-                f"label_scheme must be one of {sorted(_SCHEMES)}, "
-                f"got {label_scheme!r}."
+                f"label_scheme must be one of {sorted(_SCHEMES)}, got {label_scheme!r}."
             )
         super().__init__()
         self.label_scheme = label_scheme
@@ -95,9 +94,7 @@ class PADUFES20Classification(BaseTask):
             diagnosis = str(event.diagnostic).strip().upper()
             if diagnosis not in CLIMB5_MAP:
                 continue
-            label = (
-                diagnosis if self.label_scheme == "pad6" else CLIMB5_MAP[diagnosis]
-            )
+            label = diagnosis if self.label_scheme == "pad6" else CLIMB5_MAP[diagnosis]
             samples.append(
                 {
                     "patient_id": patient.patient_id,

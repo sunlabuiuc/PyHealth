@@ -10,6 +10,7 @@ import pandas as pd
 from PIL import Image
 
 from pyhealth.datasets import PADUFES20Dataset
+from pyhealth.datasets.pad_ufes_20 import PAD_UFES_20_CLINICAL_COLUMNS
 
 # (patient_id, lesion_id, img_id, diagnostic, part folder)
 ROWS = [
@@ -20,15 +21,31 @@ ROWS = [
 ]
 
 
-def write_fixture(root: Path, rows=ROWS, missing=()) -> None:
-    """Write a tiny PAD-UFES-20 layout with RGBA PNGs under imgs_part_*."""
+def write_fixture(
+    root: Path, rows=ROWS, missing=(), flat=False, drop_columns=()
+) -> None:
+    """Write a tiny PAD-UFES-20 layout with RGBA PNGs.
+
+    PNGs go under ``images/imgs_part_*`` (the official layout), or directly
+    under ``images/`` when ``flat`` is True. ``drop_columns`` are left out of
+    ``metadata.csv``.
+    """
     records = []
     for pid, lesion, img, diag, part in rows:
         records.append(
             {
                 "patient_id": pid,
                 "lesion_id": lesion,
+                "smoke": False,
+                "drink": True,
+                "background_father": "POMERANIA",
+                "background_mother": "ITALIA",
                 "age": 50,
+                "pesticide": False,
+                "skin_cancer_history": True,
+                "cancer_history": False,
+                "has_piped_water": True,
+                "has_sewage_system": True,
                 "gender": "FEMALE",
                 "fitspatrick": 2.0,
                 "region": "ARM",
@@ -47,11 +64,12 @@ def write_fixture(root: Path, rows=ROWS, missing=()) -> None:
         )
         if img in missing:
             continue
-        folder = root / "images" / part
+        folder = root / "images" if flat else root / "images" / part
         folder.mkdir(parents=True, exist_ok=True)
         pixels = np.full((12, 16, 4), 128, dtype=np.uint8)
         Image.fromarray(pixels, mode="RGBA").save(folder / img)
-    pd.DataFrame(records).to_csv(root / "metadata.csv", index=False)
+    frame = pd.DataFrame(records).drop(columns=list(drop_columns))
+    frame.to_csv(root / "metadata.csv", index=False)
 
 
 class TestPADUFES20Dataset(unittest.TestCase):
@@ -99,6 +117,49 @@ class TestPADUFES20Dataset(unittest.TestCase):
         (self.root / "images").mkdir(exist_ok=True)
         with self.assertRaises(FileNotFoundError):
             PADUFES20Dataset(root=str(self.root), cache_dir=str(self.cache))
+
+    def test_all_clinical_columns_are_attributes(self):
+        write_fixture(self.root)
+        ds = PADUFES20Dataset(root=str(self.root), cache_dir=str(self.cache))
+        event = ds.get_patient("PAT_2").get_events(event_type="pad_ufes_20")[0]
+        for column in PAD_UFES_20_CLINICAL_COLUMNS:
+            self.assertIn(column, event.attr_dict)
+        self.assertEqual(event.background_father, "POMERANIA")
+        self.assertEqual(event.skin_cancer_history, "True")
+
+    def test_absent_clinical_column_is_empty(self):
+        write_fixture(self.root, drop_columns=("smoke", "pesticide"))
+        ds = PADUFES20Dataset(root=str(self.root), cache_dir=str(self.cache))
+        event = ds.get_patient("PAT_2").get_events(event_type="pad_ufes_20")[0]
+        self.assertIsNone(event.smoke)
+        self.assertEqual(event.background_mother, "ITALIA")
+
+    def test_flat_images_layout(self):
+        write_fixture(self.root, flat=True)
+        self.assertFalse(any(p.is_dir() for p in (self.root / "images").iterdir()))
+        ds = PADUFES20Dataset(root=str(self.root), cache_dir=str(self.cache))
+        self.assertEqual(sorted(ds.unique_patient_ids), ["PAT_1", "PAT_2", "PAT_3"])
+
+    def test_missing_required_column_raises(self):
+        write_fixture(self.root, drop_columns=("diagnostic",))
+        with self.assertRaisesRegex(ValueError, "diagnostic"):
+            PADUFES20Dataset(root=str(self.root), cache_dir=str(self.cache))
+
+    def test_refresh_metadata_rewrites_csv(self):
+        write_fixture(self.root)
+        kwargs = {
+            "root": str(self.root),
+            "cache_dir": str(self.cache),
+            "metadata_dir": str(self.tmp / "meta"),
+        }
+        ds = PADUFES20Dataset(**kwargs)
+        # Truncate the derived CSV to one row: it is reused as is ...
+        pd.read_csv(ds.metadata_path).head(1).to_csv(ds.metadata_path, index=False)
+        self.assertEqual(len(PADUFES20Dataset(**kwargs).unique_patient_ids), 1)
+        # ... until refresh_metadata=True rebuilds it from metadata.csv.
+        ds = PADUFES20Dataset(**kwargs, refresh_metadata=True)
+        self.assertEqual(len(pd.read_csv(ds.metadata_path)), len(ROWS))
+        self.assertEqual(len(ds.unique_patient_ids), 3)
 
 
 if __name__ == "__main__":

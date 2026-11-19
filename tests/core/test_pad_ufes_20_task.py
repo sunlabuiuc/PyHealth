@@ -7,7 +7,6 @@ from pathlib import Path
 
 from pyhealth.datasets import PADUFES20Dataset, PatientSplit
 from pyhealth.tasks import PADUFES20Classification
-
 from tests.core.test_pad_ufes_20_dataset import write_fixture
 
 
@@ -18,9 +17,7 @@ class TestPADUFES20Classification(unittest.TestCase):
         root = cls.tmp / "pad"
         root.mkdir()
         write_fixture(root)
-        cls.dataset = PADUFES20Dataset(
-            root=str(root), cache_dir=str(cls.tmp / "cache")
-        )
+        cls.dataset = PADUFES20Dataset(root=str(root), cache_dir=str(cls.tmp / "cache"))
 
     @classmethod
     def tearDownClass(cls):
@@ -60,9 +57,7 @@ class TestPADUFES20Classification(unittest.TestCase):
             split=PatientSplit((0.34, 0.33, 0.33), seed=0),
         )
         try:
-            seen = [
-                {part[i]["patient_id"] for i in range(len(part))} for part in parts
-            ]
+            seen = [{part[i]["patient_id"] for i in range(len(part))} for part in parts]
             self.assertEqual(sum(len(p) for p in parts), 4)
             for a in range(len(seen)):
                 for b in range(a + 1, len(seen)):
