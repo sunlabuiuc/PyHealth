@@ -2,7 +2,8 @@
 
 Usage:
     python examples/pathology/bcss_tile_classification_resnet18.py \
-        --root /data/bcss [--tile-size 224 --stride 224 --min-purity 0.9]
+        --root /data/bcss [--tile-size 224 --stride 224 --min-purity 0.9 \
+        --class-codes 1 2 3 4 --image-dir rgbs_colorNormalized]
 
 ``root`` holds ``masks/`` and ``rgbs_colorNormalized/`` (see
 :class:`pyhealth.datasets.BCSSDataset`). The first run tiles every ROI into
@@ -15,6 +16,7 @@ ImageNet weights. This recipe does not reproduce CLIMB's numbers.
 import argparse
 
 from pyhealth.datasets import BCSSDataset, get_dataloader
+from pyhealth.datasets.bcss import BCSS_MAIN_CLASSES
 from pyhealth.models import TorchvisionModel
 from pyhealth.tasks import BCSSTileClassification
 from pyhealth.trainer import Trainer
@@ -26,6 +28,18 @@ if __name__ == "__main__":
     parser.add_argument("--tile-size", type=int, default=224)
     parser.add_argument("--stride", type=int, default=None)
     parser.add_argument("--min-purity", type=float, default=0.9)
+    parser.add_argument(
+        "--class-codes",
+        type=int,
+        nargs="+",
+        default=list(BCSS_MAIN_CLASSES),
+        help="Mask codes that may label a tile (see BCSS_CLASS_CODES).",
+    )
+    parser.add_argument(
+        "--image-dir",
+        default=None,
+        help="RGB folder under root (default: rgbs_colorNormalized, else images).",
+    )
     parser.add_argument("--val-ratio", type=float, default=0.1)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--pretrained", action="store_true")
@@ -36,12 +50,14 @@ if __name__ == "__main__":
         tile_size=args.tile_size,
         stride=args.stride,
         min_purity=args.min_purity,
+        class_codes=args.class_codes,
+        image_dir=args.image_dir,
         cache_dir=args.cache_dir,
     )
     dataset.stats()
 
     train, val, test = dataset.set_task(
-        BCSSTileClassification(image_size=224),
+        BCSSTileClassification(classes=dataset.default_task.classes, image_size=224),
         split=dataset.official_split(val_ratio=args.val_ratio, seed=0),
     )
     print(f"train/val/test tiles: {len(train)}/{len(val)}/{len(test)}")

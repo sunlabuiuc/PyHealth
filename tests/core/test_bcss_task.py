@@ -33,7 +33,12 @@ class TestBCSSTileClassification(unittest.TestCase):
         labels = sorted(s["label"] for s in BCSSTileClassification()(patient))
         self.assertEqual(
             labels,
-            ["lymphocytic_infiltrate", "lymphocytic_infiltrate", "necrosis_or_debris", "tumor"],
+            [
+                "lymphocytic_infiltrate",
+                "lymphocytic_infiltrate",
+                "necrosis_or_debris",
+                "tumor",
+            ],
         )
         subset = BCSSTileClassification(classes=["tumor"])(patient)
         self.assertEqual([s["label"] for s in subset], ["tumor"])
@@ -47,7 +52,9 @@ class TestBCSSTileClassification(unittest.TestCase):
             self.assertEqual(len(test), 3)
             self.assertEqual(tuple(train[0]["image"].shape), (3, 4, 4))
             self.assertEqual(train.output_processors["label"].size(), 4)
-            self.assertEqual({test[i]["patient_id"] for i in range(len(test))}, {"TCGA-E2-CCCC"})
+            self.assertEqual(
+                {test[i]["patient_id"] for i in range(len(test))}, {"TCGA-E2-CCCC"}
+            )
         finally:
             train.close()
             test.close()

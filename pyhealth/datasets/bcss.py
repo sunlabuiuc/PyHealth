@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import warnings
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -61,6 +62,12 @@ _ROI_NAME = re.compile(
     r"xmin(?P<xmin>\d+)_ymin(?P<ymin>\d+)_MPP-[0-9.]+\.png$"
 )
 _INDEX_CSV = "bcss-tiles-pyhealth.csv"
+
+
+def _file_stamp(path: Path) -> tuple[int, int]:
+    """Return ``(size, mtime_ns)`` of a source file for the tile cache key."""
+    stat = path.stat()
+    return stat.st_size, stat.st_mtime_ns
 
 
 def parse_bcss_roi_name(name: str) -> dict[str, str] | None:
@@ -160,8 +167,8 @@ class BCSSDataset(BaseDataset):
 
     These are this loader's own choices, not CLIMB's, and they will not
     reproduce CLIMB's numbers. Changing any of them builds a new tile
-    directory (the directory name holds a hash of the recipe and the
-    source file list).
+    directory (the directory name holds a hash of the recipe and of each
+    source file's name, size and modification time).
 
     ``patient_id`` is the TCGA patient barcode (``TCGA-XX-YYYY``), and the
     events carry ``site`` (the TCGA tissue-source site, ``XX``), ``roi_id``,
@@ -183,18 +190,52 @@ class BCSSDataset(BaseDataset):
         - CLIMB needs OpenCV; this loader needs only Pillow and NumPy.
 
     Getting the data:
-        - Source: https://github.com/PathologyDataScience/BCSS
-        - Access: open, no account needed.
-        - Download: the public Google Drive folder linked from the README
-          (``masks/``, ``rgbs_colorNormalized/`` and ``meta/``, about
-          3.5 GB), or the repository's ``download_crowdsource_dataset.py``
-          script, which pulls the ROIs from the Digital Slide Archive.
-        - ``root``: the folder holding ``masks/`` and
-          ``rgbs_colorNormalized/`` (or ``images/``), with matching PNG file
-          names.
+        - Source: https://github.com/PathologyDataScience/BCSS (README with
+          the download links). Paper: Amgad et al., Bioinformatics 2019
+          (see Citation below).
+        - Access: open. No account, registration or data-use agreement.
+        - Download, option A (what this loader was tested on): the public
+          Google Drive folder linked under "Download (single link -
+          convenient)" in the README,
+          https://drive.google.com/drive/folders/1zqbdkQF8i5cEmZOGmbdQm-EP8dRYtvss
+          (0.25 MPP). It holds four folders: ``masks/`` and
+          ``rgbs_colorNormalized/`` (151 PNGs each), ``meta/`` and
+          ``logs/``. Download ``masks/`` and ``rgbs_colorNormalized/``
+          (``meta/`` is optional) from the browser: right-click each folder,
+          choose "Download", and unzip the archives Drive produces (large
+          folders arrive as several ``.zip`` parts; unzip all of them into
+          the same folder). The total size is not shown on the source page.
+          ``gdown --folder`` stops at 50 files per folder, so it does not
+          fetch the full release.
+        - Download, option B: the command-line script from the same README,
+          which pulls the ROIs from the public Digital Slide Archive and
+          writes raw (not stain-normalised) RGBs to ``images/``::
+
+              git clone https://github.com/PathologyDataScience/BCSS
+              cd BCSS
+              pip install girder_client pillow numpy scikit-image imageio
+              python download_crowdsource_dataset.py   # SAVEPATH in configs.py
+
+          Point ``root`` at ``SAVEPATH``; the loader then uses ``images/``.
+        - ``root`` layout (mask and RGB file names must match one to one;
+          a missing partner raises ``FileNotFoundError``)::
+
+              <root>/
+                  masks/
+                      TCGA-A1-A0SK-DX1_xmin45749_ymin25055_MPP-0.2500.png
+                      ...                                  # 151 masks
+                  rgbs_colorNormalized/                    # or images/
+                      TCGA-A1-A0SK-DX1_xmin45749_ymin25055_MPP-0.2500.png
+                      ...                                  # 151 RGBs
+                  meta/gtruth_codes.tsv                    # optional
+
+          Tiles are written to the PyHealth cache (or ``metadata_dir``),
+          never into ``root``.
 
     Licence:
-        Data: CC0 1.0 (public domain). Code in the BCSS repository: MIT.
+        Data: CC0 1.0 (public domain, no NC or ND terms;
+        https://creativecommons.org/publicdomain/zero/1.0/). The authors ask
+        that you cite the paper. Code in the BCSS repository: MIT.
 
     Citation:
         Amgad M, Elfandy H, Hussein H, et al. Structured crowdsourcing
@@ -224,8 +265,10 @@ class BCSSDataset(BaseDataset):
 
     Raises:
         ValueError: If a tiling parameter is out of range.
-        FileNotFoundError: If the mask or RGB folder, or any ROI pair, is
-            missing.
+        FileNotFoundError: If the mask or RGB folder is missing, if no ROI
+            is found, or if any ROI has a mask but no RGB image (or the
+            reverse). Partial downloads are rejected so the official split
+            is never silently smaller than the release.
 
     Examples:
         >>> from pyhealth.datasets import BCSSDataset
@@ -263,7 +306,9 @@ class BCSSDataset(BaseDataset):
             raise ValueError("tile_size and stride must be positive.")
         if not 0.0 < self.min_purity <= 1.0:
             raise ValueError("min_purity must be in (0, 1].")
-        if not self.class_codes or any(c not in BCSS_CLASS_CODES for c in self.class_codes):
+        if not self.class_codes or any(
+            c not in BCSS_CLASS_CODES for c in self.class_codes
+        ):
             raise ValueError(
                 f"class_codes must be a non-empty subset of {sorted(BCSS_CLASS_CODES)}."
             )
@@ -294,8 +339,11 @@ class BCSSDataset(BaseDataset):
             "min_purity": self.min_purity,
             "class_codes": list(self.class_codes),
             "rois": [
-                [roi, os.path.getsize(self.mask_root / f"{roi}.png"),
-                 os.path.getsize(self.image_root / f"{roi}.png")]
+                [
+                    roi,
+                    *_file_stamp(self.mask_root / f"{roi}.png"),
+                    *_file_stamp(self.image_root / f"{roi}.png"),
+                ]
                 for roi in sorted(self._rois)
             ],
         }
@@ -328,28 +376,38 @@ class BCSSDataset(BaseDataset):
         )
 
     def _find_rois(self) -> dict[str, dict[str, str]]:
-        """Return parsed ROI names present in both the mask and RGB folders."""
-        rois = {}
-        unpaired = []
-        for name in sorted(os.listdir(self.mask_root)):
-            parsed = parse_bcss_roi_name(name)
-            if parsed is None:
-                continue
-            if not (self.image_root / name).is_file():
-                unpaired.append(name)
-                continue
-            rois[parsed["roi_id"]] = parsed
-        if unpaired:
-            logger.warning(
-                "BCSS: %d masks have no RGB image in %s and are skipped: %s",
-                len(unpaired),
-                self.image_root,
-                unpaired[:5],
+        """Return the parsed ROI names, requiring a complete mask/RGB pairing.
+
+        Raises:
+            FileNotFoundError: If no ROI is found, or if any ROI file in one
+                folder has no counterpart in the other (an incomplete
+                download would otherwise silently shrink the official split).
+        """
+        masks = {n for n in os.listdir(self.mask_root) if parse_bcss_roi_name(n)}
+        images = {n for n in os.listdir(self.image_root) if parse_bcss_roi_name(n)}
+        problems = []
+        for names, folder in (
+            (masks - images, self.image_root),
+            (images - masks, self.mask_root),
+        ):
+            if names:
+                problems.append(
+                    f"{len(names)} ROI(s) missing from {folder}, e.g. {sorted(names)[:3]}"
+                )
+        if problems:
+            raise FileNotFoundError(
+                "BCSS download looks incomplete: "
+                + "; ".join(problems)
+                + ". Every ROI needs a mask and an RGB image with the same name."
             )
-        if not rois:
+        if not masks:
             raise FileNotFoundError(
                 f"No BCSS mask/RGB pairs found under {self.source_root}."
             )
+        rois = {}
+        for name in sorted(masks):
+            parsed = parse_bcss_roi_name(name)
+            rois[parsed["roi_id"]] = parsed
         return rois
 
     def prepare_metadata(self) -> None:
@@ -365,18 +423,25 @@ class BCSSDataset(BaseDataset):
         from PIL import Image
 
         rows = []
-        old_limit = Image.MAX_IMAGE_PIXELS
-        # ROIs are large but trusted dataset files; lift Pillow's
-        # decompression-bomb guard while reading them.
-        Image.MAX_IMAGE_PIXELS = None
-        try:
+        # The largest BCSS ROI is about 45 M pixels, under Pillow's
+        # decompression-bomb error limit, so Pillow's global limit is left
+        # unchanged. Only the size warning is silenced, and only here.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", Image.DecompressionBombWarning)
             for roi_id, info in sorted(self._rois.items()):
                 rows.extend(self._tile_roi(Image, roi_id, info))
-        finally:
-            Image.MAX_IMAGE_PIXELS = old_limit
         columns = [
-            "patient_id", "roi_id", "site", "split", "tile_id", "path", "x", "y",
-            "label_code", "label", "purity",
+            "patient_id",
+            "roi_id",
+            "site",
+            "split",
+            "tile_id",
+            "path",
+            "x",
+            "y",
+            "label_code",
+            "label",
+            "purity",
         ]
         frame = pd.DataFrame(rows, columns=columns)
         tmp_path = self.metadata_path.with_suffix(".csv.tmp")
@@ -458,10 +523,18 @@ class BCSSDataset(BaseDataset):
             >>> train, val, test = ds.set_task(split=ds.official_split(0.1))  # doctest: +SKIP
         """
         train = sorted(
-            {i["patient_id"] for i in self._rois.values() if i["site"] not in BCSS_TEST_SITES}
+            {
+                i["patient_id"]
+                for i in self._rois.values()
+                if i["site"] not in BCSS_TEST_SITES
+            }
         )
         test = sorted(
-            {i["patient_id"] for i in self._rois.values() if i["site"] in BCSS_TEST_SITES}
+            {
+                i["patient_id"]
+                for i in self._rois.values()
+                if i["site"] in BCSS_TEST_SITES
+            }
         )
         if not train or not test:
             raise ValueError(

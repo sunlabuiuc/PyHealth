@@ -1,5 +1,6 @@
 """Tests for the BCSS tiling dataset loader (synthetic data only)."""
 
+import os
 import shutil
 import tempfile
 import unittest
@@ -72,7 +73,9 @@ class TestBCSSDataset(unittest.TestCase):
 
     def test_purity_and_stride_change_recipe(self):
         write_fixture(self.root)
-        strict = BCSSDataset(root=str(self.root), tile_size=8, cache_dir=str(self.cache))
+        strict = BCSSDataset(
+            root=str(self.root), tile_size=8, cache_dir=str(self.cache)
+        )
         loose = BCSSDataset(
             root=str(self.root), tile_size=8, min_purity=0.5, cache_dir=str(self.cache)
         )
@@ -90,7 +93,10 @@ class TestBCSSDataset(unittest.TestCase):
     def test_class_codes_and_images_folder(self):
         write_fixture(self.root, image_dir="images")
         ds = BCSSDataset(
-            root=str(self.root), tile_size=4, class_codes=(9,), cache_dir=str(self.cache)
+            root=str(self.root),
+            tile_size=4,
+            class_codes=(9,),
+            cache_dir=str(self.cache),
         )
         self.assertEqual(ds.unique_patient_ids, ["TCGA-A1-AAAA"])
         self.assertEqual(ds.default_task.classes, ["fat"])
@@ -110,9 +116,76 @@ class TestBCSSDataset(unittest.TestCase):
         with self.assertRaises(ValueError):
             BCSSDataset(root=str(self.root), min_purity=0, cache_dir=str(self.cache))
         with self.assertRaises(ValueError):
-            BCSSDataset(root=str(self.root), class_codes=(0,), cache_dir=str(self.cache))
+            BCSSDataset(
+                root=str(self.root), class_codes=(0,), cache_dir=str(self.cache)
+            )
         with self.assertRaises(FileNotFoundError):
             BCSSDataset(root=str(self.tmp / "missing"), cache_dir=str(self.cache))
+
+    def test_unpaired_roi_raises(self):
+        write_fixture(self.root)
+        name = next(iter(ROIS))
+        (self.root / "rgbs_colorNormalized" / name).unlink()
+        with self.assertRaisesRegex(FileNotFoundError, "incomplete"):
+            BCSSDataset(root=str(self.root), tile_size=4, cache_dir=str(self.cache))
+        write_fixture(self.root)
+        (self.root / "masks" / name).unlink()
+        with self.assertRaisesRegex(FileNotFoundError, "incomplete"):
+            BCSSDataset(root=str(self.root), tile_size=4, cache_dir=str(self.cache))
+
+    def test_metadata_dir_and_resume_after_interruption(self):
+        write_fixture(self.root)
+        meta = self.tmp / "tiles"
+        ds = BCSSDataset(
+            root=str(self.root),
+            tile_size=4,
+            cache_dir=str(self.cache),
+            metadata_dir=str(meta),
+        )
+        self.assertEqual(ds.tile_dir.parent, meta)
+        n_patients = len(ds.unique_patient_ids)
+        # Simulate an interrupted run: tiles exist but the index CSV does not.
+        ds.metadata_path.unlink()
+        tile = next(ds.tile_dir.rglob("x0_y0.png"))
+        tile.unlink()
+        again = BCSSDataset(
+            root=str(self.root),
+            tile_size=4,
+            cache_dir=str(self.cache / "again"),
+            metadata_dir=str(meta),
+        )
+        self.assertEqual(again.tile_dir, ds.tile_dir)
+        self.assertTrue(again.metadata_path.is_file())
+        self.assertTrue(tile.is_file())
+        self.assertEqual(len(again.unique_patient_ids), n_patients)
+
+    def test_refresh_metadata_and_source_change(self):
+        write_fixture(self.root)
+        ds = BCSSDataset(root=str(self.root), tile_size=4, cache_dir=str(self.cache))
+        stamp = ds.metadata_path.stat().st_mtime_ns
+        refreshed = BCSSDataset(
+            root=str(self.root),
+            tile_size=4,
+            cache_dir=str(self.cache / "r"),
+            metadata_dir=str(ds.tile_dir.parent),
+            refresh_metadata=True,
+        )
+        self.assertEqual(refreshed.tile_dir, ds.tile_dir)
+        self.assertGreater(refreshed.metadata_path.stat().st_mtime_ns, stamp)
+        # Rewriting a source file with the same size changes its mtime, and
+        # so the tile directory.
+        name = next(iter(ROIS))
+        path = self.root / "masks" / name
+        data = path.read_bytes()
+        path.write_bytes(data)
+        os.utime(path, ns=(stamp + 10**9, stamp + 10**9))
+        changed = BCSSDataset(
+            root=str(self.root),
+            tile_size=4,
+            cache_dir=str(self.cache / "c"),
+            metadata_dir=str(ds.tile_dir.parent),
+        )
+        self.assertNotEqual(changed.tile_dir, ds.tile_dir)
 
 
 if __name__ == "__main__":
