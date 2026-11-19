@@ -517,6 +517,23 @@ def report(tables: dict[str, pd.DataFrame], n_folds: int = 1) -> None:
             print(f"Covariates-only features: {covariates['covariates']}")
 
 
+def format_run_time(seconds: float) -> str:
+    """Formats a duration as minutes and whole seconds.
+
+    Rounds to whole seconds first, so 59.6 s carries into the next minute.
+
+    Examples:
+        >>> format_run_time(6359.6)
+        '106 min 0 s'
+        >>> format_run_time(59.4)
+        '0 min 59 s'
+        >>> format_run_time(59.5)
+        '1 min 0 s'
+    """
+    minutes, secs = divmod(math.floor(seconds + 0.5), 60)
+    return f"{minutes} min {secs} s"
+
+
 def save(tables: dict[str, pd.DataFrame], out: str) -> None:
     """Writes the tables to one ``.json`` file, or to CSVs in a directory."""
     path = Path(out)
@@ -669,8 +686,7 @@ def main(argv: list[str] | None = None) -> dict[str, pd.DataFrame]:
     report(tables, args.n_folds)
     if args.out:
         save(tables, args.out)
-    minutes, seconds = divmod(time.time() - start, 60)
-    print(f"\nTotal run time: {math.floor(minutes)} min {seconds:.0f} s")
+    print(f"\nTotal run time: {format_run_time(time.time() - start)}")
     return tables
 
 
