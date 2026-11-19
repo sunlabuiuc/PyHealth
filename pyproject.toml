@@ -90,6 +90,13 @@ imaging = [
   "nibabel>=5.0",
   "monai>=1.6.1,<2",
 ]
+# Pretrained EHR foundation models (pyhealth.models.ehr_fm). transformers is
+# a core dependency and already requires both; they are listed because the
+# foundation-model code imports them directly.
+fm = [
+  "huggingface-hub>=0.30",
+  "safetensors>=0.4.3",
+]
 graph = [
   "torch-geometric>=2.6.0",
 ]
