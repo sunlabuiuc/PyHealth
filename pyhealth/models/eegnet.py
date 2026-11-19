@@ -52,18 +52,38 @@ def same_time_padding(kernel_length: int) -> nn.ZeroPad2d:
     return nn.ZeroPad2d((left, kernel_length - 1 - left, 0, 0))
 
 
+def _project_to_max_norm(weight: torch.Tensor, max_norm: float) -> None:
+    """Rescale in place the slices of ``weight`` along dim 0 above ``max_norm``.
+
+    The weights are written only when a slice exceeds the norm. Weights that
+    are already within it are left untouched, so a second forward pass before
+    ``backward`` (for example two losses summed into one) does not modify a
+    weight that the first pass saved for its gradient.
+
+    Args:
+        weight: Parameter of shape ``(out, ...)``; each ``weight[i]`` is
+            constrained to an L2 norm of at most ``max_norm``.
+        max_norm: Maximum L2 norm of each slice.
+    """
+    with torch.no_grad():
+        if bool((weight.flatten(1).norm(dim=1) > max_norm).any()):
+            weight.copy_(torch.renorm(weight, p=2, dim=0, maxnorm=max_norm))
+
+
 class Conv2dWithMaxNorm(nn.Conv2d):
     """2D convolution whose filters are renormalized to a maximum L2 norm.
 
     The paper constrains the depthwise (spatial) filters with a max-norm of 1.
-    Keras applies a kernel constraint after each update. Here the weights are
-    renormalized in place before every forward pass, in training and in
-    evaluation mode, so every prediction uses weights within the norm, and
-    so does a state dict saved after an evaluation (for example the best
-    checkpoint of :class:`~pyhealth.trainer.Trainer`). A state dict saved
-    right after an optimizer step (``last.ckpt``, saved before validation)
-    can hold weights slightly above the norm; the next forward pass projects
-    them.
+    Keras applies a kernel constraint after each update. Here the filters
+    above the norm are rescaled in place before every forward pass, in
+    training and in evaluation mode, so every prediction uses weights within
+    the norm, and so does a state dict saved after an evaluation (for
+    example the best checkpoint of :class:`~pyhealth.trainer.Trainer`). A
+    state dict saved right after an optimizer step (``last.ckpt``, saved
+    before validation) can hold weights slightly above the norm; the next
+    forward pass projects them. The weights are written only when a filter
+    exceeds the norm, so several forward passes may share one ``backward``
+    as long as no optimizer step happens between them.
 
     Args:
         *args: Positional arguments of :class:`torch.nn.Conv2d`.
@@ -90,10 +110,7 @@ class Conv2dWithMaxNorm(nn.Conv2d):
         Returns:
             The convolution output.
         """
-        with torch.no_grad():
-            self.weight.copy_(
-                torch.renorm(self.weight, p=2, dim=0, maxnorm=self.max_norm)
-            )
+        _project_to_max_norm(self.weight, self.max_norm)
         return super().forward(x)
 
 
@@ -101,8 +118,8 @@ class LinearWithMaxNorm(nn.Linear):
     """Linear layer whose output units have a maximum L2 weight norm.
 
     The paper constrains the classification layer with a max-norm of 0.25.
-    As in :class:`Conv2dWithMaxNorm`, the weights are renormalized in place
-    before every forward pass.
+    As in :class:`Conv2dWithMaxNorm`, the weights above the norm are
+    rescaled in place before every forward pass.
 
     Args:
         *args: Positional arguments of :class:`torch.nn.Linear`.
@@ -129,10 +146,7 @@ class LinearWithMaxNorm(nn.Linear):
         Returns:
             The layer output of shape ``(batch, out_features)``.
         """
-        with torch.no_grad():
-            self.weight.copy_(
-                torch.renorm(self.weight, p=2, dim=0, maxnorm=self.max_norm)
-            )
+        _project_to_max_norm(self.weight, self.max_norm)
         return super().forward(x)
 
 

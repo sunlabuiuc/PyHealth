@@ -7,6 +7,7 @@ import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import EEGNet
+from pyhealth.trainer import Trainer
 
 
 def _label(i, mode):
@@ -134,6 +135,46 @@ class TestEEGNet(unittest.TestCase):
         with self.assertRaises(ValueError):
             EEGNet(dataset=_dataset(4, 31))
 
+    def test_several_label_keys_raise(self):
+        dataset = create_sample_dataset(
+            samples=[
+                {
+                    "patient_id": f"p{i}",
+                    "signal": np.zeros((4, 128), np.float32),
+                    "label": i % 3,
+                    "other": i % 2,
+                }
+                for i in range(4)
+            ],
+            input_schema={"signal": "tensor"},
+            output_schema={"label": "multiclass", "other": "binary"},
+            dataset_name="test_eegnet",
+        )
+        with self.assertRaisesRegex(ValueError, "one label key"):
+            EEGNet(dataset=dataset)
+
+    def test_several_signal_keys_raise(self):
+        dataset = _dataset(4, 128, extra="second_signal")
+        with self.assertRaisesRegex(ValueError, "one signal feature key"):
+            EEGNet(dataset=dataset)
+
+    def test_signal_of_three_dimensions_raises(self):
+        dataset = create_sample_dataset(
+            samples=[
+                {
+                    "patient_id": f"p{i}",
+                    "signal": np.zeros((2, 4, 128), np.float32),
+                    "label": i % 3,
+                }
+                for i in range(4)
+            ],
+            input_schema={"signal": "tensor"},
+            output_schema={"label": "multiclass"},
+            dataset_name="test_eegnet",
+        )
+        with self.assertRaisesRegex(ValueError, r"expects a \(channels, time\)"):
+            EEGNet(dataset=dataset)
+
     def test_stft_feature_is_ignored(self):
         dataset = _dataset(4, 128, extra="stft")
         model = EEGNet(dataset=dataset)
@@ -206,6 +247,24 @@ class TestEEGNet(unittest.TestCase):
         self.model.eval()
         with torch.inference_mode():
             self.model(**batch)
+        self._assert_within_max_norm()
+
+    def test_two_forward_passes_before_one_backward(self):
+        # The projection writes the weights in place; a second forward pass
+        # before backward must not modify a weight saved by the first one.
+        batch = _batch(self.dataset)
+        self._push_weights_past_max_norm(batch)
+        self.model.train()
+        loss = self.model(**batch)["loss"] + self.model(**batch)["loss"]
+        loss.backward()
+        self._assert_within_max_norm()
+
+    def test_trainer_runs_one_epoch(self):
+        loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
+        trainer = Trainer(model=self.model, device="cpu", enable_logging=False)
+        trainer.train(train_dataloader=loader, val_dataloader=loader, epochs=1)
+        scores = trainer.evaluate(loader)
+        self.assertTrue(np.isfinite(scores["loss"]))
         self._assert_within_max_norm()
 
     def test_eval_mode_is_deterministic(self):
