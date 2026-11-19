@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 from scipy.io import savemat
@@ -14,12 +15,19 @@ from pyhealth.datasets.bciiv2a import bciiv2a_filename
 FS = 50  # low rate keeps the fixtures small; the reader uses the file's fs
 
 
-def write_bnci_session(path: Path, n_trials: int = 4, artifact_first: bool = False) -> None:
+def write_bnci_session(
+    path: Path, n_trials: int = 4, artifact_first: bool = False
+) -> None:
     """Write a BNCI-style ``data`` cell: one EOG run and two trial runs."""
     runs = np.empty((1, 3), dtype=object)
     empty = np.zeros((0, 1))
-    runs[0, 0] = {"X": np.zeros((100, 25)), "trial": empty, "y": empty,
-                  "fs": FS, "artifacts": empty}
+    runs[0, 0] = {
+        "X": np.zeros((100, 25)),
+        "trial": empty,
+        "y": empty,
+        "fs": FS,
+        "artifacts": empty,
+    }
     rng = np.random.default_rng(0)
     for k in (1, 2):
         n = n_trials * 8 * FS + FS
@@ -79,6 +87,43 @@ class TestBCICompetitionIV2aDataset(unittest.TestCase):
             self._dataset(subjects=[10])
         with self.assertRaises(ValueError):
             self._dataset(sessions=["X"])
+
+    def test_download_fetches_missing_files(self):
+        target = self.tmp / "empty"
+        calls = []
+
+        def fake_download(url, dest):
+            calls.append((url, dest))
+            write_bnci_session(Path(dest))
+
+        with mock.patch("pyhealth.utils.download_file", side_effect=fake_download):
+            ds = BCICompetitionIV2aDataset(
+                root=str(target),
+                subjects=[3],
+                sessions=["E"],
+                download=True,
+                metadata_cache_dir=str(self.tmp / "meta"),
+                cache_dir=str(self.tmp / "cache"),
+            )
+        self.assertEqual(
+            calls,
+            [
+                (
+                    "https://bnci-horizon-2020.eu/database/data-sets/001-2014/A03E.mat",
+                    str(target / "A03E.mat"),
+                )
+            ],
+        )
+        events = ds.get_patient("A03").get_events(event_type="sessions")
+        self.assertEqual([str(e.record_id) for e in events], ["A03E"])
+        samples = ds.set_task(num_workers=1)
+        self.assertEqual(len(samples), 8)  # 2 runs x 4 trials, no artifacts
+        samples.close()
+
+        # Files already present are not downloaded again.
+        with mock.patch("pyhealth.utils.download_file") as again:
+            self._dataset(subjects=[1], download=True)
+        again.assert_not_called()
 
     def test_default_task(self):
         ds = self._dataset(subjects=[1])

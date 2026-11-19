@@ -24,16 +24,18 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pandas as pd
+import yaml
 from filelock import FileLock
 
 from .base_dataset import BaseDataset
 from .configs.config import load_yaml_config
-from .ptbxl import _write_csv_atomic, _write_yaml_atomic, root_cache_key
+from .ptbxl import root_cache_key
 from .utils import MODULE_CACHE_PATH
 
 if TYPE_CHECKING:
@@ -59,6 +61,16 @@ METADATA_COLUMNS = (
 )
 
 _DEFAULT_METADATA_CACHE = Path(MODULE_CACHE_PATH) / "bciiv2a"
+
+
+def _write_text_atomic(text: str, dest: Path) -> None:
+    """Write ``text`` to ``dest`` through a temporary file and ``os.replace``."""
+    tmp_path = dest.with_name(dest.name + ".tmp")
+    try:
+        tmp_path.write_text(text, encoding="utf-8")
+        os.replace(tmp_path, dest)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def bciiv2a_filename(subject: int, session: str) -> str:
@@ -89,24 +101,55 @@ class BCICompetitionIV2aDataset(BaseDataset):
     task cuts the trials.
 
     Getting the data:
-        - Source: https://bnci-horizon-2020.eu/database/data-sets (001-2014,
-          "Four class motor imagery"). Description of the paradigm:
-          https://www.bbci.de/competition/iv/desc_2a.pdf
-        - Access: open, no account needed. 18 MATLAB files of about 43 MB
-          (about 780 MB in all).
-        - Download: pass ``download=True`` to fetch the requested files into
-          ``root``, or ``wget https://bnci-horizon-2020.eu/database/data-sets/001-2014/A01T.mat``
-          (and so on for ``A01E`` ... ``A09E``).
-        - ``root``: the folder holding ``A0{1..9}{T,E}.mat``. The BNCI ``E``
-          files include the evaluation labels (the original GDF release
-          does not), so the GDF files are not supported.
+        - Source: https://bnci-horizon-2020.eu/database/data-sets, entry
+          "1. Four class motor imagery (001-2014)", originally data set 2a
+          of BCI Competition IV. Paradigm description:
+          https://www.bbci.de/competition/iv/desc_2a.pdf. Paper: Tangermann
+          et al. (2012), below.
+        - Access: open download. No account, registration or data-use
+          agreement.
+        - Files: 18 MATLAB files ``A01T.mat``, ``A01E.mat`` ...
+          ``A09T.mat``, ``A09E.mat``, 37-46 MB each (779,873,919 bytes, about
+          780 MB, in all). ``T`` is the training session and ``E`` the
+          evaluation session of each subject.
+        - Download: pass ``download=True`` to fetch the requested files
+          into ``root``, or run::
+
+              mkdir -p bnci/001-2014 && cd bnci/001-2014
+              for s in 1 2 3 4 5 6 7 8 9; do for x in T E; do
+                wget https://bnci-horizon-2020.eu/database/data-sets/001-2014/A0${s}${x}.mat
+              done; done
+
+          (the links redirect to ``https://lampx.tugraz.at/~bci/database/001-2014/``).
+        - Unpack: nothing to unpack; the ``.mat`` files are read directly.
+        - ``root`` layout (only the files of the requested ``subjects`` and
+          ``sessions`` need to be present)::
+
+              <root>/
+                  A01T.mat
+                  A01E.mat
+                  ...
+                  A09T.mat
+                  A09E.mat
+
+          The derived metadata goes to ``metadata_cache_dir``, never into
+          ``root``. The BNCI ``E`` files include the evaluation labels (the
+          original competition GDF release does not), so the GDF files are
+          not supported.
 
     Licence: Creative Commons Attribution-NoDerivatives 4.0 International
-    (CC BY-ND 4.0), licensor Graz University of Technology. You may use and
-    share the original files with attribution, but you must not distribute
-    modified or preprocessed copies (for example the cached samples this
-    class and its task produce). Cite Tangermann et al. (2012) and the
+    (CC BY-ND 4.0, https://creativecommons.org/licenses/by-nd/4.0/),
+    licensor Institute for Knowledge Discovery, Graz University of
+    Technology. You may use and share the original files with attribution,
+    but you must not distribute modified or preprocessed copies (for
+    example the cached samples this class and its task produce). There is
+    no non-commercial (NC) term. Cite Tangermann et al. (2012) and the
     dataset description above.
+
+    Citation:
+        M. Tangermann, K.-R. Muller, A. Aertsen, N. Birbaumer, C. Braun,
+        C. Brunner, et al. "Review of the BCI Competition IV." Frontiers in
+        Neuroscience 6, 55 (2012). https://doi.org/10.3389/fnins.2012.00055
 
     Benchmarked in CLIMB (Dai et al., 2025, https://github.com/DDVD233/CLIMB).
 
@@ -164,10 +207,15 @@ class BCICompetitionIV2aDataset(BaseDataset):
         self.sessions = self._check_sessions(sessions)
         self.download = download
         self.metadata_cache_dir = Path(
-            metadata_cache_dir if metadata_cache_dir is not None else _DEFAULT_METADATA_CACHE
+            metadata_cache_dir
+            if metadata_cache_dir is not None
+            else _DEFAULT_METADATA_CACHE
         )
         selection = (
-            "s" + "-".join(f"{s:02d}" for s in self.subjects) + "_" + "".join(self.sessions)
+            "s"
+            + "-".join(f"{s:02d}" for s in self.subjects)
+            + "_"
+            + "".join(self.sessions)
         )
         self.metadata_file_name = (
             f"bciiv2a-pyhealth-{selection}-{root_cache_key(self.data_root)}.csv"
@@ -191,7 +239,9 @@ class BCICompetitionIV2aDataset(BaseDataset):
 
     @staticmethod
     def _check_subjects(subjects: Iterable[int] | None) -> list[int]:
-        values = sorted({int(s) for s in (subjects if subjects is not None else range(1, 10))})
+        values = sorted(
+            {int(s) for s in (subjects if subjects is not None else range(1, 10))}
+        )
         bad = [s for s in values if not 1 <= s <= 9]
         if bad or not values:
             raise ValueError(f"subjects must be in 1..9, got {list(subjects or [])}")
@@ -227,7 +277,9 @@ class BCICompetitionIV2aDataset(BaseDataset):
             ".csv", ".yaml"
         )
         with FileLock(str(out_path) + ".lock"):
-            _write_yaml_atomic(config.model_dump(), out_path)
+            _write_text_atomic(
+                yaml.safe_dump(config.model_dump(), sort_keys=False), out_path
+            )
         return out_path
 
     def _download(self, path: Path) -> None:
@@ -276,7 +328,7 @@ class BCICompetitionIV2aDataset(BaseDataset):
                         return
                 except (OSError, ValueError, pd.errors.ParserError):
                     pass
-            _write_csv_atomic(df, csv_path)
+            _write_text_atomic(df.to_csv(index=False), csv_path)
         logger.info("Wrote %d BCI-IV-2a session rows to %s", len(df), csv_path)
 
     @property

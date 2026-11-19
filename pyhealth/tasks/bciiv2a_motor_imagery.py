@@ -54,6 +54,8 @@ def load_bciiv2a_trials(
         tmin (float): Window start in seconds after trial start.
         tmax (float): Window end (exclusive) in seconds after trial start.
         drop_artifacts (bool): Skip trials the experts marked as artifacts.
+            Trials whose window holds NaN or infinite samples, or runs past
+            the end of the run, are always skipped with a warning.
         include_eog (bool): Keep the 3 EOG channels (desc_2a says they must
             not be used for classification). Defaults to ``False``.
         l_freq (float | None): Optional band-pass low edge in Hz, applied to
@@ -101,10 +103,18 @@ def load_bciiv2a_trials(
                 continue
             start = onset - 1 + start_offset
             if start < 0 or start + length > x.shape[1]:
-                logger.warning("Trial %d of run %d exceeds the run", trial_index, run_index)
+                logger.warning(
+                    "Trial %d of run %d exceeds the run", trial_index, run_index
+                )
                 continue
             signal = x[:, start : start + length].astype(np.float32)
             if not np.isfinite(signal).all():
+                logger.warning(
+                    "Trial %d of run %d of %s has non-finite samples; skipped",
+                    trial_index,
+                    run_index,
+                    path,
+                )
                 continue
             out.append(
                 {
@@ -143,8 +153,11 @@ class BCIIV2aMotorImageryClassification(BaseTask):
       No filter is applied by default; pass ``l_freq`` / ``h_freq``.
     - Artifact trials are dropped from both sessions by default, as in CLIMB
       and as in the competition's scoring (desc_2a builds the confusion
-      matrices from artifact-free trials). ``drop_artifacts=False`` keeps all
-      288 trials per session.
+      matrices from artifact-free trials). ``drop_artifacts=False`` keeps
+      the artifact-marked trials too (288 per session on the released
+      files). Trials whose window contains NaN or infinite samples, or that
+      run past the end of their run, are always skipped with a warning,
+      whatever ``drop_artifacts`` is.
     - CLIMB's per-subject train-set normalisation is model-side and is not
       applied here.
 
