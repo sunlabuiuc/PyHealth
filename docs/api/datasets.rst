@@ -483,7 +483,7 @@ PyHealth does not ship any data: you download each dataset from its source and p
    * - :doc:`CBIS-DDSM <datasets/pyhealth.datasets.CBISDDSMDataset>`
      - Open
      - `TCIA <https://www.cancerimagingarchive.net/collection/cbis-ddsm/>`__
-     - CSVs only (DICOMs via NBIA Data Retriever)
+     - CSVs only; DICOMs (163.5 GB) via the NBIA Data Retriever, or a few series with ``download_series()``
      - —
    * - :doc:`BMD-HS <datasets/pyhealth.datasets.BMDHSDataset>`
      - Open

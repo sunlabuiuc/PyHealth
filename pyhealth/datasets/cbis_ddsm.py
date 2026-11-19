@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -24,6 +25,8 @@ _CSV_STEMS = {
 }
 _METADATA_FILE = "cbis-ddsm-metadata-pyhealth.csv"
 _MARKER_FILE = "cbis-ddsm-metadata-key.txt"
+# DICOM UIDs are dot-separated digit groups (PS3.5 9.1).
+_UID_PATTERN = re.compile(r"[0-9]+(\.[0-9]+)*")
 
 
 def _series_uid_from_path(image_file_path: str) -> str:
@@ -62,28 +65,64 @@ class CBISDDSMDataset(BaseDataset):
     :class:`~pyhealth.tasks.CBISDDSMBIRADSClassification`.
 
     Getting the data:
-        - Source: https://www.cancerimagingarchive.net/collection/cbis-ddsm/
-          (The Cancer Imaging Archive, doi 10.7937/K9/TCIA.2016.7O02S9CY).
-        - Access: open, no account needed.
-        - Download: ``download=True`` fetches the four case-description CSVs.
-          The DICOMs (about 163 GB, 6,775 series) come from the NBIA Data
-          Retriever with the collection's ``.tcia`` manifest. Single series
-          can be fetched with :meth:`download_series`.
-        - ``root``: a folder holding the four ``*_case_description_*_set.csv``
-          files and the DICOMs in any of these layouts: ``dicom/<SeriesUID>/
-          *.dcm``, the CSV path layout (``<case>/<StudyUID>/<SeriesUID>/
-          *.dcm``), or an NBIA Data Retriever tree with its ``metadata.csv``.
+        - Source page: https://www.cancerimagingarchive.net/collection/cbis-ddsm/
+          (The Cancer Imaging Archive, collection doi
+          10.7937/K9/TCIA.2016.7O02S9CY). The paper is cited below.
+        - Access: open. No account, registration or data-use agreement is
+          needed. You must follow the TCIA Data Usage Policy and cite the
+          data set and the paper.
+        - Case-description CSVs (about 2 MB in total):
+          ``mass_case_description_train_set.csv`` (755 KB),
+          ``mass_case_description_test_set.csv`` (212 KB),
+          ``calc_case_description_train_set.csv`` (904 KB) and
+          ``calc_case_description_test_set.csv`` (186 KB). Pass
+          ``download=True`` to fetch them, or run, for each file,
+          ``wget https://www.cancerimagingarchive.net/wp-content/uploads/<name>.csv``.
+        - DICOMs (163.5 GB for the whole collection, 6,775 series, 10,239
+          images): install the NBIA Data Retriever
+          (https://www.cancerimagingarchive.net/tcia-data-retriever/),
+          download a ``.tcia`` manifest from the "Data Access" table of the
+          source page, open it in the Data Retriever, choose ``root`` as the
+          destination and start the download. Only the full mammograms are
+          used, so the four "full_mammogram_images" manifests of the
+          "Detailed Description" section are enough (the
+          ``CBIS-DDSM-All-...tcia`` manifest also brings the ROI masks and
+          crops, which are ignored). For a few series,
+          :meth:`download_series` fetches them over the NBIA REST API.
+        - Unpacking: nothing to unpack. The CSVs are plain files, the Data
+          Retriever writes DICOM folders and :meth:`download_series`
+          extracts its zips itself.
+        - ``root`` layout. CSVs can be at any depth; each full-mammogram
+          series is found by the name of its folder (the SeriesInstanceUID)
+          or through the Data Retriever's ``metadata.csv``::
+
+              root/
+                mass_case_description_train_set.csv
+                mass_case_description_test_set.csv
+                calc_case_description_train_set.csv
+                calc_case_description_test_set.csv
+                # then the DICOMs, in any one of these layouts:
+                dicom/<SeriesUID>/*.dcm               # download_series()
+                <case>/<StudyUID>/<SeriesUID>/*.dcm   # CSV image paths
+                <any>/metadata.csv                    # Data Retriever output,
+                <any>/CBIS-DDSM/...                   # found via metadata.csv
+
           Derived metadata is written to ``metadata_dir`` (by default under
           the PyHealth cache), never into ``root``.
-
-    Licence: Creative Commons Attribution 3.0 (CC BY 3.0). Cite the
-    collection and the paper below when you use it.
+        - Licence: Creative Commons Attribution 3.0 (CC BY 3.0). Commercial
+          use and derivatives are allowed with attribution; there are no NC
+          or ND terms.
 
     Citation:
         Lee, R. S., Gimenez, F., Hoogi, A., Miyake, K. K., Gorovoy, M., &
         Rubin, D. L. (2017). A curated mammography data set for use in
         computer-aided detection and diagnosis research. Scientific Data, 4,
         170177. https://doi.org/10.1038/sdata.2017.177
+
+        Data set: Sawyer-Lee, R., Gimenez, F., Hoogi, A., & Rubin, D.
+        (2016). Curated Breast Imaging Subset of Digital Database for
+        Screening Mammography (CBIS-DDSM). The Cancer Imaging Archive.
+        https://doi.org/10.7937/K9/TCIA.2016.7O02S9CY
 
     Benchmarked in CLIMB (Dai et al., 2025, https://github.com/DDVD233/CLIMB).
 
@@ -338,6 +377,11 @@ class CBISDDSMDataset(BaseDataset):
         Args:
             series_uids: SeriesInstanceUIDs, e.g. from the CSV image paths.
 
+        Raises:
+            ValueError: If a UID is not a dotted-digit DICOM UID. The UID
+                becomes a folder name, so anything else (``/``, ``..``) is
+                rejected before any path is built.
+
         Examples:
             >>> dataset = CBISDDSMDataset(root="/path/to/cbis-ddsm")  # doctest: +SKIP
             >>> dataset.download_series(  # doctest: +SKIP
@@ -345,6 +389,8 @@ class CBISDDSMDataset(BaseDataset):
             ... )
         """
         for uid in series_uids:
+            if not isinstance(uid, str) or not _UID_PATTERN.fullmatch(uid):
+                raise ValueError(f"Not a DICOM SeriesInstanceUID: {uid!r}")
             target = self.source_root / "dicom" / uid
             if target.is_dir() and any(target.glob("*.dcm")):
                 continue
