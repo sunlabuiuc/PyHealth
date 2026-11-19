@@ -4,5 +4,6 @@ from .promptehr import PromptEHR
 from .medgan import MedGAN
 from .corgan import CorGAN
 from .synthea import Synthea
+from .tardiff import TarDiff
 
-__all__ = ["GPT2", "HALO", "CorGAN", "MedGAN", "PromptEHR", "Synthea"]
+__all__ = ["GPT2", "HALO", "CorGAN", "MedGAN", "PromptEHR", "Synthea", "TarDiff"]
