@@ -141,7 +141,7 @@ class BCSSDataset(BaseDataset):
 
     The Breast Cancer Semantic Segmentation (BCSS) dataset has 151
     hand-annotated regions of interest (ROIs), one per TCGA-BRCA slide and
-    patient, at 0.25 microns per pixel (about 1.8k to 6.7k pixels per side).
+    patient, at 0.25 microns per pixel (a few thousand pixels per side, up to about 7.4k).
     Each ROI has an RGB image and a mask whose pixel values follow
     ``meta/gtruth_codes.tsv`` (see :data:`BCSS_CLASS_CODES`). Mask value
     ``0`` means "outside ROI / don't care" and never labels a tile.
@@ -169,6 +169,14 @@ class BCSSDataset(BaseDataset):
     reproduce CLIMB's numbers. Changing any of them builds a new tile
     directory (the directory name holds a hash of the recipe and of each
     source file's name, size and modification time).
+
+    Each kept tile is saved twice: the RGB crop (``path``) and the matching
+    crop of the raw mask (``mask_path``, 8-bit PNG of the original codes),
+    so the same tiles serve tile classification
+    (:class:`~pyhealth.tasks.BCSSTileClassification`) and semantic
+    segmentation (:class:`~pyhealth.tasks.BCSSTissueSegmentation`). For
+    segmentation, keep tiles of every class with a low purity threshold,
+    for example ``class_codes=BCSS_CLASS_CODES, min_purity=0.3``.
 
     ``patient_id`` is the TCGA patient barcode (``TCGA-XX-YYYY``), and the
     events carry ``site`` (the TCGA tissue-source site, ``XX``), ``roi_id``,
@@ -333,6 +341,7 @@ class BCSSDataset(BaseDataset):
         name = dataset_name or self.default_dataset_name
         recipe = {
             "root": str(self.source_root),
+            "layout": 2,  # 2: mask tiles saved next to the RGB tiles
             "image_dir": image_dir,
             "tile_size": self.tile_size,
             "stride": self.stride,
@@ -423,9 +432,9 @@ class BCSSDataset(BaseDataset):
         from PIL import Image
 
         rows = []
-        # The largest BCSS ROI is about 45 M pixels, under Pillow's
-        # decompression-bomb error limit, so Pillow's global limit is left
-        # unchanged. Only the size warning is silenced, and only here.
+        # BCSS ROIs are at most about 50 M pixels (for example 7360 x 6813),
+        # under Pillow's decompression-bomb error limit, so Pillow's global
+        # limit is left unchanged. Only the size warning is silenced, here.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", Image.DecompressionBombWarning)
             for roi_id, info in sorted(self._rois.items()):
@@ -437,6 +446,7 @@ class BCSSDataset(BaseDataset):
             "split",
             "tile_id",
             "path",
+            "mask_path",
             "x",
             "y",
             "label_code",
@@ -482,7 +492,11 @@ class BCSSDataset(BaseDataset):
                 code, purity = result
                 tile_id = f"{roi_id}_x{x}_y{y}"
                 path = out_dir / f"x{x}_y{y}.png"
+                mask_path = out_dir / f"x{x}_y{y}_mask.png"
                 image_module.fromarray(rgb[y : y + size, x : x + size]).save(path)
+                image_module.fromarray(
+                    mask[y : y + size, x : x + size].astype(np.uint8), mode="L"
+                ).save(mask_path)
                 rows.append(
                     {
                         "patient_id": info["patient_id"],
@@ -491,6 +505,7 @@ class BCSSDataset(BaseDataset):
                         "split": split,
                         "tile_id": tile_id,
                         "path": str(path),
+                        "mask_path": str(mask_path),
                         "x": x,
                         "y": y,
                         "label_code": code,

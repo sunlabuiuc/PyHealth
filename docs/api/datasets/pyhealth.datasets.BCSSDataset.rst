@@ -12,7 +12,11 @@ configurable recipe (``tile_size``, ``stride``, ``min_purity``,
 ``class_codes``, ``image_dir``), and exposes the official site-held-out test
 split through ``official_split()``. ``root`` must hold ``masks/`` and
 ``rgbs_colorNormalized/`` (or ``images/``). The tiling recipe is this
-loader's own and does not reproduce CLIMB's numbers.
+loader's own and does not reproduce CLIMB's numbers. Each tile is saved
+with its mask crop, so the same tiles serve two tasks:
+:class:`~pyhealth.tasks.BCSSTileClassification` (dominant tissue class,
+CLIMB-style) and :class:`~pyhealth.tasks.BCSSTissueSegmentation` (the BCSS
+paper's five-class pixel segmentation, with a U-Net).
 
 Getting the data
 ----------------

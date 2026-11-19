@@ -66,6 +66,10 @@ class TestBCSSDataset(unittest.TestCase):
         # Code 0 (don't care) and code 9 (fat, not a main class) are dropped.
         self.assertEqual(sorted(e.label for e in events), ["stroma", "tumor"])
         self.assertTrue(all(Path(e.path).is_file() for e in events))
+        for e in events:
+            mask = np.asarray(Image.open(e.mask_path))
+            self.assertEqual(mask.shape, (4, 4))
+            self.assertEqual(int(mask[0, 0]), int(e.label_code))
         self.assertTrue(all(e.split == "train" for e in events))
         test_events = ds.get_patient("TCGA-E2-CCCC").get_events(event_type="bcss")
         self.assertEqual({e.split for e in test_events}, {"test"})
