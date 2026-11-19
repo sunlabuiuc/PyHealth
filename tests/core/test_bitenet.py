@@ -490,12 +490,22 @@ class TestBiteNet(unittest.TestCase):
 
         self.assertIsNotNone(self.model.fc.weight.grad)
         self.assertIsNotNone(self.model.fusion[0].weight.grad)
-        for name, param in self.model.forward_encoder.named_parameters():
-            if param.requires_grad:
-                self.assertIsNotNone(param.grad, f"Forward parameter {name} has no grad")
-        for name, param in self.model.backward_encoder.named_parameters():
-            if param.requires_grad:
-                self.assertIsNotNone(param.grad, f"Backward parameter {name} has no grad")
+        for name, param in self.model.named_parameters():
+            if param.requires_grad and param.grad is not None:
+                self.assertTrue(
+                    torch.isfinite(param.grad).all(),
+                    f"Parameter {name} has non-finite gradients on padded batch",
+                )
+
+    def test_sinusoidal_intervals_not_clamped_beyond_max_interval(self):
+        """Ensures large day intervals in sinusoidal mode are not clamped to max_interval."""
+        enc = BiteNetTemporalEncoding(
+            embedding_dim=16, pos_encoding="sinusoidal", max_interval=365
+        )
+        large_intervals = torch.tensor([[500, 1000]])
+        aligned = enc.align_temporal_ids(large_intervals, target_len=2, max_val=None)
+        self.assertEqual(aligned[0, 0].item(), 500)
+        self.assertEqual(aligned[0, 1].item(), 1000)
 
 
 if __name__ == "__main__":

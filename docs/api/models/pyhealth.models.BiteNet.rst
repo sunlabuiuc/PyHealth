@@ -15,7 +15,7 @@ Temporal Interval Features:
 Sequence Pooling:
 - ``"attention"`` (default): Uses attention pooling over the forward and backward directional hidden representations.
 - ``"mean"``: Computes the average representation across all valid (unpadded) tokens according to the token mask.
-- ``"cls"``: Uses the first code token representation (index 0) for forward and the last valid token for backward.
+- ``"cls"``: Uses the last valid token representation for forward (which sees all preceding visits) and index 0 for backward (which sees all succeeding visits).
 
 .. autoclass:: pyhealth.models.AttentionPooling
     :members:

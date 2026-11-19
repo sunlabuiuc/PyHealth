@@ -204,8 +204,11 @@ class BiteNetTemporalEncoding(nn.Module):
 
         if interval_ids is not None:
             target_device = device if device is not None else interval_ids.device
+            max_val = (
+                self.max_interval if self.pos_encoding == "embedding" else None
+            )
             aligned = self.align_temporal_ids(
-                interval_ids.to(target_device), seq_len, self.max_interval
+                interval_ids.to(target_device), seq_len, max_val=max_val
             )
             if self.pos_encoding == "embedding":
                 assert self.interval_embeddings is not None
@@ -338,34 +341,38 @@ class BiteNetEncoder(nn.Module):
         Returns:
             Encoded representation tensor of shape ``[batch_size, seq_len, d_model]``.
         """
-        seq_len = x.size(1)
+        _, seq_len, _ = x.shape
         device = x.device
-        attn_mask = None
 
         if self.direction == "forward":
-            # Boolean mask: True means masked out (forbidden: j > i)
-            attn_mask = torch.triu(
+            directional = torch.triu(
                 torch.ones(seq_len, seq_len, dtype=torch.bool, device=device),
                 diagonal=1,
             )
         elif self.direction == "backward":
-            # Boolean mask: True means masked out (forbidden: j < i)
-            attn_mask = torch.tril(
+            directional = torch.tril(
                 torch.ones(seq_len, seq_len, dtype=torch.bool, device=device),
                 diagonal=-1,
             )
+        else:
+            directional = torch.zeros(
+                seq_len, seq_len, dtype=torch.bool, device=device
+            )
 
-        key_padding_mask = None
         if mask is not None:
-            key_padding_mask = ~mask
-            all_pad = ~mask.any(dim=1)
-            if all_pad.any():
-                key_padding_mask = key_padding_mask.clone()
-                key_padding_mask[all_pad, 0] = False
+            # Combine directional mask and key padding mask
+            combined = directional.unsqueeze(0) | (~mask).unsqueeze(1)
+            # Guard against all-masked rows to prevent NaNs in softmax forward and backward
+            all_masked = combined.all(dim=-1)
+            if all_masked.any():
+                combined = combined.clone()
+                combined[all_masked, 0] = False
+            attn_mask = combined.repeat_interleave(self.heads, dim=0)
+        else:
+            attn_mask = directional
 
         for layer in self.layers:
-            x = layer(x, attn_mask=attn_mask, key_padding_mask=key_padding_mask)
-            x = torch.nan_to_num(x, nan=0.0)
+            x = layer(x, attn_mask=attn_mask)
             if mask is not None:
                 x = x.masked_fill(~mask.unsqueeze(-1), 0.0)
 
@@ -417,7 +424,6 @@ class BiteNet(BaseModel):
         pos_encoding: Temporal interval encoding mode: ``"sinusoidal"``,
             ``"embedding"``, or ``"none"``. Default is ``"sinusoidal"``.
         max_interval: Maximum inter-visit interval index. Default is 365.
-        max_seq_len: Maximum token sequence length. Default is 512.
         pooling: Sequence pooling method: ``"attention"``, ``"mean"``, or
             ``"cls"``. Default is ``"attention"``.
 
@@ -464,7 +470,6 @@ class BiteNet(BaseModel):
         num_layers: int = 1,
         pos_encoding: str = "sinusoidal",
         max_interval: int = 365,
-        max_seq_len: int = 512,
         pooling: str = "attention",
     ) -> None:
         super().__init__(dataset=dataset)
@@ -486,7 +491,6 @@ class BiteNet(BaseModel):
         self.num_layers = num_layers
         self.pos_encoding = pos_encoding
         self.max_interval = max_interval
-        self.max_seq_len = max_seq_len
         self.pooling = pooling
 
         # Protect auxiliary temporal inputs from being treated as code tokens
