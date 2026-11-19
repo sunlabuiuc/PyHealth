@@ -5,11 +5,13 @@ import unittest
 from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 
 from pyhealth.datasets import HMCDataset
+from pyhealth.datasets.metadata_csv import resolve_metadata_root
 from pyhealth.tasks import SleepStagingHMC
 from pyhealth.tasks.sleep_staging_hmc import (
     HMC_EEG_CHANNELS,
@@ -196,6 +198,39 @@ class TestHMCMetadata(_TempDir):
 
         self.assertEqual(list(df["patient_id"]), ["SN001"])
         self.assertIn("SN002", logs.output[0])
+
+    def test_metadata_goes_to_the_home_cache_when_root_is_read_only(self):
+        for stem in ("SN002", "SN001"):
+            _write_recording(self.root, stem, ["W"])
+        home_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(home_dir.cleanup)
+        home = Path(home_dir.name)
+        real_to_csv = pd.DataFrame.to_csv
+
+        def to_csv(df, path_or_buf=None, *args, **kwargs):
+            # Stands in for a read-only root: chmod has no effect on Windows.
+            if str(path_or_buf).startswith(str(self.root)):
+                raise PermissionError(f"read-only: {path_or_buf}")
+            return real_to_csv(df, path_or_buf, *args, **kwargs)
+
+        with (
+            patch.object(pd.DataFrame, "to_csv", to_csv),
+            patch("pyhealth.datasets.metadata_csv.Path.home", return_value=home),
+        ):
+            ds = HMCDataset.__new__(HMCDataset)
+            ds.root = str(self.root)
+            ds.prepare_metadata()
+            metadata_root = Path(
+                resolve_metadata_root(self.root, "hmc", "hmc-pyhealth.csv")
+            )
+
+        self.assertFalse((self.root / "hmc-pyhealth.csv").exists())
+        self.assertTrue(metadata_root.is_relative_to(home))
+        cached = pd.read_csv(metadata_root / "hmc-pyhealth.csv", dtype=str)
+        self.assertEqual(list(cached["patient_id"]), ["SN001", "SN002"])
+        self.assertEqual(
+            Path(cached.iloc[0]["signal_file"]), (self.root / "SN001.edf").absolute()
+        )
 
     def test_default_task(self):
         task = HMCDataset.__new__(HMCDataset).default_task

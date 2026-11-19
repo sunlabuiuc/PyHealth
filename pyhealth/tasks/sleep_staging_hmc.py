@@ -159,6 +159,7 @@ class SleepStagingHMC(BaseTask):
 
     Each sample contains:
 
+    - ``patient_id``: recording id, for example ``"SN001"``
     - ``signal``: float32 array, shape ``(len(channels), 256 * epoch_seconds)``
       for HMC's 256 Hz recordings
     - ``label``: integer class index
