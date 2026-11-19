@@ -290,9 +290,9 @@ class EEGAbnormalTUAB(BaseTask):
     electrodes of the bipolar montage, are skipped with a warning.
 
     Each returned sample contains:
-      - "signal": torch.FloatTensor, shape (16, round(10 * resample_rate));
-        a window is exactly 10 s only when ``10 * resample_rate`` is a
-        whole number of samples
+      - "signal": torch.FloatTensor, shape (16, 10 * resample_rate) for an
+        integer rate. Otherwise the window holds round(10 * resample_rate)
+        samples, close to but not exactly 10 s.
       - "label": int (0 = normal, 1 = abnormal)
 
     Examples:
