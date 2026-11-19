@@ -121,6 +121,21 @@ def alarm_curve(
         ``first_alarm_distance`` (mean hours between the first alarm in the
         window and the event, over the events with one; NaN if none);
         ``n_alarms``. Plus ``n_events``.
+
+    Examples:
+        >>> curve = alarm_curve(
+        ...     scores=[[0.1, 0.9, 0.9], [0.9, 0.1, 0.1]],
+        ...     times=[[0, 1, 2], [0, 1, 2]],
+        ...     time_to_event=[[3, 2, 1], [3, 2, 1]],
+        ...     event=[[1, 1, 1], [0, 0, 0]],
+        ...     horizon=2,
+        ...     silence=1,
+        ...     thresholds=[0.5],
+        ... )
+        >>> curve["alarm_precision"].tolist(), curve["event_recall"].tolist()
+        ([0.6666666666666666], [1.0])
+        >>> curve["first_alarm_distance"].tolist()
+        [2.0]
     """
     stays = _check_stays(scores, times, time_to_event, event, horizon)
     n_events = sum(s[3] for s in stays)
@@ -167,6 +182,10 @@ def alarm_event_auprc(alarm_precision: np.ndarray, event_recall: np.ndarray) -> 
     ``sum_i (R_i - R_{i-1}) * P_i`` over thresholds from high to low, counting
     only recall above the best recall so far (silencing does not make recall
     monotone in the threshold).
+
+    Examples:
+        >>> alarm_event_auprc([1.0, 0.5], [0.5, 1.0])
+        0.75
     """
     p = np.asarray(alarm_precision, dtype=float)
     r = np.asarray(event_recall, dtype=float)
