@@ -709,3 +709,38 @@ class CLMBR(EHRFoundationModelBase):
         out = hidden[torch.arange(len(timelines), device=device), last]
         empty = (lengths == 0).to(device)
         return torch.where(empty[:, None], torch.zeros_like(out), out)
+
+    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
+        """Predicts the label of each sample from its raw event timeline.
+
+        The batch is what :func:`~pyhealth.datasets.get_dataloader` yields
+        for a :class:`~pyhealth.tasks.EHRFoundationModelTask` dataset, so
+        :class:`~pyhealth.trainer.Trainer` can call it directly. All
+        FM-specific processing happens here, not in the task:
+
+        1. each timeline's events are mapped to femr dictionary ids and ages
+           since birth (:class:`CLMBRTokenizer`), keeping the most recent
+           ``max_length`` tokens;
+        2. the timelines run through :class:`CLMBRTransformer` (without
+           gradients and through the cache in ``"frozen"`` mode);
+        3. the last token's final hidden state goes through the linear head.
+
+        Args:
+            **kwargs: The batch. ``events`` (one list of ``(timestamp, code,
+                value, unit)`` per sample) is required, and
+                ``birth_datetime`` sets the ages (else the first event's
+                time). The label (e.g. ``label``) is optional, so the model
+                also predicts on unlabeled timelines.
+
+        Returns:
+            A dict with ``logit``, ``y_prob`` and ``embed``, plus ``loss`` and
+            ``y_true`` when the label is in the batch.
+
+        Examples:
+            >>> loader = get_dataloader(dataset, batch_size=32)  # doctest: +SKIP
+            >>> Trainer(model=model, metrics=["roc_auc"]).train(  # doctest: +SKIP
+            ...     train_dataloader=loader, epochs=10)
+        """
+        births = kwargs.get(self.birth_key) if self.birth_key else None
+        embeddings = self.embed_events(kwargs[self.events_key], births)
+        return self.apply_head(embeddings, kwargs.get(self.label_key))
