@@ -85,6 +85,9 @@ from .length_of_stay_prediction import (
 )
 from .length_of_stay_stagenet_mimic4 import LengthOfStayStageNetMIMIC4
 from .medical_coding import MIMIC3ICD9Coding
+from .medmod_decompensation_mimic4 import (
+    MedModDecompensationMIMIC4 as MedModDecompensationMIMIC4,
+)
 from .meds_outcome_tasks import (
     HospitalReadmissionMEDS as HospitalReadmissionMEDS,
     ICUAdmissionMEDS as ICUAdmissionMEDS,
@@ -157,11 +160,17 @@ from .temple_university_EEG_tasks import (
     EEGEventsTUEV,
     EEGAbnormalTUAB
 )
+from .seizure_detection_helsinki import (
+    SeizureDetectionHelsinki as SeizureDetectionHelsinki,
+)
 from .seizure_detection_chbmit import (
     SeizureDetectionCHBMIT as SeizureDetectionCHBMIT,
 )
 from .sleep_staging_ear_eeg import (
     SleepStagingEarEEG as SleepStagingEarEEG,
+)
+from .soz_localization_hup import (
+    SOZLocalizationHUP as SOZLocalizationHUP,
 )
 from .eegbci import (
     EEGBCIPatternDiscovery as EEGBCIPatternDiscovery,

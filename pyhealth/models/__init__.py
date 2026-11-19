@@ -12,6 +12,12 @@ from .behrt import (
     BEHRTEmbedding as BEHRTEmbedding,
     BEHRTLayer as BEHRTLayer,
 )
+from .bitenet import (
+    AttentionPooling as AttentionPooling,
+    BiteNet as BiteNet,
+    BiteNetEncoder as BiteNetEncoder,
+    BiteNetTemporalEncoding as BiteNetTemporalEncoding,
+)
 from .neural_fine_gray import NeuralFineGray as NeuralFineGray
 from .unet import (
     DiceLoss as DiceLoss,
@@ -45,6 +51,7 @@ from .graph_torchvision_model import Graph_TorchvisionModel
 from .graphcare import GraphCare
 from .grasp import GRASP, GRASPLayer
 from .dipro import DiPro as DiPro
+from .daft import DAFT as DAFT, DAFTBlock as DAFTBlock, DAFTLayer as DAFTLayer
 from .medfuse import MedFuse, MedFuseLayer
 from .medlink import MedLink
 from .micron import MICRON, MICRONLayer
@@ -123,6 +130,11 @@ from .mira import (
     MIRABackbone as MIRABackbone,
     MIRAConfig as MIRAConfig,
     load_mira_checkpoint as load_mira_checkpoint,
+)
+from .udc import (
+    UDC as UDC,
+    DiscreteClueEncoder as DiscreteClueEncoder,
+    ResidualVectorQuantizer as ResidualVectorQuantizer,
 )
 from .descemb import (
     DescEmb as DescEmb,
