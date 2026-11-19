@@ -294,7 +294,7 @@ from .dementia_classification_ahepa import (
 from .soz_localization_hup import (
     SOZLocalizationHUP as SOZLocalizationHUP,
 )
-from .dreamt_sleep_staging import (
+from .sleep_staging_dreamt import (
     SleepStagingDREAMT as SleepStagingDREAMT
 )
 from .eegbci import (

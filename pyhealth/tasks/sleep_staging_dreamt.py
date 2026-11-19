@@ -292,7 +292,6 @@ class SleepStagingDREAMT(BaseTask):
             ``ibi`` and ``label``. Empty if the 64 Hz file is missing.
         """
         events = patient.get_events(event_type="dreamt_sleep")
-        print("events", events)
         if not events:
             return []
         path = getattr(events[0], "file_64hz", None)
