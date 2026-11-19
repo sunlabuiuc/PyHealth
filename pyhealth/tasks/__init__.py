@@ -161,6 +161,9 @@ from .rsna_pneumonia_classification import (
 from .cmmd_classification import (
     CMMDMalignancyClassification as CMMDMalignancyClassification,
 )
+from .cmmd_subtype_classification import (
+    CMMDSubtypeClassification as CMMDSubtypeClassification,
+)
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
     ReadmissionPredictionMIMIC3,

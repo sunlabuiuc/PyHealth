@@ -7,11 +7,7 @@ from pathlib import Path
 
 from pyhealth.datasets import CMMDDataset, PatientSplit, get_dataloader
 from pyhealth.tasks import CMMDMalignancyClassification
-
-try:
-    from tests.core.test_cmmd_dataset import build_cmmd_root, pydicom
-except ImportError:  # pragma: no cover - run from tests/core
-    from test_cmmd_dataset import build_cmmd_root, pydicom
+from tests.core.cmmd_test_utils import build_cmmd_root, pydicom
 
 
 @unittest.skipUnless(pydicom is not None, "pydicom is not installed")

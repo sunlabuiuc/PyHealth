@@ -275,6 +275,7 @@ Available Tasks
     CHAOS Segmentation Tasks <tasks/pyhealth.tasks.CHAOSSegmentation>
     RSNA Pneumonia Classification <tasks/pyhealth.tasks.RSNAPneumoniaClassification>
     CMMD Malignancy Classification <tasks/pyhealth.tasks.CMMDMalignancyClassification>
+    CMMD Molecular Subtype Classification <tasks/pyhealth.tasks.CMMDSubtypeClassification>
     Variant Classification (ClinVar) <tasks/pyhealth.tasks.VariantClassificationClinVar>
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>

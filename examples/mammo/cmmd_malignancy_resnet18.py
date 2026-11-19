@@ -1,10 +1,9 @@
 """Malignant vs benign mammogram classification on CMMD with ResNet-18.
 
-Loads CMMD with ``CMMDDataset``, builds one sample per labelled mammogram with
+Loads CMMD with ``CMMDDataset``, builds one sample per mammogram with
 ``CMMDMalignancyClassification`` (labels per breast side), splits by patient
 with ``PatientSplit`` (processors are fitted on the training patients only)
-and trains a randomly initialised ``TorchvisionModel`` ResNet-18 for one
-epoch.
+and trains a randomly initialised ``TorchvisionModel`` ResNet-18.
 
 CMMD has no official split. A random patient split mixes the D1 and D2
 cohorts; CLIMB's row-order split instead puts almost only malignant D2 cases
@@ -17,6 +16,8 @@ Data Retriever) and ``CMMD_clinicaldata_revision.xlsx`` in one folder (the
 run::
 
     python examples/mammo/cmmd_malignancy_resnet18.py --root /path/to/cmmd
+
+For a quick smoke run on a few images add ``--max-samples 16 --epochs 1``.
 """
 
 import argparse
@@ -30,24 +31,36 @@ from pyhealth.trainer import Trainer
 
 
 def main() -> None:
-    """Train ResNet-18 on CMMD malignancy for one epoch."""
+    """Train ResNet-18 on CMMD malignancy."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--root", required=True)
     parser.add_argument("--clinical-file", default=None)
     parser.add_argument("--cache-dir", default=None)
+    parser.add_argument("--dev", action="store_true", help="Load at most 1000 patients.")
+    parser.add_argument(
+        "--max-samples", type=int, default=None,
+        help="Keep at most this many images per split (smoke runs).",
+    )
+    parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
     torch.manual_seed(0)
 
     dataset = CMMDDataset(
-        root=args.root, clinical_file=args.clinical_file, cache_dir=args.cache_dir
+        root=args.root,
+        clinical_file=args.clinical_file,
+        cache_dir=args.cache_dir,
+        dev=args.dev,
     )
     dataset.stats()
-    train_ds, val_ds, test_ds = dataset.set_task(
+    parts = dataset.set_task(
         CMMDMalignancyClassification(),
         split=PatientSplit(ratios=(0.7, 0.1, 0.2), seed=0),
     )
+    if args.max_samples is not None:
+        parts = [p.subset(range(min(args.max_samples, len(p)))) for p in parts]
+    train_ds, val_ds, test_ds = parts
     print("images train/val/test:", len(train_ds), len(val_ds), len(test_ds))
 
     model = TorchvisionModel(
@@ -59,7 +72,7 @@ def main() -> None:
         val_dataloader=(
             get_dataloader(val_ds, batch_size=args.batch_size) if len(val_ds) else None
         ),
-        epochs=1,
+        epochs=args.epochs,
     )
     print("test:", trainer.evaluate(get_dataloader(test_ds, batch_size=args.batch_size)))
 
