@@ -39,8 +39,8 @@ from .graphcare import GraphCare
 from .grasp import GRASP, GRASPLayer
 from .dipro import DiPro as DiPro
 from .medfuse import MedFuse, MedFuseLayer
-from .ehr_cxr_early_fusion import EHRCXREarlyFusion
-from .convirt import ConVIRT, ConVIRTLinearProbe
+from .ehr_cxr_early_fusion import EHRCXREarlyFusion as EHRCXREarlyFusion
+from .convirt import ConVIRT as ConVIRT, ConVIRTLinearProbe as ConVIRTLinearProbe
 from .medlink import MedLink
 from .micron import MICRON, MICRONLayer
 from .mlp import MLP

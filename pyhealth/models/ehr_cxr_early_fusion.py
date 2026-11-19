@@ -81,6 +81,11 @@ class EHRCXREarlyFusion(BaseModel):
     With ``freeze_encoders=False`` all parts are trained, which is the Joint
     Fusion baseline of the paper.
 
+    Frozen encoders stay in eval mode during training, so the ResNet's
+    BatchNorm statistics do not change and the LSTM applies no dropout.
+    MedFuse instead sets the whole model to train mode, frozen encoders
+    included, so results can differ slightly from its code.
+
     The model expects samples that have an image. With
     :class:`~pyhealth.tasks.EHRCXRMortalityMIMIC4` use ``paired_only=True``,
     or select the samples with ``cxr_mask == 1``.

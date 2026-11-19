@@ -173,6 +173,33 @@ class TestConVIRT(unittest.TestCase):
         self.assertTrue(torch.isfinite(_convirt(dataset)(**batch)["loss"]))
 
 
+class TestConVIRTPacking(unittest.TestCase):
+    def test_padding_does_not_change_the_ehr_feature(self) -> None:
+        encoders = _convirt(_dataset()).encoders.eval()
+        short, long = torch.randn(1, 3, EHR_DIM), torch.randn(1, 5, EHR_DIM)
+        padded = torch.cat(
+            [torch.cat([short, torch.zeros(1, 2, EHR_DIM)], dim=1), long]
+        )
+        images = torch.rand(2, 3, 32, 32)
+        with torch.no_grad():
+            batched, _ = encoders(padded, images, torch.tensor([3, 5]))
+            alone, _ = encoders(short, images[:1])
+        self.assertTrue(torch.allclose(batched[0], alone[0], atol=1e-6))
+
+    def test_pretraining_batches_of_varying_length(self) -> None:
+        from pyhealth.datasets.medmod.synthetic import (
+            create_synthetic_pretraining_samples,
+        )
+
+        dataset = create_synthetic_pretraining_samples(n_stays=6, seed=0)
+        batch = next(iter(get_dataloader(dataset, batch_size=6)))
+        _, lengths = batch["ehr"]
+        self.assertGreater(len(set(lengths.tolist())), 1)
+        batch["cxr"] = torch.rand(6, 3, 32, 32)
+        model = _convirt(dataset)
+        self.assertTrue(torch.isfinite(model(**batch)["loss"]))
+
+
 class TestConVIRTLinearProbe(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:

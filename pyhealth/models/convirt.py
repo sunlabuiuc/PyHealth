@@ -136,8 +136,17 @@ class _ConVIRTEncoders(nn.Module):
                 nn.init.zeros_(parameter)
 
     def forward(
-        self, ehr: torch.Tensor, cxr: torch.Tensor
+        self,
+        ehr: torch.Tensor,
+        cxr: torch.Tensor,
+        lengths: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        if lengths is not None:
+            # Zero-padded stays of different lengths: packing makes the LSTM
+            # stop at each stay's last bin, as MedMod's EHR encoder does.
+            ehr = nn.utils.rnn.pack_padded_sequence(
+                ehr, lengths.cpu(), batch_first=True, enforce_sorted=False
+            )
         if self.cxr_mean is not None:
             # MedMod feeds ConVIRT pixel values in [0, 1], without ImageNet
             # normalization, so undo the normalization of the input.
@@ -284,12 +293,25 @@ class ConVIRT(BaseModel):
         cxr = value_tensor(
             self.dataset, self.cxr_feature_key, kwargs[self.cxr_feature_key]
         )
+        lengths = _ehr_lengths(
+            self.dataset, self.ehr_feature_key, kwargs[self.ehr_feature_key]
+        )
         v_ehr, v_cxr = self.encoders(
-            ehr.to(self.device).float(), cxr.to(self.device).float()
+            ehr.to(self.device).float(), cxr.to(self.device).float(), lengths
         )
         z_ehr, z_cxr = self.ehr_head(v_ehr), self.cxr_head(v_cxr)
         loss = info_nce_loss(z_ehr, z_cxr, self.temperature)
         return {"loss": loss, "z_ehr": z_ehr, "z_cxr": z_cxr}
+
+
+def _ehr_lengths(
+    dataset: SampleDataset, key: str, feature: torch.Tensor | tuple[torch.Tensor, ...]
+) -> torch.Tensor | None:
+    """The true lengths of zero-padded EHR, or None for fixed-length EHR."""
+    if isinstance(feature, torch.Tensor):
+        return None
+    schema = dataset.input_processors[key].schema()
+    return feature[schema.index("lengths")] if "lengths" in schema else None
 
 
 def _infer_ehr_dim(dataset: SampleDataset, key: str) -> int:
@@ -365,9 +387,12 @@ class ConVIRTLinearProbe(BaseModel):
         cxr = value_tensor(
             self.dataset, self.cxr_feature_key, kwargs[self.cxr_feature_key]
         )
+        lengths = _ehr_lengths(
+            self.dataset, self.ehr_feature_key, kwargs[self.ehr_feature_key]
+        )
         with torch.no_grad():
             v_ehr, v_cxr = self.encoders(
-                ehr.to(self.device).float(), cxr.to(self.device).float()
+                ehr.to(self.device).float(), cxr.to(self.device).float(), lengths
             )
         return torch.cat([v_ehr, v_cxr], dim=-1)
 
