@@ -4,8 +4,6 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
-from .fingerprint import record_init_args
-
 if TYPE_CHECKING:
     from .task_card import TaskCard
 
@@ -17,9 +15,10 @@ class BaseTask(ABC):
     implement ``__call__``. They may also describe themselves with
     :meth:`task_card`.
 
-    Init arguments, class-level configuration, and ``version`` are part of
-    the ``set_task`` cache key. Bump ``version`` when ``__call__`` or
-    ``pre_filter`` changes in a way that alters generated samples.
+    Instance state (as left by ``__init__``), class-level configuration, and
+    ``version`` are part of the ``set_task`` cache key. Bump ``version`` when
+    ``__call__`` or ``pre_filter`` changes in a way that alters generated
+    samples.
 
     Examples:
         >>> class Mortality(BaseTask):
@@ -37,7 +36,7 @@ class BaseTask(ABC):
     output_schema: Dict[str, Union[str, Type]]
 
     #: Bump when ``__call__`` or ``pre_filter`` logic changes in a way that
-    #: alters the generated samples. Init args alone cannot detect this.
+    #: alters the generated samples. Instance state alone cannot detect this.
     version: str = "1"
 
     #: Attribute names that do not affect the generated samples and must not
@@ -45,17 +44,6 @@ class BaseTask(ABC):
     #: allowlist: forgetting an entry here costs a spurious rebuild, whereas
     #: forgetting to allowlist a semantic arg silently reuses a stale cache.
     fingerprint_exclude: frozenset[str] = frozenset()
-
-    # The recorded init arguments live in a slot, not in ``__dict__``: they
-    # hold the raw arguments (objects, functions), whose default ``repr``
-    # carries a memory address, and ``vars(task)`` has to stay free of them
-    # for code that serialises it. Subclasses still get a ``__dict__``.
-    __slots__ = ("_pyhealth_init_args",)
-
-    def __init_subclass__(cls, **kwargs) -> None:
-        """Record the effective ``__init__`` arguments of every task instance."""
-        super().__init_subclass__(**kwargs)
-        record_init_args(cls)
 
     def __init__(
         self,

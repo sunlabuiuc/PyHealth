@@ -14,8 +14,12 @@ Design goals
    deterministically raises with an actionable message instead of producing a
    key that is either unstable (permanent cache misses) or colliding (silently
    stale samples).
-4. **Complete**: covers recorded ``__init__`` arguments, derived instance
-   state, class-level configuration, and an explicit task ``version``.
+4. **Complete**: covers effective instance state (after ``__init__``
+   normalisation), class-level configuration, schemas and an explicit task
+   ``version``. Raw ``__init__`` arguments are deliberately left out: some
+   tasks normalise them so that equivalent spellings share a cache (e.g.
+   ``SeizureDetectionCHBMIT`` stores ``subjects`` as a sorted tuple of
+   canonical IDs), and keying on the raw values would undo that.
 5. **Legible**: emits a human-readable spec that is written next to the cache,
    so users can see *why* a cache directory exists.
 
@@ -52,10 +56,7 @@ logger = logging.getLogger(__name__)
 
 # Bump when the fingerprint format itself changes. Every cache key changes,
 # so existing caches become unreachable (they are not deleted).
-FINGERPRINT_VERSION = 2
-
-# Attribute set on task instances by ``record_init_args``.
-_INIT_ARGS_ATTR = "_pyhealth_init_args"
+FINGERPRINT_VERSION = 3
 
 # Opt-out for environments with exotic task arguments. Strict mode is the
 # default because a non-strict fallback reintroduces silent collisions.
@@ -321,65 +322,12 @@ def _qualname(obj: Any) -> str:
 
 
 # --------------------------------------------------------------------------
-# init-arg recording
-# --------------------------------------------------------------------------
-
-
-def record_init_args(cls: type) -> type:
-    """Record the *effective* ``__init__`` arguments of every instance.
-
-    Wraps ``cls.__init__`` so that bound arguments -- with defaults applied --
-    are stored on the instance. Applying defaults means ``Task()`` and
-    ``Task(window=timedelta(days=15))`` produce the same key when 15 days is
-    the default, and adding a new keyword argument changes the key for
-    everyone (which is correct: the behaviour changed).
-
-    Intended to be called from ``BaseTask.__init_subclass__``.
-
-    Example:
-        >>> from pyhealth.tasks.fingerprint import record_init_args
-        >>> class T:
-        ...     def __init__(self, n=0):
-        ...         self.n = n
-        >>> record_init_args(T) is T
-        True
-        >>> T()._pyhealth_init_args["n"]
-        0
-    """
-    init = cls.__dict__.get("__init__")
-    if init is None or getattr(init, "_pyhealth_recorded", False):
-        return cls
-    try:
-        sig = inspect.signature(init)
-    except (TypeError, ValueError):
-        return cls
-
-    @functools.wraps(init)
-    def wrapper(self, *args, **kwargs):
-        init(self, *args, **kwargs)
-        try:
-            bound = sig.bind(self, *args, **kwargs)
-            bound.apply_defaults()
-            recorded = dict(bound.arguments)
-            recorded.pop(next(iter(sig.parameters)), None)  # drop 'self'
-        except TypeError:  # pragma: no cover - init would have raised already
-            return
-        # Most-derived __init__ returns last, so it wins.
-        object.__setattr__(self, _INIT_ARGS_ATTR, recorded)
-
-    wrapper._pyhealth_recorded = True  # type: ignore[attr-defined]
-    cls.__init__ = wrapper  # type: ignore[assignment]
-    return cls
-
-
-# --------------------------------------------------------------------------
 # spec / fingerprint
 # --------------------------------------------------------------------------
 
 # Never part of the identity of a task's *output*.
 _ALWAYS_EXCLUDED = frozenset(
     {
-        _INIT_ARGS_ATTR,
         "num_workers",
         "n_jobs",
         "verbose",
@@ -424,7 +372,6 @@ def task_spec(task: Any, *, include_source: bool | None = None) -> dict[str, Any
     include_source = _HASH_SOURCE if include_source is None else include_source
     excluded = _ALWAYS_EXCLUDED | frozenset(getattr(task, "fingerprint_exclude", ()) or ())
 
-    init_args = dict(getattr(task, _INIT_ARGS_ATTR, {}) or {})
     instance_state = {
         k: v for k, v in (_object_state(task) or {}).items() if k not in excluded
     }
@@ -435,7 +382,6 @@ def task_spec(task: Any, *, include_source: bool | None = None) -> dict[str, Any
         "task_class": _qualname(type(task)),
         "task_name": getattr(task, "task_name", None),
         "task_version": getattr(task, "version", "1"),
-        "init_args": _canon({k: v for k, v in init_args.items() if k not in excluded}, "init_args"),
         "class_config": _canon(class_config, "class_config"),
         "instance_state": _canon(instance_state, "instance_state"),
         "input_schema": _canon(getattr(task, "input_schema", None), "input_schema"),

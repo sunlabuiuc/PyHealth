@@ -247,17 +247,12 @@ class TestInitArgs(unittest.TestCase):
             task_fingerprint(Readmission(num_workers=16)),
         )
 
-    def test_init_args_are_recorded_with_defaults_applied(self):
-        recorded = getattr(Readmission(exclude_minors=False), "_pyhealth_init_args")
-        self.assertIs(recorded["exclude_minors"], False)
-        self.assertEqual(recorded["window"], timedelta(days=15))
+    def test_spec_has_no_init_args(self):
+        self.assertNotIn("init_args", task_spec(Readmission()))
 
-    def test_recorded_args_stay_out_of_vars(self):
-        # The recorded arguments are raw objects; code that serialises
-        # ``vars(task)`` must not see their address-bearing default repr.
-        task = Readmission(exclude_minors=False)
-        self.assertNotIn("_pyhealth_init_args", vars(task))
-        self.assertNotIn(" at 0x", json.dumps(vars(task), default=str))
+    def test_base_task_has_no_init_wrapper(self):
+        self.assertNotIn("__init_subclass__", vars(BaseTask))
+        self.assertFalse(getattr(Readmission.__init__, "_pyhealth_recorded", False))
 
     def test_copies_and_pickles_keep_the_fingerprint(self):
         task = Readmission(window=timedelta(days=30))
@@ -269,9 +264,6 @@ class TestInitArgs(unittest.TestCase):
         )
         for clone in clones:
             self.assertEqual(task_fingerprint(clone), expected)
-            self.assertEqual(
-                clone._pyhealth_init_args["window"], timedelta(days=30)
-            )
         self.assertNotEqual(expected, task_fingerprint(Readmission()))
 
     def test_fingerprint_exclude_is_honoured(self):
@@ -339,7 +331,7 @@ class TestMetadataSidecar(unittest.TestCase):
             payload = json.loads(Path(path).read_text())
             self.assertEqual(payload["spec"]["fingerprint_version"], FINGERPRINT_VERSION)
             self.assertEqual(payload["spec"]["task_name"], "ReadmissionPredictionMIMIC3")
-            self.assertIn("30", json.dumps(payload["spec"]["init_args"]))
+            self.assertIn("30", json.dumps(payload["spec"]["instance_state"]))
             self.assertFalse(list(Path(tmp).glob("*.tmp")), "temp file left behind")
 
     def test_spec_is_json_serialisable(self):
@@ -384,6 +376,30 @@ class TestRealTasks(unittest.TestCase):
         self.assertNotEqual(task_fingerprint(t15), task_fingerprint(t30))
         self.assertEqual(task_fingerprint(t15), task_fingerprint(t15))
         self.assertTrue(task_cache_name(t15).startswith("ReadmissionPredictionMIMIC3_"))
+
+    def test_normalised_init_args_share_a_cache_key(self):
+        # Tasks normalise some arguments on purpose so that equivalent spellings
+        # share a cache; the fingerprint must not undo that (review on #1207).
+        try:
+            from pyhealth.tasks.lab_nowcasting import LabNowcasting, LabNowcastingMIMIC3
+            from pyhealth.tasks.seizure_detection_chbmit import SeizureDetectionCHBMIT
+        except ImportError as exc:  # optional signal-processing dependencies
+            self.skipTest(f"task dependencies not installed: {exc}")
+
+        self.assertEqual(
+            task_fingerprint(SeizureDetectionCHBMIT(subjects=["chb01"])),
+            task_fingerprint(SeizureDetectionCHBMIT(subjects=["1"])),
+        )
+        for cls in (LabNowcasting, LabNowcastingMIMIC3):
+            self.assertEqual(
+                task_fingerprint(cls()),
+                task_fingerprint(cls(event_tables=["labevents"])),
+            )
+        # Normalisation must not merge configurations that really differ.
+        self.assertNotEqual(
+            task_fingerprint(SeizureDetectionCHBMIT(subjects=["chb01"])),
+            task_fingerprint(SeizureDetectionCHBMIT(subjects=["chb02"])),
+        )
 
     def test_benchmark_ehrshot_name_is_slugified(self):
         from pyhealth.tasks.benchmark_ehrshot import BenchmarkEHRShot

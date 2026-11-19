@@ -1,4 +1,4 @@
-"""Show that task cache keys include init args (issue #916).
+"""Show that task cache keys include the task's effective configuration (#916).
 
 Two ReadmissionPredictionMIMIC3 configurations that differ only by
 ``window`` must produce different cache directory names. A slash in

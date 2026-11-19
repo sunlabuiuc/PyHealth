@@ -185,7 +185,7 @@ supports ``len()`` and index access, ready for a DataLoader.
 
 If you re-run ``set_task()`` with the same task and processor configuration,
 PyHealth detects the existing cache and skips reprocessing. The cache key holds
-the task's arguments and schemas but not its code, so after you edit a task's
+the task's configuration and schemas but not its code, so after you edit a task's
 ``__call__``, run ``dataset.clear_task_cache(task)`` (see *Task caches and when
 to clear them* in :doc:`datasets`). During
 development it is useful to set ``dev=True`` on the dataset, which limits
@@ -197,13 +197,15 @@ What counts as the same configuration?
 Each task configuration gets its own cache directory, named after a
 fingerprint of everything that determines the generated samples:
 
-- the ``__init__`` arguments of your task, with defaults applied --
-  ``MyTask()`` and ``MyTask(window=timedelta(days=15))`` share a cache when
-  15 days is the default;
+- the state your task's ``__init__`` leaves on the instance, rather than the
+  arguments as passed -- ``MyTask()`` and
+  ``MyTask(window=timedelta(days=15))`` share a cache when 15 days is the
+  default, and so do two spellings that ``__init__`` normalises to the same
+  value;
 - class-level attributes, the input schema and the output schema;
 - ``BaseTask.version`` (see below).
 
-Arguments that do not affect the output are ignored, so changing
+Attributes that do not affect the output are ignored, so changing
 ``num_workers`` reuses the cache. Add your own via ``fingerprint_exclude``::
 
     class MyTask(BaseTask):
@@ -228,11 +230,11 @@ which parameter changed. Each cache directory therefore contains a
    hash of ``__call__`` and ``pre_filter`` into the fingerprint. This is off by
    default because it invalidates the cache on cosmetic edits too.
 
-If a task argument cannot be fingerprinted deterministically -- an object
+If a task attribute cannot be fingerprinted deterministically -- an object
 whose ``repr()`` embeds a memory address, for instance -- ``set_task()``
 raises ``UnfingerprintableError`` rather than risk a colliding or unstable
 cache key. Give the class a ``__pyhealth_fingerprint__()`` method returning a
-plain description of its configuration, or exclude the argument.
+plain description of its configuration, or exclude the attribute.
 
 .. note::
 

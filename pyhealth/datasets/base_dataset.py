@@ -631,8 +631,8 @@ class BaseDataset(ABC):
         """The directory that caches ``task``'s samples for this dataset.
 
         The name holds the task name and the task fingerprint
-        (:func:`~pyhealth.tasks.fingerprint.task_cache_name`): init arguments,
-        class-level configuration, schemas and ``version``, so tasks that
+        (:func:`~pyhealth.tasks.fingerprint.task_cache_name`): effective instance
+        state, class-level configuration, schemas and ``version``, so tasks that
         differ in any of them get their own cache.
         """
         return self.cache_dir / "tasks" / task_cache_name(task)
@@ -1468,7 +1468,7 @@ class BaseDataset(ABC):
         # a directory that explains what it was trying to produce.
         meta_path = write_task_metadata(cache_dir, task)
         logger.info(
-            "Task cache key %s -- derived from init args, schemas and task "
+            "Task cache key %s -- derived from instance state, schemas and task "
             "version. Full spec: %s",
             task_cache_name(task),
             meta_path,
