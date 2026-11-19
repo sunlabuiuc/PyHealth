@@ -80,6 +80,11 @@ from .torchvision_model import TorchvisionModel
 from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
 from .llm_ehr_encoder import LLMEHREncoder as LLMEHREncoder
+from .ehr_fm import (
+    EHRFoundationModelBase as EHRFoundationModelBase,
+    HFEHRFoundationModel as HFEHRFoundationModel,
+    HFEHRTokenizer as HFEHRTokenizer,
+)
 from .ehrmamba import EHRMamba, MambaBlock
 from .ehrmamba_cehr import EHRMambaCEHR
 from .vae import VAE

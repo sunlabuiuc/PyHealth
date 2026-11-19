@@ -69,6 +69,10 @@ from .ehr_cxr_mimic4 import (
 from .maestro_mortality_mimic4 import (
     MAESTROMortalityMIMIC4 as MAESTROMortalityMIMIC4,
 )
+from .ehr_foundation_model import (
+    EHRFoundationModelTask as EHRFoundationModelTask,
+    EventSource as EventSource,
+)
 from .ehr_text_serialization import (
     CodeDescriber as CodeDescriber,
     EHRTextSerializationTask as EHRTextSerializationTask,
