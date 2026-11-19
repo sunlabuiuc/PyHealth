@@ -69,9 +69,16 @@ def train_pipeline(
     Returns:
         The trained model.
 
+    Raises:
+        ValueError: For a code config (``config.code``): generated code is
+            trained in its own process by :func:`fit_predict`, which
+            returns its predictions rather than the model.
+
     Examples:
         >>> model = train_pipeline(config, space, train_ds, val_ds, "pr_auc")  # doctest: +SKIP
     """
+    if config.code:
+        raise ValueError("a code config is trained in its own process: use fit_predict")
     spec = space.models[config.model]
     model_cls = spec.load()
     with torch.random.fork_rng(devices=[]), _quiet_trainer():
@@ -127,11 +134,118 @@ def score(
     """
     y_true, y_prob, _ = predict(model, dataset)
     metrics_fn = get_metrics_fn(model.mode)
-    values = metrics_fn(
-        y_true, y_prob, metrics=list(metrics),
-        **model_metrics_kwargs(model, metrics_fn),
-    )
+    return score_predictions(y_true, y_prob, model.mode, metrics,
+                             **model_metrics_kwargs(model, metrics_fn))
+
+
+def score_predictions(
+    y_true: Any, y_prob: Any, mode: str, metrics: Sequence[str], **kwargs: Any
+) -> dict[str, float]:
+    """Computes ``metrics`` from predictions, with the label kind's metrics function.
+
+    This is how every attempt is scored: the label processor of ``mode``
+    (e.g. ``"binary"``) picks the :mod:`pyhealth.metrics` function, as
+    :meth:`~pyhealth.trainer.Trainer.evaluate` does.
+
+    Examples:
+        >>> score_predictions(np.array([0, 1]), np.array([0.2, 0.9]), "binary", ["roc_auc"])
+        {'roc_auc': 1.0}
+    """
+    values = get_metrics_fn(mode)(y_true, y_prob, metrics=list(metrics), **kwargs)
     return {k: float(v) for k, v in values.items()}
+
+
+def fit_predict(
+    config: PipelineConfig,
+    space: SearchSpace,
+    train_dataset: SampleDataset,
+    val_dataset: SampleDataset,
+    predict_on: Sequence[SampleDataset],
+    metric: str,
+    seed: int = 0,
+    device: str | None = None,
+    timeout: float | None = None,
+    log_dir: str | None = None,
+    label: str = "trial",
+) -> dict[str, Any]:
+    """Trains a config and returns its predictions on other datasets.
+
+    A config from the search space is trained here with
+    :func:`train_pipeline`. A code config (``config.code``) is trained in its
+    own process (:func:`~pyhealth.autoimprove.codegen.fit_predict_code`) and
+    only its predictions come back. Either way the caller scores the
+    predictions the same way (:func:`score_predictions`).
+
+    Args:
+        predict_on: Datasets to predict after training, e.g. a held-out fold.
+        timeout: Seconds a code config may take (``None``: no limit for
+            configs from the space, ten minutes for code).
+        log_dir: Where a code config's output is logged.
+        label: Name of the job in logs and tracebacks.
+
+    Returns:
+        ``{"predictions": [(y_true, y_prob, patient_ids), ...], "mode": str,
+        "n_params": int, "metric_kwargs": dict}``, one prediction tuple per
+        dataset in ``predict_on``.
+
+    Examples:
+        >>> out = fit_predict(config, space, train_ds, val_ds, [val_ds], "pr_auc")  # doctest: +SKIP
+        >>> y_true, y_prob, _ = out["predictions"][0]  # doctest: +SKIP
+    """
+    if config.code:
+        from .codegen import fit_predict_code
+
+        return fit_predict_code(
+            config.code, train_dataset, val_dataset, predict_on, metric, seed,
+            device, timeout=600.0 if timeout is None else timeout,
+            log_path=os.path.join(log_dir, f"{label}.log") if log_dir else None,
+            label=label,
+        )
+    model = train_pipeline(config, space, train_dataset, val_dataset, metric, seed,
+                           device)
+    metrics_fn = get_metrics_fn(model.mode)
+    return {
+        "predictions": [predict(model, d) for d in predict_on],
+        "mode": model.mode,
+        "n_params": sum(p.numel() for p in model.parameters()),
+        "metric_kwargs": model_metrics_kwargs(model, metrics_fn),
+    }
+
+
+def out_of_fold(
+    indices: Sequence[np.ndarray], predictions: Sequence[tuple], split: str = "train"
+) -> dict[str, Any] | None:
+    """Joins per-fold predictions into one record per sample.
+
+    Returns:
+        ``{"index", "fold", "y_true", "y_prob", "split"}`` as arrays in sample
+        order of ``index``, or ``None`` when the predictions are not one row
+        per sample (e.g. time-series labels), which guardrails cannot use.
+
+    Examples:
+        >>> oof = out_of_fold([np.array([1]), np.array([0])],
+        ...                   [(np.array([1]), np.array([0.9]), []),
+        ...                    (np.array([0]), np.array([0.2]), [])])
+        >>> oof["index"].tolist(), oof["fold"].tolist(), oof["y_prob"].tolist()
+        ([0, 1], [1, 0], [0.20000000298023224, 0.8999999761581543])
+    """
+    try:
+        y_true = [np.asarray(p[0]) for p in predictions]
+        y_prob = [np.asarray(p[1], dtype=np.float32) for p in predictions]
+        if any(t.dtype == object or len(t) != len(i) or len(q) != len(i)
+               for t, q, i in zip(y_true, y_prob, indices)):
+            return None
+        index = np.concatenate([np.asarray(i, dtype=np.int64) for i in indices])
+        fold = np.concatenate([np.full(len(i), k, dtype=np.int16)
+                               for k, i in enumerate(indices)])
+        order = np.argsort(index, kind="stable")
+        return {
+            "index": index[order], "fold": fold[order],
+            "y_true": np.concatenate(y_true)[order],
+            "y_prob": np.concatenate(y_prob)[order], "split": split,
+        }
+    except (ValueError, TypeError):
+        return None
 
 
 def run_config(
@@ -143,25 +257,32 @@ def run_config(
     report_metrics: Sequence[str] = (),
     seed: int = 0,
     device: str | None = None,
+    timeout: float | None = None,
+    log_dir: str | None = None,
+    label: str = "trial",
 ) -> dict[str, Any]:
     """Trains a config on the training set and scores it on validation.
 
     Returns:
-        ``{"metrics": {...}, "seconds": float, "n_params": int}``.
+        ``{"metrics": {...}, "seconds": float, "n_params": int, "oof": ...}``,
+        with ``oof`` the validation predictions (:func:`out_of_fold`).
 
     Examples:
         >>> run_config(config, space, train_ds, val_ds, "pr_auc")  # doctest: +SKIP
-        {'metrics': {'pr_auc': 0.41}, 'seconds': 12.3, 'n_params': 51521}
+        {'metrics': {'pr_auc': 0.41}, 'seconds': 12.3, 'n_params': 51521, ...}
     """
     start = time.perf_counter()
-    model = train_pipeline(
-        config, space, train_dataset, val_dataset, metric, seed, device
-    )
+    out = fit_predict(config, space, train_dataset, val_dataset, [val_dataset],
+                      metric, seed, device, timeout, log_dir, label)
     names = list(dict.fromkeys([metric, *report_metrics]))
+    y_true, y_prob, _ = out["predictions"][0]
     return {
-        "metrics": score(model, val_dataset, names),
+        "metrics": score_predictions(y_true, y_prob, out["mode"], names,
+                                     **out["metric_kwargs"]),
         "seconds": time.perf_counter() - start,
-        "n_params": sum(p.numel() for p in model.parameters()),
+        "n_params": out["n_params"],
+        "oof": out_of_fold([np.arange(len(val_dataset))], out["predictions"],
+                           split="val"),
     }
 
 
@@ -246,6 +367,9 @@ def run_config_cv(
     seed: int = 0,
     device: str | None = None,
     stop_if: Callable[[list[float]], bool] | None = None,
+    timeout: float | None = None,
+    log_dir: str | None = None,
+    label: str = "trial",
 ) -> dict[str, Any]:
     """Scores a config by patient-grouped cross-validation on the training set.
 
@@ -266,9 +390,14 @@ def run_config_cv(
     True the remaining folds are skipped (early pruning of a trial that is
     clearly worse) and ``stopped_early`` is set.
 
+    Every held-out fold's predictions are kept, so each training sample gets
+    one prediction from a model that did not see it (``oof``,
+    :func:`out_of_fold`). Guardrails score these without retraining.
+
     Returns:
         ``{"metrics": {...}, "fold_scores": [...], "seconds": float,
-        "n_params": int, "stopped_early": bool}``.
+        "n_params": int, "stopped_early": bool, "oof": ...}``; ``oof`` is
+        ``None`` when the run stopped early.
 
     Examples:
         >>> folds = patient_folds(train_ds, 5)  # doctest: +SKIP
@@ -279,15 +408,22 @@ def run_config_cv(
     names = list(dict.fromkeys([metric, *report_metrics]))
     all_indices = np.arange(len(train_dataset))
     per_fold: list[dict[str, float]] = []
+    held: list[np.ndarray] = []
+    fold_preds: list[tuple] = []
     n_params = 0
-    for held_out in folds:
+    for k, held_out in enumerate(folds):
         fit_idx = np.setdiff1d(all_indices, held_out).tolist()
         fit_part, held_part, val_part = fold_parts(
             train_dataset, val_dataset, fit_idx, held_out.tolist()
         )
-        model = train_pipeline(config, space, fit_part, val_part, metric, seed, device)
-        per_fold.append(score(model, held_part, names))
-        n_params = sum(p.numel() for p in model.parameters())
+        out = fit_predict(config, space, fit_part, val_part, [held_part], metric,
+                          seed, device, timeout, log_dir, f"{label}_fold{k}")
+        y_true, y_prob, _ = out["predictions"][0]
+        per_fold.append(score_predictions(y_true, y_prob, out["mode"], names,
+                                          **out["metric_kwargs"]))
+        held.append(np.asarray(held_out))
+        fold_preds.append(out["predictions"][0])
+        n_params = out["n_params"]
         if stop_if is not None and len(per_fold) < len(folds) and stop_if(
             [float(m[metric]) for m in per_fold]
         ):
@@ -303,6 +439,7 @@ def run_config_cv(
         "seconds": time.perf_counter() - start,
         "n_params": n_params,
         "stopped_early": len(per_fold) < len(folds),
+        "oof": out_of_fold(held, fold_preds) if len(per_fold) == len(folds) else None,
     }
 
 

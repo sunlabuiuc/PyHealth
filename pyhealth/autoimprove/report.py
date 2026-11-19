@@ -49,8 +49,8 @@ EVIDENCE = {
 class Section:
     """One report section: a title and blocks of content.
 
-    A block is ``("p", text)``, ``("list", [text, ...])`` or
-    ``("table", [header, ...], [[cell, ...], ...])``.
+    A block is ``("p", text)``, ``("list", [text, ...])``,
+    ``("table", [header, ...], [[cell, ...], ...])`` or ``("code", source)``.
 
     Examples:
         >>> Section("Summary", [("p", "Selected: #3.")]).title
@@ -103,6 +103,8 @@ class Report:
                         cells = [str(c).replace("|", "\\|") for c in row]
                         out.append("| " + " | ".join(cells) + " |")
                     out.append("")
+                elif block[0] == "code":
+                    out += ["```python", block[1].rstrip("\n"), "```", ""]
         return "\n".join(out)
 
     def to_html(self) -> str:
@@ -127,6 +129,8 @@ class Report:
                         f'<div class="table"><table><thead><tr>{head}</tr></thead>'
                         f"<tbody>{rows}</tbody></table></div>"
                     )
+                elif block[0] == "code":
+                    body.append(f"<pre><code>{html.escape(block[1])}</code></pre>")
         return _PAGE.format(title=html.escape(self.title), body="\n".join(body))
 
     def to_json(self) -> str:
@@ -219,6 +223,8 @@ def load_run(
             "scores", {}).items()},
         pruning=read("prune.json"),
         confirm_se=settings.get("confirm_se", 2.0),
+        guardrails=read("evaluations.json", []),
+        findings=read("findings.json", []),
     )
 
 
@@ -244,6 +250,8 @@ def build_report(
     confirmed: dict[int, list[float]] | None = None,
     pruning: dict[str, Any] | None = None,
     confirm_se: float = 2.0,
+    guardrails: Sequence[dict[str, Any]] = (),
+    findings: Sequence[str] = (),
 ) -> Report:
     """Builds a report from a run's trials and, optionally, its test and attribution.
 
@@ -274,6 +282,10 @@ def build_report(
             ``AutoImprover.confirm``; the selection is then made on them.
         pruning: The result of ``AutoImprover.prune``.
         confirm_se: The bound used on the confirmation scores.
+        guardrails: The run's proposed evaluations (``name``, ``metrics``,
+            ``status``, ``reason``, ``fails``: trial id to failed keys).
+            Trials failing an active guardrail are not candidates.
+        findings: Findings from analysis turns.
 
     Examples:
         >>> from pyhealth.autoimprove import Trial
@@ -303,7 +315,9 @@ def build_report(
     # gains are shown against the baseline, or the first trial without one
     reference = baseline or done[0]
     cv = bool(reference.fold_scores) and promote_se is not None
-    pool = [t for t in done if t.accepted is not False]
+    excluded = {int(t) for g in guardrails if g.get("status") == "active"
+                for t, keys in (g.get("fails") or {}).items() if keys}
+    pool = [t for t in done if t.accepted is not False and t.trial_id not in excluded]
     bound = promote_se
     if confirmed:
         by_id = {t.trial_id: t for t in pool}
@@ -403,6 +417,22 @@ def build_report(
         _task_section(task, dropped_models or {}, card),
         _model_section(ctx, rule, attribution, test),
     ]
+    if selected.config.code:
+        sections.append(Section("Generated code", [
+            ("p", f"The selected model was written by the proposer "
+                  f"(#{selected.trial_id}, code {selected.config.code_sha}). It was "
+                  "trained in its own process and scored on the same folds as every "
+                  "other trial."),
+            ("code", selected.config.code),
+        ]))
+    if guardrails:
+        sections.append(_guardrails_section(guardrails, test))
+    if findings:
+        sections.append(Section("Findings from data analysis", [
+            ("p", "Aggregates of the training split, with groups under 11 patients "
+                  "withheld; the proposer's reading of them (hypothesis)."),
+            ("list", list(findings)),
+        ]))
     if selected.features:
         sections.append(_features_section(ctx, pruning, flags, test))
     if confirmed:
@@ -438,9 +468,43 @@ def build_report(
         "explanation": explanation, "flags": flags,
         "confirmed": {str(k): v for k, v in (confirmed or {}).items()},
         "pruning": pruning,
+        "guardrails": [dict(g) for g in guardrails],
+        "findings": list(findings),
         "trials": [_public_trial(t) for t in trials],
     }
     return Report(title, sections, data)
+
+
+def _guardrails_section(guardrails: Sequence[dict[str, Any]], test) -> Section:
+    rows = []
+    for g in guardrails:
+        metrics = ", ".join(f"{m} ({d} is better)" for m, d in g["metrics"].items())
+        fails = sorted(int(t) for t, keys in (g.get("fails") or {}).items() if keys)
+        removed = ", ".join(f"#{t}" for t in fails) if g["status"] == "active" else ""
+        rows.append([g["name"], metrics, g["status"], g.get("reason", ""),
+                     removed or ("none" if g["status"] == "active" else "")])
+    blocks = [
+        ("p", "Evaluations the proposer wrote. An active guardrail removes from the "
+              "candidates every trial clearly worse than the baseline on it (fold "
+              "by fold, one paired SE); it never replaces the main metric."),
+        ("table", ["evaluation", "metrics", "status", "why", "trials removed"], rows),
+    ]
+    on_test = (test or {}).get("guardrails")
+    if on_test:
+        names = [k for k in ("best", "baseline", "top") if any(
+            k in v for v in on_test.values() if isinstance(v, dict))]
+        table = [[key] + [_fmt(v.get(n)) for n in names]
+                 for key, v in on_test.items()
+                 if isinstance(v, dict) and "error" not in v]
+        blocks.append(("p", "On the test split:"))
+        blocks.append(("table", ["guardrail", *names], table))
+    return Section("Guardrails", blocks)
+
+
+def _fmt(value: Any) -> str:
+    if value is None:
+        return ""
+    return f"{value:.4f}" if isinstance(value, float) else str(value)
 
 
 # ----------------------------------------------------------------- sections

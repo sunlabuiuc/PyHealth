@@ -7,7 +7,6 @@ from unittest import mock
 
 import numpy as np
 import polars as pl
-import torch
 
 from pyhealth.autoimprove.evaluate import fold_parts, run_config_cv
 from pyhealth.autoimprove.features import EngineeredDataset, FeatureSpace, FeatureSpec
@@ -419,16 +418,18 @@ class TestEngineeredDataset(unittest.TestCase):
         folds = [np.array([0, 1, 2]), np.array([3, 4, 5])]
         seen = []
 
-        def fake_train(config, space, fit_part, val_part, *args):
-            seen.append({"fit": fit_part, "val": val_part})
-            return torch.nn.Linear(1, 1)
+        def fake_fit_predict(config, space, fit_part, val_part, predict_on, *args):
+            held_part = predict_on[0]
+            seen.append({"fit": fit_part, "val": val_part, "held": held_part})
+            n = len(held_part)
+            return {"predictions": [(np.zeros((n, 1)), np.full((n, 1), 0.5), [])],
+                    "mode": "binary", "n_params": 0, "metric_kwargs": {}}
 
-        def fake_score(model, held_part, names):
-            seen[-1]["held"] = held_part
+        def fake_score(y_true, y_prob, mode, names, **kwargs):
             return {name: 0.5 for name in names}
 
-        with mock.patch("pyhealth.autoimprove.evaluate.train_pipeline", fake_train), \
-                mock.patch("pyhealth.autoimprove.evaluate.score", fake_score):
+        with mock.patch("pyhealth.autoimprove.evaluate.fit_predict", fake_fit_predict), \
+                mock.patch("pyhealth.autoimprove.evaluate.score_predictions", fake_score):
             result = run_config_cv(None, None, fe, fe, "pr_auc", folds)
         self.assertEqual(result["fold_scores"], [0.5, 0.5])
         for held_out, parts in zip(folds, seen):

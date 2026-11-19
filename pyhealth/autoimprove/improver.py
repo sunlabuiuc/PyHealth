@@ -25,16 +25,17 @@ from .evaluate import (
     MAX_LABEL_SCAN,
     check_models,
     describe_error,
+    fit_predict,
     fold_parts,
     greater_is_better,
     patient_folds,
-    predict,
     run_config,
     run_config_cv,
     train_pipeline,
 )
 from .features import EngineeredDataset, FeatureSpace, FeatureSpec
 from .proposers import STRATEGIES, ProposalContext, Proposer, ProposerExhausted
+from .sandbox import SandboxError
 from .space import PipelineConfig, SearchSpace, config_diff
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,12 @@ MAX_PROPOSER_FAILURES = 3
 
 FOLD_TIE = 1e-4
 """Fold scores closer than this count as a tie, not as one fold being better."""
+
+TURN_KINDS = ("model", "features", "code", "evaluation", "analysis")
+"""The kinds of turn a ``cycle_plan`` can list."""
+
+GENERATED_KINDS = ("code", "evaluation", "analysis")
+"""Turn kinds whose proposals are code that runs in its own process."""
 
 
 @dataclass
@@ -225,7 +232,16 @@ class AutoImprover:
     :meth:`evaluate_on_test` once afterwards to compare the best config with
     the starting one on held-out patients.
 
-    Proposals are data, never code: nothing a proposer returns is executed.
+    By default proposals are data, never code: nothing a proposer returns is
+    executed. A ``cycle_plan`` with ``"code"``, ``"evaluation"`` or
+    ``"analysis"`` turns opts in to generated code: a model with its training
+    (:mod:`~pyhealth.autoimprove.codegen`), a new evaluation that can become
+    a guardrail (:mod:`~pyhealth.autoimprove.guardrails`), or an analysis of
+    the training data (:mod:`~pyhealth.autoimprove.analysis`). That code is
+    checked statically and runs in its own process
+    (:mod:`~pyhealth.autoimprove.sandbox`); only predictions, numbers and
+    suppressed tables come back. Scripts that use these turns need an
+    ``if __name__ == "__main__":`` guard.
 
     Args:
         train_dataset: Training samples, e.g. from
@@ -313,6 +329,24 @@ class AutoImprover:
         suspicion_auc: A new feature whose ROC-AUC alone exceeds this (or
             is below 1 minus it) is flagged as possible leakage and not
             accepted.
+        task: The task that built the samples. Code, evaluation and analysis
+            prompts include its source code; ``task_card`` defaults to
+            ``task.task_card()``.
+        cycle_plan: The kind of each cycle, repeated in order: any of
+            :data:`TURN_KINDS`, e.g. ``("analysis", "model", "code",
+            "evaluation")``. Defaults to model cycles, alternating with
+            feature cycles by ``feature_cycles`` when ``features`` is set.
+            ``"features"`` needs ``features``; ``"evaluation"`` needs
+            ``cv_folds``. Evaluation and analysis cycles add no trials, so
+            they don't count towards ``patience``.
+        code_timeout: Seconds one training of generated code may take (per
+            fold).
+        eval_timeout: Seconds one evaluation or analysis may take.
+        max_guardrails: Most evaluations active as guardrails at once; more
+            are kept for the report only.
+        guardrail_se: Standard errors by which a trial must be worse than the
+            baseline on a guardrail to be removed from the candidates.
+        max_findings: Most analysis findings kept for prompts.
 
     Examples:
         >>> from pyhealth.autoimprove import (AutoImprover, ClaudeLLM,
@@ -361,9 +395,18 @@ class AutoImprover:
         prune: bool = True,
         early_stop: float | None = None,
         suspicion_auc: float = 0.95,
+        task: Any = None,
+        cycle_plan: Sequence[str] | None = None,
+        code_timeout: float = 1800.0,
+        eval_timeout: float = 300.0,
+        max_guardrails: int = 3,
+        guardrail_se: float = 1.0,
+        max_findings: int = 12,
     ):
         if features is not None and not cv_folds:
             raise ValueError("feature search needs cv_folds")
+        if task_card is None and task is not None and hasattr(task, "task_card"):
+            task_card = task.task_card()
         self.train_dataset = train_dataset
         self.val_dataset = val_dataset
         self.proposer = proposer
@@ -423,11 +466,48 @@ class AutoImprover:
                 "cross-validation folds of the training samples; "
                 f"{self.metric}_sd is the spread between folds."
             )
+        self.task = task
+        self.cycle_plan = self._plan(cycle_plan)
+        self.code_timeout = code_timeout
+        self.eval_timeout = eval_timeout
+        self.max_guardrails = max_guardrails
+        self.guardrail_se = guardrail_se
+        self.max_findings = max_findings
+        self.evaluations: list[dict[str, Any]] = []
+        self.findings: list[str] = []
+        self.analyses: list[dict[str, Any]] = []
+        self._oof: dict[int, dict[str, Any] | None] = {}
+        self._columns_cache: dict[str, np.ndarray] | None = None
+        self._task_source: str | None = None
         self._fingerprint = space_fingerprint(self.space, train_dataset)
         if features is not None:
             self._fingerprint += "-features"
+        generated = sorted(set(self.cycle_plan) & set(GENERATED_KINDS))
+        if generated:
+            self._fingerprint += "-" + "-".join(generated)
         self._settings = self._run_settings()
         self._proposer_failures = 0
+
+    def _plan(self, cycle_plan: Sequence[str] | None) -> tuple[str, ...]:
+        """The cycle plan, checked; the default reproduces feature_cycles."""
+        if cycle_plan is None:
+            if self.features is None:
+                return ("model",)
+            if not self.proposer.proposes_models:
+                return ("features",)
+            n_features, n_models = self.feature_cycles
+            return ("features",) * n_features + ("model",) * n_models
+        plan = tuple(cycle_plan)
+        unknown = [k for k in plan if k not in TURN_KINDS]
+        if not plan or unknown:
+            raise ValueError(f"cycle_plan needs kinds from {list(TURN_KINDS)}; "
+                             f"got {list(plan)}")
+        if "features" in plan and self.features is None:
+            raise ValueError('a "features" cycle needs features=FeatureSpace(...)')
+        if "evaluation" in plan and not self.cv_folds:
+            raise ValueError('an "evaluation" cycle needs cv_folds: guardrails '
+                             "compare trials fold by fold")
+        return plan
 
     # ------------------------------------------------------------------ run
     def run(self) -> ImproveResult:
@@ -459,8 +539,12 @@ class AutoImprover:
                 ]
                 if kind == "features":
                     self._feature_turn(cycle, f"agent{i}", strategy)
+                elif kind == "evaluation":
+                    self._evaluation_turn(cycle, f"agent{i}")
+                elif kind == "analysis":
+                    self._analysis_turn(cycle, f"agent{i}")
                 else:
-                    self._turn(cycle, f"agent{i}", strategy)
+                    self._turn(cycle, f"agent{i}", strategy, kind=kind)
             try:
                 self.lessons = self.proposer.reflect(
                     self.trials, self.lessons, self.metric, space=self.space
@@ -474,7 +558,7 @@ class AutoImprover:
                 new_top, top, self.maximize
             ):
                 stale = 0
-            else:
+            elif kind not in ("evaluation", "analysis"):  # these add no trials
                 stale += 1
             best, top = new_best, new_top
             logger.info(
@@ -490,12 +574,7 @@ class AutoImprover:
         return self.result()
 
     def _cycle_kind(self, cycle: int) -> str:
-        if self.features is None:
-            return "model"
-        if not self.proposer.proposes_models:
-            return "features"
-        n_features, n_models = self.feature_cycles
-        return "features" if cycle % (n_features + n_models) < n_features else "model"
+        return self.cycle_plan[cycle % len(self.cycle_plan)]
 
     def _check_models(self) -> None:
         """Removes models that do not run on the training data from the space.
@@ -549,10 +628,12 @@ class AutoImprover:
         """The current state as an :class:`ImproveResult`.
 
         After :meth:`confirm`, the selection is made among the confirmed
-        trials on their confirmation scores.
+        trials on their confirmation scores. Trials that fail an active
+        guardrail (:meth:`guardrail_failures`) are not candidates.
         """
         # a feature group rejected during the search never becomes the result
-        trials = [t for t in self.trials if t.accepted is not False]
+        fails = self._guardrail_fails()
+        trials = [t for t in self.trials if t.accepted is not False and not fails(t)]
         bound = self.promote_se
         if self.confirmed:
             by_id = {t.trial_id: t for t in trials}
@@ -586,13 +667,16 @@ class AutoImprover:
         )
         return _rule_text(self.promote_se, self.one_se, compared)
 
-    def _turn(self, cycle: int, agent: str, strategy: str) -> None:
+    def _turn(self, cycle: int, agent: str, strategy: str, kind: str = "model") -> None:
+        """A model turn, or a code turn (``kind="code"``): propose, check, score."""
         feedback = ""
         accepted = self._accepted()
+        propose = (self.proposer.propose_code if kind == "code"
+                   else self.proposer.propose)
         for _ in range(2):  # one retry when the proposal is invalid or repeated
-            context = self._context(agent, strategy, feedback)
+            context = self._context(agent, strategy, feedback, kind=kind)
             try:
-                proposal = self.proposer.propose(context)
+                proposal = propose(context)
             except ValueError as e:
                 feedback = f"your last proposal was rejected: {e}"
                 continue
@@ -638,6 +722,276 @@ class AutoImprover:
         logger.warning("%s's proposer failed in cycle %d, turn skipped: %s",
                        agent, cycle, text)
 
+    # ------------------------------------------------- stored predictions
+    def _store_oof(self, trial_id: int, oof: dict[str, Any]) -> None:
+        self._oof[trial_id] = oof
+        if self.run_dir:
+            path = os.path.join(self.run_dir, "preds", f"trial_{trial_id}.npz")
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            np.savez_compressed(path, index=oof["index"], fold=oof["fold"],
+                                y_true=oof["y_true"], y_prob=oof["y_prob"],
+                                split=np.array(oof["split"]))
+
+    def oof_predictions(self, trial_id: int) -> dict[str, Any] | None:
+        """A trial's out-of-fold predictions on the training split, if stored.
+
+        Returns:
+            ``{"index", "fold", "y_true", "y_prob", "split"}``
+            (:func:`~pyhealth.autoimprove.evaluate.out_of_fold`), read from
+            ``run_dir/preds`` for a resumed run, or ``None``.
+
+        Examples:
+            >>> improver.oof_predictions(3)["y_prob"].shape  # doctest: +SKIP
+            (800, 1)
+        """
+        if trial_id not in self._oof and self.run_dir:
+            path = os.path.join(self.run_dir, "preds", f"trial_{trial_id}.npz")
+            if os.path.exists(path):
+                with np.load(path, allow_pickle=False) as data:
+                    self._oof[trial_id] = {
+                        "index": data["index"], "fold": data["fold"],
+                        "y_true": data["y_true"], "y_prob": data["y_prob"],
+                        "split": str(data["split"]),
+                    }
+        return self._oof.get(trial_id)
+
+    def _columns(self) -> dict[str, np.ndarray]:
+        """Sample columns of the training split, for evaluations and analyses."""
+        if self._columns_cache is None:
+            from .analysis import sample_columns
+
+            self._columns_cache = sample_columns(self.train_dataset,
+                                                 self._samples("train"))
+        return self._columns_cache
+
+    def _analysis_columns(self) -> dict[str, np.ndarray]:
+        """The columns an analysis sees: sample columns, fold, the selection's
+        out-of-fold prediction."""
+        columns = dict(self._columns())
+        if self.folds is not None:
+            fold = np.zeros(len(self.train_dataset), dtype=np.int16)
+            for k, held in enumerate(self.folds):
+                fold[held] = k
+            columns["fold"] = fold
+        best = self.result().best
+        oof = self.oof_predictions(best.trial_id) if best is not None else None
+        if oof is not None and oof["split"] == "train":
+            prob = np.asarray(oof["y_prob"], dtype=float)
+            if prob.ndim == 1 or prob.shape[1] == 1:
+                full = np.full(len(self.train_dataset), np.nan)
+                full[oof["index"]] = prob.reshape(len(prob))
+                columns["oof_prob"] = full
+        return columns
+
+    # ---------------------------------------------------------- guardrails
+    def _baseline_id(self) -> int | None:
+        base = next((t for t in self.trials if t.agent == "baseline"
+                     and t.error is None), None)
+        return None if base is None else base.trial_id
+
+    def _guardrail_fails(self):
+        from .guardrails import admissible_filter
+
+        if not any(e["status"] == "active" for e in self.evaluations):
+            return lambda trial: []
+        return admissible_filter(self.evaluations, self._baseline_id(),
+                                 self.guardrail_se)
+
+    def guardrail_failures(self) -> dict[int, list[str]]:
+        """Trial id to the active guardrails it fails (``"<name>.<metric>"``).
+
+        Examples:
+            >>> improver.guardrail_failures()  # doctest: +SKIP
+            {7: ['calibration.ece']}
+        """
+        fails = self._guardrail_fails()
+        return {t.trial_id: fails(t) for t in self.trials
+                if t.error is None and fails(t)}
+
+    def _scorable(self) -> list[Trial]:
+        """Finished trials with out-of-fold predictions on the training split."""
+        out = []
+        for t in self.trials:
+            if t.error is not None or t.stopped_early:
+                continue
+            oof = self.oof_predictions(t.trial_id)
+            if oof is not None and oof["split"] == "train":
+                out.append(t)
+        return out
+
+    def _evaluation_inputs(self, spec, trials: Sequence[Trial]):
+        oof = self.oof_predictions(trials[0].trial_id)
+        columns = self._columns()
+        info = {c: columns[c][oof["index"]] for c in ["patient", *spec.needs]}
+        y_probs = [self.oof_predictions(t.trial_id)["y_prob"] for t in trials]
+        return oof["y_true"], oof["fold"], info, y_probs
+
+    def _evaluation_turn(self, cycle: int, agent: str) -> None:
+        """One evaluation proposal: check it, score every trial, adopt or not."""
+        from .guardrails import decide, run_evaluations
+
+        feedback = ""
+        for _ in range(2):  # one retry when the proposal is invalid
+            context = self._context(agent, "explore", feedback, kind="evaluation")
+            try:
+                spec = self.proposer.propose_evaluation(context)
+            except ValueError as e:
+                feedback = f"your last proposal was rejected: {e}"
+                continue
+            except Exception as e:  # noqa: BLE001 - an API error or refusal
+                self._skip_turn(agent, cycle, e)
+                return
+            self._proposer_failures = 0
+            unknown = [c for c in spec.needs if c not in self._columns()]
+            if unknown:
+                feedback = (f"your last proposal needs unknown columns {unknown}; "
+                            f"use only {sorted(self._columns())}")
+                continue
+            if any(e["spec"].name == spec.name for e in self.evaluations):
+                feedback = f"an evaluation named {spec.name!r} exists; propose another"
+                continue
+            record = {"spec": spec, "status": "rejected", "reason": "",
+                      "scores": {}, "cycle": cycle, "agent": agent}
+            trials = self._scorable()
+            base_id = self._baseline_id()
+            if base_id is None or base_id not in {t.trial_id for t in trials}:
+                record["reason"] = "no baseline with stored out-of-fold predictions"
+            else:
+                try:
+                    result = run_evaluations(
+                        spec, *self._evaluation_inputs(spec, trials), checks=True,
+                        timeout=self.eval_timeout,
+                        log_path=self._log_path(f"evaluation_{spec.name}"))
+                except SandboxError as e:
+                    record["reason"] = e.brief
+                else:
+                    ids = [t.trial_id for t in trials]
+                    record["scores"] = dict(zip(ids, result["values"]))
+                    fails = self._guardrail_fails()
+                    candidates, _, _ = _one_se_sets(
+                        [t for t in self.trials if t.accepted is not False
+                         and not fails(t)],
+                        self.maximize, self.promote_se or 1.0)
+                    record["status"], record["reason"] = decide(
+                        spec, result, ids, base_id,
+                        [t.trial_id for t in candidates if t.trial_id != base_id],
+                        sum(e["status"] == "active" for e in self.evaluations),
+                        self.max_guardrails, self.guardrail_se)
+            self.evaluations.append(record)
+            self._save_evaluations()
+            logger.info("evaluation %s: %s (%s)", spec.name, record["status"],
+                        record["reason"])
+            return
+        logger.warning("%s made no usable evaluation in cycle %d: %s", agent, cycle,
+                       feedback)
+
+    def _score_with_evaluations(self, trial: Trial) -> None:
+        """Scores a new trial with every adopted or report-only evaluation."""
+        from .guardrails import run_evaluations
+
+        kept = [e for e in self.evaluations if e["status"] in ("active", "report_only")]
+        oof = self.oof_predictions(trial.trial_id)
+        if not kept or oof is None or oof["split"] != "train":
+            return
+        for e in kept:
+            spec = e["spec"]
+            try:
+                result = run_evaluations(
+                    spec, *self._evaluation_inputs(spec, [trial]), checks=False,
+                    timeout=self.eval_timeout,
+                    log_path=self._log_path(f"evaluation_{spec.name}"))
+            except SandboxError as err:
+                trial.notes.append(f"evaluation {spec.name} failed on this trial: "
+                                   f"{err.brief}")
+                continue
+            e["scores"][trial.trial_id] = result["values"][0]
+
+    def _save_evaluations(self) -> None:
+        if not self.run_dir:
+            return
+        records = []
+        fails = self.guardrail_failures()
+        for e in self.evaluations:
+            spec = e["spec"]
+            self._write(os.path.join("evaluations", f"{spec.name}.py"), spec.code)
+            records.append({
+                **spec.to_dict(), "status": e["status"], "reason": e["reason"],
+                "cycle": e["cycle"], "agent": e["agent"],
+                "scores": {str(k): v for k, v in e["scores"].items()},
+                "fails": {str(t): [k for k in keys if k.startswith(spec.name + ".")]
+                          for t, keys in fails.items()
+                          if any(k.startswith(spec.name + ".") for k in keys)},
+            })
+        self._write("evaluations.json", json.dumps(records, indent=1, default=float))
+
+    def _load_evaluations(self) -> None:
+        from .guardrails import EvaluationSpec
+
+        records = self._read_json("evaluations.json") or []
+        for r in records:
+            path = os.path.join(self.run_dir, "evaluations", f"{r['name']}.py")
+            if not os.path.exists(path):
+                continue
+            with open(path) as f:
+                code = f.read()
+            spec = EvaluationSpec(r["name"], code, dict(r["metrics"]),
+                                  list(r.get("needs", [])), r.get("rationale", ""),
+                                  r.get("kind", ""))
+            self.evaluations.append({
+                "spec": spec, "status": r["status"], "reason": r.get("reason", ""),
+                "cycle": r.get("cycle", -1), "agent": r.get("agent", ""),
+                "scores": {int(k): v for k, v in r.get("scores", {}).items()},
+            })
+
+    # ------------------------------------------------------------ analysis
+    def _analysis_turn(self, cycle: int, agent: str) -> None:
+        """One analysis: run it on the training split, keep its findings."""
+        from .analysis import format_results, run_analysis_job
+
+        feedback = ""
+        for _ in range(2):  # one retry when the proposal is invalid or fails
+            context = self._context(agent, "explore", feedback, kind="analysis")
+            try:
+                spec = self.proposer.propose_analysis(context)
+            except ValueError as e:
+                feedback = f"your last proposal was rejected: {e}"
+                continue
+            except Exception as e:  # noqa: BLE001 - an API error or refusal
+                self._skip_turn(agent, cycle, e)
+                return
+            self._proposer_failures = 0
+            number = len(self.analyses)
+            if self.run_dir:
+                self._write(os.path.join("analysis", f"{number}_{spec.name}.py"),
+                            spec.code)
+            try:
+                results = run_analysis_job(
+                    spec, self._analysis_columns(), timeout=self.eval_timeout,
+                    log_path=self._log_path(f"analysis_{number}_{spec.name}"))
+            except SandboxError as e:
+                feedback = f"your last analysis failed: {e.brief}"
+                continue
+            text = format_results(results)
+            try:
+                found = self.proposer.summarize_analysis(spec, text, context)
+            except Exception as e:  # noqa: BLE001 - keep a plain summary instead
+                logger.warning("findings not summarised: %s", describe_error(e))
+                found = []
+            if not found and text:
+                found = [f"{spec.question or spec.name}: "
+                         + " ".join(text.split())[:280]]
+            self.findings = (self.findings + list(found))[-self.max_findings:]
+            record = {**spec.to_dict(), "cycle": cycle, "agent": agent,
+                      "results": results, "findings": list(found)}
+            self.analyses.append(record)
+            if self.run_dir:
+                self._write(os.path.join("analysis", f"{number}_{spec.name}.json"),
+                            json.dumps(record, indent=1, default=str))
+                self._write("findings.json", json.dumps(self.findings, indent=1))
+            return
+        logger.warning("%s made no usable analysis in cycle %d: %s", agent, cycle,
+                       feedback)
+
     # --------------------------------------------------------- feature search
     def _feature_turn(self, cycle: int, agent: str, strategy: str) -> None:
         """One feature proposal: validate, test for leaks, score, accept or not."""
@@ -679,11 +1033,8 @@ class AutoImprover:
                     f"{k}: {v}" for k, v in leaks.items())
                 continue
             hypothesis = {k: proposal[k] for k in ("expected", "kind") if proposal.get(k)}
-            config = PipelineConfig(
-                base.config.model, dict(base.config.model_params),
-                dict(base.config.train_params), str(proposal.get("rationale", "")),
-                hypothesis,
-            )
+            config = _derived(base.config, str(proposal.get("rationale", "")),
+                              hypothesis)
             trial = self._evaluate(
                 config, cycle, agent, strategy, features=accepted + [
                     s.to_dict() for s in new], added=[s.name for s in new],
@@ -740,9 +1091,7 @@ class AutoImprover:
                     and not t.stopped_early):
                 return t
         trial = self._evaluate(
-            PipelineConfig(selected.config.model, dict(selected.config.model_params),
-                           dict(selected.config.train_params),
-                           "the selected config with the accepted features"),
+            _derived(selected.config, "the selected config with the accepted features"),
             cycle, "incumbent", "incumbent", features=accepted, early_stop=False,
         )
         # A reference for paired gains: it must have every fold.
@@ -822,9 +1171,10 @@ class AutoImprover:
         if not scored or (reference is not None and not reference.fold_scores):
             return {}
         n = len((reference or scored[0]).fold_scores)
+        fails = self._guardrail_fails()
         candidates = [t for t in scored if not t.stopped_early
                       and len(t.fold_scores) == n and t is not reference
-                      and t.accepted is not False]
+                      and t.accepted is not False and not fails(t)]
         sign = 1 if self.maximize else -1
 
         def clears(t: Trial) -> bool:
@@ -852,7 +1202,9 @@ class AutoImprover:
         train, val = self._datasets(specs)
         runs = [
             run_config_cv(config, self.space, train, val, self.metric,
-                          self._confirm_folds, (), self.seed + k, self.device)["fold_scores"]
+                          self._confirm_folds, (), self.seed + k, self.device,
+                          timeout=self.code_timeout, log_dir=self._log_dir(),
+                          label=f"confirm_seed{k}")["fold_scores"]
             for k in range(self.confirm_seeds)
         ]
         return [float(v) for v in np.mean(np.array(runs), axis=0)]
@@ -906,9 +1258,8 @@ class AutoImprover:
                "final": [s["name"] for s in current]}
         if dropped:
             pruned = self._evaluate(
-                PipelineConfig(best.config.model, dict(best.config.model_params),
-                               dict(best.config.train_params),
-                               "the selection without features it does not need"),
+                _derived(best.config,
+                         "the selection without features it does not need"),
                 max((t.cycle for t in self.trials), default=0), "pruned", "prune",
                 features=current, early_stop=False,
             )
@@ -938,11 +1289,14 @@ class AutoImprover:
             trial.parent, trial.change = parent.trial_id, config_diff(
                 parent.config, config
             )
+        if config.code and self.run_dir:
+            self._write(os.path.join("code", f"trial_{trial.trial_id}.py"), config.code)
         try:
             out = self._run_config(
                 config, self.report_metrics, trial.features,
                 # references (incumbent, pruned) always run every fold
                 stop_if=self._early_stop_rule() if early_stop else None,
+                label=f"trial_{trial.trial_id}",
             )
             trial.metrics = out["metrics"]
             trial.score = out["metrics"][self.metric]
@@ -959,12 +1313,19 @@ class AutoImprover:
                 trial.error = trial.error_brief = (
                     f"{self.metric} is undefined on {where}"
                 )
+            elif out.get("oof") is not None:
+                self._store_oof(trial.trial_id, out["oof"])
+                self._score_with_evaluations(trial)
+        except SandboxError as e:  # generated code failed in its process
+            trial.error, trial.error_brief = e.full, e.brief
         except Exception as e:  # noqa: BLE001 - a failed trial is feedback
             trial.error = describe_error(e)
             trial.error_brief = describe_error(e, message=False)
         self.trials.append(trial)
         if save:
             self._save_trial(trial)
+        if self.evaluations:
+            self._save_evaluations()
         return trial
 
     def _early_stop_rule(self):
@@ -1010,7 +1371,47 @@ class AutoImprover:
             feature_trials=[t for t in self.trials if t.added][-12:],
             card=card,
             tried_features=sorted({n for t in self.trials for n in t.added}),
+            findings=list(self.findings),
+            evaluations=self._evaluation_lines(),
+            **(self._generated_context(kind, done) if kind in GENERATED_KINDS else {}),
         )
+
+    def _generated_context(self, kind: str, done: Sequence[Trial]) -> dict[str, Any]:
+        """Context only code, evaluation and analysis prompts need."""
+        from .codegen import task_context
+        from .guardrails import metrics_menu
+
+        if self._task_source is None:
+            self._task_source = task_context(self.task, self.train_dataset)
+        out: dict[str, Any] = {"task_source": self._task_source,
+                               "columns": sorted(self._analysis_columns())}
+        if kind == "evaluation":
+            out["metrics_menu"] = metrics_menu(self.mode)
+            out["columns"] = sorted(c for c in self._columns() if c != "patient")
+        if kind == "code":
+            best_code = [t for t in done if t.config.code][:2]
+            out["code_examples"] = [
+                (f"#{t.trial_id} [{self.metric}={t.score:.4f}]", t.config.code)
+                for t in best_code
+            ]
+        return out
+
+    def _evaluation_lines(self) -> list[str]:
+        lines = []
+        fails = self._guardrail_fails()
+        for e in self.evaluations:
+            spec = e["spec"]
+            metrics = ", ".join(f"{m} ({d} is better)" for m, d in spec.metrics.items())
+            line = f"{spec.name} [{e['status']}]: {metrics}"
+            if e["status"] == "active":
+                failing = [t.trial_id for t in self.trials if t.error is None and any(
+                    k.startswith(spec.name + ".") for k in fails(t))]
+                line += ("; fails: " + ", ".join(f"#{i}" for i in failing)
+                         if failing else "; no trial fails it")
+            elif e.get("reason"):
+                line += f"; {e['reason']}"
+            lines.append(line)
+        return lines
 
     def _best_score(self) -> float | None:
         best = self.result().best
@@ -1101,11 +1502,12 @@ class AutoImprover:
         for name, trial in configs.items():
             config = trial.config
             train, val = self._datasets(trial.features)
-            model = train_pipeline(
-                config, self.space, train, val, self.metric, self.seed, self.device,
-            )
             test_ds = self._test_dataset(trial.features, test_dataset, train)
-            y_true, y_prob, patient_ids = predict(model, test_ds)
+            fitted = fit_predict(
+                config, self.space, train, val, [test_ds], self.metric, self.seed,
+                self.device, self.code_timeout, self._log_dir(), f"test_{name}",
+            )
+            y_true, y_prob, patient_ids = fitted["predictions"][0]
             probs[name] = y_prob
             groups = np.asarray(patient_ids) if patient_ids else None
             if self.mode == "binary":
@@ -1130,10 +1532,48 @@ class AutoImprover:
                     y_true, probs[a], probs[b], self.metric,
                     groups=groups, n_boot=n_boot, seed=self.seed,
                 )
+        guardrails = self._test_guardrails(test_dataset, y_true, probs)
+        if guardrails:
+            out["guardrails"] = guardrails
         self._save_result("test.json", out, default=float)
         if return_predictions:
             out["predictions"] = {"y_true": y_true, "patient_ids": patient_ids, **probs}
         return out
+
+    def _test_guardrails(self, test_dataset, y_true, probs) -> dict[str, Any]:
+        """Each active guardrail's value on test, for every config scored there."""
+        from .analysis import sample_columns
+        from .guardrails import run_evaluations
+
+        active = [e for e in self.evaluations if e["status"] == "active"]
+        if not active:
+            return {}
+        columns = sample_columns(test_dataset)
+        names = list(probs)
+        out: dict[str, Any] = {}
+        for e in active:
+            spec = e["spec"]
+            info = {c: columns[c] for c in ["patient", *spec.needs] if c in columns}
+            try:
+                res = run_evaluations(spec, np.asarray(y_true),
+                                      np.zeros(len(y_true), dtype=np.int16), info,
+                                      [np.asarray(probs[n]) for n in names],
+                                      checks=False, timeout=self.eval_timeout,
+                                      log_path=self._log_path(f"test_{spec.name}"))
+            except SandboxError as err:
+                out[spec.name] = {"error": err.brief}
+                continue
+            for metric, direction in spec.metrics.items():
+                out[f"{spec.name}.{metric}"] = {
+                    "direction": direction,
+                    **{n: res["values"][i][0][metric] for i, n in enumerate(names)},
+                }
+        return out
+
+    def _log_path(self, name: str) -> str | None:
+        if not self.run_dir:
+            return None
+        return os.path.join(self.run_dir, "logs", f"{name}.log")
 
     # ---------------------------------------------------------- explaining
     def attribute(self, trial_id: int | None = None) -> dict[str, Any]:
@@ -1161,6 +1601,12 @@ class AutoImprover:
         target = result.best if trial_id is None else self.trials[trial_id]
         if target is None or target.error is not None:
             raise ValueError("no successful trial to attribute")
+        if target.config.code:
+            out = {"trial_id": target.trial_id, "metric": self.metric,
+                   "reference": "none: generated code has no settings to revert",
+                   "score": target.score, "rows": []}
+            self._save_result("attribution.json", out, default=str)
+            return out
         base = result.baseline
         if base is not None and base.error is None and base.config.model == (
             target.config.model
@@ -1208,6 +1654,7 @@ class AutoImprover:
 
     def _run_config(
         self, config: PipelineConfig, report_metrics, features=(), stop_if=None,
+        label: str = "trial",
     ) -> dict[str, Any]:
         """Scores a config, with these engineered features, on this run's
         folds or on the validation split. ``stop_if`` applies to folds only."""
@@ -1216,11 +1663,23 @@ class AutoImprover:
             return run_config_cv(
                 config, self.space, train, val, self.metric, self.folds,
                 report_metrics, self.seed, self.device, stop_if=stop_if,
+                timeout=self.code_timeout, log_dir=self._log_dir(), label=label,
             )
         return run_config(
             config, self.space, train, val, self.metric, report_metrics,
-            self.seed, self.device,
+            self.seed, self.device, timeout=self.code_timeout,
+            log_dir=self._log_dir(), label=label,
         )
+
+    def _log_dir(self) -> str | None:
+        return os.path.join(self.run_dir, "logs") if self.run_dir else None
+
+    def _write(self, relative: str, text: str) -> None:
+        """Writes a text file under ``run_dir``."""
+        path = os.path.join(self.run_dir, relative)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(text)
 
     def _score(self, config: PipelineConfig, features=()) -> dict[str, Any]:
         config, _ = self.space.validate(config)
@@ -1262,6 +1721,10 @@ class AutoImprover:
         result = self.result()
         if result.best is None:
             raise ValueError("no successful trial to explain")
+        if result.best.config.code:
+            raise NotImplementedError(
+                "explain() needs the trained model in this process; the selected "
+                "trial is generated code, which is trained in its own process")
         config = result.best.config
         train, val = self._datasets(result.best.features)
         extra = {
@@ -1420,12 +1883,23 @@ class AutoImprover:
             review=self._read_json("review.json") or {},
             confirmed=self.confirmed, pruning=self._read_json("prune.json"),
             confirm_se=self.confirm_se,
+            guardrails=self._guardrail_summary(), findings=self.findings,
         )
         if path is None and self.run_dir:
             path = os.path.join(self.run_dir, "report.html")
         if path is not None:
             report.save(path)
         return report
+
+    def _guardrail_summary(self) -> list[dict[str, Any]]:
+        """Each evaluation for the report: spec, status, reason, failing trials."""
+        fails = self.guardrail_failures()
+        return [{
+            **e["spec"].to_dict(), "status": e["status"], "reason": e["reason"],
+            "fails": {t: [k for k in keys if k.startswith(e["spec"].name + ".")]
+                      for t, keys in fails.items()
+                      if any(k.startswith(e["spec"].name + ".") for k in keys)},
+        } for e in self.evaluations]
 
     def _save_result(self, name: str, out: dict[str, Any], default) -> None:
         """Keeps a result in memory and, with a ``run_dir``, writes it there.
@@ -1468,6 +1942,10 @@ class AutoImprover:
         if confirmed and not self.confirmed:
             self.confirmed = {int(k): v for k, v in confirmed["scores"].items()}
             self.pruned_id = (self._read_json("prune.json") or {}).get("pruned_trial")
+        if not self.evaluations:
+            self._load_evaluations()
+        if not self.findings:
+            self.findings = list(self._read_json("findings.json") or [])
 
     def _run_settings(self) -> dict[str, Any]:
         """The settings a resumed run must share with the trials it continues."""
@@ -1790,6 +2268,15 @@ def _one_se_sets(
         return gap <= se
 
     return candidates, top, [t for t in candidates if within(t)]
+
+
+def _derived(
+    config: PipelineConfig, rationale: str, hypothesis: dict[str, Any] | None = None
+) -> PipelineConfig:
+    """A copy of a config (generated code included) with a new rationale."""
+    return PipelineConfig(config.model, dict(config.model_params),
+                          dict(config.train_params), rationale,
+                          dict(hypothesis or {}), config.code)
 
 
 def _key(config: PipelineConfig, features: Sequence[dict[str, Any]]) -> str:

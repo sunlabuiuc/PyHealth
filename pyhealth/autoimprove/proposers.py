@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .llm import LLM
-from .space import PipelineConfig, SearchSpace
+from .space import CODE_MODEL, PipelineConfig, SearchSpace
 
 STRATEGIES = {
     "explore": (
@@ -54,6 +54,26 @@ FEATURE_STRATEGIES = {
 }
 """Instructions for each strategy in a feature cycle."""
 
+CODE_STRATEGIES = {
+    "explore": (
+        "Explore: write a model unlike any tried so far, e.g. a different way of "
+        "reading the record or a different training objective."
+    ),
+    "refine": (
+        "Refine: start from the best code attempt (or the best configuration) and "
+        "change one thing the results suggest will help."
+    ),
+    "crossover": (
+        "Crossover: combine what works in the best code attempt with what works in "
+        "the best configuration from the search space."
+    ),
+    "contrastive": (
+        "Contrast: compare the best and worst attempts, and write a model that "
+        "keeps what the best share and avoids what the worst share."
+    ),
+}
+"""Instructions for each strategy in a code cycle."""
+
 
 class ProposerExhausted(ValueError):
     """Raised by a proposer with nothing left to propose; the search ends.
@@ -91,6 +111,16 @@ class ProposalContext:
         feature_trials: The latest feature trials, oldest first.
         tried_features: Names of every feature tried so far, in any trial.
         card: A plain-text summary of the task card, if any.
+        task_source: The task's code and the batch layout of its inputs and
+            label (:func:`~pyhealth.autoimprove.codegen.task_context`), for
+            code, evaluation and analysis turns.
+        findings: Short findings from earlier analysis turns.
+        evaluations: One line per proposed evaluation: its status, metrics
+            and, for active guardrails, the trials that fail it.
+        code_examples: ``(summary line, code)`` of the best code attempts.
+        metrics_menu: The :mod:`pyhealth.metrics` functions for the label
+            kind, for evaluation turns.
+        columns: Sample columns available to evaluations and analyses.
 
     Examples:
         >>> from pyhealth.autoimprove import SearchSpace
@@ -120,6 +150,12 @@ class ProposalContext:
     feature_trials: Sequence[Any] = ()
     card: str = ""
     tried_features: Sequence[str] = ()
+    task_source: str = ""
+    findings: Sequence[str] = ()
+    evaluations: Sequence[str] = ()
+    code_examples: Sequence[tuple[str, str]] = ()
+    metrics_menu: str = ""
+    columns: Sequence[str] = ()
 
 
 class Proposer(ABC):
@@ -151,6 +187,39 @@ class Proposer(ABC):
             ValueError: If the proposer cannot propose features.
         """
         raise ValueError(f"{type(self).__name__} cannot propose features")
+
+    def propose_code(self, context: ProposalContext) -> PipelineConfig:
+        """Returns a code config for a code turn (``PipelineConfig.code``).
+
+        Raises:
+            ValueError: If the proposer cannot write code.
+        """
+        raise ValueError(f"{type(self).__name__} cannot propose code")
+
+    def propose_evaluation(self, context: ProposalContext) -> Any:
+        """Returns an :class:`~pyhealth.autoimprove.guardrails.EvaluationSpec`.
+
+        Raises:
+            ValueError: If the proposer cannot propose evaluations.
+        """
+        raise ValueError(f"{type(self).__name__} cannot propose evaluations")
+
+    def propose_analysis(self, context: ProposalContext) -> Any:
+        """Returns an :class:`~pyhealth.autoimprove.analysis.AnalysisSpec`.
+
+        Raises:
+            ValueError: If the proposer cannot propose analyses.
+        """
+        raise ValueError(f"{type(self).__name__} cannot propose analyses")
+
+    def summarize_analysis(
+        self, spec: Any, results: str, context: ProposalContext
+    ) -> list[str]:
+        """Short findings from an analysis's results; the default makes none.
+
+        The improver then keeps a plain summary of the results instead.
+        """
+        return []
 
     def reflect(
         self,
@@ -268,6 +337,59 @@ the time budget in mind: prefer small changes that are likely to help over \
 expensive long shots."""
 
 
+CODE_SYSTEM_PROMPT = """\
+You are an expert in machine learning for electronic health records, \
+improving a PyHealth prediction model by writing your own model and training \
+code. Each turn you write ONE Python module. The harness runs it in a \
+separate process on the training split only, predicts held-out patients \
+itself, and scores your model exactly like the models in the search space, \
+on the same folds. You never see patient records or the test split.
+
+Reply with a short analysis, then the module in one ```python block, then \
+one JSON object in a ```json block:
+{"rationale": "<one sentence: why this should help>", \
+"expected": "<what you expect to change>", "kind": "<clinical or technical>", \
+"based_on": <id of the trial you are changing, or null>}"""
+
+EVALUATION_SYSTEM_PROMPT = """\
+You are a clinician-scientist and biostatistician reviewing how a PyHealth \
+prediction model is scored. Each turn you propose ONE extra evaluation: a \
+Python function scoring held-out predictions, fold by fold, for something \
+the main metric misses (calibration, a subgroup, alert yield, net benefit). \
+If it passes the harness's checks it becomes a guardrail: no attempt clearly \
+worse than the starting model on it can be selected. It never replaces the \
+main metric. You never see patient records.
+
+Reply with a short analysis, then the module in one ```python block, then \
+one JSON object in a ```json block:
+{"name": "<short_identifier>", "metrics": {"<metric>": "higher" or "lower"}, \
+"needs": ["<column>", ...], "rationale": "<why it matters clinically>", \
+"kind": "<calibration, subgroup, utility or robustness>"}"""
+
+ANALYSIS_SYSTEM_PROMPT = """\
+You are a clinician-scientist and data analyst. Each turn you ask ONE \
+question of the training data that would guide the next attempts (where \
+errors concentrate, how the label varies, what is missing), and write a \
+Python function that answers it. It runs on the training split only, and \
+returns only aggregate tables with small groups withheld. You never see \
+patient records.
+
+Reply with a short analysis, then the module in one ```python block, then \
+one JSON object in a ```json block:
+{"name": "<short_identifier>", "question": "<the question>", \
+"rationale": "<how the answer would change what we try next>"}"""
+
+FINDINGS_PROMPT = """\
+An analysis of the training data asked: {question}
+
+Its results (groups under 11 patients withheld):
+{results}
+
+State at most 3 findings that should guide the next attempts. Each one \
+sentence, quoting only numbers that appear above. Reply with a ```json \
+block: {{"findings": ["...", ...]}}"""
+
+
 class LLMProposer(Proposer):
     """Asks an LLM for configurations, with results and lessons as context.
 
@@ -319,6 +441,54 @@ class LLMProposer(Proposer):
             except ValueError as e:
                 error = f"\n\nYour last reply could not be used: {e}. Reply again."
         raise ValueError(f"No usable features after {self.max_attempts} replies")
+
+    def _code_reply(self, system: str, prompt: str, build: Any) -> Any:
+        """Asks for a module and its JSON, retrying on replies that don't parse."""
+        error = ""
+        for _ in range(self.max_attempts):
+            reply = self.llm(system, prompt + error)
+            try:
+                code, meta = parse_code(reply)
+                return build(code, meta)
+            except (TypeError, ValueError) as e:
+                error = f"\n\nYour last reply could not be used: {e}. Reply again."
+        raise ValueError(f"No usable module after {self.max_attempts} replies")
+
+    def propose_code(self, context: ProposalContext) -> PipelineConfig:
+        def build(code, meta):
+            config = PipelineConfig.from_dict({**meta, "model": CODE_MODEL,
+                                               "code": code})
+            config.model_params, config.train_params = {}, {}
+            return config
+
+        return self._code_reply(CODE_SYSTEM_PROMPT, build_code_prompt(context), build)
+
+    def propose_evaluation(self, context: ProposalContext) -> Any:
+        from .guardrails import EvaluationSpec
+
+        return self._code_reply(EVALUATION_SYSTEM_PROMPT,
+                                build_evaluation_prompt(context),
+                                lambda code, meta: EvaluationSpec.from_dict(meta, code))
+
+    def propose_analysis(self, context: ProposalContext) -> Any:
+        from .analysis import AnalysisSpec
+
+        return self._code_reply(ANALYSIS_SYSTEM_PROMPT, build_analysis_prompt(context),
+                                lambda code, meta: AnalysisSpec.from_dict(meta, code))
+
+    def summarize_analysis(
+        self, spec: Any, results: str, context: ProposalContext
+    ) -> list[str]:
+        prompt = FINDINGS_PROMPT.format(question=spec.question or spec.name,
+                                        results=results or "(no results)")
+        try:
+            data = parse_json(self.llm(ANALYSIS_SYSTEM_PROMPT, prompt))
+        except ValueError:
+            return []
+        found = data.get("findings")
+        if not isinstance(found, list):
+            return []
+        return [str(x).strip()[:300] for x in found if str(x).strip()][:3]
 
     def reflect(
         self,
@@ -372,6 +542,7 @@ def build_prompt(context: ProposalContext) -> str:
     ]
     if context.lessons:
         parts.append("Lessons from earlier cycles:\n" + _bullets(context.lessons))
+    parts += _shared_parts(context)
     if context.leaderboard:
         parts.append("Best trials so far:\n" + format_trials(context.leaderboard))
     if context.worst:
@@ -426,6 +597,136 @@ def build_feature_prompt(context: ProposalContext) -> str:
     if context.feedback:
         parts.append(f"Note: {context.feedback}")
     return "\n\n".join(parts)
+
+
+def _shared_parts(context: ProposalContext) -> list[str]:
+    """Analysis findings and guardrails, which every kind of prompt includes."""
+    parts = []
+    if context.findings:
+        parts.append("Findings from analyses of the training data:\n"
+                     + _bullets(context.findings))
+    if context.evaluations:
+        parts.append("Extra evaluations (an active guardrail removes any attempt "
+                     "clearly worse than the starting model on it):\n"
+                     + _bullets(context.evaluations))
+    return parts
+
+
+def _common_parts(context: ProposalContext, title: str) -> list[str]:
+    direction = "higher" if context.maximize else "lower"
+    parts = [f"Task:\n{context.task}"]
+    if context.task_source:
+        parts.append(context.task_source)
+    if context.card:
+        parts.append(f"Task card:\n{context.card}")
+    parts.append(f"Main metric: {context.metric} ({direction} is better).")
+    if context.lessons:
+        parts.append("Lessons from earlier cycles:\n" + _bullets(context.lessons))
+    parts += _shared_parts(context)
+    if context.leaderboard:
+        parts.append(f"{title}:\n" + format_trials(context.leaderboard))
+    if context.selected is not None:
+        parts.append(f"Current selection: #{context.selected.trial_id}. "
+                     f"{context.selection_rule}".strip())
+    return parts
+
+
+def build_code_prompt(context: ProposalContext) -> str:
+    """Builds the user prompt for a code turn.
+
+    Examples:
+        >>> from pyhealth.autoimprove import SearchSpace
+        >>> context = ProposalContext("a0", "explore", SearchSpace(), "binary task",
+        ...                           "pr_auc", True)
+        >>> "build_and_train" in build_code_prompt(context)
+        True
+    """
+    from .codegen import CODE_CONTRACT, TEMPLATE
+
+    parts = _common_parts(context, "Best attempts so far (configs and code)")
+    parts.append(CODE_CONTRACT)
+    if context.code_examples:
+        for line, code in context.code_examples:
+            parts.append(f"A code attempt {line}:\n```python\n{code}\n```")
+    else:
+        parts.append(f"A minimal module that meets the contract:\n```python\n"
+                     f"{TEMPLATE}```")
+    if context.own_trials:
+        parts.append(f"Your own trials ({context.agent}):\n"
+                     + format_trials(context.own_trials))
+    parts.append(f"Strategy for this turn: {CODE_STRATEGIES[context.strategy]}")
+    if context.feedback:
+        parts.append(f"Note: {context.feedback}")
+    return "\n\n".join(parts)
+
+
+def build_evaluation_prompt(context: ProposalContext) -> str:
+    """Builds the user prompt for an evaluation turn.
+
+    Examples:
+        >>> from pyhealth.autoimprove import SearchSpace
+        >>> context = ProposalContext("a0", "explore", SearchSpace(), "binary task",
+        ...                           "pr_auc", True, columns=["age"])
+        >>> "evaluate(y_true, y_prob, info)" in build_evaluation_prompt(context)
+        True
+    """
+    from .guardrails import EVALUATION_CONTRACT
+
+    parts = _common_parts(context, "Best attempts so far")
+    parts.append(EVALUATION_CONTRACT)
+    if context.metrics_menu:
+        parts.append(context.metrics_menu)
+    parts.append("Columns you can list in \"needs\": "
+                 + (", ".join(context.columns) or "(none)"))
+    parts.append("Propose an evaluation that is not already listed above, for a "
+                 "failure the main metric would miss.")
+    if context.feedback:
+        parts.append(f"Note: {context.feedback}")
+    return "\n\n".join(parts)
+
+
+def build_analysis_prompt(context: ProposalContext) -> str:
+    """Builds the user prompt for an analysis turn.
+
+    Examples:
+        >>> from pyhealth.autoimprove import SearchSpace
+        >>> context = ProposalContext("a0", "explore", SearchSpace(), "binary task",
+        ...                           "pr_auc", True, columns=["age", "label"])
+        >>> "analyze(data, out)" in build_analysis_prompt(context)
+        True
+    """
+    from .analysis import ANALYSIS_CONTRACT
+
+    parts = _common_parts(context, "Best attempts so far")
+    parts.append(ANALYSIS_CONTRACT)
+    parts.append("Columns in data: " + (", ".join(context.columns) or "(none)"))
+    parts.append("Ask a question whose answer is not already in the findings above.")
+    if context.feedback:
+        parts.append(f"Note: {context.feedback}")
+    return "\n\n".join(parts)
+
+
+def parse_code(text: str) -> tuple[str, dict[str, Any]]:
+    """Extracts the last ```python block and the JSON object from an LLM reply.
+
+    Examples:
+        >>> code, meta = parse_code('Plan.\\n```python\\nx = 1\\n```\\n```json\\n{"a": 1}\\n```')
+        >>> code, meta
+        ('x = 1\\n', {'a': 1})
+
+    Raises:
+        ValueError: If the reply holds no python block.
+    """
+    blocks = re.findall(r"```(?:python|py)\s*\n(.*?)```", text, flags=re.DOTALL)
+    if not blocks:
+        raise ValueError("no ```python block found")
+    code = blocks[-1]
+    rest = re.sub(r"```(?:python|py)\s*\n.*?```", "", text, flags=re.DOTALL)
+    try:
+        meta = parse_json(rest)
+    except ValueError:
+        meta = {}
+    return code, meta
 
 
 def format_trials(trials: Sequence[Any]) -> str:

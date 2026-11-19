@@ -359,6 +359,91 @@ ranked, justified candidate features. It reads two kinds of source:
   use only the task card's text, and every query is kept in ``kb.queries``.
   Mapping sees only the names of event types, groups and columns.
 
+Code, evaluation and analysis turns
+-----------------------------------
+
+By default nothing a proposer returns is run: configs and feature specs are
+data. A ``cycle_plan`` opts in to three kinds of turn where the LLM writes
+Python, mixed with model and feature turns on one leaderboard:
+
+.. code-block:: python
+
+    improver = AutoImprover(
+        train, val, LLMProposer(ClaudeLLM()),
+        baseline=PipelineConfig("RNN", {"hidden_dim": 128}),
+        task=task,                       # its source goes into code prompts
+        cycle_plan=("analysis", "model", "code", "evaluation"),
+        cv_folds=5, run_dir="runs/agentic",
+    )
+
+``code``
+    The LLM writes ``build_and_train(train_dataset, val_dataset, *, metric,
+    seed, device, time_limit)``, returning a trained
+    :class:`~pyhealth.models.BaseModel`. Any architecture, feature transforms
+    (inside the model's ``forward``) and training loop are allowed. The
+    prompt holds the task's source code, the batch layout of every input and
+    the label, and the best code so far. The harness predicts held-out data
+    itself, so a code attempt is scored exactly like a listed model, on the
+    same folds and seed. After training it checks the outputs, that the
+    model doesn't give every sample the same prediction, and that
+    predictions don't change when the labels in the batch are shuffled (a
+    model that reads the answer fails). Code attempts sit on the top rung of the
+    interpretability ladder, so a listed model wins a tie.
+
+``evaluation``
+    The LLM writes ``evaluate(y_true, y_prob, info)``, usually with
+    :mod:`pyhealth.metrics` (the prompt lists the functions for the label
+    type). Every trial keeps its out-of-fold predictions
+    (``run_dir/preds/``), so the evaluation scores all of them, old and new,
+    without retraining. It becomes an **active guardrail** automatically if
+    it runs, is deterministic, is defined on every fold, points the way it
+    says (perfect predictions beat a constant guess), varies between trials,
+    would not remove more than half of the candidates, and fewer than
+    ``max_guardrails`` are active. Otherwise it is kept for the report only,
+    or rejected. An active guardrail removes from the candidates every trial
+    clearly worse than the baseline on it, by the same fold-by-fold
+    comparison the main metric uses (``guardrail_se`` paired standard
+    errors). It never replaces the main metric, and the baseline always
+    passes. ``evaluate_on_test`` reports each active guardrail on test.
+    Evaluation cycles need ``cv_folds``.
+
+``analysis``
+    The LLM writes ``analyze(data, out)`` over the training split: sample
+    columns, the label, the fold and the selection's out-of-fold prediction.
+    Results leave only through ``out.table``, ``out.value`` and ``out.note``:
+    the harness groups and counts patients itself and withholds every group
+    under 11 patients, plus the next smallest when only one would be
+    withheld. The proposer turns the results into short findings, which every
+    later prompt includes.
+
+How generated code runs
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Generated code runs in the same Python environment as the improver, in a
+child process (:mod:`~pyhealth.autoimprove.sandbox`):
+
+- a static check rejects imports outside an allowlist (torch, numpy, scipy,
+  sklearn, pandas, polars, pyhealth and the standard library's maths and
+  collections modules), file and shell access (``open``, ``os``,
+  ``torch.save``...), ``exec``-like builtins and dunder attributes;
+- the child has no network (a new user and network namespace, where Linux
+  allows it), no credentials in its environment, a wall-clock limit
+  (``code_timeout``, ``eval_timeout``), a 64 MB cap on files it writes and
+  optionally a memory cap;
+- its output goes to ``run_dir/logs/``, never to the LLM; only predictions,
+  numbers and suppressed tables come back, and errors reach the LLM without
+  their messages (which can quote raw values).
+
+This keeps a buggy proposal from crashing or stalling the search and stops
+accidental file, network or credential use. It runs as your user, though,
+so it is not a security boundary against deliberately hostile code: with an
+LLM you don't trust, run the whole improver in a container or a job with no
+access to data you would not expose. Scripts that use these turns need an
+``if __name__ == "__main__":`` guard. :meth:`~AutoImprover.explain` is not
+available when the selected trial is generated code.
+
+See ``examples/autoimprove_agentic_synthetic_mimic3.py``.
+
 Safety and data
 ---------------
 
@@ -390,7 +475,8 @@ API Reference
         ProposerExhausted, ClaudeLLM, OpenAILLM, GeminiLLM,
         with_xgboost, patient_folds, run_config_cv, select_trial, paired_gain,
         check_models, describe_error, select_simplest, config_diff, Report,
-        build_report, load_run, unverified_numbers, fold_parts
+        build_report, load_run, unverified_numbers, fold_parts, fit_predict,
+        score_predictions, out_of_fold
     :show-inheritance:
 
 .. automodule:: pyhealth.autoimprove.explain
@@ -404,3 +490,17 @@ API Reference
 
 .. automodule:: pyhealth.autoimprove.evidence
     :members: EvidenceProposer, evidence_lines, literature_section, add_literature
+
+.. automodule:: pyhealth.autoimprove.sandbox
+    :members: static_check, run_sandboxed, SandboxError, ContractError, warm_up
+
+.. automodule:: pyhealth.autoimprove.codegen
+    :members: fit_predict_code, check_model, task_context, CODE_CONTRACT, TEMPLATE
+
+.. automodule:: pyhealth.autoimprove.guardrails
+    :members: EvaluationSpec, run_evaluations, decide, clearly_worse, failing,
+        metrics_menu
+
+.. automodule:: pyhealth.autoimprove.analysis
+    :members: AnalysisSpec, Out, Data, sample_columns, run_analysis_job,
+        format_results

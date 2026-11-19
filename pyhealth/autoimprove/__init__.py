@@ -8,17 +8,23 @@ selects the most interpretable one within noise of the best, and its report
 (:meth:`AutoImprover.report`) explains the choice and how the search got there.
 """
 
+from .analysis import AnalysisSpec, sample_columns
+from .codegen import CODE_CONTRACT, task_context
 from .evaluate import (
     check_models,
     describe_error,
+    fit_predict,
     fold_parts,
+    out_of_fold,
     patient_folds,
     predict,
     run_config,
     run_config_cv,
     score,
+    score_predictions,
     train_pipeline,
 )
+from .guardrails import EvaluationSpec, clearly_worse, metrics_menu
 from .evidence import (
     EvidenceProposer,
     add_literature,
@@ -28,6 +34,7 @@ from .evidence import (
 from .features import EngineeredDataset, FeatureSpace, FeatureSpec
 from .improver import (
     DEFAULT_METRIC,
+    TURN_KINDS,
     AutoImprover,
     ImproveResult,
     Trial,
@@ -46,7 +53,9 @@ from .proposers import (
     RandomProposer,
 )
 from .report import Report, build_report, load_run, unverified_numbers
+from .sandbox import SandboxError, run_sandboxed, static_check
 from .space import (
+    CODE_MODEL,
     DEFAULT_MODELS,
     LADDER,
     TRAIN_PARAMS,
@@ -59,13 +68,28 @@ from .space import (
 )
 
 __all__ = [
+    "CODE_CONTRACT",
+    "CODE_MODEL",
     "DEFAULT_METRIC",
     "DEFAULT_MODELS",
     "LADDER",
     "LLM",
     "STRATEGIES",
     "TRAIN_PARAMS",
+    "TURN_KINDS",
+    "AnalysisSpec",
     "AutoImprover",
+    "EvaluationSpec",
+    "SandboxError",
+    "clearly_worse",
+    "fit_predict",
+    "metrics_menu",
+    "out_of_fold",
+    "run_sandboxed",
+    "sample_columns",
+    "score_predictions",
+    "static_check",
+    "task_context",
     "ClaudeLLM",
     "Document",
     "EngineeredDataset",
