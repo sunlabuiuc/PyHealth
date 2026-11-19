@@ -5,6 +5,7 @@ from pathlib import Path
 
 from typing import Optional
 from .base_dataset import BaseDataset
+from .metadata_csv import metadata_cache_dir
 from pyhealth.tasks import EEGEventsTUEV
 
 logger = logging.getLogger(__name__)
@@ -93,7 +94,7 @@ class TUEVDataset(BaseDataset):
         
         # Determine where the CSVs are located (shared directory or cache)
         root_path = Path(root)
-        cache_dir = Path.home() / ".cache" / "pyhealth" / "tuev"
+        cache_dir = metadata_cache_dir(root, "tuev")
         
         # Check if CSVs exist in cache and not in shared location
         use_cache = False
@@ -124,6 +125,11 @@ class TUEVDataset(BaseDataset):
         - <root>/tuev-train-pyhealth.csv
         - <root>/tuev-eval-pyhealth.csv
 
+        If ``root`` is not writable, the CSVs go to
+        ``~/.cache/pyhealth/tuev/<hash of root>/`` instead (see
+        :func:`~pyhealth.datasets.metadata_csv.metadata_cache_dir`), so two
+        roots never share metadata.
+
         Train filenames look like: 00002275_00000001.edf
         - subject_id = 00002275
         - record_id  = 00000001
@@ -134,7 +140,7 @@ class TUEVDataset(BaseDataset):
         - segment_id = a_ / a_1 / ...
         """
         root = Path(self.root)
-        cache_dir = Path.home() / ".cache" / "pyhealth" / "tuev"
+        cache_dir = metadata_cache_dir(root, "tuev")
 
         train_rows: list[dict] = []
         eval_rows: list[dict] = []
@@ -185,7 +191,7 @@ class TUEVDataset(BaseDataset):
                         )
 
         # Setup cache directory as fallback for metadata CSVs
-        cache_dir = Path.home() / ".cache" / "pyhealth" / "tuev"
+        cache_dir = metadata_cache_dir(root, "tuev")
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Write train metadata

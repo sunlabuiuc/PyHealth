@@ -1,0 +1,458 @@
+# categories are infrastructure, dataset, task, model, interpretability, calibration. if you need to add a new category, metion here.
+bounty:
+  - id: 1
+    priority: 1
+    category: model
+    title: CNN PyHealth 2.0 Migration
+    description: "Port pyhealth/models/cnn.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and a MIMIC-III training example. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/cnn.py)"
+    complete: "@Logiquo (yongdaf2@illinois.edu)"
+  - id: 2
+    priority: 1
+    category: model
+    title: GNN PyHealth 2.0 Migration
+    description: "Port pyhealth/models/gnn.py (GCN and GAT) to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and a MIMIC-III training example. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/gnn.py)"
+    complete: "@Logiquo (yongdaf2@illinois.edu)"
+  - id: 3
+    priority: 1
+    category: model
+    title: Transformer PyHealth 2.0 Migration
+    description: "Port pyhealth/models/transformer.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and a MIMIC-III training example. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/transformer.py)"
+    complete: "@Logiquo (yongdaf2@illinois.edu)"
+  - id: 4
+    priority: 2
+    category: model
+    title: GAMENet PyHealth 2.0 Migration
+    description: "Port pyhealth/models/gamenet.py to the PyHealth 2.0 BaseModel and processor API for medication recommendation with forward-pass tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/gamenet.py)"
+    complete: "@lehendo (arjunc4@illinois.edu)"
+  - id: 5
+    priority: 2
+    category: model
+    title: SafeDrug PyHealth 2.0 Migration
+    description: "Port pyhealth/models/safedrug.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/safedrug.py)"
+    complete: "@lehendo (arjunc4@illinois.edu)"
+  - id: 6
+    priority: 2
+    category: model
+    title: MoleRec PyHealth 2.0 Migration
+    description: "Port pyhealth/models/molerec.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/molerec.py)"
+    complete: "@lehendo (arjunc4@illinois.edu)"
+  - id: 7
+    priority: 2
+    category: model
+    title: MICRON PyHealth 2.0 Migration
+    description: "Port pyhealth/models/micron.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/micron.py)"
+    complete: "@naveenkcb (naveenkcb@illinois.edu)"
+  - id: 8
+    priority: 2
+    category: model
+    title: Deepr PyHealth 2.0 Migration
+    description: "Port pyhealth/models/deepr.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/deepr.py)"
+    complete: "@joshuasteier"
+  - id: 9
+    priority: 2
+    category: model
+    title: ConCare PyHealth 2.0 Migration
+    description: "Port pyhealth/models/concare.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/concare.py)"
+    complete: "@joshuasteier"
+  - id: 10
+    priority: 2
+    category: model
+    title: Dr. Agent PyHealth 2.0 Migration
+    description: "Port pyhealth/models/agent.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/agent.py)"
+    complete: "@joshuasteier"
+  - id: 11
+    priority: 2
+    category: model
+    title: ContraWR PyHealth 2.0 Migration
+    description: "Port pyhealth/models/contrawr.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/contrawr.py)"
+    complete: "@Razin93937"
+  - id: 12
+    priority: 2
+    category: model
+    title: AdaCare PyHealth 2.0 Migration
+    description: "Port pyhealth/models/adacare.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/adacare.py)"
+    complete: "@Razin93937"
+  - id: 13
+    priority: 2
+    category: model
+    title: GRASP PyHealth 2.0 Migration
+    description: "Port pyhealth/models/grasp.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and a MIMIC-III training pipeline. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/grasp.py)"
+    complete: "@capccode (loewcx@illinois.edu), @lookman-olowo (lolowo2@illinois.edu), @christyanamarie (cmbeard2@illinois.edu), @ddhangdd (dkfung2@illinois.edu)"
+  - id: 14
+    priority: 3
+    category: model
+    title: MedLink PyHealth 2.0 Migration
+    description: "Port the MedLink patient-linkage model to the PyHealth 2.0 BaseModel and processor API with unit tests and a MIMIC-III linkage example. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/medlink/model.py)"
+    complete: "@rianfyi"
+  - id: 15
+    priority: 2
+    category: model
+    title: TCN PyHealth 2.0 Migration
+    description: "Port pyhealth/models/tcn.py to the PyHealth 2.0 BaseModel and processor API with forward-pass tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/tcn.py)"
+    complete: "@bilalarif3197 (barif@illinois.edu)"
+  - id: 16
+    priority: 2
+    category: model
+    title: SparcNet PyHealth 2.0 Migration
+    description: "Port pyhealth/models/sparcnet.py to the PyHealth 2.0 BaseModel and processor API for sleep staging. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/sparcnet.py)"
+    complete: "@joshuxchn (joshua86@illinois.edu)"
+  - id: 17
+    priority: 1
+    category: task
+    title: Readmission Prediction @ t days
+    description: "Implement PyHealth 2.0 readmission prediction tasks with configurable t-day windows across supported EHR datasets such as MIMIC-III and OMOP. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/tasks/readmission_prediction.py)"
+    complete: "@EricSchrock (ejs9@illinois.edu)"
+  - id: 18
+    priority: 1
+    category: task
+    title: Length of Stay Prediction
+    description: "Implement PyHealth 2.0 length-of-stay prediction tasks across supported EHR datasets. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/tasks/length_of_stay_prediction.py)"
+    complete: "@jhnwu3 (johnwu3@illinois.edu)"
+  - id: 19
+    priority: 1
+    category: dataset
+    title: eICU Dataset PyHealth 2.0 Migration
+    description: "Migrate eICUDataset to the PyHealth 2.0 BaseDataset API with YAML table configuration and dataset tasks. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/datasets/eicu.py)"
+    complete: "@jhnwu3 (johnwu3@illinois.edu), @EricSchrock (ejs9@illinois.edu)"
+  - id: 20
+    priority: 2
+    category: interpretability
+    title: Attention Rollout
+    description: "Implement the Attention Rollout interpretability method (Abnar & Zuidema, 2020) for PyHealth 2.0 transformer models. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/interpret/methods/attention_rollout.py), [paper](https://arxiv.org/abs/2005.00928)"
+    complete: "@fbonc (felipea5@illinois.edu)"
+  - id: 21
+    priority: 2
+    category: model
+    title: GAN PyHealth 2.0 Migration
+    description: "Port pyhealth/models/gan.py to the PyHealth 2.0 BaseModel and SampleDataset API with unit tests and an example notebook. Coordinate with open PR #1303, which adds a MIMIC-III code-set mode. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/gan.py)"
+    complete: ~
+  - id: 22
+    priority: 2
+    category: model
+    title: VAE PyHealth 2.0 Migration
+    description: "Port pyhealth/models/vae.py to the PyHealth 2.0 BaseModel and SampleDataset API so it trains through the standard Trainer, with unit tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/vae.py)"
+    complete: ~
+  - id: 23
+    priority: 1
+    category: dataset
+    title: SHHS Dataset PyHealth 2.0 Migration
+    description: "Move SHHSDataset off the legacy BaseSignalDataset onto the 2.0 BaseDataset (YAML config and processors) and ensure the sleep-staging task runs on it, using TUEV as the reference port. [code1](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/datasets/shhs.py), [code2](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/datasets/tuev.py)"
+    complete: ~
+  - id: 24
+    priority: 1
+    category: dataset
+    title: Cardiology Dataset PyHealth 2.0 Migration
+    description: "Move CardiologyDataset (CPSC 2018, Georgia, PTB, PTB-XL, INCART) onto the 2.0 BaseDataset and keep cardiology_detect working, using TUEV as the reference port. Check open PRs #1052, #1187, and #1323 first to avoid duplicate PTB-XL work. [code1](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/datasets/cardiology.py), [code2](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/datasets/tuev.py)"
+    complete: ~
+  - id: 25
+    priority: 2
+    category: interpretability
+    title: Grad-CAM Interpretability Method
+    description: "Add a Grad-CAM interpreter to pyhealth.interpret for CNN-based signal and image models (including a 2.0 CNN signal baseline if needed), matching the interface of existing methods such as chefer.py. [code1](https://github.com/sunlabuiuc/PyHealth/tree/master/pyhealth/interpret), [code2](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/interpret/methods/chefer.py), [link](https://github.com/jacobgil/pytorch-grad-cam)"
+    complete: ~
+  - id: 26
+    priority: 2
+    category: interpretability
+    title: Raw Attention Interpretability Method
+    description: "Add raw attention weights as a baseline attribution method for PyHealth's Transformer so it can be compared against attention rollout and Chefer relevance. [code](https://github.com/sunlabuiuc/PyHealth/tree/master/pyhealth/interpret), [paper](https://arxiv.org/pdf/2012.09838)"
+    complete: ~
+  - id: 27
+    priority: 1
+    category: task
+    title: Add YAIB Benchmarks into PyHealth
+    description: "Port the YAIB (Yet Another ICU Benchmark) cohorts and tasks (mortality, AKI, sepsis, kidney function, and length of stay) so PyHealth models can be scored against YAIB baselines on MIMIC-IV and eICU. [code](https://github.com/rvandewater/yaib)"
+    complete: ~
+  - id: 28
+    priority: 1
+    category: model
+    title: EviCare (KDD 2026)
+    description: "Implement EviCare, a deep-model-guided LLM in-context reasoning framework for diagnosis prediction on MIMIC-III and MIMIC-IV. [code](https://github.com/zhyccc/EviCare), [paper](https://arxiv.org/abs/2604.10455)"
+    complete: ~
+  - id: 29
+    priority: 1
+    category: model
+    title: Awaken the Giant / GiantMed (KDD 2026)
+    description: "Implement Awaken the Giant (GiantMed), a boundary-aware deep-model-guided LLM framework for medication recommendation on MIMIC-III and MIMIC-IV."
+    complete: ~
+  - id: 30
+    priority: 1
+    category: model
+    title: LLM Code-Embedding Transfer (npj Digital Medicine 2026)
+    description: "Add LLM-embedding transfer of EHR predictors across coding systems (such as OMOP/ICD to other vocabularies) for cross-coding-system clinical prediction. [code](https://github.com/mkirchler/grasp), [paper](https://doi.org/10.1038/s41746-026-02363-5)"
+    complete: ~
+  - id: 31
+    priority: 1
+    category: model
+    title: RePrompT (ACL 2026)
+    description: "Implement RePrompT (recurrent prompt tuning integrating structured EHR encoders with LLMs), along with RASPER and ARCI baselines, on MIMIC-III and MIMIC-IV. [code](https://github.com/KU-AI4H/RePrompT), [paper](https://arxiv.org/abs/2604.17725)"
+    complete: ~
+  - id: 32
+    priority: 1
+    category: task
+    title: CLIMB Multimodal Task Suite (ICML 2025)
+    description: "Integrate the CLIMB multimodal benchmark task suite and shared loaders with PyHealth across datasets such as MIMIC-III/IV, MIMIC-CXR, PTB-XL, TUAB, and TUEV. [code](https://github.com/DDVD233/CLIMB), [paper](https://arxiv.org/abs/2503.07667)"
+    complete: ~
+  - id: 33
+    priority: 1
+    category: model
+    title: Context Clues Long-Context EHR Foundation Models (ICLR 2025)
+    description: "Add long-context EHR foundation models (Mamba, Hyena, Llama, GPT) from Context Clues and evaluate them head-to-head against PyHealth's EHRMamba on EHRSHOT and OMOP. [code](https://github.com/som-shahlab/hf_ehr), [paper](https://arxiv.org/abs/2412.16178)"
+    complete: ~
+  - id: 34
+    priority: 1
+    category: model
+    title: Delphi-2M (Nature 2025)
+    description: "Port the Delphi generative transformer for multi-disease next-event and time-to-event prediction with a MIMIC-IV/MEDS port alongside the credentialed UK Biobank setup. [code](https://github.com/gerstung-lab/Delphi), [paper](https://doi.org/10.1038/s41586-025-09529-3)"
+    complete: ~
+  - id: 35
+    priority: 1
+    category: model
+    title: FLAME (NeurIPS 2025)
+    description: "Implement FLAME for fine-grained list-wise LLM medication recommendation on PyHealth's MIMIC-III/IV and eICU drug-recommendation tasks alongside SafeDrug, GAMENet, MICRON, and MoleRec. [code](https://github.com/cxfann/Flame), [paper](https://arxiv.org/abs/2505.20218)"
+    complete: ~
+  - id: 36
+    priority: 1
+    category: model
+    title: MAESTRO (NeurIPS 2025)
+    description: "Implement MAESTRO, an adaptive sparse-attention multimodal time-series model, for PyHealth's MIMIC-III multimodal tasks. [code](https://github.com/payalmohapatra/MAESTRO), [paper](https://arxiv.org/abs/2509.25278)"
+    complete: ~
+  - id: 37
+    priority: 1
+    category: model
+    title: MIRA Medical Time-Series Foundation Model (NeurIPS 2025)
+    description: "Integrate MIRA as a medical time-series foundation encoder for PyHealth ICU and biosignal tasks across MIMIC-III/IV, PhysioNet 2012, PTB-XL, and Sleep-EDF. [code](https://github.com/microsoft/MIRA), [paper](https://arxiv.org/abs/2506.07584)"
+    complete: ~
+  - id: 38
+    priority: 1
+    category: model
+    title: TarDiff Synthetic EHR Time-Series Generator (KDD 2025)
+    description: "Implement TarDiff, a target-oriented diffusion framework for generating synthetic EHR time-series data in PyHealth."
+    complete: ~
+  - id: 39
+    priority: 1
+    category: model
+    title: MedTok Multimodal Code Tokenizer (ICML 2025)
+    description: "Add MedTok as a drop-in multimodal medical code tokenizer and embedding module for PyHealth EHR models on MIMIC-III/IV and EHRSHOT tasks. [code](https://github.com/mims-harvard/MedTok), [paper](https://arxiv.org/abs/2502.04397)"
+    complete: ~
+  - id: 40
+    priority: 1
+    category: model
+    title: DiPro (NeurIPS 2025)
+    description: "Implement DiPro for longitudinal EHR and sequential chest X-ray disease-progression modeling on MIMIC-IV and MIMIC-CXR. [code](https://github.com/Chenliu-svg/DiPro), [paper](https://arxiv.org/abs/2510.11112)"
+    complete: ~
+  - id: 41
+    priority: 1
+    category: model
+    title: HeartLang (ICLR 2025)
+    description: "Implement the HeartLang ECG language model and PTB-XL, CPSC2018, and Chapman ECG classification benchmarks, coordinating with PTB-XL loader PRs #1187 and #1323. [code](https://github.com/PKUDigitalHealth/HeartLang), [paper](https://arxiv.org/abs/2502.10707)"
+    complete: ~
+  - id: 42
+    priority: 1
+    category: model
+    title: APN Irregular Time-Series Forecasting (AAAI 2025)
+    description: "Add APN as a simple baseline model alongside an irregular clinical time-series forecasting task on PhysioNet 2012 and MIMIC. [code](https://github.com/decisionintelligence/APN), [paper](https://arxiv.org/abs/2505.11250)"
+    complete: ~
+  - id: 43
+    priority: 1
+    category: model
+    title: ARMR (IJCAI 2025)
+    description: "Implement ARMR (Adaptively Responsive Network) for PyHealth's MIMIC-III and MIMIC-IV medication-recommendation tasks. [code](https://github.com/seucoin/armr2), [paper](https://arxiv.org/abs/2507.04428)"
+    complete: ~
+  - id: 44
+    priority: 1
+    category: model
+    title: DearLLM (AAAI 2025)
+    description: "Implement DearLLM, which uses LLM-deduced feature correlations as a graph prior, on PyHealth's MIMIC-III and MIMIC-IV prediction tasks. [code](https://github.com/Artessay/DearLLM), [paper](https://doi.org/10.1609/aaai.v39i1.32079)"
+    complete: ~
+  - id: 45
+    priority: 1
+    category: task
+    title: FedWeight Cross-Site Federated EHR Benchmark (npj Digital Medicine 2025)
+    description: "Add the FedWeight patient density-ratio re-weighting federated learning benchmark across hospital sites on eICU and MIMIC-III. [code](https://github.com/li-lab-mcgill/FedWeight), [paper](https://doi.org/10.1038/s41746-025-01661-8)"
+    complete: ~
+  - id: 46
+    priority: 1
+    category: model
+    title: GAME Multi-Institution Code Embeddings (Nature Communications 2025)
+    description: "Add GAME harmonized medical code embeddings as a drop-in embedding initializer for PyHealth models on MIMIC-IV and OMOP. [code](https://github.com/celehs/GAME), [paper](https://arxiv.org/abs/2502.08547)"
+    complete: ~
+  - id: 47
+    priority: 1
+    category: model
+    title: II-KEA (EMNLP 2025)
+    description: "Implement II-KEA, a knowledge-enhanced agentic causal-discovery diagnosis predictor, for PyHealth's MIMIC-III and MIMIC-IV tasks. [code](https://github.com/hanxiaoxue114/II-KEA_HealthcareAgent), [paper](https://arxiv.org/abs/2505.16288)"
+    complete: ~
+  - id: 48
+    priority: 1
+    category: task
+    title: NutriSighT Underfeeding Prediction Task (Nature Communications 2025)
+    description: "Add the ICU underfeeding prediction task for ventilated patients on MIMIC-IV and AmsterdamUMCdb along with the NutriSighT transformer baseline. [code](https://github.com/mjangda3/NutriSighT), [paper](https://doi.org/10.1038/s41467-025-66200-1)"
+    complete: ~
+  - id: 49
+    priority: 1
+    category: model
+    title: Joint Sequence and Image Irregular Time-Series Model (AAAI 2025)
+    description: "Implement the self-supervised joint sequence-and-image model for irregular medical time series on PhysioNet 2012 and PhysioNet 2019 sepsis tasks. [code](https://github.com/zju-d3/AAAI25-Irregular-Medical-Time-Series), [paper](https://arxiv.org/abs/2502.06134)"
+    complete: ~
+  - id: 50
+    priority: 1
+    category: model
+    title: UDC Rare-Disease Prediction (WWW 2025)
+    description: "Implement UDC (Unveiling Discrete Clues) for rare-disease prediction on MIMIC-III, MIMIC-IV, and eICU. [code](https://github.com/Data-Designer/UDCHealth)"
+    complete: ~
+  - id: 51
+    priority: 1
+    category: model
+    title: Diffmv Missing-View Diffusion (KDD 2025)
+    description: "Implement Diffmv, a unified diffusion framework for multimodal EHR prediction with random missing views and view laziness on MIMIC-III/IV and eICU. [code](https://github.com/xmed-lab/MMHealth), [paper](https://arxiv.org/abs/2501.16373)"
+    complete: ~
+  - id: 52
+    priority: 1
+    category: model
+    title: APRICOT-M (Nature Communications 2025)
+    description: "Implement the APRICOT-M state-space model and real-time ICU acuity and therapy-requirement prediction tasks on eICU and MIMIC-IV. [code](https://github.com/iheallab/apricotM), [paper](https://doi.org/10.1038/s41467-025-62121-1)"
+    complete: ~
+  - id: 53
+    priority: 1
+    category: model
+    title: KnowRare (npj Digital Medicine 2025)
+    description: "Implement the KnowRare domain-adaptation model and rare-condition ICU outcome tasks across MIMIC-III, MIMIC-IV, and eICU. [code](https://github.com/JasonZuu/KnowRare), [paper](https://arxiv.org/abs/2507.06432)"
+    complete: ~
+  - id: 54
+    priority: 1
+    category: model
+    title: LLMs as EHR Encoders (npj Digital Medicine 2025)
+    description: "Add the LLM-embedding EHR encoder baseline (serialize EHR events, embed with an LLM, and fit a linear head) on EHRSHOT and MIMIC tasks. [code](https://github.com/stefanhgm/ehrshot-benchmark), [paper](https://arxiv.org/abs/2502.17403)"
+    complete: ~
+  - id: 55
+    priority: 1
+    category: model
+    title: MEME Pseudo-Notes EHR Model (npj Digital Medicine 2025)
+    description: "Implement the MEME multiple-embedding model (EHR-to-pseudo-notes) and MIMIC-IV-ED disposition and decompensation tasks on MIMIC-IV and EHRSHOT. [code](https://github.com/Simonlee711/MEME), [paper](https://doi.org/10.1038/s41746-025-01777-x)"
+    complete: ~
+  - id: 56
+    priority: 1
+    category: task
+    title: TRACE Intra-Visit Lab Nowcasting (WWW 2025)
+    description: "Add the intra-visit lab-value nowcasting task on MIMIC-III and MIMIC-IV along with the TRACE patient-trajectory encoder. [code](https://github.com/Amehi/TRACE), [paper](https://arxiv.org/abs/2503.23072)"
+    complete: ~
+  - id: 57
+    priority: 2
+    category: model
+    title: ProtoECGNet (MLHC 2025)
+    description: "Implement the ProtoECGNet prototype-based ECG classifier and PTB-XL multi-label classification task, coordinating with open PR #1323. [code](https://github.com/bbj-lab/protoecgnet), [paper](https://arxiv.org/abs/2504.08713)"
+    complete: ~
+  - id: 58
+    priority: 2
+    category: model
+    title: ETHOS-ARES (GigaScience 2025)
+    description: "Implement the ETHOS generative timeline model and MEDS-based hospital outcome tasks (mortality, ICU admission, readmission, and length of stay) on MIMIC-IV using PyHealth's MEDSDataset. [code](https://github.com/ipolharvard/ethos-ares), [paper](https://arxiv.org/abs/2502.06124)"
+    complete: ~
+  - id: 59
+    priority: 2
+    category: model
+    title: MedPatch (MLHC 2025)
+    description: "Implement MedPatch confidence-guided multimodal fusion (EHR time series, CXR, and notes) on MIMIC-IV and MIMIC-CXR alongside MedFuse. [code](https://github.com/nyuad-cai/MedPatch), [paper](https://arxiv.org/abs/2508.09182)"
+    complete: ~
+  - id: 60
+    priority: 2
+    category: model
+    title: TrajSurv (MLHC 2025)
+    description: "Implement the TrajSurv continuous-trajectory survival model and survival prediction tasks on MIMIC-III and eICU. [code](https://github.com/zengsihang/TrajSurv), [paper](https://arxiv.org/abs/2508.00657)"
+    complete: ~
+  - id: 61
+    priority: 2
+    category: model
+    title: MultimodalMIMIC (ICML 2023)
+    description: "Add the irregular multimodal EHR model (time attention over irregularly sampled vitals/labs fused with clinical notes) for MIMIC-III in-hospital mortality and phenotyping. [code](https://github.com/XZhang97666/MultimodalMIMIC)"
+    complete: ~
+  - id: 62
+    priority: 2
+    category: task
+    title: MEDFAIR Imaging Fairness Benchmark (ICLR 2023)
+    description: "Add MEDFAIR's group fairness metrics, model-selection criteria, and debiasing baselines for PyHealth's medical imaging tasks. [code](https://github.com/ys-zong/MEDFAIR)"
+    complete: ~
+  - id: 63
+    priority: 2
+    category: model
+    title: MIU-VL Medical Image VLMs (ICLR 2023)
+    description: "Add prompt-based pretrained vision-language model baselines for medical image detection in PyHealth. [code](https://github.com/MembrAI/MIU-VL)"
+    complete: ~
+  - id: 64
+    priority: 2
+    category: model
+    title: SleepKD Sleep EEG Distillation (IJCAI 2023)
+    description: "Add SleepKD teacher-assistant knowledge distillation for single-channel sleep EEG staging on PyHealth's Sleep-EDF and ISRUC sleep-staging tasks. [code](https://github.com/HychaoWang/SleepKD)"
+    complete: ~
+  - id: 65
+    priority: 3
+    category: model
+    title: CHET Dynamic Disease Graphs (AAAI 2022)
+    description: "Implement CHET (transition functions over dynamic disease graphs) for diagnosis and heart-failure prediction on MIMIC-III and MIMIC-IV. [code](https://github.com/luchang-cs/chet)"
+    complete: ~
+  - id: 66
+    priority: 3
+    category: calibration
+    title: Fair Conformal Predictors for Medical Imaging (AAAI 2022)
+    description: "Add group-conditional (fair) conformal prediction sets to pyhealth.calib and demonstrate them on an existing PyHealth medical imaging dataset. [code](https://github.com/clu5/AAAI-22)"
+    complete: ~
+  - id: 67
+    priority: 3
+    category: model
+    title: CEHR-GPT (arXiv 2024)
+    description: "Implement the CEHR-GPT generative OMOP foundation model for synthetic patient timelines, building on PyHealth's existing CEHR embeddings and processor. [code](https://github.com/knatarajan-lab/cehrgpt), [paper](https://arxiv.org/abs/2402.04400)"
+    complete: ~
+  - id: 68
+    priority: 3
+    category: model
+    title: DescEmb Text-Based Code Embedding (MLHC 2022)
+    description: "Implement DescEmb to embed medical codes from their text descriptions so a single model transfers across coding systems on MIMIC-III and eICU. [code](https://github.com/hoon9405/DescEmb)"
+    complete: ~
+  - id: 69
+    priority: 3
+    category: model
+    title: HiCu Curriculum ICD Coding (MLHC 2022)
+    description: "Add HiCu curriculum learning over the ICD hierarchy to PyHealth's automated medical-coding task on MIMIC-III clinical notes. [code](https://github.com/wren93/HiCu-ICD)"
+    complete: ~
+  - id: 70
+    priority: 4
+    category: model
+    title: GenoML Multimodal Parkinson's Classifier (npj Parkinson's Disease 2022)
+    description: "Add the multimodal (genetics and clinical) Parkinson's disease classifier in PyHealth, noting that PPMI data access and a loader are required. [code](https://github.com/GenoML/GenoML_multimodal_PD)"
+    complete: ~
+  - id: 71
+    priority: 4
+    category: model
+    title: Convolution Over Medical Entities (AI in Medicine 2021)
+    description: "Implement the multimodal CNN over extracted medical entities combined with clinical time series for MIMIC-III mortality and length-of-stay prediction. [code](https://github.com/tanlab/ConvolutionMedicalNer)"
+    complete: ~
+  - id: 72
+    priority: 4
+    category: model
+    title: Temporal Pointwise Convolution / TPC (CHIL 2021)
+    description: "Implement the Temporal Pointwise Convolution (TPC) model for ICU length-of-stay and mortality prediction on eICU and MIMIC-IV. [code](https://github.com/EmmaRocheteau/TPC-LoS-prediction)"
+    complete: ~
+  - id: 73
+    priority: 4
+    category: task
+    title: ICU Readmission Architecture Benchmark (Scientific Reports 2020)
+    description: "Add the time-aware attention and sequence model baselines together with the ICU readmission benchmark on MIMIC-III. [code](https://github.com/sebbarb/time_aware_attention)"
+    complete: ~
+  - id: 74
+    priority: 4
+    category: model
+    title: BEHRT (Scientific Reports 2020)
+    description: "Implement BEHRT (BERT with age and visit-segment embeddings and masked-code pretraining) for next-visit diagnosis prediction on MIMIC. [code](https://github.com/deepmedicine/BEHRT/tree/master)"
+    complete: ~
+  - id: 75
+    priority: 4
+    category: model
+    title: BiteNet (ICDM 2020)
+    description: "Implement BiteNet (Bidirectional Temporal Encoder Network) for diagnosis and readmission prediction on MIMIC-III. [code](https://github.com/Xueping/BiteNet)"
+    complete: ~
+  - id: 76
+    priority: 4
+    category: model
+    title: Clinical Fusion Structured + Notes Baselines (BMC MIDM 2020)
+    description: "Add the structured-plus-unstructured clinical notes fusion baselines for MIMIC-III mortality, length of stay, and readmission prediction. [code](https://github.com/onlyzdd/clinical-fusion)"
+    complete: ~

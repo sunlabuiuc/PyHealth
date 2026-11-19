@@ -3,7 +3,7 @@
 Loads a trained StageAttentionNet checkpoint for ``DKAPredictionMIMIC4``,
 computes attributions on a class-balanced 1% subsample (sample_balanced) with
 the methods chosen by ``--methods`` (random, ig, ig_gim, deeplift, gim, shap,
-lime, chefer, rollout), and scores each with comprehensiveness and sufficiency
+lime, chefer, rollout, raw_attention), and scores each with comprehensiveness and sufficiency
 via ``pyhealth.metrics.interpretability.evaluate_attribution``. Scores are
 printed and appended to ``WORK_DIR/output/dka_stageattn_mimic4/results.csv``.
 
@@ -155,6 +155,7 @@ def main():
         "gim": GIM(model),
         "chefer": CheferRelevance(model),
         "rollout": AttentionRollout(model),
+        "raw_attention": RawAttention(model),
         "shap": ShapExplainer(model, use_embeddings=True),
         "lime": LimeExplainer(model, use_embeddings=True, n_samples=200),
     }

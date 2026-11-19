@@ -60,6 +60,9 @@ from .ehr_cxr_mimic4 import (
     EHRCXRMortalityMIMIC4 as EHRCXRMortalityMIMIC4,
     EHRCXRPhenotypingMIMIC4 as EHRCXRPhenotypingMIMIC4,
 )
+from .medmod_mortality_mimic4 import (
+    MedModInHospitalMortality as MedModInHospitalMortality,
+)
 from .ehr_text_serialization import (
     CodeDescriber as CodeDescriber,
     EHRTextSerializationTask as EHRTextSerializationTask,
@@ -149,6 +152,7 @@ from .sleep_staging import (
     sleep_staging_sleepedf_fn,
 )
 from .sleep_staging_v2 import SleepStagingSleepEDF
+from .sleep_staging_isruc import SleepStagingISRUC as SleepStagingISRUC
 from .temple_university_EEG_tasks import (
     EEGEventsTUEV,
     EEGAbnormalTUAB

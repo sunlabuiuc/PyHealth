@@ -56,7 +56,10 @@ class VAE(BaseModel):
     return variable-length sequence predictions and compute token-level metrics.
     The sequence output reuses ``TimeseriesMultiClassLabelProcessor`` for its
     packing and gathering behavior; sequence positions represent token order,
-    not elapsed time.
+    not elapsed time. Its ``timeline`` is ``[feature_key]``: the label's times
+    are the input's token positions, so the label at position ``i``
+    reconstructs input token ``i``. Unlike a per-step task, each
+    reconstructed token also sees the whole sequence through the latent.
     Each token probability is a dense vector over the fitted code vocabulary, so
     inference memory grows with the number of tokens times the vocabulary size.
 
@@ -188,7 +191,7 @@ class VAE(BaseModel):
             return {"reconstruction": RegressionLabelProcessor()}
         return {
             "reconstruction": TimeseriesMultiClassLabelProcessor(
-                labels=self.vocab_size
+                timeline=[self.feature_key], labels=self.vocab_size
             )
         }
 

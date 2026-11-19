@@ -1,0 +1,98 @@
+# PyHealth table config for MIMIC-IV v1.0 (core/ + hosp/ + icu/, `ethnicity`).
+#
+# Adapted from PyHealth's v2.2 config (pyhealth/datasets/configs/mimic4_ehr.yaml)
+# for the tables the MedMod IHM task reads. Changes from v2.2:
+#   * patients, admissions: hosp/ -> core/ (v1.0 layout)
+#   * admissions: `race` -> `ethnicity` (MedMod reads `ethnicity`, mimic3csv.py:27)
+#   * icustays: add `los` (create_ihm.py:34 uses icustays.los, in days)
+#   * diagnoses_icd: extra inner join with hosp/d_icd_diagnoses on icd_code
+#     only (not icd_version), as MedMod does in mimic3csv.py:44-48; a diagnosis
+#     with no match is dropped
+#   * labevents: no join with d_labitems (the task needs only itemid/value)
+#   * chartevents, labevents: no valueuom (see the note at the end)
+# PyHealth tries both .csv and .csv.gz (base_dataset.py:255-287), so either works.
+# Column lists were written from memory of the v1.0 schema and confirmed by a
+# full run on the real v1.0 files (2026-11-09): PyHealth selects every listed
+# attribute, so a missing column would have failed the load.
+version: "1.0"
+tables:
+  patients:
+    file_path: "core/patients.csv.gz"
+    patient_id: "subject_id"
+    timestamp: null
+    attributes:
+      - "gender"
+      - "anchor_age"
+      - "anchor_year"
+      - "anchor_year_group"
+      - "dod"
+
+  admissions:
+    file_path: "core/admissions.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "admittime"
+    attributes:
+      - "hadm_id"
+      - "admission_type"
+      - "dischtime"
+      - "deathtime"
+      - "ethnicity"
+      - "hospital_expire_flag"
+
+  icustays:
+    file_path: "icu/icustays.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "intime"
+    attributes:
+      - "hadm_id"
+      - "stay_id"
+      - "first_careunit"
+      - "last_careunit"
+      - "outtime"
+      - "los"
+
+  diagnoses_icd:
+    file_path: "hosp/diagnoses_icd.csv.gz"
+    patient_id: "subject_id"
+    join:
+      - file_path: "core/admissions.csv.gz"
+        "on": "hadm_id"
+        how: "inner"
+        columns:
+          - "dischtime"
+      - file_path: "hosp/d_icd_diagnoses.csv.gz"
+        "on": "icd_code"
+        how: "inner"
+        columns:
+          - "long_title"
+    timestamp: "dischtime"
+    attributes:
+      - "hadm_id"
+      - "icd_code"
+      - "icd_version"
+      - "seq_num"
+      - "long_title"
+
+  labevents:
+    file_path: "hosp/labevents.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "charttime"
+    attributes:
+      - "hadm_id"
+      - "itemid"
+      - "value"
+      - "valuenum"
+
+  chartevents:
+    file_path: "icu/chartevents.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "charttime"
+    attributes:
+      - "hadm_id"
+      - "stay_id"
+      - "itemid"
+      - "value"
+      - "valuenum"
+# valueuom is left out of both event tables: MedMod never reads units for
+# chartevents/labevents (it stores valuenum in that slot, mimic3csv.py:220), and
+# every column kept here is carried through PyHealth's disk-heavy sort.
