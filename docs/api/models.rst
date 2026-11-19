@@ -359,4 +359,5 @@ API Reference
     models/pyhealth.models.TRACE
     models/pyhealth.models.MIRA
     models/pyhealth.models.UDC
+    models/pyhealth.models.DescEmb
 
