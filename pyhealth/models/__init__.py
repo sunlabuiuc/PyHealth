@@ -142,3 +142,7 @@ from .descemb import (
     simple_subword_tokenize as simple_subword_tokenize,
     simple_word_tokenize as simple_word_tokenize,
 )
+from .dearllm import (
+    DearLLM as DearLLM,
+    DearLLMGraphEncoder as DearLLMGraphEncoder,
+)

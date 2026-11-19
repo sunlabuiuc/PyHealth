@@ -360,4 +360,5 @@ API Reference
     models/pyhealth.models.MIRA
     models/pyhealth.models.UDC
     models/pyhealth.models.DescEmb
+    models/pyhealth.models.DearLLM
 
