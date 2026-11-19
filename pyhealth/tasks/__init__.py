@@ -135,6 +135,10 @@ from .survival_time_to_event import (
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
+from .dearllm_mortality import (
+    DearLLMMortalityPredictionMIMIC3 as DearLLMMortalityPredictionMIMIC3,
+    DearLLMMortalityPredictionMIMIC4 as DearLLMMortalityPredictionMIMIC4,
+)
 from .generate_ehr import (
     EHRCodeSetGenerationMIMIC3 as EHRCodeSetGenerationMIMIC3,
     EHRCodeSetGenerationMIMIC4 as EHRCodeSetGenerationMIMIC4,
