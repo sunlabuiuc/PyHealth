@@ -46,6 +46,11 @@ Ablations: ``--no-wear-aware`` (non-wear counts as zero activity),
 ``--seq-len 288`` (1-day windows), ``--hidden-dim 32``, and ``--covariate-set``
 for the model variants. ``--patience N`` stops training after N epochs without
 a better validation AUPRC (the authors use 10); by default every epoch runs.
+The authors train with AdamW, weight decay 3e-4 and gradient clipping at 1.0:
+``--optimizer adamw --weight-decay 3e-4 --max-grad-norm 1.0``. The defaults
+(Adam, no weight decay, no clipping) keep earlier runs reproducible. Not
+reproduced: the authors' ReduceLROnPlateau schedule (halve the learning rate
+after 5 epochs without a better validation AUPRC), which ``Trainer`` lacks.
 
 The defaults (1000 synthetic participants, 7 days, 10 epochs, batch size 32,
 one split) run in about 2 minutes on a laptop CPU; each extra fold adds about
@@ -106,6 +111,7 @@ FEATURE_SETS = {
     "motionage": ["motion_age", "sex"],
     "acceleration": ["age_acceleration", "age", "sex"],
 }
+OPTIMIZERS = {"adam": torch.optim.Adam, "adamw": torch.optim.AdamW}
 # Covariates-only ablation: raw values from the dataset events.
 NUMERIC_COVARIATES = ["bmi", "waist", "sbp", "dbp"]
 INCOME_CODES = range(14)  # 0 = missing, 1-13 = NHANES INDHHINC codes.
@@ -342,7 +348,10 @@ def run_split(
         get_dataloader(parts[0], batch_size=args.batch_size, shuffle=True),
         get_dataloader(parts[1], batch_size=args.batch_size, shuffle=False),
         epochs=args.epochs,
+        optimizer_class=OPTIMIZERS[args.optimizer],
         optimizer_params={"lr": args.lr},
+        weight_decay=args.weight_decay,
+        max_grad_norm=args.max_grad_norm,
         monitor="pr_auc",
         patience=args.patience,
     )
@@ -529,6 +538,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=None,
         help="Stop after this many epochs without a better val AUPRC",
+    )
+    model.add_argument(
+        "--optimizer",
+        default="adam",
+        choices=sorted(OPTIMIZERS),
+        help="adam (default) or adamw (the authors' choice)",
+    )
+    model.add_argument(
+        "--weight-decay",
+        type=float,
+        default=0.0,
+        help="Weight decay; PyHealth's Trainer exempts biases (authors: 3e-4)",
+    )
+    model.add_argument(
+        "--max-grad-norm",
+        type=float,
+        default=None,
+        help="Clip the gradient norm to this value (authors: 1.0)",
     )
     model.add_argument("--seed", type=int, default=0)
     evaluation = parser.add_argument_group("calibration and evaluation")
