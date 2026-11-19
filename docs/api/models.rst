@@ -297,6 +297,7 @@ API Reference
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
     models/pyhealth.models.BEHRT
+    models/pyhealth.models.BiteNet
     models/pyhealth.models.TransformersModel
     models/pyhealth.models.LLMEHREncoder
     models/pyhealth.models.MEME
@@ -358,4 +359,6 @@ API Reference
     models/pyhealth.models.APN
     models/pyhealth.models.TRACE
     models/pyhealth.models.MIRA
+    models/pyhealth.models.UDC
+    models/pyhealth.models.DescEmb
 

@@ -34,4 +34,5 @@ jobs:
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_ACTION: ${{ github.event.action }}
-        run: echo "PR #$PR_NUMBER ($PR_ACTION) carries a bounty tag; Bounty Board will rebuild."
+        # quoted: an unquoted " #" would start a YAML comment and cut the command
+        run: 'echo "PR #$PR_NUMBER ($PR_ACTION) carries a bounty tag; Bounty Board will rebuild."'
