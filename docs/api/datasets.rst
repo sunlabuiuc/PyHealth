@@ -476,7 +476,7 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - Yes
      - —
    * - :doc:`Brain Tumor MRI (Bhuvaji) <datasets/pyhealth.datasets.BrainTumorMRIDataset>`
-     - Open (no licence file on GitHub; Kaggle lists MIT)
+     - Open (MIT, per the Kaggle listing)
      - `GitHub <https://github.com/SartajBhuvaji/Brain-Tumor-Classification-DataSet>`__, `Kaggle <https://www.kaggle.com/datasets/sartajbhuvaji/brain-tumor-classification-mri>`__
      - No (``git clone`` or ``kaggle datasets download``)
      - —

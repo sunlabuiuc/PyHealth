@@ -7,8 +7,8 @@ also a training image), builds grayscale 224 x 224 samples with
 test set (fold 10), takes fold 9 of Training for validation, and trains a
 randomly initialised torchvision ResNet-18 for one epoch.
 
-Data: open, no account needed. The GitHub repository has no licence file
-(the Kaggle mirror lists MIT). Download it with::
+Data: open under MIT (per the Kaggle listing), no account needed. Download it
+with::
 
     git clone --depth 1 https://github.com/SartajBhuvaji/Brain-Tumor-Classification-DataSet
 
@@ -19,7 +19,7 @@ then run::
 
 Pass ``--keep-duplicates`` for CLIMB's original split with its duplicate
 images. One epoch on a CPU shows the pipeline works; it is not a benchmark
-result.
+result. For a quick smoke run add ``--max-samples 32 --epochs 1``.
 """
 
 import argparse
@@ -36,7 +36,13 @@ def main() -> None:
     parser.add_argument("--root", required=True, help="Folder with Training/ and Testing/.")
     parser.add_argument("--cache-dir", default=None)
     parser.add_argument("--keep-duplicates", action="store_true")
+    parser.add_argument("--dev", action="store_true", help="Load at most 1000 patients.")
+    parser.add_argument(
+        "--max-samples", type=int, default=None,
+        help="Keep at most this many images per split (smoke runs).",
+    )
     parser.add_argument("--epochs", type=int, default=1)
+    parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
 
@@ -44,6 +50,7 @@ def main() -> None:
         root=args.root,
         cache_dir=args.cache_dir,
         drop_duplicates=not args.keep_duplicates,
+        dev=args.dev,
     )
     dataset.stats()
     samples = dataset.set_task(BrainTumorMRIClassification())
@@ -59,9 +66,15 @@ def main() -> None:
         fold_field="fold",
         check_patient_disjoint=not args.keep_duplicates,
     )
-    train_loader = get_dataloader(train_ds, batch_size=32, shuffle=True)
-    val_loader = get_dataloader(val_ds, batch_size=32)
-    test_loader = get_dataloader(test_ds, batch_size=32)
+    if args.max_samples is not None:
+        train_ds, val_ds, test_ds = (
+            part.subset(range(min(args.max_samples, len(part))))
+            for part in (train_ds, val_ds, test_ds)
+        )
+    print("images train/val/test:", len(train_ds), len(val_ds), len(test_ds))
+    train_loader = get_dataloader(train_ds, batch_size=args.batch_size, shuffle=True)
+    val_loader = get_dataloader(val_ds, batch_size=args.batch_size)
+    test_loader = get_dataloader(test_ds, batch_size=args.batch_size)
 
     model = TorchvisionModel(
         dataset=samples, model_name="resnet18", model_config={"weights": None}

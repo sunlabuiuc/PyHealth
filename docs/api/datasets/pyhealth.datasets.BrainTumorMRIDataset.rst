@@ -33,8 +33,8 @@ Getting the data
         Training/{glioma_tumor,meningioma_tumor,no_tumor,pituitary_tumor}/*.jpg
         Testing/{glioma_tumor,meningioma_tumor,no_tumor,pituitary_tumor}/*.jpg
 
-- **Licence**: unstated on GitHub (no licence file); the Kaggle page lists
-  MIT. Check with the authors before any use beyond research.
+- **Licence**: MIT, as given on the Kaggle listing. The archived GitHub
+  repository carries no LICENSE file.
 
 .. autoclass:: pyhealth.datasets.BrainTumorMRIDataset
     :members:

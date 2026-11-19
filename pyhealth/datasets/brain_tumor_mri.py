@@ -106,9 +106,8 @@ class BrainTumorMRIDataset(BaseDataset):
                 Training/{glioma_tumor,meningioma_tumor,no_tumor,pituitary_tumor}/*.jpg
                 Testing/{glioma_tumor,meningioma_tumor,no_tumor,pituitary_tumor}/*.jpg
 
-        - Licence: the GitHub repository has no licence file, so its terms
-          are unstated; the Kaggle page lists MIT. Check with the authors
-          before any use beyond research.
+        - Licence: MIT, as given on the Kaggle listing. The archived GitHub
+          repository carries no LICENSE file.
 
     The metadata CSV is written to ``metadata_dir`` (by default
     ``<cache_dir>/metadata/brain_tumor_mri``), never into ``root``. It is
