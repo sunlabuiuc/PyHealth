@@ -80,6 +80,39 @@ class TestJichiDRDataset(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             JichiDRDataset(root=str(self.tmp / "dmr"), cache_dir=str(self.cache))
 
+    def test_missing_label_column_raises(self):
+        write_fixture(self.tmp / "dmr")
+        table = pd.read_csv(self.tmp / "dmr" / "list.csv")
+        table.drop(columns=["Davis_grading_of_one_figure"]).to_csv(
+            self.tmp / "dmr" / "list.csv", index=False
+        )
+        with self.assertRaisesRegex(ValueError, "Davis_grading_of_one_figure"):
+            JichiDRDataset(root=str(self.tmp / "dmr"), cache_dir=str(self.cache))
+
+    def test_no_images_raises(self):
+        write_fixture(self.tmp / "dmr", missing=tuple(r[0] for r in ROWS))
+        with self.assertRaises(FileNotFoundError):
+            JichiDRDataset(root=str(self.tmp / "dmr"), cache_dir=str(self.cache))
+
+    def test_explicit_metadata_dir_rebuilt_when_data_changes(self):
+        meta = self.tmp / "meta"
+        write_fixture(self.tmp / "a" / "dmr")
+        ds = JichiDRDataset(
+            root=str(self.tmp / "a" / "dmr"),
+            cache_dir=str(self.cache / "a"),
+            metadata_dir=str(meta),
+        )
+        self.assertEqual(ds.metadata_path, meta / "jichi-metadata-pyhealth.csv")
+        write_fixture(self.tmp / "b" / "dmr", rows=ROWS[:2])
+        ds = JichiDRDataset(
+            root=str(self.tmp / "b" / "dmr"),
+            cache_dir=str(self.cache / "b"),
+            metadata_dir=str(meta),
+        )
+        table = pd.read_csv(ds.metadata_path, dtype=str)
+        self.assertEqual(sorted(table["patient_id"].unique()), ["1"])
+        self.assertTrue(all("/b/dmr/" in p for p in table["path"]))
+
 
 if __name__ == "__main__":
     unittest.main()

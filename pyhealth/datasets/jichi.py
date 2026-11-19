@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 JICHI_LIST_CSV = "list.csv"
 _DERIVED_CSV = "jichi-metadata-pyhealth.csv"
+_FINGERPRINT = "jichi-metadata-pyhealth.sha1"
 _FILENAME = re.compile(
     r"^(?P<patient>\d+)_(?P<index>\d+)_(?P<eye>[LR])\.jpg$", re.IGNORECASE
 )
@@ -94,16 +95,34 @@ class JichiDRDataset(BaseDataset):
     Getting the data:
         - Source: https://figshare.com/articles/dataset/4879853
           ("Davis Grading of One and Concatenated Figures",
-          DOI 10.6084/m9.figshare.4879853.v1).
-        - Access: open, no account needed.
-        - Download: ``dmr.tar`` (887 MB,
-          ``https://ndownloader.figshare.com/files/8169134``; despite the
-          name it is gzip-compressed), then ``tar -xzf dmr.tar``.
-        - ``root``: the extracted ``dmr/`` folder holding ``list.csv`` and
-          the ``<patient>_<index>_<eye>.jpg`` images, or its parent.
+          DOI 10.6084/m9.figshare.4879853.v1). Paper: Takahashi et al.,
+          PLoS ONE 2017 (see Citation below).
+        - Access: open download, no account, registration or data-use
+          agreement. On the figshare page click "Download", or use the
+          direct link below.
+        - Download: the single file ``dmr.tar`` (886,820,858 bytes, about
+          887 MB)::
+
+              wget -O dmr.tar https://ndownloader.figshare.com/files/8169134
+
+        - Unpack: despite the ``.tar`` name the archive is gzip-compressed,
+          so use ``tar -xzf dmr.tar``. This creates a ``dmr/`` folder.
+        - ``root``: the extracted ``dmr/`` folder, or the folder that
+          contains it::
+
+              <root>/                 # or <root>/dmr/
+                  list.csv            # Image, Davis_grading_of_one_figure,
+                                      # Davis_grading_of_concatenated_figures
+                  1_1_R.jpg           # <patient>_<index>_<eye>.jpg
+                  1_2_L.jpg
+                  ...                 # 9,939 JPEGs listed in list.csv
+
+          Nothing is written into ``root``.
 
     Licence:
-        CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).
+        CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/): reuse,
+        including commercial use and derivatives, is allowed with
+        attribution; there are no NC or ND terms.
 
     Citation:
         Takahashi H, Tampo H, Arai Y, Inoue Y, Kawashima H. Applying
@@ -120,7 +139,12 @@ class JichiDRDataset(BaseDataset):
             ``configs/jichi.yaml``.
         cache_dir: Directory for PyHealth caches. Also the default parent of
             the metadata directory.
-        metadata_dir: Explicit directory for the derived metadata CSV.
+        metadata_dir: Explicit directory for the derived metadata CSV. The
+            CSV is written there directly (no hash subfolder), next to a
+            ``jichi-metadata-pyhealth.sha1`` fingerprint of the image folder,
+            ``list.csv`` and the image names; it is rebuilt whenever that
+            fingerprint changes, so pointing the same folder at different
+            data does not reuse stale rows.
         num_workers: Number of workers for dataset processing.
         dev: Whether to limit the dataset to 1000 patients.
         refresh_metadata: Regenerate the derived metadata CSV.
@@ -147,9 +171,10 @@ class JichiDRDataset(BaseDataset):
         refresh_metadata: bool = False,
     ) -> None:
         source_root = Path(root).expanduser().resolve()
-        if not (source_root / JICHI_LIST_CSV).is_file() and (
-            source_root / "dmr" / JICHI_LIST_CSV
-        ).is_file():
+        if (
+            not (source_root / JICHI_LIST_CSV).is_file()
+            and (source_root / "dmr" / JICHI_LIST_CSV).is_file()
+        ):
             source_root = source_root / "dmr"
         self.image_root = source_root
         self.list_csv = source_root / JICHI_LIST_CSV
@@ -167,16 +192,23 @@ class JichiDRDataset(BaseDataset):
             n for n in os.listdir(self.image_root) if n.lower().endswith(".jpg")
         )
         digest.update("\n".join(self._present).encode("utf-8"))
+        fingerprint = digest.hexdigest()
         self.metadata_dir = (
             Path(metadata_dir).expanduser()
             if metadata_dir is not None
-            else _resolve_metadata_dir(cache_dir, name) / digest.hexdigest()[:10]
+            else _resolve_metadata_dir(cache_dir, name) / fingerprint[:10]
         )
         self.metadata_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_path = self.metadata_dir / _DERIVED_CSV
+        fingerprint_path = self.metadata_dir / _FINGERPRINT
         with FileLock(str(self.metadata_path) + ".lock"):
-            if refresh_metadata or not self.metadata_path.exists():
+            stale = (
+                not fingerprint_path.is_file()
+                or fingerprint_path.read_text().strip() != fingerprint
+            )
+            if refresh_metadata or stale or not self.metadata_path.exists():
                 self.prepare_metadata()
+                fingerprint_path.write_text(fingerprint + "\n")
 
         if config_path is None:
             config_path = str(Path(__file__).parent / "configs" / "jichi.yaml")
