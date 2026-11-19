@@ -33,7 +33,7 @@ import os
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, fields
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, ClassVar
 
 import torch
 import torch.nn.functional as F
@@ -89,13 +89,35 @@ class CLMBRConfig:
     use_bias: bool = True
     hidden_act: str = "gelu"
 
+    #: Keys a checkpoint's ``config.json`` must set: a wrong default for
+    #: most of them changes no weight shape, so loading would not catch it.
+    REQUIRED_KEYS: ClassVar[tuple[str, ...]] = (
+        "vocab_size", "hidden_size", "n_heads", "n_layers",
+        "attention_width", "use_normed_ages", "hidden_act", "use_bias",
+    )
+
     @classmethod
-    def from_dict(cls, config: Mapping[str, Any]) -> CLMBRConfig:
+    def from_dict(cls, config: Mapping[str, Any], strict: bool = False
+                  ) -> CLMBRConfig:
         """Reads a ``FEMRModel`` ``config.json`` (or its transformer part).
 
         Unknown keys (``transformers`` bookkeeping) are ignored.
+
+        Args:
+            config: The parsed config.
+            strict: Raise ``ValueError`` if any of :attr:`REQUIRED_KEYS` is
+                missing, instead of using the default. Used for
+                checkpoint configs.
         """
         config = config.get("transformer_config", config)
+        if strict:
+            missing = [k for k in cls.REQUIRED_KEYS if k not in config]
+            if missing:
+                raise ValueError(
+                    f"the checkpoint's transformer_config lacks {missing}; "
+                    "refusing to guess them, since a wrong value changes the "
+                    "features without any shape error"
+                )
         names = {f.name for f in fields(cls)}
         return cls(**{k: v for k, v in config.items() if k in names})
 
@@ -438,7 +460,13 @@ class CLMBRTokenizer:
                     (float(entry["val_start"]), float(entry["val_end"]), i))
             elif kind == "text":
                 self._text[(entry["code_string"], entry["text_string"])] = i
+            elif kind != "unused":
+                raise ValueError(f"unknown femr dictionary entry type {kind!r} "
+                                 f"at index {i}")
         stats = dictionary.get("age_stats") or {}
+        #: Whether the dictionary sets the age normalization (required when
+        #: the model uses normalized ages).
+        self.has_age_stats = "mean" in stats and "std" in stats
         self.age_mean = float(stats.get("mean", 0.0))
         self.age_std = float(stats.get("std", 1.0)) or 1.0
 
@@ -637,7 +665,7 @@ class CLMBR(EHRFoundationModelBase):
 
         if config is None:
             with open(fetch("config.json")) as f:
-                config = CLMBRConfig.from_dict(json.load(f))
+                config = CLMBRConfig.from_dict(json.load(f), strict=True)
         elif isinstance(config, Mapping):
             config = CLMBRConfig.from_dict(config)
         if dictionary is None:
@@ -646,6 +674,9 @@ class CLMBR(EHRFoundationModelBase):
             dictionary = CLMBRTokenizer.from_file(dictionary)
         elif isinstance(dictionary, Mapping):
             dictionary = CLMBRTokenizer(dictionary)
+        if config.use_normed_ages and not dictionary.has_age_stats:
+            raise ValueError("the model uses normalized ages but the "
+                             "dictionary has no age_stats {mean, std}")
         if len(dictionary) > config.vocab_size:
             raise ValueError(f"the dictionary has {len(dictionary)} entries but "
                              f"the model only {config.vocab_size} embeddings")

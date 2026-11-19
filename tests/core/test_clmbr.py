@@ -184,6 +184,16 @@ class TestCLMBRTokenizer(unittest.TestCase):
         with self.assertRaises(NotImplementedError):
             CLMBRTokenizer({**DICTIONARY, "is_hierarchical": True})
 
+    def test_unknown_entry_type_is_rejected(self):
+        vocab = [*DICTIONARY["vocab"], {"type": "ontology", "code_string": "Y/1"}]
+        with self.assertRaisesRegex(ValueError, "ontology"):
+            CLMBRTokenizer({**DICTIONARY, "vocab": vocab})
+
+    def test_age_stats_presence(self):
+        self.assertTrue(CLMBRTokenizer(DICTIONARY).has_age_stats)
+        bare = {k: v for k, v in DICTIONARY.items() if k != "age_stats"}
+        self.assertFalse(CLMBRTokenizer(bare).has_age_stats)
+
 
 class TestCLMBRTransformer(unittest.TestCase):
     def _check_against_femr(self, config):
@@ -366,6 +376,22 @@ class TestCLMBR(unittest.TestCase):
         report = model.coverage_report()
         self.assertEqual((report["events"], report["unknown_events"]), (12, 1))
         self.assertEqual(report["top_unknown"], [("LOINC/9999-9", 1)])
+
+    def test_checkpoint_config_must_set_required_keys(self):
+        full = vars(_config())
+        self.assertEqual(CLMBRConfig.from_dict(full, strict=True), _config())
+        partial = {k: v for k, v in full.items() if k != "n_heads"}
+        with self.assertRaisesRegex(ValueError, "n_heads"):
+            CLMBRConfig.from_dict({"transformer_config": partial}, strict=True)
+        # configs built in code may still rely on the defaults
+        self.assertEqual(CLMBRConfig.from_dict(partial).n_heads, 12)
+
+    def test_normed_ages_need_age_stats(self):
+        bare = {k: v for k, v in DICTIONARY.items() if k != "age_stats"}
+        with self.assertRaisesRegex(ValueError, "age_stats"):
+            CLMBR(self.dataset, config=_config(use_normed_ages=True),
+                  dictionary=bare, random_init=True)
+        CLMBR(self.dataset, config=_config(), dictionary=bare, random_init=True)
 
     def test_dictionary_larger_than_embeddings_is_rejected(self):
         with self.assertRaises(ValueError):
