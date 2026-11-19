@@ -128,5 +128,5 @@ from .descemb import (
     DescEmb as DescEmb,
     DescEmbCodeEncoder as DescEmbCodeEncoder,
     simple_subword_tokenize as simple_subword_tokenize,
+    simple_word_tokenize as simple_word_tokenize,
 )
-

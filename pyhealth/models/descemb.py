@@ -23,7 +23,7 @@ embedding layer.
 
 The PyHealth DescEmb architecture comprises:
     1. Description Text Encoding (:class:`DescEmbCodeEncoder`): Embeds
-       medical code descriptions using subword tokenization and a
+       medical code descriptions using word-level tokenization and a
        bidirectional recurrent neural network (BiGRU). The forward and
        backward endpoints are pooled and projected to form description-based
        code vectors.
@@ -78,17 +78,20 @@ def simple_subword_tokenize(
     return tokens[:max_tokens]
 
 
+simple_word_tokenize = simple_subword_tokenize
+
+
 class DescEmbCodeEncoder(nn.Module):
     """Encodes medical code text descriptions into semantic code embeddings.
 
-    Uses an embedding layer over description subwords/tokens followed by a
+    Uses an embedding layer over description word tokens followed by a
     bidirectional GRU. Forward and backward representations are pooled via
     endpoint concatenation (forward last state and backward first state)
     and projected to the target embedding dimension.
 
     Args:
-        vocab_size: Size of description subword/word vocabulary. Default is 5000.
-        subword_dim: Dimensionality of subword embeddings. Default is 64.
+        vocab_size: Size of description word vocabulary. Default is 5000.
+        subword_dim: Dimensionality of word embeddings. Default is 64.
         hidden_dim: Hidden dimension of bidirectional GRU. Default is 64.
         output_dim: Target dimension of output code embeddings. Default is 128.
         dropout: Dropout rate. Default is 0.1.
@@ -188,7 +191,7 @@ class DescEmb(BaseModel):
     code embeddings by encoding medical concepts through their textual
     descriptions. It uses :class:`DescEmbCodeEncoder` to initialize medical
     concept embeddings from clinical text descriptions (via a BiGRU over
-    subword tokens), injecting semantic clinical priors into the embedding
+    word tokens), injecting semantic clinical priors into the embedding
     layers prior to longitudinal sequence modeling. During training, these
     description-initialized embeddings are fine-tuned as part of the predictive
     model.
@@ -200,7 +203,7 @@ class DescEmb(BaseModel):
         embedding_dim: Dimension of code and visit representations.
             Default is 128.
         text_hidden_dim: Hidden dimension of text encoder. Default is 64.
-        subword_vocab_size: Vocabulary size for description tokenizer.
+        subword_vocab_size: Vocabulary size for description word tokenizer.
             Default is 5000.
         temporal_hidden_dim: Hidden dimension of patient sequence model.
             Default is 128.
@@ -217,6 +220,11 @@ class DescEmb(BaseModel):
         pretrained_text_encoder: Optional pretrained module for encoding
             description text. If None, a newly initialized
             :class:`DescEmbCodeEncoder` is created.
+        text_vocab: Optional pre-defined vocabulary dictionary mapping word
+            tokens to integer IDs, matching ``pretrained_text_encoder``. If
+            not provided, token IDs are assigned dynamically in first-seen
+            order starting from 2 (with 0 reserved for ``<pad>`` and 1 for
+            ``<unk>``).
         **kwargs: Additional keyword arguments.
 
     Note:
@@ -224,9 +232,10 @@ class DescEmb(BaseModel):
         default when `pretrained_text_encoder` is None), description-based
         initialization functions as a deterministic pseudo-random projection
         of description tokens into embedding space. To preserve semantic
-        pretraining, pass `pretrained_text_encoder` or load weights into
-        `self.code_text_encoder`. Codes not found in `code_descriptions`
-        fall back to using the code string itself as the description.
+        pretraining, pass `pretrained_text_encoder` and matching `text_vocab`,
+        or load weights into `self.code_text_encoder`. Codes not found in
+        `code_descriptions` fall back to using the code string itself as the
+        description.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
@@ -278,6 +287,7 @@ class DescEmb(BaseModel):
         dropout: float = 0.1,
         code_descriptions: dict[str, str] | None = None,
         pretrained_text_encoder: nn.Module | None = None,
+        text_vocab: dict[str, int] | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(dataset=dataset)
@@ -336,9 +346,14 @@ class DescEmb(BaseModel):
             dataset=dataset, embedding_dim=embedding_dim
         )
 
-        # Subword vocabulary index map for descriptions
-        self.subword_to_id: dict[str, int] = {"<pad>": 0, "<unk>": 1}
-        self.next_subword_id = 2
+        # Word vocabulary index map for descriptions
+        if text_vocab is not None:
+            self.subword_to_id: dict[str, int] = dict(text_vocab)
+            self.text_vocab_fixed = True
+        else:
+            self.subword_to_id: dict[str, int] = {"<pad>": 0, "<unk>": 1}
+            self.next_subword_id = 2
+            self.text_vocab_fixed = False
 
         # Initialize code embeddings with descriptions if provided
         if code_descriptions is not None:
@@ -394,19 +409,24 @@ class DescEmb(BaseModel):
         self.fc = nn.Linear(temporal_hidden_dim, output_size)
 
     def _tokenize_text(self, text: str, max_len: int = 16) -> list[int]:
-        """Converts a description string to subword token IDs."""
+        """Converts a description string to word token IDs."""
         tokens = simple_subword_tokenize(text, max_tokens=max_len)
         ids = []
         for t in tokens:
-            if t not in self.subword_to_id:
-                if self.next_subword_id < self.code_text_encoder.vocab_size:
-                    self.subword_to_id[t] = self.next_subword_id
-                    self.next_subword_id += 1
-                else:
-                    self.subword_to_id[t] = 1  # <unk>
-            ids.append(self.subword_to_id[t])
+            if self.text_vocab_fixed:
+                unk_id = self.subword_to_id.get("<unk>", 1)
+                ids.append(self.subword_to_id.get(t, unk_id))
+            else:
+                if t not in self.subword_to_id:
+                    if self.next_subword_id < self.code_text_encoder.vocab_size:
+                        self.subword_to_id[t] = self.next_subword_id
+                        self.next_subword_id += 1
+                    else:
+                        self.subword_to_id[t] = 1  # <unk>
+                ids.append(self.subword_to_id[t])
         if len(ids) < max_len:
-            ids = ids + [0] * (max_len - len(ids))
+            pad_id = self.subword_to_id.get("<pad>", 0)
+            ids = ids + [pad_id] * (max_len - len(ids))
         return ids[:max_len]
 
     def initialize_with_descriptions(
@@ -419,31 +439,37 @@ class DescEmb(BaseModel):
                 Codes missing from the dictionary fall back to the raw code string.
             max_desc_len: Maximum tokens per description. Default is 16.
         """
-        device = self._dummy_param.device
-        for feat_key in self.feature_keys:
-            if feat_key not in self.embedding_model.embedding_layers:
-                continue
-            emb_layer = self.embedding_model.embedding_layers[feat_key]
-            if not isinstance(emb_layer, nn.Embedding):
-                continue
+        was_training = self.code_text_encoder.training
+        self.code_text_encoder.eval()
+        try:
+            device = self._dummy_param.device
+            for feat_key in self.feature_keys:
+                if feat_key not in self.embedding_model.embedding_layers:
+                    continue
+                emb_layer = self.embedding_model.embedding_layers[feat_key]
+                if not isinstance(emb_layer, nn.Embedding):
+                    continue
 
-            processor = self.dataset.input_processors.get(feat_key)
-            if not hasattr(processor, "code_vocab"):
-                continue
+                processor = self.dataset.input_processors.get(feat_key)
+                if not hasattr(processor, "code_vocab"):
+                    continue
 
-            vocab = processor.code_vocab
-            token_ids_list: list[list[int]] = []
-            for code in vocab:
-                desc = code_descriptions.get(str(code), str(code))
-                token_ids_list.append(self._tokenize_text(desc, max_desc_len))
+                vocab = processor.code_vocab
+                token_ids_list: list[list[int]] = []
+                for code in vocab:
+                    desc = code_descriptions.get(str(code), str(code))
+                    token_ids_list.append(self._tokenize_text(desc, max_desc_len))
 
-            token_tensor = torch.tensor(
-                token_ids_list, dtype=torch.long, device=device
-            )
-            with torch.no_grad():
-                desc_embs = self.code_text_encoder(token_tensor)
-                emb_layer.weight.data.copy_(desc_embs)
-                emb_layer.weight.data[0].zero_()
+                token_tensor = torch.tensor(
+                    token_ids_list, dtype=torch.long, device=device
+                )
+                with torch.no_grad():
+                    desc_embs = self.code_text_encoder(token_tensor)
+                    emb_layer.weight.data.copy_(desc_embs)
+                    emb_layer.weight.data[0].zero_()
+        finally:
+            if was_training:
+                self.code_text_encoder.train()
 
     def _pool_intra_visit(
         self, x: torch.Tensor, mask: torch.Tensor | None = None

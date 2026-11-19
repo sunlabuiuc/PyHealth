@@ -8,6 +8,7 @@ from pyhealth.models import (
     DescEmb,
     DescEmbCodeEncoder,
     simple_subword_tokenize,
+    simple_word_tokenize,
 )
 
 
@@ -19,6 +20,10 @@ class TestDescEmbCodeEncoder(unittest.TestCase):
         self.assertEqual(
             tokens, ["type", "2", "diabetes", "mellitus", "uncomplicated"]
         )
+        word_tokens = simple_word_tokenize(
+            "Type 2 diabetes mellitus, uncomplicated"
+        )
+        self.assertEqual(tokens, word_tokens)
 
     def test_init_invalid(self):
         with self.assertRaises(ValueError):
@@ -298,7 +303,9 @@ class TestDescEmb(unittest.TestCase):
         self.assertIsNotNone(model.post_val_proj.weight.grad)
 
     def test_padding_stays_masked_after_description_initialization(self):
-        """Verifies row 0 is kept zero and padding stays masked with code_descriptions."""
+        """Verifies row 0 is kept zero and padding stays masked with
+        code_descriptions.
+        """
         desc_map = {
             "c1": "essential hypertension",
             "c2": "type 2 diabetes mellitus",
@@ -517,7 +524,13 @@ class TestDescEmb(unittest.TestCase):
         )
         loader = get_dataloader(dataset, batch_size=2, shuffle=False)
         batch = next(iter(loader))
-        batch["conditions"][1].zero_()
+        for key in ("conditions", "procedures", "drugs"):
+            if key in batch:
+                if isinstance(batch[key], tuple):
+                    for elem in batch[key]:
+                        elem[1].zero_()
+                else:
+                    batch[key][1].zero_()
 
         out = model(**batch)
         self.assertFalse(torch.isnan(out["logit"]).any())
@@ -550,25 +563,50 @@ class TestDescEmb(unittest.TestCase):
         model.embedding_model.forward = original_embed
 
     def test_pretrained_text_encoder_arg(self):
-        """Verifies pretrained_text_encoder argument is used and frozen."""
+        """Verifies pretrained_text_encoder and text_vocab are used and frozen."""
         dataset = create_sample_dataset(
             samples=self.samples,
             input_schema=self.input_schema,
             output_schema={"label": "binary"},
         )
         custom_encoder = DescEmbCodeEncoder(
-            vocab_size=100, subword_dim=16, hidden_dim=16, output_dim=16
+            vocab_size=100,
+            subword_dim=16,
+            hidden_dim=16,
+            output_dim=16,
+            dropout=0.0,
         )
+        custom_vocab = {
+            "<pad>": 0,
+            "<unk>": 1,
+            "essential": 2,
+            "hypertension": 3,
+        }
+        descriptions = {"c1": "essential hypertension"}
         model = DescEmb(
             dataset=dataset,
             embedding_dim=16,
             text_hidden_dim=16,
             temporal_hidden_dim=16,
             pretrained_text_encoder=custom_encoder,
+            code_descriptions=descriptions,
+            text_vocab=custom_vocab,
         )
         self.assertIs(model.code_text_encoder, custom_encoder)
         for param in model.code_text_encoder.parameters():
             self.assertFalse(param.requires_grad)
+
+        # Verify custom vocab correctly mapped "c1" tokens to [2, 3]
+        # and initialized the embedding layer matching custom_encoder output
+        c1_idx = dataset.input_processors["conditions"].code_vocab.get("c1")
+        self.assertIsNotNone(c1_idx)
+        c1_emb = model.embedding_model.embedding_layers["conditions"].weight[
+            c1_idx
+        ]
+        with torch.no_grad():
+            expected_ids = torch.tensor([[2, 3] + [0] * 14])
+            expected_emb = custom_encoder(expected_ids)[0]
+        self.assertTrue(torch.allclose(c1_emb, expected_emb, atol=1e-5))
 
 
 if __name__ == "__main__":

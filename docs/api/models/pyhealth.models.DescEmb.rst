@@ -16,9 +16,10 @@ DescEmb resolves this by representing codes via their clinical text descriptions
 (e.g., "Essential (primary) hypertension"):
 
 1. **Description Text Encoding**: Standardized textual descriptions are
-   encoded using a bidirectional recurrent neural network (BiGRU) via
-   :class:`~pyhealth.models.descemb.DescEmbCodeEncoder`. The endpoints are
-   pooled to construct semantically grounded code representations.
+   encoded using word-level tokenization and a bidirectional recurrent neural
+   network (BiGRU) via :class:`~pyhealth.models.descemb.DescEmbCodeEncoder`.
+   The endpoints are pooled to construct semantically grounded code
+   representations.
 2. **Feature Embedding & Intra-Visit Pooling**: Input features are
    embedded with :class:`~pyhealth.models.EmbeddingModel`. Nested visit
    sequences are pooled across events using configurable intra-visit
@@ -34,11 +35,13 @@ DescEmb resolves this by representing codes via their clinical text descriptions
 
 .. note::
 
-   When initialized without pretrained encoder weights, :class:`~pyhealth.models.descemb.DescEmbCodeEncoder`
-   acts as a deterministic pseudo-random projection mapping description tokens to embedding space.
-   Users may provide a pretrained module via ``pretrained_text_encoder`` to retain semantics learned
-   during text pretraining. Codes omitted from ``code_descriptions`` fall back to using their raw
-   code strings.
+   When initialized without pretrained encoder weights,
+   :class:`~pyhealth.models.descemb.DescEmbCodeEncoder` acts as a deterministic
+   pseudo-random projection mapping description tokens to embedding space.
+   Users may provide a custom module via ``pretrained_text_encoder`` and matching
+   vocabulary via ``text_vocab`` to retain semantics learned during text
+   pretraining. Codes omitted from ``code_descriptions`` fall back to using
+   their raw code strings.
 
 Inputs and Outputs
 ------------------
@@ -58,5 +61,7 @@ API
 .. autoclass:: pyhealth.models.descemb.DescEmbCodeEncoder
    :members:
    :show-inheritance:
+
+.. autofunction:: pyhealth.models.descemb.simple_word_tokenize
 
 .. autofunction:: pyhealth.models.descemb.simple_subword_tokenize
