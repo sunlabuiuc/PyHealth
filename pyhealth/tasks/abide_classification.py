@@ -89,7 +89,8 @@ class ABIDEAutismClassification(BaseTask):
     default cc200 atlas), as in BrainGB, fed through the ``tensor`` processor.
     The label ``autism`` is 1 for ``DX_GROUP == 1`` (autism) and 0 for
     ``DX_GROUP == 2`` (typical control). Samples also carry ``site``,
-    ``age`` and ``sex``.
+    ``age`` and ``sex``; ``age`` is ``-1.0`` when the phenotypic file has no
+    ``AGE_AT_SCAN``, so filter or impute it before using it as a feature.
 
     Args:
         fisher_z (bool): Fisher z-transform the correlations. Default

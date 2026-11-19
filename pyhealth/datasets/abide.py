@@ -103,27 +103,57 @@ class ABIDEDataset(BaseDataset):
     filtered, no global signal regression).
 
     Getting the data:
-        - Source: Preprocessed Connectomes Project,
-          http://preprocessed-connectomes-project.org/abide/ ; files are in
-          the public S3 bucket ``s3://fcp-indi/data/Projects/ABIDE_Initiative/``.
-        - Access: open, no account needed. ROI files are 0.1-1 MB each
-          (about 0.5 GB for one atlas of all 1,035 scans).
-        - Download: pass ``download=True`` to fetch the phenotypic file and
-          the ROI files of the chosen ``pipeline`` / ``strategy`` / ``atlas``
-          into ``root``, or e.g.
-          ``aws s3 sync --no-sign-request s3://fcp-indi/data/Projects/ABIDE_Initiative/Outputs/cpac/filt_noglobal/rois_cc200 <root>/Outputs/cpac/filt_noglobal/rois_cc200``
-          plus ``Phenotypic_V1_0b_preprocessed1.csv``.
-        - ``root``: the folder holding ``Phenotypic_V1_0b_preprocessed1.csv``
-          and the ``*_rois_<atlas>.1D`` files, in any subfolder (the S3
-          layout ``Outputs/<pipeline>/<strategy>/rois_<atlas>/`` is used by
-          ``download=True``).
+        - Source: ABIDE Preprocessed, Preprocessed Connectomes Project,
+          http://preprocessed-connectomes-project.org/abide/ (download
+          guide: http://preprocessed-connectomes-project.org/abide/download.html).
+          The files sit in the public S3 bucket
+          ``s3://fcp-indi/data/Projects/ABIDE_Initiative/``, also served over
+          HTTPS at ``https://s3.amazonaws.com/fcp-indi/data/Projects/ABIDE_Initiative/``.
+        - Access: open. The PCP derivatives on S3 need no account, sign-up
+          or agreement (the raw ABIDE images on NITRC ask for a NITRC
+          registration, but they are not used here).
+        - Files: the phenotypic summary
+          ``Phenotypic_V1_0b_preprocessed1.csv`` (about 450 KB) and one ROI
+          time-series file per scan,
+          ``Outputs/<pipeline>/<strategy>/rois_<atlas>/<FILE_ID>_rois_<atlas>.1D``
+          (about 0.1-1 MB each; the C-PAC ``filt_noglobal`` ``rois_cc200``
+          folder holds 1,102 files, about 430 MB).
+        - Download, option 1: pass ``download=True``. It fetches the
+          phenotypic file and the ROI files of the chosen ``pipeline`` /
+          ``strategy`` / ``atlas`` into ``root`` in the S3 layout
+          (``max_subjects`` limits it to the first scans).
+        - Download, option 2, with the AWS CLI (no credentials needed)::
+
+              aws s3 cp --no-sign-request s3://fcp-indi/data/Projects/ABIDE_Initiative/Phenotypic_V1_0b_preprocessed1.csv <root>/
+              aws s3 sync --no-sign-request s3://fcp-indi/data/Projects/ABIDE_Initiative/Outputs/cpac/filt_noglobal/rois_cc200/ <root>/Outputs/cpac/filt_noglobal/rois_cc200/
+
+          or ``wget`` each file from the HTTPS URL. Nothing needs unpacking.
+        - ``root`` layout::
+
+              <root>/
+                  Phenotypic_V1_0b_preprocessed1.csv
+                  Outputs/
+                      cpac/                     # pipeline
+                          filt_noglobal/        # strategy
+                              rois_cc200/       # rois_<atlas>
+                                  Pitt_0050003_rois_cc200.1D
+                                  ...
+
+          The file at the chosen selection's path is always used first.
+          ROI files kept elsewhere under ``root`` (e.g. a flat
+          ``rois_cc200/`` folder) are used only for scans that lack it, and
+          files under ``Outputs/<other pipeline>/<other strategy>/`` are
+          ignored, so several selections can share one ``root``.
 
     Licence: the ABIDE data are shared under Creative Commons
     Attribution-NonCommercial-ShareAlike 3.0 (CC BY-NC-SA 3.0): non-commercial
-    use only, with attribution, and derivatives must use the same licence.
-    Users must also follow the ABIDE / INDI data usage terms (no attempt to
-    re-identify participants). Cite Di Martino et al. (2014), Craddock et al.
+    research use only, with attribution, and derivatives must use the same
+    licence. INDI also asks that the analysed datasets are named and their
+    funding acknowledged. Cite Di Martino et al. (2014), Craddock et al.
     (2013) and, for the connectivity recipe, BrainGB (Cui et al., 2023).
+
+    Missing values: scans without ``AGE_AT_SCAN`` get ``age = -1.0``; filter
+    or impute it before using age as a feature.
 
     Benchmarked in CLIMB (Dai et al., 2025, https://github.com/DDVD233/CLIMB).
 
@@ -162,6 +192,8 @@ class ABIDEDataset(BaseDataset):
     Raises:
         FileNotFoundError: If the phenotypic file is missing (and
             ``download`` is ``False``) or no ROI file is found.
+        ValueError: If ``pipeline``, ``strategy`` or ``atlas`` is unknown,
+            or a scan has several candidate ROI files outside the S3 layout.
 
     Examples:
         >>> from pyhealth.datasets import ABIDEDataset
@@ -287,11 +319,41 @@ class ABIDEDataset(BaseDataset):
             _write_yaml_atomic(config.model_dump(), out_path)
         return out_path
 
+    def _find_flat_roi_files(self, suffix: str) -> dict[str, list[Path]]:
+        """Map ``FILE_ID`` to ``*<suffix>`` files outside the S3 layout.
+
+        Files under ``Outputs/<pipeline>/<strategy>/`` belong to a known
+        selection, so they are left out: only the exact path of the chosen
+        selection is used from that layout.
+        """
+        found: dict[str, list[Path]] = {}
+        for p in sorted(self.data_root.rglob(f"*{suffix}")):
+            parts = p.relative_to(self.data_root).parts
+            if (
+                len(parts) >= 4
+                and parts[0] == "Outputs"
+                and parts[1] in ABIDE_PIPELINES
+                and parts[2] in ABIDE_STRATEGIES
+            ):
+                continue
+            found.setdefault(p.name[: -len(suffix)], []).append(p)
+        return found
+
     def prepare_metadata(self) -> None:
         """Join the phenotypic file with the ROI files found under ``root``.
 
-        Scans without a ROI file for the chosen selection are skipped (and
-        counted in a log message).
+        Each scan's file is looked up first at the S3 path of the chosen
+        selection, ``Outputs/<pipeline>/<strategy>/rois_<atlas>/``. Only if
+        that file is absent is a ``<FILE_ID>_rois_<atlas>.1D`` file
+        elsewhere under ``root`` (outside ``Outputs/<pipeline>/<strategy>/``)
+        used, and several such files for one scan raise an error. ROI files
+        of another pipeline or strategy are never picked up. Scans without a
+        ROI file are skipped (and counted in a log message). A missing
+        ``AGE_AT_SCAN`` is stored as ``-1.0``.
+
+        Raises:
+            ValueError: If a scan has no file at the selected S3 path and
+                several candidate files elsewhere under ``root``.
 
         Examples:
             >>> ds = ABIDEDataset(root="/data/abide")  # doctest: +SKIP
@@ -299,16 +361,25 @@ class ABIDEDataset(BaseDataset):
         """
         pheno = self._read_phenotypic()
         suffix = f"_rois_{self.atlas}.1D"
-        found = {
-            p.name[: -len(suffix)]: p
-            for p in sorted(self.data_root.rglob(f"*{suffix}"))
-        }
+        others = self._find_flat_roi_files(suffix)
         rows = []
         for rec in pheno.to_dict(orient="records"):
             file_id = str(rec["FILE_ID"])
-            path = found.get(file_id)
-            if path is None:
-                continue
+            path = self.data_root / abide_roi_relpath(
+                file_id, self.pipeline, self.strategy, self.atlas
+            )
+            if not path.is_file():
+                candidates = others.get(file_id, [])
+                if not candidates:
+                    continue
+                if len(candidates) > 1:
+                    raise ValueError(
+                        f"Several {file_id}{suffix} files under {self.data_root} "
+                        f"and none at the {self.pipeline}/{self.strategy} S3 "
+                        f"path: {[str(c) for c in candidates]}. Keep one, or "
+                        "use the Outputs/<pipeline>/<strategy>/ layout."
+                    )
+                path = candidates[0]
             age = rec.get("AGE_AT_SCAN")
             rows.append(
                 {

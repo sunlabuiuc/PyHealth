@@ -81,6 +81,39 @@ class TestABIDEDataset(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             ABIDEDataset(root=str(self.tmp / "empty"), metadata_cache_dir=str(self.tmp / "m"))
 
+    def test_selected_strategy_wins_over_other_layouts(self):
+        build_root(self.root, file_ids=("Pitt_0050003",))
+        # Same scan under another strategy and pipeline: must be ignored.
+        for pipeline, strategy in (("cpac", "nofilt_noglobal"), ("ccs", "filt_noglobal")):
+            rel = abide_roi_relpath("Pitt_0050003", pipeline, strategy, "cc200")
+            write_roi_file(self.root / rel, seed=9)
+        # Olin only exists for nofilt_noglobal, so it is skipped for filt_noglobal.
+        write_roi_file(
+            self.root / abide_roi_relpath("Olin_0050102", "cpac", "nofilt_noglobal", "cc200")
+        )
+        ds = self._dataset()
+        self.assertEqual(ds.unique_patient_ids, ["50003"])
+        event = ds.get_patient("50003").get_events(event_type="scans")[0]
+        expected = self.root / abide_roi_relpath(
+            "Pitt_0050003", "cpac", "filt_noglobal", "cc200"
+        )
+        self.assertEqual(Path(str(event.roi_file)), expected.resolve())
+
+        other = self._dataset(strategy="nofilt_noglobal")
+        self.assertEqual(sorted(other.unique_patient_ids), ["50003", "50102"])
+        event = other.get_patient("50003").get_events(event_type="scans")[0]
+        self.assertIn("nofilt_noglobal", str(event.roi_file))
+
+    def test_ambiguous_flat_files_raise(self):
+        build_root(self.root, file_ids=())
+        write_roi_file(self.root / "a" / "Pitt_0050003_rois_cc200.1D")
+        write_roi_file(self.root / "b" / "Pitt_0050003_rois_cc200.1D")
+        with self.assertRaises(ValueError):
+            self._dataset()
+        # A file at the selected S3 path resolves the ambiguity.
+        build_root(self.root, file_ids=("Pitt_0050003",))
+        self.assertEqual(self._dataset().unique_patient_ids, ["50003"])
+
     def test_download_uses_s3_layout(self):
         calls = []
 

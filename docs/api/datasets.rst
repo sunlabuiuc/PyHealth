@@ -481,10 +481,10 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - Yes
      - —
    * - :doc:`ABIDE I (PCP connectivity) <datasets/pyhealth.datasets.ABIDEDataset>`
-     - Open (CC BY-NC-SA)
-     - `PCP / S3 <http://preprocessed-connectomes-project.org/abide/>`__
+     - Open, no account (CC BY-NC-SA 3.0)
+     - `PCP / S3 <http://preprocessed-connectomes-project.org/abide/download.html>`__
      - Yes
-     - —
+     - ``max_subjects`` partial download
    * - :doc:`BMD-HS <datasets/pyhealth.datasets.BMDHSDataset>`
      - Open
      - `GitHub <https://github.com/sani002/BMD-HS-Dataset>`__
