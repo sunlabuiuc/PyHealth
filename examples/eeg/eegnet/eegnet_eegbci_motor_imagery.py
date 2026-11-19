@@ -87,7 +87,8 @@ def main() -> None:
     if min(len(train_ds), len(val_ds), len(test_ds)) == 0:
         raise ValueError(
             f"{len(args.subjects)} subjects are too few for a train/val/test "
-            f"split by subject with ratios {SPLIT_RATIOS}; pass at least 5."
+            f"split by subject with ratios {SPLIT_RATIOS}: one of the three "
+            "parts is empty. Pass more subjects."
         )
     print(
         f"windows: train {len(train_ds)}, val {len(val_ds)}, test {len(test_ds)}"

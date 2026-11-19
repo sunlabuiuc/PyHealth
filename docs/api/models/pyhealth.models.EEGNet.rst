@@ -23,11 +23,3 @@ API Reference
     :members:
     :undoc-members:
     :show-inheritance:
-
-.. autoclass:: pyhealth.models.eegnet.Conv2dWithMaxNorm
-    :members:
-    :show-inheritance:
-
-.. autoclass:: pyhealth.models.eegnet.LinearWithMaxNorm
-    :members:
-    :show-inheritance:
