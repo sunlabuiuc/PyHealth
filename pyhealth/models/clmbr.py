@@ -40,9 +40,22 @@ import torch.nn.functional as F
 from torch import nn
 
 from ..datasets import SampleDataset
-from .ehr_fm import EHRFoundationModelBase, TokenizedTimeline, _require, as_value
+from .ehr_fm import EHRFoundationModelBase, TokenizedTimeline, as_value
 
 logger = logging.getLogger(__name__)
+
+
+def _require(module: str) -> Any:
+    """Imports an optional dependency, with an install hint if missing."""
+    import importlib
+
+    try:
+        return importlib.import_module(module)
+    except ImportError as e:  # pragma: no cover - depends on the environment
+        raise ImportError(
+            f"{module} is not installed; CLMBR needs it to load checkpoints: "
+            "`pip install huggingface-hub safetensors msgpack`"
+        ) from e
 
 CLMBR_T_BASE = "StanfordShahLab/clmbr-t-base"
 

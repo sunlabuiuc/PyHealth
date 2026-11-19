@@ -25,9 +25,11 @@ Usage::
     python examples/ehrshot_clmbr_t.py \\
         --root /path/to/EHRSHOT_ASSETS --task guo_icu --mode frozen
 
-The frozen mode is a linear probe, as in EHRSHOT's evaluation (a logistic
-regression on the same last-token CLMBR features); embeddings are
-cached in memory, and on disk with ``--embedding-cache``.
+The frozen mode is a linear probe: a linear head on the frozen last-token
+CLMBR features, trained with Adam and early stopping on the validation
+split (EHRSHOT's own evaluation fits a logistic regression on the same
+features instead). Embeddings are cached in memory, and on disk with
+``--embedding-cache``.
 """
 
 from __future__ import annotations
