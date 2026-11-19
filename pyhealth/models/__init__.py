@@ -142,3 +142,9 @@ from .descemb import (
     simple_subword_tokenize as simple_subword_tokenize,
     simple_word_tokenize as simple_word_tokenize,
 )
+from .chet import (
+    CHET as CHET,
+    DotProductAttention as DotProductAttention,
+    SingleHeadAttentionLayer as SingleHeadAttentionLayer,
+    compute_cooccurrence_adj as compute_cooccurrence_adj,
+)
