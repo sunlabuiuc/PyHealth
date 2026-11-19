@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import pandas as pd
 from PIL import Image
@@ -78,9 +79,7 @@ class TestISIC2019Dataset(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _dataset(self, **kwargs):
-        return ISIC2019Dataset(
-            root=str(self.root), cache_dir=str(self.cache), **kwargs
-        )
+        return ISIC2019Dataset(root=str(self.root), cache_dir=str(self.cache), **kwargs)
 
     def test_training_metadata(self):
         dataset = self._dataset()
@@ -91,8 +90,16 @@ class TestISIC2019Dataset(unittest.TestCase):
         self.assertEqual(
             sorted(set(meta["patient_id"])),
             sorted(
-                ["BCN_1", "HAM_1", "HAM_2", "MSK4_1", "ISIC_0000006_downsampled",
-                 "BCN_2", "BCN_3", "BCN_4"]
+                [
+                    "BCN_1",
+                    "HAM_1",
+                    "HAM_2",
+                    "MSK4_1",
+                    "ISIC_0000006_downsampled",
+                    "BCN_2",
+                    "BCN_3",
+                    "BCN_4",
+                ]
             ),
         )
         ham = set(meta.loc[meta["is_ham10000"] == 1, "image_id"])
@@ -105,8 +112,12 @@ class TestISIC2019Dataset(unittest.TestCase):
         self.assertEqual(len(test), 4)
         self.assertEqual(
             test["is_ham10000"].to_dict(),
-            {"ISIC_0034400": 1, "ISIC_0036064": 1, "ISIC_0060000": 0,
-             "ISIC_0060001": 0},
+            {
+                "ISIC_0034400": 1,
+                "ISIC_0036064": 1,
+                "ISIC_0060000": 0,
+                "ISIC_0060001": 0,
+            },
         )
         self.assertEqual(test.loc["ISIC_0060001", "diagnosis"], "UNK")
 
@@ -118,6 +129,114 @@ class TestISIC2019Dataset(unittest.TestCase):
     def test_bad_split_raises(self):
         with self.assertRaises(ValueError):
             self._dataset(splits=("val",))
+
+    def test_missing_training_metadata_raises(self):
+        # Without lesion ids, lesion grouping and the HAM10000 flag break.
+        (self.root / "ISIC_2019_Training_Metadata.csv").unlink()
+        with self.assertRaisesRegex(FileNotFoundError, "lesion ids"):
+            self._dataset()
+
+    def test_training_metadata_without_lesion_ids_raises(self):
+        path = self.root / "ISIC_2019_Training_Metadata.csv"
+        pd.read_csv(path).drop(columns=["lesion_id"]).to_csv(path, index=False)
+        with self.assertRaisesRegex(ValueError, "lesion_id"):
+            self._dataset()
+
+    def test_missing_test_metadata_still_loads(self):
+        (self.root / "ISIC_2019_Test_Metadata.csv").unlink()
+        dataset = self._dataset(splits=("test",))
+        meta = pd.read_csv(dataset.metadata_path)
+        self.assertEqual(len(meta), 4)
+        self.assertTrue(meta["age_approx"].isna().all())
+
+    def test_rebuilds_metadata_when_splits_change(self):
+        metadata_dir = str(self.tmp / "meta")
+        first = self._dataset(metadata_dir=metadata_dir)
+        self.assertEqual(set(pd.read_csv(first.metadata_path)["split"]), {"train"})
+        second = self._dataset(metadata_dir=metadata_dir, splits=("train", "test"))
+        self.assertEqual(
+            set(pd.read_csv(second.metadata_path)["split"]), {"train", "test"}
+        )
+
+
+class TestISIC2019Download(unittest.TestCase):
+    """download=True, with the network calls replaced by local copies."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.source = self.tmp / "source"
+        make_isic2019_root(self.source)
+        self.root = self.tmp / "isic2019"
+        self.cache = self.tmp / "cache"
+        self.urls = []
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _fake_download_file(self, url, path):
+        self.urls.append(url)
+        shutil.copy(self.source / url.rsplit("/", 1)[1], path)
+
+    def _fake_download_archives(self, urls, destination, **kwargs):
+        self.urls.extend(urls)
+        self.assertTrue(kwargs["extract_to_parent"])
+        shutil.copytree(self.source / Path(destination).name, destination)
+
+    def test_download_fetches_missing_files_into_root(self):
+        with (
+            mock.patch(
+                "pyhealth.datasets.isic2019.download_file",
+                side_effect=self._fake_download_file,
+            ),
+            mock.patch(
+                "pyhealth.datasets.isic2019._download_archives",
+                side_effect=self._fake_download_archives,
+            ),
+        ):
+            dataset = ISIC2019Dataset(
+                root=str(self.root),
+                splits=("train", "test"),
+                download=True,
+                cache_dir=str(self.cache),
+            )
+        base = "https://isic-archive.s3.amazonaws.com/challenges/2019/"
+        self.assertEqual(
+            sorted(self.urls),
+            sorted(
+                base + f"ISIC_2019_{split}_{kind}"
+                for split in ("Training", "Test")
+                for kind in ("GroundTruth.csv", "Metadata.csv", "Input.zip")
+            ),
+        )
+        self.assertTrue((self.root / "ISIC_2019_Training_Metadata.csv").exists())
+        self.assertEqual(len(pd.read_csv(dataset.metadata_path)), 13)
+
+        # A second download=True finds every file and fetches nothing.
+        self.urls.clear()
+        with mock.patch(
+            "pyhealth.datasets.isic2019.download_file",
+            side_effect=self._fake_download_file,
+        ):
+            ISIC2019Dataset(
+                root=str(self.root),
+                splits=("train", "test"),
+                download=True,
+                cache_dir=str(self.cache),
+            )
+        self.assertEqual(self.urls, [])
+
+    def test_html_response_is_rejected(self):
+        def _html(url, path):
+            Path(path).write_text("<!DOCTYPE html><html>moved</html>\n")
+
+        with (
+            mock.patch("pyhealth.datasets.isic2019.download_file", side_effect=_html),
+            self.assertRaisesRegex(RuntimeError, "not the expected CSV"),
+        ):
+            ISIC2019Dataset(
+                root=str(self.root), download=True, cache_dir=str(self.cache)
+            )
+        self.assertFalse((self.root / "ISIC_2019_Training_GroundTruth.csv").exists())
 
 
 if __name__ == "__main__":

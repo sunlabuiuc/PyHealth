@@ -78,31 +78,60 @@ class ISIC2019Dataset(BaseDataset):
     validation and test images are in this test set (image ids
     ISIC_0034321 to ISIC_0036064). Each event has ``is_ham10000``; the task's
     ``exclude_ham10000=True`` drops them, e.g. to evaluate a model trained
-    on :class:`~pyhealth.datasets.HAM10000Dataset`.
+    on HAM10000 without leakage.
 
     Getting the data:
-        - Source: https://challenge.isic-archive.com/data/#2019
-        - Access: open, no account needed.
+        - Source: https://challenge.isic-archive.com/data/#2019 (ISIC 2019
+          challenge data page).
+        - Access: open. No account, registration or data-use agreement;
+          the files are plain HTTPS links on the ISIC S3 bucket.
         - Download: from ``https://isic-archive.s3.amazonaws.com/challenges/2019/``,
-          ``ISIC_2019_Training_Input.zip`` (9.8 GB),
-          ``ISIC_2019_Training_GroundTruth.csv`` and
-          ``ISIC_2019_Training_Metadata.csv``; for the test set also
-          ``ISIC_2019_Test_Input.zip`` (3.8 GB),
-          ``ISIC_2019_Test_GroundTruth.csv`` and
-          ``ISIC_2019_Test_Metadata.csv``. Or pass ``download=True``.
-        - ``root``: the folder holding the CSVs and the unzipped
-          ``ISIC_2019_Training_Input/`` (and ``ISIC_2019_Test_Input/``)
-          folders. ``root`` is only read: the metadata CSV is written to
-          ``metadata_dir``.
+          for the training set ``ISIC_2019_Training_Input.zip`` (9.8 GB),
+          ``ISIC_2019_Training_GroundTruth.csv`` (1.3 MB) and
+          ``ISIC_2019_Training_Metadata.csv`` (1.2 MB, needed: it holds the
+          lesion ids); for the test set also ``ISIC_2019_Test_Input.zip``
+          (3.8 GB), ``ISIC_2019_Test_GroundTruth.csv`` (465 KB) and
+          ``ISIC_2019_Test_Metadata.csv`` (294 KB). Sizes are in decimal
+          GB; the ISIC page shows GiB. For the training set::
+
+              BASE=https://isic-archive.s3.amazonaws.com/challenges/2019
+              mkdir isic2019 && cd isic2019
+              for f in Input.zip GroundTruth.csv Metadata.csv; do
+                  wget "$BASE/ISIC_2019_Training_$f"
+              done
+              unzip -q ISIC_2019_Training_Input.zip
+
+          Or pass ``download=True``, which downloads and unzips the missing
+          files of the requested ``splits`` into ``root``.
+        - Unpack: each image zip extracts to a folder of the same name
+          (``ISIC_2019_Training_Input/``, ``ISIC_2019_Test_Input/``) of
+          ``ISIC_xxxxxxx.jpg`` files; the zips can then be deleted.
+        - ``root`` layout (the test files only with ``"test"`` in
+          ``splits``)::
+
+              isic2019/                          <- root
+                  ISIC_2019_Training_GroundTruth.csv
+                  ISIC_2019_Training_Metadata.csv
+                  ISIC_2019_Training_Input/ISIC_0000000.jpg ...
+                  ISIC_2019_Test_GroundTruth.csv
+                  ISIC_2019_Test_Metadata.csv
+                  ISIC_2019_Test_Input/ISIC_0034321.jpg ...
+
+          ``root`` is only read, unless ``download=True``, which writes the
+          downloaded CSVs and image folders into it. The derived metadata
+          CSV always goes to ``metadata_dir``.
 
     Licence:
-        CC BY-NC 4.0 (attribution, non-commercial use only). See
-        https://creativecommons.org/licenses/by-nc/4.0/.
+        CC BY-NC 4.0 (attribution, non-commercial use only; derivatives
+        allowed). See https://creativecommons.org/licenses/by-nc/4.0/.
 
     Citation:
+        The ISIC 2019 data page asks for these three:
+
         Tschandl, P., Rosendahl, C., Kittler, H. The HAM10000 dataset, a large
         collection of multi-source dermatoscopic images of common pigmented
         skin lesions. Scientific Data 5, 180161 (2018).
+        https://doi.org/10.1038/sdata.2018.161
 
         Codella, N., et al. Skin lesion analysis toward melanoma detection: a
         challenge at the 2017 ISBI, hosted by the ISIC. arXiv:1710.05006
@@ -112,24 +141,13 @@ class ISIC2019Dataset(BaseDataset):
         wild. Scientific Data 11, 641 (2024).
         https://doi.org/10.1038/s41597-024-03387-w
 
-    Benchmarked in CLIMB (Dai et al., 2025, https://github.com/DDVD233/CLIMB).
-
-    Differences from CLIMB:
-        - Splits are by lesion (``PatientSplit`` on ``lesion_id``), not a
-          random 80/20 split of images.
-        - The default labels are the eight official classes; CLIMB's five
-          (AK and SCC merged into AKIEC; BKL, DF and VASC into OTHER) are
-          the task's ``label_scheme="climb5"``.
-        - The HAM10000 overlap is flagged and can be excluded.
-        - The public test set can be indexed. CLIMB's loader needs a manual
-          download and calls ``DataFrame.append``, removed in pandas 2.
-
     Args:
         root: Folder holding the ISIC 2019 CSVs and image folders.
         splits: Which splits to index, from ``"train"`` and ``"test"``.
             Defaults to ``("train",)``.
-        download: Download any missing file of the requested splits into
-            ``root``. Defaults to False.
+        download: Download and unzip any missing file of the requested
+            splits into ``root`` (9.8 GB for train, 3.8 GB for test).
+            Defaults to False.
         dataset_name: Name of the dataset. Defaults to ``"isic2019"``.
         config_path: Table configuration YAML. Defaults to the bundled one.
         cache_dir: Directory for processed caches.
@@ -233,10 +251,11 @@ class ISIC2019Dataset(BaseDataset):
         download still loads.
 
         Raises:
-            FileNotFoundError: If a ground-truth CSV or every image of a
-                split is missing.
+            FileNotFoundError: If a ground-truth CSV, the training
+                Metadata CSV, or every image of a split is missing.
             ValueError: If a ground-truth row does not have exactly one
-                diagnosis.
+                diagnosis, or the training Metadata CSV has no
+                ``lesion_id`` column.
 
         Examples:
             >>> dataset = ISIC2019Dataset(root="/path/to/isic2019")  # doctest: +SKIP
@@ -257,9 +276,23 @@ class ISIC2019Dataset(BaseDataset):
             gt["diagnosis"] = [ISIC2019_CLASSES[i] for i in onehot.argmax(axis=1)]
             meta_path = self.source_root / f"{prefix}_Metadata.csv"
             if meta_path.exists():
-                gt = gt.merge(pd.read_csv(meta_path), on="image", how="left")
+                meta = pd.read_csv(meta_path)
+                if split == "train" and "lesion_id" not in meta.columns:
+                    raise ValueError(
+                        f"{meta_path.name} has no lesion_id column, which is "
+                        "needed to group images by lesion and flag HAM10000."
+                    )
+                gt = gt.merge(meta, on="image", how="left")
+            elif split == "train":
+                # Without the lesion ids every image would be its own patient
+                # and HAM10000 images could not be flagged or excluded.
+                raise FileNotFoundError(
+                    f"{meta_path} not found. It holds the lesion ids used to "
+                    "group images by lesion and to flag HAM10000 images. "
+                    f"Download it from {ISIC2019_BASE_URL} or pass download=True."
+                )
             else:
-                logger.warning("%s not found; no lesion ids or age/sex/site.", meta_path)
+                logger.warning("%s not found; no age/sex/site.", meta_path)
             for column in ("lesion_id", "age_approx", "anatom_site_general", "sex"):
                 if column not in gt.columns:
                     gt[column] = None

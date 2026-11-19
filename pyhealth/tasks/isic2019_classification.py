@@ -45,7 +45,7 @@ class ISIC2019Classification(BaseTask):
         label_scheme: ``"isic8"`` or ``"climb5"``. Defaults to ``"isic8"``.
         exclude_ham10000: Skip images that are also in HAM10000 / ISIC 2018
             Task 3 (``is_ham10000``), e.g. to test a model trained on
-            :class:`~pyhealth.datasets.HAM10000Dataset` without leakage.
+            HAM10000 without leakage.
             Defaults to False.
         image_size: Side length of the square input image. Defaults to 224.
         split: Keep only images of this split (``"train"`` or ``"test"``).

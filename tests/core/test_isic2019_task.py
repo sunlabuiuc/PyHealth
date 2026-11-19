@@ -1,16 +1,13 @@
 """Tests for ISIC2019Classification using synthetic images."""
 
 import shutil
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from pyhealth.datasets import ISIC2019Dataset, PatientSplit
 from pyhealth.tasks import ISIC2019Classification
-
-sys.path.insert(0, str(Path(__file__).parent))
-from test_isic2019_dataset import make_isic2019_root  # noqa: E402
+from tests.core.test_isic2019_dataset import make_isic2019_root
 
 
 def _labels(samples):
@@ -57,6 +54,19 @@ class TestISIC2019Classification(unittest.TestCase):
         )
         samples.close()
 
+    def test_climb5_test_split(self):
+        samples = self.dataset.set_task(
+            ISIC2019Classification(label_scheme="climb5", image_size=16, split="test")
+        )
+        # UNK (ISIC_0060001) is skipped; SCC maps to AKIEC.
+        self.assertEqual(_labels(samples), ["AKIEC", "MEL", "NV"])
+        self.assertTrue(all(samples[i]["split"] == "test" for i in range(len(samples))))
+        samples.close()
+
+    def test_bad_split_raises(self):
+        with self.assertRaises(ValueError):
+            ISIC2019Classification(split="val")
+
     def test_exclude_ham10000_and_skip_unk(self):
         samples = self.dataset.set_task(
             ISIC2019Classification(image_size=16, exclude_ham10000=True)
@@ -64,8 +74,13 @@ class TestISIC2019Classification(unittest.TestCase):
         ids = {samples[i]["image_id"] for i in range(len(samples))}
         # HAM_ training lesions, ISIC 2018 holdout test images and UNK are gone
         self.assertEqual(len(ids), 8)
-        for image in ("ISIC_0000003", "ISIC_0000004", "ISIC_0034400",
-                      "ISIC_0036064", "ISIC_0060001"):
+        for image in (
+            "ISIC_0000003",
+            "ISIC_0000004",
+            "ISIC_0034400",
+            "ISIC_0036064",
+            "ISIC_0060001",
+        ):
             self.assertNotIn(image, ids)
         self.assertIn("ISIC_0060000", ids)
         samples.close()
