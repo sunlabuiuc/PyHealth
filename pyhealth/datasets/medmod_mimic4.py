@@ -41,20 +41,20 @@ from __future__ import annotations
 import hashlib
 import os
 import warnings
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, Optional, Sequence
 
 import narwhals as nw
 import numpy as np
 
 from .medmod.discretizer import MEDMOD_FILES
-from .medmod.split_lists import SHA256, split_list_path
 from .medmod.extraction import (
     read_itemid_to_variable_map,
     read_split_file,
     split_of,
 )
+from .medmod.split_lists import SHA256, split_list_path
 from .mimic4 import MIMIC4Dataset, MIMIC4EHRDataset
 from .splitter import Split
 
@@ -78,7 +78,14 @@ def _keep_medmod_rows(frame: nw.LazyFrame, itemids: list[str]) -> nw.LazyFrame:
 
 
 class MedModEHRDataset(MIMIC4EHRDataset):
-    """MIMIC-IV EHR sub-dataset with MedMod's row filters as PyHealth hooks."""
+    """MIMIC-IV EHR sub-dataset with MedMod's row filters as PyHealth hooks.
+
+    Examples:
+        >>> from pyhealth.datasets.medmod_mimic4 import MedModEHRDataset
+        >>> MedModEHRDataset.itemid_map.endswith("itemid_to_variable_map.csv")
+        True
+        >>> # Built for you by MedModMIMIC4Dataset (sub_datasets["ehr"]).
+    """
 
     itemid_map: str = str(MEDMOD_FILES / "itemid_to_variable_map.csv")
 
@@ -101,13 +108,21 @@ class MedModMIMIC4Dataset(MIMIC4Dataset):
         cxr_root: folder holding the MIMIC-CXR-JPG CSVs.
         cache_dir: where PyHealth writes its processed copy of the data. Put it
             next to the data; without it PyHealth uses ~/Library/Caches/pyhealth.
+
+    Examples:
+        >>> from pyhealth.datasets import MedModMIMIC4Dataset
+        >>> dataset = MedModMIMIC4Dataset(  # doctest: +SKIP
+        ...     ehr_root="/data/mimiciv/1.0",
+        ...     cxr_root="/data/mimic-cxr-jpg/2.0.0",
+        ...     cache_dir="/data/pyhealth_cache",
+        ... )
     """
 
     def __init__(
         self,
         ehr_root: str | Path,
         cxr_root: str | Path,
-        cache_dir: Optional[str | Path] = None,
+        cache_dir: str | Path | None = None,
         dev: bool = False,
         num_workers: int = 1,
         ehr_config_path: str | Path = EHR_V10_CONFIG,
@@ -153,17 +168,23 @@ class MedModSplit(Split):
             ``testset_iv.csv``, downloaded from MedMod's GitHub on first use).
         valset: path of a validation subject list (default: MedMod's
             ``valset_iv.csv``, the same way).
+
+    Examples:
+        >>> from pyhealth.datasets import MedModSplit
+        >>> MedModSplit().to_dict()["kind"]
+        'medmod'
+        >>> # train, val, test = dataset.set_task(task, split=MedModSplit())
     """
 
-    testset: Optional[str] = None
-    valset: Optional[str] = None
+    testset: str | None = None
+    valset: str | None = None
 
     def split_indices(
         self, patient_to_index: Mapping[str, Sequence[int]]
-    ) -> List[np.ndarray]:
+    ) -> list[np.ndarray]:
         test = read_split_file(self.testset or split_list_path("testset_iv.csv"))
         val = read_split_file(self.valset or split_list_path("valset_iv.csv"))
-        parts: Dict[str, List[int]] = {name: [] for name in SPLITS}
+        parts: dict[str, list[int]] = {name: [] for name in SPLITS}
         for pid, indices in patient_to_index.items():
             parts[split_of(str(pid), test, val)].extend(indices)
         empty = [name for name in SPLITS if not parts[name]]
@@ -184,9 +205,15 @@ class MedModSplit(Split):
         }
 
 
-def split_positions(splits: Iterable[str]) -> Dict[str, List[int]]:
-    """Positions of each split value, in sample order."""
-    out: Dict[str, List[int]] = {name: [] for name in SPLITS}
+def split_positions(splits: Iterable[str]) -> dict[str, list[int]]:
+    """Positions of each split value, in sample order.
+
+    Examples:
+        >>> from pyhealth.datasets.medmod_mimic4 import split_positions
+        >>> split_positions(["train", "test", "train"])
+        {'train': [0, 2], 'val': [], 'test': [1]}
+    """
+    out: dict[str, list[int]] = {name: [] for name in SPLITS}
     for i, name in enumerate(splits):
         if name not in out:
             raise ValueError(f"unknown split {name!r}; expected one of {SPLITS}")
@@ -204,6 +231,12 @@ def split_by_medmod(samples):
     Returns:
         train, val, test: ``SampleDataset`` views (``samples.subset``), as
         returned by PyHealth's ``split_by_patient``.
+
+    Examples:
+        >>> from pyhealth.datasets import split_by_medmod
+        >>> from pyhealth.datasets.medmod.synthetic import create_synthetic_samples
+        >>> samples = create_synthetic_samples("keep", n_stays=50)  # doctest: +SKIP
+        >>> train, val, test = split_by_medmod(samples)  # doctest: +SKIP
     """
     positions = split_positions(samples[i]["split"] for i in range(len(samples)))
     empty = [name for name, idx in positions.items() if not idx]

@@ -35,10 +35,11 @@ PyHealth references are ``file:line`` in github.com/sunlabuiuc/PyHealth
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar
 
 import pandas as pd
 import polars as pl
+
 from ..datasets.medmod.discretizer import PH_NORMALIZER
 from ..datasets.medmod.extraction import (
     DEFAULT_TIMESTEP,
@@ -102,20 +103,30 @@ class MedModInHospitalMortality(BaseTask):
             Defaults to MedMod's files bundled in ``pyhealth/datasets/medmod/files``
             (``MedModResources.load()``); pass your own ``MedModResources``
             only to use different files.
+
+    Examples:
+        >>> from pyhealth.tasks import MedModInHospitalMortality
+        >>> task = MedModInHospitalMortality(hours_zero="keep")
+        >>> task.task_name, task.output_schema
+        ('MedModInHospitalMortality', {'label': 'binary'})
+        >>> # train, val, test = dataset.set_task(task, split=MedModSplit())
     """
 
     task_name: str = "MedModInHospitalMortality"
-    input_schema: Dict[str, Any] = {"ehr": MedModEHRProcessor, "image_path": "raw"}
-    output_schema: Dict[str, str] = {"label": "binary"}
+    input_schema: ClassVar[dict[str, Any]] = {
+        "ehr": MedModEHRProcessor,
+        "image_path": "raw",
+    }
+    output_schema: ClassVar[dict[str, str]] = {"label": "binary"}
 
     def __init__(
         self,
         *,
         hours_zero: HoursZero,
         timestep: float = DEFAULT_TIMESTEP,
-        normalizer: Optional[str | Path] = PH_NORMALIZER,
-        image_dir: Optional[str | Path] = None,
-        resources: Optional[MedModResources] = None,
+        normalizer: str | Path | None = PH_NORMALIZER,
+        image_dir: str | Path | None = None,
+        resources: MedModResources | None = None,
     ):
         super().__init__()
         if hours_zero not in ("keep", "drop"):
@@ -189,7 +200,7 @@ class MedModInHospitalMortality(BaseTask):
             ),
         )
 
-    def process_patient(self, patient) -> List[StayResult]:
+    def process_patient(self, patient) -> list[StayResult]:
         """Every ICU stay of the patient with the last stage it survived."""
         return process_subject(
             self.subject_tables(patient),
@@ -199,5 +210,5 @@ class MedModInHospitalMortality(BaseTask):
             self.timestep,
         )
 
-    def __call__(self, patient) -> List[Dict]:
+    def __call__(self, patient) -> list[dict]:
         return [r.sample() for r in self.process_patient(patient) if r.kept]

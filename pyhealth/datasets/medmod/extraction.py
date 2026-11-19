@@ -25,14 +25,15 @@ commit in ``files/MEDMOD_COMMIT``):
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Sequence, Set
+from typing import Literal
 
 import numpy as np
 import pandas as pd
 
-from .discretizer import Discretizer, MEDMOD_FILES
+from .discretizer import MEDMOD_FILES, Discretizer
 from .split_lists import MEDMOD_COMMIT, split_list_path
 
 EPS = 1e-6  # create_ihm.py:12
@@ -98,7 +99,14 @@ def read_itemid_to_variable_map(
     path: str | Path = MEDMOD_FILES / "itemid_to_variable_map.csv",
 ) -> pd.DataFrame:
     """bench_prep.py:141-156: keep rows with LEVEL2 != '', COUNT > 0,
-    STATUS == 'ready'. Returns columns ``variable, itemid (int), mimic_label``."""
+    STATUS == 'ready'. Returns columns ``variable, itemid (int), mimic_label``.
+
+    Examples:
+        >>> from pyhealth.datasets.medmod.extraction import read_itemid_to_variable_map
+        >>> var_map = read_itemid_to_variable_map()
+        >>> list(var_map.columns), var_map["variable"].nunique()
+        (['variable', 'itemid', 'mimic_label'], 17)
+    """
     var_map = pd.read_csv(path).fillna("").astype(str)
     var_map["COUNT"] = var_map["COUNT"].astype(int)
     var_map = var_map[(var_map["LEVEL2"] != "") & (var_map["COUNT"] > 0)]
@@ -111,9 +119,17 @@ def read_itemid_to_variable_map(
     return var_map.reset_index(drop=True)
 
 
-def split_of(subject_id: str, test_subjects: Set[str], val_subjects: Set[str]) -> str:
+def split_of(subject_id: str, test_subjects: set[str], val_subjects: set[str]) -> str:
     """MedMod's split of a subject: test list first, then the val list among
-    the rest, else train (split_test.py:33-34, split_val.py:27-28)."""
+    the rest, else train (split_test.py:33-34, split_val.py:27-28).
+
+    Examples:
+        >>> from pyhealth.datasets.medmod.extraction import split_of
+        >>> split_of("101", test_subjects={"101"}, val_subjects={"101"})
+        'test'
+        >>> split_of("102", test_subjects=set(), val_subjects=set())
+        'train'
+    """
     if subject_id in test_subjects:
         return "test"
     if subject_id in val_subjects:
@@ -121,10 +137,19 @@ def split_of(subject_id: str, test_subjects: Set[str], val_subjects: Set[str]) -
     return "train"
 
 
-def read_split_file(path: str | Path) -> Set[str]:
+def read_split_file(path: str | Path) -> set[str]:
     """split_test.py:25-29 / split_val.py:15-19: lines ``subject_id,flag``;
-    subjects with ``int(flag) == 1`` are in the set (compared as strings)."""
-    out: Set[str] = set()
+    subjects with ``int(flag) == 1`` are in the set (compared as strings).
+
+    Examples:
+        >>> import os, tempfile
+        >>> from pyhealth.datasets.medmod.extraction import read_split_file
+        >>> path = os.path.join(tempfile.mkdtemp(), "testset.csv")
+        >>> _ = open(path, "w").write("101,1\\n102,0\\n")
+        >>> read_split_file(path)
+        {'101'}
+    """
+    out: set[str] = set()
     with open(path) as f:
         for line in f:
             x, y = line.split(",")
@@ -160,23 +185,29 @@ class MedModResources:
     ``repr`` shows only the source paths (``sources``), so it is short and the
     same in every run. PyHealth puts ``str()`` of each task attribute into the
     task's cache key (base_dataset.py:1340-1354), so this matters.
+
+    Examples:
+        >>> from pyhealth.datasets.medmod.extraction import MedModResources
+        >>> res = MedModResources.load()  # no download until a split list is used
+        >>> res.sources["itemid_map"], len(res.discretizer.channels)
+        ('bundled:itemid_to_variable_map.csv', 17)
     """
 
-    sources: Dict[str, str]
+    sources: dict[str, str]
     var_map: pd.DataFrame = field(repr=False)
     discretizer: Discretizer = field(repr=False)
-    testset: Optional[Path] = field(default=None, repr=False)
-    valset: Optional[Path] = field(default=None, repr=False)
-    _test_subjects: Optional[Set[str]] = field(default=None, repr=False)
-    _val_subjects: Optional[Set[str]] = field(default=None, repr=False)
+    testset: Path | None = field(default=None, repr=False)
+    valset: Path | None = field(default=None, repr=False)
+    _test_subjects: set[str] | None = field(default=None, repr=False)
+    _val_subjects: set[str] | None = field(default=None, repr=False)
 
     @classmethod
     def load(
         cls,
         itemid_map: str | Path = MEDMOD_FILES / "itemid_to_variable_map.csv",
-        testset: Optional[str | Path] = None,
-        valset: Optional[str | Path] = None,
-    ) -> "MedModResources":
+        testset: str | Path | None = None,
+        valset: str | Path | None = None,
+    ) -> MedModResources:
         """Defaults: MedMod's item map bundled in
         ``pyhealth/datasets/medmod/files``, and MedMod's split lists (downloaded
         on first use). Pass ``testset`` / ``valset`` to use other lists."""
@@ -202,7 +233,7 @@ class MedModResources:
         )
 
     @property
-    def test_subjects(self) -> Set[str]:
+    def test_subjects(self) -> set[str]:
         """Subjects on MedMod's test list (read, or downloaded, on first use)."""
         if self._test_subjects is None:
             path = self.testset or split_list_path("testset_iv.csv")
@@ -210,11 +241,11 @@ class MedModResources:
         return self._test_subjects
 
     @test_subjects.setter
-    def test_subjects(self, subjects: Set[str]) -> None:
+    def test_subjects(self, subjects: set[str]) -> None:
         self._test_subjects = set(subjects)
 
     @property
-    def val_subjects(self) -> Set[str]:
+    def val_subjects(self) -> set[str]:
         """Subjects on MedMod's validation list (read, or downloaded, on first use)."""
         if self._val_subjects is None:
             path = self.valset or split_list_path("valset_iv.csv")
@@ -222,12 +253,12 @@ class MedModResources:
         return self._val_subjects
 
     @val_subjects.setter
-    def val_subjects(self, subjects: Set[str]) -> None:
+    def val_subjects(self, subjects: set[str]) -> None:
         self._val_subjects = set(subjects)
 
     @property
-    def itemids(self) -> Set[int]:
-        return set(int(i) for i in self.var_map["itemid"])
+    def itemids(self) -> set[int]:
+        return {int(i) for i in self.var_map["itemid"]}
 
 
 # --------------------------------------------------------------------------
@@ -238,6 +269,14 @@ _NUM_RE = r"^(\d+(\.\d*)?|\.\d+)$"
 
 
 def clean_sbp(df: pd.DataFrame) -> pd.Series:  # bench_prep.py:194-198
+    """Systolic blood pressure: the first number of ``120/80``.
+
+    Examples:
+        >>> import pandas as pd
+        >>> from pyhealth.datasets.medmod.extraction import clean_sbp
+        >>> clean_sbp(pd.DataFrame({"value": ["120/80", "110"]})).tolist()
+        [120.0, 110.0]
+    """
     v = df.value.astype(str).copy()
     idx = v.apply(lambda s: "/" in s)
     v.loc[idx] = v[idx].apply(lambda s: re.match(r"^(\d+)/(\d+)$", s).group(1))
@@ -245,6 +284,14 @@ def clean_sbp(df: pd.DataFrame) -> pd.Series:  # bench_prep.py:194-198
 
 
 def clean_dbp(df: pd.DataFrame) -> pd.Series:  # bench_prep.py:201-205
+    """Diastolic blood pressure: the second number of ``120/80``.
+
+    Examples:
+        >>> import pandas as pd
+        >>> from pyhealth.datasets.medmod.extraction import clean_dbp
+        >>> clean_dbp(pd.DataFrame({"value": ["120/80", "70"]})).tolist()
+        [80.0, 70.0]
+    """
     v = df.value.astype(str).copy()
     idx = v.apply(lambda s: "/" in s)
     v.loc[idx] = v[idx].apply(lambda s: re.match(r"^(\d+)/(\d+)$", s).group(2))
@@ -252,6 +299,14 @@ def clean_dbp(df: pd.DataFrame) -> pd.Series:  # bench_prep.py:201-205
 
 
 def clean_crr(df: pd.DataFrame) -> pd.Series:  # bench_prep.py:209-219
+    """Capillary refill rate: normal/brisk -> 0, abnormal/delayed -> 1.
+
+    Examples:
+        >>> import pandas as pd
+        >>> from pyhealth.datasets.medmod.extraction import clean_crr
+        >>> clean_crr(pd.DataFrame({"value": ["Brisk", "Delayed", "other"]})).tolist()
+        [0.0, 1.0, nan]
+    """
     v = pd.Series(np.nan, index=df.index, dtype=float)
     s = df.value.astype(str)
     v.loc[(s == "Normal <3 secs") | (s == "Brisk")] = 0
@@ -260,6 +315,14 @@ def clean_crr(df: pd.DataFrame) -> pd.Series:  # bench_prep.py:209-219
 
 
 def clean_fio2(df: pd.DataFrame) -> pd.Series:  # bench_prep.py:223-244
+    """Fraction inspired oxygen: divided by 100 (see the comment).
+
+    Examples:
+        >>> import pandas as pd
+        >>> from pyhealth.datasets.medmod.extraction import clean_fio2
+        >>> clean_fio2(pd.DataFrame({"value": ["40"], "valuenum": ["40"]})).tolist()
+        [0.4]
+    """
     v = df.value.astype(float).copy()
     # Line 240 builds `is_str` with np.array(map(...), dtype=np.bool). Under
     # Python 3 a map object is not a sequence, so numpy makes a 0-d array whose
@@ -278,6 +341,14 @@ def clean_fio2(df: pd.DataFrame) -> pd.Series:  # bench_prep.py:223-244
 
 
 def clean_lab(df: pd.DataFrame) -> pd.Series:  # bench_prep.py:248-252
+    """Glucose and pH: non-numeric strings become NaN.
+
+    Examples:
+        >>> import pandas as pd
+        >>> from pyhealth.datasets.medmod.extraction import clean_lab
+        >>> clean_lab(pd.DataFrame({"value": ["7.4", "ERROR"]})).tolist()
+        [7.4, nan]
+    """
     v = df.value.copy()
     idx = v.apply(lambda s: type(s) is str and not re.match(_NUM_RE, s))
     v.loc[idx] = np.nan
@@ -285,6 +356,14 @@ def clean_lab(df: pd.DataFrame) -> pd.Series:  # bench_prep.py:248-252
 
 
 def clean_o2sat(df: pd.DataFrame) -> pd.Series:  # bench_prep.py:256-265
+    """Oxygen saturation: fractions (<= 1) become percentages.
+
+    Examples:
+        >>> import pandas as pd
+        >>> from pyhealth.datasets.medmod.extraction import clean_o2sat
+        >>> clean_o2sat(pd.DataFrame({"value": ["0.95", "98"]})).tolist()
+        [95.0, 98.0]
+    """
     v = df.value.copy()
     idx = v.apply(lambda s: type(s) is str and not re.match(_NUM_RE, s))
     v.loc[idx] = np.nan
@@ -295,6 +374,18 @@ def clean_o2sat(df: pd.DataFrame) -> pd.Series:  # bench_prep.py:256-265
 
 
 def clean_temperature(df: pd.DataFrame) -> pd.Series:  # bench_prep.py:269-273
+    """Temperature: values >= 79 are Fahrenheit, converted to Celsius.
+
+    Examples:
+        >>> import pandas as pd
+        >>> from pyhealth.datasets.medmod.extraction import clean_temperature
+        >>> df = pd.DataFrame(
+        ...     {"value": ["212", "37.5"], "valuenum": ["", ""],
+        ...      "mimic_label": ["", ""]}
+        ... )
+        >>> clean_temperature(df).tolist()
+        [100.0, 37.5]
+    """
     v = df.value.astype(float).copy()
     # Faithful to MedMod: `'F' in s.lower()` can never be True, so only the
     # `v >= 79` rule converts Fahrenheit to Celsius.
@@ -308,6 +399,18 @@ def clean_temperature(df: pd.DataFrame) -> pd.Series:  # bench_prep.py:269-273
 
 
 def clean_weight(df: pd.DataFrame) -> pd.Series:  # bench_prep.py:278-286
+    """Weight: ounces and pounds converted to kg.
+
+    Examples:
+        >>> import pandas as pd
+        >>> from pyhealth.datasets.medmod.extraction import clean_weight
+        >>> df = pd.DataFrame(
+        ...     {"value": ["70", "10"], "valuenum": ["", ""],
+        ...      "mimic_label": ["Daily Weight", "Weight (lb)"]}
+        ... )
+        >>> [round(v, 2) for v in clean_weight(df)]
+        [70.0, 4.54]
+    """
     v = df.value.astype(float).copy()
     idx = df.valuenum.fillna("").astype(str).apply(
         lambda s: "oz" in s.lower()
@@ -323,6 +426,18 @@ def clean_weight(df: pd.DataFrame) -> pd.Series:  # bench_prep.py:278-286
 
 
 def clean_height(df: pd.DataFrame) -> pd.Series:  # bench_prep.py:291-295
+    """Height: inches converted to cm, rounded.
+
+    Examples:
+        >>> import pandas as pd
+        >>> from pyhealth.datasets.medmod.extraction import clean_height
+        >>> df = pd.DataFrame(
+        ...     {"value": ["70", "180"], "valuenum": ["", ""],
+        ...      "mimic_label": ["Height (in)", "Height (cm)"]}
+        ... )
+        >>> clean_height(df).tolist()
+        [178.0, 180.0]
+    """
     v = df.value.astype(float).copy()
     # Faithful: itemid 226707 ("Height", unit Inch) is NOT converted because
     # neither its label nor valuenum contains "in".
@@ -349,7 +464,20 @@ CLEAN_FNS = {  # bench_prep.py:308-319 (same order)
 
 def clean_events(events: pd.DataFrame) -> pd.DataFrame:
     """bench_prep.py:322-335. MedMod calls exit() if a cleaner raises; here
-    the exception propagates. Rows whose cleaned value is NaN are dropped."""
+    the exception propagates. Rows whose cleaned value is NaN are dropped.
+
+    Examples:
+        >>> import pandas as pd
+        >>> from pyhealth.datasets.medmod.extraction import clean_events
+        >>> ev = pd.DataFrame({
+        ...     "variable": ["Systolic blood pressure", "Glucose"],
+        ...     "value": ["120/80", "ERROR"],
+        ...     "valuenum": ["", ""],
+        ...     "mimic_label": ["", ""],
+        ... })
+        >>> clean_events(ev)["value"].tolist()
+        [120.0]
+    """
     events = events.copy()
     events["value"] = events["value"].astype(object)
     for var_name, fn in CLEAN_FNS.items():
@@ -377,6 +505,16 @@ class SubjectTables:
     * diagnoses:  hadm_id  (diagnoses_icd rows that matched d_icd_diagnoses)
     * cxr:        studydatetime, dicom_id, study_id, viewposition, image_path
     * chexpert_study_ids: study_ids with a row in mimic-cxr-2.0.0-chexpert
+
+    Examples:
+        >>> import pandas as pd
+        >>> from pyhealth.datasets.medmod.extraction import (
+        ...     MedModResources, SubjectTables, process_subject,
+        ... )
+        >>> e = pd.DataFrame()
+        >>> st = SubjectTables("101", e, e, e, e, e, e)  # a subject with no rows
+        >>> process_subject(st, MedModResources.load())
+        []
     """
 
     subject_id: str
@@ -386,30 +524,39 @@ class SubjectTables:
     events: pd.DataFrame
     diagnoses: pd.DataFrame
     cxr: pd.DataFrame
-    chexpert_study_ids: Set[str] = field(default_factory=set)
+    chexpert_study_ids: set[str] = field(default_factory=set)
 
 
 @dataclass
 class StayResult:
+    """One ICU stay in ``process_subject``: the last stage it passed
+    and, for kept stays, the sample's fields (``sample()``).
+
+    Examples:
+        >>> from pyhealth.datasets.medmod.extraction import StayResult
+        >>> r = StayResult(subject_id="101", stay_id="201", hadm_id="301", passed=0)
+        >>> r.kept
+        False
+    """
     subject_id: str
     stay_id: str
-    hadm_id: Optional[str]
+    hadm_id: str | None
     passed: int  # index into STAGES of the last stage this stay survived
-    label: Optional[int] = None
-    split: Optional[str] = None
-    image_path: Optional[str] = None
-    dicom_id: Optional[str] = None
-    original_image_path: Optional[str] = (
+    label: int | None = None
+    split: str | None = None
+    image_path: str | None = None
+    dicom_id: str | None = None
+    original_image_path: str | None = (
         None  # files/p../p../s../<dicom>.jpg, set even if image_dir lacks it
     )
-    ehr: Optional[np.ndarray] = None
+    ehr: np.ndarray | None = None
     used_dummy_rows: bool = False  # MedMod empty-window fallback fired
 
     @property
     def kept(self) -> bool:
         return self.passed == len(STAGES) - 1
 
-    def sample(self) -> Dict:
+    def sample(self) -> dict:
         return {
             "patient_id": self.subject_id,
             "visit_id": self.stay_id,
@@ -447,7 +594,16 @@ def _pandas_like_values(values: pd.Series) -> pd.Series:
 
 
 def in_hospital_mortality(admittime, dischtime, deathtime, dod) -> int:
-    """mimic3csv.py:101-108. dod or deathtime within [admittime, dischtime]."""
+    """mimic3csv.py:101-108. dod or deathtime within [admittime, dischtime].
+
+    Examples:
+        >>> import pandas as pd
+        >>> from pyhealth.datasets.medmod.extraction import in_hospital_mortality
+        >>> t = pd.Timestamp
+        >>> admit, disch, death = t("2150-01-01"), t("2150-01-10"), t("2150-01-05")
+        >>> in_hospital_mortality(admit, disch, death, pd.NaT)
+        1
+    """
 
     def within(t):
         return pd.notnull(t) and admittime <= t <= dischtime
@@ -462,7 +618,20 @@ def in_hospital_mortality(admittime, dischtime, deathtime, dod) -> int:
 
 def cleaned_subject_events(events: pd.DataFrame, var_map: pd.DataFrame) -> pd.DataFrame:
     """Validated raw events -> mapped to variables, typed like pandas, cleaned.
-    One row per raw event (before the per-charttime pick)."""
+    One row per raw event (before the per-charttime pick).
+
+    Examples:
+        >>> import pandas as pd
+        >>> from pyhealth.datasets.medmod.extraction import (
+        ...     cleaned_subject_events, read_itemid_to_variable_map,
+        ... )
+        >>> ev = pd.DataFrame({"charttime": [pd.Timestamp("2150-01-01 01:00")],
+        ...                    "stay_id": [201], "itemid": [220045],  # Heart Rate
+        ...                    "value": ["80"], "valuenum": ["80"]})
+        >>> out = cleaned_subject_events(ev, read_itemid_to_variable_map())
+        >>> out[["variable", "value"]].values.tolist()
+        [['Heart Rate', 80.0]]
+    """
     ev = events.merge(var_map, on="itemid")  # bench_prep.py:159-164 (inner)
     if ev.empty:
         return ev
@@ -476,6 +645,18 @@ def subject_timeseries(events: pd.DataFrame, var_map: pd.DataFrame) -> pd.DataFr
 
     Returns columns ``charttime``, ``stay_ids`` (set of stay_ids of the events
     at that time) and one column per variable (object; NaN = missing).
+
+    Examples:
+        >>> import pandas as pd
+        >>> from pyhealth.datasets.medmod.extraction import (
+        ...     read_itemid_to_variable_map, subject_timeseries,
+        ... )
+        >>> ev = pd.DataFrame({"charttime": [pd.Timestamp("2150-01-01 01:00")],
+        ...                    "stay_id": [201], "itemid": [220045],  # Heart Rate
+        ...                    "value": ["80"], "valuenum": ["80"]})
+        >>> ts = subject_timeseries(ev, read_itemid_to_variable_map())
+        >>> float(ts.loc[0, "Heart Rate"]), ts.loc[0, "stay_ids"]
+        (80.0, {201})
     """
     ev = cleaned_subject_events(events, var_map)
     if ev.empty:  # extract_ep.py:57-59
@@ -485,10 +666,10 @@ def subject_timeseries(events: pd.DataFrame, var_map: pd.DataFrame) -> pd.DataFr
     # row per (charttime, variable), i.e. the largest value. Each variable's
     # values share one type (float if cleaned / numeric file, else str).
     picked = ev.groupby(["charttime", "variable"], sort=True)["value"].agg(
-        lambda s: sorted(s.tolist())[-1]
+        lambda s: sorted(s.tolist())[-1]  # noqa: FURB192 (MedMod's sort, keep last)
     )
     wide = picked.unstack("variable")
-    stays_at = ev.groupby("charttime")["stay_id"].agg(lambda s: set(int(x) for x in s))
+    stays_at = ev.groupby("charttime")["stay_id"].agg(lambda s: {int(x) for x in s})
     ts = wide.join(stays_at.rename("stay_ids")).sort_index().reset_index()
     return ts
 
@@ -502,7 +683,7 @@ def _fmt(v) -> str:
 
 def stay_rows(
     ts: pd.DataFrame, stay_id: int, intime, outtime, channels: Sequence[str]
-) -> List[List]:
+) -> list[list]:
     """Rows of one stay, ``[hours(float), v_1(str), ..., v_17(str)]``, sorted.
 
     subject.py:39-45: a row belongs to the stay if one of its events has that
@@ -510,6 +691,18 @@ def stay_rows(
     subject.py:48-53: Hours = (charttime - intime) in hours.
     Columns follow extract_ep.py:85-87 (alphabetical), which equals the
     discretizer config order.
+
+    Examples:
+        >>> import pandas as pd
+        >>> from pyhealth.datasets.medmod.discretizer import Discretizer
+        >>> from pyhealth.datasets.medmod.extraction import stay_rows
+        >>> ts = pd.DataFrame({"charttime": [pd.Timestamp("2150-01-01 01:30")],
+        ...                    "stay_ids": [{201}], "Heart Rate": [80.0]})
+        >>> channels = Discretizer().channels
+        >>> intime, outtime = pd.Timestamp("2150-01-01"), pd.Timestamp("2150-01-03")
+        >>> rows = stay_rows(ts, 201, intime, outtime, channels)
+        >>> rows[0][0], rows[0][1 + channels.index("Heart Rate")]
+        (1.5, '80.0')
     """
     if ts.empty:
         return []
@@ -525,8 +718,14 @@ def stay_rows(
     return out
 
 
-def ihm_window(rows: List[List]) -> List[List]:
-    """create_ihm.py:47-48: keep -eps < t < 48 + eps."""
+def ihm_window(rows: list[list]) -> list[list]:
+    """create_ihm.py:47-48: keep -eps < t < 48 + eps.
+
+    Examples:
+        >>> from pyhealth.datasets.medmod.extraction import ihm_window
+        >>> ihm_window([[-1.0, "a"], [0.0, "b"], [47.5, "c"], [60.0, "d"]])
+        [[0.0, 'b'], [47.5, 'c']]
+    """
     return [r for r in rows if -EPS < r[0] < N_HOURS + EPS]
 
 
@@ -577,8 +776,8 @@ MEDMOD_DUMMY_ROWS = [
 
 
 def loader_rows(
-    rows: List[List], hours_zero: HoursZero, full_stay_hours: float
-) -> tuple[List[List], bool]:
+    rows: list[list], hours_zero: HoursZero, full_stay_hours: float
+) -> tuple[list[list], bool]:
     """Rows the training loader feeds to the discretizer.
 
     * ``keep`` (MedFuse, datasets/ehr_dataset.py:47-60): every row of the IHM
@@ -589,6 +788,14 @@ def loader_rows(
       upper >= 48 for every LOS >= 48 h stay, this is 0 < t <= 48 in practice;
       a row at exactly t == upper is dropped. If nothing is left, MedMod
       substitutes hard-coded dummy rows; the second return value flags that.
+
+    Examples:
+        >>> from pyhealth.datasets.medmod.extraction import loader_rows
+        >>> rows = [[0.0, "80"], [1.5, "82"]]
+        >>> loader_rows(rows, "keep", full_stay_hours=72.0)
+        ([['0.0', '80'], ['1.5', '82']], False)
+        >>> loader_rows(rows, "drop", full_stay_hours=72.0)
+        ([['1.5', '82']], False)
     """
     if hours_zero == "keep":
         return [[repr(float(r[0]))] + list(r[1:]) for r in rows], False
@@ -609,12 +816,22 @@ def loader_rows(
     return kept, False
 
 
-def build_ehr(rows: List[List], discretizer: Discretizer) -> np.ndarray:
+def build_ehr(rows: list[list], discretizer: Discretizer) -> np.ndarray:
     """datasets.py:196-201: discretize with end = period_length = 48 (the IHM
     listfile writes period_length 0, create_ihm.py:72). Returns the
     unnormalized float64 array, (48 / timestep) x 76. Standardizing (line
     202-203) is ``MedModEHRProcessor``'s job, so its statistics can come from
-    the train split."""
+    the train split.
+
+    Examples:
+        >>> from pyhealth.datasets.medmod.discretizer import Discretizer
+        >>> from pyhealth.datasets.medmod.extraction import build_ehr
+        >>> disc = Discretizer()
+        >>> row = ["1.5"] + [""] * len(disc.channels)
+        >>> row[1 + disc.channels.index("Heart Rate")] = "80"
+        >>> build_ehr([row], disc).shape
+        (48, 76)
+    """
     return discretizer.transform(rows, end=float(N_HOURS))
 
 
@@ -624,11 +841,19 @@ def build_ehr(rows: List[List], discretizer: Discretizer) -> np.ndarray:
 
 
 def resolve_image_path(
-    pyhealth_path: str, dicom_id: str, image_dir: Optional[str | Path]
-) -> Optional[str]:
+    pyhealth_path: str, dicom_id: str, image_dir: str | Path | None
+) -> str | None:
     """Without ``image_dir``: PyHealth's original path (files/p../p../s../<dicom>.jpg,
     not checked on disk). With ``image_dir``: ``image_dir/<dicom_id>.jpg``, the flat
-    layout of MedFuse resize.py:29, 37; None if that file does not exist."""
+    layout of MedFuse resize.py:29, 37; None if that file does not exist.
+
+    Examples:
+        >>> import tempfile
+        >>> from pyhealth.datasets.medmod.extraction import resolve_image_path
+        >>> resolve_image_path("files/p12/p123/s456/abc.jpg", "abc", None)
+        'files/p12/p123/s456/abc.jpg'
+        >>> resolve_image_path("files/p12/p123/s456/abc.jpg", "abc", tempfile.mkdtemp())
+    """
     if image_dir is None:
         return pyhealth_path
     p = Path(image_dir) / f"{dicom_id}.jpg"
@@ -639,7 +864,24 @@ def validated_events(
     st: SubjectTables, all_stays: pd.DataFrame, res: MedModResources
 ) -> pd.DataFrame:
     """validate_events.py logic (validate.py:54-80) on the subject's raw events.
-    ``all_stays`` needs columns ``stay_int`` and ``hadm_int``."""
+    ``all_stays`` needs columns ``stay_int`` and ``hadm_int``.
+
+    Examples:
+        >>> import pandas as pd
+        >>> from pyhealth.datasets.medmod.extraction import (
+        ...     MedModResources, SubjectTables, validated_events,
+        ... )
+        >>> events = pd.DataFrame({"charttime": [pd.Timestamp("2150-01-01 01:00")],
+        ...                        "hadm_id": ["301"], "stay_id": ["201"],
+        ...                        "itemid": ["220045"], "value": ["80"],
+        ...                        "valuenum": ["80"]})
+        >>> e = pd.DataFrame()
+        >>> st = SubjectTables("101", e, e, e, events, e, e)
+        >>> all_stays = pd.DataFrame({"stay_int": [201], "hadm_int": [301]})
+        >>> out = validated_events(st, all_stays, MedModResources.load())
+        >>> out[["stay_id", "itemid", "value"]].values.tolist()
+        [[201, 220045, '80']]
+    """
     ev = st.events.copy()
     for col in ("stay_id", "valuenum"):
         if col not in ev.columns:
@@ -664,8 +906,21 @@ def validated_events(
     return ev[["charttime", "stay_id", "itemid", "value", "valuenum"]]
 
 
-def all_stays_of(st: SubjectTables, results: Sequence["StayResult"]) -> pd.DataFrame:
-    """The subject's rows of MedMod's all_stays.csv (stays that passed age_ge_18)."""
+def all_stays_of(st: SubjectTables, results: Sequence[StayResult]) -> pd.DataFrame:
+    """The subject's rows of MedMod's all_stays.csv (stays that passed age_ge_18).
+
+    Examples:
+        >>> import pandas as pd
+        >>> from pyhealth.datasets.medmod.extraction import (
+        ...     STAGES, StayResult, SubjectTables, all_stays_of,
+        ... )
+        >>> e = pd.DataFrame()
+        >>> stays = pd.DataFrame({"stay_id": ["201"], "hadm_id": ["301"]})
+        >>> st = SubjectTables("101", e, e, stays, e, e, e)
+        >>> r = StayResult("101", "201", "301", passed=STAGES.index("age_ge_18"))
+        >>> all_stays_of(st, [r])[["stay_int", "hadm_int"]].values.tolist()
+        [[201, 301]]
+    """
     k = STAGES.index("age_ge_18")
     keep = {r.stay_id for r in results if r.passed >= k}
     a = st.icustays[
@@ -680,17 +935,29 @@ def process_subject(
     st: SubjectTables,
     res: MedModResources,
     hours_zero: HoursZero = "keep",
-    image_dir: Optional[str | Path] = None,
+    image_dir: str | Path | None = None,
     timestep: float = DEFAULT_TIMESTEP,
-) -> List[StayResult]:
+) -> list[StayResult]:
     """Every ICU stay of one subject with the last stage it survived; kept
-    stays carry the unnormalized ``ehr`` at ``timestep``-hour bins."""
+    stays carry the unnormalized ``ehr`` at ``timestep``-hour bins.
+
+    Examples:
+        >>> import pandas as pd
+        >>> from pyhealth.datasets.medmod.extraction import (
+        ...     MedModResources, SubjectTables, process_subject,
+        ... )
+        >>> e = pd.DataFrame()
+        >>> st = SubjectTables("101", e, e, e, e, e, e)  # a subject with no rows
+        >>> process_subject(st, MedModResources.load())
+        []
+        >>> # In the task: process_subject(task.subject_tables(patient), task.resources)
+    """
     disc = res.discretizer.with_timestep(timestep)
     sid = st.subject_id
     stays = st.icustays.copy()
     if stays.empty:
         return []
-    results: Dict[int, StayResult] = {}
+    results: dict[int, StayResult] = {}
     for _, s in stays.iterrows():
         results[int(s["stay_id"])] = StayResult(
             sid, _id_str(s["stay_id"]), _id_str(s["hadm_id"]), passed=0

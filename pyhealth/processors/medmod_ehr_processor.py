@@ -19,11 +19,13 @@ cast to float32 (``torch.from_numpy(x).float()``); so do we.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import torch
+
 from .base_processor import FeatureProcessor
 
 
@@ -48,7 +50,7 @@ class MedModEHRProcessor(FeatureProcessor):
     learns_statistics = True
     stores_tensor = True
 
-    def __init__(self, normalizer: Optional[str | Path] = None):
+    def __init__(self, normalizer: str | Path | None = None):
         # Imported here: pyhealth.datasets imports the tasks, which import this
         # module, so a module-level import is circular when this module is
         # imported first.
@@ -63,7 +65,7 @@ class MedModEHRProcessor(FeatureProcessor):
         if normalizer is not None:
             self.normalizer.load_params(normalizer)
 
-    def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
+    def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
         if self.normalizer_file is not None:
             return
         self.normalizer.fit(np.asarray(s[field], dtype=float) for s in samples)
@@ -108,7 +110,7 @@ class MedModEHRSequenceProcessor(MedModEHRProcessor):
         ((2, 5, 76), [3, 5])
     """
 
-    def collate(self, values: List[torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
+    def collate(self, values: list[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
         lengths = torch.tensor([v.shape[0] for v in values], dtype=torch.long)
         ehr = torch.nn.utils.rnn.pad_sequence(values, batch_first=True, padding_value=0)
         return ehr, lengths

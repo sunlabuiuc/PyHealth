@@ -38,10 +38,10 @@ from __future__ import annotations
 
 import os
 import tempfile
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, List, Optional
 
 import pandas as pd
 from PIL import Image
@@ -58,7 +58,13 @@ BASEWIDTH = 512  # MedFuse resize.py:28
 
 def original_path(cxr_root: str | Path, subject_id, study_id, dicom_id) -> Path:
     """files/p<first 2 digits>/p<subject_id>/s<study_id>/<dicom_id>.jpg
-    (same layout PyHealth builds, pyhealth/datasets/mimic4.py:208-216)."""
+    (same layout PyHealth builds, pyhealth/datasets/mimic4.py:208-216).
+
+    Examples:
+        >>> from pyhealth.datasets.medmod.resize_cxr import original_path
+        >>> str(original_path("/cxr", "123", "456", "abc"))
+        '/cxr/files/p12/p123/s456/abc.jpg'
+    """
     sid = str(subject_id)
     return (
         Path(cxr_root)
@@ -71,7 +77,14 @@ def original_path(cxr_root: str | Path, subject_id, study_id, dicom_id) -> Path:
 
 
 def medfuse_resize(img: Image.Image, basewidth: int = BASEWIDTH) -> Image.Image:
-    """resize.py:32-35 with Pillow 8.0.0's default resample made explicit."""
+    """resize.py:32-35 with Pillow 8.0.0's default resample made explicit.
+
+    Examples:
+        >>> from PIL import Image
+        >>> from pyhealth.datasets.medmod.resize_cxr import medfuse_resize
+        >>> medfuse_resize(Image.new("L", (1024, 1200))).size
+        (512, 600)
+    """
     wpercent = basewidth / float(img.size[0])
     hsize = int(float(img.size[1]) * float(wpercent))
     resample = NEAREST if img.mode in ("1", "P") else BICUBIC
@@ -83,14 +96,22 @@ FAILED_FILE = "medmod_ihm_images_failed.txt"  # in <cxr-root>; holds MIMIC IDs
 
 @dataclass
 class ResizeReport:
+    """Counts from ``resize_cxr``. Paths of missing or failed files are
+    kept apart (they contain MIMIC IDs); ``str()`` shows counts only.
+
+    Examples:
+        >>> from pyhealth.datasets.medmod.resize_cxr import ResizeReport
+        >>> print(ResizeReport(resized=2, skipped=1))
+        resized=2 skipped=1 missing=0 failed=0
+    """
     resized: int = 0
     skipped: int = 0
     missing: int = 0
     failed: int = 0
-    missing_paths: List[str] = field(default_factory=list)
-    failed_paths: List[str] = field(default_factory=list)
+    missing_paths: list[str] = field(default_factory=list)
+    failed_paths: list[str] = field(default_factory=list)
 
-    def write_failed(self, folder: str | Path) -> Optional[Path]:
+    def write_failed(self, folder: str | Path) -> Path | None:
         """Failed paths contain MIMIC IDs, so they go to a file next to the
         data (FAILED_FILE), never to the terminal. Returns the file, if any."""
         if not self.failed_paths:
@@ -124,18 +145,39 @@ def _resize_one(src: Path, out_dir: Path) -> None:
 
 
 def existing_basenames(out_dir: Path) -> set:
-    """resize.py:14, 22: basenames of every .jpg under the output folder."""
+    """resize.py:14, 22: basenames of every .jpg under the output folder.
+
+    Examples:
+        >>> import tempfile
+        >>> from pathlib import Path
+        >>> from pyhealth.datasets.medmod.resize_cxr import existing_basenames
+        >>> existing_basenames(Path(tempfile.mkdtemp()))
+        set()
+    """
     return {p.name for p in out_dir.glob("**/*.jpg") if not p.name.startswith(".tmp_")}
 
 
 def resize_cxr(
     paths: Iterable[str | Path], out_dir: str | Path, threads: int = 10
 ) -> ResizeReport:
+    """MedFuse resize.py: each image to 512 px wide, saved flat as
+    ``out_dir/<basename>``; basenames already there are skipped.
+
+    Examples:
+        >>> import tempfile
+        >>> from pathlib import Path
+        >>> from PIL import Image
+        >>> from pyhealth.datasets.medmod.resize_cxr import resize_cxr
+        >>> src = Path(tempfile.mkdtemp()) / "abc.jpg"
+        >>> Image.new("L", (1024, 1200)).save(src)
+        >>> print(resize_cxr([src], src.parent / "resized", threads=1))
+        resized=1 skipped=0 missing=0 failed=0
+    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     done = existing_basenames(out_dir)
     report = ResizeReport()
-    todo: List[Path] = []
+    todo: list[Path] = []
     seen: set = set()
     for p in map(Path, paths):
         if p.name in done or p.name in seen:  # resize.py:24
@@ -147,7 +189,7 @@ def resize_cxr(
             todo.append(p)
             seen.add(p.name)
 
-    def work(p: Path) -> Optional[str]:
+    def work(p: Path) -> str | None:
         try:
             _resize_one(p, out_dir)
             return None
@@ -166,8 +208,19 @@ def resize_cxr(
 
 def paths_from_metadata(
     cxr_root: str | Path, metadata_csv: str | Path | None = None
-) -> List[Path]:
-    """Expected original path of every dicom in the MIMIC-CXR metadata CSV."""
+) -> list[Path]:
+    """Expected original path of every dicom in the MIMIC-CXR metadata CSV.
+
+    Examples:
+        >>> import tempfile
+        >>> from pathlib import Path
+        >>> from pyhealth.datasets.medmod.resize_cxr import paths_from_metadata
+        >>> root = Path(tempfile.mkdtemp())
+        >>> meta = root / "meta.csv"
+        >>> _ = meta.write_text("dicom_id,subject_id,study_id\\nabc,123,456\\n")
+        >>> [str(p.relative_to(root)) for p in paths_from_metadata(root, meta)]
+        ['files/p12/p123/s456/abc.jpg']
+    """
 
     root = Path(cxr_root)
     if metadata_csv is None:

@@ -41,9 +41,9 @@ real 14.9%.
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 from PIL import Image
@@ -82,22 +82,31 @@ _CAT_EVERY = {  # categorical channels: hours between measurements
 
 @dataclass
 class SyntheticStay:
+    """One synthetic stay: IHM rows as MedMod's episode files hold them
+    (strings, '' = missing), label, split and stay length.
+
+    Examples:
+        >>> from pyhealth.datasets.medmod.synthetic import make_synthetic_stays
+        >>> stay = make_synthetic_stays(n_stays=1)[0]
+        >>> len(stay.rows[0])  # Hours + 17 channels
+        18
+    """
     patient_id: str
     visit_id: str
     label: int
     split: str
-    rows: List[List[str]]  # IHM rows: [Hours, v_1..v_17] as strings ('' = missing)
+    rows: list[list[str]]  # IHM rows: [Hours, v_1..v_17] as strings ('' = missing)
     full_stay_hours: float
 
 
 def _make_rows(
     rng: np.random.Generator,
     channels: Sequence[str],
-    possible: Dict[str, List[str]],
+    possible: dict[str, list[str]],
     label: int,
     extreme_rate: float,
     hours: float = N_HOURS,
-) -> List[List[str]]:
+) -> list[list[str]]:
     n_rows = max(1, int(rng.integers(30, 90) * hours / N_HOURS))
     times = np.sort(rng.uniform(0.05, hours, size=n_rows))
     if rng.random() < 0.3:
@@ -125,7 +134,7 @@ def _make_rows(
                     v = mean * rng.choice(
                         [50.0, 1000.0]
                     )  # an absurd value, never clipped
-                row[j] = f"{v:.{dec}f}" if dec else str(int(round(v)))
+                row[j] = f"{v:.{dec}f}" if dec else str(int(round(v)))  # noqa: RUF046
             else:
                 if rng.random() > 1.0 / _CAT_EVERY[ch]:
                     continue
@@ -137,21 +146,27 @@ def _make_rows(
             if t != 0.0:
                 continue
             hr = channels.index("Heart Rate") + 1
-            row[hr] = str(
-                int(round(rng.normal(_CONT["Heart Rate"][0], _CONT["Heart Rate"][1])))
-            )
+            hr_mean, hr_sd = _CONT["Heart Rate"][0], _CONT["Heart Rate"][1]
+            row[hr] = str(int(round(rng.normal(hr_mean, hr_sd))))  # noqa: RUF046
         rows.append(row)
     return rows
 
 
 def make_synthetic_stays(
     n_stays: int = 300, seed: int = 0, extreme_rate: float = 0.001
-) -> List[SyntheticStay]:
-    """Synthetic stays: about 1.1 stays per patient, splits per patient."""
+) -> list[SyntheticStay]:
+    """Synthetic stays: about 1.1 stays per patient, splits per patient.
+
+    Examples:
+        >>> from pyhealth.datasets.medmod.synthetic import make_synthetic_stays
+        >>> stays = make_synthetic_stays(n_stays=10, seed=0)
+        >>> len(stays), sorted({s.split for s in stays}) <= ["test", "train", "val"]
+        (10, True)
+    """
     rng = np.random.default_rng(seed)
     disc = Discretizer()
     possible = disc._possible_values
-    stays: List[SyntheticStay] = []
+    stays: list[SyntheticStay] = []
     p = 0
     while len(stays) < n_stays:
         p += 1
@@ -179,7 +194,19 @@ def make_synthetic_stays(
 
 
 def write_dummy_jpg(path: Path, rng: np.random.Generator) -> None:
-    """A grayscale JPG shaped like a resized portable chest X-ray (512 wide)."""
+    """A grayscale JPG shaped like a resized portable chest X-ray (512 wide).
+
+    Examples:
+        >>> import tempfile
+        >>> from pathlib import Path
+        >>> import numpy as np
+        >>> from PIL import Image
+        >>> from pyhealth.datasets.medmod.synthetic import write_dummy_jpg
+        >>> path = Path(tempfile.mkdtemp()) / "x.jpg"
+        >>> write_dummy_jpg(path, np.random.default_rng(0))
+        >>> Image.open(path).size[0]
+        512
+    """
     h = int(rng.integers(560, 640))
     yy, xx = np.mgrid[0:h, 0:512]
     base = 90 + 60 * np.exp(-(((xx - 256) / 150.0) ** 2 + ((yy - h / 2) / 220.0) ** 2))
@@ -195,10 +222,18 @@ def make_synthetic_samples(
     seed: int = 0,
     extreme_rate: float = 0.001,
     timestep: float = DEFAULT_TIMESTEP,
-) -> List[Dict]:
+) -> list[dict]:
     """Raw sample dicts (what the task's ``__call__`` returns: ``ehr``
     unnormalized float64), plus dummy JPGs in ``out_dir/resized/``. No PyHealth
-    needed. ``hours_zero`` and ``timestep`` as in the task."""
+    needed. ``hours_zero`` and ``timestep`` as in the task.
+
+    Examples:
+        >>> import tempfile
+        >>> from pyhealth.datasets.medmod.synthetic import make_synthetic_samples
+        >>> samples = make_synthetic_samples("keep", tempfile.mkdtemp(), n_stays=5)
+        >>> samples[0]["ehr"].shape, sorted(samples[0])
+        ((48, 76), ['ehr', 'image_path', 'label', 'patient_id', 'split', 'visit_id'])
+    """
     if hours_zero not in ("drop", "keep"):
         raise ValueError('hours_zero must be "drop" or "keep"')
     disc = Discretizer(timestep=timestep)
@@ -227,10 +262,10 @@ def create_synthetic_samples(
     hours_zero: str,
     n_stays: int = 300,
     seed: int = 0,
-    out_dir: Optional[str | Path] = None,
+    out_dir: str | Path | None = None,
     extreme_rate: float = 0.001,
     timestep: float = DEFAULT_TIMESTEP,
-    normalizer: Optional[str | Path] = PH_NORMALIZER,
+    normalizer: str | Path | None = PH_NORMALIZER,
 ):
     """A PyHealth ``SampleDataset`` of synthetic stays, built with the task's own
     schema and processor, so ``samples[i]`` has the same keys, types and shapes
@@ -292,7 +327,7 @@ def make_synthetic_pretraining_samples(
     seed: int = 0,
     extreme_rate: float = 0.001,
     max_hours: float = 480.0,
-) -> List[Dict]:
+) -> list[dict]:
     """Raw pretraining samples, as MedMod's loader builds them for the whole
     ICU stay: rows with 0 < Hours < full_stay_time (src/data/datasets.py:
     137-160), discretized up to the listfile's period_length (datasets.py:196,
@@ -300,7 +335,17 @@ def make_synthetic_pretraining_samples(
     ``bins = int(period_length + 1 - 1e-6)``, so it varies per stay. Stay
     lengths are log-normal (median 60 h, 6 h to ``max_hours``). Samples have
     ``patient_id``, ``visit_id``, ``ehr``, ``image_path`` and ``split``
-    (``"train"`` / ``"val"``, per patient)."""
+    (``"train"`` / ``"val"``, per patient).
+
+    Examples:
+        >>> import tempfile
+        >>> from pyhealth.datasets.medmod.synthetic import (
+        ...     make_synthetic_pretraining_samples,
+        ... )
+        >>> samples = make_synthetic_pretraining_samples(tempfile.mkdtemp(), n_stays=5)
+        >>> samples[0]["ehr"].shape[1], sorted(samples[0])
+        (76, ['ehr', 'image_path', 'patient_id', 'split', 'visit_id'])
+    """
     disc = Discretizer()
     rng = np.random.default_rng(seed)
     img_rng = np.random.default_rng(seed + 1)
@@ -339,7 +384,7 @@ def make_synthetic_pretraining_samples(
 def create_synthetic_pretraining_samples(
     n_stays: int = 200,
     seed: int = 0,
-    out_dir: Optional[str | Path] = None,
+    out_dir: str | Path | None = None,
     extreme_rate: float = 0.001,
 ):
     """A PyHealth ``SampleDataset`` of synthetic ConVIRT pretraining stays with

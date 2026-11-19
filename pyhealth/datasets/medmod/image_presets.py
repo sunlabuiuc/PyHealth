@@ -69,6 +69,15 @@ IMAGENET_STD = [0.229, 0.224, 0.225]
 
 
 def medfuse_eval(resize: int = 256, crop: int = 224) -> transforms.Compose:
+    """MedFuse's eval transform: resize, center crop, ImageNet
+    normalization.
+
+    Examples:
+        >>> from PIL import Image
+        >>> from pyhealth.datasets.medmod.image_presets import medfuse_eval
+        >>> medfuse_eval()(Image.new("RGB", (512, 600))).shape
+        torch.Size([3, 224, 224])
+    """
     return transforms.Compose(
         [
             transforms.Resize(resize),
@@ -80,6 +89,15 @@ def medfuse_eval(resize: int = 256, crop: int = 224) -> transforms.Compose:
 
 
 def medfuse_train() -> transforms.Compose:
+    """MedFuse's train transform: ``medfuse_eval`` plus flip and
+    affine augmentation.
+
+    Examples:
+        >>> from PIL import Image
+        >>> from pyhealth.datasets.medmod.image_presets import medfuse_train
+        >>> medfuse_train()(Image.new("RGB", (512, 600))).shape
+        torch.Size([3, 224, 224])
+    """
     return transforms.Compose(
         [
             transforms.Resize(256),
@@ -96,7 +114,15 @@ def medfuse_train() -> transforms.Compose:
 
 class RandomCrop:
     """MedMod ``RandomCrop`` (src/data/utils.py:46-53): a square crop whose
-    side is drawn from U(0.6 * 256, 256), truncated to int."""
+    side is drawn from U(0.6 * 256, 256), truncated to int.
+
+    Examples:
+        >>> from PIL import Image
+        >>> from pyhealth.datasets.medmod.image_presets import RandomCrop
+        >>> w, h = RandomCrop()(Image.new("RGB", (256, 256))).size
+        >>> w == h and 153 <= w <= 256
+        True
+    """
 
     def __call__(self, img):
         resize = 256
@@ -105,7 +131,14 @@ class RandomCrop:
 
 
 class RandomColorDistortion:
-    """MedMod ``RandomColorDistortion`` (src/data/utils.py:57-75)."""
+    """MedMod ``RandomColorDistortion`` (src/data/utils.py:57-75).
+
+    Examples:
+        >>> from PIL import Image
+        >>> from pyhealth.datasets.medmod.image_presets import RandomColorDistortion
+        >>> RandomColorDistortion()(Image.new("RGB", (224, 224))).size
+        (224, 224)
+    """
 
     def __call__(self, img):
         strength = 1.0
@@ -117,6 +150,15 @@ class RandomColorDistortion:
 
 
 def medmod_simclrv2_train(resize: int = 256) -> transforms.Compose:
+    """MedMod's simclrv2 train transform (pixels in [0, 1],
+    no normalization).
+
+    Examples:
+        >>> from PIL import Image
+        >>> from pyhealth.datasets.medmod.image_presets import medmod_simclrv2_train
+        >>> medmod_simclrv2_train()(Image.new("RGB", (512, 600))).shape
+        torch.Size([3, 224, 224])
+    """
     return transforms.Compose(
         [
             transforms.Resize([resize, resize]),
@@ -136,6 +178,15 @@ def medmod_simclrv2_train(resize: int = 256) -> transforms.Compose:
 
 
 def medmod_simclrv2_eval(resize: int = 256) -> transforms.Compose:
+    """MedMod's simclrv2 eval transform: resize, center crop
+    0.875, resize to 224 (pixels in [0, 1]).
+
+    Examples:
+        >>> from PIL import Image
+        >>> from pyhealth.datasets.medmod.image_presets import medmod_simclrv2_eval
+        >>> medmod_simclrv2_eval()(Image.new("RGB", (512, 600))).shape
+        torch.Size([3, 224, 224])
+    """
     c = int(0.875 * resize)
     return transforms.Compose(
         [
@@ -161,7 +212,14 @@ def get_preset(name: str, train: bool = False) -> transforms.Compose:
     """The image transform for a model: ``"early_fusion"`` (MedFuse's,
     ImageNet-normalized) or ``"convirt"`` (MedMod's simclrv2, pixels in [0, 1];
     pretraining and linear eval). ``train=True`` adds the training augmentation;
-    use it for the train split only."""
+    use it for the train split only.
+
+    Examples:
+        >>> from PIL import Image
+        >>> from pyhealth.datasets.medmod.image_presets import get_preset
+        >>> get_preset("convirt", train=True)(Image.new("RGB", (512, 600))).shape
+        torch.Size([3, 224, 224])
+    """
     if name not in PRESETS:
         raise ValueError(f"unknown preset {name!r}; choose from {sorted(PRESETS)}")
     train_fn, eval_fn = PRESETS[name]
@@ -177,6 +235,19 @@ def _medfuse_preresize(img: Image.Image) -> Image.Image:
 
 
 def load_cxr(path: str, medfuse_preresize: bool = False) -> Image.Image:
+    """Open a chest X-ray as RGB. ``medfuse_preresize=True`` first applies
+    MedFuse's 512-px resize and JPEG round trip (for originals).
+
+    Examples:
+        >>> import os, tempfile
+        >>> from PIL import Image
+        >>> from pyhealth.datasets.medmod.image_presets import load_cxr
+        >>> path = os.path.join(tempfile.mkdtemp(), "cxr.jpg")
+        >>> Image.new("L", (1024, 1200)).save(path)
+        >>> img = load_cxr(path, medfuse_preresize=True)
+        >>> img.size, img.mode
+        ((512, 600), 'RGB')
+    """
     img = Image.open(path)
     if medfuse_preresize:
         img = _medfuse_preresize(img)

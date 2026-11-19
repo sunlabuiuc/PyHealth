@@ -20,8 +20,9 @@ import hashlib
 import json
 import pickle
 import warnings
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence
+from typing import ClassVar
 
 import numpy as np
 
@@ -50,12 +51,20 @@ class Discretizer:
 
     Args:
         timestep: bin width in hours (MedMod's default 1.0).
+
+    Examples:
+        >>> from pyhealth.datasets.medmod.discretizer import Discretizer
+        >>> disc = Discretizer()
+        >>> row = ["0.5"] + [""] * len(disc.channels)  # [Hours, 17 channels]
+        >>> row[1 + disc.channels.index("Heart Rate")] = "80"
+        >>> disc.transform([row], end=48.0).shape
+        (48, 76)
     """
 
     def __init__(self, timestep: float = 1.0):
         with open(DEFAULT_CONFIG) as f:  # lines 15-21
             config = json.load(f)
-        self._id_to_channel: List[str] = config["id_to_channel"]
+        self._id_to_channel: list[str] = config["id_to_channel"]
         self._channel_to_id = {c: i for i, c in enumerate(self._id_to_channel)}
         self._is_categorical_channel = config["is_categorical_channel"]
         self._possible_values = config["possible_values"]
@@ -66,7 +75,7 @@ class Discretizer:
 
         # Column layout, lines 59-69: channels in config order, a categorical
         # channel takes len(possible_values) one-hot columns.
-        self._begin_pos: List[int] = []
+        self._begin_pos: list[int] = []
         cur_len = 0
         for channel in self._id_to_channel:
             self._begin_pos.append(cur_len)
@@ -77,15 +86,15 @@ class Discretizer:
         self._n_data_cols = cur_len
 
     @property
-    def channels(self) -> List[str]:
+    def channels(self) -> list[str]:
         return list(self._id_to_channel)
 
     @property
-    def header(self) -> List[str]:
+    def header(self) -> list[str]:
         """Input header: ``Hours`` + the 17 channels in config order."""
         return list(self._header)
 
-    def output_header(self) -> List[str]:
+    def output_header(self) -> list[str]:
         """Output column names, built as in lines 156-168."""
         out = []
         for channel in self._id_to_channel:
@@ -95,11 +104,11 @@ class Discretizer:
                 out.append(channel)
         return out + [f"mask->{c}" for c in self._id_to_channel]
 
-    def continuous_columns(self) -> List[int]:
+    def continuous_columns(self) -> list[int]:
         """Columns MedMod z-scores: header names without ``->`` (line 254)."""
         return [i for i, name in enumerate(self.output_header()) if "->" not in name]
 
-    def with_timestep(self, timestep: float) -> "Discretizer":
+    def with_timestep(self, timestep: float) -> Discretizer:
         """The same discretizer with another bin width (hours). The column
         layout does not depend on it, so the config is not read again."""
         other = copy.copy(self)
@@ -122,8 +131,8 @@ class Discretizer:
     def transform(
         self,
         X: Sequence[Sequence[str]],
-        header: Optional[Sequence[str]] = None,
-        end: Optional[float] = None,
+        header: Sequence[str] | None = None,
+        end: float | None = None,
     ) -> np.ndarray:
         """Bin rows ``[Hours, v_1, ..., v_17]`` (strings, '' = missing).
 
@@ -166,7 +175,7 @@ class Discretizer:
 
         # impute_strategy='previous', lines 116-131: an unobserved bin takes the
         # channel's last observed value, or its normal value before the first.
-        prev_values: List[List[str]] = [[] for _ in range(n_channels)]
+        prev_values: list[list[str]] = [[] for _ in range(n_channels)]
         for bin_id in range(n_bins):
             for channel in self._id_to_channel:
                 channel_id = self._channel_to_id[channel]
@@ -188,14 +197,14 @@ class _NumpyOnlyUnpickler(pickle.Unpickler):
     arrays needs (checked with ``python -m pickletools`` on the MedMod file:
     ``numpy.core.multiarray._reconstruct``, ``numpy.ndarray``, ``numpy.dtype``)."""
 
-    _ALLOWED = {
+    _ALLOWED: ClassVar[frozenset[tuple[str, str]]] = frozenset({
         ("numpy.core.multiarray", "_reconstruct"),
         ("numpy._core.multiarray", "_reconstruct"),
         ("numpy", "ndarray"),
         ("numpy", "dtype"),
         ("numpy.core.multiarray", "scalar"),
         ("numpy._core.multiarray", "scalar"),
-    }
+    })
 
     def find_class(self, module: str, name: str):
         if (module, name) not in self._ALLOWED:
@@ -206,12 +215,20 @@ class _NumpyOnlyUnpickler(pickle.Unpickler):
 
 
 class Normalizer:
-    """Port of ``Normalizer`` (preprocessing.py:181-232)."""
+    """Port of ``Normalizer`` (preprocessing.py:181-232).
 
-    def __init__(self, fields: Optional[Sequence[int]] = None):
+    Examples:
+        >>> import numpy as np
+        >>> from pyhealth.datasets.medmod.discretizer import Normalizer
+        >>> norm = Normalizer().fit([np.array([[1.0, 10.0], [3.0, 30.0]])])
+        >>> norm.transform(np.array([[2.0, 20.0]])).tolist()
+        [[0.0, 0.0]]
+    """
+
+    def __init__(self, fields: Sequence[int] | None = None):
         self._fields = None if fields is None else list(fields)
-        self._means: Optional[np.ndarray] = None
-        self._stds: Optional[np.ndarray] = None
+        self._means: np.ndarray | None = None
+        self._stds: np.ndarray | None = None
 
     def __repr__(self) -> str:
         # Stable across runs (no object address): PyHealth puts str() of
@@ -227,7 +244,7 @@ class Normalizer:
         n = "all" if self._fields is None else len(self._fields)
         return f"Normalizer(fields={n}, {state})"
 
-    def fit(self, arrays: Iterable[np.ndarray]) -> "Normalizer":
+    def fit(self, arrays: Iterable[np.ndarray]) -> Normalizer:
         """Means and stds over every bin of every array, all columns, as
         ``_feed_data`` + ``_save_params`` (lines 193-215) compute them; MedMod's
         create_normalizer_state.py:87-93 feeds each training stay's discretized,
@@ -253,7 +270,7 @@ class Normalizer:
         self._means, self._stds = means, stds
         return self
 
-    def load_params(self, path: str | Path = PH_NORMALIZER) -> "Normalizer":
+    def load_params(self, path: str | Path = PH_NORMALIZER) -> Normalizer:
         # line 220: pickle.load(..., encoding='latin1')
         with open(path, "rb") as f, warnings.catch_warnings():
             # numpy >= 2.4 warns about the py2-era `align=0` in the pickled dtype.

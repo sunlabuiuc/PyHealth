@@ -18,7 +18,6 @@ import os
 import tempfile
 import urllib.request
 from pathlib import Path
-from typing import Dict, Optional, Tuple
 
 from pyhealth import BASE_CACHE_PATH
 
@@ -27,16 +26,16 @@ logger = logging.getLogger(__name__)
 #: Pinned commits: the download can't change under us.
 MEDMOD_COMMIT = "7a47c0b909ffbd36370ff69dd023c34f71d9528a"
 MEDFUSE_COMMIT = "3f8b54ec555ac9b8e84ebf98c4854aa6fbd0e4fa"
-SOURCES: Tuple[str, ...] = (
+SOURCES: tuple[str, ...] = (
     f"https://raw.githubusercontent.com/nyuad-cai/MedMod/{MEDMOD_COMMIT}",
     f"https://raw.githubusercontent.com/nyuad-cai/MedFuse/{MEDFUSE_COMMIT}",
 )
 #: Path of each list inside both repositories.
-REPO_PATHS: Dict[str, str] = {
+REPO_PATHS: dict[str, str] = {
     "testset_iv.csv": "mimic4extract/mimic3benchmark/resources/testset_iv.csv",
     "valset_iv.csv": "mimic4extract/mimic3models/resources/valset_iv.csv",
 }
-SHA256: Dict[str, str] = {
+SHA256: dict[str, str] = {
     "testset_iv.csv": (
         "9fe512f5feade04158a08eb2ff7aca90476e9d54ab5a45db658abc1dd3ce5b68"
     ),
@@ -51,7 +50,7 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def split_list_path(name: str, cache_dir: Optional[str | Path] = None) -> Path:
+def split_list_path(name: str, cache_dir: str | Path | None = None) -> Path:
     """Local path of one of MedMod's subject lists, downloaded on first use.
 
     Args:
