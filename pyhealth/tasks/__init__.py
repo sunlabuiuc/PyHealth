@@ -10,6 +10,7 @@ from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
 from .cardiology_detect import (
+    CardiologyDetection as CardiologyDetection,
     cardiology_isAD_fn,
     cardiology_isAR_fn,
     cardiology_isBBBFB_fn,

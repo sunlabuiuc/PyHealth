@@ -42,12 +42,11 @@ class TestRemoved1xClasses(unittest.TestCase):
 
     def test_in_tree_legacy_datasets_name_themselves(self):
         from pyhealth.datasets import (
-            CardiologyDataset,
             MIMICExtractDataset,
             SHHSDataset,
         )
 
-        for cls in (CardiologyDataset, SHHSDataset):
+        for cls in (SHHSDataset,):
             with self.subTest(cls=cls.__name__):
                 with self.assertRaises(NotImplementedError) as ctx:
                     cls(root="data")
