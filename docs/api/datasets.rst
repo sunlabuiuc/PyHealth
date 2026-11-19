@@ -481,7 +481,7 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - Yes
      - —
    * - :doc:`COVID-BLUES (lung ultrasound) <datasets/pyhealth.datasets.COVIDBLUESDataset>`
-     - Open (CC BY-NC-ND)
+     - Open, no account (CC BY-NC-ND 4.0)
      - `GitHub <https://github.com/NinaWie/COVID-BLUES>`__
      - No (``git clone``)
      - —

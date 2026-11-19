@@ -3,6 +3,7 @@
 import logging
 import os
 import re
+import shutil
 from pathlib import Path
 
 import pandas as pd
@@ -21,6 +22,12 @@ _COLUMNS = [
     "patient_id", "record_id", "video_id", "blue_point", "repeat",
     "frame_index", "image_path", "covid", "severity_score",
 ]
+
+
+def _video_stem(name: str) -> str:
+    """Return ``name`` without a trailing ``.mp4`` (case-insensitive)."""
+    name = name.strip()
+    return name[:-4] if name.lower().endswith(".mp4") else name
 
 
 def _decode_video(video_path: Path, out_dir: Path) -> int:
@@ -102,14 +109,47 @@ class COVIDBLUESDataset(BaseDataset):
     recommended). CLIMB's age-regression question set is not included.
 
     Getting the data:
-        - Source: https://github.com/NinaWie/COVID-BLUES (also on Hugging
-          Face as ``jannisborn/COVID-BLUES``).
-        - Access: open, no account needed.
-        - Download: ``git clone https://github.com/NinaWie/COVID-BLUES``
-          (about 73 MB).
-        - ``root``: the clone, holding ``clinical_variables.csv``,
-          ``lus_videos/patient_<id>_<point>[_2].mp4`` and, optionally,
-          ``severity.csv``.
+        - Source: https://github.com/NinaWie/COVID-BLUES (mirrored on
+          Hugging Face, https://huggingface.co/datasets/jannisborn/COVID-BLUES).
+        - Access: open, no account, registration or agreement needed.
+        - Download: the whole repository, about 70 MB (362 ``.mp4`` videos
+          plus CSVs, no Git LFS)::
+
+              git clone https://github.com/NinaWie/COVID-BLUES
+
+          or download
+          https://github.com/NinaWie/COVID-BLUES/archive/refs/heads/main.zip
+          and ``unzip`` it (it unpacks to ``COVID-BLUES-main/``; use that
+          folder as ``root``).
+        - Frames: either pass ``decode_videos=True`` (needs ``pip install
+          av`` or ``pip install opencv-python``), or extract them yourself
+          with ffmpeg, one folder per video stem::
+
+              cd COVID-BLUES
+              for f in lus_videos/*.mp4; do
+                  s=$(basename "$f" .mp4); mkdir -p ../frames/$s
+                  ffmpeg -loglevel error -i "$f" ../frames/$s/%06d.png
+              done
+
+        - ``root`` and ``frames_dir`` layout::
+
+              COVID-BLUES/                     # root
+                  clinical_variables.csv       # patient_id, cov_test, ...
+                  severity.csv                 # optional; video_file, Severity Score
+                  lus_videos/
+                      patient_1_L1.mp4
+                      patient_15_L2_2.mp4      # _2: repeated recording
+                      ...
+              frames/                          # frames_dir
+                  patient_1_L1/
+                      000001.png
+                      ...
+
+          Frame folders must be named after the video stems
+          (``patient_<id>_<L|R><1-3>[_<n>]``). ``severity.csv``'s
+          ``video_file`` values are matched to those stems (a trailing
+          ``.mp4`` is ignored); if none match, a warning is logged and
+          ``severity_score`` stays empty.
 
     Licence: Creative Commons Attribution-NonCommercial-NoDerivatives 4.0
     (CC BY-NC-ND 4.0). Non-commercial use only, and adapted material (which
@@ -234,7 +274,10 @@ class COVIDBLUESDataset(BaseDataset):
 
         Needs the optional ``av`` (PyAV) or ``opencv-python`` package. A
         video's folder is written under a temporary name and renamed when
-        complete, so an interrupted run is redone next time.
+        complete, so an interrupted run is redone next time. A video that
+        yields no frames (e.g. corrupt, or unreadable by the decoder) gets
+        no folder and a warning, so it is retried on the next run instead
+        of being cached as empty.
 
         Examples:
             >>> dataset = COVIDBLUESDataset(  # doctest: +SKIP
@@ -248,17 +291,33 @@ class COVIDBLUESDataset(BaseDataset):
                 f"No .mp4 videos under {self.source_root / 'lus_videos'}."
             )
         self.frames_dir.mkdir(parents=True, exist_ok=True)
+        failed = []
         for video in videos:
             target = self.frames_dir / video.stem
             if target.is_dir():
                 continue
             partial = self.frames_dir / f".{video.stem}.partial"
             if partial.exists():
-                for leftover in partial.iterdir():
-                    leftover.unlink()
+                shutil.rmtree(partial)
             count = _decode_video(video, partial)
+            if count == 0:
+                shutil.rmtree(partial, ignore_errors=True)
+                failed.append(video.name)
+                logger.warning(
+                    "Decoded no frames from %s; it is left out and retried "
+                    "on the next run.",
+                    video,
+                )
+                continue
             os.replace(partial, target)
             logger.info("Decoded %d frames from %s", count, video.name)
+        if failed:
+            logger.warning(
+                "%d of %d COVID-BLUES videos gave no frames: %s",
+                len(failed),
+                len(videos),
+                ", ".join(failed),
+            )
 
     def prepare_metadata(self) -> None:
         """Write one row per frame image found in ``frames_dir``.
@@ -279,11 +338,17 @@ class COVIDBLUESDataset(BaseDataset):
         severity_path = self.source_root / "severity.csv"
         if severity_path.exists():
             table = pd.read_csv(severity_path)
-            severity = dict(zip(table["video_file"].astype(str), table["Severity Score"]))
+            # Keys are video stems; tolerate a ``.mp4`` suffix.
+            severity = {
+                _video_stem(name): score
+                for name, score in zip(
+                    table["video_file"].astype(str), table["Severity Score"]
+                )
+            }
         if not self.frames_dir.is_dir():
             raise FileNotFoundError(f"frames_dir not found: {self.frames_dir}")
 
-        rows, skipped = [], 0
+        rows, skipped, scored = [], 0, 0
         for video_dir in sorted(p for p in self.frames_dir.iterdir() if p.is_dir()):
             match = _VIDEO_RE.match(video_dir.name)
             if match is None:
@@ -296,6 +361,7 @@ class COVIDBLUESDataset(BaseDataset):
                 f for f in video_dir.iterdir() if f.suffix.lower() in _IMAGE_SUFFIXES
             )
             score = severity.get(video_dir.name)
+            scored += score is not None
             for position, frame in enumerate(frames):
                 if position % self.frame_step:
                     continue
@@ -318,6 +384,12 @@ class COVIDBLUESDataset(BaseDataset):
             raise FileNotFoundError(
                 f"No frames found under {self.frames_dir}. Expected "
                 "<frames_dir>/patient_<id>_<point>/<frame>.png."
+            )
+        if severity and not scored:
+            logger.warning(
+                "No severity.csv video_file value matches a frame folder name "
+                "(expected video stems such as patient_1_L1); severity_score "
+                "is empty for every frame."
             )
         tmp_path = self.metadata_path.with_suffix(".csv.tmp")
         pd.DataFrame(rows, columns=_COLUMNS).to_csv(tmp_path, index=False)

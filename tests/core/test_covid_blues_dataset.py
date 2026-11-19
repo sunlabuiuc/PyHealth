@@ -4,8 +4,10 @@ All frames are synthetic noise images: the CC BY-NC-ND licence rules out
 committing frames derived from the real videos.
 """
 
+import importlib.util
 import shutil
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -118,6 +120,128 @@ class TestCOVIDBLUESDataset(unittest.TestCase):
             covid_blues_module._decode_video(
                 self.root / "lus_videos" / "patient_1_L1.mp4", self.temp_dir / "out"
             )
+
+    def test_video_without_frames_is_not_cached(self):
+        def fake_decode(video_path, out_dir):
+            out_dir.mkdir(parents=True, exist_ok=True)
+            if video_path.stem == "patient_2_L1":
+                return 0  # e.g. cv2 could not open the file
+            write_frame(out_dir / "000000.png", 0)
+            return 1
+
+        with mock.patch.object(
+            covid_blues_module, "_decode_video", side_effect=fake_decode
+        ), self.assertLogs(covid_blues_module.logger, level="WARNING") as logs:
+            dataset = self._dataset(frames_dir=None, decode_videos=True)
+        self.assertIn("patient_2_L1", "\n".join(logs.output))
+        self.assertFalse((dataset.frames_dir / "patient_2_L1").exists())
+        self.assertEqual(list(dataset.frames_dir.glob(".*.partial")), [])
+        self.assertNotIn("2", dataset.unique_patient_ids)
+
+        # The failed video is retried on the next run.
+        with mock.patch.object(
+            covid_blues_module, "_decode_video", return_value=0
+        ) as decoder:
+            dataset.extract_frames()
+        self.assertEqual(decoder.call_count, 1)
+
+    def test_severity_tolerates_mp4_suffix_and_warns_on_no_match(self):
+        table = pd.read_csv(self.root / "severity.csv")
+        table["video_file"] = ["patient_1_L1.mp4"]
+        table.to_csv(self.root / "severity.csv", index=False)
+        metadata = pd.read_csv(self._dataset().metadata_path)
+        first = metadata[metadata["video_id"] == "patient_1_L1"]
+        self.assertEqual(set(first["severity_score"]), {2.0})
+
+        table["video_file"] = ["video_1"]
+        table.to_csv(self.root / "severity.csv", index=False)
+        with self.assertLogs(covid_blues_module.logger, level="WARNING"):
+            self._dataset(refresh_metadata=True)
+
+    def test_decode_video_with_pyav_module(self):
+        class FakeFrame:
+            def __init__(self, seed):
+                self.seed = seed
+
+            def to_image(self):
+                pixels = np.full((4, 4, 3), self.seed, dtype=np.uint8)
+                return Image.fromarray(pixels)
+
+        class FakeContainer:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def decode(self, video=0):
+                return iter([FakeFrame(1), FakeFrame(2), FakeFrame(3)])
+
+        fake_av = types.SimpleNamespace(open=lambda path: FakeContainer())
+        out = self.temp_dir / "av_out"
+        with mock.patch.dict("sys.modules", {"av": fake_av}):
+            count = covid_blues_module._decode_video(Path("v.mp4"), out)
+        self.assertEqual(count, 3)
+        self.assertEqual(
+            sorted(p.name for p in out.iterdir()),
+            ["000000.png", "000001.png", "000002.png"],
+        )
+
+    def test_decode_video_with_opencv_module(self):
+        frames = [np.zeros((4, 4, 3), dtype=np.uint8) for _ in range(2)]
+        frames[0][..., 0] = 255  # BGR blue
+
+        class FakeCapture:
+            def __init__(self, path):
+                self.frames = list(frames)
+                self.released = False
+
+            def read(self):
+                if self.frames:
+                    return True, self.frames.pop(0)
+                return False, None
+
+            def release(self):
+                self.released = True
+
+        fake_cv2 = types.SimpleNamespace(
+            VideoCapture=FakeCapture,
+            COLOR_BGR2RGB=4,
+            cvtColor=lambda frame, code: frame[..., ::-1],
+        )
+        out = self.temp_dir / "cv2_out"
+        with mock.patch.dict("sys.modules", {"av": None, "cv2": fake_cv2}):
+            count = covid_blues_module._decode_video(Path("v.mp4"), out)
+        self.assertEqual(count, 2)
+        first = np.asarray(Image.open(out / "000000.png"))
+        self.assertEqual(first[0, 0].tolist(), [0, 0, 255])  # now RGB blue
+
+        # A video OpenCV cannot read yields 0 frames.
+        frames.clear()
+        with mock.patch.dict("sys.modules", {"av": None, "cv2": fake_cv2}):
+            self.assertEqual(
+                covid_blues_module._decode_video(Path("v.mp4"), self.temp_dir / "e"),
+                0,
+            )
+
+    @unittest.skipUnless(importlib.util.find_spec("av"), "needs PyAV")
+    def test_decode_real_video_with_pyav(self):
+        import av
+
+        video = self.temp_dir / "tiny.mp4"
+        with av.open(str(video), mode="w") as container:
+            stream = container.add_stream("mpeg4", rate=5)
+            stream.width, stream.height, stream.pix_fmt = 16, 16, "yuv420p"
+            for i in range(3):
+                pixels = np.full((16, 16, 3), i * 40, dtype=np.uint8)
+                frame = av.VideoFrame.from_ndarray(pixels, format="rgb24")
+                for packet in stream.encode(frame):
+                    container.mux(packet)
+            for packet in stream.encode():
+                container.mux(packet)
+        out = self.temp_dir / "real_out"
+        self.assertEqual(covid_blues_module._decode_video(video, out), 3)
+        self.assertEqual(len(list(out.glob("*.png"))), 3)
 
     def test_default_task(self):
         self.assertEqual(
