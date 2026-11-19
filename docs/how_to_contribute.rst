@@ -213,8 +213,8 @@ All datasets must follow these guidelines:
 - **Inherit from BaseDataset**: All datasets must inherit from the appropriate BaseDataset class
 - **Follow established patterns**: 
   
-  - For EHR datasets: See the `MIMIC4 dataset example <https://github.com/sunlabuiuc/PyHealth/blob/main/pyhealth/datasets/mimic4.py>`_
-  - For image datasets: See the `CovidCXR dataset example <https://github.com/sunlabuiuc/PyHealth/blob/main/pyhealth/datasets/covidcxr.py>`_ where each folder represents a sample
+  - For EHR datasets: See the `MIMIC4 dataset example <https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/datasets/mimic4.py>`_
+  - For image datasets: See the `COVID-19 CXR dataset example <https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/datasets/covid19_cxr.py>`_ where each folder represents a sample
 
 - **Include a test task**: Datasets should ideally have an associated task for testing purposes
 
@@ -232,8 +232,8 @@ Tasks must follow the established task class structure:
 - **Inherit from base task class**: Follow the pattern defined in existing tasks
 - **Examples to reference**:
   
-  - `Mortality prediction task <https://github.com/sunlabuiuc/PyHealth/blob/main/pyhealth/tasks/mortality_prediction.py>`_
-  - `X-ray classification task <https://github.com/sunlabuiuc/PyHealth/blob/main/pyhealth/tasks/chest_xray_classification.py>`_
+  - `Mortality prediction task <https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/tasks/mortality_prediction.py>`_
+  - `COVID-19 X-ray classification task <https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/tasks/covid19_cxr_classification.py>`_
 
 - **Flexibility**: Tasks can include various implementation details but must have clear inputs/outputs
 - **Test cases**: Include example test cases with defined inputs and expected outputs
@@ -244,7 +244,7 @@ Contributing a Model
 Models must follow the model base class structure:
 
 - **Inherit from BaseModel**: All models must inherit from the appropriate base model class
-- **Reference implementation**: See the `RNN model example <https://github.com/sunlabuiuc/PyHealth/blob/main/pyhealth/models/rnn.py>`_
+- **Reference implementation**: See the `RNN model example <https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/rnn.py>`_
 - **Test cases**: Include example test cases with dummy inputs and expected outputs
 
 **Key Requirements:**

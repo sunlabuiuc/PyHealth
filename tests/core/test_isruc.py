@@ -1,4 +1,4 @@
-"""ISRUCDataset and SleepStagingISRUC, using small EDF files written here."""
+"""ISRUCDataset and the ISRUC sleep staging tasks, using small EDF files written here."""
 
 import os
 import tempfile
@@ -9,9 +9,10 @@ from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
+import torch
 
 from pyhealth.datasets import ISRUCDataset
-from pyhealth.tasks import SleepStagingISRUC
+from pyhealth.tasks import SleepStagingISRUC, SleepStagingSequenceISRUC
 from pyhealth.tasks.sleep_staging_isruc import (
     SLEEP_STAGES,
     base_channel_name,
@@ -404,6 +405,99 @@ class TestISRUCSetTask(unittest.TestCase):
                 self.assertEqual(tuple(sample["signal"].shape), (6, 30 * SFREQ))
             self.assertEqual(sorted(by_patient), ["1", "2"])
             self.assertEqual(len(by_patient["1"]), 3)
+
+
+class TestSleepStagingSequenceISRUC(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.folder = Path(tmp.name) / "1"
+
+    def _samples(self, scores, **kwargs):
+        _write_recording(self.folder, "1", scores, suffix=".edf")
+        task = SleepStagingSequenceISRUC(**{"sfreq": None, **kwargs})
+        return task(_patient("1", [_event(self.folder, "1")]))
+
+    def test_windows_signal_and_labels(self):
+        samples = self._samples([0, 1, 2, 3, 5, 0], seq_len=2)
+
+        self.assertEqual([s["epoch_index"] for s in samples], [0, 2, 4])
+        self.assertEqual(
+            [s["label"].tolist() for s in samples], [[0, 1], [2, 3], [4, 0]]
+        )
+        self.assertEqual(samples[0]["label"].dtype, np.int64)
+        self.assertEqual(samples[0]["session_id"], "1")
+        signal = samples[0]["signal"]
+        self.assertEqual(signal.shape, (2, 1, 30 * SFREQ))
+        self.assertEqual(signal.dtype, np.float32)
+        # F3 holds 100 plus the second, and the second epoch starts at 30 s.
+        np.testing.assert_array_equal(signal[:, 0, 0], [100, 130])
+
+    def test_stride(self):
+        samples = self._samples([0, 1, 2, 3, 5], seq_len=3, stride=1)
+
+        self.assertEqual([s["epoch_index"] for s in samples], [0, 1, 2])
+
+    def test_windows_do_not_span_a_dropped_epoch(self):
+        with self.assertLogs("pyhealth.tasks.sleep_staging_isruc", "WARNING"):
+            samples = self._samples([0, 1, 7, 2, 3, 5], seq_len=2)
+
+        # The run after the unknown score has 3 epochs, its last one is left over.
+        self.assertEqual([s["epoch_index"] for s in samples], [0, 3])
+
+    def test_other_channel(self):
+        samples = self._samples([0, 2], seq_len=2, channel="C4")
+
+        np.testing.assert_array_equal(samples[0]["signal"][:, 0, 0], [500, 530])
+
+    def test_resampling(self):
+        samples = self._samples([0, 2], seq_len=2, sfreq=SFREQ // 2)
+
+        self.assertEqual(samples[0]["signal"].shape, (2, 1, 30 * SFREQ // 2))
+        # Each epoch still averages 100 plus its middle second.
+        np.testing.assert_allclose(
+            samples[0]["signal"].mean(axis=-1)[:, 0], [114.5, 144.5], atol=1
+        )
+
+    def test_same_rate_is_not_resampled(self):
+        samples = self._samples([0, 2], seq_len=2, sfreq=SFREQ)
+
+        np.testing.assert_array_equal(
+            samples[0]["signal"][0, 0, ::SFREQ], 100 + np.arange(30)
+        )
+
+    def test_missing_channel_skips_the_recording(self):
+        with self.assertLogs("pyhealth.tasks.sleep_staging_isruc", "WARNING"):
+            samples = self._samples([0, 2], seq_len=2, channel="Pz")
+
+        self.assertEqual(samples, [])
+
+    def test_invalid_arguments(self):
+        for kwargs in (
+            {"seq_len": 0},
+            {"stride": 0},
+            {"sfreq": 0},
+            {"annotator": 3},
+        ):
+            with self.subTest(**kwargs), self.assertRaises(ValueError):
+                SleepStagingSequenceISRUC(**kwargs)
+
+    def test_set_task(self):
+        # litdata can keep the cache open after the test, which blocks the
+        # cleanup on Windows.
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp) / "ISRUC-Sleep-III"
+            _write_recording(root / "1", "1", [0, 2, 5, 1])
+            _write_recording(root / "2", "2", [3, 1])
+
+            dataset = ISRUCDataset(root=str(root), cache_dir=str(Path(tmp) / "cache"))
+            samples = dataset.set_task(SleepStagingSequenceISRUC(seq_len=2, sfreq=None))
+
+            self.assertEqual(len(samples), 3)
+            sample = samples[0]
+            self.assertEqual(tuple(sample["signal"].shape), (2, 1, 30 * SFREQ))
+            self.assertEqual(sample["label"].dtype, torch.long)
+            self.assertEqual(tuple(sample["label"].shape), (2,))
 
 
 if __name__ == "__main__":

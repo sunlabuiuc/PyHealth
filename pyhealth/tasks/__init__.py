@@ -31,6 +31,10 @@ from .covid19_cxr_generation import (
 )
 from .ptbxl_multilabel_classification import PTBXLMultilabelClassification as PTBXLMultilabelClassification
 from .ptbxl_heartlang import PTBXLHeartLangClassification as PTBXLHeartLangClassification
+from .chapman_shaoxing_classification import (
+    ChapmanShaoxingSNOMEDClassification as ChapmanShaoxingSNOMEDClassification,
+    ChapmanShaoxingSuperclassClassification as ChapmanShaoxingSuperclassClassification,
+)
 from .physionet2012_forecasting import (
     PhysioNet2012Forecasting as PhysioNet2012Forecasting,
     physionet2012_benchmark_split as physionet2012_benchmark_split,
@@ -61,6 +65,9 @@ from .ed_disposition_mimic4 import (
 from .ehr_cxr_mimic4 import (
     EHRCXRMortalityMIMIC4 as EHRCXRMortalityMIMIC4,
     EHRCXRPhenotypingMIMIC4 as EHRCXRPhenotypingMIMIC4,
+)
+from .maestro_mortality_mimic4 import (
+    MAESTROMortalityMIMIC4 as MAESTROMortalityMIMIC4,
 )
 from .ehr_text_serialization import (
     CodeDescriber as CodeDescriber,
@@ -128,6 +135,10 @@ from .survival_time_to_event import (
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
+from .dearllm_mortality import (
+    DearLLMMortalityPredictionMIMIC3 as DearLLMMortalityPredictionMIMIC3,
+    DearLLMMortalityPredictionMIMIC4 as DearLLMMortalityPredictionMIMIC4,
+)
 from .generate_ehr import (
     EHRCodeSetGenerationMIMIC3 as EHRCodeSetGenerationMIMIC3,
     EHRCodeSetGenerationMIMIC4 as EHRCodeSetGenerationMIMIC4,
@@ -156,6 +167,9 @@ from .sleep_staging import (
 from .sleep_staging_v2 import SleepStagingSequenceSleepEDF as SleepStagingSequenceSleepEDF
 from .sleep_staging_v2 import SleepStagingSleepEDF
 from .sleep_staging_isruc import SleepStagingISRUC as SleepStagingISRUC
+from .sleep_staging_isruc import (
+    SleepStagingSequenceISRUC as SleepStagingSequenceISRUC,
+)
 from .temple_university_EEG_tasks import (
     EEGEventsTUEV,
     EEGAbnormalTUAB
