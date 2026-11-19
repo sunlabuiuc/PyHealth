@@ -20,11 +20,10 @@ cast to float32 (``torch.from_numpy(x).float()``); so do we.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import torch
-from ..datasets.medmod.discretizer import Discretizer, Normalizer
 from .base_processor import FeatureProcessor
 
 
@@ -50,6 +49,11 @@ class MedModEHRProcessor(FeatureProcessor):
     stores_tensor = True
 
     def __init__(self, normalizer: Optional[str | Path] = None):
+        # Imported here: pyhealth.datasets imports the tasks, which import this
+        # module, so a module-level import is circular when this module is
+        # imported first.
+        from ..datasets.medmod.discretizer import Discretizer, Normalizer
+
         self.normalizer_file = None if normalizer is None else str(normalizer)
         # An instance attribute: PyHealth reads it to warn about fitting on
         # all samples, which only matters when statistics are learned.
@@ -79,3 +83,35 @@ class MedModEHRProcessor(FeatureProcessor):
 
     def spatial(self) -> tuple[bool, ...]:
         return (True, False)  # time bins, then features
+
+
+class MedModEHRSequenceProcessor(MedModEHRProcessor):
+    """``MedModEHRProcessor`` for EHR of varying length (bins x 76 per stay).
+
+    Each sample is standardized as in :class:`MedModEHRProcessor`. A batch is
+    zero-padded at the end to its longest stay and comes with the true
+    lengths, as MedMod's ``pad_zeros`` / ``my_collate_fusion``
+    (src/data/utils.py:160-170, 399-406) feed its LSTM, which packs them
+    (src/models/encoders.py:44-45). The batch value is ``(ehr, lengths)``:
+    ``ehr`` is ``[batch, max_bins, 76]`` float32, ``lengths`` int64.
+
+    Examples:
+        >>> import numpy as np
+        >>> from pyhealth.datasets.medmod.discretizer import PH_NORMALIZER
+        >>> from pyhealth.processors.medmod_ehr_processor import (
+        ...     MedModEHRSequenceProcessor,
+        ... )
+        >>> processor = MedModEHRSequenceProcessor(PH_NORMALIZER)
+        >>> x = [processor.process(np.zeros((n, 76))) for n in (3, 5)]
+        >>> ehr, lengths = processor.collate(x)
+        >>> tuple(ehr.shape), lengths.tolist()
+        ((2, 5, 76), [3, 5])
+    """
+
+    def collate(self, values: List[torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
+        lengths = torch.tensor([v.shape[0] for v in values], dtype=torch.long)
+        ehr = torch.nn.utils.rnn.pad_sequence(values, batch_first=True, padding_value=0)
+        return ehr, lengths
+
+    def schema(self) -> tuple[str, ...]:
+        return ("value", "lengths")

@@ -26,7 +26,8 @@ Sample contract (identical to ``MedModInHospitalMortality``):
 How the EHR is made: synthetic hourly rows (plausible ICU values, GCS text
 categories, random gaps, sometimes a row at Hours == 0) go through the SAME
 loader (``medmod.extraction.loader_rows``), MedMod discretizer and
-``MedModEHRProcessor`` as the real pipeline. So one-hot blocks, masks, imputation and normalization behave like the real
+``MedModEHRProcessor`` as the real pipeline. So one-hot blocks, masks,
+imputation and normalization behave like the real
 data. The values are made up and carry no clinical signal, except
 a weak link between label and a few vitals so a model has something to learn.
 Real data also has occasional extreme values (MedMod does not clip outliers);
@@ -95,8 +96,10 @@ def _make_rows(
     possible: Dict[str, List[str]],
     label: int,
     extreme_rate: float,
+    hours: float = N_HOURS,
 ) -> List[List[str]]:
-    times = np.sort(rng.uniform(0.05, N_HOURS, size=rng.integers(30, 90)))
+    n_rows = max(1, int(rng.integers(30, 90) * hours / N_HOURS))
+    times = np.sort(rng.uniform(0.05, hours, size=n_rows))
     if rng.random() < 0.3:
         times = np.concatenate([[0.0], times])  # a row exactly at Hours == 0
     rows = []
@@ -275,5 +278,98 @@ def create_synthetic_samples(
         input_processors={"ehr": ehr},
         dataset_name="medmod_synthetic",
         task_name="MedModInHospitalMortality",
+        in_memory=False,
+    )
+
+
+# ConVIRT pretraining (MedMod's phenotyping train/val stays, whole ICU stay).
+PRETRAIN_SPLIT_FRACTIONS = {"train": 7755 / 8637, "val": 882 / 8637}
+
+
+def make_synthetic_pretraining_samples(
+    out_dir: str | Path,
+    n_stays: int = 200,
+    seed: int = 0,
+    extreme_rate: float = 0.001,
+    max_hours: float = 480.0,
+) -> List[Dict]:
+    """Raw pretraining samples, as MedMod's loader builds them for the whole
+    ICU stay: rows with 0 < Hours < full_stay_time (src/data/datasets.py:
+    137-160), discretized up to the listfile's period_length (datasets.py:196,
+    201). ``ehr`` is unnormalized float64, ``(bins, 76)`` with
+    ``bins = int(period_length + 1 - 1e-6)``, so it varies per stay. Stay
+    lengths are log-normal (median 60 h, 6 h to ``max_hours``). Samples have
+    ``patient_id``, ``visit_id``, ``ehr``, ``image_path`` and ``split``
+    (``"train"`` / ``"val"``, per patient)."""
+    disc = Discretizer()
+    rng = np.random.default_rng(seed)
+    img_rng = np.random.default_rng(seed + 1)
+    out = []
+    p = 0
+    while len(out) < n_stays:
+        p += 1
+        names, probs = zip(*PRETRAIN_SPLIT_FRACTIONS.items())
+        split = str(rng.choice(names, p=probs))
+        for _ in range(1 if rng.random() < 0.9 else 2):
+            if len(out) >= n_stays:
+                break
+            hours = float(np.clip(rng.lognormal(np.log(60.0), 0.8), 6.0, max_hours))
+            period_length = round(hours, 6)  # the listfile's {:.6f}
+            full_stay_hours = float(np.round(hours, 3))
+            rows = _make_rows(
+                rng, disc.channels, disc._possible_values, 0, extreme_rate, hours
+            )
+            rows, _ = loader_rows(rows, "drop", full_stay_hours)
+            visit_id = f"syn-stay-{len(out) + 1:05d}"
+            img = Path(out_dir) / "resized" / f"{visit_id}.jpg"
+            if not img.exists():
+                write_dummy_jpg(img, img_rng)
+            out.append(
+                {
+                    "patient_id": f"syn-{p:05d}",
+                    "visit_id": visit_id,
+                    "ehr": disc.transform(rows, end=period_length),
+                    "image_path": str(img),
+                    "split": split,
+                }
+            )
+    return out
+
+
+def create_synthetic_pretraining_samples(
+    n_stays: int = 200,
+    seed: int = 0,
+    out_dir: Optional[str | Path] = None,
+    extreme_rate: float = 0.001,
+):
+    """A PyHealth ``SampleDataset`` of synthetic ConVIRT pretraining stays with
+    the real pretraining set's contract: ``ehr`` of varying length,
+    standardized with MedMod's phenotyping normalizer; a batch's ``ehr`` is
+    ``(padded [B, max_bins, 76], lengths [B])`` (``MedModEHRSequenceProcessor``).
+    Split it with ``split_by_medmod(samples)`` (train, val; test is empty).
+
+    Examples:
+        >>> from pyhealth.datasets.medmod.synthetic import (
+        ...     create_synthetic_pretraining_samples,
+        ... )
+        >>> samples = create_synthetic_pretraining_samples(50)  # doctest: +SKIP
+    """
+    from pyhealth.datasets import create_sample_dataset
+
+    from ...processors.medmod_ehr_processor import MedModEHRSequenceProcessor
+
+    out_dir = (
+        Path(out_dir) if out_dir else Path(tempfile.mkdtemp(prefix="medmod_pretrain_"))
+    )
+    raw = make_synthetic_pretraining_samples(out_dir, n_stays, seed, extreme_rate)
+    return create_sample_dataset(
+        raw,
+        input_schema={
+            "ehr": (MedModEHRSequenceProcessor, {"normalizer": str(PH_NORMALIZER)}),
+            "image_path": "raw",
+        },
+        output_schema={},
+        dataset_name="medmod_synthetic_pretraining",
+        task_name="MedModConVIRTPretraining",
         in_memory=False,
     )

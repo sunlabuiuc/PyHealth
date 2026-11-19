@@ -166,3 +166,25 @@ def test_processor_cache_key_is_stable():
     assert "sha256:" in key(fitted) and " at 0x" not in key(fitted)
     assert fitted.schema() == ("value",) and fitted.dim() == (2,)
     assert fitted.is_token() is False
+
+
+def test_sequence_processor_pads_at_the_end_and_returns_lengths():
+    import torch
+
+    from pyhealth.processors.medmod_ehr_processor import MedModEHRSequenceProcessor
+
+    rng = np.random.default_rng(3)
+    seq = MedModEHRSequenceProcessor(PH_NORMALIZER)
+    raw = [rng.normal(size=(n, 76)) for n in (4, 9, 1)]
+    values = [seq.process(x) for x in raw]
+    # each stay standardized exactly as the fixed-length processor does
+    fixed = MedModEHRProcessor(PH_NORMALIZER)
+    for v, x in zip(values, raw):
+        assert torch.equal(v, fixed.process(x))
+    ehr, lengths = seq.collate(values)
+    assert lengths.tolist() == [4, 9, 1] and lengths.dtype == torch.long
+    assert tuple(ehr.shape) == (3, 9, 76) and ehr.dtype == torch.float32
+    for i, n in enumerate((4, 9, 1)):  # MedMod pad_zeros: zeros after the stay
+        assert torch.equal(ehr[i, :n], values[i])
+        assert not ehr[i, n:].any()
+    assert seq.schema() == ("value", "lengths")

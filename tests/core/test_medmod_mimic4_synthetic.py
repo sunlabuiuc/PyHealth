@@ -140,3 +140,33 @@ def test_create_synthetic_samples_works_like_the_real_pipeline(tmp_path):
 def test_rows_are_never_empty_like_real_pivot_rows():
     for st in make_synthetic_stays(80, seed=11):
         assert all(any(v != "" for v in r[1:]) for r in st.rows)
+
+
+def test_synthetic_pretraining_samples_vary_in_length(tmp_path):
+    from pyhealth.datasets.medmod.synthetic import make_synthetic_pretraining_samples
+
+    raw = make_synthetic_pretraining_samples(tmp_path, n_stays=40, seed=2)
+    assert len(raw) == 40
+    assert {s["split"] for s in raw} <= {"train", "val"}
+    bins = [s["ehr"].shape[0] for s in raw]
+    assert len(set(bins)) > 10 and min(bins) >= 6 and max(bins) <= 481
+    assert all(s["ehr"].shape[1] == 76 for s in raw)
+    assert all(Path(s["image_path"]).exists() for s in raw)
+    again = make_synthetic_pretraining_samples(tmp_path, n_stays=40, seed=2)
+    assert all(np.array_equal(a["ehr"], b["ehr"]) for a, b in zip(raw, again))
+
+
+def test_synthetic_pretraining_batches_carry_true_lengths(tmp_path):
+    from pyhealth.datasets import get_dataloader, split_by_medmod
+    from pyhealth.datasets.medmod.synthetic import (
+        create_synthetic_pretraining_samples,
+    )
+
+    samples = create_synthetic_pretraining_samples(30, seed=1, out_dir=tmp_path)
+    train, val, test = split_by_medmod(samples)
+    assert len(train) + len(val) == 30 and len(test) == 0
+    ehr, lengths = next(iter(get_dataloader(train, batch_size=8)))["ehr"]
+    assert ehr.shape[0] == len(lengths) == 8 and ehr.shape[2] == 76
+    assert ehr.shape[1] == int(lengths.max())
+    for i, n in enumerate(lengths.tolist()):
+        assert not ehr[i, n:].any()
