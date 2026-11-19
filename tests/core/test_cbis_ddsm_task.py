@@ -12,11 +12,7 @@ from pyhealth.tasks import (
     CBISDDSMBIRADSClassification,
     CBISDDSMPathologyClassification,
 )
-
-try:
-    from tests.core.test_cbis_ddsm_dataset import build_cbis_root, pydicom
-except ImportError:  # pragma: no cover - run from tests/core
-    from test_cbis_ddsm_dataset import build_cbis_root, pydicom
+from tests.core.cbis_ddsm_test_utils import build_cbis_root, pydicom
 
 
 def _labels(samples, key):

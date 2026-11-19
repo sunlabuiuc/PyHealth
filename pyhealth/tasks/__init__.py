@@ -157,9 +157,15 @@ from .patient_linkage import patient_linkage_mimic3_fn
 from .rsna_pneumonia_classification import (
     RSNAPneumoniaClassification as RSNAPneumoniaClassification,
 )
+from .cbis_ddsm_abnormality_classification import (
+    CBISDDSMAbnormalityClassification as CBISDDSMAbnormalityClassification,
+)
 from .cbis_ddsm_classification import (
     CBISDDSMBIRADSClassification as CBISDDSMBIRADSClassification,
     CBISDDSMPathologyClassification as CBISDDSMPathologyClassification,
+)
+from .cbis_ddsm_density_classification import (
+    CBISDDSMDensityClassification as CBISDDSMDensityClassification,
 )
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
