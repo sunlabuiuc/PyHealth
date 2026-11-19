@@ -8,7 +8,10 @@ Usage:
 ``ISIC_2019_Training_Metadata.csv`` and the unzipped
 ``ISIC_2019_Training_Input/`` folder (see
 :class:`~pyhealth.datasets.ISIC2019Dataset` for the download steps). The
-split is by lesion where the lesion id is known. ``--exclude-ham10000``
+split is by lesion where the lesion id is known, and the "test" metrics it
+prints are on a 20% lesion holdout of the training split, not on the
+public ISIC 2019 test set (whose labels were released later and are loaded
+with ``splits=("train", "test")``). ``--exclude-ham10000``
 leaves out the 10,015 images shared with HAM10000.
 
 The image cache holds float32 tensors, about 580 KB per image at 224 px

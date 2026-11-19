@@ -1,6 +1,7 @@
 """ISIC 2019 dermoscopy dataset."""
 
 import logging
+import os
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -156,6 +157,13 @@ class ISIC2019Dataset(BaseDataset):
         num_workers: Number of workers for dataset processing.
         dev: Whether to limit the dataset to 1000 patients.
         refresh_metadata: Rebuild the metadata CSV even if it is current.
+            It is also rebuilt automatically when ``root``, ``splits`` or the
+            number of JPEGs in an image folder changes, e.g. after an
+            interrupted unzip is completed.
+
+    Note:
+        ``dataset.root`` is the metadata folder that holds the generated
+        CSV, not the image root; the image root is ``dataset.source_root``.
 
     Examples:
         >>> from pyhealth.datasets import ISIC2019Dataset
@@ -201,7 +209,12 @@ class ISIC2019Dataset(BaseDataset):
         )
         self.metadata_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_path = self.metadata_dir / _METADATA_FILE
-        self._source_key = f"root={self.source_root}|splits={','.join(self.splits)}"
+        # The JPEG counts make a restored or re-extracted image folder
+        # trigger a rebuild, so rows dropped for missing files come back.
+        self._source_key = (
+            f"root={self.source_root}|splits={','.join(self.splits)}"
+            f"|images={self._image_counts()}"
+        )
         marker = self.metadata_dir / "isic2019-source.txt"
         with FileLock(str(self.metadata_path) + ".lock"):
             current = marker.read_text().strip() if marker.exists() else None
@@ -225,6 +238,24 @@ class ISIC2019Dataset(BaseDataset):
             dev=dev,
         )
 
+    def _image_dir(self, split: str) -> Path:
+        return self.source_root / f"ISIC_2019_{_SPLIT_NAMES[split]}_Input"
+
+    @staticmethod
+    def _image_counts_for(image_dir: Path) -> int:
+        """The number of JPEGs in ``image_dir`` (0 if it does not exist)."""
+        if not image_dir.is_dir():
+            return 0
+        with os.scandir(image_dir) as entries:
+            return sum(e.name.lower().endswith(".jpg") for e in entries)
+
+    def _image_counts(self) -> str:
+        """``split:count`` of the JPEGs on disk for each requested split."""
+        return ",".join(
+            f"{split}:{self._image_counts_for(self._image_dir(split))}"
+            for split in self.splits
+        )
+
     def _download(self) -> None:
         """Download the missing files of the requested splits into root."""
         self.source_root.mkdir(parents=True, exist_ok=True)
@@ -234,8 +265,18 @@ class ISIC2019Dataset(BaseDataset):
                 path = self.source_root / f"{prefix}_{kind}.csv"
                 if not path.exists():
                     _download_csv(f"{ISIC2019_BASE_URL}{path.name}", path)
-            image_dir = self.source_root / f"{prefix}_Input"
-            if not image_dir.is_dir():
+            image_dir = self._image_dir(split)
+            complete = image_dir.is_dir()
+            if complete:
+                n_rows = len(pd.read_csv(self.source_root / f"{prefix}_GroundTruth.csv"))
+                n_found = int(self._image_counts_for(image_dir))
+                if n_found < n_rows:
+                    logger.warning(
+                        "%s has %d of %d images; downloading %s_Input.zip again",
+                        image_dir, n_found, n_rows, prefix,
+                    )
+                    complete = False
+            if not complete:
                 _download_archives(
                     [f"{ISIC2019_BASE_URL}{prefix}_Input.zip"],
                     image_dir,
@@ -248,7 +289,8 @@ class ISIC2019Dataset(BaseDataset):
         """Write the metadata CSV, one row per image, to ``metadata_dir``.
 
         Rows whose JPEG is missing are dropped with a warning, so a partial
-        download still loads.
+        download still loads; once the missing files are restored, the next
+        construction rebuilds the CSV with them.
 
         Raises:
             FileNotFoundError: If a ground-truth CSV, the training

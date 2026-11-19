@@ -159,6 +159,21 @@ class TestISIC2019Dataset(unittest.TestCase):
         )
 
 
+    def test_rebuilds_metadata_when_missing_images_are_restored(self):
+        metadata_dir = str(self.tmp / "meta")
+        first = self._dataset(metadata_dir=metadata_dir)
+        self.assertNotIn(
+            "ISIC_0000010", set(pd.read_csv(first.metadata_path)["image_id"])
+        )
+        Image.new("RGB", (10, 10)).save(
+            self.root / "ISIC_2019_Training_Input" / "ISIC_0000010.jpg"
+        )
+        second = self._dataset(metadata_dir=metadata_dir)
+        self.assertIn(
+            "ISIC_0000010", set(pd.read_csv(second.metadata_path)["image_id"])
+        )
+
+
 class TestISIC2019Download(unittest.TestCase):
     """download=True, with the network calls replaced by local copies."""
 
@@ -166,6 +181,10 @@ class TestISIC2019Download(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.source = self.tmp / "source"
         make_isic2019_root(self.source)
+        # a complete release: every ground-truth row has its JPEG
+        Image.new("RGB", (10, 10)).save(
+            self.source / "ISIC_2019_Training_Input" / "ISIC_0000010.jpg"
+        )
         self.root = self.tmp / "isic2019"
         self.cache = self.tmp / "cache"
         self.urls = []
@@ -209,7 +228,7 @@ class TestISIC2019Download(unittest.TestCase):
             ),
         )
         self.assertTrue((self.root / "ISIC_2019_Training_Metadata.csv").exists())
-        self.assertEqual(len(pd.read_csv(dataset.metadata_path)), 13)
+        self.assertEqual(len(pd.read_csv(dataset.metadata_path)), 14)
 
         # A second download=True finds every file and fetches nothing.
         self.urls.clear()
@@ -224,6 +243,33 @@ class TestISIC2019Download(unittest.TestCase):
                 cache_dir=str(self.cache),
             )
         self.assertEqual(self.urls, [])
+
+    def test_incomplete_image_folder_is_downloaded_again(self):
+        self.root.mkdir()
+        for name in ("GroundTruth", "Metadata"):
+            shutil.copy(self.source / f"ISIC_2019_Training_{name}.csv", self.root)
+        partial = self.root / "ISIC_2019_Training_Input"
+        partial.mkdir()
+        shutil.copy(self.source / "ISIC_2019_Training_Input" / "ISIC_0000001.jpg",
+                    partial)
+
+        def _extract(urls, destination, **kwargs):
+            self.urls.extend(urls)
+            shutil.copytree(self.source / Path(destination).name, destination,
+                            dirs_exist_ok=True)
+
+        with (
+            mock.patch("pyhealth.datasets.isic2019.download_file",
+                       side_effect=self._fake_download_file),
+            mock.patch("pyhealth.datasets.isic2019._download_archives",
+                       side_effect=_extract),
+            self.assertLogs("pyhealth.datasets.isic2019", "WARNING"),
+        ):
+            dataset = ISIC2019Dataset(root=str(self.root), download=True,
+                                      cache_dir=str(self.cache))
+        self.assertEqual([u.rsplit("/", 1)[1] for u in self.urls],
+                         ["ISIC_2019_Training_Input.zip"])
+        self.assertEqual(len(pd.read_csv(dataset.metadata_path)), 10)
 
     def test_html_response_is_rejected(self):
         def _html(url, path):
