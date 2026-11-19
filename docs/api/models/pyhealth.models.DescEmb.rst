@@ -23,9 +23,10 @@ DescEmb resolves this by representing codes via their clinical text descriptions
    embedded with :class:`~pyhealth.models.EmbeddingModel`. Nested visit
    sequences are pooled across events using configurable intra-visit
    pooling (``sum``, ``mean``, ``max``, or ``attention``).
-3. **Cross-System Generalization**: By mapping code tokens to their textual
-   descriptions via :meth:`~pyhealth.models.DescEmb.initialize_with_descriptions`,
-   representations readily transfer across hospital datasets and coding vocabularies.
+3. **Description-Based Embedding Initialization**: By initializing code
+   embeddings from textual descriptions via
+   :meth:`~pyhealth.models.DescEmb.initialize_with_descriptions`, representations
+   are bootstrapped with rich clinical semantics for downstream task training.
 4. **Longitudinal Visit Modeling**: A temporal sequence model (GRU, LSTM,
    or Transformer) aggregates patient trajectories across visits.
 5. **Outcome Prediction**: Last-visit patient representations are mapped

@@ -1,6 +1,7 @@
 import unittest
 
 import torch
+import torch.nn.functional as F
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import (
@@ -209,8 +210,17 @@ class TestDescEmb(unittest.TestCase):
             embedding_dim=16,
             text_hidden_dim=16,
             temporal_hidden_dim=16,
-            code_descriptions=code_descriptions,
         )
+        emb_layer = model.embedding_model.embedding_layers["conditions"]
+        before_weight = emb_layer.weight.clone()
+        model.initialize_with_descriptions(code_descriptions)
+        after_weight = emb_layer.weight.clone()
+
+        # Embedding weights must change upon description initialization
+        self.assertFalse(torch.equal(before_weight, after_weight))
+        # Padding row index 0 must remain zero
+        self.assertTrue(torch.all(after_weight[0] == 0.0))
+
         loader = get_dataloader(dataset, batch_size=2)
         batch = next(iter(loader))
         out = model(**batch)
@@ -392,6 +402,81 @@ class TestDescEmb(unittest.TestCase):
         optimizer.step()
 
         self.assertFalse(torch.equal(initial_weight, model.fc.weight))
+
+    def test_padding_invariance(self):
+        """Verifies predictions do not change when padding is added."""
+        dataset = create_sample_dataset(
+            samples=self.samples[:2],
+            input_schema=self.input_schema,
+            output_schema={"label": "binary"},
+        )
+        loader_single = get_dataloader(dataset[:1], batch_size=1)
+        batch_single = next(iter(loader_single))
+        val_single = torch.randn_like(
+            batch_single["conditions"], dtype=torch.float32
+        )
+        batch_single["conditions"] = (
+            batch_single["conditions"],
+            val_single,
+        )
+
+        for temporal_model in ("gru", "transformer"):
+            for pool_mode in ("sum", "mean"):
+                model = DescEmb(
+                    dataset=dataset,
+                    embedding_dim=16,
+                    text_hidden_dim=16,
+                    temporal_hidden_dim=16,
+                    temporal_model=temporal_model,
+                    intra_visit_pooling=pool_mode,
+                )
+                model.eval()
+
+                cond_raw = batch_single["conditions"][0]
+                val_raw = batch_single["conditions"][1]
+                cond_padded = F.pad(cond_raw, (0, 2, 0, 1), value=0)
+                val_padded = F.pad(val_raw, (0, 2, 0, 1), value=0.0)
+
+                proc_raw = batch_single["procedures"]
+                proc_padded = F.pad(proc_raw, (0, 2, 0, 1), value=0)
+
+                drugs_raw = batch_single["drugs"]
+                drugs_padded = F.pad(drugs_raw, (0, 1), value=0)
+
+                batch_padded = {
+                    "conditions": (cond_padded, val_padded),
+                    "procedures": proc_padded,
+                    "drugs": drugs_padded,
+                }
+
+                with torch.no_grad():
+                    out_single = model(**batch_single)
+                    out_padded = model(**batch_padded)
+
+                diff_logit = (
+                    (out_single["logit"] - out_padded["logit"])
+                    .abs()
+                    .max()
+                    .item()
+                )
+                diff_embed = (
+                    (out_single["embed"] - out_padded["embed"])
+                    .abs()
+                    .max()
+                    .item()
+                )
+                self.assertLess(
+                    diff_logit,
+                    1e-4,
+                    f"Logit changed by {diff_logit} with padding "
+                    f"(model={temporal_model}, pool={pool_mode})",
+                )
+                self.assertLess(
+                    diff_embed,
+                    1e-4,
+                    f"Embed changed by {diff_embed} with padding "
+                    f"(model={temporal_model}, pool={pool_mode})",
+                )
 
 
 if __name__ == "__main__":

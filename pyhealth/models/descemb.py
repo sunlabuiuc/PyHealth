@@ -16,10 +16,10 @@ limitations:
        clinical semantics available in official code descriptions (e.g.,
        "Essential (primary) hypertension").
 
-DescEmb overcomes these limitations by encoding the standardized textual
-descriptions of medical codes with a text encoder (such as a bidirectional
-recurrent neural network or Transformer), producing semantic code vectors
-that generalize across clinical vocabularies and datasets.
+DescEmb overcomes these limitations by initializing code embeddings from
+the standardized textual descriptions of medical codes using a text encoder
+(such as a bidirectional recurrent neural network or Transformer), injecting
+semantic clinical priors into the embedding layer.
 
 The PyHealth DescEmb architecture comprises:
     1. Description Text Encoding (:class:`DescEmbCodeEncoder`): Embeds
@@ -429,6 +429,8 @@ class DescEmb(BaseModel):
     ) -> torch.Tensor:
         """Pools events/codes within each visit along dimension 2."""
         if self.intra_visit_pooling == "sum":
+            if mask is not None:
+                x = x.masked_fill(~mask.unsqueeze(-1), 0.0)
             return torch.sum(x, dim=2)
         elif self.intra_visit_pooling == "mean":
             if mask is not None:
@@ -594,6 +596,7 @@ class DescEmb(BaseModel):
                 else:
                     code_mask = (feat != 0).any(dim=-1)
                 v_mask = code_mask.any(dim=-1)
+                feat = feat.masked_fill(~code_mask.unsqueeze(-1), 0.0)
                 feat = self._pool_intra_visit(feat, code_mask)
 
             # Flat sequences: (B, D) -> (B, 1, D)
@@ -608,8 +611,7 @@ class DescEmb(BaseModel):
                     v_mask = mask != 0
                 else:
                     v_mask = (feat != 0).any(dim=-1)
-            else:
-                feat = feat.masked_fill(~v_mask.unsqueeze(-1), 0.0)
+            feat = feat.masked_fill(~v_mask.unsqueeze(-1), 0.0)
 
             feat_visits.append(feat)
             visit_masks.append(v_mask)
@@ -639,12 +641,23 @@ class DescEmb(BaseModel):
             overall_mask = visit_masks[0]
 
         visit_repr = self.feat_proj(combined)
+        if overall_mask is not None:
+            visit_repr = visit_repr.masked_fill(~overall_mask.unsqueeze(-1), 0.0)
 
         # Temporal sequence modeling
         if self.temporal_model_name in ("gru", "lstm"):
             temporal_out, _ = self.temporal_encoder(visit_repr)
         else:
-            temporal_out = self.temporal_encoder(visit_repr)
+            if overall_mask is not None:
+                padding_mask = ~overall_mask
+                # Avoid all-True row in padding mask which causes NaNs in transformer attention
+                all_pad = padding_mask.all(dim=-1, keepdim=True)
+                padding_mask = padding_mask & ~all_pad
+            else:
+                padding_mask = None
+            temporal_out = self.temporal_encoder(
+                visit_repr, src_key_padding_mask=padding_mask
+            )
 
         # Extract patient representation from the last valid visit
         patient_emb = get_last_visit(temporal_out, overall_mask)
