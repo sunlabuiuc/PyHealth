@@ -193,6 +193,78 @@ class TestBiteNet(unittest.TestCase):
         with self.assertRaises(ValueError):
             BiteNetEncoder(d_model=32, direction="invalid_dir")
 
+    def test_multilayer_backward_encoder_padded_input(self):
+        """Verifies backward encoder with num_layers>=2 handles padded rows without NaN."""
+        for layers in (2, 3):
+            bw_enc = BiteNetEncoder(
+                d_model=16, heads=2, num_layers=layers, direction="backward"
+            )
+            x = torch.randn(2, 5, 16)
+            mask = torch.tensor(
+                [[True, True, True, False, False], [True, True, False, False, False]],
+                dtype=torch.bool,
+            )
+            out = bw_enc(x, mask=mask)
+            self.assertFalse(
+                torch.isnan(out).any(), f"NaN detected with num_layers={layers}"
+            )
+            self.assertFalse(torch.isnan(out[mask]).any())
+            self.assertTrue(torch.all(out[~mask] == 0.0))
+
+    def test_directional_causality_masking(self):
+        """Tests that forward encoder is strictly causal and backward is anti-causal."""
+        torch.manual_seed(42)
+        d_model = 16
+        fw_enc = BiteNetEncoder(
+            d_model=d_model, heads=2, num_layers=2, direction="forward", dropout=0.0
+        )
+        bw_enc = BiteNetEncoder(
+            d_model=d_model, heads=2, num_layers=2, direction="backward", dropout=0.0
+        )
+        fw_enc.eval()
+        bw_enc.eval()
+
+        x1 = torch.randn(1, 6, d_model)
+
+        with torch.no_grad():
+            # Forward causal test: altering future tokens (indices 3..5)
+            # must not affect earlier token representations (indices 0..2)
+            x_future_changed = x1.clone()
+            x_future_changed[:, 3:, :] += 10.0
+
+            out_fw_base = fw_enc(x1)
+            out_fw_mod = fw_enc(x_future_changed)
+
+            self.assertTrue(
+                torch.allclose(
+                    out_fw_base[:, :3, :], out_fw_mod[:, :3, :], atol=1e-5
+                ),
+                "Forward encoder earlier steps leaked future token context.",
+            )
+            self.assertFalse(
+                torch.allclose(out_fw_base[:, 3:, :], out_fw_mod[:, 3:, :]),
+                "Forward encoder future steps should reflect changes.",
+            )
+
+            # Backward anti-causal test: altering past tokens (indices 0..2)
+            # must not affect later token representations (indices 3..5)
+            x_past_changed = x1.clone()
+            x_past_changed[:, :3, :] += 10.0
+
+            out_bw_base = bw_enc(x1)
+            out_bw_mod = bw_enc(x_past_changed)
+
+            self.assertTrue(
+                torch.allclose(
+                    out_bw_base[:, 3:, :], out_bw_mod[:, 3:, :], atol=1e-5
+                ),
+                "Backward encoder later steps leaked past token context.",
+            )
+            self.assertFalse(
+                torch.allclose(out_bw_base[:, :3, :], out_bw_mod[:, :3, :]),
+                "Backward encoder past steps should reflect changes.",
+            )
+
     def test_binary_classification_forward(self):
         """Tests complete forward pass on binary dataset."""
         loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
@@ -333,6 +405,40 @@ class TestBiteNet(unittest.TestCase):
         x_4d = torch.randn(2, 3, 4, 32)
         pooled = self.model._pool_embedding(x_4d)
         self.assertEqual(pooled.shape, (2, 3, 32))
+
+    def test_hierarchical_visit_inputs_with_code_mask(self):
+        """Ensures pad codes inside visits do not affect pooled visit representations."""
+        self.model.eval()
+        # [batch=1, visits=2, codes=3, dim=32]
+        x1 = torch.randn(1, 2, 3, 32)
+        # Second visit has only 1 valid code, codes 1 and 2 are padding
+        mask = torch.tensor(
+            [[[True, True, True], [True, False, False]]], dtype=torch.bool
+        )
+        x2 = x1.clone()
+        x2[0, 1, 1:, :] += 100.0  # modify pad codes in visit 1
+
+        with torch.no_grad():
+            pooled1 = self.model._pool_embedding(x1, mask=mask)
+            pooled2 = self.model._pool_embedding(x2, mask=mask)
+
+        self.assertTrue(torch.allclose(pooled1, pooled2, atol=1e-5))
+
+    def test_cls_pooling_with_padded_sequence(self):
+        """Verifies cls pooling correctly selects last valid visit for fw and index 0 for bw."""
+        cls_model = BiteNet(
+            dataset=self.dataset,
+            embedding_dim=32,
+            heads=2,
+            num_layers=1,
+            pooling="cls",
+        )
+        cls_model.eval()
+        loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+        out = cls_model(**batch)
+        self.assertEqual(out["logit"].shape, (2, 1))
+        self.assertFalse(torch.isnan(out["logit"]).any())
 
     def test_odd_embedding_dim(self):
         """Verifies odd embedding_dim support in embedding layer and model."""

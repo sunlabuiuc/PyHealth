@@ -13,6 +13,7 @@ from torch import nn
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
+from pyhealth.models.utils import get_last_visit
 
 
 class AttentionPooling(nn.Module):
@@ -364,9 +365,10 @@ class BiteNetEncoder(nn.Module):
 
         for layer in self.layers:
             x = layer(x, attn_mask=attn_mask, key_padding_mask=key_padding_mask)
+            x = torch.nan_to_num(x, nan=0.0)
+            if mask is not None:
+                x = x.masked_fill(~mask.unsqueeze(-1), 0.0)
 
-        if mask is not None:
-            x = x.masked_fill(~mask.unsqueeze(-1), 0.0)
         return x
 
 
@@ -392,16 +394,19 @@ class BiteNet(BaseModel):
     Temporal interval feature sources:
         - ``interval`` or ``time``: Inter-visit time intervals in days or integer
           timestamps (tensor of shape ``[batch_size, seq_len]`` or ``[batch_size]``)
-          passed directly in batch kwargs (e.g. ``kwargs["interval"]``).
-          If omitted from inputs, BiteNet operates as a position-aware bidirectional
-          encoder using sequence positional encodings.
+          passed directly in batch kwargs (e.g. ``kwargs["interval"] = torch.tensor(...)``).
+          Supplying raw integer tensors allows exact day intervals to directly index
+          learned interval embeddings or sinusoidal encodings. If declared in
+          ``dataset.input_schema`` with a sequence processor, intervals are converted
+          to token vocabulary indices. If omitted from inputs, BiteNet operates as
+          a position-aware bidirectional encoder using sequence positional encodings.
 
     Sequence pooling:
         - ``"attention"`` (default): Uses attention pooling over forward and backward
           encoder hidden representations.
         - ``"mean"``: Computes the average of hidden representations across valid tokens.
-        - ``"cls"``: Uses the first code token representation (index 0) for forward
-          and the last valid token for backward.
+        - ``"cls"``: Uses the last valid token representation for forward (which sees
+          all preceding visits) and index 0 for backward (which sees all succeeding visits).
 
     Args:
         dataset: PyHealth dataset containing features and labels.
@@ -537,12 +542,21 @@ class BiteNet(BaseModel):
         output_size = self.label_processor.output_size()
         self.fc = nn.Linear(len(self.code_feature_keys) * embedding_dim, output_size)
 
-    def _pool_embedding(self, x: torch.Tensor) -> torch.Tensor:
+    def _pool_embedding(
+        self, x: torch.Tensor, mask: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Flattens or pools hierarchical code sequences into ``[batch, seq_len, hidden]``."""
         if x.dim() == 4:
             batch_size, num_visits, num_codes, dim = x.shape
             x_flat = x.view(batch_size * num_visits, num_codes, dim)
-            pooled = self.intra_visit_pool(x_flat)
+            code_mask = None
+            if mask is not None and mask.dim() >= 3:
+                code_mask = mask.view(batch_size * num_visits, num_codes)
+            elif mask is None:
+                code_mask = (x != 0).any(dim=-1).view(
+                    batch_size * num_visits, num_codes
+                )
+            pooled = self.intra_visit_pool(x_flat, mask=code_mask)
             return pooled.view(batch_size, num_visits, dim)
         if x.dim() == 2:
             return x.unsqueeze(1)
@@ -564,6 +578,8 @@ class BiteNet(BaseModel):
             ``"loss"``, ``"y_true"``, and ``"embed"``.
         """
         interval_ids = kwargs.get("interval", kwargs.get("time", None))
+        if isinstance(interval_ids, tuple):
+            interval_ids = interval_ids[0]
         patient_embeddings: list[torch.Tensor] = []
 
         for feature_key in self.code_feature_keys:
@@ -586,12 +602,14 @@ class BiteNet(BaseModel):
                 )
 
             value = value.to(self.device)
-            value = self._pool_embedding(value)
+            if mask is not None:
+                mask = mask.to(self.device).bool()
+
+            value = self._pool_embedding(value, mask=mask)
 
             batch_size, seq_len, _ = value.shape
 
             if mask is not None:
-                mask = mask.to(self.device).bool()
                 while mask.dim() > 2:
                     mask = mask.any(dim=-1)
                 if mask.size(1) != seq_len:
@@ -630,8 +648,8 @@ class BiteNet(BaseModel):
                 u_fw = torch.sum(o_fw * mask_expanded, dim=1) / denom
                 u_bw = torch.sum(o_bw * mask_expanded, dim=1) / denom
             else:  # cls
-                u_fw = o_fw[:, 0, :]
-                u_bw = o_bw[:, -1, :]
+                u_fw = get_last_visit(o_fw, mask)
+                u_bw = o_bw[:, 0, :]
 
             # Bidirectional concatenation and projection
             u_bi = torch.cat([u_fw, u_bw], dim=-1)
@@ -709,9 +727,13 @@ class BiteNet(BaseModel):
             )
 
         if raw_interval is not None:
-            forward_kwargs["interval"] = raw_interval
+            forward_kwargs["interval"] = (
+                raw_interval[0] if isinstance(raw_interval, tuple) else raw_interval
+            )
         if raw_time is not None:
-            forward_kwargs["time"] = raw_time
+            forward_kwargs["time"] = (
+                raw_time[0] if isinstance(raw_time, tuple) else raw_time
+            )
 
         return self.forward_from_embedding(**forward_kwargs)
 
