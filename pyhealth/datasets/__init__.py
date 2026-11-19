@@ -67,6 +67,7 @@ from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
 from .covid19_cxr import COVID19CXRDataset
 from .ptbxl import PTBXLDataset as PTBXLDataset
+from .chapman_shaoxing import ChapmanShaoxingDataset as ChapmanShaoxingDataset
 from .physionet2012 import PhysioNet2012Dataset as PhysioNet2012Dataset
 from .dreamt import DREAMTDataset
 from .ehrshot import EHRShotDataset

@@ -194,6 +194,8 @@ def _timeline_fields(
 class EthosTimelineMEDS(BaseTask):
     """One whole MEDS timeline per patient, for training ETHOS.
 
+    Works with :class:`~pyhealth.datasets.MEDSDataset`.
+
     There is no label: :class:`~pyhealth.models.ETHOS` learns to predict the
     next token. Fit on the training patients only, with
     ``set_task(EthosTimelineMEDS(), split=PatientSplit(...))``.
@@ -233,6 +235,8 @@ class EthosTimelineMEDS(BaseTask):
 
 class EthosOutcomeMEDS(BaseTask):
     """An outcome task's cohort and labels, as ETHOS timelines.
+
+    Works with :class:`~pyhealth.datasets.MEDSDataset`.
 
     Runs ``outcome_task(**options)`` and replaces each sample's ``codes`` with
     the same rows, so that the cohort, the label and every leakage exclusion

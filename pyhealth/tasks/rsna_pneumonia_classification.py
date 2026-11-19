@@ -8,6 +8,8 @@ from .base_task import BaseTask
 class RSNAPneumoniaClassification(BaseTask):
     """Classify RSNA chest X-rays as lung-opacity positive or negative.
 
+    Works with :class:`~pyhealth.datasets.RSNAPneumoniaDataset`.
+
     The task reads one DICOM image per sample, applies grayscale ImageNet-style
     normalisation, and uses the binary ``pneumonia`` label from the RSNA
     metadata (adjudicated annotations when available).
