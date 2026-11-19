@@ -400,8 +400,8 @@ class TestUDC(unittest.TestCase):
         self.assertFalse(torch.isnan(out["embed"]).any())
         self.assertTrue(torch.all(out["embed"] > -1e5))
 
-    def test_visit_mask_logic_assertion(self):
-        """Verifies visit mask accurately distinguishes valid vs empty padded visits."""
+    def test_padding_invariance(self):
+        """Verifies a patient's prediction and embedding do not change when padded."""
         samples = [
             {
                 "patient_id": "p0",
@@ -421,25 +421,40 @@ class TestUDC(unittest.TestCase):
             input_schema={"conditions": "nested_sequence"},
             output_schema={"label": "binary"},
         )
-        model = UDC(dataset=dataset, embedding_dim=16, hidden_dim=16)
-        loader = get_dataloader(dataset, batch_size=2, shuffle=False)
-        batch = next(iter(loader))
-        out = model(**batch)
-        self.assertEqual(out["logit"].shape, (2, 1))
+        for temp_model in ("gru", "transformer"):
+            torch.manual_seed(42)
+            model = UDC(
+                dataset=dataset,
+                embedding_dim=16,
+                hidden_dim=16,
+                temporal_model=temp_model,
+                dropout=0.0,
+            )
+            model.eval()
 
-        mask = batch["conditions"] != 0
-        code_mask = mask != 0
-        v_mask = code_mask.any(dim=-1)
+            loader = get_dataloader(dataset, batch_size=2, shuffle=False)
+            batch = next(iter(loader))
 
-        # Patient 0 has only visit 0 valid; visits 1 and 2 must be False
-        self.assertTrue(v_mask[0, 0].item())
-        self.assertFalse(v_mask[0, 1].item())
-        self.assertFalse(v_mask[0, 2].item())
+            with torch.no_grad():
+                out_batch = model(**batch)
+                batch_single = {
+                    k: v[0:1, :1] if k == "conditions" else v[0:1]
+                    for k, v in batch.items()
+                }
+                out_single = model(**batch_single)
 
-        # Patient 1 has visits 0, 1, 2 all valid
-        self.assertTrue(v_mask[1, 0].item())
-        self.assertTrue(v_mask[1, 1].item())
-        self.assertTrue(v_mask[1, 2].item())
+            self.assertTrue(
+                torch.allclose(
+                    out_batch["logit"][0], out_single["logit"][0], atol=1e-5
+                ),
+                f"Logit padding variance on {temp_model}",
+            )
+            self.assertTrue(
+                torch.allclose(
+                    out_batch["embed"][0], out_single["embed"][0], atol=1e-5
+                ),
+                f"Embed padding variance on {temp_model}",
+            )
 
 
 if __name__ == "__main__":

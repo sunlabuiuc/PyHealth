@@ -115,12 +115,13 @@ class ResidualVectorQuantizer(nn.Module):
             )
 
     def forward(
-        self, x: torch.Tensor
+        self, x: torch.Tensor, mask: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Quantizes the continuous input tensor across residual codebooks.
 
         Args:
             x: Continuous input tensor of shape ``(..., embedding_dim)``.
+            mask: Optional boolean mask of shape ``(...)`` indicating valid visits.
 
         Returns:
             Tuple of:
@@ -133,6 +134,7 @@ class ResidualVectorQuantizer(nn.Module):
         orig_shape = x.shape
         flat_x = x.reshape(-1, self.embedding_dim)
         residual = flat_x
+        flat_mask = mask.reshape(-1).bool() if mask is not None else None
 
         quantized_out = torch.zeros_like(flat_x)
         all_indices: list[torch.Tensor] = []
@@ -150,9 +152,16 @@ class ResidualVectorQuantizer(nn.Module):
             all_indices.append(indices)
 
             quantized_i = codebook(indices)
-            loss_i = F.mse_loss(
-                quantized_i, residual.detach()
-            ) + self.commitment_cost * F.mse_loss(residual, quantized_i.detach())
+            if flat_mask is not None and flat_mask.any():
+                q_valid = quantized_i[flat_mask]
+                res_valid = residual[flat_mask]
+                loss_i = F.mse_loss(
+                    q_valid, res_valid.detach()
+                ) + self.commitment_cost * F.mse_loss(res_valid, q_valid.detach())
+            else:
+                loss_i = F.mse_loss(
+                    quantized_i, residual.detach()
+                ) + self.commitment_cost * F.mse_loss(residual, quantized_i.detach())
             vq_loss = vq_loss + loss_i
 
             quantized_out = quantized_out + quantized_i
@@ -232,12 +241,13 @@ class DiscreteClueEncoder(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(
-        self, x: torch.Tensor
+        self, x: torch.Tensor, mask: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Projects continuous representations and fuses residual discrete clues.
 
         Args:
             x: Input continuous tensor of shape ``(..., input_dim)``.
+            mask: Optional boolean mask of shape ``(...)`` indicating valid visits.
 
         Returns:
             Tuple of:
@@ -248,9 +258,11 @@ class DiscreteClueEncoder(nn.Module):
                   ``(..., n_codebooks)``.
         """
         projected = self.proj(x)
-        quantized, vq_loss, indices = self.rvq(projected)
+        quantized, vq_loss, indices = self.rvq(projected, mask=mask)
         fused = self.norm(projected + quantized)
         fused = self.dropout(fused)
+        if mask is not None:
+            fused = fused.masked_fill(~mask.unsqueeze(-1), 0.0)
         return fused, vq_loss, indices
 
 
@@ -334,7 +346,7 @@ class UDC(BaseModel):
         >>> batch = next(iter(loader))
         >>> out = model(**batch)
         >>> sorted(out.keys())
-        ['embed', 'logit', 'loss', 'vq_loss', 'y_prob', 'y_true']
+        ['embed', 'logit', 'loss', 'vq_indices', 'vq_loss', 'y_prob', 'y_true']
     """
 
     def __init__(
@@ -597,15 +609,20 @@ class UDC(BaseModel):
             overall_mask = visit_masks[0]
 
         visit_repr = self.feat_proj(combined)  # (B, T, hidden_dim)
+        visit_repr = visit_repr.masked_fill(~overall_mask.unsqueeze(-1), 0.0)
 
         # Extract and fuse discrete clues
-        fused_visits, vq_loss, vq_indices = self.clue_encoder(visit_repr)
+        fused_visits, vq_loss, vq_indices = self.clue_encoder(
+            visit_repr, mask=overall_mask
+        )
 
         # Temporal sequence modeling
         if self.temporal_model_name in ("gru", "lstm"):
             temporal_out, _ = self.temporal_encoder(fused_visits)
         else:  # transformer
-            temporal_out = self.temporal_encoder(fused_visits)
+            temporal_out = self.temporal_encoder(
+                fused_visits, src_key_padding_mask=~overall_mask
+            )
 
         # Extract patient representation from the last valid visit
         patient_emb = get_last_visit(temporal_out, overall_mask)
@@ -619,6 +636,7 @@ class UDC(BaseModel):
             "logit": logits,
             "embed": patient_emb,
             "vq_loss": vq_loss,
+            "vq_indices": vq_indices,
         }
 
         if self.label_key in kwargs:
@@ -631,7 +649,5 @@ class UDC(BaseModel):
             total_loss = task_loss + self.vq_loss_weight * vq_loss
             results["loss"] = total_loss
             results["y_true"] = y_true
-        else:
-            results["vq_indices"] = vq_indices
 
         return results
