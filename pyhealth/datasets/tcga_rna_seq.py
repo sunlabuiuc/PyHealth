@@ -1,10 +1,9 @@
 """TCGA bulk RNA-seq survival dataset.
 
 Thin loader over cached 256-d BulkRNABert embeddings joined with TCGA
-survival labels. The data is one CSV, ``tcga_rna_seq.csv``, hosted on
-Hugging Face:
-
-    cstein2/TCGABulkBertRNAEmbeddings
+survival labels. The data is one CSV, ``tcga_rna_seq.csv``, hosted at
+`cstein2/TCGABulkBertRNAEmbeddings
+<https://huggingface.co/datasets/cstein2/TCGABulkBertRNAEmbeddings>`_.
 
 The CSV has columns:
 
@@ -13,6 +12,18 @@ The CSV has columns:
     duration   : float  Survival time in days; positive
     event      : int    1 = death observed, 0 = censored
     embedding  : str    JSON-serialized list of 256 floats
+
+Data provenance:
+
+- **RNA-seq and survival labels** come from TCGA via the NCI Genomic
+  Data Commons (GDC, https://portal.gdc.cancer.gov/). Only open-access
+  tier data is used; no controlled-access fields are included.
+- **256-d embeddings** are the mean over genes of the frozen BulkRNABert
+  encoder's layer-4 output. Checkpoint and encoder code from Gélard et
+  al., "BulkRNABert: Cancer prognosis from bulk RNA-seq based language
+  models" (ML4H 2025, https://arxiv.org/abs/2502.06407), via the
+  reference implementation at
+  https://github.com/instadeepai/multiomics-open-research.
 
 The dataset is a thin loader; it does not generate the CSV. To regenerate
 the embeddings from raw TCGA, see the accompanying research repository's

@@ -69,11 +69,20 @@ class TCGASurvivalPrediction(BaseTask):
     Args:
         cohort_to_int: Optional override of the cohort-to-int mapping.
 
+    Note:
+        Malformed rows (non-positive or non-finite duration, event not in
+        {0, 1}, unknown cohort) raise ``ValueError``. The shipped
+        ``tcga_rna_seq.csv`` is pre-validated upstream, so this only
+        surfaces if a user supplies their own CSV.
+
     Example:
+        >>> from pyhealth.datasets import TCGARNASeqDataset
+        >>> from pyhealth.tasks import TCGASurvivalPrediction
+        >>> ds = TCGARNASeqDataset.from_huggingface()  # doctest: +SKIP
         >>> task = TCGASurvivalPrediction()
-        >>> sample = task(dataset.get_patient("TCGA-XX-0001"))[0]
-        >>> sample["cohort"]  # int-encoded
-        [8.0]
+        >>> sample = task(ds.get_patient("TCGA-BRCA-0001"))[0]  # doctest: +SKIP
+        >>> sample["cohort"]  # int-encoded BRCA index
+        [2.0]
     """
 
     task_name: str = "TCGASurvivalPrediction"

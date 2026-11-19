@@ -1,5 +1,4 @@
 import json
-import shutil
 import tempfile
 from pathlib import Path
 from unittest import mock
@@ -7,9 +6,9 @@ from unittest import mock
 import numpy as np
 import pandas as pd
 import pytest
+import torch
 
 from pyhealth.datasets import TCGARNASeqDataset
-from pyhealth.datasets import tcga_rna_seq as dsmod
 
 
 def _write_csv(root: Path, seed: int = 0) -> Path:
@@ -82,3 +81,27 @@ def test_from_huggingface_downloads_and_loads():
             revision="c1cca7f308c5d92b3337c6c36bdb3e857ba7991e",
         )
         assert len(ds.unique_patient_ids) == 3
+
+@pytest.mark.filterwarnings("ignore:The given buffer is not writable")
+def test_dataset_to_model_pipeline():
+    """Load synthetic CSV, apply task, build model, run a forward pass."""
+    from pyhealth.datasets import get_dataloader
+    from pyhealth.models import BulkRNABert
+    from pyhealth.tasks import TCGASurvivalPrediction
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        tmp = Path(tmp)
+        _write_csv(tmp)
+
+        ds = TCGARNASeqDataset(root=str(tmp), cache_dir=str(tmp / "cache"))
+        samples = ds.set_task(TCGASurvivalPrediction())
+        assert len(samples) == 3
+
+        model = BulkRNABert(dataset=samples)
+        loader = get_dataloader(samples, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+
+        out = model(**batch)
+        assert out["logit"].shape == (2, 1)
+        assert "loss" in out
+        assert torch.isfinite(out["loss"])

@@ -104,7 +104,7 @@ def test_cohort_int_is_stable_for_known_cohorts():
     assert idx["BRCA"] == 2
     assert idx["LUAD"] == 16
     assert idx["KIRC"] == 11
-    
+
 def test_int_to_cohort_instance_attribute():
     task = TCGASurvivalPrediction()
     assert task.int_to_cohort[2] == "BRCA"

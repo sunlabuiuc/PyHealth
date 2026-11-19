@@ -6,10 +6,10 @@ pyhealth.models.BulkRNABert
    :undoc-members:
    :show-inheritance:
 
-Encoder
--------
+Survival head
+-------------
 
-.. autoclass:: pyhealth.models.bulk_rna_bert.BulkRNABertEncoder
+.. autoclass:: pyhealth.models.bulk_rna_bert.SurvivalHead
    :members:
    :undoc-members:
    :show-inheritance:
@@ -18,8 +18,3 @@ Cox loss
 --------
 
 .. autofunction:: pyhealth.models.bulk_rna_bert.cox_loss
-
-Tokenization
-------------
-
-.. autofunction:: pyhealth.models.bulk_rna_bert.tokenize

@@ -32,6 +32,7 @@ definition of the partial likelihood.
 ``pyhealth.metrics.survival.concordance_index``. The per-cohort aggregation
 (weighted and macro C-index) is ablation-specific and lives here rather
 than in ``pyhealth.metrics.survival``, which is cohort-agnostic.
+
 **Real-data results (3 seeds, full-batch Cox, 300 epochs, patience 50):**
 
     ==========  ==================  ====================  ==========
