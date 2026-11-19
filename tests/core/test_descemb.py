@@ -608,6 +608,50 @@ class TestDescEmb(unittest.TestCase):
             expected_emb = custom_encoder(expected_ids)[0]
         self.assertTrue(torch.allclose(c1_emb, expected_emb, atol=1e-5))
 
+    def test_cross_feature_length_alignment(self):
+        """Verifies forward pads and aligns features with unequal visit lengths."""
+        samples = [
+            {
+                "patient_id": "p0",
+                "visit_id": "v0",
+                "conditions": [["c1", "c2"], ["c3"]],
+                "procedures": [["p1"], ["p2"], ["p3"]],
+                "drugs": ["d1", "d2", "d3", "d4"],
+                "label": 1,
+            },
+            {
+                "patient_id": "p1",
+                "visit_id": "v1",
+                "conditions": [["c2"]],
+                "procedures": [["p3"], ["p1"]],
+                "drugs": ["d2"],
+                "label": 0,
+            },
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={
+                "conditions": "nested_sequence",
+                "procedures": "nested_sequence",
+                "drugs": "sequence",
+            },
+            output_schema={"label": "binary"},
+        )
+        model = DescEmb(
+            dataset=dataset,
+            embedding_dim=16,
+            text_hidden_dim=16,
+            temporal_hidden_dim=16,
+        )
+        loader = get_dataloader(dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+        out = model(**batch)
+        self.assertIn("logit", out)
+        self.assertTrue(torch.isfinite(out["logit"]).all())
+        self.assertEqual(out["logit"].shape, (2, 1))
+        self.assertTrue(torch.isfinite(out["embed"]).all())
+        self.assertEqual(out["embed"].shape, (2, 16))
+
 
 if __name__ == "__main__":
     unittest.main()

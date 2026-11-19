@@ -26,8 +26,12 @@ DescEmb resolves this by representing codes via their clinical text descriptions
    pooling (``sum``, ``mean``, ``max``, or ``attention``).
 3. **Description-Based Embedding Initialization**: By initializing code
    embeddings from textual descriptions via
-   :meth:`~pyhealth.models.DescEmb.initialize_with_descriptions`, representations
-   are bootstrapped with rich clinical semantics for downstream task training.
+   :meth:`~pyhealth.models.DescEmb.initialize_with_descriptions`, concept
+   representations are initialized from description tokens. When paired with
+   a user-supplied ``pretrained_text_encoder`` and matching ``text_vocab``,
+   this injects learned clinical text semantics into the code embedding layer
+   prior to task fine-tuning; when using the default un-pretrained encoder,
+   initialization acts as a pseudo-random projection.
 4. **Longitudinal Visit Modeling**: A temporal sequence model (GRU, LSTM,
    or Transformer) aggregates patient trajectories across visits.
 5. **Outcome Prediction**: Last-visit patient representations are mapped
@@ -36,9 +40,10 @@ DescEmb resolves this by representing codes via their clinical text descriptions
 .. note::
 
    When initialized without pretrained encoder weights,
-   :class:`~pyhealth.models.descemb.DescEmbCodeEncoder` acts as a deterministic
-   pseudo-random projection mapping description tokens to embedding space.
-   Users may provide a custom module via ``pretrained_text_encoder`` and matching
+   :class:`~pyhealth.models.descemb.DescEmbCodeEncoder` acts as a pseudo-random
+   projection (dependent on the initialization seed) mapping description tokens
+   to embedding space. Learned clinical semantics are only introduced when
+   users provide a custom module via ``pretrained_text_encoder`` and matching
    vocabulary via ``text_vocab`` to retain semantics learned during text
    pretraining. Codes omitted from ``code_descriptions`` fall back to using
    their raw code strings.

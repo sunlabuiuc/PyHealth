@@ -18,8 +18,10 @@ limitations:
 
 DescEmb overcomes these limitations by initializing code embeddings from
 the standardized textual descriptions of medical codes using a text encoder
-(such as a bidirectional GRU), injecting semantic clinical priors into the
-embedding layer.
+(such as a bidirectional GRU). When initialized with a user-supplied
+pretrained text encoder, this injects learned clinical text semantics into the
+code embedding layer prior to longitudinal sequence modeling; with the default
+un-pretrained encoder, initialization acts as a pseudo-random projection.
 
 The PyHealth DescEmb architecture comprises:
     1. Description Text Encoding (:class:`DescEmbCodeEncoder`): Embeds
@@ -57,7 +59,7 @@ from pyhealth.models.embedding import EmbeddingModel
 from pyhealth.models.utils import get_last_visit
 
 
-def simple_subword_tokenize(
+def simple_word_tokenize(
     text: str, max_tokens: int = 16
 ) -> list[str]:
     """Tokenizes a clinical description string into lowercase alphanumeric words.
@@ -70,7 +72,7 @@ def simple_subword_tokenize(
         List of lowercase string tokens.
 
     Examples:
-        >>> simple_subword_tokenize("Essential (primary) hypertension")
+        >>> simple_word_tokenize("Essential (primary) hypertension")
         ['essential', 'primary', 'hypertension']
     """
     cleaned = re.sub(r"[^a-zA-Z0-9\s]", " ", text.lower())
@@ -78,7 +80,7 @@ def simple_subword_tokenize(
     return tokens[:max_tokens]
 
 
-simple_word_tokenize = simple_subword_tokenize
+simple_subword_tokenize = simple_word_tokenize
 
 
 class DescEmbCodeEncoder(nn.Module):
@@ -191,8 +193,10 @@ class DescEmb(BaseModel):
     code embeddings by encoding medical concepts through their textual
     descriptions. It uses :class:`DescEmbCodeEncoder` to initialize medical
     concept embeddings from clinical text descriptions (via a BiGRU over
-    word tokens), injecting semantic clinical priors into the embedding
-    layers prior to longitudinal sequence modeling. During training, these
+    word tokens). When provided with a pretrained text encoder, this injects
+    learned clinical text semantics into the embedding layer prior to
+    longitudinal sequence modeling; with an un-pretrained encoder,
+    initialization serves as a pseudo-random projection. During training, these
     description-initialized embeddings are fine-tuned as part of the predictive
     model.
 
@@ -230,9 +234,10 @@ class DescEmb(BaseModel):
     Note:
         When using randomly initialized :class:`DescEmbCodeEncoder` (the
         default when `pretrained_text_encoder` is None), description-based
-        initialization functions as a deterministic pseudo-random projection
-        of description tokens into embedding space. To preserve semantic
-        pretraining, pass `pretrained_text_encoder` and matching `text_vocab`,
+        initialization functions as a pseudo-random projection (dependent on
+        the initialization seed) of description tokens into embedding space.
+        Learned clinical semantics are only introduced when users provide a
+        pretrained module via `pretrained_text_encoder` and matching `text_vocab`,
         or load weights into `self.code_text_encoder`. Codes not found in
         `code_descriptions` fall back to using the code string itself as the
         description.
@@ -410,7 +415,7 @@ class DescEmb(BaseModel):
 
     def _tokenize_text(self, text: str, max_len: int = 16) -> list[int]:
         """Converts a description string to word token IDs."""
-        tokens = simple_subword_tokenize(text, max_tokens=max_len)
+        tokens = simple_word_tokenize(text, max_tokens=max_len)
         ids = []
         for t in tokens:
             if self.text_vocab_fixed:
