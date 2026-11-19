@@ -31,7 +31,8 @@ logger = logging.getLogger(__name__)
 _CSV_NAME = "tcga_rna_seq.csv"
 
 HF_TCGA_RNA_SEQ_REPO = "cstein2/TCGABulkBertRNAEmbeddings"
-HF_TCGA_RNA_SEQ_REVISION = ("c1cca7f308c5d92b3337c6c36bdb3e857ba7991e")
+HF_TCGA_RNA_SEQ_REVISION = "c1cca7f308c5d92b3337c6c36bdb3e857ba7991e"
+
 
 class TCGARNASeqDataset(BaseDataset):
     """TCGA bulk RNA-seq survival dataset, from frozen BulkRNABert embeddings.
@@ -43,7 +44,7 @@ class TCGARNASeqDataset(BaseDataset):
     and :class:`~pyhealth.models.BulkRNABert`.
 
     Args:
-        root: Directory holding ``tcga_rna_seq.csv``. 
+        root: Directory holding ``tcga_rna_seq.csv``.
         **kwargs: Passed to :class:`~pyhealth.datasets.BaseDataset`
             (e.g. ``cache_dir``, ``dev``).
     Raises:
@@ -54,8 +55,10 @@ class TCGARNASeqDataset(BaseDataset):
         >>> ds = TCGARNASeqDataset(root="artifacts_dir")  # doctest: +SKIP
         >>> ds.stats()  # doctest: +SKIP
     """
+
     HF_REPO_ID = HF_TCGA_RNA_SEQ_REPO
     HF_REVISION = HF_TCGA_RNA_SEQ_REVISION
+
     def __init__(
         self,
         root: str,
@@ -71,12 +74,9 @@ class TCGARNASeqDataset(BaseDataset):
                 "TCGARNASeqDataset.from_huggingface() to download it, or place "
                 "tcga_rna_seq.csv at this path yourself. See the class docstring "
                 "for the expected schema."
-
             )
         if config_path is None:
-            config_path = str(
-                Path(__file__).parent / "configs" / "tcga_rna_seq.yaml"
-            )
+            config_path = str(Path(__file__).parent / "configs" / "tcga_rna_seq.yaml")
         super().__init__(
             root=root,
             tables=tables or ["tcga_rna_seq"],
@@ -84,6 +84,7 @@ class TCGARNASeqDataset(BaseDataset):
             config_path=config_path,
             **kwargs,
         )
+
     @classmethod
     def from_huggingface(
         cls,
@@ -91,7 +92,7 @@ class TCGARNASeqDataset(BaseDataset):
         revision: str = HF_TCGA_RNA_SEQ_REVISION,
         cache_dir: str | Path | None = None,
         **kwargs,
-    ) -> "TCGARNASeqDataset":
+    ) -> TCGARNASeqDataset:
         """Download ``tcga_rna_seq.csv`` from Hugging Face and load it.
 
         Args:

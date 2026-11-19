@@ -5,8 +5,9 @@ and ``InHospitalSurvivalMIMIC4``): ``duration``/``event`` are ``"tensor"``
 outputs, not label-processor fields, so the model computes its own Cox loss.
 """
 
-from typing import Any, ClassVar
 import json
+from typing import Any, ClassVar
+
 import numpy as np
 
 from pyhealth.data import Patient
@@ -14,10 +15,39 @@ from pyhealth.tasks import BaseTask
 
 # The 33 TCGA cohorts, alphabetically. Used to encode the cohort label as int.
 TCGA_COHORTS: tuple[str, ...] = (
-    "ACC", "BLCA", "BRCA", "CESC", "CHOL", "COAD", "DLBC", "ESCA", "GBM",
-    "HNSC", "KICH", "KIRC", "KIRP", "LAML", "LGG", "LIHC", "LUAD", "LUSC",
-    "MESO", "OV", "PAAD", "PCPG", "PRAD", "READ", "SARC", "SKCM", "STAD",
-    "TGCT", "THCA", "THYM", "UCEC", "UCS", "UVM",
+    "ACC",
+    "BLCA",
+    "BRCA",
+    "CESC",
+    "CHOL",
+    "COAD",
+    "DLBC",
+    "ESCA",
+    "GBM",
+    "HNSC",
+    "KICH",
+    "KIRC",
+    "KIRP",
+    "LAML",
+    "LGG",
+    "LIHC",
+    "LUAD",
+    "LUSC",
+    "MESO",
+    "OV",
+    "PAAD",
+    "PCPG",
+    "PRAD",
+    "READ",
+    "SARC",
+    "SKCM",
+    "STAD",
+    "TGCT",
+    "THCA",
+    "THYM",
+    "UCEC",
+    "UCS",
+    "UVM",
 )
 COHORT_TO_INT: dict[str, int] = {c: i for i, c in enumerate(TCGA_COHORTS)}
 
@@ -55,16 +85,14 @@ class TCGASurvivalPrediction(BaseTask):
     }
     COHORT_TO_INT: ClassVar[dict[str, int]] = COHORT_TO_INT
     INT_TO_COHORT: ClassVar[dict[int, str]] = {i: c for c, i in COHORT_TO_INT.items()}
+
     def __init__(self, cohort_to_int: dict[str, int] | None = None) -> None:
         super().__init__()
         self.cohort_to_int = (
-            dict(COHORT_TO_INT)
-            if cohort_to_int is None
-            else dict(cohort_to_int)
+            dict(COHORT_TO_INT) if cohort_to_int is None else dict(cohort_to_int)
         )
-        self.int_to_cohort = {
-            idx: cohort for cohort, idx in self.cohort_to_int.items()
-        }
+        self.int_to_cohort = {idx: cohort for cohort, idx in self.cohort_to_int.items()}
+
     def __call__(self, patient: Patient) -> list[dict[str, Any]]:
         events = patient.get_events(event_type="tcga_rna_seq")
         if not events:
@@ -93,9 +121,7 @@ class TCGASurvivalPrediction(BaseTask):
                 f"Invalid duration for patient {patient.patient_id}: {raw_dur!r}"
             ) from err
         if not np.isfinite(duration) or duration <= 0:
-            raise ValueError(
-                f"duration must be finite and positive, got {duration}"
-            )
+            raise ValueError(f"duration must be finite and positive, got {duration}")
 
         try:
             event_val = float(raw_ev)
@@ -107,8 +133,7 @@ class TCGASurvivalPrediction(BaseTask):
             raise ValueError(f"Event must be 0 or 1, got {event_val}")
 
         cohort_name = str(raw_co)
-        if cohort_name.startswith("TCGA-"):
-            cohort_name = cohort_name[5:]
+        cohort_name = cohort_name.removeprefix("TCGA-")
         if cohort_name not in self.cohort_to_int:
             raise ValueError(f"Unknown TCGA cohort: {cohort_name!r}")
         cohort_int = self.cohort_to_int[cohort_name]
@@ -121,16 +146,16 @@ class TCGASurvivalPrediction(BaseTask):
                 f"Invalid embedding for patient {patient.patient_id}: {err}"
             ) from err
         if embedding.shape != (256,):
-            raise ValueError(
-                f"Embedding must be shape (256,), got {embedding.shape}"
-            )
+            raise ValueError(f"Embedding must be shape (256,), got {embedding.shape}")
         if not np.isfinite(embedding).all():
             raise ValueError("Embedding contains non-finite values")
 
-        return [{
-            "patient_id": patient.patient_id,
-            "embedding": embedding,
-            "duration": [duration],
-            "event": [event_val],
-            "cohort": [float(cohort_int)],
-        }]
+        return [
+            {
+                "patient_id": patient.patient_id,
+                "embedding": embedding,
+                "duration": [duration],
+                "event": [event_val],
+                "cohort": [float(cohort_int)],
+            }
+        ]

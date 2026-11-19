@@ -13,10 +13,8 @@ as preprocessing/validation tools, not in this PyHealth model.
 
 from __future__ import annotations
 
-from typing import Optional
-
 import torch
-import torch.nn as nn
+from torch import nn
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
@@ -33,9 +31,17 @@ def _unpack(v):
 
 
 class SurvivalHead(nn.Module):
-    """MLP head: 256 -> 512 (SELU) -> 256 (SELU) -> LayerNorm -> 1."""
+    """MLP head: 256 -> 512 (SELU) -> 256 (SELU) -> LayerNorm -> 1.
+    Example:
+        >>> import torch
+        >>> head = SurvivalHead()
+        >>> head(torch.zeros(2, 256)).shape
+        torch.Size([2])
+    """
 
-    def __init__(self, in_dim: int = EMBED_DIM, hidden: tuple[int, ...] = (512, 256)) -> None:
+    def __init__(
+        self, in_dim: int = EMBED_DIM, hidden: tuple[int, ...] = (512, 256)
+    ) -> None:
         super().__init__()
         layers: list[nn.Module] = []
         width = in_dim
@@ -47,7 +53,7 @@ class SurvivalHead(nn.Module):
         self.out = nn.Linear(width, 1)
         for module in self.modules():
             if isinstance(module, nn.Linear):
-                std = module.in_features ** -0.5
+                std = module.in_features**-0.5
                 nn.init.trunc_normal_(module.weight, std=std, a=-2 * std, b=2 * std)
                 nn.init.zeros_(module.bias)
 
@@ -59,7 +65,7 @@ def cox_loss(
     risk: torch.Tensor,
     duration: torch.Tensor,
     event: torch.Tensor,
-    group: Optional[torch.Tensor] = None,
+    group: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Mean negative Cox partial log-likelihood (Breslow ties).
 
@@ -69,7 +75,7 @@ def cox_loss(
     average, so the result is still a mean over all observed events rather
     than a mean of per-cohort means (which would weight small cohorts
     equally with large ones).
-    
+
     Args:
         risk: Risk scores, shape ``(batch,)``.
         duration: Survival times, shape ``(batch,)``.
@@ -80,6 +86,13 @@ def cox_loss(
     Returns:
         Scalar loss. If no events are present, returns a zero-valued tensor
         that still propagates gradients (safe for minibatches).
+    Example:
+        >>> import torch
+        >>> risk = torch.tensor([0.9, 0.5, 0.1])
+        >>> duration = torch.tensor([1.0, 2.0, 3.0])
+        >>> event = torch.tensor([1.0, 1.0, 1.0])
+        >>> bool(cox_loss(risk, duration, event) > 0)
+        True
     """
     if group is None:
         return cox_partial_likelihood_loss(risk, duration, event)
@@ -135,12 +148,12 @@ class BulkRNABert(BaseModel):
         >>> out["logit"].shape
         torch.Size([4, 1])
     """
-    
+
     def __init__(
         self,
         dataset: SampleDataset | None = None,
         feature_key: str = "embedding",
-        cox_loss_mode: str = "global"
+        cox_loss_mode: str = "global",
     ) -> None:
         super().__init__(dataset=dataset)
         self._feature_key = feature_key
@@ -168,7 +181,11 @@ class BulkRNABert(BaseModel):
                 f"embedding must have last dim {EMBED_DIM}, got {emb.shape[-1]}"
             )
         logit = self.head(emb).unsqueeze(-1)
-        out: dict[str, torch.Tensor] = {"logit": logit, "y_prob": logit, "risk_score": logit,}
+        out: dict[str, torch.Tensor] = {
+            "logit": logit,
+            "y_prob": logit,
+            "risk_score": logit,
+        }
 
         if "duration" in kwargs and "event" in kwargs:
             duration = _unpack(kwargs["duration"]).reshape(-1).float()
