@@ -245,6 +245,37 @@ def print_table(summary, pairs):
             print(f"    {m:26s} {s['mean']:+.4f} +- {s['ci95']:.4f}")
 
 
+def rescore(args, stays):
+    """Recomputes the event metrics of finished runs from their saved risks.
+
+    Reads ``runs.json`` and the ``*_test_risks.npz`` files of ``--rescore-dir``,
+    scores them with the current alarm settings, and writes
+    ``results_rescored.json`` there. Nothing is retrained; use the same
+    ``--seeds`` as the runs.
+    """
+    run_dir = Path(args.rescore_dir)
+    runs = json.loads((run_dir / "runs.json").read_text())
+    for arm, arm_runs in runs.items():
+        if len(arm_runs) != len(args.seeds):
+            raise ValueError(f"{arm}: {len(arm_runs)} runs but {len(args.seeds)} seeds")
+        for seed, scores in zip(args.seeds, arm_runs):
+            with np.load(run_dir / f"{arm}_seed{seed}_test_risks.npz") as saved:
+                risks = [saved[f"stay{i}"] for i in range(len(saved.files))]
+            scores.update(event_scores(risks, stays, args))
+    summary, pairs = aggregate(runs, list(runs))
+    print_table(summary, pairs)
+    result = {
+        "horizon": args.horizon,
+        "silence_hours": args.silence_hours,
+        "seeds": args.seeds,
+        "runs": runs,
+        "summary": summary,
+        "paired_differences": pairs,
+    }
+    (run_dir / "results_rescored.json").write_text(json.dumps(result, indent=2))
+    print(f"\nRescored results: {run_dir / 'results_rescored.json'}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True, help="MIMIC-III directory")
@@ -262,6 +293,13 @@ def main():
         default=1.0,
         help="Silence after an alarm; the paper uses 1 h on MIMIC-III",
     )
+    parser.add_argument(
+        "--rescore-dir",
+        type=Path,
+        default=None,
+        help="Output folder of finished runs: recompute their event metrics from "
+        "the saved test risks instead of training",
+    )
     parser.add_argument("--split-seed", type=int, default=0)
     parser.add_argument("--ratios", type=float, nargs=3, default=[0.7, 0.15, 0.15])
     parser.add_argument("--epochs", type=int, default=10)
@@ -277,7 +315,8 @@ def main():
     args = parser.parse_args()
 
     output_dir = args.output_dir / datetime.now().strftime("%Y%m%d-%H%M%S")
-    output_dir.mkdir(parents=True, exist_ok=False)
+    if args.rescore_dir is None:
+        output_dir.mkdir(parents=True, exist_ok=False)
     base_dataset = MIMIC3Dataset(
         root=args.root,
         tables=["chartevents", "labevents"],
@@ -313,6 +352,9 @@ def main():
     stays = stay_labels(loaders["dsa"][2])
     n_events = sum(bool(np.any(s["event"])) for s in stays)
     print(f"test stays: {len(stays)}, with an event: {n_events}", flush=True)
+    if args.rescore_dir is not None:
+        rescore(args, stays)
+        return
     runs = {arm: [] for arm in args.arms}
     for seed in args.seeds:
         for arm in args.arms:
