@@ -18,6 +18,11 @@ try:
 except ImportError:  # pragma: no cover - test env installs the extra
     pydicom = None
 
+try:
+    import openpyxl
+except ImportError:  # pragma: no cover - optional dependency
+    openpyxl = None
+
 from pyhealth.datasets import CMMDDataset
 
 _VIEW_MEANING = {"CC": "cranio-caudal", "MLO": "medio-lateral oblique"}
@@ -130,6 +135,18 @@ class TestCMMDDataset(unittest.TestCase):
             self.assertRaisesRegex(ImportError, "openpyxl"),
         ):
             CMMDDataset(root=str(self.root), cache_dir=str(self.temp_dir / "c"))
+
+    @unittest.skipUnless(openpyxl is not None, "openpyxl is not installed")
+    def test_xlsx_clinical_sheet(self):
+        (self.root / "CMMD_clinicaldata_revision.csv").unlink()
+        CLINICAL.to_excel(
+            self.root / "CMMD_clinicaldata_revision.xlsx", index=False
+        )
+        dataset = CMMDDataset(root=str(self.root), cache_dir=str(self.temp_dir / "c"))
+        self.assertEqual(dataset.clinical_path.suffix, ".xlsx")
+        metadata = pd.read_csv(dataset.metadata_path)
+        self.assertEqual(len(metadata), 8)
+        self.assertEqual(int(metadata["has_label"].sum()), 6)
 
     def test_missing_clinical_file(self):
         with self.assertRaises(FileNotFoundError):

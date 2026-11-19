@@ -87,29 +87,45 @@ class CMMDDataset(BaseDataset):
     ``patient_id`` (for example with :class:`~pyhealth.datasets.PatientSplit`)
     so both views and both breasts of a patient stay together.
 
-    Differences from CLIMB: CLIMB gives every image of a patient the label
-    of each clinical row, ignoring laterality, so contralateral breasts are
-    mislabelled; here labels are per breast side. CLIMB also splits on
-    the first 75% of sheet rows, which puts D1 first and leaves a test set
-    of 465 malignant and 3 benign rows; a random patient split avoids
-    that cohort shift.
+    Differences from CLIMB: labels are per breast side, where CLIMB gives
+    every image of a patient the patient's label; and the split is by
+    patient, where CLIMB's first-75%-of-rows split leaves an almost
+    all-malignant (D2) test set.
 
     Getting the data:
-        - Source: https://www.cancerimagingarchive.net/collection/cmmd/
-          (The Cancer Imaging Archive, doi 10.7937/tcia.eqde-4b16).
-        - Access: open, no account needed.
-        - Download: the DICOMs (about 23 GB, 5,202 images) with the NBIA
-          Data Retriever and the collection's ``.tcia`` manifest, and
-          ``CMMD_clinicaldata_revision.xlsx`` from the collection page.
-        - ``root``: a folder holding the clinical sheet and the DICOMs in any
-          sub-folder layout (the NBIA tree ``CMMD/<ID1>/...`` works). Patient
-          id, laterality and view are read from the DICOM headers, which
-          needs ``pydicom``. Reading the ``.xlsx`` needs the optional
-          ``openpyxl`` package; a CSV export of the sheet works without it.
+        - Source page: https://www.cancerimagingarchive.net/collection/cmmd/
+          (The Cancer Imaging Archive, doi 10.7937/tcia.eqde-4b16). The data
+          citation is below.
+        - Access: open. No account, registration or data-use agreement is
+          needed. You must follow the TCIA Data Usage Policy and cite the
+          data set.
+        - Clinical sheet (70 KB): ``wget
+          https://www.cancerimagingarchive.net/wp-content/uploads/CMMD_clinicaldata_revision.xlsx``
+          into ``root``.
+        - DICOMs (22.86 GB, 1,775 patients, 5,202 images): install the NBIA
+          Data Retriever
+          (https://www.cancerimagingarchive.net/tcia-data-retriever/),
+          download the manifest ``wget
+          https://www.cancerimagingarchive.net/wp-content/uploads/The-Chinese-Mammography-Database.tcia``,
+          open it in the Data Retriever, choose ``root`` as the destination
+          and start the download. There is no ``download=True``.
+        - Unpacking: nothing to unpack. Reading the ``.xlsx`` needs the
+          optional ``openpyxl`` package (``pip install openpyxl``); a CSV
+          export of the sheet with the same name
+          (``CMMD_clinicaldata_revision.csv``) works without it. Patient id,
+          laterality and view come from the DICOM headers, which needs
+          ``pydicom`` (``pip install pyhealth[imaging]``).
+        - ``root`` layout. The DICOMs can sit in any sub-folder layout, since
+          every ``*.dcm`` under ``root`` is read::
+
+              root/
+                CMMD_clinicaldata_revision.xlsx   # or .csv, or clinical_file=
+                <any>/CMMD/<ID1>/.../*.dcm         # Data Retriever tree
+
           Derived metadata is written to ``metadata_dir`` (by default under
           the PyHealth cache), never into ``root``.
-
-    Licence: Creative Commons Attribution 4.0 (CC BY 4.0).
+        - Licence: Creative Commons Attribution 4.0 (CC BY 4.0), for both
+          the images and the clinical data. No NC or ND terms.
 
     Citation:
         Cui, C., Li, L., Cai, H., Fan, Z., Zhang, L., Dan, T., Li, J., &

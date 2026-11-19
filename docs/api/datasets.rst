@@ -483,7 +483,7 @@ PyHealth does not ship any data: you download each dataset from its source and p
    * - :doc:`CMMD <datasets/pyhealth.datasets.CMMDDataset>`
      - Open
      - `TCIA <https://www.cancerimagingarchive.net/collection/cmmd/>`__
-     - No (NBIA Data Retriever)
+     - No (22.86 GB via the NBIA Data Retriever; clinical sheet by ``wget``)
      - —
    * - :doc:`BMD-HS <datasets/pyhealth.datasets.BMDHSDataset>`
      - Open

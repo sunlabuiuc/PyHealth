@@ -14,8 +14,8 @@ class CMMDMalignancyClassification(BaseTask):
     the biopsy-confirmed ``classification`` of that breast's clinical row,
     matched on the DICOM laterality. Images of a breast without a clinical
     row (``has_label == 0``, usually the healthy contralateral breast of a
-    one-sided case) are skipped rather than given the patient's label, as
-    CLIMB does. Split by ``patient_id``.
+    one-sided case) are skipped. CLIMB instead gives them the patient's
+    label. Split by ``patient_id``.
 
     The image is read lazily with the ``dicom`` processor at 512 x 512,
     single channel. The processor resizes to a square, so the 2294 x 1914
