@@ -92,7 +92,7 @@ def alarm_curve(
     horizon: float,
     silence: float = 1.0,
     thresholds: Sequence[float] | None = None,
-    n_thresholds: int = 100,
+    n_thresholds: int = 200,
 ) -> dict[str, np.ndarray]:
     """Alarm precision, event recall and first-alarm distance per threshold.
 
@@ -106,7 +106,11 @@ def alarm_curve(
         silence: Hours of silence after an alarm (the paper uses 1 h on
             MIMIC-III).
         thresholds: Working thresholds. Default: ``n_thresholds`` quantiles of
-            the scores, so that the curve covers the range the model uses.
+            the scores whose tail fractions (the share of steps above the
+            threshold) are spaced geometrically from one step to all steps.
+            High alarm precision is only reached in the top few percent of the
+            scores, so evenly spaced quantiles would put almost no threshold
+            there and understate recall at high precision.
         n_thresholds: Number of default thresholds.
 
     Returns:
@@ -126,9 +130,8 @@ def alarm_curve(
         if every.size == 0:
             thresholds = np.array([0.5])
         else:
-            thresholds = np.unique(
-                np.quantile(every, np.linspace(0.0, 1.0, n_thresholds))
-            )
+            tail = np.geomspace(1.0 / every.size, 1.0, n_thresholds)
+            thresholds = np.unique(np.quantile(every, np.append(1.0 - tail, 1.0)))
     thresholds = np.sort(np.asarray(thresholds, dtype=float))[::-1]
 
     out = {k: [] for k in ("alarm_precision", "event_recall",
@@ -185,7 +188,7 @@ def event_alarm_metrics(
     silence: float = 1.0,
     precisions: Sequence[float] = (0.6, 0.7, 0.8),
     thresholds: Sequence[float] | None = None,
-    n_thresholds: int = 100,
+    n_thresholds: int = 200,
 ) -> dict[str, float]:
     """Event-level metrics of Table 2 of the paper for a set of stays.
 

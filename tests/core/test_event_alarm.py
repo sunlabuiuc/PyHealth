@@ -185,6 +185,26 @@ class TestEventMetrics(unittest.TestCase):
         area = alarm_event_auprc(curve["alarm_precision"], curve["event_recall"])
         self.assertAlmostEqual(area, 3 / 12)
 
+    def test_default_thresholds_are_dense_in_the_top_of_the_scores(self):
+        # high alarm precision lives in the top few percent of the scores, so
+        # the default grid must not be spaced evenly in score quantiles
+        rng = np.random.default_rng(0)
+        stays = [_quiet_stay(rng.random(6)) for _ in range(500)]
+        stays.append(_event_stay([0, 0, 0, 0.9, 0.9, 0.9]))
+        curve = alarm_curve(**_stack(*stays), horizon=HORIZON, silence=1)
+        every = np.concatenate([np.asarray(s["scores"]) for s in stays])
+        top = curve["threshold"] >= np.quantile(every, 0.99)
+        self.assertGreaterEqual(int(top.sum()), 20)
+        self.assertLessEqual(len(curve["threshold"]), 201)
+
+    def test_recall_at_high_precision_with_overlapping_scores(self):
+        # one event stay scores in the window like the top of 300 quiet steps
+        rng = np.random.default_rng(1)
+        stays = [_quiet_stay(rng.random(6) * 0.8) for _ in range(50)]
+        stays += [_event_stay([0, 0, 0, 0.95, 0.9, 0.85]) for _ in range(5)]
+        m = _metrics(stays, precisions=(0.8,))
+        self.assertEqual(m["event_recall@80"], 1.0)
+
     def test_no_events(self):
         m = _metrics([_quiet_stay([0.9] * 6)], thresholds=[0.5])
         self.assertEqual(m["n_events"], 0.0)
