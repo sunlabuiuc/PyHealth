@@ -279,8 +279,6 @@ class UDC(BaseModel):
             all feature keys in ``dataset.input_schema`` are used.
         label_key: Name of the label key from dataset. If None, the single
             label key from ``dataset.output_schema`` is used.
-        mode: Task mode ('binary', 'multiclass', 'multilabel'). If None,
-            inferred from the dataset's label processor.
         embedding_dim: Dimension of input code embeddings. Default is 128.
         hidden_dim: Dimension of hidden representations. Default is 128.
         n_codebooks: Number of residual codebooks for discrete clues.
@@ -344,7 +342,6 @@ class UDC(BaseModel):
         dataset: SampleDataset,
         feature_keys: list[str] | None = None,
         label_key: str | None = None,
-        mode: str | None = None,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
         n_codebooks: int = 2,
@@ -480,7 +477,9 @@ class UDC(BaseModel):
             if mask is not None:
                 expanded_mask = mask.unsqueeze(-1)
                 x_masked = x.masked_fill(~expanded_mask, -1e9)
-                return torch.max(x_masked, dim=2)[0]
+                pooled = torch.max(x_masked, dim=2)[0]
+                empty_visits = ~mask.any(dim=-1, keepdim=True)
+                return pooled.masked_fill(empty_visits, 0.0)
             return torch.max(x, dim=2)[0]
         else:  # attention
             weights = self.intra_attn(x)  # (B, T, K, 1)
@@ -488,7 +487,11 @@ class UDC(BaseModel):
                 weights = weights.masked_fill(~mask.unsqueeze(-1), -1e9)
             attn = torch.softmax(weights, dim=2)
             attn = torch.nan_to_num(attn, nan=0.0)
-            return torch.sum(attn * x, dim=2)
+            pooled = torch.sum(attn * x, dim=2)
+            if mask is not None:
+                empty_visits = ~mask.any(dim=-1, keepdim=True)
+                pooled = pooled.masked_fill(empty_visits, 0.0)
+            return pooled
 
     def forward(self, **kwargs: Any) -> dict[str, torch.Tensor]:
         """Forward propagation for UDC.
@@ -512,11 +515,22 @@ class UDC(BaseModel):
         raw_masks: dict[str, torch.Tensor | None] = {}
         for key, val in kwargs.items():
             if isinstance(val, tuple):
-                cleaned_kwargs[key] = val[0]
-                if len(val) > 1 and isinstance(val[1], torch.Tensor):
-                    raw_masks[key] = val[1]
+                if (
+                    hasattr(self.dataset, "input_processors")
+                    and key in self.dataset.input_processors
+                ):
+                    schema = self.dataset.input_processors[key].schema()
+                    value = val[schema.index("value")] if "value" in schema else val[0]
+                    mask = (
+                        val[schema.index("mask")]
+                        if "mask" in schema
+                        else (val[1] if len(val) > 1 else None)
+                    )
                 else:
-                    raw_masks[key] = None
+                    value = val[0]
+                    mask = val[1] if len(val) > 1 else None
+                cleaned_kwargs[key] = value
+                raw_masks[key] = mask if isinstance(mask, torch.Tensor) else None
             else:
                 cleaned_kwargs[key] = val
                 raw_masks[key] = None
@@ -528,6 +542,7 @@ class UDC(BaseModel):
 
         for feature_key in self.feature_keys:
             feat = embedded[feature_key]
+            v_mask = None
             # Nested sequences: (B, T, K, D)
             while feat.dim() > 3:
                 mask = raw_masks.get(feature_key)
@@ -535,14 +550,23 @@ class UDC(BaseModel):
                     code_mask = mask != 0
                 else:
                     code_mask = (feat != 0).any(dim=-1)
+                v_mask = code_mask.any(dim=-1)
                 feat = self._pool_intra_visit(feat, code_mask)
 
             # Flat sequences: (B, D) -> (B, 1, D)
             if feat.dim() == 2:
                 feat = feat.unsqueeze(1)
 
-            # Visit mask: step is valid if any embedding dimension is nonzero
-            v_mask = (feat != 0).any(dim=-1)
+            # Visit mask: step is valid if code_mask had valid codes or non-zero embedding
+            if v_mask is None:
+                mask = raw_masks.get(feature_key)
+                if mask is not None and mask.dim() == feat.dim() - 1:
+                    v_mask = mask != 0
+                else:
+                    v_mask = (feat != 0).any(dim=-1)
+            else:
+                feat = feat.masked_fill(~v_mask.unsqueeze(-1), 0.0)
+
             feat_visits.append(feat)
             visit_masks.append(v_mask)
 
@@ -557,11 +581,16 @@ class UDC(BaseModel):
                     f = F.pad(f, (0, 0, 0, pad_len))
                 aligned_feats.append(f)
             combined = torch.cat(aligned_feats, dim=-1)
-            # Patient visit mask is valid if any feature is valid at step t
-            overall_mask = visit_masks[0]
-            for m in visit_masks[1:]:
+
+            # Pad every mask to max_t before combining
+            aligned_masks = []
+            for m in visit_masks:
                 if m.shape[1] < max_t:
                     m = F.pad(m, (0, max_t - m.shape[1]), value=False)
+                aligned_masks.append(m)
+
+            overall_mask = aligned_masks[0]
+            for m in aligned_masks[1:]:
                 overall_mask = overall_mask | m
         else:
             combined = feat_visits[0]

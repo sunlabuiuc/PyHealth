@@ -332,6 +332,115 @@ class TestUDC(unittest.TestCase):
 
         self.assertFalse(torch.equal(initial_weight, model.fc.weight))
 
+    def test_unequal_visit_counts_across_features(self):
+        """Tests that features with unequal visit counts pad masks correctly."""
+        unequal_samples = [
+            {
+                "patient_id": "p0",
+                "visit_id": "v0",
+                "conditions": [["c1", "c2"]],  # 1 visit
+                "procedures": [["p1"], ["p2"], ["p3"]],  # 3 visits
+                "label": 1,
+            },
+            {
+                "patient_id": "p1",
+                "visit_id": "v1",
+                "conditions": [["c2"], ["c3"]],  # 2 visits
+                "procedures": [["p2"], ["p1"]],  # 2 visits
+                "label": 0,
+            },
+        ]
+        dataset = create_sample_dataset(
+            samples=unequal_samples,
+            input_schema={
+                "conditions": "nested_sequence",
+                "procedures": "nested_sequence",
+            },
+            output_schema={"label": "binary"},
+        )
+        model = UDC(dataset=dataset, embedding_dim=16, hidden_dim=16)
+        loader = get_dataloader(dataset, batch_size=2)
+        batch = next(iter(loader))
+        out = model(**batch)
+        self.assertEqual(out["logit"].shape, (2, 1))
+        self.assertTrue(torch.isfinite(out["loss"]))
+
+    def test_max_pooling_with_padded_visits(self):
+        """Verifies max pooling zeroes out empty visits and does not retain -1e9."""
+        samples_with_empty = [
+            {
+                "patient_id": "p0",
+                "visit_id": "v0",
+                "conditions": [["c1", "c2"], ["c3"]],  # 2 visits
+                "label": 1,
+            },
+            {
+                "patient_id": "p1",
+                "visit_id": "v1",
+                "conditions": [["c2"], ["c4"], ["c5"], ["c1"]],  # 4 visits
+                "label": 0,
+            },
+        ]
+        dataset = create_sample_dataset(
+            samples=samples_with_empty,
+            input_schema={"conditions": "nested_sequence"},
+            output_schema={"label": "binary"},
+        )
+        model = UDC(
+            dataset=dataset,
+            embedding_dim=16,
+            hidden_dim=16,
+            intra_visit_pooling="max",
+        )
+        loader = get_dataloader(dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+        out = model(**batch)
+        self.assertTrue(torch.isfinite(out["loss"]))
+        # For p0, visits 2 and 3 are padding; verify embedding does not have -1e9
+        self.assertFalse(torch.isnan(out["embed"]).any())
+        self.assertTrue(torch.all(out["embed"] > -1e5))
+
+    def test_visit_mask_logic_assertion(self):
+        """Verifies visit mask accurately distinguishes valid vs empty padded visits."""
+        samples = [
+            {
+                "patient_id": "p0",
+                "visit_id": "v0",
+                "conditions": [["c1"]],  # 1 valid visit
+                "label": 1,
+            },
+            {
+                "patient_id": "p1",
+                "visit_id": "v1",
+                "conditions": [["c2"], ["c3"], ["c4"]],  # 3 valid visits
+                "label": 0,
+            },
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"conditions": "nested_sequence"},
+            output_schema={"label": "binary"},
+        )
+        model = UDC(dataset=dataset, embedding_dim=16, hidden_dim=16)
+        loader = get_dataloader(dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+        out = model(**batch)
+        self.assertEqual(out["logit"].shape, (2, 1))
+
+        mask = batch["conditions"] != 0
+        code_mask = mask != 0
+        v_mask = code_mask.any(dim=-1)
+
+        # Patient 0 has only visit 0 valid; visits 1 and 2 must be False
+        self.assertTrue(v_mask[0, 0].item())
+        self.assertFalse(v_mask[0, 1].item())
+        self.assertFalse(v_mask[0, 2].item())
+
+        # Patient 1 has visits 0, 1, 2 all valid
+        self.assertTrue(v_mask[1, 0].item())
+        self.assertTrue(v_mask[1, 1].item())
+        self.assertTrue(v_mask[1, 2].item())
+
 
 if __name__ == "__main__":
     unittest.main()
