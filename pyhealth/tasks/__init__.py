@@ -194,6 +194,9 @@ from .eegbci import (
     EEGBCIPatternDiscovery as EEGBCIPatternDiscovery,
     EEGMotorImageryEEGBCI as EEGMotorImageryEEGBCI,
 )
+from .bciiv2a_left_right_imagery import (
+    BCIIV2aLeftRightImagery as BCIIV2aLeftRightImagery,
+)
 from .bciiv2a_motor_imagery import (
     BCIIV2aMotorImageryClassification as BCIIV2aMotorImageryClassification,
 )
