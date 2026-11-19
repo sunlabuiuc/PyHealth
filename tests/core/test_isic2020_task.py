@@ -1,7 +1,6 @@
 """Tests for ISIC2020MelanomaClassification using synthetic images."""
 
 import shutil
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,9 +9,7 @@ import torch
 
 from pyhealth.datasets import ISIC2020Dataset, PatientSplit
 from pyhealth.tasks import ISIC2020MelanomaClassification
-
-sys.path.insert(0, str(Path(__file__).parent))
-from test_isic2020_dataset import make_isic2020_root  # noqa: E402
+from tests.core.test_isic2020_dataset import make_isic2020_root
 
 
 class TestISIC2020MelanomaClassification(unittest.TestCase):
@@ -62,9 +59,7 @@ class TestISIC2020MelanomaClassification(unittest.TestCase):
             part.close()
 
     def test_default_task(self):
-        self.assertIsInstance(
-            self.dataset.default_task, ISIC2020MelanomaClassification
-        )
+        self.assertIsInstance(self.dataset.default_task, ISIC2020MelanomaClassification)
 
 
 if __name__ == "__main__":

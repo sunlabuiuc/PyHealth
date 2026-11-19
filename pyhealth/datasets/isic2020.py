@@ -72,39 +72,56 @@ class ISIC2020Dataset(BaseDataset):
     each pair is dropped.
 
     Getting the data:
-        - Source: https://challenge2020.isic-archive.com/
-        - Access: open, no account needed.
-        - Download: ``ISIC_2020_Training_JPEG.zip`` (24.7 GB),
-          ``ISIC_2020_Training_GroundTruth_v2.csv`` and
-          ``ISIC_2020_Training_Duplicates.csv`` from
-          ``https://isic-archive.s3.amazonaws.com/challenges/2020/``, or pass
-          ``download=True``.
-        - ``root``: the folder holding the CSVs and the unzipped ``train/``
-          folder of ``ISIC_xxxxxxx.jpg`` files. ``root`` is only read: the
-          metadata CSV is written to ``metadata_dir``.
+        - Source: https://challenge.isic-archive.com/data/#2020 (ISIC 2020
+          challenge data page; https://challenge2020.isic-archive.com/
+          redirects there).
+        - Access: open. No account, registration or data-use agreement;
+          the files are plain HTTPS links on the ISIC S3 bucket.
+        - Download: from ``https://isic-archive.s3.amazonaws.com/challenges/2020/``,
+          ``ISIC_2020_Training_JPEG.zip`` (24.7 GB; the page shows 23 GiB),
+          ``ISIC_2020_Training_GroundTruth_v2.csv`` (2.4 MB; the older
+          ``ISIC_2020_Training_GroundTruth.csv``, without lesion ids, is
+          also accepted) and ``ISIC_2020_Training_Duplicates.csv`` (12 KB).
+          The DICOM archives and the unlabelled test set are not used::
+
+              BASE=https://isic-archive.s3.amazonaws.com/challenges/2020
+              mkdir isic2020 && cd isic2020
+              wget "$BASE/ISIC_2020_Training_GroundTruth_v2.csv"
+              wget "$BASE/ISIC_2020_Training_Duplicates.csv"
+              wget "$BASE/ISIC_2020_Training_JPEG.zip"
+              unzip -q ISIC_2020_Training_JPEG.zip   # -> train/
+
+          Or pass ``download=True``, which downloads and unzips the missing
+          files into ``root``.
+        - Unpack: the zip extracts to a ``train/`` folder of 33,126
+          ``ISIC_xxxxxxx.jpg`` files; the zip can then be deleted.
+        - ``root`` layout::
+
+              isic2020/                                <- root
+                  ISIC_2020_Training_GroundTruth_v2.csv
+                  ISIC_2020_Training_Duplicates.csv
+                  train/ISIC_0015719.jpg ...
+
+          ``root`` is only read, unless ``download=True``, which writes the
+          CSVs and the ``train/`` folder into it. The derived metadata CSV
+          always goes to ``metadata_dir``.
 
     Licence:
-        CC BY-NC 4.0 (attribution, non-commercial use only). See
-        https://creativecommons.org/licenses/by-nc/4.0/.
+        CC BY-NC 4.0 (attribution, non-commercial use only; derivatives
+        allowed). See https://creativecommons.org/licenses/by-nc/4.0/.
 
     Citation:
+        International Skin Imaging Collaboration. SIIM-ISIC 2020 Challenge
+        Dataset (2020). https://doi.org/10.34970/2020-ds01
+
         Rotemberg, V., Kurtansky, N., Betz-Stablein, B., et al. A
         patient-centric dataset of images and metadata for identifying
         melanomas using clinical context. Scientific Data 8, 34 (2021).
         https://doi.org/10.1038/s41597-021-00815-z
 
-    Benchmarked in CLIMB (Dai et al., 2025, https://github.com/DDVD233/CLIMB).
-
-    Differences from CLIMB:
-        - Splits are by patient (``PatientSplit``), not a random 80/20
-          split of images, which put images of one patient on both sides.
-        - Duplicate images are dropped by default.
-        - The download uses the current ISIC host and checks the files;
-          CLIMB's URL now returns an HTML page.
-        - Images are read from ``train/``, the folder the zip extracts to.
-
     Args:
-        root: Folder holding the ground-truth CSV and ``train/``.
+        root: Folder holding the ground-truth CSV and ``train/``. Only
+            read, unless ``download=True``.
         drop_duplicates: Drop the second image of each pair in
             ``ISIC_2020_Training_Duplicates.csv``. Defaults to True.
         download: Download any missing CSV and the image zip into ``root``.

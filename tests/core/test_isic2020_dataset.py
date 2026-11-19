@@ -66,9 +66,7 @@ class TestISIC2020Dataset(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _dataset(self, **kwargs):
-        return ISIC2020Dataset(
-            root=str(self.root), cache_dir=str(self.cache), **kwargs
-        )
+        return ISIC2020Dataset(root=str(self.root), cache_dir=str(self.cache), **kwargs)
 
     def test_metadata_written_outside_root(self):
         dataset = self._dataset()
@@ -114,12 +112,47 @@ class TestISIC2020Dataset(unittest.TestCase):
             Path(path).write_text("<html><meta http-equiv='refresh'></html>")
             return path
 
-        with mock.patch.object(isic2020_module, "download_file", fake_download):
-            with self.assertRaises(RuntimeError):
-                ISIC2020Dataset(
-                    root=str(empty), cache_dir=str(self.cache), download=True
-                )
+        with (
+            mock.patch.object(isic2020_module, "download_file", fake_download),
+            self.assertRaises(RuntimeError),
+        ):
+            ISIC2020Dataset(root=str(empty), cache_dir=str(self.cache), download=True)
         self.assertFalse((empty / "ISIC_2020_Training_GroundTruth_v2.csv").exists())
+
+    def test_download_fetches_missing_files_into_root(self):
+        target = self.tmp / "downloaded"
+        urls = []
+
+        def fake_download(url, path):
+            urls.append(url)
+            shutil.copy(self.root / url.rsplit("/", 1)[1], path)
+
+        def fake_archives(archive_urls, destination, **kwargs):
+            urls.extend(archive_urls)
+            self.assertTrue(kwargs["extract_to_parent"])
+            shutil.copytree(self.root / "train", destination)
+
+        with (
+            mock.patch.object(isic2020_module, "download_file", fake_download),
+            mock.patch.object(isic2020_module, "_download_archives", fake_archives),
+        ):
+            dataset = ISIC2020Dataset(
+                root=str(target), cache_dir=str(self.cache), download=True
+            )
+        base = isic2020_module.ISIC2020_BASE_URL
+        self.assertEqual(
+            sorted(urls),
+            sorted(
+                base + name
+                for name in (
+                    "ISIC_2020_Training_GroundTruth_v2.csv",
+                    "ISIC_2020_Training_Duplicates.csv",
+                    "ISIC_2020_Training_JPEG.zip",
+                )
+            ),
+        )
+        self.assertTrue((target / "ISIC_2020_Training_Duplicates.csv").exists())
+        self.assertEqual(len(pd.read_csv(dataset.metadata_path)), 6)
 
 
 if __name__ == "__main__":
