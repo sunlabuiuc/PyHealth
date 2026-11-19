@@ -1,16 +1,13 @@
 """Tests for HAM10000Classification using synthetic images."""
 
 import shutil
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from pyhealth.datasets import HAM10000Dataset, PatientSplit
 from pyhealth.tasks import HAM10000Classification
-
-sys.path.insert(0, str(Path(__file__).parent))
-from test_ham10000_dataset import make_ham10000_root  # noqa: E402
+from tests.core.test_ham10000_dataset import make_ham10000_root
 
 
 def _labels(samples):

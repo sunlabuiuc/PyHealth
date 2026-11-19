@@ -60,27 +60,59 @@ class HAM10000Dataset(BaseDataset):
     so do not train on one and test on the other.
 
     Getting the data:
-        - Source: https://challenge.isic-archive.com/data/#2018 (Task 3).
-          Also on Harvard Dataverse, https://doi.org/10.7910/DVN/DBW86T.
-        - Access: open, no account needed.
+        - Source: https://challenge.isic-archive.com/data/#2018 (ISIC 2018
+          challenge data page, Task 3). The HAM10000 images are also on
+          Harvard Dataverse (https://doi.org/10.7910/DVN/DBW86T), but this
+          class reads the ISIC 2018 Task 3 layout below.
+        - Access: open. No account, registration or data-use agreement;
+          the files are plain HTTPS links on the ISIC S3 bucket.
         - Download: from ``https://isic-archive.s3.amazonaws.com/challenges/2018/``,
-          ``ISIC2018_Task3_Training_Input.zip`` (2.8 GB),
-          ``ISIC2018_Task3_Training_GroundTruth.zip`` and
-          ``ISIC2018_Task3_Training_LesionGroupings.csv``; for the official
-          holdout also ``ISIC2018_Task3_{Validation,Test}_{Input,GroundTruth}.zip``.
-          Or pass ``download=True``.
-        - ``root``: the folder holding the unzipped
-          ``ISIC2018_Task3_<Split>_Input/`` and
-          ``ISIC2018_Task3_<Split>_GroundTruth/`` folders and the lesion
-          groupings CSV (the Dataverse ``HAM10000_metadata.csv`` is accepted
-          in its place). ``root`` is only read: the metadata CSV is written
-          to ``metadata_dir``.
+          for the training set ``ISIC2018_Task3_Training_Input.zip``
+          (2.8 GB), ``ISIC2018_Task3_Training_GroundTruth.zip`` (37 KB) and
+          ``ISIC2018_Task3_Training_LesionGroupings.csv`` (493 KB, required:
+          it holds the lesion ids). For the official holdout also
+          ``ISIC2018_Task3_Validation_Input.zip`` (53 MB),
+          ``ISIC2018_Task3_Validation_GroundTruth.zip`` (8 KB),
+          ``ISIC2018_Task3_Test_Input.zip`` (421 MB) and
+          ``ISIC2018_Task3_Test_GroundTruth.zip`` (12 KB). Sizes are in
+          decimal units; the ISIC page shows binary ones. For the training
+          set::
+
+              BASE=https://isic-archive.s3.amazonaws.com/challenges/2018
+              mkdir isic2018_task3 && cd isic2018_task3
+              wget "$BASE/ISIC2018_Task3_Training_LesionGroupings.csv"
+              for f in Input GroundTruth; do
+                  wget "$BASE/ISIC2018_Task3_Training_$f.zip"
+                  unzip -q "ISIC2018_Task3_Training_$f.zip"
+              done
+
+          Or pass ``download=True``, which downloads and unzips the missing
+          files of the requested ``splits`` into ``root``.
+        - Unpack: each zip extracts to a folder of the same name; the zips
+          can then be deleted. Instead of the lesion groupings CSV, the
+          Dataverse ``HAM10000_metadata`` file is accepted, saved as
+          ``HAM10000_metadata.csv`` (``wget -O HAM10000_metadata.csv
+          "https://dataverse.harvard.edu/api/access/datafile/4338392?format=original"``).
+        - ``root`` layout (validation and test folders only when
+          ``splits`` asks for them)::
+
+              isic2018_task3/                                <- root
+                  ISIC2018_Task3_Training_LesionGroupings.csv
+                  ISIC2018_Task3_Training_Input/ISIC_0024306.jpg ...
+                  ISIC2018_Task3_Training_GroundTruth/
+                      ISIC2018_Task3_Training_GroundTruth.csv
+                  ISIC2018_Task3_Validation_Input/  ISIC2018_Task3_Validation_GroundTruth/
+                  ISIC2018_Task3_Test_Input/        ISIC2018_Task3_Test_GroundTruth/
+
+          ``root`` is only read, unless ``download=True``, which writes the
+          downloaded files into it. The derived metadata CSV always goes to
+          ``metadata_dir``.
 
     Licence:
-        CC BY-NC 4.0 (attribution, non-commercial use only), as stated in
-        the ISIC 2018 archives. See
-        https://creativecommons.org/licenses/by-nc/4.0/. Some mirrors (Kaggle,
-        older Dataverse versions) carry CC BY-NC-SA 4.0 instead.
+        CC BY-NC 4.0 (attribution, non-commercial use only; derivatives
+        allowed), as stated on the ISIC data page, in the ``LICENSE.txt``
+        inside each image zip and on the current Dataverse version. See
+        https://creativecommons.org/licenses/by-nc/4.0/.
 
     Citation:
         Tschandl, P., Rosendahl, C., Kittler, H. The HAM10000 dataset, a large
@@ -92,25 +124,12 @@ class HAM10000Dataset(BaseDataset):
         2018: a challenge hosted by the International Skin Imaging
         Collaboration (ISIC). arXiv:1902.03368 (2019).
 
-    Benchmarked in CLIMB (Dai et al., 2025, https://github.com/DDVD233/CLIMB).
-
-    Differences from CLIMB:
-        - Splits are by lesion (``PatientSplit`` on ``lesion_id``), not a
-          random, unseeded 80/20 split of images, which put images of one
-          lesion on both sides.
-        - The default labels are the official seven classes; CLIMB's five
-          (BKL, DF and VASC merged into OTHER) are the task's
-          ``label_scheme="climb5"``.
-        - The official validation and test sets, now public, can be indexed.
-        - The download uses the current ISIC host; CLIMB's URL now returns
-          an HTML page.
-
     Args:
         root: Folder holding the ISIC 2018 Task 3 folders and CSVs.
         splits: Which official splits to index, from ``"train"``,
             ``"val"`` and ``"test"``. Defaults to ``("train",)``.
-        download: Download any missing file of the requested splits into
-            ``root``. Defaults to False.
+        download: Download and unzip any missing file of the requested
+            splits into ``root`` (2.8 GB for train). Defaults to False.
         dataset_name: Name of the dataset. Defaults to ``"ham10000"``.
         config_path: Table configuration YAML. Defaults to the bundled one.
         cache_dir: Directory for processed caches.

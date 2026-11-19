@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import pandas as pd
 from PIL import Image
@@ -69,9 +70,7 @@ class TestHAM10000Dataset(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _dataset(self, **kwargs):
-        return HAM10000Dataset(
-            root=str(self.root), cache_dir=str(self.cache), **kwargs
-        )
+        return HAM10000Dataset(root=str(self.root), cache_dir=str(self.cache), **kwargs)
 
     def test_training_metadata_grouped_by_lesion(self):
         dataset = self._dataset()
@@ -86,8 +85,9 @@ class TestHAM10000Dataset(unittest.TestCase):
     def test_official_splits(self):
         dataset = self._dataset(splits=("train", "val", "test"))
         meta = pd.read_csv(dataset.metadata_path)
-        self.assertEqual(meta["split"].value_counts().to_dict(),
-                         {"train": 8, "val": 2, "test": 1})
+        self.assertEqual(
+            meta["split"].value_counts().to_dict(), {"train": 8, "val": 2, "test": 1}
+        )
         # holdout images have no lesion id, so each is its own patient
         holdout = meta[meta["split"] != "train"]
         self.assertEqual(list(holdout["patient_id"]), list(holdout["image_id"]))
@@ -109,6 +109,114 @@ class TestHAM10000Dataset(unittest.TestCase):
     def test_bad_split_raises(self):
         with self.assertRaises(ValueError):
             self._dataset(splits=("holdout",))
+
+    def test_rebuilds_metadata_when_splits_change(self):
+        metadata_dir = str(self.tmp / "meta")
+        first = self._dataset(metadata_dir=metadata_dir)
+        self.assertEqual(set(pd.read_csv(first.metadata_path)["split"]), {"train"})
+        second = self._dataset(metadata_dir=metadata_dir, splits=("train", "val"))
+        meta = pd.read_csv(second.metadata_path)
+        self.assertEqual(meta["split"].value_counts().to_dict(), {"train": 8, "val": 2})
+        self.assertIn("ISIC_0000101", second.unique_patient_ids)
+
+    def test_rebuilds_metadata_when_root_changes(self):
+        metadata_dir = str(self.tmp / "meta")
+        self._dataset(metadata_dir=metadata_dir)
+        other = self.tmp / "other"
+        shutil.copytree(self.root, other)
+        (other / "ISIC2018_Task3_Training_Input" / "ISIC_0000001.jpg").unlink()
+        dataset = HAM10000Dataset(
+            root=str(other), cache_dir=str(self.cache), metadata_dir=metadata_dir
+        )
+        self.assertEqual(len(pd.read_csv(dataset.metadata_path)), 7)
+
+    def test_refresh_metadata_rewrites_csv(self):
+        metadata_dir = str(self.tmp / "meta")
+        dataset = self._dataset(metadata_dir=metadata_dir)
+        path = dataset.metadata_path
+        pd.read_csv(path).head(1).to_csv(path, index=False)
+        self.assertEqual(
+            len(self._dataset(metadata_dir=metadata_dir).unique_patient_ids), 1
+        )
+        dataset = self._dataset(metadata_dir=metadata_dir, refresh_metadata=True)
+        self.assertEqual(len(pd.read_csv(path)), 8)
+
+
+class TestHAM10000Download(unittest.TestCase):
+    """download=True, with the network calls replaced by local copies."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.source = self.tmp / "source"
+        make_ham10000_root(self.source)
+        self.root = self.tmp / "isic2018"
+        self.cache = self.tmp / "cache"
+        self.urls = []
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _fake_download_file(self, url, path):
+        self.urls.append(url)
+        shutil.copy(self.source / url.rsplit("/", 1)[1], path)
+
+    def _fake_download_archives(self, urls, destination, **kwargs):
+        self.urls.extend(urls)
+        self.assertTrue(kwargs["extract_to_parent"])
+        shutil.copytree(self.source / Path(destination).name, destination)
+
+    def test_download_fetches_missing_files_into_root(self):
+        with (
+            mock.patch(
+                "pyhealth.datasets.ham10000.download_file",
+                side_effect=self._fake_download_file,
+            ),
+            mock.patch(
+                "pyhealth.datasets.ham10000._download_archives",
+                side_effect=self._fake_download_archives,
+            ),
+        ):
+            dataset = HAM10000Dataset(
+                root=str(self.root),
+                splits=("train", "test"),
+                download=True,
+                cache_dir=str(self.cache),
+            )
+        base = "https://isic-archive.s3.amazonaws.com/challenges/2018/"
+        self.assertEqual(
+            sorted(self.urls),
+            sorted(
+                [base + "ISIC2018_Task3_Training_LesionGroupings.csv"]
+                + [
+                    f"{base}ISIC2018_Task3_{split}_{kind}.zip"
+                    for split in ("Training", "Test")
+                    for kind in ("Input", "GroundTruth")
+                ]
+            ),
+        )
+        self.assertTrue(
+            (self.root / "ISIC2018_Task3_Training_LesionGroupings.csv").exists()
+        )
+        self.assertEqual(len(pd.read_csv(dataset.metadata_path)), 9)
+
+    def test_html_groupings_response_is_rejected(self):
+        def _html(url, path):
+            Path(path).write_text("<!DOCTYPE html><html>moved</html>\n")
+
+        with (
+            mock.patch(
+                "pyhealth.datasets.ham10000._download_archives",
+                side_effect=self._fake_download_archives,
+            ),
+            mock.patch("pyhealth.datasets.ham10000.download_file", side_effect=_html),
+            self.assertRaisesRegex(RuntimeError, "not the expected CSV"),
+        ):
+            HAM10000Dataset(
+                root=str(self.root), download=True, cache_dir=str(self.cache)
+            )
+        self.assertFalse(
+            (self.root / "ISIC2018_Task3_Training_LesionGroupings.csv").exists()
+        )
 
 
 if __name__ == "__main__":
