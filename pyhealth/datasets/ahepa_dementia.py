@@ -153,6 +153,12 @@ class AHEPADementiaDataset(BaseDataset):
         - ``root``: the downloaded folder, the one holding
           ``participants.tsv``.
         - The ``.set`` files are read with MNE; no extra package is needed.
+        - Disk for the task cache: with the default
+          :class:`~pyhealth.tasks.DementiaClassificationAHEPA`, a window
+          takes 152 kB (19 channels by 2000 float32 samples), and the 65
+          subjects of Alzheimer's disease against controls give about
+          26,500 windows, so about 4 GB of processed samples. ``set_task``
+          also caches the task output, which roughly doubles that.
 
     Args:
         root: BIDS root of the dataset, holding ``participants.tsv``, the
