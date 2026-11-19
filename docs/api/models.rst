@@ -297,6 +297,7 @@ API Reference
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
     models/pyhealth.models.BEHRT
+    models/pyhealth.models.BiteNet
     models/pyhealth.models.TransformersModel
     models/pyhealth.models.LLMEHREncoder
     models/pyhealth.models.MEME

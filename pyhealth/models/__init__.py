@@ -12,6 +12,12 @@ from .behrt import (
     BEHRTEmbedding as BEHRTEmbedding,
     BEHRTLayer as BEHRTLayer,
 )
+from .bitenet import (
+    AttentionPooling as AttentionPooling,
+    BiteNet as BiteNet,
+    BiteNetEncoder as BiteNetEncoder,
+    BiteNetTemporalEncoding as BiteNetTemporalEncoding,
+)
 from .neural_fine_gray import NeuralFineGray as NeuralFineGray
 from .unet import (
     DiceLoss as DiceLoss,
