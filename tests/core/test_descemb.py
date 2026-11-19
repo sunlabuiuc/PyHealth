@@ -274,7 +274,7 @@ class TestDescEmb(unittest.TestCase):
         batch = next(iter(loader))
 
         cond_tensor = batch["conditions"]
-        # Tuple with continuous float values
+        # Tuple with continuous float values matching feat shape[:-1]
         float_values = torch.randn_like(cond_tensor, dtype=torch.float32)
         batch["conditions"] = (cond_tensor, float_values)
         batch["label"] = (batch["label"], torch.ones_like(batch["label"]))
@@ -282,6 +282,66 @@ class TestDescEmb(unittest.TestCase):
         out = model(**batch)
         self.assertIn("loss", out)
         self.assertTrue(torch.isfinite(out["loss"]))
+        out["loss"].backward()
+        # Verify value conditioning layers receive gradients
+        self.assertIsNotNone(model.val_proj.weight.grad)
+        self.assertIsNotNone(model.post_val_proj.weight.grad)
+
+    def test_padding_stays_masked_after_description_initialization(self):
+        """Verifies row 0 is kept zero and padding stays masked with code_descriptions."""
+        desc_map = {
+            "c1": "essential hypertension",
+            "c2": "type 2 diabetes mellitus",
+            "c3": "hyperlipidemia",
+        }
+        dataset = create_sample_dataset(
+            samples=self.samples,
+            input_schema=self.input_schema,
+            output_schema={"label": "binary"},
+        )
+        model = DescEmb(
+            dataset=dataset,
+            embedding_dim=16,
+            text_hidden_dim=16,
+            temporal_hidden_dim=16,
+            code_descriptions=desc_map,
+        )
+        emb_layer = model.embedding_model.embedding_layers["conditions"]
+        # Padding row index 0 must be strictly zero
+        self.assertTrue(
+            torch.all(emb_layer.weight.data[0] == 0.0),
+            "Padding row at index 0 must remain zero after description initialization.",
+        )
+
+        loader = get_dataloader(dataset, batch_size=2)
+        batch = next(iter(loader))
+        out = model(**batch)
+        self.assertIn("loss", out)
+        self.assertTrue(torch.isfinite(out["loss"]))
+
+    def test_time_value_tuple_inputs(self):
+        """Verifies (time, value) tuple inputs forward correctly without crash."""
+        dataset = create_sample_dataset(
+            samples=self.samples,
+            input_schema=self.input_schema,
+            output_schema={"label": "binary"},
+        )
+        model = DescEmb(
+            dataset=dataset,
+            embedding_dim=16,
+            text_hidden_dim=16,
+            temporal_hidden_dim=16,
+        )
+        loader = get_dataloader(dataset, batch_size=2)
+        batch = next(iter(loader))
+
+        cond_val = batch["conditions"]
+        fake_time = torch.zeros_like(cond_val, dtype=torch.float32)
+        # Pass (time, value)
+        batch["conditions"] = (fake_time, cond_val)
+        out = model(**batch)
+        self.assertIn("logit", out)
+        self.assertEqual(out["logit"].shape, (2, 1))
 
     def test_inference_without_labels(self):
         dataset = create_sample_dataset(

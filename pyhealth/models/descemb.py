@@ -186,14 +186,17 @@ class DescEmb(BaseModel):
 
     DescEmb addresses the cross-system transfer and semantic gap of standard
     code embeddings by encoding medical concepts through their textual
-    descriptions. It enables training on one EHR vocabulary (e.g., ICD-9)
-    and zero-shot/few-shot transferring to another (e.g., ICD-10 or OMOP).
+    descriptions. It uses :class:`DescEmbCodeEncoder` to initialize medical
+    concept embeddings from clinical text descriptions (via a BiGRU over
+    subword tokens), injecting semantic clinical priors into the embedding
+    layers prior to longitudinal sequence modeling. During training, these
+    description-initialized embeddings are fine-tuned as part of the predictive
+    model.
 
     Args:
         dataset: The dataset to train the model.
         feature_keys: Names of input feature keys to use from dataset.
         label_key: Name of the label key from dataset.
-        mode: Task mode ('binary', 'multiclass', 'multilabel').
         embedding_dim: Dimension of code and visit representations.
             Default is 128.
         text_hidden_dim: Hidden dimension of text encoder. Default is 64.
@@ -252,7 +255,6 @@ class DescEmb(BaseModel):
         dataset: SampleDataset,
         feature_keys: list[str] | None = None,
         label_key: str | None = None,
-        mode: str | None = None,
         embedding_dim: int = 128,
         text_hidden_dim: int = 64,
         subword_vocab_size: int = 5000,
@@ -420,6 +422,7 @@ class DescEmb(BaseModel):
             with torch.no_grad():
                 desc_embs = self.code_text_encoder(token_tensor)
                 emb_layer.weight.data.copy_(desc_embs)
+                emb_layer.weight.data[0].zero_()
 
     def _pool_intra_visit(
         self, x: torch.Tensor, mask: torch.Tensor | None = None
@@ -438,7 +441,9 @@ class DescEmb(BaseModel):
             if mask is not None:
                 expanded_mask = mask.unsqueeze(-1)
                 x_masked = x.masked_fill(~expanded_mask, -1e9)
-                return torch.max(x_masked, dim=2)[0]
+                pooled = torch.max(x_masked, dim=2)[0]
+                empty_visits = ~mask.any(dim=-1, keepdim=True)
+                return pooled.masked_fill(empty_visits, 0.0)
             return torch.max(x, dim=2)[0]
         else:  # attention
             weights = self.intra_attn(x)
@@ -446,7 +451,11 @@ class DescEmb(BaseModel):
                 weights = weights.masked_fill(~mask.unsqueeze(-1), -1e9)
             attn = torch.softmax(weights, dim=2)
             attn = torch.nan_to_num(attn, nan=0.0)
-            return torch.sum(attn * x, dim=2)
+            pooled = torch.sum(attn * x, dim=2)
+            if mask is not None:
+                empty_visits = ~mask.any(dim=-1, keepdim=True)
+                pooled = pooled.masked_fill(empty_visits, 0.0)
+            return pooled
 
     def forward(self, **kwargs: Any) -> dict[str, torch.Tensor]:
         """Forward propagation for DescEmb.
@@ -466,25 +475,99 @@ class DescEmb(BaseModel):
         cleaned_kwargs: dict[str, Any] = {}
         raw_masks: dict[str, torch.Tensor | None] = {}
         values_dict: dict[str, torch.Tensor | None] = {}
+        input_masks: dict[str, torch.Tensor | None] = {}
 
         for key, val in kwargs.items():
             if isinstance(val, tuple):
-                cleaned_kwargs[key] = val[0]
-                if len(val) > 1 and isinstance(val[1], torch.Tensor):
-                    # Check if second element is mask or continuous values
-                    if val[1].dtype in (torch.bool, torch.int64, torch.int32):
-                        raw_masks[key] = val[1]
-                        values_dict[key] = None
+                if (
+                    hasattr(self.dataset, "input_processors")
+                    and key in self.dataset.input_processors
+                ):
+                    schema = self.dataset.input_processors[key].schema()
+                    if "time" in schema and "value" in schema:
+                        value = val[schema.index("value")]
+                        time_tensor = val[schema.index("time")]
+                        mask = val[schema.index("mask")] if "mask" in schema else None
+                    elif (
+                        len(val) > 1
+                        and isinstance(val[0], torch.Tensor)
+                        and val[0].is_floating_point()
+                        and isinstance(val[1], torch.Tensor)
+                        and not val[1].is_floating_point()
+                    ):
+                        time_tensor = val[0]
+                        value = val[1]
+                        mask = val[2] if len(val) > 2 else None
                     else:
-                        values_dict[key] = val[1]
-                        raw_masks[key] = None
+                        value = (
+                            val[schema.index("value")]
+                            if "value" in schema
+                            else val[0]
+                        )
+                        mask = (
+                            val[schema.index("mask")]
+                            if "mask" in schema
+                            else None
+                        )
+                        time_tensor = (
+                            val[schema.index("time")]
+                            if "time" in schema
+                            else None
+                        )
+
+                    numeric_val = None
+                    for elem in val:
+                        if (
+                            isinstance(elem, torch.Tensor)
+                            and elem.is_floating_point()
+                            and elem is not time_tensor
+                        ):
+                            numeric_val = elem
+                            break
+                    values_dict[key] = numeric_val
                 else:
-                    raw_masks[key] = None
-                    values_dict[key] = None
+                    if (
+                        len(val) > 1
+                        and isinstance(val[0], torch.Tensor)
+                        and val[0].is_floating_point()
+                        and isinstance(val[1], torch.Tensor)
+                        and not val[1].is_floating_point()
+                    ):
+                        value = val[1]
+                        mask = val[2] if len(val) > 2 else None
+                        numeric_val = None
+                    else:
+                        value = val[0]
+                        mask = (
+                            val[1]
+                            if len(val) > 1
+                            and val[1].dtype
+                            in (torch.bool, torch.int64, torch.int32)
+                            else None
+                        )
+                        numeric_val = (
+                            val[1]
+                            if len(val) > 1
+                            and isinstance(val[1], torch.Tensor)
+                            and val[1].is_floating_point()
+                            else None
+                        )
+                    values_dict[key] = numeric_val
+
+                cleaned_kwargs[key] = value
+                raw_masks[key] = mask if isinstance(mask, torch.Tensor) else None
             else:
                 cleaned_kwargs[key] = val
                 raw_masks[key] = None
                 values_dict[key] = None
+
+            if (
+                isinstance(cleaned_kwargs[key], torch.Tensor)
+                and not cleaned_kwargs[key].is_floating_point()
+            ):
+                input_masks[key] = cleaned_kwargs[key] != 0
+            else:
+                input_masks[key] = None
 
         embedded = self.embedding_model(cleaned_kwargs)
 
@@ -500,20 +583,34 @@ class DescEmb(BaseModel):
                 val_emb = self.val_proj(val.unsqueeze(-1).float())
                 feat = self.post_val_proj(torch.cat([feat, val_emb], dim=-1))
 
+            v_mask = None
             # Nested sequences: (B, T, K, D)
             while feat.dim() > 3:
                 mask = raw_masks.get(feature_key)
+                if mask is None:
+                    mask = input_masks.get(feature_key)
                 if mask is not None and mask.dim() == feat.dim() - 1:
                     code_mask = mask != 0
                 else:
                     code_mask = (feat != 0).any(dim=-1)
+                v_mask = code_mask.any(dim=-1)
                 feat = self._pool_intra_visit(feat, code_mask)
 
             # Flat sequences: (B, D) -> (B, 1, D)
             if feat.dim() == 2:
                 feat = feat.unsqueeze(1)
 
-            v_mask = (feat != 0).any(dim=-1)
+            if v_mask is None:
+                mask = raw_masks.get(feature_key)
+                if mask is None:
+                    mask = input_masks.get(feature_key)
+                if mask is not None and mask.dim() == feat.dim() - 1:
+                    v_mask = mask != 0
+                else:
+                    v_mask = (feat != 0).any(dim=-1)
+            else:
+                feat = feat.masked_fill(~v_mask.unsqueeze(-1), 0.0)
+
             feat_visits.append(feat)
             visit_masks.append(v_mask)
 
@@ -527,10 +624,15 @@ class DescEmb(BaseModel):
                     f = F.pad(f, (0, 0, 0, pad_len))
                 aligned_feats.append(f)
             combined = torch.cat(aligned_feats, dim=-1)
-            overall_mask = visit_masks[0]
-            for m in visit_masks[1:]:
+
+            aligned_masks = []
+            for m in visit_masks:
                 if m.shape[1] < max_t:
                     m = F.pad(m, (0, max_t - m.shape[1]), value=False)
+                aligned_masks.append(m)
+
+            overall_mask = aligned_masks[0]
+            for m in aligned_masks[1:]:
                 overall_mask = overall_mask | m
         else:
             combined = feat_visits[0]
