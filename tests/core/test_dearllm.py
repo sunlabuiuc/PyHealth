@@ -108,7 +108,7 @@ class TestDearLLMGraphEncoder(unittest.TestCase):
                 [[[0, 1, 0.5], [1, 2, 0.9], [2, 0, 0.3], [3, 1, 0.7], [0, 2, 0.4]]]
             )
             weights = torch.tensor([[0.1, 0.5, 0.2, 0.9]])
-            emb, pi = enc(node_ids, weights, edges)
+            emb, _ = enc(node_ids, weights, edges)
 
             x = enc.norms[0](enc.node_embedding(node_ids[0]))
             ref = torch.relu(
