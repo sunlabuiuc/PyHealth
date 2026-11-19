@@ -161,6 +161,9 @@ from .rsna_pneumonia_classification import (
 from .covid_blues_classification import (
     COVIDBLUESFrameClassification as COVIDBLUESFrameClassification,
 )
+from .covid_blues_severity import (
+    COVIDBLUESSeverityClassification as COVIDBLUESSeverityClassification,
+)
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
     ReadmissionPredictionMIMIC3,

@@ -275,6 +275,7 @@ Available Tasks
     CHAOS Segmentation Tasks <tasks/pyhealth.tasks.CHAOSSegmentation>
     RSNA Pneumonia Classification <tasks/pyhealth.tasks.RSNAPneumoniaClassification>
     COVID-BLUES Frame Classification <tasks/pyhealth.tasks.COVIDBLUESFrameClassification>
+    COVID-BLUES Severity Classification <tasks/pyhealth.tasks.COVIDBLUESSeverityClassification>
     Variant Classification (ClinVar) <tasks/pyhealth.tasks.VariantClassificationClinVar>
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>

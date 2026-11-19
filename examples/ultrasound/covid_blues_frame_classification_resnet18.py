@@ -18,7 +18,8 @@ Clone https://github.com/NinaWie/COVID-BLUES and extract frames, e.g.::
         --root COVID-BLUES --frames-dir frames --frame-step 5
 
 Pass ``--decode`` instead of ``--frames-dir`` to decode the videos with the
-optional ``av`` or ``opencv-python`` package.
+optional ``av`` or ``opencv-python`` package. For a quick smoke run add
+``--max-samples 500 --epochs 1``.
 """
 
 import argparse
@@ -32,7 +33,7 @@ from pyhealth.trainer import Trainer
 
 
 def main() -> None:
-    """Train ResNet-18 on COVID-BLUES frames for one epoch."""
+    """Train ResNet-18 on COVID-BLUES frames and print test metrics."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--root", required=True)
     parser.add_argument("--frames-dir", default=None)
@@ -40,6 +41,11 @@ def main() -> None:
     parser.add_argument("--frame-step", type=int, default=1)
     parser.add_argument("--cache-dir", default=None)
     parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--epochs", type=int, default=1)
+    parser.add_argument(
+        "--max-samples", type=int, default=None,
+        help="Keep only the first N frames of each split (quick smoke run).",
+    )
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
     torch.manual_seed(0)
@@ -56,6 +62,11 @@ def main() -> None:
         COVIDBLUESFrameClassification(),
         split=PatientSplit(ratios=(0.75, 0.25), seed=0),
     )
+    if args.max_samples is not None:
+        train_ds, test_ds = (
+            ds.subset(list(range(min(args.max_samples, len(ds)))))
+            for ds in (train_ds, test_ds)
+        )
     print("frames train/test:", len(train_ds), len(test_ds))
 
     model = TorchvisionModel(
@@ -64,7 +75,7 @@ def main() -> None:
     trainer = Trainer(model, device=args.device, metrics=["roc_auc", "accuracy"])
     trainer.train(
         get_dataloader(train_ds, batch_size=args.batch_size, shuffle=True),
-        epochs=1,
+        epochs=args.epochs,
     )
     print("test:", trainer.evaluate(get_dataloader(test_ds, batch_size=args.batch_size)))
 
