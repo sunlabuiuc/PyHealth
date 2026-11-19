@@ -271,6 +271,9 @@ class TestUDC(unittest.TestCase):
             out = model(**batch)
             self.assertIn("loss", out)
             self.assertTrue(torch.isfinite(out["loss"]))
+            self.assertIn("embed", out)
+            self.assertEqual(out["embed"].shape, (2, 16))
+            self.assertTrue(torch.isfinite(out["embed"]).all())
 
     def test_inference_without_labels(self):
         dataset = create_sample_dataset(
@@ -516,6 +519,25 @@ class TestUDC(unittest.TestCase):
         with self.assertRaises(ValueError):
             model(conditions=torch.zeros((2, 3, 4, 5)))
         model.embedding_model.forward = original_embed
+
+    def test_time_value_tuple_inputs(self):
+        """Verifies (time, value) tuple inputs compute mask from embeddings."""
+        dataset = create_sample_dataset(
+            samples=self.samples,
+            input_schema=self.input_schema,
+            output_schema={"label": "binary"},
+        )
+        model = UDC(dataset=dataset, embedding_dim=16, hidden_dim=16)
+        loader = get_dataloader(dataset, batch_size=2)
+        batch = next(iter(loader))
+
+        cond_val = batch["conditions"]
+        fake_time = torch.zeros_like(cond_val, dtype=torch.float32)
+        batch["conditions"] = (fake_time, cond_val)
+        out = model(**batch)
+        self.assertIn("logit", out)
+        self.assertEqual(out["logit"].shape, (2, 1))
+        self.assertTrue(torch.isfinite(out["logit"]).all())
 
 
 if __name__ == "__main__":

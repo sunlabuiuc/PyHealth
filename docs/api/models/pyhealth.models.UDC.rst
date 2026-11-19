@@ -40,8 +40,9 @@ UDC accepts standard PyHealth :class:`~pyhealth.datasets.SampleDataset`
 batches. Both 2D sequences (``SequenceProcessor``) and 3D nested sequences
 (``NestedSequenceProcessor``) are supported. Binary, multiclass, and
 multilabel classification tasks are fully supported. The ``forward`` method
-returns ``y_prob``, ``logit``, ``embed``, and the discrete clue prototype
-indices ``vq_indices`` (along with ``loss`` and ``vq_loss`` during training).
+always returns ``y_prob``, ``logit``, ``embed``, ``vq_loss``, and the
+discrete clue prototype indices ``vq_indices``. When labels are provided,
+``loss`` and ``y_true`` are also returned.
 
 API
 ---

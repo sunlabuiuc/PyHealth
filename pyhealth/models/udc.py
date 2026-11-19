@@ -514,33 +514,69 @@ class UDC(BaseModel):
 
         Returns:
             Dictionary containing:
-                - loss: Total training loss (task loss + discrete clue loss).
                 - y_prob: Predicted outcome probabilities.
-                - y_true: Ground truth outcome labels (if provided).
                 - logit: Raw output logits.
                 - embed: Patient-level latent representations from the last visit.
-                - vq_loss: Residual vector quantization loss.
+                - vq_loss: Residual vector quantization loss (always returned).
                 - vq_indices: Discrete prototype indices from vector quantization.
+                - loss: Total training loss (when labels provided).
+                - y_true: Ground truth outcome labels (when labels provided).
         """
         # Unpack tuple inputs if any
         cleaned_kwargs: dict[str, Any] = {}
         raw_masks: dict[str, torch.Tensor | None] = {}
         for key, val in kwargs.items():
             if isinstance(val, tuple):
-                if (
-                    hasattr(self.dataset, "input_processors")
-                    and key in self.dataset.input_processors
-                ):
-                    schema = self.dataset.input_processors[key].schema()
-                    value = val[schema.index("value")] if "value" in schema else val[0]
-                    mask = (
-                        val[schema.index("mask")]
-                        if "mask" in schema
-                        else (val[1] if len(val) > 1 else None)
+                schema = (
+                    self.dataset.input_processors[key].schema()
+                    if (
+                        hasattr(self.dataset, "input_processors")
+                        and key in self.dataset.input_processors
                     )
+                    else None
+                )
+                if (
+                    schema is not None
+                    and "time" in schema
+                    and "value" in schema
+                ):
+                    value = val[schema.index("value")]
+                    mask = val[schema.index("mask")] if "mask" in schema else None
+                elif len(val) == 2:
+                    first, second = val[0], val[1]
+                    if (
+                        isinstance(second, torch.Tensor)
+                        and second.dtype == torch.bool
+                    ):
+                        value = first
+                        mask = second
+                    elif (
+                        isinstance(first, torch.Tensor)
+                        and first.is_floating_point()
+                        and isinstance(second, torch.Tensor)
+                        and not second.is_floating_point()
+                    ):
+                        # (time, value)
+                        value = second
+                        mask = None
+                    else:
+                        value = first
+                        mask = None
+                elif len(val) >= 3:
+                    value = val[1]
+                    mask = (
+                        val[2]
+                        if isinstance(val[2], torch.Tensor)
+                        and val[2].dtype == torch.bool
+                        else None
+                    )
+                elif schema is not None and "value" in schema:
+                    value = val[schema.index("value")]
+                    mask = val[schema.index("mask")] if "mask" in schema else None
                 else:
                     value = val[0]
-                    mask = val[1] if len(val) > 1 else None
+                    mask = None
+
                 cleaned_kwargs[key] = value
                 raw_masks[key] = mask if isinstance(mask, torch.Tensor) else None
             else:

@@ -129,4 +129,3 @@ from .udc import (
     DiscreteClueEncoder as DiscreteClueEncoder,
     ResidualVectorQuantizer as ResidualVectorQuantizer,
 )
-
