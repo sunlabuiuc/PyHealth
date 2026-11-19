@@ -1,6 +1,6 @@
 # GiantMed with SafeDrug
 
-`giantmed_mimic3.py` trains SafeDrug for one epoch on the repository's MIMIC-III demo and evaluates the backbone and GiantMed. Run it from the repository root:
+`giantmed_mimic3.py` trains SafeDrug for one epoch by default on the repository's MIMIC-III demo and evaluates the backbone and GiantMed. Run it from the repository root:
 
 ```sh
 python examples/drug_recommendation/giantmed_mimic3.py --ndc-rxcui /path/to/ndc2rxnorm_mapping.txt --ndc-atc /path/to/ndc2atc_level4.csv --model Qwen/Qwen3-8B
@@ -19,6 +19,8 @@ PyHealth's split-aware task processing fits input processors on training patient
 The example uses a 0.5 decision threshold and averages visit metrics within each patient, then across patients, as in the released script. The DDI rate pools medication pairs across visits. The example records a per-visit `refinement_error` and retains backbone scores if prompt construction or generation fails; the printed error should be investigated before interpreting aggregate metrics. The reference generation defaults to temperature 0.6 and 4096 new tokens, while the paper reports temperature 0.7 and a 4096-token input limit. For a selected model or supplied prompt tokenizer, the example fits prompts to 4,096 input tokens by default using the tokenizer and a 256-token reserve for provider formatting. The OpenRouter run stops if the provider reports a prompt above that limit. The paper and released script use different generation settings; configure and document them for experiments.
 
 The public [MEDI-C download](https://www.vumc.org/wei-lab/medi) contains the columns used by the filter and is distributed under CC BY-NC-SA 3.0; obtain it separately and check its terms for your use. The reference ingredient cache is in the [GiantMed repository](https://github.com/lvhangkenn/GiantMed/tree/main/data/raw/MIMIC-III). The NDC-to-RxCUI and RxCUI-to-ATC files used for the demo check were `data/ndc2rxnorm_mapping.txt` and `data/ndc2atc_level4.csv` from [GAMENet](https://github.com/sjy1203/GAMENet/tree/master/data); these are external mappings and may differ from the authors' original versions.
+
+Set `--epochs` to a positive integer to train SafeDrug longer. The example does not select a checkpoint by validation metric or use early stopping; it evaluates the final epoch. It reports added and removed predictions against recorded medication labels, pooled by visit; recorded medications are not a direct measure of clinical necessity.
 
 For small hardware, `--max-test-visits` and `--max-new-tokens` limit a smoke run, and `--boundary-low` and `--boundary-high` can narrow the candidate set. Changing the boundary changes the method configuration and does not reproduce the paper. `--save-responses PATH` writes raw model responses locally for parsing diagnostics; responses can contain patient information and should be stored accordingly.
 

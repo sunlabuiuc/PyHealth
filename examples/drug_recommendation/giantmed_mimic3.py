@@ -142,6 +142,22 @@ def evaluate_predictions(y_true, scores, patient_ids, ddi):
     return metrics
 
 
+def summarize_decision_changes(y_true, baseline, refined):
+    """Count changed decisions against recorded medications, pooled by visit."""
+    truth = np.asarray(y_true, dtype=bool)
+    before = np.asarray(baseline) >= 0.5
+    after = np.asarray(refined) >= 0.5
+    if truth.shape != before.shape or before.shape != after.shape:
+        raise ValueError("targets and scores must have matching shapes")
+    added, removed = ~before & after, before & ~after
+    return {
+        "added_recorded": int((added & truth).sum()),
+        "added_unrecorded": int((added & ~truth).sum()),
+        "removed_recorded": int((removed & truth).sum()),
+        "removed_unrecorded": int((removed & ~truth).sum()),
+    }
+
+
 def load_reference_ndc_atc3(ndc_rxcui_path, ndc_atc_path):
     """Construct the reference's NDC -> RxCUI -> first ATC3 mapping."""
     ndc_rxcui = ast.literal_eval(Path(ndc_rxcui_path).read_text(encoding="utf-8-sig"))
@@ -188,6 +204,9 @@ def main():
     parser.add_argument(
         "--openrouter-model", help="OpenRouter model ID; sends prompts to OpenRouter"
     )
+    parser.add_argument(
+        "--epochs", type=int, default=1, help="SafeDrug training epochs"
+    )
     parser.add_argument("--max-new-tokens", type=int, default=4096)
     parser.add_argument("--max-input-tokens", type=int, default=4096)
     parser.add_argument(
@@ -229,10 +248,12 @@ def main():
     parser.add_argument("--ndc-atc", help="reference RxCUI to ATC mapping")
     parser.add_argument("--ingredient-cache", help="reference ingredient JSON cache")
     args = parser.parse_args()
-    if args.max_new_tokens < 1 or (
-        args.max_test_visits is not None and args.max_test_visits < 1
+    if (
+        args.epochs < 1
+        or args.max_new_tokens < 1
+        or (args.max_test_visits is not None and args.max_test_visits < 1)
     ):
-        parser.error("token and visit limits must be positive")
+        parser.error("epochs, token and visit limits must be positive")
     if not 0 <= args.input_token_reserve < args.max_input_tokens:
         parser.error(
             "input token reserve must be nonnegative and smaller than the input limit"
@@ -280,7 +301,7 @@ def main():
         trainer.train(
             get_dataloader(train, batch_size=8, shuffle=True),
             val_dataloader=get_dataloader(val, batch_size=8),
-            epochs=1,
+            epochs=args.epochs,
         )
 
         # Raw task samples supply clinical codes for prompts and retrieval. The
@@ -514,6 +535,10 @@ def main():
         )
         print(
             f"Mean absolute score change: {differences.mean():.6f}; decision changes: {decision_changes}"
+        )
+        print(
+            "Decision changes against recorded medications:",
+            json.dumps(summarize_decision_changes(y_true, baseline, refined)),
         )
         if evidence_filter:
             print(f"MEDI evidence outcomes: {dict(evidence_outcomes)}")

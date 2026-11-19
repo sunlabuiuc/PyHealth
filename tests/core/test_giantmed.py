@@ -763,3 +763,19 @@ def test_ndc_coverage_excludes_missing_codes(tmp_path):
     with gzip.open(path, "wt") as stream:
         stream.write("ndc\n111\n222\n0\n111\n")
     assert ndc_coverage(path, {"111": "A10A"}) == (2, 3)
+
+
+def test_decision_change_summary_counts_against_recorded_labels():
+    from examples.drug_recommendation.giantmed_mimic3 import summarize_decision_changes
+
+    target = [[1, 0, 1, 0, 1]]
+    baseline = [[0.4, 0.4, 0.6, 0.6, 0.4]]
+    refined = [[0.5, 0.8, 0.2, 0.1, 0.3]]
+    assert summarize_decision_changes(target, baseline, refined) == {
+        "added_recorded": 1,
+        "added_unrecorded": 1,
+        "removed_recorded": 1,
+        "removed_unrecorded": 1,
+    }
+    with pytest.raises(ValueError, match="matching shapes"):
+        summarize_decision_changes(target, baseline, [[0.1]])
