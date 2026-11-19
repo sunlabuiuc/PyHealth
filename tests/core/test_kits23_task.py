@@ -52,6 +52,23 @@ class TestKiTS23Tasks(unittest.TestCase):
         finally:
             samples.close()
 
+    def test_slice_task_skips_case_without_segmentation(self):
+        root = self.tmp / "no_seg"
+        dataset_dir = build_kits23_root(root)
+        (dataset_dir / "case_00001" / "segmentation.nii.gz").unlink()
+        dataset = KiTS23Dataset(
+            root=str(dataset_dir), cache_dir=str(self.tmp / "cache_no_seg")
+        )
+        slice_task = KiTS23MalignancySliceClassification(image_size=12)
+        volume_task = KiTS23MalignancyClassification(target_shape=(4, 8, 8))
+        # Called per patient: a set_task over one label would fail in the
+        # binary label processor, which is not what is tested here.
+        no_seg = dataset.get_patient("case_00001")
+        self.assertEqual(slice_task(no_seg), [])
+        # It still has imaging, so only the 2.5D task drops it.
+        self.assertEqual(len(volume_task(no_seg)), 1)
+        self.assertEqual(len(slice_task(dataset.get_patient("case_00000"))), 1)
+
     def test_best_slice_prefers_tumour_then_kidney(self):
         seg = np.zeros((6, 4, 4), dtype=int)
         seg[1, :, :] = 1

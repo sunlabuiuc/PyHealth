@@ -69,32 +69,59 @@ class KiTS23Dataset(BaseDataset):
 
     Getting the data:
         - Source: https://kits-challenge.org/kits23/ and
-          https://github.com/neheller/kits23 (imaging on Hugging Face,
-          ``neheller/KiTS-Challenge-Imaging``).
-        - Access: open, no account needed.
-        - Licence: the data are CC BY-NC-SA 4.0 (non-commercial, share
-          alike; the repository code is MIT). Contact the KiTS organisers
-          for commercial use.
-        - Download: ``git clone https://github.com/neheller/kits23``, then
-          ``pip install -e kits23`` and run ``kits23_download_data``, which
-          puts ``imaging.nii.gz`` (about 42 GB in total) in each
-          ``dataset/case_XXXXX/`` folder. A single case can be fetched from
-          ``https://huggingface.co/datasets/neheller/KiTS-Challenge-Imaging/resolve/main/images/case_XXXXX.nii.gz``
-          and saved as ``dataset/case_XXXXX/imaging.nii.gz``.
-        - ``root``: the repository's ``dataset/`` folder holding
-          ``kits23.json`` and the ``case_XXXXX/`` folders (the repository
-          root also works).
+          https://github.com/neheller/kits23 (the CTs are hosted on Hugging
+          Face, https://huggingface.co/datasets/neheller/KiTS-Challenge-Imaging).
+        - Access: open, no account, registration or agreement needed.
+        - Files: the GitHub repository (about 0.5 GB) holds ``kits23.json``
+          and each case's ``segmentation.nii.gz`` (plus ``instances/``
+          annotator masks). The 489 CTs, ``images/case_XXXXX.nii.gz`` on
+          Hugging Face (about 42 GB in total, 86 MB on average),
+          are fetched separately.
+        - Download::
+
+              git clone https://github.com/neheller/kits23
+              cd kits23
+              pip3 install -e .
+              kits23_download_data     # all CTs into dataset/case_XXXXX/imaging.nii.gz
+
+          To try a few cases, skip ``kits23_download_data`` and fetch single
+          CTs instead::
+
+              wget -O dataset/case_00000/imaging.nii.gz \
+                  https://huggingface.co/datasets/neheller/KiTS-Challenge-Imaging/resolve/main/images/case_00000.nii.gz
+
+          Nothing needs unpacking (``.nii.gz`` is read directly). Cases
+          without ``imaging.nii.gz`` are kept in the metadata with
+          ``has_imaging = 0`` and skipped by the tasks.
+        - ``root`` layout (the repository root also works)::
+
+              kits23/dataset/                 # root
+                  kits23.json
+                  case_00000/
+                      imaging.nii.gz          # from Hugging Face
+                      segmentation.nii.gz     # from the git clone
+                      instances/
+                  case_00001/
+                  ...
+
+        - Licence: the images and segmentations are CC BY-NC-SA 4.0
+          (non-commercial, attribution, share alike; the repository code is
+          MIT). Contact the KiTS organisers for commercial use.
 
     The metadata CSV is written to ``metadata_dir`` (by default
     ``<cache_dir>/metadata/kits23``), never into ``root``. It is rebuilt
     when ``root``, ``kits23.json`` or the set of downloaded CTs changes.
 
     Citation:
-        Heller, N., Isensee, F., Maier-Hein, K. H., et al. The state of the
-        art in kidney and kidney tumor segmentation in contrast-enhanced CT
-        imaging: Results of the KiTS19 challenge. Medical Image Analysis 67,
-        101821, 2021. The KiTS23 dataset is described at
-        https://kits-challenge.org/kits23/.
+        Heller, N., Isensee, F., Trofimova, D., et al. The KiTS21 Challenge:
+        Automatic segmentation of kidneys, renal tumors, and renal cysts in
+        corticomedullary-phase CT. arXiv:2307.01984, 2023 (the paper the
+        KiTS23 repository asks users to cite). The KiTS23 challenge itself is
+        described at https://kits-challenge.org/kits23/. Predecessor
+        challenge: Heller, N., Isensee, F., Maier-Hein, K. H., et al. The
+        state of the art in kidney and kidney tumor segmentation in
+        contrast-enhanced CT imaging: Results of the KiTS19 challenge.
+        Medical Image Analysis 67, 101821, 2021.
 
     Benchmarked in CLIMB (Dai et al., 2025, https://github.com/DDVD233/CLIMB).
     Deviations from CLIMB: CLIMB labels KiTS23 as benign / malignant (two
