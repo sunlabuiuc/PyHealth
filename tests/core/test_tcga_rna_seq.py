@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import tempfile
 from pathlib import Path
@@ -105,3 +106,46 @@ def test_dataset_to_model_pipeline():
         assert out["logit"].shape == (2, 1)
         assert "loss" in out
         assert torch.isfinite(out["loss"])
+
+def _load_example_module():
+    """Import the example script by path (examples/ is not a package)."""
+    spec = importlib.util.spec_from_file_location(
+        "tcga_example",
+        Path(__file__).parents[2] / "examples"
+        / "tcga_rna_seq_tcga_survival_prediction_bulk_rna_bert.py",
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+def test_per_cohort_c_index_aggregation():
+    """Hand-computed case for the ablation's per-cohort metric helper."""
+    mod = _load_example_module()
+
+    # Two cohorts, 4 patients each. Cohort 0 ranks perfectly (C=1.0),
+    # cohort 1 ranks reversed (C=0.0). Overall = 0.5.
+    duration = np.array([1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 3.0, 4.0])
+    risk = np.array([4.0, 3.0, 2.0, 1.0, 1.0, 2.0, 3.0, 4.0])
+    event = np.ones(8)
+    cohort = np.array([0, 0, 0, 0, 1, 1, 1, 1])
+
+    result = mod.per_cohort_c_index(duration, risk, event, cohort)
+
+    assert result["per_cohort"][0] == 1.0
+    assert result["per_cohort"][1] == 0.0
+    assert abs(result["c_index_macro"] - 0.5) < 1e-9
+    assert abs(result["c_index_weighted"] - 0.5) < 1e-9  # equal cohort sizes
+
+def test_per_cohort_c_index_excludes_small_cohorts():
+    """Cohorts with fewer than 2 samples are excluded from aggregates."""
+    mod = _load_example_module()
+
+    duration = np.array([1.0, 2.0, 3.0])
+    risk = np.array([3.0, 2.0, 1.0])
+    event = np.ones(3)
+    cohort = np.array([0, 0, 1])
+
+    result = mod.per_cohort_c_index(duration, risk, event, cohort)
+    assert result["per_cohort"][0] == 1.0
+    assert np.isnan(result["per_cohort"][1])
+    assert result["c_index_macro"] == 1.0

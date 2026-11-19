@@ -54,6 +54,17 @@ class TCGARNASeqDataset(BaseDataset):
     repository). Designed for :class:`~pyhealth.tasks.TCGASurvivalPrediction`
     and :class:`~pyhealth.models.BulkRNABert`.
 
+    Data source:
+
+    - **Hugging Face dataset** (cached 256-d BulkRNABert embeddings joined
+      with TCGA survival labels):
+      https://huggingface.co/datasets/cstein2/TCGABulkBertRNAEmbeddings
+    - **Raw RNA-seq and clinical survival data**: NCI Genomic Data Commons,
+      open-access tier — https://portal.gdc.cancer.gov/
+    - **Embedding model**: Gélard et al., "BulkRNABert: Cancer prognosis
+      from bulk RNA-seq based language models" (ML4H 2025),
+      https://arxiv.org/abs/2502.06407
+
     Args:
         root: Directory holding ``tcga_rna_seq.csv``.
         **kwargs: Passed to :class:`~pyhealth.datasets.BaseDataset`

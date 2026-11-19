@@ -1,14 +1,16 @@
 """Synthetic unit tests for TCGASurvivalPrediction.
 
 The task only calls ``patient.get_events(...)`` and indexes the result with
-string keys, so a tiny stub is sufficient. Constructing a real ``Patient`` in
-PyHealth 2.1 requires a polars DataFrame from a real dataset; that is not
-appropriate for a fast synthetic unit test.
+string keys, so a tiny stub is sufficient. The FakePatient stub keeps the tests fast and focused on the task's
+__call__ logic; the end-to-end pipeline with a real Patient is covered
+by test_dataset_to_model_pipeline in test_tcga_rna_seq.py.
 """
+
+import json
 
 import numpy as np
 import pytest
-import json
+
 from pyhealth.tasks import TCGASurvivalPrediction
 
 

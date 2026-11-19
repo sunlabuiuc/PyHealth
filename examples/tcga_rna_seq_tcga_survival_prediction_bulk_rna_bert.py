@@ -74,7 +74,6 @@ from pyhealth.metrics.survival import concordance_index
 from pyhealth.models import BulkRNABert
 from pyhealth.tasks import TCGASurvivalPrediction
 
-
 # ---------------------------------------------------------------------------
 # Synthetic data
 # ---------------------------------------------------------------------------
@@ -411,7 +410,7 @@ def main() -> None:
                         json.dump(all_results, fh, indent=2, default=float)
 
         if len(args.seeds) == 1:
-            print(f"\n--- Ablation summary ---")
+            print("\n--- Ablation summary ---")
             print(f"{'metric':<20}{'global':>10}{'cohort':>10}")
             for key in ("c_index", "c_index_weighted", "c_index_macro"):
                 g = all_results["global"][0].get(key, float("nan"))

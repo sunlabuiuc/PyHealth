@@ -81,7 +81,7 @@ class TCGASurvivalPrediction(BaseTask):
         >>> ds = TCGARNASeqDataset.from_huggingface()  # doctest: +SKIP
         >>> task = TCGASurvivalPrediction()
         >>> sample = task(ds.get_patient("TCGA-BRCA-0001"))[0]  # doctest: +SKIP
-        >>> sample["cohort"]  # int-encoded BRCA index
+        >>> sample["cohort"]  # int-encoded BRCA index  # doctest: +SKIP
         [2.0]
     """
 
