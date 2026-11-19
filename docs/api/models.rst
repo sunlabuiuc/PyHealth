@@ -301,6 +301,7 @@ API Reference
     models/pyhealth.models.TransformersModel
     models/pyhealth.models.LLMEHREncoder
     models/pyhealth.models.HFEHRFoundationModel
+    models/pyhealth.models.CLMBR
     models/pyhealth.models.MEME
     models/pyhealth.models.TransformerDeID
     models/pyhealth.models.RETAIN
