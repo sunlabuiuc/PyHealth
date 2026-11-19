@@ -831,3 +831,128 @@ def test_prompt_metadata_has_stable_patient_independent_hash():
     assert metadata["template"] == template
     assert metadata["template_sha256"] == hashlib.sha256(template.encode()).hexdigest()
     assert model._instructions() == "Risk boundary [0.3, 0.7); evaluate interactions."
+
+
+def test_medi_matches_prefixed_icd_versions_without_cross_system_collision():
+    filt = MediEvidenceFilter(
+        {("p", "v", "A"): {"ingredient"}},
+        {"ingredient": {"25000", "E119"}},
+        ingredient_icd10_diagnoses={"ingredient": {"E119", "I10"}},
+        history_rescue=False,
+    )
+    neighbour = {"patient_id": "p", "visit_id": "v"}
+    assert (
+        filt.evidence_status({"conditions": [["9_250.00"]]}, neighbour, "A")
+        == "indication_match"
+    )
+    assert (
+        filt.evidence_status({"conditions": [["10_E11.9"]]}, neighbour, "A")
+        == "indication_match"
+    )
+    assert (
+        filt.evidence_status({"conditions": [["9_I10"]]}, neighbour, "A")
+        == "indication_mismatch"
+    )
+    assert (
+        filt.evidence_status({"conditions": [["10_25000"]]}, neighbour, "A")
+        == "indication_mismatch"
+    )
+    assert (
+        filt.evidence_status({"conditions": [["11_E119"]]}, neighbour, "A")
+        == "no_supported_diagnosis"
+    )
+    assert (
+        filt.evidence_status({"conditions": [["25000"]]}, neighbour, "A")
+        == "indication_match"
+    )
+    assert (
+        filt.evidence_status({"conditions": [["9_25000", "10_I10"]]}, neighbour, "A")
+        == "indication_match"
+    )
+
+
+def test_medi_icd10_missing_indications_is_not_mismatch():
+    filt = MediEvidenceFilter(
+        {("p", "v", "A"): {"ingredient"}},
+        {"ingredient": {"25000"}},
+        history_rescue=False,
+    )
+    neighbour = {"patient_id": "p", "visit_id": "v"}
+    assert (
+        filt.evidence_status({"conditions": [["10_E119"]]}, neighbour, "A")
+        == "missing_indications"
+    )
+
+
+def test_medi_ancestor_matching_does_not_cross_code_systems():
+    filt = MediEvidenceFilter(
+        {("p", "v", "A"): {"ingredient"}},
+        {"ingredient": {"250"}},
+        ancestor_match=True,
+        ingredient_icd10_diagnoses={"ingredient": {"E11"}},
+        history_rescue=False,
+    )
+    neighbour = {"patient_id": "p", "visit_id": "v"}
+    assert filt({"conditions": [["9_25000"]]}, neighbour, "A")
+    assert filt({"conditions": [["10_E119"]]}, neighbour, "A")
+    assert not filt({"conditions": [["9_E119"]]}, neighbour, "A")
+
+
+def test_medi_loads_icd9_and_icd10_separately_from_files(tmp_path):
+    (tmp_path / "prescriptions.csv").write_text("subject_id,hadm_id,ndc\n1,11,123\n")
+    (tmp_path / "medi.csv").write_text(
+        "RXCUI,CODE,SAB,MEDI1,MEDI1_HPS,MEDI2_HPS\n"
+        "ing,250.00,ICD9CM,TRUE,FALSE,FALSE\n"
+        "ing,E11.9,ICD10CM,TRUE,FALSE,FALSE\n"
+        "ing,I10,ICD10CM,FALSE,FALSE,FALSE\n"
+    )
+    (tmp_path / "ndc.txt").write_text("{'123':'rx'}")
+    (tmp_path / "atc.csv").write_text("RXCUI,ATC4\nrx,A10AB\n")
+    (tmp_path / "cache.json").write_text('{"rx":{"ingredients":[{"rxcui":"ing"}]}}')
+    filt = MediEvidenceFilter.from_reference_files(
+        [{"patient_id": "1", "visit_id": "11"}],
+        tmp_path / "prescriptions.csv",
+        tmp_path / "medi.csv",
+        tmp_path / "ndc.txt",
+        tmp_path / "atc.csv",
+        tmp_path / "cache.json",
+        profile="medi1",
+        history_rescue=False,
+    )
+    neighbour = {"patient_id": "1", "visit_id": "11"}
+    assert filt({"conditions": [["9_25000"]]}, neighbour, "A10A")
+    assert filt({"conditions": [["10_E119"]]}, neighbour, "A10A")
+    assert not filt({"conditions": [["10_I10"]]}, neighbour, "A10A")
+
+
+def test_mimic4_task_custom_mapping_preserves_icd_versions_and_history():
+    from types import SimpleNamespace
+
+    import polars as pl
+
+    from pyhealth.tasks import DrugRecommendationMIMIC4
+
+    class Patient:
+        patient_id = "p1"
+
+        def get_events(self, event_type, filters=None, return_df=False):
+            if event_type == "admissions":
+                return [SimpleNamespace(hadm_id="v1"), SimpleNamespace(hadm_id="v2")]
+            visit = filters[0][2]
+            if event_type in ("diagnoses_icd", "procedures_icd"):
+                version, code = ("9", "25000") if visit == "v1" else ("10", "E119")
+                return pl.DataFrame(
+                    {
+                        f"{event_type}/icd_version": [version],
+                        f"{event_type}/icd_code": [code],
+                    }
+                )
+            return pl.DataFrame(
+                {"prescriptions/ndc": ["111", "bad"] if visit == "v1" else ["222"]}
+            )
+
+    task = DrugRecommendationMIMIC4(ndc_to_atc3={"111": "A10A", "222": "C03C"})
+    first, second = task(Patient())
+    assert first["drugs"] == ["A10A"] and second["drugs"] == ["C03C"]
+    assert second["conditions"] == [["9_25000"], ["10_E119"]]
+    assert second["drugs_hist"] == [["A10A"], []]

@@ -25,7 +25,12 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from pyhealth.datasets import MIMIC3Dataset, PatientSplit, get_dataloader
+from pyhealth.datasets import (
+    MIMIC3Dataset,
+    MIMIC4EHRDataset,
+    PatientSplit,
+    get_dataloader,
+)
 from pyhealth.experiment_tracking import record_experiment
 from pyhealth.medcode import ATC, ICD9CM, ICD9PROC
 from pyhealth.metrics import ddi_rate_score, multilabel_metrics_fn
@@ -35,7 +40,7 @@ from pyhealth.models import (
     MediEvidenceFilter,
     SafeDrug,
 )
-from pyhealth.tasks import DrugRecommendationMIMIC3
+from pyhealth.tasks import DrugRecommendationMIMIC3, DrugRecommendationMIMIC4
 from pyhealth.trainer import Trainer
 
 
@@ -194,13 +199,16 @@ def ndc_coverage(prescriptions_path, ndc_map):
     return mapped, total
 
 
-def main():
+def main(mimic_version=3):
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--root",
-        default=str(
-            Path(__file__).resolve().parents[2] / "test-resources/core/mimic3demo"
+        default=(
+            str(Path(__file__).resolve().parents[2] / "test-resources/core/mimic3demo")
+            if mimic_version == 3
+            else None
         ),
+        required=mimic_version == 4,
     )
     parser.add_argument("--model", help="Hugging Face causal chat model or local path")
     parser.add_argument(
@@ -308,24 +316,36 @@ def main():
     torch.manual_seed(0)
     np.random.seed(0)
     with tempfile.TemporaryDirectory() as cache:
-        dataset = MIMIC3Dataset(
+        dataset_class = MIMIC3Dataset if mimic_version == 3 else MIMIC4EHRDataset
+        dataset = dataset_class(
             root=args.root,
             tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
             cache_dir=cache,
         )
         ndc_map = load_reference_ndc_atc3(args.ndc_rxcui, args.ndc_atc)
-        mapped_rows, usable_rows = ndc_coverage(
-            Path(args.root) / "PRESCRIPTIONS.csv.gz", ndc_map
+        prescriptions = (
+            Path(args.root) / "PRESCRIPTIONS.csv.gz"
+            if mimic_version == 3
+            else Path(args.root) / "hosp/prescriptions.csv.gz"
         )
+        mapped_rows, usable_rows = ndc_coverage(prescriptions, ndc_map)
         print(
             f"Reference label coverage: {mapped_rows}/{usable_rows} usable prescription rows; unmapped rows excluded."
         )
-        task = DrugRecommendationMIMIC3(ndc_to_atc3=ndc_map)
+        task_class = (
+            DrugRecommendationMIMIC3 if mimic_version == 3 else DrugRecommendationMIMIC4
+        )
+        task = task_class(ndc_to_atc3=ndc_map)
         print(
             f"Reference NDC-to-ATC3 mappings: {len(ndc_map)}; unmapped NDCs are excluded."
         )
         train, val, test = dataset.set_task(
             task, split=PatientSplit((0.8, 0.1, 0.1), seed=0)
+        )
+        print("Split sample counts:", len(train), len(val), len(test))
+        print(
+            "Split patient counts:",
+            *(len(part.patient_to_index) for part in (train, val, test)),
         )
         if not all(len(part) for part in (train, val, test)):
             raise RuntimeError(
@@ -401,11 +421,10 @@ def main():
         # Translate codes for meaningful LLM evidence. Unknown codes remain visible.
         all_raw = list(raw_train.values()) + list(raw_test.values())
         names = {}
-        for field, terminology in (
-            ("conditions", ICD9CM()),
-            ("procedures", ICD9PROC()),
-            ("drugs", ATC()),
-        ):
+        terminologies = [("drugs", ATC())]
+        if mimic_version == 3:
+            terminologies += [("conditions", ICD9CM()), ("procedures", ICD9PROC())]
+        for field, terminology in terminologies:
             values = (
                 set(codes)
                 if field == "drugs"
@@ -423,7 +442,7 @@ def main():
         if all(filter_files):
             evidence_filter = MediEvidenceFilter.from_reference_files(
                 list(raw_train.values()),
-                Path(args.root) / "PRESCRIPTIONS.csv.gz",
+                prescriptions,
                 args.medi,
                 args.ndc_rxcui,
                 args.ndc_atc,
@@ -477,6 +496,7 @@ def main():
         responses = []
         budgets = []
         evidence_outcomes = Counter()
+        evidence_by_system = Counter()
         model.eval()
         for batch in get_dataloader(test, batch_size=1, shuffle=False):
             if args.max_test_visits is not None and len(y_true) >= args.max_test_visits:
@@ -499,11 +519,15 @@ def main():
                 }
                 for neighbour in refiner.retrieve(raw_test[key]):
                     for drug in set(neighbour["drugs"]) & candidate_codes:
-                        evidence_outcomes[
-                            evidence_filter.evidence_status(
-                                raw_test[key], neighbour, drug
-                            )
-                        ] += 1
+                        status = evidence_filter.evidence_status(
+                            raw_test[key], neighbour, drug
+                        )
+                        evidence_outcomes[status] += 1
+                        systems = {
+                            str(code).split("_", 1)[0] if "_" in str(code) else "9"
+                            for code in raw_test[key]["conditions"][-1]
+                        }
+                        evidence_by_system[("+".join(sorted(systems)), status)] += 1
             try:
                 result = refiner.refine_with_details(raw_test[key], scores)
             except Exception as exc:
@@ -578,6 +602,13 @@ def main():
         )
         if evidence_filter:
             print(f"MEDI evidence outcomes: {dict(evidence_outcomes)}")
+            print(
+                "MEDI outcomes by query ICD system:",
+                {
+                    f"{system}:{status}": count
+                    for (system, status), count in evidence_by_system.items()
+                },
+            )
         if args.save_responses:
             Path(args.save_responses).write_text(
                 json.dumps(responses, indent=2), encoding="utf-8"
@@ -605,7 +636,7 @@ def main():
                 Path(giantmed_module.__file__).read_bytes()
             ).hexdigest()
             params = {
-                "dataset": "mimic3",
+                "dataset": f"mimic{mimic_version}",
                 "seed": 0,
                 "epochs": args.epochs,
                 "split": "patient:0.8,0.1,0.1;seed=0",

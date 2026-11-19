@@ -842,6 +842,9 @@ class MediEvidenceFilter:
             diagnosis codes, with the desired MEDI profile already selected.
         ancestor_match: Also allow a MEDI code to match a more specific code.
         history_rescue: Retain drugs used in the query's preceding visit.
+        ingredient_icd10_diagnoses: Optional ingredient-to-ICD-10-CM mapping.
+            Prefix diagnoses with ``9_`` or ``10_`` to select a code system;
+            unprefixed diagnoses retain the historical ICD-9-CM interpretation.
 
     Examples:
         >>> evidence = MediEvidenceFilter({("p", "v", "A10A"): {"42"}},
@@ -857,9 +860,11 @@ class MediEvidenceFilter:
         ingredient_diagnoses,
         ancestor_match=False,
         history_rescue=True,
+        ingredient_icd10_diagnoses=None,
     ):
         self.visit_drug_ingredients = visit_drug_ingredients
         self.ingredient_diagnoses = ingredient_diagnoses
+        self.ingredient_icd10_diagnoses = ingredient_icd10_diagnoses or {}
         self.ancestor_match = ancestor_match
         self.history_rescue = history_rescue
 
@@ -881,7 +886,7 @@ class MediEvidenceFilter:
 
         Args:
             training_samples: Raw samples from the training split only.
-            prescriptions_path: MIMIC-III PRESCRIPTIONS CSV or CSV.GZ.
+            prescriptions_path: MIMIC-III or MIMIC-IV prescriptions CSV or CSV.GZ.
             medi_path: MEDI.csv with RXCUI, CODE, SAB and profile columns.
             ndc_rxcui_path: Python-literal NDC to clinical RxCUI dictionary.
             ndc_atc_path: CSV with RXCUI and ATC4 columns.
@@ -923,11 +928,12 @@ class MediEvidenceFilter:
         def yes(value):
             return str(value).strip().upper() == "TRUE"
 
-        indications = {}
+        indications = {"ICD9CM": {}, "ICD10CM": {}}
         for row in rows(
             medi_path, ("RXCUI", "CODE", "SAB", "MEDI1", "MEDI1_HPS", "MEDI2_HPS")
         ):
-            if row.get("SAB", "").strip().upper() != "ICD9CM":
+            code_system = row.get("SAB", "").strip().upper()
+            if code_system not in indications:
                 continue
             accepted = (
                 profile == "all_medi"
@@ -940,7 +946,7 @@ class MediEvidenceFilter:
             ingredient = str(row.get("RXCUI", "")).strip()
             diagnosis = str(row.get("CODE", "")).replace(".", "").strip().upper()
             if accepted and ingredient and len(diagnosis) >= 3:
-                indications.setdefault(ingredient, set()).add(diagnosis)
+                indications[code_system].setdefault(ingredient, set()).add(diagnosis)
 
         ndc_to_clinical = ast.literal_eval(
             Path(ndc_rxcui_path).read_text(encoding="utf-8-sig")
@@ -983,7 +989,13 @@ class MediEvidenceFilter:
                     for item in values
                     if item.get("rxcui") is not None
                 )
-        return cls(ingredients, indications, ancestor_match, history_rescue)
+        return cls(
+            ingredients,
+            indications["ICD9CM"],
+            ancestor_match,
+            history_rescue,
+            ingredient_icd10_diagnoses=indications["ICD10CM"],
+        )
 
     def evidence_status(self, query, neighbour, drug):
         """Explain whether evidence is retained or why it was excluded."""
@@ -995,20 +1007,44 @@ class MediEvidenceFilter:
             return "missing_mapping"
         if not self.visit_drug_ingredients[key]:
             return "missing_ingredients"
-        diagnoses = [
-            str(code).replace(".", "").upper()
-            for code in GiantMed._current(query, "conditions")
-        ]
+        diagnoses = {"9": [], "10": []}
+        for raw in GiantMed._current(query, "conditions"):
+            code = str(raw).strip().upper()
+            if "_" in code:
+                system, code = code.split("_", 1)
+                if system not in diagnoses:
+                    continue
+            else:
+                system = "9"  # backward-compatible MIMIC-III convention
+            code = code.replace(".", "")
+            if code:
+                diagnoses[system].append(code)
+        if not any(diagnoses.values()):
+            return "no_supported_diagnosis"
+        indication_sets = {
+            "9": self.ingredient_diagnoses,
+            "10": self.ingredient_icd10_diagnoses,
+        }
+        has_indications = False
         for ingredient in self.visit_drug_ingredients.get(key, ()):
-            for code in self.ingredient_diagnoses.get(ingredient, ()):
-                code = str(code).replace(".", "").upper()
-                if any(
-                    d == code
-                    or (self.ancestor_match and len(code) >= 3 and d.startswith(code))
-                    for d in diagnoses
-                ):
-                    return "indication_match"
-        return "indication_mismatch"
+            for system, query_codes in diagnoses.items():
+                if not query_codes:
+                    continue
+                codes = indication_sets[system].get(ingredient, ())
+                has_indications |= bool(codes)
+                for code in codes:
+                    code = str(code).replace(".", "").upper()
+                    if any(
+                        d == code
+                        or (
+                            self.ancestor_match
+                            and len(code) >= 3
+                            and d.startswith(code)
+                        )
+                        for d in query_codes
+                    ):
+                        return "indication_match"
+        return "indication_mismatch" if has_indications else "missing_indications"
 
     def __call__(self, query, neighbour, drug):
         return self.evidence_status(query, neighbour, drug) in {

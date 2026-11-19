@@ -232,6 +232,11 @@ class DrugRecommendationMIMIC4(BaseTask):
     history (e.g., conditions and procedures). This task creates samples with
     cumulative history, where each visit includes all previous visit information.
 
+    Args:
+        ndc_to_atc3: Optional mapping from NDC strings to ATC3 strings. NDCs
+            missing from an explicit mapping are excluded; the default uses
+            PyHealth's NDC-to-ATC cross-map.
+
     Attributes:
         task_name (str): The name of the task.
         input_schema (Dict[str, str]): The schema for input data:
@@ -260,9 +265,22 @@ class DrugRecommendationMIMIC4(BaseTask):
     }
     output_schema: Dict[str, str] = {"drugs": "multilabel"}
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, ndc_to_atc3: dict[str, str] | None = None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.cache_version = "ndc_to_atc3_v1"
+        self.ndc_to_atc3 = None if ndc_to_atc3 is None else dict(ndc_to_atc3)
+        self.cache_version = "ndc_to_atc3_v2"
+
+    def map_drugs(self, ndc_codes: Iterable[Any]) -> list[str]:
+        """Map NDCs to task labels using the selected mapping source."""
+        if self.ndc_to_atc3 is None:
+            return _map_ndc_list_to_atc3(ndc_codes)
+        return list(
+            dict.fromkeys(
+                self.ndc_to_atc3[str(ndc).strip()]
+                for ndc in ndc_codes
+                if not _is_missing_ndc(ndc) and str(ndc).strip() in self.ndc_to_atc3
+            )
+        )
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Process a patient to create drug recommendation samples.
@@ -331,7 +349,7 @@ class DrugRecommendationMIMIC4(BaseTask):
                 prescriptions.select(pl.col("prescriptions/ndc")).to_series().to_list()
             )
 
-            drugs = _map_ndc_list_to_atc3(drugs)
+            drugs = self.map_drugs(drugs)
 
             # Exclude visits without condition, procedure, or drug code
             if len(conditions) * len(procedures) * len(drugs) == 0:
