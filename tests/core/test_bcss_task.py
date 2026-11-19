@@ -7,7 +7,6 @@ from pathlib import Path
 
 from pyhealth.datasets import BCSSDataset
 from pyhealth.tasks import BCSSTileClassification
-
 from tests.core.test_bcss_dataset import write_fixture
 
 
