@@ -430,6 +430,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `PhysioNet <https://physionet.org/content/ptb-xl/1.0.3/>`__
      - No
      - —
+   * - :doc:`Chapman-Shaoxing 12-lead ECG <datasets/pyhealth.datasets.ChapmanShaoxingDataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/ecg-arrhythmia/1.0.0/>`__
+     - No
+     - —
    * - :doc:`Sleep-EDF <datasets/pyhealth.datasets.SleepEDFDataset>`
      - Open
      - `PhysioNet <https://physionet.org/content/sleep-edfx/1.0.0/>`__
@@ -440,10 +445,20 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `PhysioNet <https://physionet.org/content/chbmit/1.0.0/>`__
      - No
      - —
+   * - :doc:`Helsinki Neonatal EEG <datasets/pyhealth.datasets.HelsinkiNeonatalDataset>`
+     - Open
+     - `Zenodo <https://zenodo.org/records/4940267>`__
+     - No
+     - —
    * - :doc:`EEG Motor Movement/Imagery <datasets/pyhealth.datasets.EEGBCIDataset>`
      - Open
      - `PhysioNet <https://physionet.org/content/eegmmidb/1.0.0/>`__
      - Yes
+     - —
+   * - :doc:`HUP iEEG (epilepsy surgery) <datasets/pyhealth.datasets.HUPiEEGDataset>`
+     - Open
+     - `OpenNeuro <https://openneuro.org/datasets/ds004100>`__
+     - No
      - —
    * - :doc:`ISRUC-Sleep <datasets/pyhealth.datasets.ISRUCDataset>`
      - Open
@@ -518,6 +533,7 @@ Available Datasets
     :maxdepth: 3
 
     datasets/pyhealth.datasets.BaseDataset
+    datasets/pyhealth.datasets.PBCDataset
     datasets/pyhealth.datasets.SampleDataset
     datasets/pyhealth.datasets.PatchDataset
     MSD Base Loader <datasets/pyhealth.datasets.MSDSegmentationDataset>
@@ -538,8 +554,10 @@ Available Datasets
     datasets/pyhealth.datasets.MIMIC4FHIR
     datasets/pyhealth.datasets.MedicalTranscriptionsDataset
     datasets/pyhealth.datasets.CardiologyDataset
+    datasets/pyhealth.datasets.ChapmanShaoxingDataset
     datasets/pyhealth.datasets.eICUDataset
     datasets/pyhealth.datasets.ISRUCDataset
+    datasets/pyhealth.datasets.HUPiEEGDataset
     datasets/pyhealth.datasets.MIMICExtractDataset
     datasets/pyhealth.datasets.OMOPDataset
     datasets/pyhealth.datasets.SyntheaCSVDataset
@@ -561,6 +579,7 @@ Available Datasets
     datasets/pyhealth.datasets.TUABDataset
     datasets/pyhealth.datasets.TUEVDataset
     datasets/pyhealth.datasets.CHBMITDataset
+    datasets/pyhealth.datasets.HelsinkiNeonatalDataset
     datasets/pyhealth.datasets.EESM23Dataset
     datasets/pyhealth.datasets.IIICDataset
     datasets/pyhealth.datasets.ClinVarDataset

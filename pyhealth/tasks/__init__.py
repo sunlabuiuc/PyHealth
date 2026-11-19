@@ -4,6 +4,8 @@ from .task_card import (
     FeatureInfo as FeatureInfo,
     TaskCard as TaskCard,
 )
+from .competing_risks import CompetingRisksPreprocessor as CompetingRisksPreprocessor
+from .competing_risks_pbc import CompetingRisksPBC as CompetingRisksPBC
 from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
@@ -29,6 +31,10 @@ from .covid19_cxr_generation import (
 )
 from .ptbxl_multilabel_classification import PTBXLMultilabelClassification as PTBXLMultilabelClassification
 from .ptbxl_heartlang import PTBXLHeartLangClassification as PTBXLHeartLangClassification
+from .chapman_shaoxing_classification import (
+    ChapmanShaoxingSNOMEDClassification as ChapmanShaoxingSNOMEDClassification,
+    ChapmanShaoxingSuperclassClassification as ChapmanShaoxingSuperclassClassification,
+)
 from .physionet2012_forecasting import (
     PhysioNet2012Forecasting as PhysioNet2012Forecasting,
     physionet2012_benchmark_split as physionet2012_benchmark_split,
@@ -60,6 +66,13 @@ from .ehr_cxr_mimic4 import (
     EHRCXRMortalityMIMIC4 as EHRCXRMortalityMIMIC4,
     EHRCXRPhenotypingMIMIC4 as EHRCXRPhenotypingMIMIC4,
 )
+from .maestro_mortality_mimic4 import (
+    MAESTROMortalityMIMIC4 as MAESTROMortalityMIMIC4,
+)
+from .ehr_foundation_model import (
+    EHRFoundationModelTask as EHRFoundationModelTask,
+    EventSource as EventSource,
+)
 from .ehr_text_serialization import (
     CodeDescriber as CodeDescriber,
     EHRTextSerializationTask as EHRTextSerializationTask,
@@ -83,6 +96,9 @@ from .length_of_stay_prediction import (
 )
 from .length_of_stay_stagenet_mimic4 import LengthOfStayStageNetMIMIC4
 from .medical_coding import MIMIC3ICD9Coding
+from .medmod_decompensation_mimic4 import (
+    MedModDecompensationMIMIC4 as MedModDecompensationMIMIC4,
+)
 from .meds_outcome_tasks import (
     HospitalReadmissionMEDS as HospitalReadmissionMEDS,
     ICUAdmissionMEDS as ICUAdmissionMEDS,
@@ -123,6 +139,10 @@ from .survival_time_to_event import (
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
+from .dearllm_mortality import (
+    DearLLMMortalityPredictionMIMIC3 as DearLLMMortalityPredictionMIMIC3,
+    DearLLMMortalityPredictionMIMIC4 as DearLLMMortalityPredictionMIMIC4,
+)
 from .generate_ehr import (
     EHRCodeSetGenerationMIMIC3 as EHRCodeSetGenerationMIMIC3,
     EHRCodeSetGenerationMIMIC4 as EHRCodeSetGenerationMIMIC4,
@@ -148,17 +168,27 @@ from .sleep_staging import (
     sleep_staging_shhs_fn,
     sleep_staging_sleepedf_fn,
 )
+from .sleep_staging_v2 import SleepStagingSequenceSleepEDF as SleepStagingSequenceSleepEDF
 from .sleep_staging_v2 import SleepStagingSleepEDF
 from .sleep_staging_isruc import SleepStagingISRUC as SleepStagingISRUC
+from .sleep_staging_isruc import (
+    SleepStagingSequenceISRUC as SleepStagingSequenceISRUC,
+)
 from .temple_university_EEG_tasks import (
     EEGEventsTUEV,
     EEGAbnormalTUAB
+)
+from .seizure_detection_helsinki import (
+    SeizureDetectionHelsinki as SeizureDetectionHelsinki,
 )
 from .seizure_detection_chbmit import (
     SeizureDetectionCHBMIT as SeizureDetectionCHBMIT,
 )
 from .sleep_staging_ear_eeg import (
     SleepStagingEarEEG as SleepStagingEarEEG,
+)
+from .soz_localization_hup import (
+    SOZLocalizationHUP as SOZLocalizationHUP,
 )
 from .eegbci import (
     EEGBCIPatternDiscovery as EEGBCIPatternDiscovery,

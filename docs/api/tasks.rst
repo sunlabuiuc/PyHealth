@@ -214,8 +214,11 @@ Available Tasks
 
     Base Task <tasks/pyhealth.tasks.BaseTask>
     Task Card <tasks/pyhealth.tasks.TaskCard>
+    PBC Competing Risks <tasks/pyhealth.tasks.competing_risks_pbc>
+    Competing-Risk Preprocessing <tasks/pyhealth.tasks.competing_risks>
     In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
     In-Hospital Mortality (MEDS) <tasks/pyhealth.tasks.InHospitalMortalityMEDS>
+    DearLLM Mortality (MIMIC-III/IV) <tasks/pyhealth.tasks.dearllm_mortality>
     ICU Admission (MEDS) <tasks/pyhealth.tasks.ICUAdmissionMEDS>
     Hospital Readmission (MEDS) <tasks/pyhealth.tasks.HospitalReadmissionMEDS>
     Prolonged Length of Stay (MEDS) <tasks/pyhealth.tasks.ProlongedLengthOfStayMEDS>
@@ -228,12 +231,14 @@ Available Tasks
     COVID-19 CXR Image Generation <tasks/pyhealth.tasks.COVID19CXRImageGeneration>
     PTB-XL Multilabel Classification <tasks/pyhealth.tasks.PTBXLMultilabelClassification>
     PTB-XL HeartLang Classification <tasks/pyhealth.tasks.PTBXLHeartLangClassification>
+    Chapman-Shaoxing ECG Classification <tasks/pyhealth.tasks.ChapmanShaoxingSuperclassClassification>
     PhysioNet 2012 Forecasting <tasks/pyhealth.tasks.PhysioNet2012Forecasting>
     Disease Progression (MIMIC-IV + Chest ImaGenome) <tasks/pyhealth.tasks.DiseaseProgressionMIMIC4>
     DKA Prediction (MIMIC-IV) <tasks/pyhealth.tasks.dka>
     Drug Recommendation <tasks/pyhealth.tasks.drug_recommendation>
     EHR + CXR In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.EHRCXRMortalityMIMIC4>
     EHR + CXR Phenotyping (MIMIC-IV) <tasks/pyhealth.tasks.EHRCXRPhenotypingMIMIC4>
+    EHR + CXR Decompensation (MIMIC-IV, MedMod) <tasks/pyhealth.tasks.MedModDecompensationMIMIC4>
     EHR Generation <tasks/pyhealth.tasks.generate_ehr>
     Length of Stay Prediction <tasks/pyhealth.tasks.length_of_stay_prediction>
     Length of Stay Prediction (StageNet MIMIC-IV) <tasks/pyhealth.tasks.length_of_stay_stagenet_mimic4>
@@ -247,9 +252,13 @@ Available Tasks
     Readmission Prediction <tasks/pyhealth.tasks.readmission_prediction>
     Sleep Staging <tasks/pyhealth.tasks.sleep_staging>
     Sleep Staging (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSleepEDF>
+    Sleep Staging Sequences (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSequenceSleepEDF>
     Sleep Staging (ISRUC) <tasks/pyhealth.tasks.SleepStagingISRUC>
+    Sleep Staging Sequences (ISRUC) <tasks/pyhealth.tasks.SleepStagingSequenceISRUC>
+    Seizure Onset Zone Localization (HUP iEEG) <tasks/pyhealth.tasks.SOZLocalizationHUP>
     Temple University EEG Tasks <tasks/pyhealth.tasks.temple_university_EEG_tasks>
     CHB-MIT Seizure Detection <tasks/pyhealth.tasks.SeizureDetectionCHBMIT>
+    Helsinki Neonatal Seizure Detection <tasks/pyhealth.tasks.SeizureDetectionHelsinki>
     Ear-EEG Sleep Staging (EESM23) <tasks/pyhealth.tasks.SleepStagingEarEEG>
     IIIC Seizure Classification <tasks/pyhealth.tasks.iiic_seizure_classification>
     EEGBCI Tasks <tasks/pyhealth.tasks.eegbci>
@@ -257,6 +266,7 @@ Available Tasks
     Sleep Staging v2 <tasks/pyhealth.tasks.sleep_staging_v2>
     Benchmark EHRShot <tasks/pyhealth.tasks.benchmark_ehrshot>
     EHR Text Serialization (LLM encoders) <tasks/pyhealth.tasks.ehr_text_serialization>
+    EHR Foundation Model Timelines <tasks/pyhealth.tasks.ehr_foundation_model>
     ED Disposition and Outcomes (MIMIC-IV-ED) <tasks/pyhealth.tasks.ed_disposition_mimic4>
     ChestX-ray14 Binary Classification <tasks/pyhealth.tasks.ChestXray14BinaryClassification>
     De-Identification NER <tasks/pyhealth.tasks.DeIDNERTask>

@@ -292,7 +292,7 @@ tools we'd love help adding. Anyone can take one on.
 **Claim and build**
 - Claim a bounty by opening a pull request (a draft is fine) with its ID in the \
 title, like `[BTY-<id>] <short description>`. `[Bounty-<id>]` works too. This \
-board updates within an hour.
+board usually updates within a few minutes.
 - Your claim holds while the PR is open and after it merges. Closing it without \
 merging releases the bounty.
 - Build from the paper's official code, use datasets PyHealth already loads \
@@ -306,7 +306,7 @@ Students in the DL4H course can earn extra credit. Contributors who complete a \
 bounty may get the chance to join a research paper and work with our industry \
 partners.
 
-*This board is generated from [`bounty.yaml`]({yaml_url}) and updated hourly. \
+*This board is generated from [`bounty.yaml`]({yaml_url}) and updated when a tagged PR changes. \
 Edits made here are overwritten.*
 
 Open bounties: {total} ({claimed} claimed, {unclaimed} unclaimed)."""
