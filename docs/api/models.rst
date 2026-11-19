@@ -358,4 +358,5 @@ API Reference
     models/pyhealth.models.APN
     models/pyhealth.models.TRACE
     models/pyhealth.models.MIRA
+    models/pyhealth.models.UDC
 

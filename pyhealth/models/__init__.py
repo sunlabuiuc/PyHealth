@@ -131,3 +131,8 @@ from .mira import (
     MIRAConfig as MIRAConfig,
     load_mira_checkpoint as load_mira_checkpoint,
 )
+from .udc import (
+    UDC as UDC,
+    DiscreteClueEncoder as DiscreteClueEncoder,
+    ResidualVectorQuantizer as ResidualVectorQuantizer,
+)
