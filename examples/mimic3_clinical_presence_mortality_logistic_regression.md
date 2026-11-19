@@ -9,8 +9,7 @@ number below is an aggregate.
 
 ## Setup
 
-The runs used MIMIC-III v1.4 and the script's default settings, which its
-docstring describes. Every number comes from the main run (`results/full_s0-4`
+The runs used MIMIC-III v1.4 and the script's default settings. Every number comes from the main run (`results/full_s0-4`
 under "How to reproduce") unless the text names another source: the
 indicator-order run, the reference-split run, a re-run of seed 0 or a check of
 the cohort.
@@ -22,7 +21,7 @@ the cohort.
   split seeds 0-4. The imputer, the scaler and the classifier are all fit on
   the training 80%. The reference-split run uses the reference code's split
   instead ("Split organisation" below).
-- **Strategies.** The MICE strategies make 10 imputation draws, the others
+- **Strategies.** The MICE strategies make 10 imputation draws, and the others
   one. One classifier is trained per draw, and the predicted probabilities
   are averaged over draws.
 - **Classifiers.** scikit-learn's `LogisticRegression` as in the reference
