@@ -241,7 +241,9 @@ class TestAHEPAMetadata(_TempDir):
 
         self.assertEqual(list(df["patient_id"]), ["sub-001", "sub-037"])
         self.assertEqual(list(df["group"]), ["A", "C"])
-        self.assertIn("sub-037", logs.output[0])
+        self.assertEqual(len(logs.output), 2)
+        self.assertIn("1 row(s) without a participant_id", logs.output[0])
+        self.assertIn("sub-037", logs.output[1])
 
     def test_malformed_participants_file_raises(self):
         self.root.mkdir(parents=True)

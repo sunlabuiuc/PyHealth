@@ -63,7 +63,8 @@ def _read_participants(path: Path) -> pd.DataFrame:
     Returns:
         The participants, one row per id, with ``participant_id`` stripped
         and the ``Group`` codes stripped and in upper case. Rows without an
-        id are dropped, and so are repeated ids, with a warning.
+        id are dropped, and so are the later rows of a repeated id, each
+        with a warning.
 
     Raises:
         ValueError: If the file is empty or lacks the ``participant_id`` or
@@ -85,6 +86,12 @@ def _read_participants(path: Path) -> pd.DataFrame:
     has_id = participants["participant_id"].notna() & (
         participants["participant_id"] != ""
     )
+    if not has_id.all():
+        logger.warning(
+            "%s has %d row(s) without a participant_id; they are left out.",
+            path,
+            int((~has_id).sum()),
+        )
     participants = participants[has_id]
     repeated = participants["participant_id"].duplicated()
     if repeated.any():
