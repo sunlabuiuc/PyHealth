@@ -46,6 +46,8 @@ def _gbsg_values(record: Mapping, source_id: str) -> tuple[list[float], float, f
 class SurvivalTimeToEventGBSG(BaseTask):
     """Extract seven ordered features and GBSG duration/event labels.
 
+    Works with :class:`~pyhealth.datasets.GBSGDataset`.
+
     By default, times remain in source months with no normalization or offset.
     The benchmark endpoint is recurrence-free survival. The task emits
     ``features: [7]``, ``duration: [time]`` and ``event: [indicator]``, with 1

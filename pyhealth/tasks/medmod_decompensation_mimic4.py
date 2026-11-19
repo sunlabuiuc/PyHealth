@@ -101,6 +101,8 @@ def _window_series(
 class MedModDecompensationMIMIC4(BaseTask):
     """Death within the next 24 hours, predicted during an ICU stay.
 
+    Works with :class:`~pyhealth.datasets.MIMIC4Dataset`.
+
     Samples: for every eligible ICU stay, one sample at each prediction time
     ``t`` (hours since ICU admission) that is a multiple of
     ``sample_every_hours``, greater than ``min_hours`` and not after the end

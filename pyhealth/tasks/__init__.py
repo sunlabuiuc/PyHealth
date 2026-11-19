@@ -135,6 +135,10 @@ from .survival_time_to_event import (
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
+from .dearllm_mortality import (
+    DearLLMMortalityPredictionMIMIC3 as DearLLMMortalityPredictionMIMIC3,
+    DearLLMMortalityPredictionMIMIC4 as DearLLMMortalityPredictionMIMIC4,
+)
 from .generate_ehr import (
     EHRCodeSetGenerationMIMIC3 as EHRCodeSetGenerationMIMIC3,
     EHRCodeSetGenerationMIMIC4 as EHRCodeSetGenerationMIMIC4,
@@ -163,6 +167,9 @@ from .sleep_staging import (
 from .sleep_staging_v2 import SleepStagingSequenceSleepEDF as SleepStagingSequenceSleepEDF
 from .sleep_staging_v2 import SleepStagingSleepEDF
 from .sleep_staging_isruc import SleepStagingISRUC as SleepStagingISRUC
+from .sleep_staging_isruc import (
+    SleepStagingSequenceISRUC as SleepStagingSequenceISRUC,
+)
 from .temple_university_EEG_tasks import (
     EEGEventsTUEV,
     EEGAbnormalTUAB

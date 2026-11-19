@@ -339,6 +339,7 @@ API Reference
     models/pyhealth.models.PromptEHR
     models/pyhealth.models.MedGAN
     models/pyhealth.models.CorGAN
+    models/pyhealth.models.TarDiff
     models/pyhealth.models.Synthea
     models/pyhealth.models.SDOH
     models/pyhealth.models.SequenceEmbeddingModel
@@ -362,3 +363,5 @@ API Reference
     models/pyhealth.models.UDC
     models/pyhealth.models.DescEmb
     models/pyhealth.models.bulk_rna_bert
+    models/pyhealth.models.DearLLM
+

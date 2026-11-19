@@ -218,6 +218,7 @@ Available Tasks
     Competing-Risk Preprocessing <tasks/pyhealth.tasks.competing_risks>
     In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
     In-Hospital Mortality (MEDS) <tasks/pyhealth.tasks.InHospitalMortalityMEDS>
+    DearLLM Mortality (MIMIC-III/IV) <tasks/pyhealth.tasks.dearllm_mortality>
     ICU Admission (MEDS) <tasks/pyhealth.tasks.ICUAdmissionMEDS>
     Hospital Readmission (MEDS) <tasks/pyhealth.tasks.HospitalReadmissionMEDS>
     Prolonged Length of Stay (MEDS) <tasks/pyhealth.tasks.ProlongedLengthOfStayMEDS>
@@ -253,6 +254,7 @@ Available Tasks
     Sleep Staging (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSleepEDF>
     Sleep Staging Sequences (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSequenceSleepEDF>
     Sleep Staging (ISRUC) <tasks/pyhealth.tasks.SleepStagingISRUC>
+    Sleep Staging Sequences (ISRUC) <tasks/pyhealth.tasks.SleepStagingSequenceISRUC>
     Seizure Onset Zone Localization (HUP iEEG) <tasks/pyhealth.tasks.SOZLocalizationHUP>
     Temple University EEG Tasks <tasks/pyhealth.tasks.temple_university_EEG_tasks>
     CHB-MIT Seizure Detection <tasks/pyhealth.tasks.SeizureDetectionCHBMIT>
