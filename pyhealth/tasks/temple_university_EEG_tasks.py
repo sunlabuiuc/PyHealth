@@ -8,6 +8,15 @@ from pyhealth.tasks import BaseTask
 
 logger = logging.getLogger(__name__)
 
+# The 16 electrodes that EEGAbnormalTUAB.convert_to_bipolar combines.
+_TUAB_ELECTRODES = tuple(
+    f"EEG {name}-REF"
+    for name in (
+        "FP1", "F7", "T3", "T5", "O1", "FP2", "F8", "T4",
+        "T6", "O2", "F3", "C3", "P3", "F4", "C4", "P4",
+    )
+)  # fmt: skip
+
 
 def read_edf_uv(
     file_name: str,
@@ -67,7 +76,9 @@ class EEGEventsTUEV(BaseTask):
     warning, as in the BIOT preprocessing this task follows.
 
     Each returned sample contains:
-      - "signal": torch.FloatTensor, shape (16, 5 * resample_rate)
+      - "signal": torch.FloatTensor, shape (16, 5 * resample_rate).
+        ``BuildEvents`` sizes the windows with ``int(resample_rate)``, so
+        ``resample_rate`` has to be a whole number of Hz.
       - "offending_channel": int, the channel number from the .rec file.
         It indexes the 22-channel TCP montage (0-21), not a row of
         ``signal``.
@@ -440,17 +451,16 @@ class EEGAbnormalTUAB(BaseTask):
                     logger.warning("Skipping %s: %s", edf_path, exc)
                     continue
 
-                try:
-                    bipolar_data = self.convert_to_bipolar(raw_data, ch_name)
-                except ValueError as exc:
-                    # list.index raises ValueError for a missing electrode.
+                missing = [c for c in _TUAB_ELECTRODES if c not in ch_name]
+                if missing:
                     logger.warning(
-                        "Skipping %s: %s. The bipolar montage needs the 16 "
-                        "EEG XX-REF electrodes.",
+                        "Skipping %s: it has no %s channel, which the 16-channel "
+                        "bipolar montage needs.",
                         edf_path,
-                        exc,
+                        ", ".join(missing),
                     )
                     continue
+                bipolar_data = self.convert_to_bipolar(raw_data, ch_name)
 
                 # Slice indices must be ints, and resample_rate may be a float.
                 window = round(fs * 10)

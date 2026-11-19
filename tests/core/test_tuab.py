@@ -615,7 +615,7 @@ class TestEEGAbnormalTUABRobustness(unittest.TestCase):
             samples = task(patient)
         self.assertEqual(len(logs.output), 1)
         self.assertIn("/dummy/path.edf", logs.output[0])
-        self.assertIn("EEG T5-REF", logs.output[0])
+        self.assertIn("no EEG T5-REF channel", logs.output[0])
         self.assertEqual({s["signal_file"] for s in samples}, {"/dummy/full.edf"})
         self.assertEqual(len(samples), 2)
 
