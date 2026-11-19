@@ -71,8 +71,11 @@ class BrainTumorMRIDataset(BaseDataset):
     one patient) are not detected, so scores on the official split can still
     be optimistic.
 
-    Columns: ``record_id`` (``<split>/<class>/<file>``), ``image_path``,
-    ``split`` (``train`` / ``test``), ``label`` (class folder name),
+    Columns: ``patient_id`` (the first 16 hex digits of ``content_md5``,
+    shared by byte-identical copies), ``record_id``
+    (``Training|Testing/<class>/<file>``, the path under ``root``),
+    ``image_path``, ``split`` (``train`` / ``test``), ``label`` (class
+    folder name),
     ``content_md5``, ``duplicate_count``, ``cross_split_duplicate`` and
     ``fold``. ``fold`` is 10 (:data:`TEST_FOLD`) for Testing images and 1-9
     for Training images, set by the duplicate group, so
@@ -81,17 +84,31 @@ class BrainTumorMRIDataset(BaseDataset):
 
     Getting the data:
         - Source: https://github.com/SartajBhuvaji/Brain-Tumor-Classification-DataSet
-          (also mirrored on Kaggle as
-          ``sartajbhuvaji/brain-tumor-classification-mri``).
-        - Access: open, no account needed.
-        - Licence: the GitHub repository has no licence file, so its terms
-          are unstated; the Kaggle mirror lists MIT. Check with the authors
-          before any use beyond research.
-        - Download: ``git clone --depth 1
+          (archived, read-only). The same 3,264 files (93 MB) are on Kaggle
+          at https://www.kaggle.com/datasets/sartajbhuvaji/brain-tumor-classification-mri
+          (doi 10.34740/KAGGLE/DSV/1183165). The citation is below.
+        - Access: open. GitHub needs no account. Kaggle needs a free account
+          and, for the CLI, an API token (Kaggle "Settings" > "API" >
+          "Create New Token", saved as ``~/.kaggle/kaggle.json``) and
+          ``pip install kaggle``.
+        - Download, either:
+          ``git clone --depth 1
           https://github.com/SartajBhuvaji/Brain-Tumor-Classification-DataSet``
-          (176 MB).
-        - ``root``: the cloned folder, holding ``Training/`` and
-          ``Testing/``.
+          (175 MB on disk with ``.git``), or
+          ``kaggle datasets download -d
+          sartajbhuvaji/brain-tumor-classification-mri -p <root> --unzip``.
+        - Unpacking: the clone needs none; ``--unzip`` unpacks the Kaggle
+          zip (without it, run ``unzip brain-tumor-classification-mri.zip
+          -d <root>``).
+        - ``root`` layout (any other files are ignored)::
+
+              root/
+                Training/{glioma_tumor,meningioma_tumor,no_tumor,pituitary_tumor}/*.jpg
+                Testing/{glioma_tumor,meningioma_tumor,no_tumor,pituitary_tumor}/*.jpg
+
+        - Licence: the GitHub repository has no licence file, so its terms
+          are unstated; the Kaggle page lists MIT. Check with the authors
+          before any use beyond research.
 
     The metadata CSV is written to ``metadata_dir`` (by default
     ``<cache_dir>/metadata/brain_tumor_mri``), never into ``root``. It is

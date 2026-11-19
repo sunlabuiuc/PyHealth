@@ -7,7 +7,7 @@ from pathlib import Path
 
 from pyhealth.datasets import BrainTumorMRIDataset, split_by_strat_fold
 from pyhealth.tasks import BrainTumorMRIClassification
-from tests.core.test_brain_tumor_mri_dataset import build_brain_tumor_root
+from tests.core.brain_tumor_mri_test_utils import build_brain_tumor_root
 
 
 class TestBrainTumorMRIClassification(unittest.TestCase):
