@@ -12,7 +12,7 @@ from pyhealth.models import LevelEmbedding, RNN_V2
 from pyhealth.processors import (
     LabelProcessor,
     LevelConfig,
-    SequenceProcessorV2,
+    JaggedFeatureProcessor,
     TensorProcessor,
     TimeseriesProcessor,
 )
@@ -158,8 +158,8 @@ class TestYAIBMortalityMIMIC4(unittest.TestCase):
         self.assertEqual(values[5, CREA], 1.5)
         self.assertEqual(np.isfinite(values[:, CREA]).sum(), 1)
 
-        # One record at hour 0, before any hourly bin.
-        self.assertEqual(sample["static"]["time"], [0.0])
+        # The stay's one record, with no time.
+        self.assertNotIn("time", sample["static"])
         ((age, sex, height, weight),) = sample["static"]["values"]
         self.assertEqual((age, sex, weight), (60.0, 1.0, 80.0))
         self.assertAlmostEqual(height, 177.8)
@@ -617,7 +617,7 @@ class TestYAIBProcessing(unittest.TestCase):
         grids[0][:, 3] = np.nan  # a feature never seen in one sample
         yaib: LevelConfig = YAIBMortalityMIMIC4.input_schema["dynamic"][1]["levels"][0]
         levels: list[LevelConfig] = [{**yaib, "values": [4]}]  # 4 features here
-        v2 = SequenceProcessorV2(levels=levels)
+        v2 = JaggedFeatureProcessor(levels=levels)
         v2.fit([{"x": {"time": list(range(len(g))), "values": g}} for g in grids], "x")
         def hourly(grid):  # the previous input format: datetimes and values
             return [T0 + timedelta(hours=h) for h in range(len(grid))], grid
@@ -631,7 +631,7 @@ class TestYAIBProcessing(unittest.TestCase):
             torch.testing.assert_close(mask.float(), old[:, 4:])
 
     def test_static_matches_the_previous_tensor_preprocessing(self):
-        # The t = 0 series reproduces TensorProcessor with z-score, missing
+        # The single level reproduces TensorProcessor with z-score, missing
         # indicators and zero fill.
         rows = [
             [60.0, 1.0, 170.0, np.nan],
@@ -640,16 +640,15 @@ class TestYAIBProcessing(unittest.TestCase):
             [80.0, 1.0, 180.0, np.nan],
         ]
         schema = YAIBMortalityMIMIC4.input_schema["static"][1]
-        v2 = SequenceProcessorV2(**schema)
-        v2.fit([{"x": YAIBMortalityMIMIC4._static_series(r)} for r in rows], "x")
+        v2 = JaggedFeatureProcessor(**schema)
+        v2.fit([{"x": YAIBMortalityMIMIC4._static_record(r)} for r in rows], "x")
         v1 = TensorProcessor(
             normalization="zscore", missing_indicators=True, impute_strategy="zero"
         )
         v1.fit([{"x": r} for r in rows], "x")
         for row in rows:
-            values, mask, time = v2.process(YAIBMortalityMIMIC4._static_series(row))
+            values, mask = v2.process(YAIBMortalityMIMIC4._static_record(row))
             old = v1.process(row)
-            self.assertEqual(time.tolist(), [0.0])
             torch.testing.assert_close(values[0], old[:4])
             torch.testing.assert_close(mask[0].float(), old[4:])
 

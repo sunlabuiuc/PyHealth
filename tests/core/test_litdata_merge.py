@@ -10,9 +10,10 @@ import unittest
 from pathlib import Path
 
 import litdata
+import torch
 from litdata.streaming.writer import BinaryWriter
 
-from pyhealth.datasets.base_dataset import _litdata_merge
+from pyhealth.datasets.sample_dataset import _litdata_merge
 from pyhealth.utils import set_env
 
 N_WORKERS = 12
@@ -51,6 +52,22 @@ class TestLitdataMerge(unittest.TestCase):
             before = (cache / "index.json").read_text()
             _litdata_merge(cache)
             self.assertEqual((cache / "index.json").read_text(), before)
+
+    def test_workers_with_different_structures_raise(self):
+        # Each worker is consistent; their tensor counts differ.
+        with tempfile.TemporaryDirectory() as tmp:
+            with set_env(DATA_OPTIMIZER_NUM_WORKERS="2"):
+                for rank, tensors in ((0, 2), (1, 1)):
+                    with set_env(DATA_OPTIMIZER_GLOBAL_RANK=str(rank)):
+                        writer = BinaryWriter(cache_dir=tmp, chunk_bytes="64MB")
+                        value = tuple(torch.zeros(2) for _ in range(tensors))
+                        writer.add_item(0, {"pair": value, "_objects": b"x"})
+                        writer.done()
+            with self.assertRaisesRegex(ValueError, "same structure") as caught:
+                _litdata_merge(Path(tmp))
+            self.assertIn(
+                "isn't consistent between chunks", str(caught.exception.__cause__)
+            )
 
     def test_merge_without_worker_indexes_raises(self):
         with tempfile.TemporaryDirectory() as tmp:

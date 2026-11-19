@@ -5,14 +5,13 @@ from pathlib import Path
 
 from typing import Optional
 from .base_dataset import BaseDataset
+from .metadata_csv import metadata_cache_dir
 from pyhealth.tasks import EEGEventsTUEV
 
 logger = logging.getLogger(__name__)
 
 class TUEVDataset(BaseDataset):
     """Base EEG dataset for the TUH EEG Events Corpus
-
-    Dataset is available at https://isip.piconepress.com/projects/tuh_eeg/html/downloads.shtml
 
     This corpus is a subset of TUEG that contains annotations of EEG segments as one of six classes: (1) spike and sharp wave (SPSW), (2) generalized periodic epileptiform discharges (GPED), (3) periodic lateralized epileptiform discharges (PLED), (4) eye movement (EYEM), (5) artifact (ARTF) and (6) background (BCKG).
 
@@ -24,8 +23,19 @@ class TUEVDataset(BaseDataset):
         00002275: a reference to the train index. 
 		0000001: indicating that this is the first file associated with this patient.
 
+    Getting the data:
+        - Source: https://isip.piconepress.com/projects/nedc/html/tuh_eeg/
+          (corpus ``tuh_eeg_events``)
+        - Access: free, by request. Fill in the form at
+          https://isip.piconepress.com/projects/nedc/forms/tuh_eeg.pdf and email
+          the signed copy to help@nedcdata.org; you get a username and password.
+        - Download: ``rsync`` with those credentials, as described on the source
+          page.
+        - ``root``: the ``edf/`` folder of the release (for example
+          ``tuh_eeg_events/v2.0.0/edf/``), which holds ``train/`` and ``eval/``.
+
     Args:
-        root: root directory of the raw data. *You can choose to use the path to Cassette portion or the Telemetry portion.*
+        root: the release's ``edf/`` folder, which holds ``train/`` and ``eval/``.
         dataset_name: name of the dataset.
         config_path: Optional configuration file name, defaults to "tuev.yaml".
         dev: whether to enable dev mode (only use a small subset of the data).
@@ -53,7 +63,7 @@ class TUEVDataset(BaseDataset):
         >>> sample = sample_dataset[0]
         >>> print(sample['signal'].shape)  # (16, 1280)
 
-        For a complete example, see `examples/conformal_eeg/tuev_eeg_quickstart.ipynb`.
+        For a complete example, see `examples/conformal_eeg/contrawr_tuev_eeg.ipynb`.
     """
     
     def __init__(
@@ -84,7 +94,7 @@ class TUEVDataset(BaseDataset):
         
         # Determine where the CSVs are located (shared directory or cache)
         root_path = Path(root)
-        cache_dir = Path.home() / ".cache" / "pyhealth" / "tuev"
+        cache_dir = metadata_cache_dir(root, "tuev")
         
         # Check if CSVs exist in cache and not in shared location
         use_cache = False
@@ -115,6 +125,11 @@ class TUEVDataset(BaseDataset):
         - <root>/tuev-train-pyhealth.csv
         - <root>/tuev-eval-pyhealth.csv
 
+        If ``root`` is not writable, the CSVs go to
+        ``~/.cache/pyhealth/tuev/<hash of root>/`` instead (see
+        :func:`~pyhealth.datasets.metadata_csv.metadata_cache_dir`), so two
+        roots never share metadata.
+
         Train filenames look like: 00002275_00000001.edf
         - subject_id = 00002275
         - record_id  = 00000001
@@ -125,7 +140,7 @@ class TUEVDataset(BaseDataset):
         - segment_id = a_ / a_1 / ...
         """
         root = Path(self.root)
-        cache_dir = Path.home() / ".cache" / "pyhealth" / "tuev"
+        cache_dir = metadata_cache_dir(root, "tuev")
 
         train_rows: list[dict] = []
         eval_rows: list[dict] = []
@@ -176,7 +191,7 @@ class TUEVDataset(BaseDataset):
                         )
 
         # Setup cache directory as fallback for metadata CSVs
-        cache_dir = Path.home() / ".cache" / "pyhealth" / "tuev"
+        cache_dir = metadata_cache_dir(root, "tuev")
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Write train metadata

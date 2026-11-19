@@ -34,7 +34,7 @@ New to calibration and uncertainty quantification? Check out this complete examp
 
 **Browse all examples online**: https://github.com/sunlabuiuc/PyHealth/tree/master/examples
 
-- **Example**: ``examples/covid19cxr_conformal.py`` - Comprehensive conformal prediction workflow demonstrating:
+- **Example**: ``examples/cxr/covid19cxr_conformal.py`` - Comprehensive conformal prediction workflow demonstrating:
 
   - Training a ResNet-18 model on COVID-19 chest X-ray classification
   - Applying conventional conformal prediction with **LABEL**
@@ -47,7 +47,6 @@ This example shows the complete pipeline from model training to uncertainty-awar
 Quick Links
 -----------
 
-- :doc:`calib/usage_guide` - Practical examples and best practices
 - :doc:`calib/pyhealth.calib.calibration` - Model calibration API reference
 - :doc:`calib/pyhealth.calib.predictionset` - Prediction set API reference
 
@@ -57,7 +56,6 @@ Module Contents
 .. toctree::
     :maxdepth: 3
 
-    calib/usage_guide
     calib/pyhealth.calib.calibration
     calib/pyhealth.calib.predictionset
 

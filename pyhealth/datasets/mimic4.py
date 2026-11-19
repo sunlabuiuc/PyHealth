@@ -35,6 +35,18 @@ class MIMIC4EHRDataset(BaseDataset):
     This class is responsible for loading and managing the MIMIC-IV EHR dataset,
     which includes tables such as patients, admissions, and icustays.
 
+    Getting the data:
+        - Source: https://physionet.org/content/mimiciv/ (latest is 3.1)
+        - Access: credentialed. Create a PhysioNet account, complete
+          credentialing (https://physionet.org/settings/credentialing/) and
+          the CITI "Data or Specimens Only Research" course, then sign the
+          data use agreement on the dataset page.
+        - Download: ``wget -r -N -c -np --user <username> --ask-password
+          https://physionet.org/files/mimiciv/3.1/``
+        - ``root``: the version folder holding ``hosp/`` and ``icu/``.
+        - No access yet? The open 100-patient demo works with this class:
+          https://physionet.org/content/mimic-iv-demo/2.2/
+
     Attributes:
         root (str): The root directory where the dataset is stored.
         tables (List[str]): A list of tables to be included in the dataset.
@@ -86,6 +98,15 @@ class MIMIC4NoteDataset(BaseDataset):
 
     This class is responsible for loading and managing the MIMIC-IV Clinical Notes dataset,
     which includes tables such as discharge, discharge_detail, and radiology.
+
+    Getting the data:
+        - Source: https://physionet.org/content/mimic-iv-note/2.2/
+        - Access: credentialed, with the same PhysioNet credentialing and
+          CITI training as MIMIC-IV, plus this dataset's own data use
+          agreement.
+        - Download: ``wget -r -N -c -np --user <username> --ask-password
+          https://physionet.org/files/mimic-iv-note/2.2/``
+        - ``root``: the version folder holding ``note/``.
 
     Attributes:
         root (str): The root directory where the dataset is stored.
@@ -147,6 +168,18 @@ class MIMIC4CXRDataset(BaseDataset):
 
     This class is responsible for loading and managing the MIMIC-CXR Chest X-ray dataset,
     which includes tables such as metadata, chexpert, and radiology.
+
+    Getting the data:
+        - Source: MIMIC-CXR-JPG, https://physionet.org/content/mimic-cxr-jpg/2.1.0/
+          (this class reads the JPG release, not the DICOM release
+          ``mimic-cxr``).
+        - Access: credentialed, with the same PhysioNet credentialing and
+          CITI training as MIMIC-IV, plus this dataset's own data use
+          agreement.
+        - Download: ``wget -r -N -c -np --user <username> --ask-password
+          https://physionet.org/files/mimic-cxr-jpg/2.1.0/`` (about 570 GB).
+        - ``root``: the folder holding ``files/`` and
+          ``mimic-cxr-2.0.0-metadata.csv.gz``.
 
     Attributes:
         root (str): The root directory where the dataset is stored.
@@ -239,6 +272,17 @@ class MIMIC4EDDataset(BaseDataset):
     ``admissions``, ``icustays``), use :class:`MIMIC4Dataset` with both
     ``ehr_root`` and ``ed_root``.
 
+    Getting the data:
+        - Source: https://physionet.org/content/mimic-iv-ed/ (latest is 2.2)
+        - Access: credentialed, with the same PhysioNet credentialing and
+          CITI training as MIMIC-IV, plus this dataset's own data use
+          agreement.
+        - Download: ``wget -r -N -c -np --user <username> --ask-password
+          https://physionet.org/files/mimic-iv-ed/2.2/``
+        - ``root``: the version folder holding ``ed/``.
+        - No access yet? The open demo has the same layout and works with
+          this class: https://physionet.org/content/mimic-iv-ed-demo/
+
     Args:
         root: The folder that holds ``ed/``.
         tables: ED tables to load besides ``edstays``.
@@ -293,6 +337,25 @@ class MIMIC4Dataset(BaseDataset):
     - Clinical notes (discharge summaries, radiology reports)
     - Chest X-rays (images and metadata)
     - Emergency department stays (MIMIC-IV-ED)
+
+    Getting the data:
+        All four sources are credentialed PhysioNet datasets. One PhysioNet
+        credentialing plus the CITI course covers them, but you sign each
+        dataset's data use agreement separately. See the matching class for
+        each source's download command and expected layout.
+
+        - ``ehr_root``: MIMIC-IV, https://physionet.org/content/mimiciv/
+          (see :class:`MIMIC4EHRDataset`). Open demo:
+          https://physionet.org/content/mimic-iv-demo/2.2/
+        - ``note_root``: MIMIC-IV-Note,
+          https://physionet.org/content/mimic-iv-note/2.2/
+          (see :class:`MIMIC4NoteDataset`)
+        - ``cxr_root``: MIMIC-CXR-JPG,
+          https://physionet.org/content/mimic-cxr-jpg/2.1.0/
+          (see :class:`MIMIC4CXRDataset`)
+        - ``ed_root``: MIMIC-IV-ED, https://physionet.org/content/mimic-iv-ed/
+          (see :class:`MIMIC4EDDataset`). Open demo:
+          https://physionet.org/content/mimic-iv-ed-demo/
 
     Args:
         ehr_root: Root directory for MIMIC-IV EHR data

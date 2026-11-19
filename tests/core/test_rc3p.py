@@ -19,10 +19,6 @@ from pyhealth.calib.predictionset.rc3p import (
     _predset_mask,
     _rank_calibration,
 )
-from pyhealth.calib.predictionset.scores import (
-    all_class_nc_scores,
-    true_class_nc_scores,
-)
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from tests.core.label_shift_test_utils import (
     SAMPLES,
@@ -67,7 +63,8 @@ class TestRankCalibration(unittest.TestCase):
         k_hat, alpha_hat = _rank_calibration(rank_y_prob, rank_y_true, 0.3)
         self.assertEqual(k_hat[0], 2)
         self.assertAlmostEqual(alpha_hat[0], 0.05)
-        self.assertLess(0.25, 0.3)
+        # The adjusted rate is stricter than the nominal alpha.
+        self.assertLess(alpha_hat[0], 0.3)
 
     def test_perfect_classifier(self):
         rank_y_prob = np.array(
@@ -216,6 +213,33 @@ class TestRC3PClass(unittest.TestCase):
         np.testing.assert_array_equal(t1, t2)
         np.testing.assert_array_equal(sets1, sets2)
 
+    def test_internal_split_disjoint_and_stratified(self):
+        cal_model = RC3P(
+            model=self.model, alpha=0.3, random_state=0, rank_fraction=0.5
+        )
+        y_true = np.repeat([0, 1, 2], 10)
+        rank_idx, score_idx = cal_model._split_calibration(y_true)
+        # Disjoint and covering every sample exactly once.
+        self.assertEqual(len(set(rank_idx) & set(score_idx)), 0)
+        np.testing.assert_array_equal(
+            np.sort(np.concatenate([rank_idx, score_idx])), np.arange(30)
+        )
+        # Stratified: each class splits 5 and 5 at fraction 0.5.
+        for y in range(3):
+            self.assertEqual((y_true[rank_idx] == y).sum(), 5)
+            self.assertEqual((y_true[score_idx] == y).sum(), 5)
+
+    def test_internal_split_single_sample_class_goes_to_rank(self):
+        cal_model = RC3P(
+            model=self.model, alpha=0.3, random_state=0, rank_fraction=0.5
+        )
+        y_true = np.array([0, 0, 0, 1])
+        rank_idx, score_idx = cal_model._split_calibration(y_true)
+        # A class with one sample cannot split, so it all goes to
+        # the rank subset rather than leaving a subset empty.
+        self.assertIn(3, rank_idx)
+        self.assertNotIn(3, score_idx)
+
     def test_adjusted_alpha_threshold(self):
         """calibrate() itself must use alpha_hat, not alpha, for the
         class thresholds. The rank subset is built so class 0 has
@@ -283,13 +307,11 @@ class TestCoverageSimulation(unittest.TestCase):
     def test_per_class_coverage(self):
         """Coverage through the real RC3P class: calibrate() with
         explicit rank and score datasets, then forward() with a stub
-        model returning synthetic test probabilities. The CCP
-        comparison is computed on the same score subset and reported
-        only, since the size ordering is regime-dependent."""
+        model returning synthetic test probabilities."""
         alpha = 0.1
-        rank_probs, rank_true = _synthetic_probs(0, 800)
-        score_probs, score_true = _synthetic_probs(1, 800)
-        test_probs, test_true = _synthetic_probs(2, 2000)
+        rank_probs, rank_true = _synthetic_probs(0, 2000)
+        score_probs, score_true = _synthetic_probs(1, 2000)
+        test_probs, test_true = _synthetic_probs(2, 5000)
         rank_ds, score_ds = object(), object()
 
         def fake_prepare(model, dataset, keys, **kwargs):
@@ -312,26 +334,21 @@ class TestCoverageSimulation(unittest.TestCase):
         mask = output["y_predset"].numpy()
         for y in range(3):
             coverage = mask[test_true == y, y].mean()
-            # 0.87 is an empirical sanity threshold for a 0.90 target
+            # 0.89 is an empirical sanity threshold for a 0.90 target
             # at this sample size, not a proof of nominal coverage:
             # the top-k errors here are estimated, not known.
-            self.assertGreaterEqual(coverage, 0.87)
-        # CCP comparison, reported only: on this strong-signal
-        # 3-class synthetic, RC3P sets are slightly larger than CCP
+            self.assertGreaterEqual(coverage, 0.89)
+        # Structural check that forward() actually applied the rank
+        # filter: every included label passes its class rank cutoff.
+        test_ranks = _candidate_ranks(test_probs)
+        self.assertTrue(
+            ((test_ranks <= cal_model.k_hat) | ~mask).all()
+        )
+        # Note: on this strong-signal 3-class synthetic, RC3P sets
+        # are slightly larger than plain class-conditional sets
         # (larger adjusted thresholds outweigh the rank filter), so
         # no size ordering is asserted here. The smaller-set benefit
-        # is regime-dependent, and the PR description says so.
-        score_nc = true_class_nc_scores(score_probs, score_true)
-        ccp_thresholds = np.array(
-            [
-                _query_quantile(score_nc[score_true == y], alpha)
-                for y in range(3)
-            ]
-        )
-        test_nc = all_class_nc_scores(test_probs, randomize=False)
-        ccp_mask = test_nc <= ccp_thresholds
-        self.assertTrue(np.isfinite(mask.mean()))
-        self.assertTrue(np.isfinite(ccp_mask.mean()))
+        # is regime-dependent.
 
 
 if __name__ == "__main__":

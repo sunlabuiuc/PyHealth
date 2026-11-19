@@ -1,0 +1,16 @@
+version: "1.0.0"
+tables:
+  records:
+    # Template: ChapmanShaoxingDataset writes a resolved copy whose file_path
+    # names the derived metadata CSV in its metadata cache directory.
+    file_path: "chapman_shaoxing-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "record_id"
+      - "signal_file"
+      - "sampling_rate"
+      - "n_samples"
+      - "age"
+      - "sex"
+      - "dx_codes"

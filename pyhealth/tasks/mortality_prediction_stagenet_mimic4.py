@@ -9,6 +9,8 @@ from .base_task import BaseTask
 class MortalityPredictionStageNetMIMIC4(BaseTask):
     """Task for predicting mortality using MIMIC-IV with StageNet format.
 
+    Works with :class:`~pyhealth.datasets.MIMIC4EHRDataset`.
+
     This task creates PATIENT-LEVEL samples (not visit-level) by aggregating
     all admissions for each patient. ICD codes (diagnoses + procedures) and
     lab results across all visits are combined with time intervals calculated

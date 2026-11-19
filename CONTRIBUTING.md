@@ -51,7 +51,9 @@ A pull request switches to `status: manual`:
   - changes the core of the library: base classes such as `BaseModel` or
     `BaseDataset`, the Trainer, or other shared code. Changing the API of your
     own model, dataset or task is not a core change, but state any breaking
-    change clearly in the description and docs, or
+    change clearly in the description and docs. Neither is adding your new
+    component's import to a package `__init__.py`, such as
+    `pyhealth/models/__init__.py`, or
   - has a high-severity problem on a change that would otherwise be approved.
 
   The first time, the review asks for changes and warns you. If a later
