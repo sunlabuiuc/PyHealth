@@ -1,8 +1,10 @@
 """Tests for the LNDb dataset loader, on a tiny synthetic LNDb tree."""
 
+import importlib.util
 import shutil
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 
 import numpy as np
@@ -21,15 +23,31 @@ ORIGIN = (-8.0, -8.0, -6.0)
 SPACING = (1.0, 1.0, 1.0)
 
 
-def write_mhd(folder: Path, name: str, array: np.ndarray, origin=ORIGIN) -> Path:
-    """Write ``array`` (z, y, x) as an uncompressed little-endian MetaImage."""
+def write_mhd(
+    folder: Path,
+    name: str,
+    array: np.ndarray,
+    origin=ORIGIN,
+    compressed: bool = False,
+    msb: bool = False,
+    matrix: str = "1 0 0 0 1 0 0 0 1",
+) -> Path:
+    """Write ``array`` (z, y, x) as an int16 MetaImage.
+
+    By default uncompressed and little-endian; ``compressed`` zlib-compresses
+    the data (as LNDb's ``.raw`` files are) and ``msb`` writes big-endian.
+    """
     folder.mkdir(parents=True, exist_ok=True)
-    array.astype("<i2").tofile(folder / f"{name}.raw")
+    data = array.astype(">i2" if msb else "<i2").tobytes()
+    if compressed:
+        data = zlib.compress(data)
+    (folder / f"{name}.raw").write_bytes(data)
     z, y, x = array.shape
     header = (
         "ObjectType = Image\nNDims = 3\nBinaryData = True\n"
-        "BinaryDataByteOrderMSB = False\nCompressedData = False\n"
-        "TransformMatrix = 1 0 0 0 1 0 0 0 1\n"
+        f"BinaryDataByteOrderMSB = {msb}\nCompressedData = {compressed}\n"
+        + (f"CompressedDataSize = {len(data)}\n" if compressed else "")
+        + f"TransformMatrix = {matrix}\n"
         f"Offset = {origin[0]} {origin[1]} {origin[2]}\n"
         f"ElementSpacing = {SPACING[0]} {SPACING[1]} {SPACING[2]}\n"
         f"DimSize = {x} {y} {z}\nElementType = MET_SHORT\n"
@@ -96,12 +114,45 @@ class TestLNDbReader(unittest.TestCase):
         with self.assertRaises(ValueError):
             read_mhd(path, backend="numpy")
 
+    def test_read_mhd_zlib_compressed_and_big_endian(self):
+        array = np.arange(np.prod(SHAPE_ZYX), dtype=np.int16).reshape(SHAPE_ZYX)
+        array = array - 1000  # negative HU values exercise the sign bit
+        for msb in (False, True):
+            path = write_mhd(
+                self.tmp, f"LNDb-c{int(msb)}", array, compressed=True, msb=msb
+            )
+            image = read_mhd(path, backend="numpy")
+            np.testing.assert_array_equal(np.asarray(image.array), array)
+        path = write_mhd(self.tmp, "LNDb-msb", array, msb=True)
+        np.testing.assert_array_equal(
+            np.asarray(read_mhd(path, backend="numpy").array), array
+        )
+
     def test_direction_matrix_is_applied(self):
         image = MetaImage(
             np.zeros((4, 4, 4)), np.zeros(3), np.ones(3),
             np.diag([-1.0, -1.0, 1.0]),
         )
         self.assertEqual(image.world_to_voxel([-2.0, -1.0, 3.0]).tolist(), [3, 1, 2])
+
+    def test_non_symmetric_transform_matrix_from_header(self):
+        # MetaIO rows are the image axes: image x points along world y,
+        # image y along world z and image z along world x (a cyclic
+        # permutation, which is not symmetric, so a wrong transpose fails).
+        matrix = "0 1 0 0 0 1 1 0 0"
+        path = write_mhd(
+            self.tmp, "LNDb-perm", np.zeros(SHAPE_ZYX, dtype=np.int16),
+            origin=(0.0, 0.0, 0.0), matrix=matrix,
+        )
+        image = read_mhd(path, backend="numpy")
+        # Voxel (x=1, y=2, z=3) sits at world (x=3, y=1, z=2).
+        self.assertEqual(image.world_to_voxel([3.0, 1.0, 2.0]).tolist(), [3, 2, 1])
+        if importlib.util.find_spec("SimpleITK") is not None:
+            sitk_image = read_mhd(path, backend="sitk")
+            np.testing.assert_allclose(sitk_image.direction, image.direction)
+            self.assertEqual(
+                sitk_image.world_to_voxel([3.0, 1.0, 2.0]).tolist(), [3, 2, 1]
+            )
 
     def test_small_nodule_volume_is_3mm(self):
         self.assertAlmostEqual(equivalent_diameter(SMALL_NODULE_VOLUME), 3.0)

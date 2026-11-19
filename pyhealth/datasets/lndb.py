@@ -155,9 +155,9 @@ def read_mhd(path: str | Path, backend: str = "auto") -> MetaImage:
 
     Args:
         path: Path to the ``.mhd`` header.
-        backend: ``"numpy"`` uses the built-in reader (uncompressed or zlib
-            compressed single-file data, the format LNDb uses), memory mapping
-            uncompressed volumes. ``"sitk"`` uses SimpleITK, which must be
+        backend: ``"numpy"`` uses the built-in reader for single-file data,
+            uncompressed (as the LNDb CTs are; memory mapped) or zlib
+            compressed (``CompressedData = True``). ``"sitk"`` uses SimpleITK, which must be
             installed. ``"auto"`` (default) uses SimpleITK when it is
             importable and numpy otherwise.
 
@@ -255,23 +255,46 @@ class LNDbDataset(BaseDataset):
     indexed.
 
     Getting the data:
-        - Source: https://lndb.grand-challenge.org/ and Zenodo
-          https://doi.org/10.5281/zenodo.8348419
-        - Access: open, no account needed.
+        - Source: Zenodo record https://doi.org/10.5281/zenodo.8348419
+          (https://zenodo.org/records/8348419); challenge page
+          https://lndb.grand-challenge.org/.
+        - Access: open, no account, registration or agreement needed.
+        - Files (training set): ``trainset_csv.zip`` (78 KB: holds
+          ``trainNodules_gt.csv``, ``trainNodules.csv``, ``trainFolds.csv``,
+          ``trainCTs.csv`` and ``trainFleischner.csv``) and the CTs in
+          ``data0.rar`` to ``data5.rar`` (3.8-4.2 GB each, 24.3 GB in all,
+          about 40 CTs per archive). ``masks.rar`` (22 MB, per-radiologist
+          nodule masks) and the ``test*`` files are not used.
+        - Download, e.g.::
+
+              curl -L -o trainset_csv.zip "https://zenodo.org/records/8348419/files/trainset_csv.zip?download=1"
+              for i in 0 1 2 3 4 5; do
+                  curl -L -o data$i.rar "https://zenodo.org/records/8348419/files/data$i.rar?download=1"
+              done
+
+          One archive is enough to try the tasks: findings whose CT is not
+          on disk are skipped.
+        - Unpack: ``unzip trainset_csv.zip`` and ``unrar x dataN.rar`` (or
+          ``bsdtar -xf dataN.rar``). Python cannot read RAR, so there is no
+          ``download=True``.
+        - ``root`` layout (both the CSVs and the CTs are searched for
+          recursively, so the extracted folder names do not matter)::
+
+              lndb/                          # root
+                  trainNodules_gt.csv        # required
+                  trainFolds.csv             # optional: official folds
+                  ...
+                  data0/
+                      LNDb-0001.mhd
+                      LNDb-0001.raw          # uncompressed int16 CT, ~170 MB
+                      ...
+
         - Licence: ambiguous. The Zenodo record's licence field says CC BY
           4.0, but its description says the data are released under CC
           BY-NC-ND 4.0 (non-commercial, no derivatives). Follow the stricter
-          NC-ND terms unless the LNDb authors tell you otherwise.
-        - Download: ``trainset_csv.zip`` and ``data0.rar`` to ``data5.rar``
-          (about 24 GB of training CTs) from the Zenodo record, e.g.
-          ``curl -L -O "https://zenodo.org/records/8348419/files/data0.rar?download=1"``.
-          The CTs come as RAR archives, so extract them with ``unrar x`` or
-          ``bsdtar -xf``; Python cannot read RAR, so there is no
-          ``download=True``.
-        - ``root``: a folder holding ``trainNodules_gt.csv`` (and,
-          optionally, ``trainFolds.csv``) and the ``LNDb-XXXX.mhd`` /
-          ``LNDb-XXXX.raw`` pairs. Both are searched for recursively, so the
-          extracted folder layout does not matter.
+          NC-ND terms unless the LNDb authors tell you otherwise. Cite
+          Pedrosa et al. (2019) and the challenge paper (Pedrosa et al.,
+          2021).
 
     The metadata CSV is written to ``metadata_dir`` (by default
     ``<cache_dir>/metadata/lndb``), never into ``root``. It is rebuilt when
@@ -280,6 +303,9 @@ class LNDbDataset(BaseDataset):
     Citation:
         Pedrosa, J., Aresta, G., Ferreira, C., et al. LNDb: A Lung Nodule
         Database on Computed Tomography. arXiv:1911.08434, 2019.
+        Pedrosa, J., Aresta, G., Ferreira, C., et al. LNDb challenge on
+        automatic lung cancer patient management. Medical Image Analysis
+        70, 102027, 2021.
 
     Benchmarked in CLIMB (Dai et al., 2025, https://github.com/DDVD233/CLIMB).
     Deviations from CLIMB: CLIMB's documentation describes the same three

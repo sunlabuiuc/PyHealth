@@ -58,6 +58,15 @@ class TestLNDbFindingClassification(unittest.TestCase):
         finally:
             samples.close()
 
+    def test_binary_needs_both_labels(self):
+        # With min_agreement=2 only nodules >= 3 mm remain, so the binary
+        # label processor sees one label and fails with a clear error.
+        task = LNDbFindingClassification(
+            patch_size=4, binary=True, min_agreement=2
+        )
+        with self.assertRaisesRegex(ValueError, "2 unique labels"):
+            self.dataset.set_task(task, num_workers=1)
+
     def test_min_agreement_filters(self):
         task = LNDbFindingClassification(patch_size=4, min_agreement=2)
         samples = self.dataset.set_task(task, num_workers=1)

@@ -15,6 +15,8 @@ https://doi.org/10.5281/zenodo.8348419, extract them (``unrar x`` or
 
     python examples/ct/lndb_finding_classification_resnet18.py --root /path/to/lndb
 
+Add ``--max-samples 40 --epochs 1`` for a quick smoke run on a few CTs.
+
 Findings whose CT is not extracted are skipped, so one archive (about 40
 CTs) is enough to try it. One epoch on a CPU shows the pipeline works; it
 is not a benchmark result.
@@ -38,6 +40,10 @@ def main() -> None:
     parser.add_argument("--cache-dir", default=None)
     parser.add_argument("--binary", action="store_true")
     parser.add_argument("--epochs", type=int, default=1)
+    parser.add_argument(
+        "--max-samples", type=int, default=None,
+        help="Keep only the first N findings (quick smoke run).",
+    )
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
 
@@ -45,6 +51,8 @@ def main() -> None:
     dataset.stats()
     task = LNDbFindingClassification(patch_mode="2.5d", binary=args.binary)
     samples = dataset.set_task(task)
+    if args.max_samples is not None and args.max_samples < len(samples):
+        samples = samples.subset(list(range(args.max_samples)))
 
     train_ds, val_ds, test_ds = split_by_patient(samples, SPLIT_RATIOS, seed=SEED)
     if min(len(train_ds), len(val_ds), len(test_ds)) == 0:

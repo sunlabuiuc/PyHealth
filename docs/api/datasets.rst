@@ -476,10 +476,10 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - Yes
      - —
    * - :doc:`LNDb (lung nodule CT) <datasets/pyhealth.datasets.LNDbDataset>`
-     - Open (CC BY 4.0 or CC BY-NC-ND 4.0; the record states both)
+     - Open, no account (CC BY 4.0 or CC BY-NC-ND 4.0; the record states both)
      - `Zenodo <https://doi.org/10.5281/zenodo.8348419>`__
      - No (RAR archives)
-     - —
+     - One ``dataN.rar`` (~40 CTs) is enough
    * - :doc:`Medical Segmentation Decathlon <datasets/pyhealth.datasets.MSDSegmentationDataset>`
      - Open
      - `MSD <http://medicaldecathlon.com/>`__

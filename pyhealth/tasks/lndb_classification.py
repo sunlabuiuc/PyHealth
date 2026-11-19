@@ -30,7 +30,10 @@ class LNDbFindingClassification(BaseTask):
           lacks a class keeps the same indices.
         - ``binary=True``: ``nodule_ge_3mm``, 1 for a nodule >= 3 mm and 0
           for everything else. This is the question CLIMB's QA asks (and the
-          size above which the Fleischner guidelines act).
+          size above which the Fleischner guidelines act). The binary label
+          processor needs both labels, so ``set_task`` raises ``ValueError``
+          on a subset (e.g. a single CT, or a high ``min_agreement``) that
+          holds only one of them.
 
     Inputs (``patch``, a ``tensor``):
         - ``patch_mode="3d"`` (default): shape ``(1, P, P, P)`` in
@@ -149,6 +152,17 @@ class LNDbFindingClassification(BaseTask):
             return int(finding_class == 2)
         return finding_class
 
+    def keep(self, event: Any) -> bool:
+        """Return whether a finding with a CT on disk becomes a sample.
+
+        Subclasses narrow the findings here; this task keeps all of them.
+
+        Examples:
+            >>> LNDbFindingClassification().keep(object())
+            True
+        """
+        return True
+
     def __call__(self, patient: Any) -> list[dict[str, Any]]:
         """Build one sample per finding of a patient's CT.
 
@@ -167,6 +181,7 @@ class LNDbFindingClassification(BaseTask):
             if isinstance(event.image_path, str)
             and event.image_path
             and int(float(event.agreement)) >= self.min_agreement
+            and self.keep(event)
         ]
         if not events:
             return []
