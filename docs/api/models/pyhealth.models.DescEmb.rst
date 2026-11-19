@@ -32,6 +32,14 @@ DescEmb resolves this by representing codes via their clinical text descriptions
 5. **Outcome Prediction**: Last-visit patient representations are mapped
    to outcome predictions across binary, multiclass, and multilabel tasks.
 
+.. note::
+
+   When initialized without pretrained encoder weights, :class:`~pyhealth.models.descemb.DescEmbCodeEncoder`
+   acts as a deterministic pseudo-random projection mapping description tokens to embedding space.
+   Users may provide a pretrained module via ``pretrained_text_encoder`` to retain semantics learned
+   during text pretraining. Codes omitted from ``code_descriptions`` fall back to using their raw
+   code strings.
+
 Inputs and Outputs
 ------------------
 

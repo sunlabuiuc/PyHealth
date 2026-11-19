@@ -18,8 +18,8 @@ limitations:
 
 DescEmb overcomes these limitations by initializing code embeddings from
 the standardized textual descriptions of medical codes using a text encoder
-(such as a bidirectional recurrent neural network or Transformer), injecting
-semantic clinical priors into the embedding layer.
+(such as a bidirectional GRU), injecting semantic clinical priors into the
+embedding layer.
 
 The PyHealth DescEmb architecture comprises:
     1. Description Text Encoding (:class:`DescEmbCodeEncoder`): Embeds
@@ -60,7 +60,7 @@ from pyhealth.models.utils import get_last_visit
 def simple_subword_tokenize(
     text: str, max_tokens: int = 16
 ) -> list[str]:
-    """Tokenizes a clinical description string into lowercase subwords/words.
+    """Tokenizes a clinical description string into lowercase alphanumeric words.
 
     Args:
         text: Clinical description string.
@@ -213,7 +213,20 @@ class DescEmb(BaseModel):
         dropout: Dropout probability. Default is 0.1.
         code_descriptions: Optional dictionary mapping code strings to
             clinical text descriptions (e.g., ``{"401.9": "hypertension"}``).
+            Missing codes fall back to their raw string representation.
+        pretrained_text_encoder: Optional pretrained module for encoding
+            description text. If None, a newly initialized
+            :class:`DescEmbCodeEncoder` is created.
         **kwargs: Additional keyword arguments.
+
+    Note:
+        When using randomly initialized :class:`DescEmbCodeEncoder` (the
+        default when `pretrained_text_encoder` is None), description-based
+        initialization functions as a deterministic pseudo-random projection
+        of description tokens into embedding space. To preserve semantic
+        pretraining, pass `pretrained_text_encoder` or load weights into
+        `self.code_text_encoder`. Codes not found in `code_descriptions`
+        fall back to using the code string itself as the description.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
@@ -264,6 +277,7 @@ class DescEmb(BaseModel):
         intra_visit_pooling: str = "sum",
         dropout: float = 0.1,
         code_descriptions: dict[str, str] | None = None,
+        pretrained_text_encoder: nn.Module | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(dataset=dataset)
@@ -303,13 +317,19 @@ class DescEmb(BaseModel):
         self.temporal_model_name = temporal_model
 
         # Description text encoder
-        self.code_text_encoder = DescEmbCodeEncoder(
-            vocab_size=subword_vocab_size,
-            subword_dim=min(64, embedding_dim),
-            hidden_dim=text_hidden_dim,
-            output_dim=embedding_dim,
-            dropout=dropout,
-        )
+        if pretrained_text_encoder is not None:
+            self.code_text_encoder = pretrained_text_encoder
+        else:
+            self.code_text_encoder = DescEmbCodeEncoder(
+                vocab_size=subword_vocab_size,
+                subword_dim=min(64, embedding_dim),
+                hidden_dim=text_hidden_dim,
+                output_dim=embedding_dim,
+                dropout=dropout,
+            )
+        # Freeze text encoder parameters since used only for code initialization
+        for param in self.code_text_encoder.parameters():
+            param.requires_grad = False
 
         # Underlying embedding model
         self.embedding_model = EmbeddingModel(
@@ -396,6 +416,7 @@ class DescEmb(BaseModel):
 
         Args:
             code_descriptions: Dictionary mapping code strings to descriptions.
+                Codes missing from the dictionary fall back to the raw code string.
             max_desc_len: Maximum tokens per description. Default is 16.
         """
         device = self._dummy_param.device
@@ -481,81 +502,83 @@ class DescEmb(BaseModel):
 
         for key, val in kwargs.items():
             if isinstance(val, tuple):
-                if (
-                    hasattr(self.dataset, "input_processors")
-                    and key in self.dataset.input_processors
-                ):
-                    schema = self.dataset.input_processors[key].schema()
-                    if "time" in schema and "value" in schema:
-                        value = val[schema.index("value")]
-                        time_tensor = val[schema.index("time")]
-                        mask = val[schema.index("mask")] if "mask" in schema else None
-                    elif (
-                        len(val) > 1
-                        and isinstance(val[0], torch.Tensor)
-                        and val[0].is_floating_point()
-                        and isinstance(val[1], torch.Tensor)
-                        and not val[1].is_floating_point()
-                    ):
-                        time_tensor = val[0]
-                        value = val[1]
-                        mask = val[2] if len(val) > 2 else None
-                    else:
-                        value = (
-                            val[schema.index("value")]
-                            if "value" in schema
-                            else val[0]
-                        )
-                        mask = (
-                            val[schema.index("mask")]
-                            if "mask" in schema
-                            else None
-                        )
-                        time_tensor = (
-                            val[schema.index("time")]
-                            if "time" in schema
-                            else None
-                        )
+                schema = (
+                    self.dataset.input_processors[key].schema()
+                    if (
+                        hasattr(self.dataset, "input_processors")
+                        and key in self.dataset.input_processors
+                    )
+                    else None
+                )
 
-                    numeric_val = None
+                time_tensor = None
+                numeric_val = None
+                mask = None
+                value = None
+
+                if (
+                    schema is not None
+                    and "time" in schema
+                    and "value" in schema
+                ):
+                    value = val[schema.index("value")]
+                    time_tensor = val[schema.index("time")]
+                    if "mask" in schema:
+                        mask = val[schema.index("mask")]
+                elif len(val) == 2:
+                    first, second = val[0], val[1]
+                    if (
+                        isinstance(second, torch.Tensor)
+                        and second.dtype == torch.bool
+                    ):
+                        # (value, mask)
+                        value = first
+                        mask = second
+                    elif (
+                        isinstance(first, torch.Tensor)
+                        and first.is_floating_point()
+                        and isinstance(second, torch.Tensor)
+                        and not second.is_floating_point()
+                    ):
+                        # (time, value_codes)
+                        time_tensor = first
+                        value = second
+                    elif (
+                        isinstance(first, torch.Tensor)
+                        and not first.is_floating_point()
+                        and isinstance(second, torch.Tensor)
+                        and second.is_floating_point()
+                    ):
+                        # (value_codes, numeric_val)
+                        value = first
+                        numeric_val = second
+                    else:
+                        value = first
+                        mask = (
+                            second if isinstance(second, torch.Tensor)
+                            else None
+                        )
+                elif len(val) >= 3:
+                    time_tensor = val[0]
+                    value = val[1]
+                    mask = val[2]
+                elif schema is not None and "value" in schema:
+                    value = val[schema.index("value")]
+                else:
+                    value = val[0]
+
+                if numeric_val is None:
                     for elem in val:
                         if (
                             isinstance(elem, torch.Tensor)
                             and elem.is_floating_point()
                             and elem is not time_tensor
+                            and elem is not value
                         ):
                             numeric_val = elem
                             break
-                    values_dict[key] = numeric_val
-                else:
-                    if (
-                        len(val) > 1
-                        and isinstance(val[0], torch.Tensor)
-                        and val[0].is_floating_point()
-                        and isinstance(val[1], torch.Tensor)
-                        and not val[1].is_floating_point()
-                    ):
-                        value = val[1]
-                        mask = val[2] if len(val) > 2 else None
-                        numeric_val = None
-                    else:
-                        value = val[0]
-                        mask = (
-                            val[1]
-                            if len(val) > 1
-                            and val[1].dtype
-                            in (torch.bool, torch.int64, torch.int32)
-                            else None
-                        )
-                        numeric_val = (
-                            val[1]
-                            if len(val) > 1
-                            and isinstance(val[1], torch.Tensor)
-                            and val[1].is_floating_point()
-                            else None
-                        )
-                    values_dict[key] = numeric_val
 
+                values_dict[key] = numeric_val
                 cleaned_kwargs[key] = value
                 raw_masks[key] = mask if isinstance(mask, torch.Tensor) else None
             else:
@@ -578,6 +601,13 @@ class DescEmb(BaseModel):
 
         for feature_key in self.feature_keys:
             feat = embedded[feature_key]
+            if feat.dim() > 4:
+                raise ValueError(
+                    f"Unsupported feature dimension {feat.dim()} for "
+                    f"feature '{feature_key}'. Only 2D sequences (B, D), "
+                    "3D sequences (B, T, D), and 4D nested sequences "
+                    "(B, T, K, D) are supported."
+                )
 
             # Optional value conditioning: fuse numerical measurement
             val = values_dict.get(feature_key)
@@ -587,11 +617,11 @@ class DescEmb(BaseModel):
 
             v_mask = None
             # Nested sequences: (B, T, K, D)
-            while feat.dim() > 3:
+            if feat.dim() == 4:
                 mask = raw_masks.get(feature_key)
                 if mask is None:
                     mask = input_masks.get(feature_key)
-                if mask is not None and mask.dim() == feat.dim() - 1:
+                if mask is not None and mask.dim() == 3:
                     code_mask = mask != 0
                 else:
                     code_mask = (feat != 0).any(dim=-1)
@@ -649,15 +679,23 @@ class DescEmb(BaseModel):
             temporal_out, _ = self.temporal_encoder(visit_repr)
         else:
             if overall_mask is not None:
+                all_pad_patients = (~overall_mask).all(dim=-1)
                 padding_mask = ~overall_mask
-                # Avoid all-True row in padding mask which causes NaNs in transformer attention
-                all_pad = padding_mask.all(dim=-1, keepdim=True)
-                padding_mask = padding_mask & ~all_pad
+                # Unmask position 0 for all-pad patients so softmax is finite
+                if all_pad_patients.any():
+                    padding_mask = padding_mask.clone()
+                    padding_mask[all_pad_patients, 0] = False
             else:
                 padding_mask = None
+                all_pad_patients = None
+
             temporal_out = self.temporal_encoder(
                 visit_repr, src_key_padding_mask=padding_mask
             )
+            if all_pad_patients is not None and all_pad_patients.any():
+                temporal_out = temporal_out.masked_fill(
+                    all_pad_patients.unsqueeze(-1).unsqueeze(-1), 0.0
+                )
 
         # Extract patient representation from the last valid visit
         patient_emb = get_last_visit(temporal_out, overall_mask)

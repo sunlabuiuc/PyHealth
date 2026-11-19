@@ -420,8 +420,8 @@ class TestDescEmb(unittest.TestCase):
             val_single,
         )
 
-        for temporal_model in ("gru", "transformer"):
-            for pool_mode in ("sum", "mean"):
+        for temporal_model in ("gru", "lstm", "transformer"):
+            for pool_mode in ("sum", "mean", "max", "attention"):
                 model = DescEmb(
                     dataset=dataset,
                     embedding_dim=16,
@@ -477,6 +477,98 @@ class TestDescEmb(unittest.TestCase):
                     f"Embed changed by {diff_embed} with padding "
                     f"(model={temporal_model}, pool={pool_mode})",
                 )
+
+    def test_value_mask_tuple_input(self):
+        """Verifies (value, mask) tuple input unpacks correctly."""
+        dataset = create_sample_dataset(
+            samples=self.samples,
+            input_schema=self.input_schema,
+            output_schema={"label": "binary"},
+        )
+        model = DescEmb(
+            dataset=dataset,
+            embedding_dim=16,
+            text_hidden_dim=16,
+            temporal_hidden_dim=16,
+        )
+        loader = get_dataloader(dataset, batch_size=2)
+        batch = next(iter(loader))
+        cond = batch["conditions"]
+        mask = cond != 0
+        batch["conditions"] = (cond, mask)
+        out = model(**batch)
+        self.assertIn("logit", out)
+        self.assertTrue(torch.isfinite(out["logit"]).all())
+
+    def test_empty_patient_with_transformer(self):
+        """Verifies transformer handles all-pad patient without producing NaNs."""
+        dataset = create_sample_dataset(
+            samples=self.samples[:2],
+            input_schema=self.input_schema,
+            output_schema={"label": "binary"},
+        )
+        model = DescEmb(
+            dataset=dataset,
+            embedding_dim=16,
+            text_hidden_dim=16,
+            temporal_hidden_dim=16,
+            temporal_model="transformer",
+            dropout=0.0,
+        )
+        loader = get_dataloader(dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+        batch["conditions"][1].zero_()
+
+        out = model(**batch)
+        self.assertFalse(torch.isnan(out["logit"]).any())
+        self.assertFalse(torch.isnan(out["embed"]).any())
+        self.assertTrue(torch.isfinite(out["loss"]))
+        out["loss"].backward()
+        for p in model.parameters():
+            if p.grad is not None:
+                self.assertTrue(torch.isfinite(p.grad).all())
+
+    def test_unsupported_high_dim_feature(self):
+        """Verifies ValueError is raised for features with more than 4 dimensions."""
+        dataset = create_sample_dataset(
+            samples=self.samples,
+            input_schema=self.input_schema,
+            output_schema={"label": "binary"},
+        )
+        model = DescEmb(
+            dataset=dataset,
+            embedding_dim=16,
+            text_hidden_dim=16,
+            temporal_hidden_dim=16,
+        )
+        original_embed = model.embedding_model.forward
+        model.embedding_model.forward = lambda kw: {
+            "conditions": torch.zeros((2, 3, 4, 5, 16))
+        }
+        with self.assertRaises(ValueError):
+            model(conditions=torch.zeros((2, 3, 4, 5)))
+        model.embedding_model.forward = original_embed
+
+    def test_pretrained_text_encoder_arg(self):
+        """Verifies pretrained_text_encoder argument is used and frozen."""
+        dataset = create_sample_dataset(
+            samples=self.samples,
+            input_schema=self.input_schema,
+            output_schema={"label": "binary"},
+        )
+        custom_encoder = DescEmbCodeEncoder(
+            vocab_size=100, subword_dim=16, hidden_dim=16, output_dim=16
+        )
+        model = DescEmb(
+            dataset=dataset,
+            embedding_dim=16,
+            text_hidden_dim=16,
+            temporal_hidden_dim=16,
+            pretrained_text_encoder=custom_encoder,
+        )
+        self.assertIs(model.code_text_encoder, custom_encoder)
+        for param in model.code_text_encoder.parameters():
+            self.assertFalse(param.requires_grad)
 
 
 if __name__ == "__main__":
