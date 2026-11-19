@@ -60,6 +60,42 @@ to learn in a few minutes, so use ``--batch-size 128 --epochs 80`` on real
 data. Synthetic data only checks that the pipeline works; its numbers say
 nothing about the paper's results.
 
+Results on real NHANES 2003-2006: mean ± SD over 5 folds, test participants
+aged 40+ (about 1,000 per fold, about 103 deaths within 5 years). Every run used
+``--covariate-set clinical --min-age 40 --batch-size 128 --lr 1e-3 --epochs 80
+--patience 10 --n-folds 5``; all folds stopped early, after 11-29 epochs.
+
+================  ==========  ==========  ==========  ==========  ==========  =====
+                        Adam       AdamW     No wear       1-day   Hidden 32  Paper
+================  ==========  ==========  ==========  ==========  ==========  =====
+C: age            0.794±.016  0.794±.016  0.794±.016  0.795±.011  0.794±.016  0.795
+C: MotionAge      0.835±.017  0.834±.017  0.837±.015  0.828±.027  0.832±.010  0.848
+C: accel          0.743±.037  0.742±.031  0.746±.028  0.713±.053  0.743±.023  0.740
+AUROC: age        0.804±.016  0.804±.016  0.804±.016  0.804±.009  0.804±.016  0.803
+AUROC: MotionAge  0.842±.019  0.841±.019  0.843±.017  0.834±.025  0.841±.011  0.852
+AUROC: accel      0.839±.020  0.839±.021  0.841±.018  0.832±.024  0.840±.011  0.850
+AUROC: covars     0.819±.013  0.819±.013  0.819±.013  0.816±.017  0.819±.013      -
+================  ==========  ==========  ==========  ==========  ==========  =====
+
+Columns: Adam = defaults; AdamW = the authors' optimizer settings (``--optimizer
+adamw --weight-decay 3e-4 --max-grad-norm 1.0``); No wear = ``--no-wear-aware``;
+1-day = ``--seq-len 288``; Hidden 32 = ``--hidden-dim 32`` (the three ablations
+use Adam). Rows: C = C-index C(M, X) of the raw predictor; AUROC = logistic
+regression on [age, sex], [MotionAge, sex], [acceleration, age, sex], or the
+clinical covariates only (no activity). Paper: Song, Yin, et al., Table 1.
+
+Notes:
+
+* The cohort matches the paper: 8,979 participants and 555 deaths within 5
+  years (by ``permth_int``). 8,519 of them have at least one window with 30%
+  wear, so only they get predictions; the authors' code drops the same people.
+* The 1-day run keeps more participants (shorter windows pass the wear filter
+  more often), so its folds hold a slightly different set of people.
+* Differences from the authors' training: PyHealth's ``Trainer`` has no
+  learning-rate scheduler (they halve the rate after 5 epochs without a better
+  validation AUPRC); the best epoch is chosen by window-level, not
+  participant-level, validation AUPRC; and the seed is 0, not 42.
+
 Usage:
     python examples/nhanes_mortality_prediction_motionage.py
     python examples/nhanes_mortality_prediction_motionage.py \\
