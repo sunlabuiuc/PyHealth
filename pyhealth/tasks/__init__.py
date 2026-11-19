@@ -163,6 +163,7 @@ from .sleep_staging import (
 from .sleep_staging_v2 import SleepStagingSequenceSleepEDF as SleepStagingSequenceSleepEDF
 from .sleep_staging_v2 import SleepStagingSleepEDF
 from .sleep_staging_isruc import SleepStagingISRUC as SleepStagingISRUC
+from .sleep_staging_shhs import SleepStagingSHHS as SleepStagingSHHS
 from .temple_university_EEG_tasks import (
     EEGEventsTUEV,
     EEGAbnormalTUAB

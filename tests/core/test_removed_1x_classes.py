@@ -44,10 +44,9 @@ class TestRemoved1xClasses(unittest.TestCase):
         from pyhealth.datasets import (
             CardiologyDataset,
             MIMICExtractDataset,
-            SHHSDataset,
         )
 
-        for cls in (CardiologyDataset, SHHSDataset):
+        for cls in (CardiologyDataset,):
             with self.subTest(cls=cls.__name__):
                 with self.assertRaises(NotImplementedError) as ctx:
                     cls(root="data")
