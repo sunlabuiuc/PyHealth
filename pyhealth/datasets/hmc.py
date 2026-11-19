@@ -85,6 +85,10 @@ class HMCDataset(BaseDataset):
           https://physionet.org/files/hmc-sleep-staging/1.1/`` (15.7 GB),
           or the 12.9 GB zip file from the same page.
         - ``root``: the downloaded ``recordings`` folder, or its parent.
+        - Disk for the task cache: on SN001 to SN004, ``set_task`` with
+          the default :class:`~pyhealth.tasks.SleepStagingHMC` writes about
+          246 kB per epoch, half of it the processed samples. At that rate
+          the 136,776 epochs of the 151 recordings take about 34 GB.
 
     Args:
         root: Folder holding the ``SNxxx.edf`` and

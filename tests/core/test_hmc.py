@@ -197,6 +197,14 @@ class TestHMCMetadata(_TempDir):
         self.assertEqual(list(df["patient_id"]), ["SN001"])
         self.assertIn("SN002", logs.output[0])
 
+    def test_default_task(self):
+        task = HMCDataset.__new__(HMCDataset).default_task
+
+        self.assertIsInstance(task, SleepStagingHMC)
+        self.assertEqual(task.channels, HMC_EEG_CHANNELS)
+        self.assertEqual(task.epoch_seconds, 30)
+        self.assertTrue(task.lights_period_only)
+
     def test_empty_root_writes_nothing(self):
         with self.assertLogs("pyhealth.datasets.hmc", level="WARNING"):
             ds = HMCDataset.__new__(HMCDataset)
