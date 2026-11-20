@@ -545,6 +545,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `GDC <https://portal.gdc.cancer.gov/projects/TCGA-PRAD>`__
      - No
      - —
+   * - :doc:`Brain Tumor MRI (Bhuvaji) <datasets/pyhealth.datasets.BrainTumorMRIDataset>`
+     - Open (MIT, per the Kaggle listing)
+     - `GitHub <https://github.com/SartajBhuvaji/Brain-Tumor-Classification-DataSet>`__, `Kaggle <https://www.kaggle.com/datasets/sartajbhuvaji/brain-tumor-classification-mri>`__
+     - No (``git clone`` or ``kaggle datasets download``)
+     - —
    * - :doc:`ClinVar <datasets/pyhealth.datasets.ClinVarDataset>`
      - Open
      - `NCBI <https://ftp.ncbi.nlm.nih.gov/pub/clinvar/>`__
@@ -612,6 +617,7 @@ Available Datasets
     datasets/pyhealth.datasets.MIMIC4EDDataset
     datasets/pyhealth.datasets.KiTS23Dataset
     datasets/pyhealth.datasets.MIMIC4ImaGenomeDataset
+    datasets/pyhealth.datasets.BrainTumorMRIDataset
     datasets/pyhealth.datasets.FHIRDataset
     datasets/pyhealth.datasets.MEDSDataset
     datasets/pyhealth.datasets.MIMIC4FHIR

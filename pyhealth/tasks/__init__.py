@@ -32,6 +32,9 @@ from .chaos_segmentation import (
     CHAOSLiverSegmentationCTonly as CHAOSLiverSegmentationCTonly,
     CHAOSLiverSegmentationMRIonly as CHAOSLiverSegmentationMRIonly,
 )
+from .brain_tumor_mri_classification import (
+    BrainTumorMRIClassification as BrainTumorMRIClassification,
+)
 from .covid19_cxr_classification import COVID19CXRClassification
 from .covid19_cxr_generation import (
     COVID19CXRImageGeneration as COVID19CXRImageGeneration,

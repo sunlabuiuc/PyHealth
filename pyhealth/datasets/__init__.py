@@ -60,6 +60,7 @@ from .imaging.stats import (
 )
 from .bcss import BCSSDataset as BCSSDataset
 from .cardiology import CardiologyDataset
+from .brain_tumor_mri import BrainTumorMRIDataset as BrainTumorMRIDataset
 from .chaos import CHAOSDataset as CHAOSDataset
 from .chest_imagenome import ChestImaGenomeDataset as ChestImaGenomeDataset
 from .chestxray14 import ChestXray14Dataset
