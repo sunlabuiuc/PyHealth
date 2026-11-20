@@ -425,6 +425,10 @@ class BCSSDataset(BaseDataset):
         The index CSV is written last, so an interrupted run is redone on
         the next construction.
 
+        Raises:
+            ValueError: If no tile passes the recipe. No index is written,
+                so a later run with looser settings tiles again.
+
         Examples:
             >>> ds = BCSSDataset(root="/data/bcss")  # doctest: +SKIP
             >>> ds.prepare_metadata()  # doctest: +SKIP
@@ -439,6 +443,16 @@ class BCSSDataset(BaseDataset):
             warnings.simplefilter("ignore", Image.DecompressionBombWarning)
             for roi_id, info in sorted(self._rois.items()):
                 rows.extend(self._tile_roi(Image, roi_id, info))
+        if not rows:
+            # Writing an empty index would mark this recipe as done, and
+            # later runs would reuse it. Raise so nothing is cached.
+            raise ValueError(
+                f"BCSS: no tile from {len(self._rois)} ROI(s) passed the recipe "
+                f"(tile_size={self.tile_size}, stride={self.stride}, "
+                f"min_purity={self.min_purity}, "
+                f"class_codes={list(self.class_codes)}). Lower min_purity or "
+                "tile_size, or add class codes."
+            )
         columns = [
             "patient_id",
             "roi_id",

@@ -77,8 +77,10 @@ class TestBCSSDataset(unittest.TestCase):
 
     def test_purity_and_stride_change_recipe(self):
         write_fixture(self.root)
+        # The default purity 0.9 keeps no 8x8 tile (see the no-kept-tiles
+        # test), so compare two purities that both keep TCGA-A2-BBBB.
         strict = BCSSDataset(
-            root=str(self.root), tile_size=8, cache_dir=str(self.cache)
+            root=str(self.root), tile_size=8, min_purity=0.45, cache_dir=str(self.cache)
         )
         loose = BCSSDataset(
             root=str(self.root), tile_size=8, min_purity=0.5, cache_dir=str(self.cache)
@@ -125,6 +127,14 @@ class TestBCSSDataset(unittest.TestCase):
             )
         with self.assertRaises(FileNotFoundError):
             BCSSDataset(root=str(self.tmp / "missing"), cache_dir=str(self.cache))
+
+    def test_no_kept_tiles_raises_and_writes_no_index(self):
+        write_fixture(self.root)
+        # Every 8x8 ROI mixes codes, so none reaches the default purity 0.9.
+        for _ in range(2):  # the second call must not reuse an empty index
+            with self.assertRaisesRegex(ValueError, "no tile"):
+                BCSSDataset(root=str(self.root), tile_size=8, cache_dir=str(self.cache))
+        self.assertEqual(list(self.cache.rglob("*.csv")), [])
 
     def test_unpaired_roi_raises(self):
         write_fixture(self.root)

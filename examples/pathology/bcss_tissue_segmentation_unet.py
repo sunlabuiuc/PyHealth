@@ -47,7 +47,12 @@ if __name__ == "__main__":
     parser.add_argument("--min-labelled", type=float, default=0.5)
     parser.add_argument("--image-dir", default=None)
     parser.add_argument("--split", choices=["official", "patient"], default="official")
-    parser.add_argument("--val-ratio", type=float, default=0.1)
+    parser.add_argument(
+        "--val-ratio",
+        type=float,
+        default=0.1,
+        help="Share of training patients used for validation; must be in (0, 1).",
+    )
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--dev", action="store_true")
     parser.add_argument("--epochs", type=int, default=1)
@@ -55,6 +60,9 @@ if __name__ == "__main__":
     parser.add_argument("--depth", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=8)
     args = parser.parse_args()
+    if args.split == "official" and not 0 < args.val_ratio < 1:
+        # The script trains with a validation part, which needs val_ratio > 0.
+        parser.error("--val-ratio must be in (0, 1) with --split official.")
 
     dataset = BCSSDataset(
         root=args.root,

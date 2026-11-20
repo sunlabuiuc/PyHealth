@@ -58,12 +58,20 @@ if __name__ == "__main__":
         help="RGB folder under root (default: rgbs_colorNormalized, else images).",
     )
     parser.add_argument("--split", choices=["official", "patient"], default="official")
-    parser.add_argument("--val-ratio", type=float, default=0.1)
+    parser.add_argument(
+        "--val-ratio",
+        type=float,
+        default=0.1,
+        help="Share of training patients used for validation; must be in (0, 1).",
+    )
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--dev", action="store_true")
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--pretrained", action="store_true")
     args = parser.parse_args()
+    if args.split == "official" and not 0 < args.val_ratio < 1:
+        # The script trains with a validation part, which needs val_ratio > 0.
+        parser.error("--val-ratio must be in (0, 1) with --split official.")
 
     dataset = BCSSDataset(
         root=args.root,
@@ -83,7 +91,9 @@ if __name__ == "__main__":
         else PatientSplit((0.5, 0.25, 0.25), seed=0)
     )
     parts = dataset.set_task(
-        BCSSTileClassification(classes=dataset.default_task.classes, image_size=224),
+        BCSSTileClassification(
+            classes=dataset.default_task.classes, image_size=args.tile_size
+        ),
         split=split,
     )
     train, val, test = (cap(p, args.max_samples) for p in parts)
