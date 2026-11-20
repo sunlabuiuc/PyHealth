@@ -8,14 +8,38 @@ from .yaib_eicu import YAIBLengthOfStayEICU
 
 
 class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
-    """Hourly ICU length-of-stay prediction with missingness experiments."""
+    """Predict hourly remaining ICU length of stay using eICU data.
+
+    Extends YAIBLengthOfStayEICU to generate hourly remaining
+    length-of-stay labels and support random observation masking.
+
+    Dynamic observations are retained from hour 0, while predictions
+    start at hour 5 and continue for up to 14 days.
+
+    Args:
+        missing_rate (float): Fraction of observed dynamic feature
+            values to randomly mask. Defaults to 0.0.
+        seed (int): Random seed for reproducible masking.
+            Defaults to 42.
+    """
 
     task_name: str = "TPCLengthOfStayEICU"
     MAX_HOURS: ClassVar[int] = 14 * 24
     START_HOUR: ClassVar[int] = 5
 
     def __init__(self, missing_rate: float = 0.0, seed: int = 42):
-        """Configure random observation masking."""
+        """Initialize the task with missingness settings.
+
+        Args:
+            missing_rate (float): Fraction of observed dynamic feature
+                values to randomly mask, between 0.0 and 1.0.
+                Defaults to 0.0.
+            seed (int): Random seed used for reproducible masking.
+                Defaults to 42.
+
+        Raises:
+            ValueError: If missing_rate is outside [0.0, 1.0].
+        """
         if not 0.0 <= missing_rate <= 1.0:
             raise ValueError("missing_rate must be between 0 and 1.")
 
@@ -23,7 +47,21 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
         self.seed = seed
 
     def _apply_missingness(self, values: np.ndarray, stay_id: Any) -> np.ndarray:
-        """Randomly hide a fraction of originally observed values."""
+        """Randomly mask a fraction of observed feature values with NaN.
+
+        Masking is deterministic for each ICU stay based on the
+        configured seed and stay identifier. Originally missing
+        values are excluded from the masking selection.
+
+        Args:
+            values (np.ndarray): Array of hourly dynamic feature values.
+            stay_id (Any): ICU stay identifier used to derive the
+                random seed.
+
+        Returns:
+            np.ndarray: A copy of the input array with selected
+                observed values replaced by NaN.
+        """
         values = values.copy()
 
         if self.missing_rate == 0.0:
@@ -51,7 +89,31 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
         return values
 
     def __call__(self, patient: Any) -> list[dict[str, Any]]:
-        """Generate hourly ICU samples with uncapped remaining LOS labels."""
+        """Generate hourly ICU length-of-stay prediction samples.
+
+        Extracts hourly dynamic and static features for eligible ICU
+        stays. Dynamic observations are retained from hour 0, and
+        random observation masking is applied when configured.
+
+        Remaining length-of-stay labels are generated for each
+        prediction hour, starting at hour 5 and continuing up to
+        the maximum observation horizon.
+
+        Args:
+            patient (Any): PyHealth patient object containing
+                ICU stay information and associated measurements.
+
+        Returns:
+            list[dict[str, Any]]: A list of prediction samples.
+                Each sample contains:
+                - patient_id: Patient identifier.
+                - stay_id: ICU stay identifier.
+                - dynamic: Hourly dynamic feature observations.
+                - static: Static patient features.
+                - los: Hourly remaining length-of-stay labels.
+
+                Returns an empty list if no eligible ICU stays exist.
+        """
         all_stays = self._stays(patient)
 
         if all_stays.height == 0:
@@ -68,12 +130,13 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
                 continue
 
             last_hour = min(end, self.MAX_HOURS)
-            
-            
+
             dynamic = self._dynamic(hourly, stay_id, last_hour)
-        
+
             # Keep all observations from hour 0 onward.
-            dynamic["values"] = self._apply_missingness(dynamic["values"], stay_id)
+            dynamic["values"] = self._apply_missingness(
+                dynamic["values"], stay_id
+            )
 
             prediction_hours = [
                 float(hour)
@@ -96,3 +159,4 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
             )
 
         return samples
+
