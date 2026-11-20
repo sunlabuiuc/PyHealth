@@ -10,9 +10,10 @@ import numpy as np
 
 from pyhealth.autoimprove import AnalysisSpec, AutoImprover, Param, PipelineConfig
 from pyhealth.autoimprove import SearchSpace, sample_columns
-from pyhealth.autoimprove.analysis import Out, format_results, run_analysis_job
-from pyhealth.autoimprove.proposers import Proposer, build_analysis_prompt
-from pyhealth.autoimprove.sandbox import ContractError
+from pyhealth.autoimprove.search.analysis import Out, format_results, run_analysis_job
+from pyhealth.autoimprove.search.proposers import Proposer
+from pyhealth.autoimprove.search.prompts import build_analysis_prompt
+from pyhealth.autoimprove.utils.sandbox import ContractError
 from pyhealth.datasets import create_sample_dataset
 
 SPACE = SearchSpace(

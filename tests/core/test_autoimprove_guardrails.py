@@ -18,8 +18,13 @@ from pyhealth.autoimprove import (
     clearly_worse,
     load_run,
 )
-from pyhealth.autoimprove.guardrails import decide, metrics_menu, perfect_predictions
-from pyhealth.autoimprove.proposers import Proposer, build_evaluation_prompt
+from pyhealth.autoimprove.evaluation.guardrails import (
+    decide,
+    metrics_menu,
+    perfect_predictions,
+)
+from pyhealth.autoimprove.search.proposers import Proposer
+from pyhealth.autoimprove.search.prompts import build_evaluation_prompt
 from pyhealth.datasets import create_sample_dataset
 
 SPACE = SearchSpace(

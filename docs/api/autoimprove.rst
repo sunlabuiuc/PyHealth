@@ -420,7 +420,7 @@ How generated code runs
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 Generated code runs in the same Python environment as the improver, in a
-child process (:mod:`~pyhealth.autoimprove.sandbox`):
+child process (:mod:`~pyhealth.autoimprove.utils.sandbox`):
 
 - a static check rejects imports outside an allowlist (torch, numpy, scipy,
   sklearn, pandas, polars, pyhealth and the standard library's maths and
@@ -466,6 +466,42 @@ Safety and data
   ``return_predictions=True`` also returns the test predictions, for other
   metrics without training again.
 
+Package layout
+--------------
+
+:class:`~pyhealth.autoimprove.AutoImprover` (``improver.py``) is the one
+entry point: it holds a run's state and its loop, and every public method
+(``run``, ``confirm``, ``evaluate_on_test``, ``report``...). The logic lives in
+three compartments it draws on:
+
+``search/``: what to try next
+    ``space`` (configs, the search space, rungs), ``proposers`` and
+    ``context`` (who proposes, and what they know), ``prompts`` (the text an
+    LLM sees and how replies are parsed), ``turns`` (the five kinds of turn),
+    ``features``, ``codegen`` (the code-turn contract), ``analysis``,
+    ``knowledge`` and ``evidence`` (literature).
+
+``evaluation/``: how good an attempt is
+    ``training`` (build, train and predict a config), ``code_trials``
+    (train generated code in the sandbox and check it), ``scoring``
+    (:mod:`pyhealth.metrics` on predictions), ``cv`` (patient-grouped folds),
+    ``selection`` (paired comparison with the baseline, the one-SE rule),
+    ``guardrails``, ``confirm`` (new folds and seeds, feature pruning),
+    ``holdout`` (the one test evaluation), ``explain``, ``report`` and
+    ``records`` (``Trial``, ``ImproveResult``).
+
+``utils/``: infrastructure both use
+    ``sandbox`` (running generated code), ``llm`` (Claude, OpenAI and Gemini
+    clients), ``store`` (:class:`~pyhealth.autoimprove.utils.store.RunStore`,
+    every file under ``run_dir``), ``data`` (dataset facts) and ``errors``.
+
+Dependencies point one way: ``utils`` imports neither compartment;
+``evaluation`` uses only the config and proposal types from ``search``;
+``search`` uses only records, the selection rule, guardrail specs and report
+sections from ``evaluation``; and only the package ``__init__`` imports
+``improver``. ``tests/core/test_autoimprove_layout.py`` checks this and that
+there are no import cycles.
+
 API Reference
 -------------
 
@@ -479,28 +515,40 @@ API Reference
         score_predictions, out_of_fold
     :show-inheritance:
 
-.. automodule:: pyhealth.autoimprove.explain
+.. automodule:: pyhealth.autoimprove.evaluation.explain
     :members: attributions, summarize, top_overlap
 
-.. automodule:: pyhealth.autoimprove.features
+.. automodule:: pyhealth.autoimprove.search.features
     :members: FeatureSpace, FeatureSpec, EngineeredDataset, WINDOWS, BLOCKS, AGGS
 
-.. automodule:: pyhealth.autoimprove.knowledge
+.. automodule:: pyhealth.autoimprove.search.knowledge
     :members: KnowledgeBase, Evidence, Document, parse_effect, pubmed_query
 
-.. automodule:: pyhealth.autoimprove.evidence
+.. automodule:: pyhealth.autoimprove.search.evidence
     :members: EvidenceProposer, evidence_lines, literature_section, add_literature
 
-.. automodule:: pyhealth.autoimprove.sandbox
+.. automodule:: pyhealth.autoimprove.utils.sandbox
     :members: static_check, run_sandboxed, SandboxError, ContractError, warm_up
 
-.. automodule:: pyhealth.autoimprove.codegen
-    :members: fit_predict_code, check_model, task_context, CODE_CONTRACT, TEMPLATE
+.. automodule:: pyhealth.autoimprove.search.codegen
+    :members: task_context, CODE_CONTRACT, TEMPLATE
 
-.. automodule:: pyhealth.autoimprove.guardrails
+.. automodule:: pyhealth.autoimprove.evaluation.code_trials
+    :members: fit_predict_code, check_model
+
+.. automodule:: pyhealth.autoimprove.evaluation.guardrails
     :members: EvaluationSpec, run_evaluations, decide, clearly_worse, failing,
         metrics_menu
 
-.. automodule:: pyhealth.autoimprove.analysis
+.. automodule:: pyhealth.autoimprove.search.analysis
     :members: AnalysisSpec, Out, Data, sample_columns, run_analysis_job,
         format_results
+
+.. automodule:: pyhealth.autoimprove.search.turns
+    :members: model_turn, feature_turn, evaluation_turn, analysis_turn, build_context
+
+.. automodule:: pyhealth.autoimprove.evaluation.selection
+    :members: paired_gain, select_trial, select_simplest
+
+.. automodule:: pyhealth.autoimprove.utils.store
+    :members: RunStore

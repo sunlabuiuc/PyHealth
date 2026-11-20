@@ -35,10 +35,15 @@ from pyhealth.autoimprove import (
     unverified_numbers,
     with_xgboost,
 )
-from pyhealth.autoimprove import space as space_module
-from pyhealth.autoimprove.evaluate import patient_folds
-from pyhealth.autoimprove.explain import _effect_bins, attributions, summarize
-from pyhealth.autoimprove.proposers import ProposalContext, parse_json
+from pyhealth.autoimprove.search import space as space_module
+from pyhealth.autoimprove.evaluation.cv import patient_folds
+from pyhealth.autoimprove.evaluation.explain import (
+    _effect_bins,
+    attributions,
+    summarize,
+)
+from pyhealth.autoimprove.search.proposers import ProposalContext
+from pyhealth.autoimprove.search.prompts import parse_json
 from pyhealth.datasets import create_sample_dataset
 from pyhealth.models import LogisticRegression
 from pyhealth.processors import BinaryLabelProcessor
@@ -453,7 +458,7 @@ class TestAutoImprover(unittest.TestCase):
             "hidden_dim": 16, "embedding_dim": 16}})])
         improver = AutoImprover(self.train, self.val, LLMProposer(llm), space=SPACE,
                                 n_agents=2, n_cycles=1, check=False)
-        with self.assertLogs("pyhealth.autoimprove.improver", "WARNING") as logs:
+        with self.assertLogs("pyhealth.autoimprove.search.turns", "WARNING") as logs:
             result = improver.run()
         self.assertEqual([t.agent for t in result.trials], ["agent1"])
         self.assertTrue(any("turn skipped" in line for line in logs.output))
@@ -476,11 +481,11 @@ class TestAutoImprover(unittest.TestCase):
             self.assertEqual([sum(int(data[int(i)]["label"]) for i in f) for f in folds],
                              [1] * 5)
             self.assertEqual([len(f) for f in folds], [8] * 5)
-        with self.assertLogs("pyhealth.autoimprove.evaluate", "WARNING"):
+        with self.assertLogs("pyhealth.autoimprove.evaluation.cv", "WARNING"):
             patient_folds(data, 8)
 
-        with (mock.patch("pyhealth.autoimprove.evaluate.MAX_LABEL_SCAN", 10),
-              self.assertLogs("pyhealth.autoimprove.evaluate", "INFO") as logs):
+        with (mock.patch("pyhealth.autoimprove.utils.data.MAX_LABEL_SCAN", 10),
+              self.assertLogs("pyhealth.autoimprove.evaluation.cv", "INFO") as logs):
             folds = patient_folds(data, 5)
         self.assertIn("not stratified", logs.output[0])
         self.assertEqual(sorted(int(i) for f in folds for i in f), list(range(40)))
@@ -819,7 +824,7 @@ class TestExplainedRuns(unittest.TestCase):
             self.assertEqual(len(verdicts), len(result.trials))
 
     def test_baseline_kept_after_confirmation(self):
-        from pyhealth.autoimprove.report import build_report
+        from pyhealth.autoimprove.evaluation.report import build_report
 
         folds = [0.40, 0.41, 0.42, 0.43, 0.44]
         trials = [Trial(0, -1, "baseline", "baseline", PipelineConfig("MLP"),
@@ -883,7 +888,7 @@ class TestExplainedRuns(unittest.TestCase):
             meta["space"] = meta["space"].replace("[16, 256]", "[8, 256]")
             with open(path, "w") as f:
                 json.dump(meta, f)
-            with self.assertLogs("pyhealth.autoimprove.improver", "WARNING") as logs:
+            with self.assertLogs("pyhealth.autoimprove", "WARNING") as logs:
                 result = improver(2).run()
             self.assertIn("different search space", "\n".join(logs.output))
             self.assertEqual(len(result.trials), 3)
@@ -1024,7 +1029,7 @@ class TestClinicalReport(unittest.TestCase):
             self.assertTrue(all(b["n"] >= 11 for b in clinical["calibration_bins"]))
 
     def test_calibration_and_subgroup_gap_flags(self):
-        from pyhealth.autoimprove.report import flags_for
+        from pyhealth.autoimprove.evaluation.report import flags_for
 
         def test(slope, oe, gap):
             return {"best": {"clinical": {
@@ -1048,7 +1053,7 @@ class TestClinicalReport(unittest.TestCase):
     def test_stability_refits_use_fold_parts(self):
         # Each stability fold model goes through fold_parts, so engineered
         # columns would be refitted on the fold, as in cross-validation.
-        from pyhealth.autoimprove import evaluate
+        from pyhealth.autoimprove.evaluation import cv
 
         improver = AutoImprover(
             self.train, self.val, RandomProposer(seed=0),
@@ -1057,8 +1062,8 @@ class TestClinicalReport(unittest.TestCase):
             space=SPACE, n_agents=1, n_cycles=1, cv_folds=3, task_card=CARD,
         )
         improver.run()
-        with mock.patch("pyhealth.autoimprove.improver.fold_parts",
-                        side_effect=evaluate.fold_parts) as spy:
+        with mock.patch("pyhealth.autoimprove.evaluation.explain.fold_parts",
+                        side_effect=cv.fold_parts) as spy:
             out = improver.explain(top_k=3)
         self.assertEqual(spy.call_count, 3)
         self.assertEqual(out["stability"]["models"], 3)

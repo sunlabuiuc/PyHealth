@@ -1,4 +1,4 @@
-"""pyhealth.autoimprove.features: operators, definitions, refusals and the future-blind test."""
+"""pyhealth.autoimprove.search.features: operators, definitions, refusals and the future-blind test."""
 
 import math
 import unittest
@@ -8,8 +8,12 @@ from unittest import mock
 import numpy as np
 import polars as pl
 
-from pyhealth.autoimprove.evaluate import fold_parts, run_config_cv
-from pyhealth.autoimprove.features import EngineeredDataset, FeatureSpace, FeatureSpec
+from pyhealth.autoimprove.evaluation.cv import fold_parts, run_config_cv
+from pyhealth.autoimprove.search.features import (
+    EngineeredDataset,
+    FeatureSpace,
+    FeatureSpec,
+)
 from pyhealth.data import Patient
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import LogisticRegression
@@ -317,7 +321,7 @@ class TestFutureBlind(unittest.TestCase):
                             "select": {"event_type": "admissions"}, "rationale": "r"})
         safe = fs.validate({"op": "count", "window": 365, "select": SABA,
                             "rationale": "r"})
-        with mock.patch("pyhealth.autoimprove.features._name", return_value="same"):
+        with mock.patch("pyhealth.autoimprove.search.features._name", return_value="same"):
             for call in (
                 lambda: fs.augment(_samples(), [leak, safe]),
                 lambda: fs.augment(_samples(), [safe, leak]),
@@ -428,8 +432,8 @@ class TestEngineeredDataset(unittest.TestCase):
         def fake_score(y_true, y_prob, mode, names, **kwargs):
             return {name: 0.5 for name in names}
 
-        with mock.patch("pyhealth.autoimprove.evaluate.fit_predict", fake_fit_predict), \
-                mock.patch("pyhealth.autoimprove.evaluate.score_predictions", fake_score):
+        with mock.patch("pyhealth.autoimprove.evaluation.cv.fit_predict", fake_fit_predict), \
+                mock.patch("pyhealth.autoimprove.evaluation.cv.score_predictions", fake_score):
             result = run_config_cv(None, None, fe, fe, "pr_auc", folds)
         self.assertEqual(result["fold_scores"], [0.5, 0.5])
         for held_out, parts in zip(folds, seen):

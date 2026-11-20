@@ -2,41 +2,44 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import math
-import os
 import time
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
-from sklearn.metrics import roc_auc_score
 
 from pyhealth.datasets import SampleDataset
-from pyhealth.metrics import bootstrap_ci, clinical_summary, paired_bootstrap_diff
-from pyhealth.processors import LabelProcessor
-from pyhealth.tasks.task_card import DIRECTIONS, FeatureInfo, TaskCard
-from pyhealth.trainer import get_metrics_fn
+from pyhealth.tasks.task_card import TaskCard
 
-from .evaluate import (
-    MAX_LABEL_SCAN,
-    check_models,
-    describe_error,
-    fit_predict,
-    fold_parts,
-    greater_is_better,
-    patient_folds,
-    run_config,
-    run_config_cv,
-    train_pipeline,
+from .evaluation import confirm, explain, guardrails, holdout, report
+from .evaluation.cv import patient_folds, run_config, run_config_cv
+from .evaluation.records import ImproveResult, Trial, _parent_of
+from .evaluation.scoring import greater_is_better
+from .evaluation.selection import _better, _rule_text, select_simplest, select_trial
+from .evaluation.training import check_models
+from .search import turns
+from .search.context import ProposalContext
+from .search.features import EngineeredDataset, FeatureSpace, FeatureSpec
+from .search.prompts import STRATEGIES
+from .search.proposers import Proposer
+from .search.space import (
+    PipelineConfig,
+    SearchSpace,
+    _derived,
+    _key,
+    config_diff,
+    describe_search,
+    space_fingerprint,
 )
-from .features import EngineeredDataset, FeatureSpace, FeatureSpec
-from .proposers import STRATEGIES, ProposalContext, Proposer, ProposerExhausted
-from .sandbox import SandboxError
-from .space import PipelineConfig, SearchSpace, config_diff
+from .search.turns import GENERATED_KINDS, TURN_KINDS
+from .utils.data import _label_mode, _positive_count, _schema_names, describe_task
+from .utils.errors import describe_error
+from .utils.sandbox import SandboxError
+from .utils.store import RunStore
 
 logger = logging.getLogger(__name__)
 
@@ -47,170 +50,6 @@ DEFAULT_METRIC = {
     "regression": "mse",
 }
 """Metric optimised by default for each label type."""
-
-MAX_PROPOSER_FAILURES = 3
-"""Proposer errors in a row (API errors, refusals) before a run stops."""
-
-FOLD_TIE = 1e-4
-"""Fold scores closer than this count as a tie, not as one fold being better."""
-
-TURN_KINDS = ("model", "features", "code", "evaluation", "analysis")
-"""The kinds of turn a ``cycle_plan`` can list."""
-
-GENERATED_KINDS = ("code", "evaluation", "analysis")
-"""Turn kinds whose proposals are code that runs in its own process."""
-
-
-@dataclass
-class Trial:
-    """One proposed configuration and how it did on validation.
-
-    Together the trials are the run's decision log: the config with the
-    proposer's rationale and hypothesis (written before the trial ran), the
-    trial it was changed from (``parent``) and what changed (``change``),
-    and the scores. With feature search, a trial also records its feature
-    specs (``features``), the ones it added (``added``), whether the group
-    was accepted, and features that looked too good (``suspicious``).
-
-    ``error`` holds the full error text and is kept in ``trials.jsonl``.
-    ``error_brief`` leaves out the exception's message, which can quote a raw
-    value from a sample, and is the form shown to a proposer.
-
-    Examples:
-        >>> trial = Trial(0, 0, "baseline", "baseline", PipelineConfig("RNN"),
-        ...               metric_name="pr_auc", score=0.3)
-        >>> Trial.from_dict(trial.to_dict()).score
-        0.3
-    """
-
-    trial_id: int
-    cycle: int
-    agent: str
-    strategy: str
-    config: PipelineConfig
-    metric_name: str = ""
-    score: float | None = None
-    metrics: dict[str, float] = field(default_factory=dict)
-    notes: list[str] = field(default_factory=list)
-    seconds: float = 0.0
-    n_params: int = 0
-    error: str | None = None
-    fold_scores: list[float] = field(default_factory=list)
-    error_brief: str | None = None
-    parent: int | None = None
-    change: dict[str, str] = field(default_factory=dict)
-    features: list[dict[str, Any]] = field(default_factory=list)
-    added: list[str] = field(default_factory=list)
-    accepted: bool | None = None
-    suspicious: list[str] = field(default_factory=list)
-    stopped_early: bool = False
-
-    def to_dict(self) -> dict[str, Any]:
-        """The trial as JSON-ready types."""
-        data = dict(self.__dict__)
-        data["config"] = {**self.config.to_dict(), "rationale": self.config.rationale,
-                          "hypothesis": self.config.hypothesis}
-        return data
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Trial:
-        """Rebuilds a trial saved with :meth:`to_dict` (unknown keys are ignored)."""
-        known = {f for f in cls.__dataclass_fields__}
-        data = {k: v for k, v in data.items() if k in known}
-        data["config"] = PipelineConfig.from_dict(data["config"])
-        return cls(**data)
-
-
-@dataclass
-class ImproveResult:
-    """The outcome of :meth:`AutoImprover.run`.
-
-    Args:
-        trials: Every trial, in the order run.
-        best: The selected trial (see :func:`select_simplest` and
-            :func:`select_trial`).
-        baseline: The trial of the starting config, if one was given.
-        lessons: The lessons at the end of the run.
-        maximize: Whether larger scores are better.
-        dropped_models: Models removed from the space before the search
-            because they did not run on the training data, with the error.
-        top: The highest-scoring candidate. It differs from ``best`` when a
-            simpler model within one standard error was selected instead.
-
-    Examples:
-        >>> trial = Trial(0, -1, "baseline", "baseline", PipelineConfig("MLP"),
-        ...               metric_name="pr_auc", score=0.3)
-        >>> result = ImproveResult([trial], trial, trial, [], maximize=True)
-        >>> result.leaderboard(k=1)[0].score
-        0.3
-    """
-
-    trials: list[Trial]
-    best: Trial | None
-    baseline: Trial | None
-    lessons: list[str]
-    maximize: bool
-    dropped_models: dict[str, str] = field(default_factory=dict)
-    top: Trial | None = None
-
-    def leaderboard(self, k: int = 10) -> list[Trial]:
-        """The ``k`` best finished trials, best first."""
-        done = [t for t in self.trials if t.error is None and not t.stopped_early]
-        return sorted(done, key=lambda t: t.score, reverse=self.maximize)[:k]
-
-    def summary(self, k: int = 10) -> str:
-        """A markdown table of the leaderboard.
-
-        Examples:
-            >>> print(result.summary())  # doctest: +SKIP
-        """
-        rows = ["| # | agent | model | score | seconds | config |",
-                "|---|---|---|---|---|---|"]
-        for t in self.leaderboard(k):
-            mark = " (selected)" if self.best is not None and t is self.best else ""
-            rows.append(
-                f"| {t.trial_id}{mark} | {t.agent} | {t.config.model} | {t.score:.4f} | "
-                f"{t.seconds:.0f} | `{json.dumps(t.config.to_dict()['model_params'])}`"
-                f" `{json.dumps(t.config.to_dict()['train_params'])}` |"
-            )
-        for name, error in self.dropped_models.items():
-            rows.append(f"\nNot searched: {name} does not run on this data ({error})")
-        return "\n".join(rows)
-
-
-
-def _rule_text(promote_se: float | None, one_se: bool, compared: bool) -> str:
-    """The selection rule in plain words.
-
-    ``compared`` says whether trials are compared with a starting pipeline
-    that ran.
-    """
-    if promote_se is None:
-        return "The selection is the trial with the best score."
-    simplest = (
-        "the most interpretable model (lowest rung) whose score is within one "
-        "paired standard error of the best"
-    )
-    if not compared:
-        if not one_se:
-            return ("There is no starting pipeline to compare with, so the "
-                    "selection is the trial with the best mean score.")
-        return ("There is no starting pipeline to compare with, so every trial "
-                f"is a candidate. The selection is {simplest}: simpler models "
-                "win ties.")
-    bound = (
-        f"Every trial is compared with the starting pipeline fold by fold. "
-        f"A trial is a candidate if its gain is above 0 by more than "
-        f"{promote_se:g} standard error(s), so a gain must be "
-        f"consistent across folds, not only high on average."
-    )
-    if not one_se:
-        return bound + " The selection is the candidate with the highest bound."
-    return bound + (
-        " Among the candidates, the selection is the most interpretable "
-        "model (lowest rung) whose score is within one paired standard error "
-        "of the best candidate's: simpler models win ties."
-    )
 
 
 class AutoImprover:
@@ -235,11 +74,11 @@ class AutoImprover:
     By default proposals are data, never code: nothing a proposer returns is
     executed. A ``cycle_plan`` with ``"code"``, ``"evaluation"`` or
     ``"analysis"`` turns opts in to generated code: a model with its training
-    (:mod:`~pyhealth.autoimprove.codegen`), a new evaluation that can become
-    a guardrail (:mod:`~pyhealth.autoimprove.guardrails`), or an analysis of
-    the training data (:mod:`~pyhealth.autoimprove.analysis`). That code is
+    (:mod:`~pyhealth.autoimprove.search.codegen`), a new evaluation that can become
+    a guardrail (:mod:`~pyhealth.autoimprove.evaluation.guardrails`), or an analysis of
+    the training data (:mod:`~pyhealth.autoimprove.search.analysis`). That code is
     checked statically and runs in its own process
-    (:mod:`~pyhealth.autoimprove.sandbox`); only predictions, numbers and
+    (:mod:`~pyhealth.autoimprove.utils.sandbox`); only predictions, numbers and
     suppressed tables come back. Scripts that use these turns need an
     ``if __name__ == "__main__":`` guard.
 
@@ -424,7 +263,7 @@ class AutoImprover:
         self.seed = seed
         self.device = device
         self.run_dir = run_dir
-        self._results: dict[str, Any] = {}
+        self.store = RunStore(run_dir, lessons_path)
         self.lessons_path = lessons_path
         self.cv_folds = cv_folds
         self.promote_se = promote_se if cv_folds else None
@@ -538,13 +377,13 @@ class AutoImprover:
                     (cycle + i) % len(strategies)
                 ]
                 if kind == "features":
-                    self._feature_turn(cycle, f"agent{i}", strategy)
+                    turns.feature_turn(self, cycle, f"agent{i}", strategy)
                 elif kind == "evaluation":
-                    self._evaluation_turn(cycle, f"agent{i}")
+                    turns.evaluation_turn(self, cycle, f"agent{i}")
                 elif kind == "analysis":
-                    self._analysis_turn(cycle, f"agent{i}")
+                    turns.analysis_turn(self, cycle, f"agent{i}")
                 else:
-                    self._turn(cycle, f"agent{i}", strategy, kind=kind)
+                    turns.model_turn(self, cycle, f"agent{i}", strategy, kind=kind)
             try:
                 self.lessons = self.proposer.reflect(
                     self.trials, self.lessons, self.metric, space=self.space
@@ -568,9 +407,9 @@ class AutoImprover:
             if stale >= self.patience or self._out_of_budget(start) or self._exhausted:
                 break
         if self.confirm_enabled and self.folds is not None and not self.confirmed:
-            self.confirm()
+            confirm.confirm(self)
             if self.prune_enabled and self.features is not None:
-                self.prune()
+                confirm.prune(self)
         return self.result()
 
     def _cycle_kind(self, cycle: int) -> str:
@@ -667,98 +506,35 @@ class AutoImprover:
         )
         return _rule_text(self.promote_se, self.one_se, compared)
 
-    def _turn(self, cycle: int, agent: str, strategy: str, kind: str = "model") -> None:
-        """A model turn, or a code turn (``kind="code"``): propose, check, score."""
-        feedback = ""
-        accepted = self._accepted()
-        propose = (self.proposer.propose_code if kind == "code"
-                   else self.proposer.propose)
-        for _ in range(2):  # one retry when the proposal is invalid or repeated
-            context = self._context(agent, strategy, feedback, kind=kind)
-            try:
-                proposal = propose(context)
-            except ValueError as e:
-                feedback = f"your last proposal was rejected: {e}"
-                continue
-            except Exception as e:  # noqa: BLE001 - an API error or refusal
-                self._skip_turn(agent, cycle, e)
-                return
-            self._proposer_failures = 0
-            try:
-                config, notes = self.space.validate(proposal)
-            except ValueError as e:
-                feedback = f"your last proposal was rejected: {e}"
-                continue
-            if _key(config, accepted) in context.tried:
-                feedback = "your last proposal repeated an earlier trial"
-                if notes:
-                    feedback += (
-                        " once it was changed to fit the search space ("
-                        + "; ".join(notes)
-                        + "). Stay inside the ranges listed above"
-                    )
-                continue
-            self._evaluate(config, cycle, agent, strategy, notes, features=accepted)
-            return
-        logger.warning(
-            "%s made no usable proposal in cycle %d: %s", agent, cycle, feedback
-        )
-
-    def _skip_turn(self, agent: str, cycle: int, error: Exception) -> None:
-        """Skips a turn whose proposer failed, e.g. an API error or a refusal.
-
-        Raises:
-            RuntimeError: After :data:`MAX_PROPOSER_FAILURES` failures in a
-                row (e.g. missing credentials), so a broken backend does not
-                spend the whole budget.
-        """
-        self._proposer_failures += 1
-        text = describe_error(error)
-        if self._proposer_failures >= MAX_PROPOSER_FAILURES:
-            raise RuntimeError(
-                f"the proposer failed {self._proposer_failures} turns in a row; "
-                f"last error: {text}"
-            ) from error
-        logger.warning("%s's proposer failed in cycle %d, turn skipped: %s",
-                       agent, cycle, text)
-
     # ------------------------------------------------- stored predictions
     def _store_oof(self, trial_id: int, oof: dict[str, Any]) -> None:
         self._oof[trial_id] = oof
-        if self.run_dir:
-            path = os.path.join(self.run_dir, "preds", f"trial_{trial_id}.npz")
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            np.savez_compressed(path, index=oof["index"], fold=oof["fold"],
-                                y_true=oof["y_true"], y_prob=oof["y_prob"],
-                                split=np.array(oof["split"]))
+        self.store.save_arrays(f"preds/trial_{trial_id}.npz", index=oof["index"],
+                               fold=oof["fold"], y_true=oof["y_true"],
+                               y_prob=oof["y_prob"], split=np.array(oof["split"]))
 
     def oof_predictions(self, trial_id: int) -> dict[str, Any] | None:
         """A trial's out-of-fold predictions on the training split, if stored.
 
         Returns:
             ``{"index", "fold", "y_true", "y_prob", "split"}``
-            (:func:`~pyhealth.autoimprove.evaluate.out_of_fold`), read from
+            (:func:`~pyhealth.autoimprove.evaluation.scoring.out_of_fold`), read from
             ``run_dir/preds`` for a resumed run, or ``None``.
 
         Examples:
             >>> improver.oof_predictions(3)["y_prob"].shape  # doctest: +SKIP
             (800, 1)
         """
-        if trial_id not in self._oof and self.run_dir:
-            path = os.path.join(self.run_dir, "preds", f"trial_{trial_id}.npz")
-            if os.path.exists(path):
-                with np.load(path, allow_pickle=False) as data:
-                    self._oof[trial_id] = {
-                        "index": data["index"], "fold": data["fold"],
-                        "y_true": data["y_true"], "y_prob": data["y_prob"],
-                        "split": str(data["split"]),
-                    }
+        if trial_id not in self._oof:
+            data = self.store.load_arrays(f"preds/trial_{trial_id}.npz")
+            if data is not None:
+                self._oof[trial_id] = {**data, "split": str(data["split"])}
         return self._oof.get(trial_id)
 
     def _columns(self) -> dict[str, np.ndarray]:
         """Sample columns of the training split, for evaluations and analyses."""
         if self._columns_cache is None:
-            from .analysis import sample_columns
+            from .search.analysis import sample_columns
 
             self._columns_cache = sample_columns(self.train_dataset,
                                                  self._samples("train"))
@@ -790,7 +566,7 @@ class AutoImprover:
         return None if base is None else base.trial_id
 
     def _guardrail_fails(self):
-        from .guardrails import admissible_filter
+        from .evaluation.guardrails import admissible_filter
 
         if not any(e["status"] == "active" for e in self.evaluations):
             return lambda trial: []
@@ -818,260 +594,6 @@ class AutoImprover:
             if oof is not None and oof["split"] == "train":
                 out.append(t)
         return out
-
-    def _evaluation_inputs(self, spec, trials: Sequence[Trial]):
-        oof = self.oof_predictions(trials[0].trial_id)
-        columns = self._columns()
-        info = {c: columns[c][oof["index"]] for c in ["patient", *spec.needs]}
-        y_probs = [self.oof_predictions(t.trial_id)["y_prob"] for t in trials]
-        return oof["y_true"], oof["fold"], info, y_probs
-
-    def _evaluation_turn(self, cycle: int, agent: str) -> None:
-        """One evaluation proposal: check it, score every trial, adopt or not."""
-        from .guardrails import decide, run_evaluations
-
-        feedback = ""
-        for _ in range(2):  # one retry when the proposal is invalid
-            context = self._context(agent, "explore", feedback, kind="evaluation")
-            try:
-                spec = self.proposer.propose_evaluation(context)
-            except ValueError as e:
-                feedback = f"your last proposal was rejected: {e}"
-                continue
-            except Exception as e:  # noqa: BLE001 - an API error or refusal
-                self._skip_turn(agent, cycle, e)
-                return
-            self._proposer_failures = 0
-            unknown = [c for c in spec.needs if c not in self._columns()]
-            if unknown:
-                feedback = (f"your last proposal needs unknown columns {unknown}; "
-                            f"use only {sorted(self._columns())}")
-                continue
-            if any(e["spec"].name == spec.name for e in self.evaluations):
-                feedback = f"an evaluation named {spec.name!r} exists; propose another"
-                continue
-            record = {"spec": spec, "status": "rejected", "reason": "",
-                      "scores": {}, "cycle": cycle, "agent": agent}
-            trials = self._scorable()
-            base_id = self._baseline_id()
-            if base_id is None or base_id not in {t.trial_id for t in trials}:
-                record["reason"] = "no baseline with stored out-of-fold predictions"
-            else:
-                try:
-                    result = run_evaluations(
-                        spec, *self._evaluation_inputs(spec, trials), checks=True,
-                        timeout=self.eval_timeout,
-                        log_path=self._log_path(f"evaluation_{spec.name}"))
-                except SandboxError as e:
-                    record["reason"] = e.brief
-                else:
-                    ids = [t.trial_id for t in trials]
-                    record["scores"] = dict(zip(ids, result["values"]))
-                    fails = self._guardrail_fails()
-                    candidates, _, _ = _one_se_sets(
-                        [t for t in self.trials if t.accepted is not False
-                         and not fails(t)],
-                        self.maximize, self.promote_se or 1.0)
-                    record["status"], record["reason"] = decide(
-                        spec, result, ids, base_id,
-                        [t.trial_id for t in candidates if t.trial_id != base_id],
-                        sum(e["status"] == "active" for e in self.evaluations),
-                        self.max_guardrails, self.guardrail_se)
-            self.evaluations.append(record)
-            self._save_evaluations()
-            logger.info("evaluation %s: %s (%s)", spec.name, record["status"],
-                        record["reason"])
-            return
-        logger.warning("%s made no usable evaluation in cycle %d: %s", agent, cycle,
-                       feedback)
-
-    def _score_with_evaluations(self, trial: Trial) -> None:
-        """Scores a new trial with every adopted or report-only evaluation."""
-        from .guardrails import run_evaluations
-
-        kept = [e for e in self.evaluations if e["status"] in ("active", "report_only")]
-        oof = self.oof_predictions(trial.trial_id)
-        if not kept or oof is None or oof["split"] != "train":
-            return
-        for e in kept:
-            spec = e["spec"]
-            try:
-                result = run_evaluations(
-                    spec, *self._evaluation_inputs(spec, [trial]), checks=False,
-                    timeout=self.eval_timeout,
-                    log_path=self._log_path(f"evaluation_{spec.name}"))
-            except SandboxError as err:
-                trial.notes.append(f"evaluation {spec.name} failed on this trial: "
-                                   f"{err.brief}")
-                continue
-            e["scores"][trial.trial_id] = result["values"][0]
-
-    def _save_evaluations(self) -> None:
-        if not self.run_dir:
-            return
-        records = []
-        fails = self.guardrail_failures()
-        for e in self.evaluations:
-            spec = e["spec"]
-            self._write(os.path.join("evaluations", f"{spec.name}.py"), spec.code)
-            records.append({
-                **spec.to_dict(), "status": e["status"], "reason": e["reason"],
-                "cycle": e["cycle"], "agent": e["agent"],
-                "scores": {str(k): v for k, v in e["scores"].items()},
-                "fails": {str(t): [k for k in keys if k.startswith(spec.name + ".")]
-                          for t, keys in fails.items()
-                          if any(k.startswith(spec.name + ".") for k in keys)},
-            })
-        self._write("evaluations.json", json.dumps(records, indent=1, default=float))
-
-    def _load_evaluations(self) -> None:
-        from .guardrails import EvaluationSpec
-
-        records = self._read_json("evaluations.json") or []
-        for r in records:
-            path = os.path.join(self.run_dir, "evaluations", f"{r['name']}.py")
-            if not os.path.exists(path):
-                continue
-            with open(path) as f:
-                code = f.read()
-            spec = EvaluationSpec(r["name"], code, dict(r["metrics"]),
-                                  list(r.get("needs", [])), r.get("rationale", ""),
-                                  r.get("kind", ""))
-            self.evaluations.append({
-                "spec": spec, "status": r["status"], "reason": r.get("reason", ""),
-                "cycle": r.get("cycle", -1), "agent": r.get("agent", ""),
-                "scores": {int(k): v for k, v in r.get("scores", {}).items()},
-            })
-
-    # ------------------------------------------------------------ analysis
-    def _analysis_turn(self, cycle: int, agent: str) -> None:
-        """One analysis: run it on the training split, keep its findings."""
-        from .analysis import format_results, run_analysis_job
-
-        feedback = ""
-        for _ in range(2):  # one retry when the proposal is invalid or fails
-            context = self._context(agent, "explore", feedback, kind="analysis")
-            try:
-                spec = self.proposer.propose_analysis(context)
-            except ValueError as e:
-                feedback = f"your last proposal was rejected: {e}"
-                continue
-            except Exception as e:  # noqa: BLE001 - an API error or refusal
-                self._skip_turn(agent, cycle, e)
-                return
-            self._proposer_failures = 0
-            number = len(self.analyses)
-            if self.run_dir:
-                self._write(os.path.join("analysis", f"{number}_{spec.name}.py"),
-                            spec.code)
-            try:
-                results = run_analysis_job(
-                    spec, self._analysis_columns(), timeout=self.eval_timeout,
-                    log_path=self._log_path(f"analysis_{number}_{spec.name}"))
-            except SandboxError as e:
-                feedback = f"your last analysis failed: {e.brief}"
-                continue
-            text = format_results(results)
-            try:
-                found = self.proposer.summarize_analysis(spec, text, context)
-            except Exception as e:  # noqa: BLE001 - keep a plain summary instead
-                logger.warning("findings not summarised: %s", describe_error(e))
-                found = []
-            if not found and text:
-                found = [f"{spec.question or spec.name}: "
-                         + " ".join(text.split())[:280]]
-            self.findings = (self.findings + list(found))[-self.max_findings:]
-            record = {**spec.to_dict(), "cycle": cycle, "agent": agent,
-                      "results": results, "findings": list(found)}
-            self.analyses.append(record)
-            if self.run_dir:
-                self._write(os.path.join("analysis", f"{number}_{spec.name}.json"),
-                            json.dumps(record, indent=1, default=str))
-                self._write("findings.json", json.dumps(self.findings, indent=1))
-            return
-        logger.warning("%s made no usable analysis in cycle %d: %s", agent, cycle,
-                       feedback)
-
-    # --------------------------------------------------------- feature search
-    def _feature_turn(self, cycle: int, agent: str, strategy: str) -> None:
-        """One feature proposal: validate, test for leaks, score, accept or not."""
-        base = self._incumbent(cycle)
-        if base is None:
-            return
-        accepted = self._accepted()
-        tried = {name for t in self.trials for name in t.added}
-        have = {s["name"] for s in accepted}
-        feedback = ""
-        for _ in range(2):  # one retry when the proposal is invalid
-            context = self._context(agent, strategy, feedback, kind="features")
-            try:
-                proposal = self.proposer.propose_features(context)
-            except ProposerExhausted:
-                self._exhausted = True
-                return
-            except ValueError as e:
-                feedback = f"your last proposal was rejected: {e}"
-                continue
-            except Exception as e:  # noqa: BLE001 - an API error or refusal
-                self._skip_turn(agent, cycle, e)
-                return
-            self._proposer_failures = 0
-            try:
-                specs = self.features.validate_many(list(proposal.get("features") or []))
-            except ValueError as e:
-                feedback = f"your last proposal was rejected: {e}"
-                continue
-            new = [s for s in specs if s.name not in have and s.name not in tried]
-            if not new:
-                feedback = ("every feature in your last proposal was already tried ("
-                            + ", ".join(s.name for s in specs) + "); propose new ones")
-                continue
-            leaks = {k: v for k, v in self.features.future_blind(
-                new, self.train_dataset).items() if v}
-            if leaks:
-                feedback = "the future-blind test rejected " + "; ".join(
-                    f"{k}: {v}" for k, v in leaks.items())
-                continue
-            hypothesis = {k: proposal[k] for k in ("expected", "kind") if proposal.get(k)}
-            config = _derived(base.config, str(proposal.get("rationale", "")),
-                              hypothesis)
-            trial = self._evaluate(
-                config, cycle, agent, strategy, features=accepted + [
-                    s.to_dict() for s in new], added=[s.name for s in new],
-                parent=base, save=False,
-            )
-            self._judge(trial, base, new)
-            self._save_trial(trial)
-            return
-        logger.warning(
-            "%s made no usable feature proposal in cycle %d: %s", agent, cycle, feedback
-        )
-
-    def _judge(self, trial: Trial, base: Trial, new: Sequence[FeatureSpec]) -> None:
-        """Accepts a feature group if its paired gain over ``base`` clears the bound."""
-        if trial.error is not None or trial.stopped_early:
-            trial.accepted = False
-            return
-        labels = self._labels()
-        for spec in new:
-            column = self._raw(spec, "train")
-            filled = np.where(np.isnan(column), np.nanmedian(column)
-                              if np.isfinite(column).any() else 0.0, column)
-            if len(np.unique(labels)) > 1 and np.ptp(filled) > 0:
-                auc = roc_auc_score(labels, filled)
-                if max(auc, 1 - auc) > self.suspicion_auc:
-                    trial.suspicious.append(spec.name)
-                    trial.notes.append(
-                        f"{spec.name} alone has ROC-AUC {max(auc, 1 - auc):.3f}: "
-                        "possible leakage; held for review"
-                    )
-        gain, se = paired_gain(trial.fold_scores, base.fold_scores, self.maximize)
-        bound = gain - (self.promote_se or 1.0) * se
-        trial.accepted = bound > 0 and not trial.suspicious
-        trial.notes.append(
-            f"vs #{base.trial_id} without the new features: {gain:+.4f} ± {se:.4f}; "
-            + ("accepted" if trial.accepted else "not accepted")
-        )
 
     def _accepted(self) -> list[dict[str, Any]]:
         """The accepted feature specs: those of the last accepted feature trial."""
@@ -1164,50 +686,7 @@ class AutoImprover:
         Examples:
             >>> improver.confirm()  # doctest: +SKIP
         """
-        result = self.result()
-        baseline = result.baseline
-        reference = baseline if baseline is not None and baseline.error is None else None
-        scored = [t for t in self.trials if t.error is None and t.fold_scores]
-        if not scored or (reference is not None and not reference.fold_scores):
-            return {}
-        n = len((reference or scored[0]).fold_scores)
-        fails = self._guardrail_fails()
-        candidates = [t for t in scored if not t.stopped_early
-                      and len(t.fold_scores) == n and t is not reference
-                      and t.accepted is not False and not fails(t)]
-        sign = 1 if self.maximize else -1
-
-        def clears(t: Trial) -> bool:
-            if reference is None:  # nothing to compare with: every trial
-                return True
-            gain, se = paired_gain(t.fold_scores, reference.fold_scores, self.maximize)
-            return gain - (self.promote_se or 1.0) * se > 0
-
-        bound = [t for t in candidates if clears(t)]
-        chosen = sorted(bound, key=lambda t: -sign * t.score)[: self.confirm_top]
-        if result.best is not None and result.best not in [*chosen, reference]:
-            chosen.append(result.best)
-        self._confirm_folds = patient_folds(self.train_dataset, n, self.seed + 1)
-        for t in [reference, *chosen] if reference is not None else chosen:
-            self.confirmed[t.trial_id] = self._confirm_scores(t.config, t.features)
-        out = {"seeds": [self.seed + k for k in range(self.confirm_seeds)],
-               "fold_seed": self.seed + 1,
-               "scores": {str(k): v for k, v in self.confirmed.items()}}
-        if self.run_dir:
-            with open(os.path.join(self.run_dir, "confirm.json"), "w") as f:
-                json.dump(out, f, indent=1)
-        return out
-
-    def _confirm_scores(self, config, specs) -> list[float]:
-        train, val = self._datasets(specs)
-        runs = [
-            run_config_cv(config, self.space, train, val, self.metric,
-                          self._confirm_folds, (), self.seed + k, self.device,
-                          timeout=self.code_timeout, log_dir=self._log_dir(),
-                          label=f"confirm_seed{k}")["fold_scores"]
-            for k in range(self.confirm_seeds)
-        ]
-        return [float(v) for v in np.mean(np.array(runs), axis=0)]
+        return confirm.confirm(self)
 
     def prune(self) -> dict[str, Any]:
         """Drops accepted feature groups that the selected model doesn't need.
@@ -1230,52 +709,7 @@ class AutoImprover:
             >>> improver.prune()["dropped"]  # doctest: +SKIP
             [['exists_90d__med_orders_SABA']]
         """
-        best = self.result().best
-        if best is None or not best.features or best.trial_id not in self.confirmed:
-            return {}
-        groups = _feature_groups(best, self.trials)
-        current = list(best.features)
-        scores = self.confirmed[best.trial_id]
-        ablation, dropped = [], []
-        while groups:
-            rows = []
-            for trial_id, names in groups:
-                without = [s for s in current if s["name"] not in names]
-                lost = self._confirm_scores(best.config, without)
-                gain, se = paired_gain(scores, lost, self.maximize)
-                rows.append((gain - se, gain, se, trial_id, names, without, lost))
-            if not ablation:
-                ablation = [{"features": r[4], "trial_id": r[3], "contribution": r[1],
-                             "se": r[2]} for r in rows]
-            rows.sort(key=lambda r: r[0])
-            margin, _, _, trial_id, names, without, lost = rows[0]
-            if margin > 0:
-                break
-            dropped.append(names)
-            groups = [g for g in groups if g[0] != trial_id]
-            current, scores = without, lost
-        out = {"selected": best.trial_id, "ablation": ablation, "dropped": dropped,
-               "final": [s["name"] for s in current]}
-        if dropped:
-            pruned = self._evaluate(
-                _derived(best.config,
-                         "the selection without features it does not need"),
-                max((t.cycle for t in self.trials), default=0), "pruned", "prune",
-                features=current, early_stop=False,
-            )
-            if pruned.error is None:
-                self.confirmed[pruned.trial_id] = scores
-                self.pruned_id = pruned.trial_id
-                out["pruned_trial"] = pruned.trial_id
-        if self.run_dir:
-            with open(os.path.join(self.run_dir, "prune.json"), "w") as f:
-                json.dump(out, f, indent=1)
-            with open(os.path.join(self.run_dir, "confirm.json")) as f:
-                saved = json.load(f)
-            saved["scores"] = {str(k): v for k, v in self.confirmed.items()}
-            with open(os.path.join(self.run_dir, "confirm.json"), "w") as f:
-                json.dump(saved, f, indent=1)
-        return out
+        return confirm.prune(self)
 
     def _evaluate(self, config, cycle, agent, strategy, notes=None, features=None,
                   added=None, parent=None, save=True, early_stop=True) -> Trial:
@@ -1290,7 +724,7 @@ class AutoImprover:
                 parent.config, config
             )
         if config.code and self.run_dir:
-            self._write(os.path.join("code", f"trial_{trial.trial_id}.py"), config.code)
+            self.store.write_text(f"code/trial_{trial.trial_id}.py", config.code)
         try:
             out = self._run_config(
                 config, self.report_metrics, trial.features,
@@ -1315,7 +749,7 @@ class AutoImprover:
                 )
             elif out.get("oof") is not None:
                 self._store_oof(trial.trial_id, out["oof"])
-                self._score_with_evaluations(trial)
+                guardrails.score_with_evaluations(self, trial)
         except SandboxError as e:  # generated code failed in its process
             trial.error, trial.error_brief = e.full, e.brief
         except Exception as e:  # noqa: BLE001 - a failed trial is feedback
@@ -1325,7 +759,7 @@ class AutoImprover:
         if save:
             self._save_trial(trial)
         if self.evaluations:
-            self._save_evaluations()
+            guardrails.save_evaluations(self)
         return trial
 
     def _early_stop_rule(self):
@@ -1344,74 +778,7 @@ class AutoImprover:
         return stop
 
     def _context(self, agent, strategy, feedback, kind="model") -> ProposalContext:
-        result = self.result()
-        done = result.leaderboard(k=len(self.trials))
-        card = ""
-        if self.task_card is not None:
-            card = "\n".join(f"- {name}: {item['text']}"
-                              for name, item in self.task_card.design())
-        return ProposalContext(
-            agent=agent,
-            strategy=strategy,
-            space=self.space,
-            task=self._task,
-            metric=self.metric,
-            maximize=self.maximize,
-            own_trials=[t for t in self.trials if t.agent == agent][-8:],
-            leaderboard=done[:8],
-            worst=list(reversed(done[8:]))[:3] if len(done) > 8 else [],
-            tried={_key(t.config, t.features) for t in self.trials},
-            lessons=self.lessons,
-            feedback=feedback,
-            selected=result.best,
-            selection_rule=self.selection_rule() if self.promote_se is not None else "",
-            kind=kind,
-            features=self.features,
-            accepted=self._accepted(),
-            feature_trials=[t for t in self.trials if t.added][-12:],
-            card=card,
-            tried_features=sorted({n for t in self.trials for n in t.added}),
-            findings=list(self.findings),
-            evaluations=self._evaluation_lines(),
-            **(self._generated_context(kind, done) if kind in GENERATED_KINDS else {}),
-        )
-
-    def _generated_context(self, kind: str, done: Sequence[Trial]) -> dict[str, Any]:
-        """Context only code, evaluation and analysis prompts need."""
-        from .codegen import task_context
-        from .guardrails import metrics_menu
-
-        if self._task_source is None:
-            self._task_source = task_context(self.task, self.train_dataset)
-        out: dict[str, Any] = {"task_source": self._task_source,
-                               "columns": sorted(self._analysis_columns())}
-        if kind == "evaluation":
-            out["metrics_menu"] = metrics_menu(self.mode)
-            out["columns"] = sorted(c for c in self._columns() if c != "patient")
-        if kind == "code":
-            best_code = [t for t in done if t.config.code][:2]
-            out["code_examples"] = [
-                (f"#{t.trial_id} [{self.metric}={t.score:.4f}]", t.config.code)
-                for t in best_code
-            ]
-        return out
-
-    def _evaluation_lines(self) -> list[str]:
-        lines = []
-        fails = self._guardrail_fails()
-        for e in self.evaluations:
-            spec = e["spec"]
-            metrics = ", ".join(f"{m} ({d} is better)" for m, d in spec.metrics.items())
-            line = f"{spec.name} [{e['status']}]: {metrics}"
-            if e["status"] == "active":
-                failing = [t.trial_id for t in self.trials if t.error is None and any(
-                    k.startswith(spec.name + ".") for k in fails(t))]
-                line += ("; fails: " + ", ".join(f"#{i}" for i in failing)
-                         if failing else "; no trial fails it")
-            elif e.get("reason"):
-                line += f"; {e['reason']}"
-            lines.append(line)
-        return lines
+        return turns.build_context(self, agent, strategy, feedback, kind=kind)
 
     def _best_score(self) -> float | None:
         best = self.result().best
@@ -1483,97 +850,9 @@ class AutoImprover:
         Examples:
             >>> improver.evaluate_on_test(test_ds)  # doctest: +SKIP
         """
-        result = self.result()
-        if result.best is None:
-            raise ValueError("no successful trial to evaluate")
-        configs = {"best": result.best}
-        if (result.baseline is not None and result.baseline.error is None
-                and result.baseline is not result.best):
-            configs["baseline"] = result.baseline
-        if result.top is not None and result.top is not result.best:
-            configs["top"] = result.top
-        held = self._held_back(result.best)
-        if held:
-            configs["without_flagged"] = replace(result.best, features=[
-                s for s in result.best.features if s["name"] not in held])
-        probs, out = {}, {"metric": self.metric}
-        if held:
-            out["held_back"] = sorted(held)
-        for name, trial in configs.items():
-            config = trial.config
-            train, val = self._datasets(trial.features)
-            test_ds = self._test_dataset(trial.features, test_dataset, train)
-            fitted = fit_predict(
-                config, self.space, train, val, [test_ds], self.metric, self.seed,
-                self.device, self.code_timeout, self._log_dir(), f"test_{name}",
-            )
-            y_true, y_prob, patient_ids = fitted["predictions"][0]
-            probs[name] = y_prob
-            groups = np.asarray(patient_ids) if patient_ids else None
-            if self.mode == "binary":
-                out[name] = bootstrap_ci(
-                    y_true, y_prob, self.metric, groups=groups,
-                    n_boot=n_boot, seed=self.seed,
-                )
-            else:
-                value = get_metrics_fn(self.mode)(y_true, y_prob, metrics=[self.metric])
-                out[name] = {"estimate": float(value[self.metric])}
-            out[name]["config"] = config.to_dict()
-            out[name]["trial_id"] = trial.trial_id
-            if self.mode == "binary":
-                out[name]["clinical"] = clinical_summary(
-                    np.ravel(y_true), np.ravel(y_prob), groups=groups,
-                    subgroups=subgroups,
-                )
-        pairs = {"difference": ("best", "baseline"), "top_minus_best": ("top", "best")}
-        for key, (a, b) in pairs.items():
-            if a in probs and b in probs and self.mode == "binary":
-                out[key] = paired_bootstrap_diff(
-                    y_true, probs[a], probs[b], self.metric,
-                    groups=groups, n_boot=n_boot, seed=self.seed,
-                )
-        guardrails = self._test_guardrails(test_dataset, y_true, probs)
-        if guardrails:
-            out["guardrails"] = guardrails
-        self._save_result("test.json", out, default=float)
-        if return_predictions:
-            out["predictions"] = {"y_true": y_true, "patient_ids": patient_ids, **probs}
-        return out
-
-    def _test_guardrails(self, test_dataset, y_true, probs) -> dict[str, Any]:
-        """Each active guardrail's value on test, for every config scored there."""
-        from .analysis import sample_columns
-        from .guardrails import run_evaluations
-
-        active = [e for e in self.evaluations if e["status"] == "active"]
-        if not active:
-            return {}
-        columns = sample_columns(test_dataset)
-        names = list(probs)
-        out: dict[str, Any] = {}
-        for e in active:
-            spec = e["spec"]
-            info = {c: columns[c] for c in ["patient", *spec.needs] if c in columns}
-            try:
-                res = run_evaluations(spec, np.asarray(y_true),
-                                      np.zeros(len(y_true), dtype=np.int16), info,
-                                      [np.asarray(probs[n]) for n in names],
-                                      checks=False, timeout=self.eval_timeout,
-                                      log_path=self._log_path(f"test_{spec.name}"))
-            except SandboxError as err:
-                out[spec.name] = {"error": err.brief}
-                continue
-            for metric, direction in spec.metrics.items():
-                out[f"{spec.name}.{metric}"] = {
-                    "direction": direction,
-                    **{n: res["values"][i][0][metric] for i, n in enumerate(names)},
-                }
-        return out
-
-    def _log_path(self, name: str) -> str | None:
-        if not self.run_dir:
-            return None
-        return os.path.join(self.run_dir, "logs", f"{name}.log")
+        return holdout.evaluate_on_test(self, test_dataset, n_boot=n_boot,
+                                        return_predictions=return_predictions,
+                                        subgroups=subgroups)
 
     # ---------------------------------------------------------- explaining
     def attribute(self, trial_id: int | None = None) -> dict[str, Any]:
@@ -1597,60 +876,7 @@ class AutoImprover:
             >>> improver.attribute()  # doctest: +SKIP
             {'trial_id': 17, 'reference': 'the starting pipeline (#0)', 'rows': [...]}
         """
-        result = self.result()
-        target = result.best if trial_id is None else self.trials[trial_id]
-        if target is None or target.error is not None:
-            raise ValueError("no successful trial to attribute")
-        if target.config.code:
-            out = {"trial_id": target.trial_id, "metric": self.metric,
-                   "reference": "none: generated code has no settings to revert",
-                   "score": target.score, "rows": []}
-            self._save_result("attribution.json", out, default=str)
-            return out
-        base = result.baseline
-        if base is not None and base.error is None and base.config.model == (
-            target.config.model
-        ):
-            reference = base.config
-            label = f"the starting pipeline (#{base.trial_id})"
-        else:
-            reference, _ = self.space.validate(PipelineConfig(target.config.model))
-            label = f"the default settings of {target.config.model}"
-        out: dict[str, Any] = {
-            "trial_id": target.trial_id, "reference": label, "metric": self.metric,
-            "score": target.score, "rows": [],
-        }
-        for group in ("model_params", "train_params"):
-            ref_params = getattr(reference, group)
-            for name, value in sorted(getattr(target.config, group).items()):
-                if name not in ref_params or ref_params[name] == value:
-                    continue
-                reverted = PipelineConfig(
-                    target.config.model, dict(target.config.model_params),
-                    dict(target.config.train_params),
-                )
-                getattr(reverted, group)[name] = ref_params[name]
-                scored = self._score(reverted, target.features)
-                row = {"setting": name, "from": ref_params[name], "to": value,
-                       "score_without": scored["score"],
-                       "fold_scores_without": scored["fold_scores"]}
-                if scored["fold_scores"] and target.fold_scores:
-                    gain, se = paired_gain(
-                        target.fold_scores, scored["fold_scores"], self.maximize
-                    )
-                    sign = 1 if self.maximize else -1
-                    better = sum(
-                        sign * (a - b) > FOLD_TIE
-                        for a, b in zip(target.fold_scores, scored["fold_scores"])
-                    )
-                    row.update(contribution=gain, se=se, folds_better=better)
-                else:
-                    sign = 1 if self.maximize else -1
-                    row.update(contribution=sign * (target.score - scored["score"]),
-                               se=None, folds_better=None)
-                out["rows"].append(row)
-        self._save_result("attribution.json", out, default=str)
-        return out
+        return explain.attribute(self, trial_id=trial_id)
 
     def _run_config(
         self, config: PipelineConfig, report_metrics, features=(), stop_if=None,
@@ -1663,29 +889,13 @@ class AutoImprover:
             return run_config_cv(
                 config, self.space, train, val, self.metric, self.folds,
                 report_metrics, self.seed, self.device, stop_if=stop_if,
-                timeout=self.code_timeout, log_dir=self._log_dir(), label=label,
+                timeout=self.code_timeout, log_dir=self.store.log_dir(), label=label,
             )
         return run_config(
             config, self.space, train, val, self.metric, report_metrics,
             self.seed, self.device, timeout=self.code_timeout,
-            log_dir=self._log_dir(), label=label,
+            log_dir=self.store.log_dir(), label=label,
         )
-
-    def _log_dir(self) -> str | None:
-        return os.path.join(self.run_dir, "logs") if self.run_dir else None
-
-    def _write(self, relative: str, text: str) -> None:
-        """Writes a text file under ``run_dir``."""
-        path = os.path.join(self.run_dir, relative)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f:
-            f.write(text)
-
-    def _score(self, config: PipelineConfig, features=()) -> dict[str, Any]:
-        config, _ = self.space.validate(config)
-        out = self._run_config(config, (), features)
-        return {"score": out["metrics"][self.metric],
-                "fold_scores": out.get("fold_scores", [])}
 
     def explain(
         self,
@@ -1697,9 +907,9 @@ class AutoImprover:
 
         The selected config is trained on the training split and its
         predictions on training samples are attributed to the inputs
-        (:func:`~pyhealth.autoimprove.explain.attributions`: exact TreeSHAP
+        (:func:`~pyhealth.autoimprove.evaluation.explain.attributions`: exact TreeSHAP
         for trees, integrated gradients for torch models). The summary
-        (:func:`~pyhealth.autoimprove.explain.summarize`) gives:
+        (:func:`~pyhealth.autoimprove.evaluation.explain.summarize`) gives:
 
         - importance by the task card's clinical factor groups;
         - the top features, each with its meaning and the shape of its
@@ -1716,58 +926,8 @@ class AutoImprover:
             >>> improver.explain()["groups"]  # doctest: +SKIP
             [{'group': 'labs', 'share': 0.52}, {'group': 'vital signs', 'share': 0.31}, ...]
         """
-        from .explain import attributions, summarize, top_overlap
-
-        result = self.result()
-        if result.best is None:
-            raise ValueError("no successful trial to explain")
-        if result.best.config.code:
-            raise NotImplementedError(
-                "explain() needs the trained model in this process; the selected "
-                "trial is generated code, which is trained in its own process")
-        config = result.best.config
-        train, val = self._datasets(result.best.features)
-        extra = {
-            s["name"]: FeatureInfo(
-                s.get("definition", s["name"]), "engineered",
-                s.get("direction", "") if s.get("direction", "") in DIRECTIONS else "",
-                rationale=s.get("rationale", ""))
-            for s in result.best.features
-        }
-
-        def ranked(model, data):
-            attrib = attributions(model, data, max_samples=max_samples)
-            names = getattr(model, "feature_names", None)
-            fields = getattr(model, "feature_layout", None)
-            by_field = {"engineered": list(extra)} if extra else None
-            if names and fields:
-                by_field, start = {}, 0
-                for entry in fields:
-                    width = entry.get("width") or 0
-                    by_field[entry["key"]] = list(names[start:start + width])
-                    start += width
-                if "engineered" in by_field and extra:
-                    by_field["engineered"] = list(extra)
-            return summarize(attrib, self.task_card, by_field, top_k=top_k,
-                             extra=extra)
-
-        model = train_pipeline(config, self.space, train, val, self.metric,
-                               self.seed, self.device)
-        out = ranked(model, train)
-        out["trial_id"] = result.best.trial_id
-        if stability and self.folds is not None and out["features"]:
-            tops = []
-            everything = np.arange(len(train))
-            for held_out in self.folds:
-                part, _, part_val = fold_parts(
-                    train, val, np.setdiff1d(everything, held_out).tolist(),
-                    held_out.tolist())
-                fold_model = train_pipeline(config, self.space, part, part_val,
-                                            self.metric, self.seed, self.device)
-                tops.append([f["name"] for f in ranked(fold_model, part)["features"]])
-            out["stability"] = top_overlap([f["name"] for f in out["features"]], tops)
-        self._save_result("explain.json", out, default=float)
-        return out
+        return explain.explain_selection(self, top_k=top_k, stability=stability,
+                                         max_samples=max_samples)
 
     def flags(self) -> list[dict[str, Any]]:
         """Items a clinician should decide on before the model is used.
@@ -1785,32 +945,7 @@ class AutoImprover:
             ...     print(flag["id"], flag["detail"])
             direction:spo2_min learned +, expected -
         """
-        from .report import flags_for
-
-        review = self._read_json("review.json") or {}
-        best = self.result().best
-        suspicious = sorted({name for t in self.trials for name in t.suspicious
-                             if best is not None and name in {
-                                 s["name"] for s in best.features}})
-        return [
-            {**flag, "review": review.get(flag["id"])}
-            for flag in flags_for(self.task_card, self._read_json("explain.json"),
-                                  self._read_json("test.json"), suspicious,
-                                  features=best.features if best else ())
-        ]
-
-    def _held_back(self, best: Trial | None) -> set[str]:
-        """Engineered features of the selection with an open review flag."""
-        if best is None or not best.features:
-            return set()
-        names = {s["name"] for s in best.features}
-        held = set()
-        for flag in self.flags():
-            kind, _, name = flag["id"].partition(":")
-            if (kind in ("direction", "no_rationale", "suspicion") and name in names
-                    and (flag.get("review") or {}).get("decision") != "approved"):
-                held.add(name)
-        return held
+        return report.flags(self)
 
     def approve(
         self,
@@ -1832,19 +967,7 @@ class AutoImprover:
             >>> improver.approve("direction:spo2_min", "Dr. A",  # doctest: +SKIP
             ...                  "SpO2 is charted only when low; known artifact")
         """
-        if not self.run_dir:
-            raise ValueError("approve needs a run_dir to record the decision")
-        if decision not in ("approved", "rejected"):
-            raise ValueError("decision must be 'approved' or 'rejected'")
-        known = {flag["id"] for flag in self.flags()}
-        if flag_id not in known:
-            raise ValueError(f"no flag {flag_id!r}; current flags: {sorted(known)}")
-        review = self._read_json("review.json") or {}
-        review[flag_id] = {"decision": decision, "reviewer": reviewer, "note": note,
-                           "date": time.strftime("%Y-%m-%d")}
-        with open(os.path.join(self.run_dir, "review.json"), "w") as f:
-            json.dump(review, f, indent=1)
-        return review[flag_id]
+        return report.approve(self, flag_id, reviewer, note=note, decision=decision)
 
     def report(self, path: str | None = None):
         """Writes the run's report: HTML, Markdown and JSON.
@@ -1865,87 +988,36 @@ class AutoImprover:
                 ``run_dir``; with neither, nothing is written.
 
         Returns:
-            The :class:`~pyhealth.autoimprove.report.Report`.
+            The :class:`~pyhealth.autoimprove.evaluation.report.Report`.
 
         Examples:
             >>> improver.report("runs/mortality/report.html")  # doctest: +SKIP
         """
-        from .report import build_report
-
-        report = build_report(
-            self.trials, metric=self.metric, maximize=self.maximize,
-            promote_se=self.promote_se, one_se=self.one_se, space=self.space,
-            task=self._task, lessons=self.lessons,
-            test=self._read_json("test.json"),
-            attribution=self._read_json("attribution.json"),
-            dropped_models=self.dropped_models, rule=self.selection_rule(),
-            card=self.task_card, explanation=self._read_json("explain.json"),
-            review=self._read_json("review.json") or {},
-            confirmed=self.confirmed, pruning=self._read_json("prune.json"),
-            confirm_se=self.confirm_se,
-            guardrails=self._guardrail_summary(), findings=self.findings,
-        )
-        if path is None and self.run_dir:
-            path = os.path.join(self.run_dir, "report.html")
-        if path is not None:
-            report.save(path)
-        return report
-
-    def _guardrail_summary(self) -> list[dict[str, Any]]:
-        """Each evaluation for the report: spec, status, reason, failing trials."""
-        fails = self.guardrail_failures()
-        return [{
-            **e["spec"].to_dict(), "status": e["status"], "reason": e["reason"],
-            "fails": {t: [k for k in keys if k.startswith(e["spec"].name + ".")]
-                      for t, keys in fails.items()
-                      if any(k.startswith(e["spec"].name + ".") for k in keys)},
-        } for e in self.evaluations]
-
-    def _save_result(self, name: str, out: dict[str, Any], default) -> None:
-        """Keeps a result in memory and, with a ``run_dir``, writes it there.
-
-        The in-memory copy is what :meth:`flags` and :meth:`report` read, so
-        they work without a ``run_dir``; it is the same JSON as the file.
-        """
-        text = json.dumps(out, indent=1, default=default)
-        self._results[name] = json.loads(text)
-        if self.run_dir:
-            os.makedirs(self.run_dir, exist_ok=True)
-            with open(os.path.join(self.run_dir, name), "w") as f:
-                f.write(text)
-
-    def _read_json(self, name: str) -> Any:
-        if name in self._results:
-            return self._results[name]
-        if not self.run_dir or not os.path.exists(os.path.join(self.run_dir, name)):
-            return None
-        with open(os.path.join(self.run_dir, name)) as f:
-            return json.load(f)
+        return report.write_report(self, path=path)
 
     # ---------------------------------------------------------- persistence
     def _load(self) -> None:
-        stored = self._read_lessons_file()
-        if self._fingerprint in stored:
-            self.lessons = list(stored[self._fingerprint]["lessons"])
+        """Restores a run from its store: trials, lessons and later results."""
+        shared = self.store.read_shared_lessons()
+        if self._fingerprint in shared:
+            self.lessons = list(shared[self._fingerprint]["lessons"])
         if not self.run_dir:
             return
-        self._check_settings()
-        trials_path = os.path.join(self.run_dir, "trials.jsonl")
-        if os.path.exists(trials_path) and not self.trials:
-            with open(trials_path) as f:
-                self.trials = [Trial.from_dict(json.loads(line)) for line in f]
-        lessons_file = os.path.join(self.run_dir, "lessons.json")
-        if os.path.exists(lessons_file):
-            with open(lessons_file) as f:
-                self.lessons = list(json.load(f))
-        confirmed = self._read_json("confirm.json")
+        self.store.check_settings(self._settings)
+        if not self.trials:
+            self.trials = [Trial.from_dict(r) for r in self.store.read_trials()]
+        lessons = self.store.read_json("lessons.json")
+        if lessons is not None:
+            self.lessons = list(lessons)
+        confirmed = self.store.read_json("confirm.json")
         if confirmed and not self.confirmed:
             self.confirmed = {int(k): v for k, v in confirmed["scores"].items()}
-            self.pruned_id = (self._read_json("prune.json") or {}).get("pruned_trial")
+            pruning = self.store.read_json("prune.json") or {}
+            self.pruned_id = pruning.get("pruned_trial")
         if not self.evaluations:
-            self._load_evaluations()
+            guardrails.load_evaluations(self)
         if not self.findings:
-            self.findings = list(self._read_json("findings.json") or [])
+            self.findings = list(self.store.read_json("findings.json") or [])
 
     def _run_settings(self) -> dict[str, Any]:
         """The settings a resumed run must share with the trials it continues."""
@@ -1965,420 +1037,21 @@ class AutoImprover:
         }
         return json.loads(json.dumps(settings, default=str))
 
-    def _check_settings(self) -> None:
-        """Records the run's settings in ``meta.json``, or checks them on resume.
-
-        Raises:
-            ValueError: If ``run_dir`` holds a run with different settings.
-        """
-        path = os.path.join(self.run_dir, "meta.json")
-        if os.path.exists(path):
-            with open(path) as f:
-                stored = json.load(f)
-            changed = [k for k, v in self._settings.items()
-                       if k in stored and stored[k] != v]
-            if changed == ["space"]:
-                # The space only bounds new proposals: the trials so far are
-                # still valid scores on the same data, metric and folds.
-                logger.warning(
-                    "%s was started with a different search space; its trials "
-                    "are kept and new proposals use the current space",
-                    self.run_dir,
-                )
-                with open(path, "w") as f:
-                    json.dump(self._settings, f, indent=1)
-                return
-            if changed:
-                raise ValueError(
-                    f"{self.run_dir} holds a run with a different "
-                    f"{', '.join(changed)}; resuming would mix its trials with "
-                    "this run's. Use a new run_dir, or delete this one to start "
-                    "over."
-                )
-            return
-        if os.path.exists(os.path.join(self.run_dir, "trials.jsonl")):
-            logger.warning(
-                "%s has no meta.json, so its settings cannot be checked; the "
-                "current ones are recorded", self.run_dir,
-            )
-        os.makedirs(self.run_dir, exist_ok=True)
-        with open(path, "w") as f:
-            json.dump(self._settings, f, indent=1)
-
     def _save_settings(self) -> None:
         """Writes run.json: what a report needs besides the trials."""
-        if not self.run_dir:
-            return
-        os.makedirs(self.run_dir, exist_ok=True)
-        settings = {
+        self.store.write_json("run.json", {
             "metric": self.metric, "maximize": self.maximize, "task": self._task,
             "cv_folds": self.cv_folds, "promote_se": self.promote_se,
             "one_se": self.one_se, "seed": self.seed,
             "models": sorted(self.space.models), "rule": self.selection_rule(),
             "dropped_models": self.dropped_models, "confirm_se": self.confirm_se,
-        }
-        with open(os.path.join(self.run_dir, "run.json"), "w") as f:
-            json.dump(settings, f, indent=1)
+        })
         if self.task_card is not None:
-            with open(os.path.join(self.run_dir, "card.json"), "w") as f:
-                json.dump(self.task_card.to_dict(), f, indent=1)
+            self.store.write_json("card.json", self.task_card.to_dict())
 
     def _save_trial(self, trial: Trial) -> None:
-        if not self.run_dir:
-            return
-        os.makedirs(self.run_dir, exist_ok=True)
-        with open(os.path.join(self.run_dir, "trials.jsonl"), "a") as f:
-            f.write(json.dumps(trial.to_dict(), default=str) + "\n")
+        self.store.append_trial(trial.to_dict())
 
     def _save_lessons(self) -> None:
-        if self.run_dir:
-            os.makedirs(self.run_dir, exist_ok=True)
-            with open(os.path.join(self.run_dir, "lessons.json"), "w") as f:
-                json.dump(self.lessons, f, indent=1)
-        if self.lessons_path:
-            stored = self._read_lessons_file()
-            stored[self._fingerprint] = {
-                "search": describe_search(self.space, self.train_dataset),
-                "lessons": self.lessons,
-            }
-            with open(self.lessons_path, "w") as f:
-                json.dump(stored, f, indent=1)
-
-    def _read_lessons_file(self) -> dict[str, Any]:
-        """Lessons per search fingerprint; an older plain list is set aside."""
-        if not self.lessons_path or not os.path.exists(self.lessons_path):
-            return {}
-        with open(self.lessons_path) as f:
-            data = json.load(f)
-        if isinstance(data, dict):
-            return data
-        logger.warning(
-            "%s holds lessons without a search fingerprint; they are not "
-            "reused and will be replaced",
-            self.lessons_path,
-        )
-        return {}
-
-
-def describe_search(space: SearchSpace, dataset: SampleDataset) -> str:
-    """The search a set of lessons belongs to: inputs, label and models.
-
-    Examples:
-        >>> describe_search(SearchSpace(), train_ds)  # doctest: +SKIP
-        'inputs: conditions (sequence) | label: label (binary) | models: CNN(...), ...'
-    """
-    models = ", ".join(
-        f"{name}({','.join(sorted(spec.params))})"
-        for name, spec in sorted(space.models.items())
-    )
-    return (
-        f"inputs: {_schema_names(dataset.input_schema)} | "
-        f"label: {_schema_names(dataset.output_schema)} | models: {models}"
-    )
-
-
-def space_fingerprint(space: SearchSpace, dataset: SampleDataset) -> str:
-    """A short stable id for :func:`describe_search`.
-
-    Examples:
-        >>> space_fingerprint(SearchSpace(), train_ds)  # doctest: +SKIP
-        '3f9a1c0be27d'
-    """
-    return hashlib.sha256(describe_search(space, dataset).encode()).hexdigest()[:12]
-
-
-def paired_gain(
-    candidate: Sequence[float], incumbent: Sequence[float], maximize: bool
-) -> tuple[float, float]:
-    """Mean and standard error of the fold-by-fold gain of one config over another.
-
-    Examples:
-        >>> paired_gain([0.5, 0.6, 0.7], [0.4, 0.5, 0.6], maximize=True)
-        (0.1, 0.0)
-    """
-    diff = np.asarray(candidate, dtype=float) - np.asarray(incumbent, dtype=float)
-    if not maximize:
-        diff = -diff
-    se = float(diff.std(ddof=1) / math.sqrt(len(diff))) if len(diff) > 1 else math.inf
-    return round(float(diff.mean()), 12), round(se, 12)
-
-
-def select_trial(
-    trials: Sequence[Trial], maximize: bool, promote_se: float | None = None
-) -> Trial | None:
-    """The trial a search would deploy.
-
-    Without ``promote_se``: the best score. With it, every trial is compared
-    with the baseline trial (``agent == "baseline"``) on the shared folds,
-    and the trial with the highest lower bound on its gain,
-    ``mean - promote_se * se``, is selected if that bound is above 0;
-    otherwise the baseline stays selected. Trials without fold scores
-    matching the baseline's are not candidates. Without a finished baseline
-    trial with fold scores there is nothing to compare with, and the best
-    score is selected. Ties go to the lower ``trial_id``, so the result does
-    not depend on the order the trials ran in.
-
-    Examples:
-        >>> a = Trial(0, -1, "baseline", "baseline", PipelineConfig("RNN"),
-        ...           score=0.50, fold_scores=[0.48, 0.50, 0.52])
-        >>> b = Trial(1, 0, "agent0", "explore", PipelineConfig("MLP"),
-        ...           score=0.52, fold_scores=[0.40, 0.58, 0.58])
-        >>> select_trial([a, b], True).trial_id, select_trial([a, b], True, 1.0).trial_id
-        (1, 0)
-    """
-    done = sorted((t for t in trials if t.error is None and t.score is not None),
-                  key=lambda t: t.trial_id)
-    if not done:
-        return None
-    best = min(done, key=lambda t: -t.score if maximize else t.score)
-    if promote_se is None:
-        return best
-    reference = next((t for t in done if t.agent == "baseline"), None)
-    if reference is None or not reference.fold_scores:
-        return best
-    selected, best_bound = reference, 0.0
-    for t in done:
-        if t is reference or len(t.fold_scores) != len(reference.fold_scores):
-            continue
-        gain, se = paired_gain(t.fold_scores, reference.fold_scores, maximize)
-        bound = gain - promote_se * se
-        if bound > best_bound:
-            selected, best_bound = t, bound
-    return selected
-
-
-def select_simplest(
-    trials: Sequence[Trial],
-    maximize: bool,
-    promote_se: float = 1.0,
-    rung: Callable[[PipelineConfig], int] | None = None,
-) -> tuple[Trial | None, Trial | None]:
-    """The most interpretable trial that is as good as the best: the one-SE rule.
-
-    1. The candidates are the baseline trial and every trial whose
-       fold-by-fold gain over it has a lower bound,
-       ``mean - promote_se * se``, above 0. Without a finished baseline
-       there is nothing to compare with, and every finished trial is a
-       candidate.
-    2. The top candidate is the one with the best mean score.
-    3. The selection is the candidate on the lowest ``rung`` whose score is
-       at most one paired standard error below the top candidate's; among
-       those, the one with the fewest engineered features, then the best
-       mean.
-
-    Without fold scores, the best score is both selected and top.
-
-    Args:
-        trials: The trials of a search.
-        maximize: Whether larger scores are better.
-        promote_se: Standard errors a gain must clear to make a candidate.
-        rung: A config's place on the interpretability ladder (lower is
-            simpler), e.g. :meth:`SearchSpace.rung`. ``None`` puts every
-            config on one rung, so the top candidate is selected.
-
-    Returns:
-        ``(selected, top)``.
-
-    Examples:
-        >>> base = Trial(0, -1, "baseline", "baseline", PipelineConfig("XGBoost"),
-        ...              score=0.50, fold_scores=[0.48, 0.50, 0.52])
-        >>> lr = Trial(1, 0, "a0", "explore", PipelineConfig("LogisticRegression"),
-        ...            score=0.55, fold_scores=[0.52, 0.57, 0.56])
-        >>> mlp = Trial(2, 0, "a1", "explore", PipelineConfig("MLP"),
-        ...             score=0.56, fold_scores=[0.55, 0.555, 0.575])
-        >>> selected, top = select_simplest([base, lr, mlp], True, 1.0,
-        ...                                 SearchSpace().rung)
-        >>> selected.trial_id, top.trial_id
-        (1, 2)
-    """
-    done = sorted((t for t in trials if t.error is None and t.score is not None),
-                  key=lambda t: t.trial_id)
-    if not done:
-        return None, None
-    candidates, top, near = _one_se_sets(done, maximize, promote_se)
-    if not candidates:
-        best = max(done, key=lambda t: (1 if maximize else -1) * t.score)
-        return best, best
-    rung = rung or (lambda config: 0)
-    # simpler wins: the lower rung, then fewer engineered features
-    selected = min(near, key=lambda t: (rung(t.config), len(t.features),
-                                        (-1 if maximize else 1) * t.score))
-    return selected, top
-
-
-def _one_se_sets(
-    trials: Sequence[Trial],
-    maximize: bool,
-    promote_se: float = 1.0,
-    top: Trial | None = None,
-) -> tuple[list[Trial], Trial | None, list[Trial]]:
-    """The candidates, the top candidate, and the candidates within one SE of it.
-
-    These are the sets :func:`select_simplest` chooses from (see its steps 1
-    to 3); the report shows them. Trials are compared on their fold scores.
-
-    Args:
-        trials: The trials of a search; failed ones are ignored.
-        maximize: Whether larger scores are better.
-        promote_se: Standard errors a gain must clear to make a candidate.
-        top: The trial to measure "within one SE" against. Defaults to the
-            candidate with the best mean score.
-
-    Returns:
-        ``(candidates, top, near)``, in trial order; empty lists and ``None``
-        when no trial can be compared.
-
-    Examples:
-        >>> base = Trial(0, -1, "baseline", "baseline", PipelineConfig("RNN"),
-        ...              score=0.50, fold_scores=[0.48, 0.50, 0.52])
-        >>> lr = Trial(1, 0, "a0", "explore", PipelineConfig("LogisticRegression"),
-        ...            score=0.55, fold_scores=[0.52, 0.57, 0.56])
-        >>> mlp = Trial(2, 0, "a1", "explore", PipelineConfig("MLP"),
-        ...             score=0.56, fold_scores=[0.55, 0.555, 0.575])
-        >>> candidates, top, near = _one_se_sets([base, lr, mlp], True)
-        >>> [t.trial_id for t in candidates], top.trial_id, [t.trial_id for t in near]
-        ([0, 1, 2], 2, [1, 2])
-    """
-    done = sorted((t for t in trials if t.error is None and t.score is not None),
-                  key=lambda t: t.trial_id)
-    sign = 1 if maximize else -1
-    reference = next((t for t in done if t.agent == "baseline"), None)
-    if reference is None:
-        candidates = [t for t in done if t.fold_scores]
-    elif reference.fold_scores:
-        candidates = [reference]
-        for t in done:
-            if t is reference or len(t.fold_scores) != len(reference.fold_scores):
-                continue
-            gain, se = paired_gain(t.fold_scores, reference.fold_scores, maximize)
-            if gain - promote_se * se > 0:
-                candidates.append(t)
-    else:
-        candidates = []
-    if not candidates:
-        return [], None, []
-    top = top or max(candidates, key=lambda t: sign * t.score)
-
-    def within(t: Trial) -> bool:
-        if t is top:
-            return True
-        if len(t.fold_scores) != len(top.fold_scores):
-            return False
-        gap, se = paired_gain(top.fold_scores, t.fold_scores, maximize)
-        return gap <= se
-
-    return candidates, top, [t for t in candidates if within(t)]
-
-
-def _derived(
-    config: PipelineConfig, rationale: str, hypothesis: dict[str, Any] | None = None
-) -> PipelineConfig:
-    """A copy of a config (generated code included) with a new rationale."""
-    return PipelineConfig(config.model, dict(config.model_params),
-                          dict(config.train_params), rationale,
-                          dict(hypothesis or {}), config.code)
-
-
-def _key(config: PipelineConfig, features: Sequence[dict[str, Any]]) -> str:
-    """A trial's identity: its config and the names of its features."""
-    names = sorted(str(s.get("name", "")) for s in features)
-    return config.key() + ("|" + ",".join(names) if names else "")
-
-
-def _feature_groups(best: Trial, trials: Sequence[Trial]) -> list[tuple[int, list[str]]]:
-    """The selected trial's features, grouped by the accepted trial that added them."""
-    groups: dict[int, list[str]] = {}
-    for spec in best.features:
-        name = spec["name"]
-        owner = next((t.trial_id for t in trials if name in t.added and t.accepted),
-                     -1 - len(groups))
-        groups.setdefault(owner, []).append(name)
-    return list(groups.items())
-
-
-def _parent_of(config: PipelineConfig, trials: Sequence[Trial]) -> Trial | None:
-    """The trial a config was changed from.
-
-    The proposer's ``based_on`` when it names an earlier trial; otherwise
-    the closest earlier trial: same model first, then fewest differing
-    settings, then the most recent.
-    """
-    by_id = {t.trial_id: t for t in trials}
-    based_on = config.hypothesis.get("based_on")
-    try:
-        if based_on is not None and int(based_on) in by_id:
-            return by_id[int(based_on)]
-    except (TypeError, ValueError):
-        pass
-    if not trials:
-        return None
-    return min(
-        trials,
-        key=lambda t: (t.config.model != config.model,
-                       len(config_diff(t.config, config)), -t.trial_id),
-    )
-
-
-def describe_task(train_dataset: SampleDataset, val_dataset: SampleDataset) -> str:
-    """A plain-text task summary for prompts: schema, sizes and label counts.
-
-    Only aggregate numbers are included, never individual samples.
-
-    Examples:
-        >>> print(describe_task(train_ds, val_ds))  # doctest: +SKIP
-    """
-    lines = [
-        f"Inputs: {_schema_names(train_dataset.input_schema)}",
-        (
-            f"Label: {_schema_names(train_dataset.output_schema)} "
-            f"(type: {_label_mode(train_dataset)})"
-        ),
-        (
-            f"Training samples: {len(train_dataset)}; validation samples: "
-            f"{len(val_dataset)}"
-        ),
-    ]
-    for key, proc in getattr(train_dataset, "input_processors", {}).items():
-        try:
-            lines.append(f"- {key}: {type(proc).__name__}, size {proc.size()}")
-        except Exception:  # noqa: BLE001 - size() is optional on processors
-            lines.append(f"- {key}: {type(proc).__name__}")
-    if _label_mode(train_dataset) == "binary":
-        positives = _positive_count(train_dataset)
-        if positives is not None:
-            lines.append(
-                f"Training positives: {positives} of {len(train_dataset)} "
-                f"({positives / max(len(train_dataset), 1):.1%})"
-            )
-    return "\n".join(lines)
-
-
-def _label_mode(dataset: SampleDataset) -> str:
-    """The label type: the ``mode`` of the dataset's label processor."""
-    processor = next(iter(dataset.output_processors.values()), None)
-    return processor.mode if isinstance(processor, LabelProcessor) else "unknown"
-
-
-def _schema_names(schema: dict) -> str:
-    return ", ".join(
-        f"{k} ({v if isinstance(v, str) else getattr(v, '__name__', type(v).__name__)})"
-        for k, v in schema.items()
-    )
-
-
-def _positive_count(dataset: SampleDataset) -> int | None:
-    key = next(iter(dataset.output_schema))
-    if len(dataset) > MAX_LABEL_SCAN:
-        return None
-    try:
-        return int(sum(float(dataset[i][key]) > 0.5 for i in range(len(dataset))))
-    except Exception:  # noqa: BLE001 - labels that are not 0/1 scalars
-        return None
-
-
-def _better(new: float | None, old: float | None, maximize: bool) -> bool:
-    if new is None:
-        return False
-    if old is None:
-        return True
-    return new > old if maximize else new < old
+        self.store.save_lessons(self.lessons, self._fingerprint,
+                                describe_search(self.space, self.train_dataset))

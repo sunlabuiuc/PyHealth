@@ -28,10 +28,12 @@ import json
 from collections.abc import Iterable
 from typing import Any
 
+from ..evaluation.report import Report, Section
+from ..utils.llm import LLM
+from .context import ProposalContext
 from .knowledge import KnowledgeBase
-from .llm import LLM
-from .proposers import FEATURE_SYSTEM_PROMPT, LLMProposer, ProposalContext
-from .report import Report, Section
+from .prompts import FEATURE_SYSTEM_PROMPT
+from .proposers import LLMProposer
 
 # Published effect types on the scale of each test metric.
 _METRIC_TYPES = {

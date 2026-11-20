@@ -1,26 +1,52 @@
-"""Running code a proposer wrote: a static check, then a separate process.
+"""The sandbox: how code a proposer wrote gets run without endangering the search.
 
-Code turns (a model and its training), evaluation turns (a new way to score
-predictions) and analysis turns (a question asked of the training data) all
-produce Python source. Before any of it runs, :func:`static_check` parses it
-and rejects imports outside :data:`ALLOWED_IMPORTS`, file, network and shell
-access, ``exec``-like builtins and dunder attribute access. The code then runs
-in a child process (:func:`run_sandboxed`) of the same Python environment,
-with a wall-clock limit, optional memory and file-size limits, no network
-(new user and network namespaces, where Linux allows them unprivileged),
-credentials removed from its environment, and its output sent to a log
-file. Only the runner's return value comes back.
+Code, evaluation and analysis turns produce Python source written by an LLM.
+This module is the only place that runs it. In plain words:
 
-This keeps a buggy or runaway proposal from crashing or stalling the search,
-and stops accidental file, network or credential use. The child still runs
-as your user and can read what you can, so it is not a security boundary
-against deliberately hostile code: run code turns from an untrusted model
-in a container or a job without access to data you would not expose.
+**What it is.** Not a separate environment or a container: the code runs in
+the same Python (same conda env, same packages) as the improver, but in a
+*child process*, a copy of Python that already has torch and PyHealth loaded.
+If the code crashes, hangs or eats memory, only the child dies; the search
+carries on and records the failure.
 
-The child processes are forked from a server that has already imported
-torch and PyHealth, so each job starts in a fraction of a second after the
-first. As with any ``multiprocessing`` code, a script that uses these turns
-needs an ``if __name__ == "__main__":`` guard.
+**Before it runs**, :func:`static_check` reads the code without running it and
+rejects:
+
+- imports outside :data:`ALLOWED_IMPORTS` (torch, numpy, scipy, sklearn,
+  pandas, polars, pyhealth and a few standard-library modules), and the
+  submodules in :data:`BLOCKED_MODULES`;
+- file, shell and process access (``open``, ``os``, ``subprocess``,
+  ``torch.save``/``load``, ``read_csv``...: :data:`BLOCKED_NAMES` and
+  :data:`BLOCKED_ATTRIBUTES`), ``exec``/``eval``, and ``__dunder__``
+  attributes other than ``__init__``.
+
+**While it runs** (:func:`run_sandboxed`), the child has:
+
+- no network: it moves into its own Linux user and network namespace, which
+  holds only a loopback interface (where the kernel allows this without root;
+  GPUs stay usable);
+- no credentials: environment variables that look like keys or tokens are
+  removed;
+- a wall-clock limit, after which it is killed, a 64 MB cap on files it
+  writes, and optionally a memory cap;
+- its printed output sent to a log file, never to the LLM.
+
+**What comes back** is only what the harness function (the *runner*) returns:
+predictions, numbers, or tables with small groups withheld. Errors come back
+as text, in two forms: in full for the run's log, and without the message
+(which can quote a raw value) for the proposer's prompt.
+
+**What it does not do.** The child still runs as your user and can read what
+you can, for example through a library function the static check doesn't know
+about. It stops mistakes, runaway code and accidental file, network or
+credential use, not a deliberate attacker. With an LLM you don't trust, run
+the whole improver in a container or a job that can only see the data it
+needs.
+
+Jobs start in a fraction of a second after the first, because children are
+forked from a server process that imported torch and PyHealth once. As with
+any ``multiprocessing`` code, a script using these turns needs an
+``if __name__ == "__main__":`` guard.
 """
 
 from __future__ import annotations
@@ -79,9 +105,9 @@ _SECRET = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH", re.IGNORECASE
 
 _PRELOAD = [
     "numpy", "torch", "pyhealth.datasets", "pyhealth.models", "pyhealth.trainer",
-    "pyhealth.metrics", "pyhealth.autoimprove.sandbox",
-    "pyhealth.autoimprove.codegen", "pyhealth.autoimprove.guardrails",
-    "pyhealth.autoimprove.analysis",
+    "pyhealth.metrics", "pyhealth.autoimprove.utils.sandbox",
+    "pyhealth.autoimprove.evaluation.code_trials",
+    "pyhealth.autoimprove.evaluation.guardrails", "pyhealth.autoimprove.search.analysis",
 ]
 
 _CONTEXT = None
@@ -237,7 +263,7 @@ def run_sandboxed(
     Args:
         code: The generated source.
         runner: Import path of the harness function that uses the module,
-            e.g. ``"pyhealth.autoimprove.codegen:run_code_trial"``.
+            e.g. ``"pyhealth.autoimprove.evaluation.code_trials:run_code_trial"``.
         payload: Arguments for the runner; must pickle.
         timeout: Seconds before the child is killed.
         log_path: File for the child's stdout and stderr; discarded if None.
@@ -249,7 +275,7 @@ def run_sandboxed(
         SandboxError: If the code raised, the child died, or it timed out.
 
     Examples:
-        >>> run_sandboxed(code, "pyhealth.autoimprove.guardrails:run_evaluation",
+        >>> run_sandboxed(code, "pyhealth.autoimprove.evaluation.guardrails:run_evaluation",
         ...               payload, timeout=60)  # doctest: +SKIP
     """
     ctx = _context()
@@ -294,7 +320,7 @@ def run_sandboxed(
 
 def _child(code, runner, blob, send, log_path, memory_gb, label) -> None:
     """The child process: limits, then the module, then the runner."""
-    from .evaluate import describe_error
+    from .errors import describe_error
 
     try:
         _limit(log_path, memory_gb)
@@ -375,7 +401,7 @@ def warm_up() -> None:
         >>> warm_up()  # doctest: +SKIP
     """
     run_sandboxed("def main(ns, payload):\n    return 1\n",
-                  "pyhealth.autoimprove.sandbox:_noop", {}, timeout=300)
+                  "pyhealth.autoimprove.utils.sandbox:_noop", {}, timeout=300)
 
 
 def _noop(namespace: dict[str, Any], payload: dict[str, Any]) -> int:

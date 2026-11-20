@@ -18,9 +18,11 @@ from pyhealth.autoimprove import (
     load_run,
     static_check,
 )
-from pyhealth.autoimprove.codegen import TEMPLATE, fit_predict_code, task_context
-from pyhealth.autoimprove.proposers import Proposer, build_code_prompt, parse_code
-from pyhealth.autoimprove.sandbox import SandboxError, run_sandboxed
+from pyhealth.autoimprove.search.codegen import TEMPLATE, task_context
+from pyhealth.autoimprove.evaluation.code_trials import fit_predict_code
+from pyhealth.autoimprove.search.proposers import Proposer
+from pyhealth.autoimprove.search.prompts import build_code_prompt, parse_code
+from pyhealth.autoimprove.utils.sandbox import SandboxError, run_sandboxed
 from pyhealth.datasets import create_sample_dataset
 
 SPACE = SearchSpace(
@@ -98,7 +100,7 @@ class TestSandbox(unittest.TestCase):
         code = "while True:\n    pass\n"
         start = time.perf_counter()
         with self.assertRaises(SandboxError) as ctx:
-            run_sandboxed(code, "pyhealth.autoimprove.sandbox:_noop", {}, timeout=3)
+            run_sandboxed(code, "pyhealth.autoimprove.utils.sandbox:_noop", {}, timeout=3)
         self.assertLess(time.perf_counter() - start, 30)
         self.assertIn("TimeoutError", ctx.exception.brief)
 
@@ -115,7 +117,7 @@ class TestSandbox(unittest.TestCase):
 
 class TestIsolation(unittest.TestCase):
     def test_child_has_no_network(self):
-        out = run_sandboxed("", "pyhealth.autoimprove.sandbox:_network_probe",
+        out = run_sandboxed("", "pyhealth.autoimprove.utils.sandbox:_network_probe",
                             {}, timeout=120)
         if not out["isolated"]:
             self.skipTest("unprivileged network namespaces are not allowed here")

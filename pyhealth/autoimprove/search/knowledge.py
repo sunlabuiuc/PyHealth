@@ -51,7 +51,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from .proposers import parse_json
+from .prompts import parse_json
 
 logger = logging.getLogger(__name__)
 

@@ -23,9 +23,9 @@ from pyhealth.autoimprove import (
     build_report,
     with_xgboost,
 )
-from pyhealth.autoimprove.evaluate import patient_folds, run_config_cv
-from pyhealth.autoimprove.proposers import ProposalContext
-from pyhealth.autoimprove.report import flags_for
+from pyhealth.autoimprove.evaluation.cv import patient_folds, run_config_cv
+from pyhealth.autoimprove.search.proposers import ProposalContext
+from pyhealth.autoimprove.evaluation.report import flags_for
 from pyhealth.data import Patient
 from pyhealth.datasets import create_sample_dataset
 

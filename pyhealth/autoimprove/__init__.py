@@ -8,53 +8,45 @@ selects the most interpretable one within noise of the best, and its report
 (:meth:`AutoImprover.report`) explains the choice and how the search got there.
 """
 
-from .analysis import AnalysisSpec, sample_columns
-from .codegen import CODE_CONTRACT, task_context
-from .evaluate import (
+from .evaluation.cv import fold_parts, patient_folds, run_config, run_config_cv
+from .evaluation.guardrails import EvaluationSpec, clearly_worse, metrics_menu
+from .evaluation.records import ImproveResult, Trial
+from .evaluation.report import Report, build_report, load_run, unverified_numbers
+from .evaluation.scoring import out_of_fold, score_predictions
+from .evaluation.selection import paired_gain, select_simplest, select_trial
+from .evaluation.training import (
     check_models,
-    describe_error,
     fit_predict,
-    fold_parts,
-    out_of_fold,
-    patient_folds,
     predict,
-    run_config,
-    run_config_cv,
     score,
-    score_predictions,
     train_pipeline,
 )
-from .guardrails import EvaluationSpec, clearly_worse, metrics_menu
-from .evidence import (
+from .improver import DEFAULT_METRIC, AutoImprover
+from .search.analysis import AnalysisSpec, sample_columns
+from .search.codegen import CODE_CONTRACT, task_context
+from .search.evidence import (
     EvidenceProposer,
     add_literature,
     evidence_lines,
     literature_section,
 )
-from .features import EngineeredDataset, FeatureSpace, FeatureSpec
-from .improver import (
-    DEFAULT_METRIC,
-    TURN_KINDS,
-    AutoImprover,
-    ImproveResult,
-    Trial,
-    paired_gain,
-    select_simplest,
-    select_trial,
+from .search.features import EngineeredDataset, FeatureSpace, FeatureSpec
+from .search.knowledge import (
+    Document,
+    Evidence,
+    KnowledgeBase,
+    parse_effect,
+    pubmed_query,
 )
-from .knowledge import Document, Evidence, KnowledgeBase, parse_effect, pubmed_query
-from .llm import LLM, ClaudeLLM, GeminiLLM, OpenAILLM
-from .proposers import (
-    STRATEGIES,
+from .search.prompts import STRATEGIES
+from .search.proposers import (
     LLMProposer,
     Proposer,
     ProposerExhausted,
     QueueProposer,
     RandomProposer,
 )
-from .report import Report, build_report, load_run, unverified_numbers
-from .sandbox import SandboxError, run_sandboxed, static_check
-from .space import (
+from .search.space import (
     CODE_MODEL,
     DEFAULT_MODELS,
     LADDER,
@@ -66,6 +58,10 @@ from .space import (
     config_diff,
     with_xgboost,
 )
+from .search.turns import TURN_KINDS
+from .utils.errors import describe_error
+from .utils.llm import LLM, ClaudeLLM, GeminiLLM, OpenAILLM
+from .utils.sandbox import SandboxError, run_sandboxed, static_check
 
 __all__ = [
     "CODE_CONTRACT",

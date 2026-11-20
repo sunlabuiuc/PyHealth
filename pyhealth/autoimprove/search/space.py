@@ -22,6 +22,10 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from pyhealth.datasets import SampleDataset
+
+from ..utils.data import _schema_names
+
 
 @dataclass(frozen=True)
 class Param:
@@ -154,7 +158,7 @@ class PipelineConfig:
             ``kind`` (``"clinical"`` or ``"technical"``) and ``based_on``
             (the id of the trial it changes, if any).
         code: For a code turn, the generated module that builds and trains
-            the model (:mod:`~pyhealth.autoimprove.codegen`); ``model`` is
+            the model (:mod:`~pyhealth.autoimprove.search.codegen`); ``model`` is
             then :data:`CODE_MODEL` and the parameters are empty.
 
     Examples:
@@ -408,7 +412,7 @@ class SearchSpace:
         clipped, and invalid choices fall back to the default.
 
         A code config (``config.code``) is checked by
-        :func:`~pyhealth.autoimprove.sandbox.static_check` instead: it owns
+        :func:`~pyhealth.autoimprove.utils.sandbox.static_check` instead: it owns
         its model and training, so it has no parameters to clip.
 
         Raises:
@@ -417,7 +421,7 @@ class SearchSpace:
         """
         if config.code or config.model == CODE_MODEL:
             from .codegen import ENTRY
-            from .sandbox import check_or_raise
+            from ..utils.sandbox import check_or_raise
 
             if not config.code:
                 raise ValueError(f"a {CODE_MODEL} config needs its code")
@@ -600,3 +604,45 @@ def with_xgboost(space: SearchSpace) -> SearchSpace:
         True
     """
     return SearchSpace({**space.models, "XGBoost": XGBOOST}, space.train_params)
+
+
+def _derived(
+    config: PipelineConfig, rationale: str, hypothesis: dict[str, Any] | None = None
+) -> PipelineConfig:
+    """A copy of a config (generated code included) with a new rationale."""
+    return PipelineConfig(config.model, dict(config.model_params),
+                          dict(config.train_params), rationale,
+                          dict(hypothesis or {}), config.code)
+
+
+def _key(config: PipelineConfig, features: Sequence[dict[str, Any]]) -> str:
+    """A trial's identity: its config and the names of its features."""
+    names = sorted(str(s.get("name", "")) for s in features)
+    return config.key() + ("|" + ",".join(names) if names else "")
+
+
+def describe_search(space: SearchSpace, dataset: SampleDataset) -> str:
+    """The search a set of lessons belongs to: inputs, label and models.
+
+    Examples:
+        >>> describe_search(SearchSpace(), train_ds)  # doctest: +SKIP
+        'inputs: conditions (sequence) | label: label (binary) | models: CNN(...), ...'
+    """
+    models = ", ".join(
+        f"{name}({','.join(sorted(spec.params))})"
+        for name, spec in sorted(space.models.items())
+    )
+    return (
+        f"inputs: {_schema_names(dataset.input_schema)} | "
+        f"label: {_schema_names(dataset.output_schema)} | models: {models}"
+    )
+
+
+def space_fingerprint(space: SearchSpace, dataset: SampleDataset) -> str:
+    """A short stable id for :func:`describe_search`.
+
+    Examples:
+        >>> space_fingerprint(SearchSpace(), train_ds)  # doctest: +SKIP
+        '3f9a1c0be27d'
+    """
+    return hashlib.sha256(describe_search(space, dataset).encode()).hexdigest()[:12]

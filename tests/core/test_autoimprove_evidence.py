@@ -1,4 +1,4 @@
-"""pyhealth.autoimprove.evidence: evidence in feature prompts, literature in reports."""
+"""pyhealth.autoimprove.search.evidence: evidence in feature prompts, literature in reports."""
 
 import json
 import os
@@ -21,11 +21,8 @@ from pyhealth.autoimprove import (  # noqa: E402
     evidence_lines,
     literature_section,
 )
-from pyhealth.autoimprove.proposers import (  # noqa: E402
-    FEATURE_SYSTEM_PROMPT,
-    SYSTEM_PROMPT,
-    ProposalContext,
-)
+from pyhealth.autoimprove.search.prompts import FEATURE_SYSTEM_PROMPT, SYSTEM_PROMPT
+from pyhealth.autoimprove.search.proposers import ProposalContext
 from pyhealth.tasks import TaskCard  # noqa: E402
 
 CARD = TaskCard(population="test patients", outcome="the label")
@@ -145,7 +142,7 @@ class TestEvidence(unittest.TestCase):
         self.assertIn("count_90d__labs", second.split("not tried yet")[1])
 
     def test_variants_are_matched_on_the_whole_selection(self):
-        from pyhealth.autoimprove.evidence import _adapts
+        from pyhealth.autoimprove.search.evidence import _adapts
 
         listed = {"name": "count_90d__labs", "op": "count", "window": 90,
                   "select": {"event_type": "labs", "where": {"code": ["eos"]}},

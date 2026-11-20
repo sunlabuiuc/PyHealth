@@ -37,6 +37,12 @@ from scipy.stats import spearmanr
 
 from pyhealth.datasets import SampleDataset, get_dataloader
 from pyhealth.metrics.clinical import MIN_CELL
+from pyhealth.tasks.task_card import DIRECTIONS, FeatureInfo
+
+from ..search.space import PipelineConfig
+from .cv import fold_parts
+from .selection import FOLD_TIE, paired_gain
+from .training import train_pipeline
 
 DIRECTION_RHO = 0.1
 """Smallest rank correlation between a value and its contribution taken as a direction."""
@@ -242,6 +248,8 @@ def top_overlap(reference: list[str], others: list[list[str]]) -> dict[str, Any]
 
 
 # ------------------------------------------------------------------ helpers
+
+
 def _numeric(value: Any) -> torch.Tensor | None:
     if isinstance(value, (tuple, list)):
         return None
@@ -400,3 +408,170 @@ def _check(expected: str | None, learned: str) -> str:
     if learned == "u":
         return "unclear"
     return "opposite"
+
+
+def attribute(imp, trial_id: int | None = None) -> dict[str, Any]:
+    """Measures what each changed setting of a trial contributes.
+
+    Each setting that differs between the trial (by default the
+    selected one) and its reference is reverted, one at a time, and the
+    reverted config is scored on the same folds. A setting's
+    contribution is the trial's score minus the reverted config's, with
+    its paired standard error. The reference is the baseline when the
+    trial uses the baseline's model, and otherwise the default settings
+    of the trial's own model (arguments of different models cannot be
+    compared). With a ``run_dir`` the result is saved to
+    ``attribution.json``.
+
+    Returns:
+        ``{"trial_id", "reference", "rows": [{"setting", "from", "to",
+        "contribution", "se", "folds_better", "score_without"}], ...}``.
+
+    Examples:
+        >>> improver.attribute()  # doctest: +SKIP
+        {'trial_id': 17, 'reference': 'the starting pipeline (#0)', 'rows': [...]}
+    """
+    result = imp.result()
+    target = result.best if trial_id is None else imp.trials[trial_id]
+    if target is None or target.error is not None:
+        raise ValueError("no successful trial to attribute")
+    if target.config.code:
+        out = {"trial_id": target.trial_id, "metric": imp.metric,
+               "reference": "none: generated code has no settings to revert",
+               "score": target.score, "rows": []}
+        imp.store.save_result("attribution.json", out, default=str)
+        return out
+    base = result.baseline
+    if base is not None and base.error is None and base.config.model == (
+        target.config.model
+    ):
+        reference = base.config
+        label = f"the starting pipeline (#{base.trial_id})"
+    else:
+        reference, _ = imp.space.validate(PipelineConfig(target.config.model))
+        label = f"the default settings of {target.config.model}"
+    out: dict[str, Any] = {
+        "trial_id": target.trial_id, "reference": label, "metric": imp.metric,
+        "score": target.score, "rows": [],
+    }
+    for group in ("model_params", "train_params"):
+        ref_params = getattr(reference, group)
+        for name, value in sorted(getattr(target.config, group).items()):
+            if name not in ref_params or ref_params[name] == value:
+                continue
+            reverted = PipelineConfig(
+                target.config.model, dict(target.config.model_params),
+                dict(target.config.train_params),
+            )
+            getattr(reverted, group)[name] = ref_params[name]
+            scored = score_config(imp, reverted, target.features)
+            row = {"setting": name, "from": ref_params[name], "to": value,
+                   "score_without": scored["score"],
+                   "fold_scores_without": scored["fold_scores"]}
+            if scored["fold_scores"] and target.fold_scores:
+                gain, se = paired_gain(
+                    target.fold_scores, scored["fold_scores"], imp.maximize
+                )
+                sign = 1 if imp.maximize else -1
+                better = sum(
+                    sign * (a - b) > FOLD_TIE
+                    for a, b in zip(target.fold_scores, scored["fold_scores"])
+                )
+                row.update(contribution=gain, se=se, folds_better=better)
+            else:
+                sign = 1 if imp.maximize else -1
+                row.update(contribution=sign * (target.score - scored["score"]),
+                           se=None, folds_better=None)
+            out["rows"].append(row)
+    imp.store.save_result("attribution.json", out, default=str)
+    return out
+
+
+def score_config(imp, config: PipelineConfig, features=()) -> dict[str, Any]:
+    config, _ = imp.space.validate(config)
+    out = imp._run_config(config, (), features)
+    return {"score": out["metrics"][imp.metric],
+            "fold_scores": out.get("fold_scores", [])}
+
+
+def explain_selection(
+    imp,
+    top_k: int = 10,
+    stability: bool = True,
+    max_samples: int = 2000,
+) -> dict[str, Any]:
+    """Explains how the selected model decides, in clinical terms.
+
+    The selected config is trained on the training split and its
+    predictions on training samples are attributed to the inputs
+    (:func:`~pyhealth.autoimprove.evaluation.explain.attributions`: exact TreeSHAP
+    for trees, integrated gradients for torch models). The summary
+    (:func:`~pyhealth.autoimprove.evaluation.explain.summarize`) gives:
+
+    - importance by the task card's clinical factor groups;
+    - the top features, each with its meaning and the shape of its
+      effect, in bins of at least 11 patients;
+    - each feature's learned direction, compared with the direction the
+      card expects.
+
+    With ``stability`` and ``cv_folds``, the config is also trained on
+    each fold's training part, to show how many of the top features each
+    fold model shares. With a ``run_dir`` the result is saved to
+    ``explain.json``; it holds aggregates only.
+
+    Examples:
+        >>> improver.explain()["groups"]  # doctest: +SKIP
+        [{'group': 'labs', 'share': 0.52}, {'group': 'vital signs', 'share': 0.31}, ...]
+    """
+    from .explain import attributions, summarize, top_overlap
+
+    result = imp.result()
+    if result.best is None:
+        raise ValueError("no successful trial to explain")
+    if result.best.config.code:
+        raise NotImplementedError(
+            "explain() needs the trained model in this process; the selected "
+            "trial is generated code, which is trained in its own process")
+    config = result.best.config
+    train, val = imp._datasets(result.best.features)
+    extra = {
+        s["name"]: FeatureInfo(
+            s.get("definition", s["name"]), "engineered",
+            s.get("direction", "") if s.get("direction", "") in DIRECTIONS else "",
+            rationale=s.get("rationale", ""))
+        for s in result.best.features
+    }
+
+    def ranked(model, data):
+        attrib = attributions(model, data, max_samples=max_samples)
+        names = getattr(model, "feature_names", None)
+        fields = getattr(model, "feature_layout", None)
+        by_field = {"engineered": list(extra)} if extra else None
+        if names and fields:
+            by_field, start = {}, 0
+            for entry in fields:
+                width = entry.get("width") or 0
+                by_field[entry["key"]] = list(names[start:start + width])
+                start += width
+            if "engineered" in by_field and extra:
+                by_field["engineered"] = list(extra)
+        return summarize(attrib, imp.task_card, by_field, top_k=top_k,
+                         extra=extra)
+
+    model = train_pipeline(config, imp.space, train, val, imp.metric,
+                           imp.seed, imp.device)
+    out = ranked(model, train)
+    out["trial_id"] = result.best.trial_id
+    if stability and imp.folds is not None and out["features"]:
+        tops = []
+        everything = np.arange(len(train))
+        for held_out in imp.folds:
+            part, _, part_val = fold_parts(
+                train, val, np.setdiff1d(everything, held_out).tolist(),
+                held_out.tolist())
+            fold_model = train_pipeline(config, imp.space, part, part_val,
+                                        imp.metric, imp.seed, imp.device)
+            tops.append([f["name"] for f in ranked(fold_model, part)["features"]])
+        out["stability"] = top_overlap([f["name"] for f in out["features"]], tops)
+    imp.store.save_result("explain.json", out, default=float)
+    return out

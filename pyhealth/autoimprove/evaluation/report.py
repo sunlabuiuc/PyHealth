@@ -20,6 +20,7 @@ import json
 import math
 import os
 import re
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from itertools import combinations
@@ -27,7 +28,7 @@ from typing import Any
 
 from pyhealth.tasks.task_card import DIRECTIONS, TaskCard
 
-from .space import (
+from ..search.space import (
     LADDER,
     PipelineConfig,
     SearchSpace,
@@ -35,6 +36,9 @@ from .space import (
     config_diff,
     with_xgboost,
 )
+from ..utils.store import RunStore
+from . import guardrails
+from .records import Trial
 
 EVIDENCE = {
     "measured": "a score or gain read from the trials",
@@ -178,17 +182,17 @@ def load_run(
     Examples:
         >>> load_run("runs/mortality").save("runs/mortality/report.html")  # doctest: +SKIP
     """
-    from .improver import Trial
+    from .records import Trial
+
+    store = RunStore(run_dir)
 
     def read(name, default=None):
-        path = os.path.join(run_dir, name)
-        if not os.path.exists(path):
-            return default
-        with open(path) as f:
-            return json.load(f)
+        value = store.read_json(name)
+        return default if value is None else value
 
-    with open(os.path.join(run_dir, "trials.jsonl")) as f:
-        trials = [Trial.from_dict(json.loads(line)) for line in f if line.strip()]
+    if not store.exists("trials.jsonl"):
+        raise FileNotFoundError(f"{run_dir} has no trials.jsonl")
+    trials = [Trial.from_dict(r) for r in store.read_trials()]
     settings = read("run.json", {})
     metric = metric or settings.get("metric") or (trials[0].metric_name if trials else "")
     if maximize is None:
@@ -199,7 +203,7 @@ def load_run(
     one_se = saved_one_se if one_se is None else one_se
     rule, notes = settings.get("rule", ""), []
     if not settings or one_se != saved_one_se:
-        from .improver import _rule_text
+        from .selection import _rule_text
 
         base = next((t for t in trials if t.agent == "baseline"), None)
         rule = _rule_text(promote_se, one_se, base is not None and not base.error)
@@ -294,13 +298,7 @@ def build_report(
         >>> build_report([base], metric="pr_auc").sections[0].title
         'Summary'
     """
-    from .improver import (
-        FOLD_TIE,
-        _one_se_sets,
-        paired_gain,
-        select_simplest,
-        select_trial,
-    )
+    from .selection import FOLD_TIE, _one_se_sets, paired_gain, select_simplest, select_trial
 
     space = space or with_xgboost(SearchSpace())
     if isinstance(card, dict):
@@ -508,6 +506,8 @@ def _fmt(value: Any) -> str:
 
 
 # ----------------------------------------------------------------- sections
+
+
 def _summary(ctx, test, flags, notes) -> Section:
     sel, ref, metric = ctx["selected"], ctx["reference"], ctx["metric"]
     space = ctx["space"]
@@ -632,7 +632,7 @@ def _model_section(ctx, rule, attribution, test) -> Section:
 
 
 def _trace_section(ctx, trials, lessons) -> Section:
-    from .improver import _parent_of
+    from .records import _parent_of
 
     metric, space = ctx["metric"], ctx["space"]
     blocks = []
@@ -905,7 +905,7 @@ def _confirm_section(ctx, confirmed, pruning) -> Section:
         mean = sum(scores) / len(scores)
         gain = "start"
         if t is not ref and ref_scores:
-            from .improver import paired_gain
+            from .selection import paired_gain
 
             g, se = paired_gain(scores, ref_scores, sign > 0)
             gain = _pm(g, se)
@@ -1147,6 +1147,8 @@ def _direction(code) -> str:
 
 
 # ------------------------------------------------------------------ helpers
+
+
 def _why(ctx) -> str:
     sel, top, ref, space = ctx["selected"], ctx["top"], ctx["reference"], ctx["space"]
     if not ctx["cv"]:
@@ -1410,6 +1412,8 @@ _PAGE = """<!doctype html>
 <style>
 :root {{ --ink: #1d2730; --muted: #5b6b78; --rule: #d8e0e6; --bg: #ffffff;
   --head: #f3f6f8; --accent: #0b6e69; }}
+
+
 @media (prefers-color-scheme: dark) {{ :root {{ --ink: #e2e9ee; --muted: #9fb0bc;
   --rule: #2c3a44; --bg: #121a20; --head: #1a252d; --accent: #4cc3bb; }} }}
 body {{ margin: 0 auto; max-width: 1080px; padding: 32px 16px 64px;
@@ -1432,3 +1436,128 @@ tr:last-child td {{ border-bottom: 0; }}
 {body}
 </body></html>
 """
+
+
+def flags(imp) -> list[dict[str, Any]]:
+    """Items a clinician should decide on before the model is used.
+
+    Raised from the task card and the latest :meth:`explain` and
+    :meth:`evaluate_on_test` results (kept in memory, or read from
+    ``run_dir`` when resuming a saved run): a missing task card, a top feature with no
+    entry in the card's dictionary, a learned effect opposite to the
+    expected direction, poor calibration, and a large gap between
+    subgroups. Each flag carries the decision recorded with
+    :meth:`approve`, if any.
+
+    Examples:
+        >>> for flag in improver.flags():  # doctest: +SKIP
+        ...     print(flag["id"], flag["detail"])
+        direction:spo2_min learned +, expected -
+    """
+    from .report import flags_for
+
+    review = imp.store.read_json("review.json") or {}
+    best = imp.result().best
+    suspicious = sorted({name for t in imp.trials for name in t.suspicious
+                         if best is not None and name in {
+                             s["name"] for s in best.features}})
+    return [
+        {**flag, "review": review.get(flag["id"])}
+        for flag in flags_for(imp.task_card, imp.store.read_json("explain.json"),
+                              imp.store.read_json("test.json"), suspicious,
+                              features=best.features if best else ())
+    ]
+
+
+def held_back(imp, best: Trial | None) -> set[str]:
+    """Engineered features of the selection with an open review flag."""
+    if best is None or not best.features:
+        return set()
+    names = {s["name"] for s in best.features}
+    held = set()
+    for flag in flags(imp):
+        kind, _, name = flag["id"].partition(":")
+        if (kind in ("direction", "no_rationale", "suspicion") and name in names
+                and (flag.get("review") or {}).get("decision") != "approved"):
+            held.add(name)
+    return held
+
+
+def approve(
+    imp,
+    flag_id: str,
+    reviewer: str,
+    note: str = "",
+    decision: str = "approved",
+) -> dict[str, Any]:
+    """Records a clinician's decision on a flag in ``review.json``.
+
+    Args:
+        flag_id: The ``id`` of a flag from :meth:`flags`.
+        reviewer: Who decided.
+        note: Their reasoning.
+        decision: ``"approved"`` (keep as is) or ``"rejected"`` (change
+            the model or the task before use).
+
+    Examples:
+        >>> improver.approve("direction:spo2_min", "Dr. A",  # doctest: +SKIP
+        ...                  "SpO2 is charted only when low; known artifact")
+    """
+    if not imp.run_dir:
+        raise ValueError("approve needs a run_dir to record the decision")
+    if decision not in ("approved", "rejected"):
+        raise ValueError("decision must be 'approved' or 'rejected'")
+    known = {flag["id"] for flag in flags(imp)}
+    if flag_id not in known:
+        raise ValueError(f"no flag {flag_id!r}; current flags: {sorted(known)}")
+    review = imp.store.read_json("review.json") or {}
+    review[flag_id] = {"decision": decision, "reviewer": reviewer, "note": note,
+                       "date": time.strftime("%Y-%m-%d")}
+    imp.store.write_json("review.json", review)
+    return review[flag_id]
+
+
+def write_report(imp, path: str | None = None):
+    """Writes the run's report: HTML, Markdown and JSON.
+
+    The report explains the selected model and how the search got there:
+    the model and its settings in plain words, why it was selected (the
+    selection rule, its rung on the interpretability ladder and the
+    price of choosing it over the highest-scoring candidate), what each
+    changed setting contributed (if :meth:`attribute` was run), the test
+    comparison (if :meth:`evaluate_on_test` was run), and the reasoning
+    trace: every trial with its hypothesis, change, result and verdict.
+    Statements are labelled by their evidence: measured, tested or
+    hypothesis. It holds definitions, configs and aggregate scores only.
+
+    Args:
+        path: Where to write the HTML; ``.md`` and ``.json`` files are
+            written next to it. Defaults to ``report.html`` in
+            ``run_dir``; with neither, nothing is written.
+
+    Returns:
+        The :class:`~pyhealth.autoimprove.evaluation.report.Report`.
+
+    Examples:
+        >>> improver.report("runs/mortality/report.html")  # doctest: +SKIP
+    """
+    from .report import build_report
+
+    report = build_report(
+        imp.trials, metric=imp.metric, maximize=imp.maximize,
+        promote_se=imp.promote_se, one_se=imp.one_se, space=imp.space,
+        task=imp._task, lessons=imp.lessons,
+        test=imp.store.read_json("test.json"),
+        attribution=imp.store.read_json("attribution.json"),
+        dropped_models=imp.dropped_models, rule=imp.selection_rule(),
+        card=imp.task_card, explanation=imp.store.read_json("explain.json"),
+        review=imp.store.read_json("review.json") or {},
+        confirmed=imp.confirmed, pruning=imp.store.read_json("prune.json"),
+        confirm_se=imp.confirm_se,
+        guardrails=guardrails.guardrail_summary(imp), findings=imp.findings,
+    )
+    if path is None:
+        path = imp.store.path("report.html")
+    if path is not None:
+        report.save(path)
+    return report

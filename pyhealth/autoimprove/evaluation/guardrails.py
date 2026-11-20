@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import inspect
 import math
+import os
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -34,7 +35,8 @@ from typing import Any
 
 import numpy as np
 
-from .sandbox import ContractError, check_or_raise, run_sandboxed
+from ..utils.sandbox import ContractError, SandboxError, check_or_raise, run_sandboxed
+from .records import Trial
 
 ENTRY = "evaluate"
 
@@ -206,7 +208,7 @@ def run_evaluations(
     """
     payload = {"y_true": y_true, "fold": fold, "info": info, "y_probs": list(y_probs),
                "metrics": list(spec.metrics), "checks": checks}
-    return run_sandboxed(spec.code, "pyhealth.autoimprove.guardrails:run_evaluation",
+    return run_sandboxed(spec.code, f"{__name__}:run_evaluation",
                          payload, timeout=timeout, log_path=log_path,
                          label=f"evaluation_{spec.name}")
 
@@ -408,3 +410,111 @@ def admissible_filter(
         return out
 
     return fails
+
+
+def evaluation_inputs(imp, spec, trials: Sequence[Trial]):
+    oof = imp.oof_predictions(trials[0].trial_id)
+    columns = imp._columns()
+    info = {c: columns[c][oof["index"]] for c in ["patient", *spec.needs]}
+    y_probs = [imp.oof_predictions(t.trial_id)["y_prob"] for t in trials]
+    return oof["y_true"], oof["fold"], info, y_probs
+
+
+def score_with_evaluations(imp, trial: Trial) -> None:
+    """Scores a new trial with every adopted or report-only evaluation."""
+    from .guardrails import run_evaluations
+
+    kept = [e for e in imp.evaluations if e["status"] in ("active", "report_only")]
+    oof = imp.oof_predictions(trial.trial_id)
+    if not kept or oof is None or oof["split"] != "train":
+        return
+    for e in kept:
+        spec = e["spec"]
+        try:
+            result = run_evaluations(
+                spec, *evaluation_inputs(imp, spec, [trial]), checks=False,
+                timeout=imp.eval_timeout,
+                log_path=imp.store.log_path(f"evaluation_{spec.name}"))
+        except SandboxError as err:
+            trial.notes.append(f"evaluation {spec.name} failed on this trial: "
+                               f"{err.brief}")
+            continue
+        e["scores"][trial.trial_id] = result["values"][0]
+
+
+def save_evaluations(imp) -> None:
+    if not imp.run_dir:
+        return
+    records = []
+    fails = imp.guardrail_failures()
+    for e in imp.evaluations:
+        spec = e["spec"]
+        imp.store.write_text(os.path.join("evaluations", f"{spec.name}.py"), spec.code)
+        records.append({
+            **spec.to_dict(), "status": e["status"], "reason": e["reason"],
+            "cycle": e["cycle"], "agent": e["agent"],
+            "scores": {str(k): v for k, v in e["scores"].items()},
+            "fails": {str(t): [k for k in keys if k.startswith(spec.name + ".")]
+                      for t, keys in fails.items()
+                      if any(k.startswith(spec.name + ".") for k in keys)},
+        })
+    imp.store.write_json("evaluations.json", records, default=float)
+
+
+def load_evaluations(imp) -> None:
+    """Restores a resumed run's evaluations, with their code and scores."""
+    records = imp.store.read_json("evaluations.json") or []
+    for r in records:
+        code = imp.store.read_text(f"evaluations/{r['name']}.py")
+        if code is None:
+            continue
+        spec = EvaluationSpec(r["name"], code, dict(r["metrics"]),
+                              list(r.get("needs", [])), r.get("rationale", ""),
+                              r.get("kind", ""))
+        imp.evaluations.append({
+            "spec": spec, "status": r["status"], "reason": r.get("reason", ""),
+            "cycle": r.get("cycle", -1), "agent": r.get("agent", ""),
+            "scores": {int(k): v for k, v in r.get("scores", {}).items()},
+        })
+
+
+def test_guardrails(imp, test_dataset, y_true, probs) -> dict[str, Any]:
+    """Each active guardrail's value on test, for every config scored there."""
+    from ..search.analysis import sample_columns
+    from .guardrails import run_evaluations
+
+    active = [e for e in imp.evaluations if e["status"] == "active"]
+    if not active:
+        return {}
+    columns = sample_columns(test_dataset)
+    names = list(probs)
+    out: dict[str, Any] = {}
+    for e in active:
+        spec = e["spec"]
+        info = {c: columns[c] for c in ["patient", *spec.needs] if c in columns}
+        try:
+            res = run_evaluations(spec, np.asarray(y_true),
+                                  np.zeros(len(y_true), dtype=np.int16), info,
+                                  [np.asarray(probs[n]) for n in names],
+                                  checks=False, timeout=imp.eval_timeout,
+                                  log_path=imp.store.log_path(f"test_{spec.name}"))
+        except SandboxError as err:
+            out[spec.name] = {"error": err.brief}
+            continue
+        for metric, direction in spec.metrics.items():
+            out[f"{spec.name}.{metric}"] = {
+                "direction": direction,
+                **{n: res["values"][i][0][metric] for i, n in enumerate(names)},
+            }
+    return out
+
+
+def guardrail_summary(imp) -> list[dict[str, Any]]:
+    """Each evaluation for the report: spec, status, reason, failing trials."""
+    fails = imp.guardrail_failures()
+    return [{
+        **e["spec"].to_dict(), "status": e["status"], "reason": e["reason"],
+        "fails": {t: [k for k in keys if k.startswith(e["spec"].name + ".")]
+                  for t, keys in fails.items()
+                  if any(k.startswith(e["spec"].name + ".") for k in keys)},
+    } for e in imp.evaluations]

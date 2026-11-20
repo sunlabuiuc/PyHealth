@@ -194,7 +194,7 @@ class TestGAMENetDDIMatrix(_ModelDDIMatrixMixin, _EvaluateDDIMixin, unittest.Tes
         return pyhealth.models.GAMENet(dataset, embedding_dim=16, hidden_dim=16)
 
     def test_autoimprove_score_uses_the_model_matrix(self):
-        from pyhealth.autoimprove.evaluate import score
+        from pyhealth.autoimprove.evaluation.training import score
 
         _, _, _, expected = self._expected_ddi()
         n = self.model.ddi_adj_matrix.shape[0]

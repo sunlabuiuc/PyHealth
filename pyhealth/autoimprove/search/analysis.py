@@ -37,7 +37,12 @@ from typing import Any
 
 import numpy as np
 
-from .sandbox import ContractError, check_or_raise, run_sandboxed, sample_patient_ids
+from ..utils.sandbox import (
+    ContractError,
+    check_or_raise,
+    run_sandboxed,
+    sample_patient_ids,
+)
 
 ENTRY = "analyze"
 
@@ -336,7 +341,7 @@ def run_analysis_job(
         SandboxError: If the code raised or timed out.
     """
     payload = {"columns": dict(columns), "min_count": min_count}
-    return run_sandboxed(spec.code, "pyhealth.autoimprove.analysis:run_analysis",
+    return run_sandboxed(spec.code, f"{__name__}:run_analysis",
                          payload, timeout=timeout, log_path=log_path,
                          label=f"analysis_{spec.name}")
 

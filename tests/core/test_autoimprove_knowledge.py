@@ -1,4 +1,4 @@
-"""pyhealth.autoimprove.knowledge: citation checks, curated tables, privacy, mapping."""
+"""pyhealth.autoimprove.search.knowledge: citation checks, curated tables, privacy, mapping."""
 
 import json
 import os
@@ -21,7 +21,7 @@ from pyhealth.autoimprove import (  # noqa: E402
     parse_effect,
     pubmed_query,
 )
-from pyhealth.autoimprove.knowledge import _numbers  # noqa: E402
+from pyhealth.autoimprove.search.knowledge import _numbers  # noqa: E402
 from pyhealth.tasks import TaskCard  # noqa: E402
 
 ABSTRACT = ("Children with two or more ED visits in the prior year had a higher "
