@@ -62,6 +62,7 @@ from .cardiology import CardiologyDataset
 from .chaos import CHAOSDataset as CHAOSDataset
 from .chest_imagenome import ChestImaGenomeDataset as ChestImaGenomeDataset
 from .chestxray14 import ChestXray14Dataset
+from .ham10000 import HAM10000Dataset as HAM10000Dataset
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
 from .covid19_cxr import COVID19CXRDataset
