@@ -298,6 +298,8 @@ Available Tasks
     KiTS23 Malignancy Classification <tasks/pyhealth.tasks.KiTS23MalignancyClassification>
     KiTS23 Segmentation <tasks/pyhealth.tasks.KiTS23Segmentation>
     Lab Nowcasting (MIMIC-III/IV) <tasks/pyhealth.tasks.LabNowcasting>
+    COVID-BLUES Frame Classification <tasks/pyhealth.tasks.COVIDBLUESFrameClassification>
+    COVID-BLUES Severity Classification <tasks/pyhealth.tasks.COVIDBLUESSeverityClassification>
     ICU Acuity and Therapies (MIMIC-IV) <tasks/pyhealth.tasks.ICUAcuityMIMIC4>
     Brain Tumor MRI Classification <tasks/pyhealth.tasks.BrainTumorMRIClassification>
     Cancer Mutation Burden (TCGA) <tasks/pyhealth.tasks.CancerMutationBurden>

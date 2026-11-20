@@ -580,6 +580,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `MEDS <https://medical-event-data-standard.github.io/>`__
      - —
      - EHRSHOT ships a MEDS release
+   * - :doc:`COVID-BLUES (lung ultrasound) <datasets/pyhealth.datasets.COVIDBLUESDataset>`
+     - Open, no account (CC BY-NC-ND 4.0)
+     - `GitHub <https://github.com/NinaWie/COVID-BLUES>`__
+     - No (``git clone``)
+     - —
    * - :doc:`FHIR (format) <datasets/pyhealth.datasets.FHIRDataset>`
      - Depends on source
      - `HL7 <https://www.hl7.org/fhir/>`__
@@ -641,6 +646,7 @@ Available Datasets
     datasets/pyhealth.datasets.COVID19CXRDataset
     datasets/pyhealth.datasets.ISIC2019Dataset
     datasets/pyhealth.datasets.ChestXray14Dataset
+    datasets/pyhealth.datasets.COVIDBLUESDataset
     datasets/pyhealth.datasets.ChestImaGenomeDataset
     datasets/pyhealth.datasets.HAM10000Dataset
     datasets/pyhealth.datasets.PhysioNetDeIDDataset

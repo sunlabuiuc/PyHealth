@@ -218,6 +218,12 @@ from .abide_classification import (
     ABIDEAutismClassification as ABIDEAutismClassification,
 )
 from .sleep_staging_v2 import SleepStagingSequenceSleepEDF as SleepStagingSequenceSleepEDF
+from .covid_blues_classification import (
+    COVIDBLUESFrameClassification as COVIDBLUESFrameClassification,
+)
+from .covid_blues_severity import (
+    COVIDBLUESSeverityClassification as COVIDBLUESSeverityClassification,
+)
 from .sleep_staging_v2 import SleepStagingSleepEDF
 from .sleep_staging_isruc import SleepStagingISRUC as SleepStagingISRUC
 from .sleep_staging_isruc import (
