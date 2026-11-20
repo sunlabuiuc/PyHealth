@@ -283,6 +283,7 @@ Available Tasks
     Lab Nowcasting (MIMIC-III/IV) <tasks/pyhealth.tasks.LabNowcasting>
     ICU Acuity and Therapies (MIMIC-IV) <tasks/pyhealth.tasks.ICUAcuityMIMIC4>
     Cancer Mutation Burden (TCGA) <tasks/pyhealth.tasks.CancerMutationBurden>
+    Longitudinal Liver Survival (PBC) <tasks/pyhealth.tasks.LongitudinalLiverSurvival>
     Survival Preprocessing (SUPPORT2) <tasks/pyhealth.tasks.SurvivalPreprocessSupport2>
     YAIB Tasks (MIMIC-IV) <tasks/pyhealth.tasks.yaib_mimic4>
     YAIB Tasks (MIMIC-III) <tasks/pyhealth.tasks.yaib_mimic3>

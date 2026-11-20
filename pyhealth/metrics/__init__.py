@@ -47,7 +47,11 @@ from .survival import (
     concordance_index,
     cumulative_dynamic_auc,
     ipcw_brier_score,
+    mean_tdci_bootstrap_ci,
+    mean_tdci_paired_bootstrap_diff,
+    outcomes_from_labels,
     survival_metrics_fn,
+    time_dependent_concordance_index,
 )
 from .survival_curve import (
     concordance_td,
@@ -99,11 +103,15 @@ __all__ = [
     "per_class_segmentation_metrics",
     "ranking_metrics_fn",
     "regression_metrics_fn",
+    "mean_tdci_bootstrap_ci",
+    "mean_tdci_paired_bootstrap_diff",
+    "outcomes_from_labels",
     "remap_class_mask",
     "segmentation_metrics_fn",
     "subgroup_metrics",
     "survival_curve_metrics_fn",
     "survival_metrics_fn",
+    "time_dependent_concordance_index",
     "timeseries_binary_metrics_fn",
     "timeseries_regression_metrics_fn",
 ]

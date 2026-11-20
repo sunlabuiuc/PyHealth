@@ -87,6 +87,7 @@ from .mimic4 import MIMIC4EDDataset as MIMIC4EDDataset
 from .fhir import FHIRDataset, MIMIC4FHIR
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
+from .pbcseq import PBCSeqDataset
 from .physionet_deid import PhysioNetDeIDDataset
 from .rsna_pneumonia import RSNAPneumoniaDataset as RSNAPneumoniaDataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
@@ -95,6 +96,13 @@ from .sleepedf import SleepEDFDataset
 from .bmd_hs import BMDHSDataset
 from .support2 import Support2Dataset
 from .synthea_csv import SyntheaCSVDataset as SyntheaCSVDataset
+from .synthetic_liver import (
+    MAS4_FEATURES,
+    MAS6_FEATURES,
+    create_synthetic_liver_dataset,
+    generate_synthetic_pbcseq,
+    write_synthetic_pbcseq_csv,
+)
 from .tcga_prad import TCGAPRADDataset
 from .vsac import VSACDataset as VSACDataset
 from .splitter import (

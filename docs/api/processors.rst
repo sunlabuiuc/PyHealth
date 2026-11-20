@@ -48,6 +48,8 @@ MLP and others) train on a field of that type.
 - ``TimeseriesMultiClassLabelProcessor``: One class per given time (``"timeseries_multiclass"``), values ``[ΣN]``, in the same packed format
 - ``TimeseriesMultiLabelProcessor``: A set of labels per given time (``"timeseries_multilabel"``), values ``[ΣN, K]``, in the same packed format
 - ``TimeseriesRegressionLabelProcessor``: Real-valued labels at given times (``"timeseries_regression"``), in the same packed format, with the same ``normalization`` option
+- ``SurvivalIntervalProcessor``: Counting-process survival label ``[start, stop, event]`` (``"survival_interval"``)
+- ``SurvivalLabelProcessor``: Right-censored survival label ``[duration, event]`` (``"survival"``)
 
 Each takes a required ``timeline``: the input fields on the label's timeline (their top-level times share the label's unit and origin), e.g. ``("timeseries_binary", {"timeline": ["dynamic"]})``. Other input fields hold for every label record.
 
@@ -604,6 +606,8 @@ API Reference
     processors/pyhealth.processors.TimeseriesMultiClassLabelProcessor
     processors/pyhealth.processors.TimeseriesMultiLabelProcessor
     processors/pyhealth.processors.TimeseriesRegressionLabelProcessor
+    processors/pyhealth.processors.SurvivalIntervalProcessor
+    processors/pyhealth.processors.SurvivalLabelProcessor
     processors/pyhealth.processors.ImageProcessor
     processors/pyhealth.processors.NiftiProcessor
     processors/pyhealth.processors.DicomProcessor

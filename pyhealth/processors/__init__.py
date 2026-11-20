@@ -79,6 +79,7 @@ from .ignore_processor import IgnoreProcessor
 from .temporal_timeseries_processor import TemporalTimeseriesProcessor
 from .tuple_time_text_processor import TupleTimeTextProcessor
 from .cehr_processor import CehrProcessor, ConceptVocab
+from .survival_processor import SurvivalIntervalProcessor, SurvivalLabelProcessor
 from .ethos_processor import EthosProcessor
 from .ethos_context_processor import EthosContextProcessor
 from .unified_bridge import (
@@ -148,6 +149,8 @@ __all__ = [
     "TupleTimeTextProcessor",
     "CehrProcessor",
     "ConceptVocab",
+    "SurvivalIntervalProcessor",
+    "SurvivalLabelProcessor",
     "EthosProcessor",
     "EthosContextProcessor",
 ]

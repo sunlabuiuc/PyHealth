@@ -354,6 +354,7 @@ API Reference
     models/pyhealth.models.personalized_survival_moe
     models/pyhealth.models.cet
     models/pyhealth.models.TrajSurv
+    models/pyhealth.models.MAS
     models/pyhealth.models.KnowRare
     models/pyhealth.models.APRICOTM
     models/pyhealth.models.ProtoECGNet

@@ -24,3 +24,30 @@ the censoring distribution on the evaluated data.
 .. autofunction:: cumulative_dynamic_auc
 
 .. autofunction:: survival_metrics_fn
+
+Time-dependent concordance (longitudinal predictions)
+------------------------------------------------------
+
+For models that predict at repeated visits (landmark or counting-process
+samples), the time-dependent concordance index C(t, delta_t) scores each
+patient's risk from their latest visit at or before ``t`` against events in
+``(t, t + delta_t]``, as in the MAS paper (Gao et al., MLHC 2024).
+
+.. code-block:: python
+
+    from pyhealth.metrics import (
+        mean_tdci_bootstrap_ci, outcomes_from_labels, time_dependent_concordance_index,
+    )
+
+    event_time, event = outcomes_from_labels(y_true, landmark_time, patient_id)
+    out = time_dependent_concordance_index(event_time, event, risk, landmark_time, patient_id)
+    # {'mean_tdci': ..., 'tdci': [4, 4] grid, 'n_at_risk': ..., 'n_events': ...}
+    ci = mean_tdci_bootstrap_ci(event_time, event, risk, landmark_time, patient_id)
+
+.. autofunction:: time_dependent_concordance_index
+
+.. autofunction:: outcomes_from_labels
+
+.. autofunction:: mean_tdci_bootstrap_ci
+
+.. autofunction:: mean_tdci_paired_bootstrap_diff
