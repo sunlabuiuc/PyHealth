@@ -61,7 +61,9 @@ class SearchConfig(_Section):
         workers: Trials scored at once in batched mode; above 1 they run in
             separate processes.
         instructions: A plain-text strategy from you, added to every prompt.
-        strategies: The strategies agents rotate through.
+        strategies: The strategies agents rotate through after the first
+            round (where all explore): some of ``explore``, ``refine``,
+            ``crossover``, ``contrastive``. Defaults to all four.
         seed: Seed for folds, training and sampling.
         device: Torch device; defaults to CUDA when available.
     """
@@ -70,12 +72,23 @@ class SearchConfig(_Section):
     report_metrics: list[str] = Field(default_factory=list)
     plan: list[str] | None = None
     proposals_per_round: int = Field(3, ge=1)
-    mode: Literal["batched", "sequential"] = "sequential"
+    mode: Literal["batched", "sequential"] = "batched"
     workers: int = Field(1, ge=1)
     instructions: str = ""
     strategies: list[str] | None = None
     seed: int = 0
     device: str | None = None
+
+    @field_validator("strategies")
+    @classmethod
+    def _known_strategies(cls, names):
+        from .search.prompts import STRATEGIES
+
+        unknown = [n for n in names or [] if n not in STRATEGIES]
+        if unknown or names == []:
+            raise ValueError(f"strategies must be some of {list(STRATEGIES)}; "
+                             f"got {names}")
+        return names
 
 
 class BudgetConfig(_Section):

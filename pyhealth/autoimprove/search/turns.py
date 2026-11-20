@@ -46,6 +46,22 @@ GENERATED_KINDS = ("code", "evaluation", "analysis")
 
 def model_turn(state, cycle: int, agent: str, strategy: str, kind: str = "model") -> None:
     """A model turn, or a code turn (``kind="code"``): propose, check, score."""
+    got = propose_config(state, cycle, agent, strategy, kind)
+    if got is not None:
+        config, notes = got
+        state._evaluate(config, cycle, agent, strategy, notes, features=state._accepted())
+
+
+def propose_config(state, cycle: int, agent: str, strategy: str, kind: str = "model",
+                   taken: set[str] = frozenset()):
+    """Asks one agent for a config (or code) and checks it against the space.
+
+    An invalid proposal, or one that repeats a trial or an entry of ``taken``
+    (this round's other proposals), gets one retry with feedback.
+
+    Returns:
+        ``(config, notes)``, or ``None`` when the agent made no usable one.
+    """
     feedback = ""
     accepted = state._accepted()
     propose = (state.proposer.propose_code if kind == "code"
@@ -59,14 +75,15 @@ def model_turn(state, cycle: int, agent: str, strategy: str, kind: str = "model"
             continue
         except Exception as e:  # noqa: BLE001 - an API error or refusal
             skip_turn(state, agent, cycle, e)
-            return
+            return None
         state._proposer_failures = 0
         try:
             config, notes = state.space.validate(proposal)
         except ValueError as e:
             feedback = f"your last proposal was rejected: {e}"
             continue
-        if _key(config, accepted) in context.tried:
+        key = _key(config, accepted)
+        if key in context.tried or key in taken:
             feedback = "your last proposal repeated an earlier trial"
             if notes:
                 feedback += (
@@ -75,11 +92,11 @@ def model_turn(state, cycle: int, agent: str, strategy: str, kind: str = "model"
                     + "). Stay inside the ranges listed above"
                 )
             continue
-        state._evaluate(config, cycle, agent, strategy, notes, features=accepted)
-        return
+        return config, notes
     logger.warning(
         "%s made no usable proposal in cycle %d: %s", agent, cycle, feedback
     )
+    return None
 
 
 def skip_turn(state, agent: str, cycle: int, error: Exception) -> None:
@@ -318,6 +335,7 @@ def build_context(state, agent, strategy, feedback, kind="model") -> ProposalCon
         tried_features=sorted({n for t in state.trials for n in t.added}),
         findings=list(state.findings),
         evaluations=evaluation_lines(state),
+        instructions=state.instructions,
         **(generated_context(state, kind, done) if kind in GENERATED_KINDS else {}),
     )
 
@@ -356,6 +374,42 @@ def evaluation_lines(state) -> list[str]:
             line += f"; {e['reason']}"
         lines.append(line)
     return lines
+
+
+BATCHED_KINDS = ("model", "code")
+"""Kinds of round whose proposals can be made together and scored in parallel.
+Feature rounds stay one at a time: each accepted feature changes the reference
+the next one is compared with."""
+
+
+def play_round(state, cycle: int, kind: str) -> None:
+    """Every agent's turn in one round.
+
+    Batched (``search.mode``), all agents propose from the results before the
+    round and the proposals are then scored together, ``search.workers`` at
+    a time. Sequential, each agent proposes after the previous one's trial
+    is scored.
+    """
+    agents = state.agents(cycle)
+    if not (state.batched and kind in BATCHED_KINDS):
+        for agent, strategy in agents:
+            if state.stopped():
+                break
+            take_turn(state, cycle, kind, agent, strategy)
+        return
+    accepted = state._accepted()
+    room = None if state.max_trials is None else state.max_trials - len(state.trials)
+    proposals, taken = [], set()
+    for agent, strategy in agents:
+        if state.stopped() or (room is not None and len(proposals) >= room):
+            break
+        got = propose_config(state, cycle, agent, strategy, kind, taken)
+        if got is not None:
+            config, notes = got
+            taken.add(_key(config, accepted))
+            proposals.append((agent, strategy, config, notes))
+    if proposals:
+        state.evaluate_batch(proposals, cycle, features=accepted)
 
 
 def take_turn(state, cycle: int, kind: str, agent: str, strategy: str) -> None:

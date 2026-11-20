@@ -437,7 +437,8 @@ class TestAutoImprover(unittest.TestCase):
         with self.assertLogs("pyhealth.autoimprove.state", "WARNING") as logs:
             improver = AutoImprover(
                 self.train, self.val, RunConfig(
-                    search={"proposals_per_round": 3},
+                    # the second agent sees the first one's trial in its prompt
+                    search={"proposals_per_round": 3, "mode": "sequential"},
                     budget={"rounds": 1},
                     evaluation={"cv_folds": 3, "check": False},
                 ),

@@ -422,7 +422,8 @@ class TestEngineeredDataset(unittest.TestCase):
         folds = [np.array([0, 1, 2]), np.array([3, 4, 5])]
         seen = []
 
-        def fake_fit_predict(config, space, fit_part, val_part, predict_on, *args):
+        def fake_fit_predict(config, space, fit_part, val_part, predict_on, *args,
+                             **kwargs):
             held_part = predict_on[0]
             seen.append({"fit": fit_part, "val": val_part, "held": held_part})
             n = len(held_part)

@@ -19,7 +19,7 @@ import json
 import math
 import random
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from pyhealth.datasets import SampleDataset
@@ -404,6 +404,18 @@ class SearchSpace:
     ):
         self.models = dict(DEFAULT_MODELS if models is None else models)
         self.train_params = dict(TRAIN_PARAMS if train_params is None else train_params)
+
+    def for_training(self) -> SearchSpace:
+        """A copy without what only prompts and selection read (``meaning``
+        texts, ``rung`` functions), so it can be sent to another process."""
+
+        def plain(params):
+            return {k: replace(v, meaning="") for k, v in params.items()}
+
+        models = {name: replace(spec, params=plain(spec.params),
+                                rung=spec.rung if isinstance(spec.rung, int) else 0)
+                  for name, spec in self.models.items()}
+        return SearchSpace(models, plain(self.train_params))
 
     def validate(self, config: PipelineConfig) -> tuple[PipelineConfig, list[str]]:
         """Makes a proposal valid, listing every change that was needed.

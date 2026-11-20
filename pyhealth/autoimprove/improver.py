@@ -94,8 +94,10 @@ class AutoImprover:
     def run(self) -> ImproveResult:
         """Runs the search and returns its trials and lessons.
 
-        Each round, every agent takes a turn of the round's kind (from
-        ``search.plan``); then the proposer rewrites its lessons. The search
+        Each round, every agent proposes an attempt of the round's kind (from
+        ``search.plan``) and the attempts are scored, together
+        (``search.mode: batched``) or one after another; then the proposer
+        rewrites its lessons. The search
         stops after ``budget.rounds``, after ``budget.patience`` rounds without
         progress, or when the trial or time budget runs out.
         """
@@ -104,10 +106,7 @@ class AutoImprover:
         stale = 0
         for cycle in s.rounds():
             kind = s.round_kind(cycle)
-            for agent, strategy in s.agents(cycle):
-                if s.stopped():
-                    break
-                turns.take_turn(s, cycle, kind, agent, strategy)
+            turns.play_round(s, cycle, kind)  # every agent proposes; trials scored
             if s.review(cycle, kind):
                 stale = 0
             elif kind not in turns.ADDS_NO_TRIALS:

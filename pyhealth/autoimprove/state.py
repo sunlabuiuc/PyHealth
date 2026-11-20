@@ -15,6 +15,7 @@ import logging
 import math
 import time
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from typing import Any
 
@@ -29,6 +30,7 @@ from .evaluation.guardrails import admissible_filter
 from .evaluation.records import ImproveResult, Trial, _parent_of
 from .evaluation.selection import _better, _rule_text, select_simplest, select_trial
 from .evaluation.training import (
+    EarlyStop,
     check_models,
     greater_is_better,
     patient_folds,
@@ -111,6 +113,10 @@ class RunState:
         self.maximize = greater_is_better(self.metric)
         self.report_metrics = list(search.report_metrics)
         self.n_agents = search.proposals_per_round
+        self.batched = search.mode == "batched"
+        self.workers = search.workers
+        self.instructions = search.instructions
+        self.strategies = list(search.strategies or STRATEGIES)
         self.n_cycles = budget.rounds
         self.patience = budget.patience
         self.max_trials = budget.max_trials
@@ -452,8 +458,41 @@ class RunState:
 
     def _evaluate(self, config, cycle, agent, strategy, notes=None, features=None,
                   added=None, parent=None, save=True, early_stop=True) -> Trial:
-        trial = Trial(len(self.trials), cycle, agent, strategy, config,
-                      metric_name=self.metric, notes=list(notes or []),
+        """Scores one config, with these engineered features, as a new trial."""
+        trial = self._new_trial(config, cycle, agent, strategy, notes, features, added,
+                                parent)
+        return self._record(trial, self._score(trial, early_stop=early_stop), save)
+
+    def evaluate_batch(self, proposals, cycle: int, features=None) -> list[Trial]:
+        """Scores a round's proposals, ``workers`` at a time, as new trials.
+
+        Trial ids follow the proposals' order, and each trial's parent and
+        reference are those before the round, so the result does not depend
+        on which training finishes first.
+
+        Args:
+            proposals: ``(agent, strategy, config, notes)`` tuples.
+        """
+        trials = []
+        for k, (agent, strategy, config, notes) in enumerate(proposals):
+            trial = self._new_trial(config, cycle, agent, strategy, notes, features,
+                                    trial_id=len(self.trials) + k)
+            trials.append(trial)
+        workers = min(self.workers, len(trials)) or 1
+        stop_if = self._early_stop_rule()
+        if workers == 1:
+            outcomes = [self._score(t, stop_if=stop_if) for t in trials]
+        else:
+            with ThreadPoolExecutor(workers) as pool:
+                outcomes = list(pool.map(
+                    lambda t: self._score(t, stop_if=stop_if, isolate=True), trials))
+        return [self._record(t, out) for t, out in zip(trials, outcomes)]
+
+    def _new_trial(self, config, cycle, agent, strategy, notes=None, features=None,
+                   added=None, parent=None, trial_id=None) -> Trial:
+        trial = Trial(len(self.trials) if trial_id is None else trial_id, cycle, agent,
+                      strategy, config, metric_name=self.metric,
+                      notes=list(notes or []),
                       features=[dict(s) for s in features or []],
                       added=list(added or []))
         if parent is None and agent != "baseline":
@@ -464,13 +503,27 @@ class RunState:
             )
         if config.code and self.run_dir:
             self.store.write_text(f"code/trial_{trial.trial_id}.py", config.code)
+        return trial
+
+    def _score(self, trial, early_stop=True, stop_if=None, isolate=False):
+        """Trains and scores a trial's config: the result, or the exception."""
+        if stop_if is None and early_stop:
+            stop_if = self._early_stop_rule()
         try:
-            out = self._run_config(
-                config, self.report_metrics, trial.features,
+            return self._run_config(
+                trial.config, self.report_metrics, trial.features,
                 # references (incumbent, pruned) always run every fold
-                stop_if=self._early_stop_rule() if early_stop else None,
-                label=f"trial_{trial.trial_id}",
+                stop_if=stop_if if early_stop else None,
+                label=f"trial_{trial.trial_id}", isolate=isolate,
             )
+        except Exception as e:  # noqa: BLE001 - a failed trial is feedback
+            return e
+
+    def _record(self, trial, out, save=True) -> Trial:
+        """Fills a trial in from its result (or its error) and keeps it."""
+        try:
+            if isinstance(out, Exception):
+                raise out
             trial.metrics = out["metrics"]
             trial.score = out["metrics"][self.metric]
             trial.seconds = out["seconds"]
@@ -506,15 +559,7 @@ class RunState:
                           and t.fold_scores), None)
         if self.early_stop is None or reference is None:
             return None
-        sign = 1 if self.maximize else -1
-
-        def stop(scores: list[float]) -> bool:
-            if len(scores) < 2:
-                return False
-            return all(sign * (r - x) > self.early_stop
-                       for r, x in zip(reference.fold_scores, scores))
-
-        return stop
+        return EarlyStop(reference.fold_scores, self.early_stop, self.maximize)
 
     def _context(self, agent, strategy, feedback, kind="model") -> ProposalContext:
         return turns.build_context(self, agent, strategy, feedback, kind=kind)
@@ -568,7 +613,7 @@ class RunState:
     def agents(self, cycle: int) -> list[tuple[str, str]]:
         """Each agent's name and strategy this round: all explore at first,
         then they rotate through the strategies."""
-        strategies = list(STRATEGIES)
+        strategies = self.strategies
         return [(f"agent{i}", "explore" if cycle == 0
                  else strategies[(cycle + i) % len(strategies)])
                 for i in range(self.n_agents)]
@@ -607,7 +652,7 @@ class RunState:
 
     def _run_config(
         self, config: PipelineConfig, report_metrics, features=(), stop_if=None,
-        label: str = "trial",
+        label: str = "trial", isolate: bool = False,
     ) -> dict[str, Any]:
         """Scores a config, with these engineered features, on this run's
         folds or on the validation split. ``stop_if`` applies to folds only."""
@@ -617,11 +662,12 @@ class RunState:
                 config, self.space, train, val, self.metric, self.folds,
                 report_metrics, self.seed, self.device, stop_if=stop_if,
                 timeout=self.code_timeout, log_dir=self.store.log_dir(), label=label,
+                isolate=isolate,
             )
         return run_config(
             config, self.space, train, val, self.metric, report_metrics,
             self.seed, self.device, timeout=self.code_timeout,
-            log_dir=self.store.log_dir(), label=label,
+            log_dir=self.store.log_dir(), label=label, isolate=isolate,
         )
 
 

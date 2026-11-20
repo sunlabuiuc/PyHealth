@@ -133,6 +133,7 @@ def fit_predict(
     timeout: float | None = None,
     log_dir: str | None = None,
     label: str = "trial",
+    isolate: bool = False,
 ) -> dict[str, Any]:
     """Trains a config and returns its predictions on other datasets.
 
@@ -159,13 +160,22 @@ def fit_predict(
         >>> out = fit_predict(config, space, train_ds, val_ds, [val_ds], "pr_auc")  # doctest: +SKIP
         >>> y_true, y_prob, _ = out["predictions"][0]  # doctest: +SKIP
     """
+    log_path = os.path.join(log_dir, f"{label}.log") if log_dir else None
+    if isolate and not config.code:
+        # its own process, so several trials can train at once; generated
+        # code below already runs in its own process
+        payload = {"config": config, "space": space.for_training(),
+                   "train": train_dataset, "val": val_dataset,
+                   "predict_on": list(predict_on), "metric": metric, "seed": seed,
+                   "device": device, "label": label}
+        return run_sandboxed("", f"{__name__}:run_fit_predict_job", payload,
+                             timeout=ISOLATED_TIMEOUT if timeout is None else timeout,
+                             log_path=log_path, label=label)
     if config.code:
-
         return fit_predict_code(
             config.code, train_dataset, val_dataset, predict_on, metric, seed,
             device, timeout=600.0 if timeout is None else timeout,
-            log_path=os.path.join(log_dir, f"{label}.log") if log_dir else None,
-            label=label,
+            log_path=log_path, label=label,
         )
     model = train_pipeline(config, space, train_dataset, val_dataset, metric, seed,
                            device)
@@ -309,7 +319,47 @@ def out_of_fold(
         return None
 
 
+ISOLATED_TIMEOUT = 24 * 3600.0
+"""Seconds an isolated (``workers > 1``) config trial may train per fold."""
+
+
+def run_fit_predict_job(namespace: dict[str, Any], payload: dict[str, Any]) -> dict:
+    """The child side of an isolated config trial: :func:`fit_predict`."""
+    return fit_predict(payload["config"], payload["space"], payload["train"],
+                       payload["val"], payload["predict_on"], payload["metric"],
+                       payload["seed"], payload["device"], label=payload["label"])
+
+
 # ---- patient-grouped cross-validation ---------------------------------------
+class EarlyStop:
+    """Stops a trial's folds once every fold so far trails the reference's.
+
+    A plain object rather than a closure, so it can travel to a worker.
+
+    Args:
+        reference: The reference trial's fold scores.
+        margin: How far below the reference each fold must be.
+        maximize: Whether higher scores are better.
+
+    Examples:
+        >>> EarlyStop([0.5, 0.5, 0.5], 0.1, True)([0.3, 0.3])
+        True
+        >>> EarlyStop([0.5, 0.5, 0.5], 0.1, True)([0.3])
+        False
+    """
+
+    def __init__(self, reference: Sequence[float], margin: float, maximize: bool):
+        self.reference = list(reference)
+        self.margin = margin
+        self.sign = 1 if maximize else -1
+
+    def __call__(self, scores: list[float]) -> bool:
+        if len(scores) < 2:
+            return False
+        return all(self.sign * (r - x) > self.margin
+                   for r, x in zip(self.reference, scores))
+
+
 def run_config(
     config: PipelineConfig,
     space: SearchSpace,
@@ -322,6 +372,7 @@ def run_config(
     timeout: float | None = None,
     log_dir: str | None = None,
     label: str = "trial",
+    isolate: bool = False,
 ) -> dict[str, Any]:
     """Trains a config on the training set and scores it on validation.
 
@@ -335,7 +386,7 @@ def run_config(
     """
     start = time.perf_counter()
     out = fit_predict(config, space, train_dataset, val_dataset, [val_dataset],
-                      metric, seed, device, timeout, log_dir, label)
+                      metric, seed, device, timeout, log_dir, label, isolate=isolate)
     names = list(dict.fromkeys([metric, *report_metrics]))
     y_true, y_prob, _ = out["predictions"][0]
     return {
@@ -432,6 +483,7 @@ def run_config_cv(
     timeout: float | None = None,
     log_dir: str | None = None,
     label: str = "trial",
+    isolate: bool = False,
 ) -> dict[str, Any]:
     """Scores a config by patient-grouped cross-validation on the training set.
 
@@ -479,7 +531,8 @@ def run_config_cv(
             train_dataset, val_dataset, fit_idx, held_out.tolist()
         )
         out = fit_predict(config, space, fit_part, val_part, [held_part], metric,
-                          seed, device, timeout, log_dir, f"{label}_fold{k}")
+                          seed, device, timeout, log_dir, f"{label}_fold{k}",
+                          isolate=isolate)
         y_true, y_prob, _ = out["predictions"][0]
         per_fold.append(score_predictions(y_true, y_prob, out["mode"], names,
                                           **out["metric_kwargs"]))

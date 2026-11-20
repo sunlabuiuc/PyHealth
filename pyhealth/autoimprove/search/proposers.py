@@ -352,6 +352,8 @@ class ProposalContext:
         metrics_menu: The :mod:`pyhealth.metrics` functions for the label
             kind, for evaluation turns.
         columns: Sample columns available to evaluations and analyses.
+        instructions: A plain-text strategy from the person running the
+            search, added to every prompt.
 
     Examples:
         >>> from pyhealth.autoimprove import SearchSpace
@@ -387,3 +389,4 @@ class ProposalContext:
     code_examples: Sequence[tuple[str, str]] = ()
     metrics_menu: str = ""
     columns: Sequence[str] = ()
+    instructions: str = ""

@@ -247,8 +247,11 @@ def build_feature_prompt(context: ProposalContext) -> str:
 
 
 def _shared_parts(context: ProposalContext) -> list[str]:
-    """Analysis findings and guardrails, which every kind of prompt includes."""
+    """Instructions, analysis findings and guardrails: in every kind of prompt."""
     parts = []
+    if context.instructions:
+        parts.append("Instructions from the person running this search (follow "
+                     f"them):\n{context.instructions}")
     if context.findings:
         parts.append("Findings from analyses of the training data:\n"
                      + _bullets(context.findings))
