@@ -90,6 +90,7 @@ from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
 from .physionet_deid import PhysioNetDeIDDataset
 from .rsna_pneumonia import RSNAPneumoniaDataset as RSNAPneumoniaDataset
+from .isic2020 import ISIC2020Dataset as ISIC2020Dataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
@@ -126,6 +127,7 @@ from .tuev import TUEVDataset
 from .chbmit import CHBMITDataset as CHBMITDataset
 from .helsinki_neonatal import HelsinkiNeonatalDataset as HelsinkiNeonatalDataset
 from .eesm23 import EESM23Dataset as EESM23Dataset
+from .tcga_rna_seq import TCGARNASeqDataset as TCGARNASeqDataset
 from .utils import (
     collate_fn_dict,
     collate_fn_dict_with_padding,

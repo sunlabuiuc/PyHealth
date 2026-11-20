@@ -154,15 +154,18 @@ from .generate_ehr import (
     decode_dataset,
     to_evaluation_dataframe,
 )
+from .patient_linkage import patient_linkage_mimic3_fn
+from .rsna_pneumonia_classification import (
+    RSNAPneumoniaClassification as RSNAPneumoniaClassification,
+)
 from .bcss_tile_classification import (
     BCSSTileClassification as BCSSTileClassification,
 )
 from .bcss_tissue_segmentation import (
     BCSSTissueSegmentation as BCSSTissueSegmentation,
 )
-from .patient_linkage import patient_linkage_mimic3_fn
-from .rsna_pneumonia_classification import (
-    RSNAPneumoniaClassification as RSNAPneumoniaClassification,
+from .isic2020_melanoma_classification import (
+    ISIC2020MelanomaClassification as ISIC2020MelanomaClassification,
 )
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
@@ -238,7 +241,7 @@ from .yaib_eicu import (
     YAIBMortalityEICU as YAIBMortalityEICU,
     YAIBSepsisEICU as YAIBSepsisEICU,
 )
-
+from .tcga_survival_prediction import TCGASurvivalPrediction as TCGASurvivalPrediction
 
 def __getattr__(name: str):
     if name == "MPFClinicalPredictionTask":
