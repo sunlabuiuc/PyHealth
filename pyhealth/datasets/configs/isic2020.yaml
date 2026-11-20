@@ -1,0 +1,16 @@
+version: "1.0"
+tables:
+  isic2020:
+    file_path: "isic2020-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "image_id"
+      - "path"
+      - "lesion_id"
+      - "sex"
+      - "age_approx"
+      - "anatom_site"
+      - "diagnosis"
+      - "benign_malignant"
+      - "target"
