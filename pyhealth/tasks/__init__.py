@@ -10,6 +10,7 @@ from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
 from .cardiology_detect import (
+    CardiologyDetection as CardiologyDetection,
     cardiology_isAD_fn,
     cardiology_isAR_fn,
     cardiology_isBBBFB_fn,
@@ -153,10 +154,13 @@ from .generate_ehr import (
     decode_dataset,
     to_evaluation_dataframe,
 )
-from .jichi_davis_grading import JichiDavisGrading as JichiDavisGrading
 from .patient_linkage import patient_linkage_mimic3_fn
+from .jichi_davis_grading import JichiDavisGrading as JichiDavisGrading
 from .rsna_pneumonia_classification import (
     RSNAPneumoniaClassification as RSNAPneumoniaClassification,
+)
+from .isic2020_melanoma_classification import (
+    ISIC2020MelanomaClassification as ISIC2020MelanomaClassification,
 )
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
@@ -232,7 +236,7 @@ from .yaib_eicu import (
     YAIBMortalityEICU as YAIBMortalityEICU,
     YAIBSepsisEICU as YAIBSepsisEICU,
 )
-
+from .tcga_survival_prediction import TCGASurvivalPrediction as TCGASurvivalPrediction
 
 def __getattr__(name: str):
     if name == "MPFClinicalPredictionTask":
