@@ -149,6 +149,7 @@ from .descemb import (
     simple_subword_tokenize as simple_subword_tokenize,
     simple_word_tokenize as simple_word_tokenize,
 )
+from .bulk_rna_bert import BulkRNABert as BulkRNABert
 from .dearllm import (
     DearLLM as DearLLM,
     DearLLMGraphEncoder as DearLLMGraphEncoder,

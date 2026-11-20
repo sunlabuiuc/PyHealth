@@ -589,3 +589,4 @@ Available Datasets
     datasets/pyhealth.datasets.splitter
     datasets/pyhealth.datasets.GoldTestSplit
     datasets/pyhealth.datasets.utils
+    datasets/pyhealth.datasets.TCGARNASeqDataset
