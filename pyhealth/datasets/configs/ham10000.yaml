@@ -11,3 +11,6 @@ tables:
       - "split"
       - "diagnosis"
       - "diagnosis_confirm_type"
+      - "age"
+      - "sex"
+      - "localization"

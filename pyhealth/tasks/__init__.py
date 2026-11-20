@@ -25,6 +25,9 @@ from .chestxray14_multilabel_classification import ChestXray14MultilabelClassifi
 from .ham10000_classification import (
     HAM10000Classification as HAM10000Classification,
 )
+from .ham10000_malignancy import (
+    HAM10000MalignancyClassification as HAM10000MalignancyClassification,
+)
 from .chaos_segmentation import (
     CHAOSAbdominalSegmentationCTMRI as CHAOSAbdominalSegmentationCTMRI,
     CHAOSAbdominalSegmentationMRIonly as CHAOSAbdominalSegmentationMRIonly,
