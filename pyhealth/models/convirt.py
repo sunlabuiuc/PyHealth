@@ -102,7 +102,8 @@ class _ConVIRTEncoders(nn.Module):
         ehr_dim: int,
         ehr_hidden_dim: int,
         ehr_num_layers: int,
-        cxr_backbone: str,
+        cxr_backbone: str | nn.Module,
+        cxr_feature_dim: int | None,
         augment_cxr: bool,
         cxr_mean: Sequence[float] | None,
         cxr_std: Sequence[float] | None,
@@ -112,7 +113,10 @@ class _ConVIRTEncoders(nn.Module):
             ehr_dim, ehr_hidden_dim, ehr_num_layers, batch_first=True
         )
         self._init_lstm(self.ehr_encoder)
-        self.cxr_encoder, self.cxr_dim = build_resnet(cxr_backbone)
+        if isinstance(cxr_backbone, str):
+            self.cxr_encoder, self.cxr_dim = build_resnet(cxr_backbone)
+        else:
+            self.cxr_encoder, self.cxr_dim = cxr_backbone, cxr_feature_dim
         self.ehr_dim = ehr_hidden_dim
         self.augmentation = _SimCLRAugmentation() if augment_cxr else None
         self.register_buffer(
@@ -196,7 +200,13 @@ class ConVIRT(BaseModel):
         ehr_num_layers: Number of LSTM layers.
         projection_dim: Size of the embeddings the loss compares.
         temperature: Temperature of the InfoNCE loss.
-        cxr_backbone: ``"resnet18"``, ``"resnet34"`` or ``"resnet50"``.
+        cxr_backbone: ``"resnet18"``, ``"resnet34"`` or ``"resnet50"`` for an
+            untrained ResNet, or a module that maps the image input to
+            ``[batch, cxr_feature_dim]``. Pass ``nn.Identity()`` to feed
+            precomputed image embeddings (e.g. frozen MedSigLIP, 1,152 values)
+            under ``cxr_feature_key``. A module is used as given, so freeze
+            it beforehand if it should not train.
+        cxr_feature_dim: Output size of ``cxr_backbone`` when it is a module.
         augment_cxr: Whether to augment images in training mode, with the
             SimCLRv2-style transforms of MedMod.
         cxr_mean: Mean the images were normalized with, to undo before
@@ -239,7 +249,8 @@ class ConVIRT(BaseModel):
         ehr_num_layers: int = 1,
         projection_dim: int = 128,
         temperature: float = 0.01,
-        cxr_backbone: str = "resnet34",
+        cxr_backbone: str | nn.Module = "resnet34",
+        cxr_feature_dim: int | None = None,
         augment_cxr: bool = False,
         cxr_mean: Sequence[float] | None = None,
         cxr_std: Sequence[float] | None = None,
@@ -247,6 +258,11 @@ class ConVIRT(BaseModel):
         super().__init__(dataset=dataset)
         if temperature <= 0:
             raise ValueError("temperature must be positive.")
+        if not isinstance(cxr_backbone, str):
+            if cxr_feature_dim is None:
+                raise ValueError("cxr_feature_dim is required for a module.")
+            if augment_cxr or cxr_mean is not None:
+                raise ValueError("Augmentation and un-normalization need images.")
         if (cxr_mean is None) != (cxr_std is None):
             raise ValueError("Pass both cxr_mean and cxr_std, or neither.")
         if ehr_feature_key not in self.feature_keys:
@@ -263,6 +279,7 @@ class ConVIRT(BaseModel):
             ehr_hidden_dim,
             ehr_num_layers,
             cxr_backbone,
+            cxr_feature_dim,
             augment_cxr,
             cxr_mean,
             cxr_std,

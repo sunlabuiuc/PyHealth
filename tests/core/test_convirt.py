@@ -1,6 +1,7 @@
 import unittest
 
 import torch
+from torch import nn
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import ConVIRT, ConVIRTLinearProbe
@@ -86,6 +87,16 @@ class TestConVIRT(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.dataset = _dataset()
         cls.batch = next(iter(get_dataloader(cls.dataset, batch_size=8)))
+
+    def test_precomputed_image_embeddings(self) -> None:
+        model = _convirt(self.dataset, cxr_backbone=nn.Identity(), cxr_feature_dim=10)
+        batch = dict(self.batch, cxr=torch.randn(8, 10))
+        self.assertTrue(torch.isfinite(model(**batch)["loss"]))
+        self.assertEqual(model.cxr_head[0].in_features, 10)
+        probe = ConVIRTLinearProbe(self.dataset, model)
+        self.assertEqual(probe.linear.in_features, HIDDEN + 10)
+        with self.assertRaises(ValueError):
+            _convirt(self.dataset, cxr_backbone=nn.Identity())
 
     def test_forward_outputs(self) -> None:
         output = _convirt(self.dataset)(**self.batch)
