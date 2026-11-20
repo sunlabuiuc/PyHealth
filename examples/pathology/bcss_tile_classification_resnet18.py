@@ -26,7 +26,6 @@ import numpy as np
 from pyhealth.datasets import BCSSDataset, PatientSplit, get_dataloader
 from pyhealth.datasets.bcss import BCSS_MAIN_CLASSES
 from pyhealth.models import TorchvisionModel
-from pyhealth.tasks import BCSSTileClassification
 from pyhealth.trainer import Trainer
 
 
@@ -90,12 +89,7 @@ if __name__ == "__main__":
         if args.split == "official"
         else PatientSplit((0.5, 0.25, 0.25), seed=0)
     )
-    parts = dataset.set_task(
-        BCSSTileClassification(
-            classes=dataset.default_task.classes, image_size=args.tile_size
-        ),
-        split=split,
-    )
+    parts = dataset.set_task(dataset.default_task, split=split)
     train, val, test = (cap(p, args.max_samples) for p in parts)
     print(f"train/val/test tiles: {len(train)}/{len(val)}/{len(test)}")
 

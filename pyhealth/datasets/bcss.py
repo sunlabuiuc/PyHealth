@@ -199,46 +199,14 @@ class BCSSDataset(BaseDataset):
 
     Getting the data:
         - Source: https://github.com/PathologyDataScience/BCSS (README with
-          the download links). Paper: Amgad et al., Bioinformatics 2019
-          (see Citation below).
-        - Access: open. No account, registration or data-use agreement.
-        - Download, option A (what this loader was tested on): the public
-          Google Drive folder linked under "Download (single link -
-          convenient)" in the README,
-          https://drive.google.com/drive/folders/1zqbdkQF8i5cEmZOGmbdQm-EP8dRYtvss
-          (0.25 MPP). It holds four folders: ``masks/`` and
-          ``rgbs_colorNormalized/`` (151 PNGs each), ``meta/`` and
-          ``logs/``. Download ``masks/`` and ``rgbs_colorNormalized/``
-          (``meta/`` is optional) from the browser: right-click each folder,
-          choose "Download", and unzip the archives Drive produces (large
-          folders arrive as several ``.zip`` parts; unzip all of them into
-          the same folder). The total size is not shown on the source page.
-          ``gdown --folder`` stops at 50 files per folder, so it does not
-          fetch the full release.
-        - Download, option B: the command-line script from the same README,
-          which pulls the ROIs from the public Digital Slide Archive and
-          writes raw (not stain-normalised) RGBs to ``images/``::
-
-              git clone https://github.com/PathologyDataScience/BCSS
-              cd BCSS
-              pip install girder_client pillow numpy scikit-image imageio
-              python download_crowdsource_dataset.py   # SAVEPATH in configs.py
-
-          Point ``root`` at ``SAVEPATH``; the loader then uses ``images/``.
-        - ``root`` layout (mask and RGB file names must match one to one;
-          a missing partner raises ``FileNotFoundError``)::
-
-              <root>/
-                  masks/
-                      TCGA-A1-A0SK-DX1_xmin45749_ymin25055_MPP-0.2500.png
-                      ...                                  # 151 masks
-                  rgbs_colorNormalized/                    # or images/
-                      TCGA-A1-A0SK-DX1_xmin45749_ymin25055_MPP-0.2500.png
-                      ...                                  # 151 RGBs
-                  meta/gtruth_codes.tsv                    # optional
-
-          Tiles are written to the PyHealth cache (or ``metadata_dir``),
-          never into ``root``.
+          the download links); open access, no account or data-use
+          agreement; data under CC0 1.0.
+        - ``root`` must hold ``masks/`` and ``rgbs_colorNormalized/`` (or
+          ``images/``) with one-to-one matching PNG names, and optionally
+          ``meta/gtruth_codes.tsv``.
+        - Full download steps (Google Drive folder or the README's
+          command-line script) and the exact layout are on the docs page,
+          ``docs/api/datasets/pyhealth.datasets.BCSSDataset.rst``.
 
     Licence:
         Data: CC0 1.0 (public domain, no NC or ND terms;
@@ -585,7 +553,8 @@ class BCSSDataset(BaseDataset):
 
         Returns:
             A :class:`~pyhealth.tasks.BCSSTileClassification` over this
-            dataset's ``class_codes``.
+            dataset's ``class_codes``, with ``image_size`` set to this
+            dataset's ``tile_size`` so tiles are not resized.
 
         Examples:
             >>> ds = BCSSDataset(root="/data/bcss")  # doctest: +SKIP
@@ -595,5 +564,6 @@ class BCSSDataset(BaseDataset):
         from ..tasks.bcss_tile_classification import BCSSTileClassification
 
         return BCSSTileClassification(
-            classes=[BCSS_CLASS_CODES[c] for c in self.class_codes]
+            classes=[BCSS_CLASS_CODES[c] for c in self.class_codes],
+            image_size=self.tile_size,
         )

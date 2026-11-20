@@ -74,6 +74,8 @@ class TestBCSSDataset(unittest.TestCase):
         test_events = ds.get_patient("TCGA-E2-CCCC").get_events(event_type="bcss")
         self.assertEqual({e.split for e in test_events}, {"test"})
         self.assertFalse(any("tiles" in p.name for p in self.root.iterdir()))
+        # The default task keeps the recipe's tile size (no silent resize).
+        self.assertEqual(ds.default_task.image_size, 4)
 
     def test_purity_and_stride_change_recipe(self):
         write_fixture(self.root)
