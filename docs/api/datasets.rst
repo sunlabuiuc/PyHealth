@@ -410,6 +410,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `Kaggle <https://www.kaggle.com/datasets/tawsifurrahman/covid19-radiography-database>`__
      - No
      - —
+   * - :doc:`ISIC 2020 (SIIM-ISIC melanoma) <datasets/pyhealth.datasets.ISIC2020Dataset>`
+     - Open (CC BY-NC 4.0)
+     - `ISIC <https://challenge2020.isic-archive.com/>`__
+     - Yes
+     - —
    * - :doc:`Medical Transcriptions <datasets/pyhealth.datasets.MedicalTranscriptionsDataset>`
      - Open (Kaggle account)
      - `Kaggle <https://www.kaggle.com/datasets/tboyle10/medicaltranscriptions>`__
@@ -475,11 +480,6 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `NIH <https://nihcc.app.box.com/v/ChestXray-NIHCC>`__
      - Yes
      - —
-   * - :doc:`HAM10000 (ISIC 2018 Task 3) <datasets/pyhealth.datasets.HAM10000Dataset>`
-     - Open (CC BY-NC 4.0)
-     - `ISIC <https://challenge.isic-archive.com/data/#2018>`__
-     - Yes
-     - —
    * - :doc:`Medical Segmentation Decathlon <datasets/pyhealth.datasets.MSDSegmentationDataset>`
      - Open
      - `MSD <http://medicaldecathlon.com/>`__
@@ -489,6 +489,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - Open
      - `GitHub <https://github.com/sani002/BMD-HS-Dataset>`__
      - No
+     - —
+   * - :doc:`HAM10000 (ISIC 2018 Task 3) <datasets/pyhealth.datasets.HAM10000Dataset>`
+     - Open (CC BY-NC 4.0)
+     - `ISIC <https://challenge.isic-archive.com/data/#2018>`__
+     - Yes
      - —
    * - :doc:`SUPPORT2 <datasets/pyhealth.datasets.Support2Dataset>`
      - Open
@@ -547,6 +552,7 @@ Available Datasets
     datasets/pyhealth.datasets.MSDSpleenDataset
     datasets/pyhealth.datasets.CHAOSDataset
     datasets/pyhealth.datasets.RSNAPneumoniaDataset
+    datasets/pyhealth.datasets.ISIC2020Dataset
     datasets/pyhealth.datasets.MIMIC3Dataset
     datasets/pyhealth.datasets.MIMIC4Dataset
     datasets/pyhealth.datasets.MIMIC4EHRDataset
@@ -576,8 +582,8 @@ Available Datasets
     datasets/pyhealth.datasets.BMDHSDataset
     datasets/pyhealth.datasets.COVID19CXRDataset
     datasets/pyhealth.datasets.ChestXray14Dataset
-    datasets/pyhealth.datasets.HAM10000Dataset
     datasets/pyhealth.datasets.ChestImaGenomeDataset
+    datasets/pyhealth.datasets.HAM10000Dataset
     datasets/pyhealth.datasets.PhysioNetDeIDDataset
     datasets/pyhealth.datasets.EEGBCIDataset
     PTB-XL Dataset <datasets/pyhealth.datasets.PTBXLDataset>
@@ -595,3 +601,4 @@ Available Datasets
     datasets/pyhealth.datasets.splitter
     datasets/pyhealth.datasets.GoldTestSplit
     datasets/pyhealth.datasets.utils
+    datasets/pyhealth.datasets.TCGARNASeqDataset
