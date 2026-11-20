@@ -555,6 +555,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `OHDSI <https://www.ohdsi.org/data-standardization/>`__
      - —
      - `MIMIC-IV demo in OMOP <https://physionet.org/content/mimic-iv-demo-omop/0.9/>`__
+   * - :doc:`ABIDE I (PCP connectivity) <datasets/pyhealth.datasets.ABIDEDataset>`
+     - Open, no account (CC BY-NC-SA 3.0)
+     - `PCP / S3 <http://preprocessed-connectomes-project.org/abide/download.html>`__
+     - Yes
+     - ``max_subjects`` partial download
    * - :doc:`MEDS (format) <datasets/pyhealth.datasets.MEDSDataset>`
      - Depends on source
      - `MEDS <https://medical-event-data-standard.github.io/>`__
@@ -592,6 +597,7 @@ Available Datasets
     datasets/pyhealth.datasets.MIMIC4EHRDataset
     datasets/pyhealth.datasets.MIMIC4NoteDataset
     datasets/pyhealth.datasets.MIMIC4CXRDataset
+    datasets/pyhealth.datasets.ABIDEDataset
     datasets/pyhealth.datasets.MIMIC4EDDataset
     datasets/pyhealth.datasets.MIMIC4ImaGenomeDataset
     datasets/pyhealth.datasets.FHIRDataset

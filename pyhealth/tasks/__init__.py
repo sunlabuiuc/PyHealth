@@ -198,6 +198,9 @@ from .sleep_staging import (
     sleep_staging_shhs_fn,
     sleep_staging_sleepedf_fn,
 )
+from .abide_classification import (
+    ABIDEAutismClassification as ABIDEAutismClassification,
+)
 from .sleep_staging_v2 import SleepStagingSequenceSleepEDF as SleepStagingSequenceSleepEDF
 from .sleep_staging_v2 import SleepStagingSleepEDF
 from .sleep_staging_isruc import SleepStagingISRUC as SleepStagingISRUC
