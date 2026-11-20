@@ -50,7 +50,7 @@ from .search.space import (
     describe_search,
     space_fingerprint,
 )
-from .search.turns import GENERATED_KINDS, TURN_KINDS
+from .search.turns import PLAN_KINDS
 from .utils.data import (
     _label_mode,
     _positive_count,
@@ -166,6 +166,15 @@ class RunState:
                 f"{self.metric}_sd is the spread between folds."
             )
         self.task = task
+        self.guardrails_enabled = cfg.guardrails.enabled
+        self.guardrail_every = cfg.guardrails.every
+        self.guardrail_turns = cfg.guardrails.turns
+        self.analysis_enabled = cfg.analysis.enabled
+        self.analysis_every = cfg.analysis.every
+        self.analysis_turns = cfg.analysis.turns
+        if self.guardrails_enabled and not cv_folds:
+            raise ValueError("guardrails need evaluation.cv_folds: they compare "
+                             "trials fold by fold")
         self.cycle_plan = self._plan(search.plan)
         self.code_timeout = cfg.code.timeout
         self.eval_timeout = cfg.guardrails.timeout
@@ -181,7 +190,9 @@ class RunState:
         self._fingerprint = space_fingerprint(self.space, train_dataset)
         if features is not None:
             self._fingerprint += "-features"
-        generated = sorted(set(self.cycle_plan) & set(GENERATED_KINDS))
+        generated = sorted({"code"} & set(self.cycle_plan)
+                           | ({"evaluation"} if self.guardrails_enabled else set())
+                           | ({"analysis"} if self.analysis_enabled else set()))
         if generated:
             self._fingerprint += "-" + "-".join(generated)
         self._settings = self._run_settings()
@@ -196,15 +207,17 @@ class RunState:
                 return ("features",)
             return ("features", "features", "model")
         plan = tuple(plan)
-        unknown = [k for k in plan if k not in TURN_KINDS]
+        tools = [k for k in plan if k in ("evaluation", "analysis")]
+        if tools:
+            raise ValueError(
+                f"{tools} are not kinds of round: enable them with "
+                "guardrails.enabled / analysis.enabled instead")
+        unknown = [k for k in plan if k not in PLAN_KINDS]
         if not plan or unknown:
-            raise ValueError(f"search.plan needs kinds from {list(TURN_KINDS)}; "
+            raise ValueError(f"search.plan needs kinds from {list(PLAN_KINDS)}; "
                              f"got {list(plan)}")
         if "features" in plan and self.features is None:
             raise ValueError('a "features" round needs features=FeatureSpace(...)')
-        if "evaluation" in plan and not self.cv_folds:
-            raise ValueError('an "evaluation" round needs evaluation.cv_folds: '
-                             "guardrails compare trials fold by fold")
         return plan
 
     def _check_models(self) -> None:

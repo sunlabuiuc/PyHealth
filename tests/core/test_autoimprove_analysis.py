@@ -161,9 +161,11 @@ class TestAnalysisTurns(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             improver = AutoImprover(
                 train, val, RunConfig(
-                    search={"proposals_per_round": 1, "plan": ("analysis",)},
+                    # an analysis before the round; this proposer makes no models
+                    search={"proposals_per_round": 1},
                     budget={"rounds": 1},
                     evaluation={"cv_folds": 2, "check": False},
+                    analysis={"enabled": True},
                     output={"run_dir": tmp},
                     baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
                 ),

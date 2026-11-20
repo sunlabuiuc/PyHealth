@@ -52,7 +52,8 @@ class SearchConfig(_Section):
         report_metrics: Other metrics recorded for every trial.
         plan: Kinds of round, repeated in order: ``model`` (a config from the
             search space), ``features`` (engineered inputs) and ``code`` (a
-            model the proposer writes). Defaults to ``[model]``, or two
+            model the proposer writes). Evaluations and analyses are not
+            rounds: see the ``guardrails`` and ``analysis`` sections. Defaults to ``[model]``, or two
             feature rounds then a model round when a FeatureSpace is given.
         proposals_per_round: How many agents propose in each round.
         mode: ``batched``: all of a round's proposals are made from the
@@ -241,16 +242,45 @@ class CodeConfig(_Section):
 
 
 class GuardrailConfig(_Section):
-    """Evaluations the proposer writes, adopted as guardrails."""
+    """Evaluations the proposer writes, adopted as guardrails.
 
+    Attributes:
+        enabled: After rounds, the proposer writes new ways to score
+            predictions; one that passes the checks becomes a guardrail, which
+            removes candidates clearly worse than the baseline on it. Needs
+            ``evaluation.cv_folds``.
+        every: Propose evaluations after every this many rounds.
+        turns: Evaluations proposed each time.
+        max: Most guardrails active at once; more are kept for the report.
+        se: Standard errors by which a trial must be worse than the baseline
+            on a guardrail to be removed.
+        timeout: Seconds one evaluation may take.
+    """
+
+    enabled: bool = False
+    every: int = Field(1, ge=1)
+    turns: int = Field(1, ge=1)
     max: int = 3
     se: float = 1.0
     timeout: float = 300.0
 
 
 class AnalysisConfig(_Section):
-    """Analyses of the training data the proposer writes."""
+    """Analyses of the training data the proposer writes.
 
+    Attributes:
+        enabled: Before rounds, the proposer asks a question of the training
+            data in code; only aggregate tables (groups under 11 patients
+            withheld) come back, and its findings go into later prompts.
+        every: Run analyses before every this many rounds, starting with the
+            first.
+        turns: Analyses each time.
+        max_findings: Most findings kept for prompts.
+    """
+
+    enabled: bool = False
+    every: int = Field(1, ge=1)
+    turns: int = Field(1, ge=1)
     max_findings: int = 12
 
 

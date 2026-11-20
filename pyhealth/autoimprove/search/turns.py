@@ -36,8 +36,8 @@ MAX_PROPOSER_FAILURES = 3
 """Proposer errors in a row (API errors, refusals) before a run stops."""
 
 
-TURN_KINDS = ("model", "features", "code", "evaluation", "analysis")
-"""The kinds of turn a ``cycle_plan`` can list."""
+PLAN_KINDS = ("model", "features", "code")
+"""The kinds of round a ``search.plan`` can list."""
 
 
 GENERATED_KINDS = ("code", "evaluation", "analysis")
@@ -416,13 +416,26 @@ def take_turn(state, cycle: int, kind: str, agent: str, strategy: str) -> None:
     """One agent's turn in a round of this kind."""
     if kind == "features":
         feature_turn(state, cycle, agent, strategy)
-    elif kind == "evaluation":
-        evaluation_turn(state, cycle, agent)
-    elif kind == "analysis":
-        analysis_turn(state, cycle, agent)
     else:  # "model" or "code"
         model_turn(state, cycle, agent, strategy, kind=kind)
 
 
-ADDS_NO_TRIALS = ("evaluation", "analysis")
-"""Kinds of round that add no trials, so they don't count towards patience."""
+def before_round(state, cycle: int) -> None:
+    """Analyses of the training data, when enabled, before every
+    ``analysis.every``-th round: their findings reach this round's prompts."""
+    if state.analysis_enabled and cycle % state.analysis_every == 0:
+        for agent, _ in state.agents(cycle)[:state.analysis_turns]:
+            if state.stopped():
+                return
+            analysis_turn(state, cycle, agent)
+
+
+def after_round(state, cycle: int) -> None:
+    """New evaluations, when enabled, after every ``guardrails.every``-th
+    round; each one is scored on every trial so far and may become a
+    guardrail."""
+    if state.guardrails_enabled and (cycle + 1) % state.guardrail_every == 0:
+        for agent, _ in state.agents(cycle)[:state.guardrail_turns]:
+            if state.stopped():
+                return
+            evaluation_turn(state, cycle, agent)

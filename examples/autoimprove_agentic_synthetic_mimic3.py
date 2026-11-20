@@ -1,18 +1,19 @@
 """Let an LLM write models, evaluations and data analyses with AutoImprover.
 
-Starts from a plain RNN on mortality prediction and runs four kinds of turn,
-in a repeating cycle:
+Starts from a plain RNN on mortality prediction. Two kinds of round, and two
+tools around them:
 
-- analysis: the LLM asks a question of the training data; the answer comes
-  back as aggregate tables with groups under 11 patients withheld, and its
-  findings go into every later prompt;
-- model: the LLM picks a model and settings from the search space;
-- code: the LLM writes its own BaseModel and training loop, which runs in its
-  own process and is scored on the same folds as every other attempt;
-- evaluation: the LLM writes a new way to score predictions (calibration, a
-  subgroup, alert yield...), usually with pyhealth.metrics; if it passes the
-  checks it becomes a guardrail, and attempts clearly worse than the starting
-  model on it can't be selected.
+- analysis (before the first round): the LLM asks a question of the training
+  data; the answer comes back as aggregate tables with groups under 11
+  patients withheld, and its findings go into every later prompt;
+- a model round: the LLM picks a model and settings from the search space;
+- a code round: the LLM writes its own BaseModel and training loop, which
+  runs in its own process and is scored on the same folds as every other
+  attempt;
+- evaluation (after the rounds): the LLM writes a new way to score
+  predictions (calibration, a subgroup, alert yield...), usually with
+  pyhealth.metrics; if it passes the checks it becomes a guardrail, and
+  attempts clearly worse than the starting model on it can't be selected.
 
 Generated code runs in a separate process with a time limit, no network and
 no credentials, after a static import check. That guards against mistakes,

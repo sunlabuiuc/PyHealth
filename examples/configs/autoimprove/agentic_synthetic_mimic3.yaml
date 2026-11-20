@@ -1,13 +1,14 @@
-# Settings for examples/autoimprove_agentic_synthetic_mimic3.py: the LLM asks
-# questions of the training data, picks configs, writes models and writes new
-# evaluations, in that order, once per pass through the plan.
+# Settings for examples/autoimprove_agentic_synthetic_mimic3.py. Before the
+# first round the LLM asks a question of the training data; then it picks
+# configs (a model round) and writes its own models (a code round); after them
+# it writes a new evaluation, which may become a guardrail.
 search:
   metric: roc_auc
-  plan: [analysis, model, code, evaluation]
+  plan: [model, code]
   proposals_per_round: 2
 budget:
-  rounds: 4                   # one pass through the plan
-  patience: 4
+  rounds: 2                   # one model round, one code round
+  patience: 2
 baseline:
   model: RNN
   model_params: {hidden_dim: 128}
@@ -17,5 +18,11 @@ proposer:
   backend: claude
 evaluation:
   cv_folds: 3                 # guardrails compare trials fold by fold
+analysis:
+  enabled: true
+  every: 2                    # before rounds 1, 3, ...
+guardrails:
+  enabled: true
+  every: 2                    # after rounds 2, 4, ...
 code:
   timeout: 900                # seconds per training of generated code

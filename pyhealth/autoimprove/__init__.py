@@ -60,7 +60,7 @@ from .search.space import (
     config_diff,
     with_xgboost,
 )
-from .search.turns import TURN_KINDS
+from .search.turns import PLAN_KINDS
 from .utils.data import describe_error
 from .utils.llm import LLM, ClaudeLLM, GeminiLLM, OpenAILLM
 from .utils.sandbox import SandboxError, run_sandboxed, static_check
@@ -74,7 +74,6 @@ __all__ = [
     "LLM",
     "STRATEGIES",
     "TRAIN_PARAMS",
-    "TURN_KINDS",
     "AnalysisSpec",
     "AutoImprover",
     "EvaluationSpec",
@@ -104,6 +103,7 @@ __all__ = [
     "Param",
     "PipelineConfig",
     "Proposer",
+    "PLAN_KINDS",
     "ProposerExhausted",
     "RunConfig",
     "QueueProposer",

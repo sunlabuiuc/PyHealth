@@ -106,11 +106,10 @@ class AutoImprover:
         stale = 0
         for cycle in s.rounds():
             kind = s.round_kind(cycle)
+            turns.before_round(s, cycle)  # analyses of the data, if enabled
             turns.play_round(s, cycle, kind)  # every agent proposes; trials scored
-            if s.review(cycle, kind):
-                stale = 0
-            elif kind not in turns.ADDS_NO_TRIALS:
-                stale += 1
+            turns.after_round(s, cycle)  # new evaluations as guardrails, if enabled
+            stale = 0 if s.review(cycle, kind) else stale + 1
             if stale >= s.patience or s.stopped():
                 break
         s.finish()  # confirm and prune, if the config asks

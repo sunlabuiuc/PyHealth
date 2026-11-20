@@ -197,9 +197,11 @@ class TestGuardrailsInARun(unittest.TestCase):
     def improver(self, tmp, proposer):
         return AutoImprover(
             self.train, self.val, RunConfig(
-                search={"proposals_per_round": 2, "plan": ("model", "evaluation")},
-                budget={"rounds": 2, "patience": 5},
+                # one model round, then two evaluations proposed after it
+                search={"proposals_per_round": 2},
+                budget={"rounds": 1, "patience": 5},
                 evaluation={"cv_folds": 3, "check": False},
+                guardrails={"enabled": True, "turns": 2},
                 output={"run_dir": tmp},
                 baseline=PipelineConfig("MLP", {"embedding_dim": 16, "hidden_dim": 16}),
             ),
@@ -256,12 +258,20 @@ class TestGuardrailsInARun(unittest.TestCase):
             self.assertIn("best", out["guardrails"]["calibration.abs_shift"])
             self.assertIn("baseline", out["guardrails"]["calibration.abs_shift"])
 
-    def test_evaluation_cycles_need_cross_validation(self):
+    def test_guardrails_need_cross_validation(self):
         with self.assertRaisesRegex(ValueError, "cv_folds"):
             AutoImprover(
                 self.train, self.val, RunConfig(
-                    search={"plan": ("model", "evaluation")},
+                    guardrails={"enabled": True},
                     evaluation={"check": False},
+                ),
+                proposer=GuardrailProposer([]), space=SPACE,
+            )
+        with self.assertRaisesRegex(ValueError, "guardrails.enabled"):
+            AutoImprover(
+                self.train, self.val, RunConfig(
+                    search={"plan": ("model", "evaluation")},
+                    evaluation={"cv_folds": 3, "check": False},
                 ),
                 proposer=GuardrailProposer([]), space=SPACE,
             )
