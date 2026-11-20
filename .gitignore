@@ -3,6 +3,7 @@ Dockerfile
 Dockerfile.local
 *DS_Store*
 *output*
+!/pyhealth/benchmarks/cpbench/shared/model_outputs.py
 resource*
 
 debug_entry*

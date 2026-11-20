@@ -163,9 +163,7 @@ class TestEvaluationFromDict(unittest.TestCase):
     def test_reexport_path_uses_defining_module(self):
         ev = Evaluation.from_dict({"c": {"__type__": "json.JSONDecoder"}})
         self.assertEqual(ev, Evaluation({"c": json.decoder.JSONDecoder}))
-        self.assertEqual(
-            ev.to_dict(), {"c": {"__type__": "json.decoder.JSONDecoder"}}
-        )
+        self.assertEqual(ev.to_dict(), {"c": {"__type__": "json.decoder.JSONDecoder"}})
 
     def test_unresolvable_path_raises(self):
         for path in ["json.NoSuchThing", "no_such_module_xyz.Thing", ""]:
@@ -243,15 +241,18 @@ class TestBenchmark(unittest.TestCase):
             def _evaluate(self, evaluations, cache_dir, output_dir):
                 results = {}
                 for ev in evaluations:
-                    path = output_dir / f"{ev.id}.pt"
+                    cache_dir.mkdir(parents=True, exist_ok=True)
+                    path = cache_dir / f"{ev.id}.pt"
                     path.write_text("weights")
                     results[ev] = Result("success", {}, artifact=path)
                 return results
 
         ev = Evaluation({"x": 1})
         with tempfile.TemporaryDirectory() as tmp:
-            result = Checkpointing().evaluate([ev], output_dir=Path(tmp))[ev]
-            self.assertEqual(result.artifact, Path(tmp) / f"{ev.id}.pt")
+            result = Checkpointing().evaluate(
+                [ev], cache_dir=Path(tmp) / "cache", output_dir=Path(tmp) / "run"
+            )[ev]
+            self.assertEqual(result.artifact, Path(tmp) / "cache" / f"{ev.id}.pt")
             self.assertTrue(result.artifact.exists())
 
     def test_mixed_success_and_failure_returned(self):
