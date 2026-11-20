@@ -482,31 +482,63 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
     logger.info(f"Worker {worker_id} finished processing samples.")
 
 
-def _compute_divisions_locally(df: dd.DataFrame, num_workers: int) -> None:
-    """Computes a dataframe's divisions with dask's local threaded scheduler.
+def _precompute_sort_divisions(df: dd.DataFrame, num_workers: int) -> None:
+    """Computes a sorted frame's divisions up front on Python 3.11.
 
     Before Python 3.12, ``functools.cached_property`` holds one lock per
     attribute that is shared by every instance. Dask computes the divisions of
     a sorted frame inside such a property, so asking the distributed client
-    for them deadlocks: the scheduler thread needs the same lock to build the
-    graph. The local threaded scheduler builds the graph in the calling thread,
-    where the lock is reentrant. Later calls reuse the cached divisions. On
-    Python 3.12 and newer this does nothing.
+    for them deadlocks: the main thread holds the lock while it waits for the
+    result, and the scheduler thread needs the same lock to build the graph.
+
+    This computes the divisions on the active client before any such property
+    is entered, using the same helper as ``SortValues``. The result lands in
+    dask's divisions cache, which the sort reads later instead of recomputing.
+    The work runs on the cluster's workers, with their memory limits and
+    spilling, as it does on Python 3.12+. On Python 3.12 and newer this does
+    nothing.
+
+    If dask's internals differ from what this expects, it falls back to the
+    local threaded scheduler with task-based shuffles. That path computes the
+    whole frame in the calling process, so it needs more memory.
 
     Args:
         df: The dask dataframe, typically the result of ``sort_values``.
-        num_workers: Number of threads used to compute the divisions.
+        num_workers: Number of threads for the fallback path.
 
     Example:
         >>> import dask.dataframe as dd
         >>> import pandas as pd
         >>> pdf = pd.DataFrame({"patient_id": ["b", "a", "c"]})
         >>> df = dd.from_pandas(pdf, npartitions=2).sort_values("patient_id")
-        >>> _compute_divisions_locally(df, num_workers=1)
+        >>> _precompute_sort_divisions(df, num_workers=1)
     """
     if sys.version_info >= (3, 12):
         return
-    with dask.config.set(scheduler="threads", num_workers=num_workers):
+    expr = df.expr
+    try:
+        from dask.dataframe.dask_expr._shuffle import SortValues, _get_divisions
+    except ImportError:
+        SortValues = None
+    if SortValues is not None and isinstance(expr, SortValues):
+        if expr.frame.npartitions == 1:
+            return  # dask computes nothing for a single partition
+        _get_divisions(
+            expr.frame,
+            expr.frame[expr.by[0]],
+            expr._npartitions_input,
+            expr._divisions_ascending,
+            upsample=expr.upsample,
+        )
+        return
+    with dask.config.set(
+        {
+            "scheduler": "threads",
+            "num_workers": num_workers,
+            # P2P shuffles only run on distributed workers.
+            "dataframe.shuffle.method": "tasks",
+        }
+    ):
         _ = df.divisions  # computed and cached on the expression
 
 
@@ -913,7 +945,7 @@ class BaseDataset(ABC):
 
                     logger.info(f"Caching event dataframe to {output_dir}...")
                     df = df.sort_values("patient_id")
-                    _compute_divisions_locally(df, self.num_workers)
+                    _precompute_sort_divisions(df, self.num_workers)
                     collection = df.to_parquet(
                         output_dir,
                         write_index=False,
