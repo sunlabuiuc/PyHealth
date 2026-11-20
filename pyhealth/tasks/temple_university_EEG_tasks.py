@@ -76,8 +76,8 @@ class EEGEventsTUEV(BaseTask):
     warning, as in the BIOT preprocessing this task follows.
 
     Each returned sample contains:
-      - "signal": torch.FloatTensor, shape (16, 5 * resample_rate).
-        ``BuildEvents`` sizes the windows with ``int(resample_rate)``, so
+      - "signal": torch.FloatTensor, shape (16, 5 * resample_rate), with
+        ``resample_rate`` a whole number of Hz. ``BuildEvents`` sizes the windows with ``int(resample_rate)``, so
         ``resample_rate`` has to be a whole number of Hz.
       - "offending_channel": int, the channel number from the .rec file.
         It indexes the 22-channel TCP montage (0-21), not a row of
@@ -454,10 +454,11 @@ class EEGAbnormalTUAB(BaseTask):
                 missing = [c for c in _TUAB_ELECTRODES if c not in ch_name]
                 if missing:
                     logger.warning(
-                        "Skipping %s: it has no %s channel, which the 16-channel "
+                        "Skipping %s: it has no %s %s, which the 16-channel "
                         "bipolar montage needs.",
                         edf_path,
                         ", ".join(missing),
+                        "channel" if len(missing) == 1 else "channels",
                     )
                     continue
                 bipolar_data = self.convert_to_bipolar(raw_data, ch_name)

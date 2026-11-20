@@ -619,6 +619,25 @@ class TestEEGAbnormalTUABRobustness(unittest.TestCase):
         self.assertEqual({s["signal_file"] for s in samples}, {"/dummy/full.edf"})
         self.assertEqual(len(samples), 2)
 
+    def test_warning_names_every_missing_electrode(self):
+        task = EEGAbnormalTUAB(compute_stft=False)
+        absent = {"EEG T5-REF", "EEG O1-REF"}
+        ch_names = [c for c in self.CH_NAMES if c not in absent]
+        raw = np.random.randn(len(ch_names), 200 * 25)
+        with (
+            patch.object(
+                EEGAbnormalTUAB,
+                "read_and_process_edf",
+                return_value=(raw, ch_names),
+            ),
+            self.assertLogs(
+                "pyhealth.tasks.temple_university_EEG_tasks", level="WARNING"
+            ) as logs,
+        ):
+            samples = task(self._patient())
+        self.assertEqual(samples, [])
+        self.assertIn("no EEG T5-REF, EEG O1-REF channels,", logs.output[0])
+
 
 class TestTUABMetadataCachePerRoot(unittest.TestCase):
     """Two dataset roots must never share cached metadata.
