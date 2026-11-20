@@ -292,9 +292,13 @@ Available Tasks
     CMMD Malignancy Classification <tasks/pyhealth.tasks.CMMDMalignancyClassification>
     CMMD Molecular Subtype Classification <tasks/pyhealth.tasks.CMMDSubtypeClassification>
     In-Hospital Survival (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalSurvivalMIMIC4>
+    BCSS Tile Classification <tasks/pyhealth.tasks.BCSSTileClassification>
+    BCSS Tissue Segmentation <tasks/pyhealth.tasks.BCSSTissueSegmentation>
     METABRIC Survival Prediction <tasks/pyhealth.tasks.MetabricSurvivalPrediction>
     ABIDE Autism Classification <tasks/pyhealth.tasks.ABIDEAutismClassification>
     Rare-Condition ICU Mortality (KnowRare, MIMIC-IV) <tasks/pyhealth.tasks.KnowRareICUMortalityMIMIC4>
+    KiTS23 Malignancy Classification <tasks/pyhealth.tasks.KiTS23MalignancyClassification>
+    KiTS23 Segmentation <tasks/pyhealth.tasks.KiTS23Segmentation>
     Lab Nowcasting (MIMIC-III/IV) <tasks/pyhealth.tasks.LabNowcasting>
     ICU Acuity and Therapies (MIMIC-IV) <tasks/pyhealth.tasks.ICUAcuityMIMIC4>
     Cancer Mutation Burden (TCGA) <tasks/pyhealth.tasks.CancerMutationBurden>

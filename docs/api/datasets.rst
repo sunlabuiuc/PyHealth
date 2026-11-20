@@ -505,6 +505,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `MSD <http://medicaldecathlon.com/>`__
      - Yes
      - —
+   * - :doc:`BCSS (breast pathology) <datasets/pyhealth.datasets.BCSSDataset>`
+     - Open
+     - `GitHub <https://github.com/PathologyDataScience/BCSS>`__
+     - No
+     - —
    * - :doc:`BMD-HS <datasets/pyhealth.datasets.BMDHSDataset>`
      - Open
      - `GitHub <https://github.com/sani002/BMD-HS-Dataset>`__
@@ -530,6 +535,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `GitHub <https://github.com/XintianHan/Survival-MDN>`__
      - Yes
      - —
+   * - :doc:`KiTS23 (kidney tumour CT) <datasets/pyhealth.datasets.KiTS23Dataset>`
+     - Open, no account (CC BY-NC-SA 4.0)
+     - `GitHub <https://github.com/neheller/kits23>`__ + `Hugging Face <https://huggingface.co/datasets/neheller/KiTS-Challenge-Imaging>`__
+     - No (``kits23_download_data``)
+     - Single CTs by URL (``wget``)
    * - :doc:`TCGA-PRAD <datasets/pyhealth.datasets.TCGAPRADDataset>`
      - Open
      - `GDC <https://portal.gdc.cancer.gov/projects/TCGA-PRAD>`__
@@ -602,9 +612,11 @@ Available Datasets
     datasets/pyhealth.datasets.MIMIC4EHRDataset
     datasets/pyhealth.datasets.CMMDDataset
     datasets/pyhealth.datasets.MIMIC4NoteDataset
+    datasets/pyhealth.datasets.BCSSDataset
     datasets/pyhealth.datasets.MIMIC4CXRDataset
     datasets/pyhealth.datasets.ABIDEDataset
     datasets/pyhealth.datasets.MIMIC4EDDataset
+    datasets/pyhealth.datasets.KiTS23Dataset
     datasets/pyhealth.datasets.MIMIC4ImaGenomeDataset
     datasets/pyhealth.datasets.FHIRDataset
     datasets/pyhealth.datasets.MEDSDataset

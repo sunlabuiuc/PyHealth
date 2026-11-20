@@ -58,6 +58,7 @@ from .imaging.patches import PatchDataset as PatchDataset
 from .imaging.stats import (
     compute_foreground_intensity_stats as compute_foreground_intensity_stats,
 )
+from .bcss import BCSSDataset as BCSSDataset
 from .cardiology import CardiologyDataset
 from .chaos import CHAOSDataset as CHAOSDataset
 from .chest_imagenome import ChestImaGenomeDataset as ChestImaGenomeDataset
@@ -89,6 +90,7 @@ from .mimic4 import MIMIC4EDDataset as MIMIC4EDDataset
 from .fhir import FHIRDataset, MIMIC4FHIR
 from .lndb import LNDbDataset as LNDbDataset
 from .mimicextract import MIMICExtractDataset
+from .kits23 import KiTS23Dataset as KiTS23Dataset
 from .omop import OMOPDataset
 from .pad_ufes_20 import PADUFES20Dataset as PADUFES20Dataset
 from .physionet_deid import PhysioNetDeIDDataset
