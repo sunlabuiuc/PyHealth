@@ -18,8 +18,8 @@ from pyhealth.autoimprove import (
     load_run,
     static_check,
 )
-from pyhealth.autoimprove.search.codegen import TEMPLATE, task_context
-from pyhealth.autoimprove.evaluation.code_trials import fit_predict_code
+from pyhealth.autoimprove.search.prompts import TEMPLATE, task_context
+from pyhealth.autoimprove.evaluation.training import fit_predict_code
 from pyhealth.autoimprove.search.proposers import Proposer
 from pyhealth.autoimprove.search.prompts import build_code_prompt, parse_code
 from pyhealth.autoimprove.utils.sandbox import SandboxError, run_sandboxed

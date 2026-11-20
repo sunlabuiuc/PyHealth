@@ -21,13 +21,12 @@ from ..evaluation import guardrails
 from ..evaluation.guardrails import decide, metrics_menu, run_evaluations
 from ..evaluation.records import Trial
 from ..evaluation.selection import _one_se_sets, paired_gain
-from ..utils.errors import describe_error
+from ..utils.data import describe_error
 from ..utils.sandbox import SandboxError
 from .analysis import format_results, run_analysis_job
-from .codegen import task_context
-from .context import ProposalContext
 from .features import FeatureSpec
-from .proposers import ProposerExhausted
+from .prompts import task_context
+from .proposers import ProposalContext, ProposerExhausted
 from .space import _derived, _key
 
 

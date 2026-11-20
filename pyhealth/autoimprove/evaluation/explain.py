@@ -40,9 +40,8 @@ from pyhealth.metrics.clinical import MIN_CELL
 from pyhealth.tasks.task_card import DIRECTIONS, FeatureInfo
 
 from ..search.space import PipelineConfig
-from .cv import fold_parts
 from .selection import FOLD_TIE, paired_gain
-from .training import train_pipeline
+from .training import fold_parts, train_pipeline
 
 DIRECTION_RHO = 0.1
 """Smallest rank correlation between a value and its contribution taken as a direction."""

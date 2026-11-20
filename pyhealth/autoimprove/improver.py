@@ -15,18 +15,21 @@ import numpy as np
 from pyhealth.datasets import SampleDataset
 from pyhealth.tasks.task_card import TaskCard
 
-from .evaluation import confirm, explain, guardrails, holdout, report
-from .evaluation.cv import patient_folds, run_config, run_config_cv
+from .evaluation import explain, guardrails, holdout, report, selection
 from .evaluation.guardrails import admissible_filter
 from .evaluation.records import ImproveResult, Trial, _parent_of
-from .evaluation.scoring import greater_is_better
 from .evaluation.selection import _better, _rule_text, select_simplest, select_trial
-from .evaluation.training import check_models
+from .evaluation.training import (
+    check_models,
+    greater_is_better,
+    patient_folds,
+    run_config,
+    run_config_cv,
+)
 from .search import turns
-from .search.context import ProposalContext
 from .search.features import EngineeredDataset, FeatureSpace, FeatureSpec
 from .search.prompts import STRATEGIES
-from .search.proposers import Proposer
+from .search.proposers import ProposalContext, Proposer
 from .search.space import (
     PipelineConfig,
     SearchSpace,
@@ -37,8 +40,13 @@ from .search.space import (
     space_fingerprint,
 )
 from .search.turns import GENERATED_KINDS, TURN_KINDS
-from .utils.data import _label_mode, _positive_count, _schema_names, describe_task
-from .utils.errors import describe_error
+from .utils.data import (
+    _label_mode,
+    _positive_count,
+    _schema_names,
+    describe_error,
+    describe_task,
+)
 from .utils.sandbox import SandboxError
 from .utils.store import RunStore
 
@@ -75,7 +83,7 @@ class AutoImprover:
     By default proposals are data, never code: nothing a proposer returns is
     executed. A ``cycle_plan`` with ``"code"``, ``"evaluation"`` or
     ``"analysis"`` turns opts in to generated code: a model with its training
-    (:mod:`~pyhealth.autoimprove.search.codegen`), a new evaluation that can become
+    (:mod:`~pyhealth.autoimprove.search.prompts`), a new evaluation that can become
     a guardrail (:mod:`~pyhealth.autoimprove.evaluation.guardrails`), or an analysis of
     the training data (:mod:`~pyhealth.autoimprove.search.analysis`). That code is
     checked statically and runs in its own process
@@ -408,9 +416,9 @@ class AutoImprover:
             if stale >= self.patience or self._out_of_budget(start) or self._exhausted:
                 break
         if self.confirm_enabled and self.folds is not None and not self.confirmed:
-            confirm.confirm(self)
+            selection.confirm(self)
             if self.prune_enabled and self.features is not None:
-                confirm.prune(self)
+                selection.prune(self)
         return self.result()
 
     def _cycle_kind(self, cycle: int) -> str:
@@ -519,7 +527,7 @@ class AutoImprover:
 
         Returns:
             ``{"index", "fold", "y_true", "y_prob", "split"}``
-            (:func:`~pyhealth.autoimprove.evaluation.scoring.out_of_fold`), read from
+            (:func:`~pyhealth.autoimprove.evaluation.training.out_of_fold`), read from
             ``run_dir/preds`` for a resumed run, or ``None``.
 
         Examples:
@@ -685,7 +693,7 @@ class AutoImprover:
         Examples:
             >>> improver.confirm()  # doctest: +SKIP
         """
-        return confirm.confirm(self)
+        return selection.confirm(self)
 
     def prune(self) -> dict[str, Any]:
         """Drops accepted feature groups that the selected model doesn't need.
@@ -708,7 +716,7 @@ class AutoImprover:
             >>> improver.prune()["dropped"]  # doctest: +SKIP
             [['exists_90d__med_orders_SABA']]
         """
-        return confirm.prune(self)
+        return selection.prune(self)
 
     def _evaluate(self, config, cycle, agent, strategy, notes=None, features=None,
                   added=None, parent=None, save=True, early_stop=True) -> Trial:

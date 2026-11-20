@@ -8,7 +8,7 @@ from unittest import mock
 import numpy as np
 import polars as pl
 
-from pyhealth.autoimprove.evaluation.cv import fold_parts, run_config_cv
+from pyhealth.autoimprove.evaluation.training import fold_parts, run_config_cv
 from pyhealth.autoimprove.search.features import (
     EngineeredDataset,
     FeatureSpace,
@@ -432,8 +432,8 @@ class TestEngineeredDataset(unittest.TestCase):
         def fake_score(y_true, y_prob, mode, names, **kwargs):
             return {name: 0.5 for name in names}
 
-        with mock.patch("pyhealth.autoimprove.evaluation.cv.fit_predict", fake_fit_predict), \
-                mock.patch("pyhealth.autoimprove.evaluation.cv.score_predictions", fake_score):
+        with mock.patch("pyhealth.autoimprove.evaluation.training.fit_predict", fake_fit_predict), \
+                mock.patch("pyhealth.autoimprove.evaluation.training.score_predictions", fake_score):
             result = run_config_cv(None, None, fe, fe, "pr_auc", folds)
         self.assertEqual(result["fold_scores"], [0.5, 0.5])
         for held_out, parts in zip(folds, seen):

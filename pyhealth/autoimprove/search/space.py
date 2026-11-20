@@ -158,7 +158,7 @@ class PipelineConfig:
             ``kind`` (``"clinical"`` or ``"technical"``) and ``based_on``
             (the id of the trial it changes, if any).
         code: For a code turn, the generated module that builds and trains
-            the model (:mod:`~pyhealth.autoimprove.search.codegen`); ``model`` is
+            the model (:mod:`~pyhealth.autoimprove.search.prompts`); ``model`` is
             then :data:`CODE_MODEL` and the parameters are empty.
 
     Examples:
@@ -420,7 +420,7 @@ class SearchSpace:
                 fails the static check.
         """
         if config.code or config.model == CODE_MODEL:
-            from .codegen import ENTRY
+            from .prompts import ENTRY
             from ..utils.sandbox import check_or_raise
 
             if not config.code:

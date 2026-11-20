@@ -64,7 +64,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-from .errors import describe_error
+from .data import describe_error
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +108,7 @@ _SECRET = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH", re.IGNORECASE
 _PRELOAD = [
     "numpy", "torch", "pyhealth.datasets", "pyhealth.models", "pyhealth.trainer",
     "pyhealth.metrics", "pyhealth.autoimprove.utils.sandbox",
-    "pyhealth.autoimprove.evaluation.code_trials",
+    "pyhealth.autoimprove.evaluation.training",
     "pyhealth.autoimprove.evaluation.guardrails", "pyhealth.autoimprove.search.analysis",
 ]
 
@@ -265,7 +265,7 @@ def run_sandboxed(
     Args:
         code: The generated source.
         runner: Import path of the harness function that uses the module,
-            e.g. ``"pyhealth.autoimprove.evaluation.code_trials:run_code_trial"``.
+            e.g. ``"pyhealth.autoimprove.evaluation.training:run_code_trial"``.
         payload: Arguments for the runner; must pickle.
         timeout: Seconds before the child is killed.
         log_path: File for the child's stdout and stderr; discarded if None.

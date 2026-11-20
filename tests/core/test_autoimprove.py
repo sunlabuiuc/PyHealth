@@ -36,7 +36,7 @@ from pyhealth.autoimprove import (
     with_xgboost,
 )
 from pyhealth.autoimprove.search import space as space_module
-from pyhealth.autoimprove.evaluation.cv import patient_folds
+from pyhealth.autoimprove.evaluation.training import patient_folds
 from pyhealth.autoimprove.evaluation.explain import (
     _effect_bins,
     attributions,
@@ -481,11 +481,11 @@ class TestAutoImprover(unittest.TestCase):
             self.assertEqual([sum(int(data[int(i)]["label"]) for i in f) for f in folds],
                              [1] * 5)
             self.assertEqual([len(f) for f in folds], [8] * 5)
-        with self.assertLogs("pyhealth.autoimprove.evaluation.cv", "WARNING"):
+        with self.assertLogs("pyhealth.autoimprove.evaluation.training", "WARNING"):
             patient_folds(data, 8)
 
         with (mock.patch("pyhealth.autoimprove.utils.data.MAX_LABEL_SCAN", 10),
-              self.assertLogs("pyhealth.autoimprove.evaluation.cv", "INFO") as logs):
+              self.assertLogs("pyhealth.autoimprove.evaluation.training", "INFO") as logs):
             folds = patient_folds(data, 5)
         self.assertIn("not stratified", logs.output[0])
         self.assertEqual(sorted(int(i) for f in folds for i in f), list(range(40)))
@@ -1053,7 +1053,7 @@ class TestClinicalReport(unittest.TestCase):
     def test_stability_refits_use_fold_parts(self):
         # Each stability fold model goes through fold_parts, so engineered
         # columns would be refitted on the fold, as in cross-validation.
-        from pyhealth.autoimprove.evaluation import cv
+        from pyhealth.autoimprove.evaluation import training
 
         improver = AutoImprover(
             self.train, self.val, RandomProposer(seed=0),
@@ -1063,7 +1063,7 @@ class TestClinicalReport(unittest.TestCase):
         )
         improver.run()
         with mock.patch("pyhealth.autoimprove.evaluation.explain.fold_parts",
-                        side_effect=cv.fold_parts) as spy:
+                        side_effect=training.fold_parts) as spy:
             out = improver.explain(top_k=3)
         self.assertEqual(spy.call_count, 3)
         self.assertEqual(out["stability"]["models"], 3)

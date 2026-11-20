@@ -13,7 +13,7 @@ PREFIX = "pyhealth.autoimprove"
 
 # evaluation/ may use these search/ modules: the config types it trains and the
 # proposal specs and contract it enforces. Nothing that proposes or runs turns.
-EVALUATION_MAY_USE = {"search.space", "search.codegen", "search.features",
+EVALUATION_MAY_USE = {"search.space", "search.prompts", "search.features",
                       "search.analysis"}
 # search/ may use these evaluation/ modules: records, the selection rule it
 # shows proposers, the specs proposers write and the guardrails turns adopt,

@@ -8,37 +8,38 @@ selects the most interpretable one within noise of the best, and its report
 (:meth:`AutoImprover.report`) explains the choice and how the search got there.
 """
 
-from .evaluation.cv import fold_parts, patient_folds, run_config, run_config_cv
 from .evaluation.guardrails import EvaluationSpec, clearly_worse, metrics_menu
 from .evaluation.records import ImproveResult, Trial
 from .evaluation.report import Report, build_report, load_run, unverified_numbers
-from .evaluation.scoring import out_of_fold, score_predictions
 from .evaluation.selection import paired_gain, select_simplest, select_trial
 from .evaluation.training import (
     check_models,
     fit_predict,
+    fold_parts,
+    out_of_fold,
+    patient_folds,
     predict,
+    run_config,
+    run_config_cv,
     score,
+    score_predictions,
     train_pipeline,
 )
 from .improver import DEFAULT_METRIC, AutoImprover
 from .search.analysis import AnalysisSpec, sample_columns
-from .search.codegen import CODE_CONTRACT, task_context
-from .search.evidence import (
+from .search.features import EngineeredDataset, FeatureSpace, FeatureSpec
+from .search.literature import (
+    Document,
+    Evidence,
     EvidenceProposer,
+    KnowledgeBase,
     add_literature,
     evidence_lines,
     literature_section,
-)
-from .search.features import EngineeredDataset, FeatureSpace, FeatureSpec
-from .search.knowledge import (
-    Document,
-    Evidence,
-    KnowledgeBase,
     parse_effect,
     pubmed_query,
 )
-from .search.prompts import STRATEGIES
+from .search.prompts import CODE_CONTRACT, STRATEGIES, task_context
 from .search.proposers import (
     LLMProposer,
     Proposer,
@@ -59,7 +60,7 @@ from .search.space import (
     with_xgboost,
 )
 from .search.turns import TURN_KINDS
-from .utils.errors import describe_error
+from .utils.data import describe_error
 from .utils.llm import LLM, ClaudeLLM, GeminiLLM, OpenAILLM
 from .utils.sandbox import SandboxError, run_sandboxed, static_check
 

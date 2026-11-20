@@ -475,25 +475,22 @@ entry point: it holds a run's state and its loop, and every public method
 three compartments it draws on:
 
 ``search/``: what to try next
-    ``space`` (configs, the search space, rungs), ``proposers`` and
-    ``context`` (who proposes, and what they know), ``prompts`` (the text an
-    LLM sees and how replies are parsed), ``turns`` (the five kinds of turn),
-    ``features``, ``codegen`` (the code-turn contract), ``analysis``,
-    ``knowledge`` and ``evidence`` (literature).
+    ``space`` (configs, the search space, rungs), ``proposers`` (who
+    proposes, and what they know), ``prompts`` (the text an LLM sees, how
+    replies are parsed, and the code-turn contract), ``turns`` (the kinds of
+    turn), ``features``, ``analysis`` and ``literature`` (published evidence).
 
 ``evaluation/``: how good an attempt is
-    ``training`` (build, train and predict a config), ``code_trials``
-    (train generated code in the sandbox and check it), ``scoring``
-    (:mod:`pyhealth.metrics` on predictions), ``cv`` (patient-grouped folds),
-    ``selection`` (paired comparison with the baseline, the one-SE rule),
-    ``guardrails``, ``confirm`` (new folds and seeds, feature pruning),
-    ``holdout`` (the one test evaluation), ``explain``, ``report`` and
-    ``records`` (``Trial``, ``ImproveResult``).
+    ``training`` (train and predict a config or generated code, score it with
+    :mod:`pyhealth.metrics`, patient-grouped folds), ``selection`` (paired
+    comparison with the baseline, the one-SE rule, confirming and pruning),
+    ``guardrails``, ``holdout`` (the one test evaluation), ``explain``,
+    ``report`` and ``records`` (``Trial``, ``ImproveResult``).
 
 ``utils/``: infrastructure both use
     ``sandbox`` (running generated code), ``llm`` (Claude, OpenAI and Gemini
     clients), ``store`` (:class:`~pyhealth.autoimprove.utils.store.RunStore`,
-    every file under ``run_dir``), ``data`` (dataset facts) and ``errors``.
+    every file under ``run_dir``) and ``data`` (dataset facts, errors as text).
 
 Dependencies point one way: ``utils`` imports neither compartment;
 ``evaluation`` uses only the config and proposal types from ``search``;
@@ -521,20 +518,19 @@ API Reference
 .. automodule:: pyhealth.autoimprove.search.features
     :members: FeatureSpace, FeatureSpec, EngineeredDataset, WINDOWS, BLOCKS, AGGS
 
-.. automodule:: pyhealth.autoimprove.search.knowledge
-    :members: KnowledgeBase, Evidence, Document, parse_effect, pubmed_query
-
-.. automodule:: pyhealth.autoimprove.search.evidence
-    :members: EvidenceProposer, evidence_lines, literature_section, add_literature
+.. automodule:: pyhealth.autoimprove.search.literature
+    :members: KnowledgeBase, Evidence, Document, parse_effect, pubmed_query,
+        EvidenceProposer, evidence_lines, literature_section, add_literature
 
 .. automodule:: pyhealth.autoimprove.utils.sandbox
     :members: static_check, run_sandboxed, SandboxError, ContractError, warm_up
 
-.. automodule:: pyhealth.autoimprove.search.codegen
+.. automodule:: pyhealth.autoimprove.search.prompts
     :members: task_context, CODE_CONTRACT, TEMPLATE
 
-.. automodule:: pyhealth.autoimprove.evaluation.code_trials
-    :members: fit_predict_code, check_model
+.. automodule:: pyhealth.autoimprove.evaluation.training
+    :members: fit_predict_code, check_model, patient_folds, fold_parts,
+        run_config_cv, score_predictions, out_of_fold
 
 .. automodule:: pyhealth.autoimprove.evaluation.guardrails
     :members: EvaluationSpec, run_evaluations, decide, clearly_worse, failing,

@@ -1,4 +1,4 @@
-"""pyhealth.autoimprove.search.evidence: evidence in feature prompts, literature in reports."""
+"""pyhealth.autoimprove.search.literature: evidence in feature prompts, literature in reports."""
 
 import json
 import os
@@ -142,7 +142,7 @@ class TestEvidence(unittest.TestCase):
         self.assertIn("count_90d__labs", second.split("not tried yet")[1])
 
     def test_variants_are_matched_on_the_whole_selection(self):
-        from pyhealth.autoimprove.search.evidence import _adapts
+        from pyhealth.autoimprove.search.literature import _adapts
 
         listed = {"name": "count_90d__labs", "op": "count", "window": 90,
                   "select": {"event_type": "labs", "where": {"code": ["eos"]}},
