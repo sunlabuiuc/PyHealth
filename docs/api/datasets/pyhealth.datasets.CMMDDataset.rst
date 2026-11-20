@@ -32,13 +32,16 @@ Getting the data
   ``download=True``.
 - **Unpacking**: nothing to unpack. Reading DICOM headers needs ``pydicom``
   (``pip install pyhealth[imaging]``).
-- **root layout** (every ``*.dcm`` under ``root`` is read, at any depth):
+- **root layout**: every ``*.dcm`` under ``root`` is read, at any depth,
+  so the folder names the Data Retriever writes do not matter. For example,
+  a download may look like this (not verified against a fresh Data
+  Retriever run):
 
   .. code-block:: text
 
       root/
         CMMD_clinicaldata_revision.xlsx   # or .csv, or clinical_file=
-        <any>/CMMD/<ID1>/.../*.dcm         # Data Retriever tree
+        <any>/CMMD/<ID1>/.../*.dcm         # example Data Retriever tree
 
 - **Licence**: CC BY 4.0 for the images and the clinical data (no NC or ND
   terms).

@@ -12,10 +12,16 @@ class CMMDMalignancyClassification(BaseTask):
 
     One sample per mammogram (one breast, one CC or MLO view). The label is
     the biopsy-confirmed ``classification`` of that breast's clinical row,
-    matched on the DICOM laterality. Images of a breast without a clinical
-    row (``has_label == 0``, usually the healthy contralateral breast of a
-    one-sided case) are skipped. CLIMB instead gives them the patient's
-    label. Split by ``patient_id``.
+    matched on the DICOM laterality. Images with ``has_label == 0`` are
+    skipped: a breast without a clinical row (usually the healthy
+    contralateral breast of a one-sided case), or a row whose
+    ``classification`` is neither Benign nor Malignant. CLIMB instead gives
+    unmatched breasts the patient's label. Split by ``patient_id``.
+
+    CBIS-DDSM has a similar benign/malignant task
+    (:class:`~pyhealth.tasks.CBISDDSMPathologyClassification`), but that task
+    reads CBIS-DDSM's abnormality events, so CMMD needs its own task over its
+    per-breast image events.
 
     The image is read lazily with the ``dicom`` processor at 512 x 512,
     single channel. The processor resizes to a square, so the 2294 x 1914

@@ -104,11 +104,12 @@ class CMMDDataset(BaseDataset):
         for images and clinical data. Put the clinical sheet
         ``CMMD_clinicaldata_revision.xlsx`` (or a ``.csv`` export) in
         ``root`` and download the DICOMs into ``root`` with the NBIA Data
-        Retriever; every ``*.dcm`` under ``root`` is read, at any depth::
+        Retriever; every ``*.dcm`` under ``root`` is read, at any depth, so
+        the folder names do not matter. An example layout::
 
             root/
               CMMD_clinicaldata_revision.xlsx   # or .csv, or clinical_file=
-              <any>/CMMD/<ID1>/.../*.dcm         # Data Retriever tree
+              <any>/CMMD/<ID1>/.../*.dcm         # example Data Retriever tree
 
         The sheet must have the columns ``ID1``, ``LeftRight`` and
         ``classification``. The full download steps (URLs, sizes, the
