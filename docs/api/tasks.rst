@@ -262,6 +262,8 @@ Available Tasks
     Ear-EEG Sleep Staging (EESM23) <tasks/pyhealth.tasks.SleepStagingEarEEG>
     IIIC Seizure Classification <tasks/pyhealth.tasks.iiic_seizure_classification>
     EEGBCI Tasks <tasks/pyhealth.tasks.eegbci>
+    BCI Competition IV 2a Motor Imagery <tasks/pyhealth.tasks.BCIIV2aMotorImageryClassification>
+    BCI Competition IV 2a Left vs Right Hand <tasks/pyhealth.tasks.BCIIV2aLeftRightImagery>
     PTB-XL Tasks <tasks/pyhealth.tasks.ptbxl>
     Sleep Staging v2 <tasks/pyhealth.tasks.sleep_staging_v2>
     Benchmark EHRShot <tasks/pyhealth.tasks.benchmark_ehrshot>
@@ -269,19 +271,29 @@ Available Tasks
     EHR Foundation Model Timelines <tasks/pyhealth.tasks.ehr_foundation_model>
     ED Disposition and Outcomes (MIMIC-IV-ED) <tasks/pyhealth.tasks.ed_disposition_mimic4>
     ChestX-ray14 Binary Classification <tasks/pyhealth.tasks.ChestXray14BinaryClassification>
+    ISIC 2019 Skin Lesion Classification <tasks/pyhealth.tasks.ISIC2019Classification>
     De-Identification NER <tasks/pyhealth.tasks.DeIDNERTask>
     ChestX-ray14 Multilabel Classification <tasks/pyhealth.tasks.ChestXray14MultilabelClassification>
+    HAM10000 Skin Lesion Classification <tasks/pyhealth.tasks.HAM10000Classification>
     MSD Segmentation <tasks/pyhealth.tasks.MSDSegmentationTask>
     CHAOS Segmentation Tasks <tasks/pyhealth.tasks.CHAOSSegmentation>
     RSNA Pneumonia Classification <tasks/pyhealth.tasks.RSNAPneumoniaClassification>
+    PAD-UFES-20 Skin Lesion Classification <tasks/pyhealth.tasks.PADUFES20Classification>
     ISIC 2020 Melanoma Classification <tasks/pyhealth.tasks.ISIC2020MelanomaClassification>
+    CBIS-DDSM Mammography Classification <tasks/pyhealth.tasks.cbis_ddsm_classification>
+    CBIS-DDSM Abnormality Type Classification <tasks/pyhealth.tasks.CBISDDSMAbnormalityClassification>
+    CBIS-DDSM Breast Density Classification <tasks/pyhealth.tasks.CBISDDSMDensityClassification>
     Variant Classification (ClinVar) <tasks/pyhealth.tasks.VariantClassificationClinVar>
+    Jichi Davis DR Grading <tasks/pyhealth.tasks.JichiDavisGrading>
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
+    LNDb Finding Classification <tasks/pyhealth.tasks.LNDbFindingClassification>
+    LNDb Texture Classification <tasks/pyhealth.tasks.LNDbTextureClassification>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>
     CMMD Malignancy Classification <tasks/pyhealth.tasks.CMMDMalignancyClassification>
     CMMD Molecular Subtype Classification <tasks/pyhealth.tasks.CMMDSubtypeClassification>
     In-Hospital Survival (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalSurvivalMIMIC4>
     METABRIC Survival Prediction <tasks/pyhealth.tasks.MetabricSurvivalPrediction>
+    ABIDE Autism Classification <tasks/pyhealth.tasks.ABIDEAutismClassification>
     Rare-Condition ICU Mortality (KnowRare, MIMIC-IV) <tasks/pyhealth.tasks.KnowRareICUMortalityMIMIC4>
     Lab Nowcasting (MIMIC-III/IV) <tasks/pyhealth.tasks.LabNowcasting>
     ICU Acuity and Therapies (MIMIC-IV) <tasks/pyhealth.tasks.ICUAcuityMIMIC4>

@@ -1,0 +1,13 @@
+version: "1.0"
+tables:
+  ham10000:
+    file_path: "ham10000-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "image_id"
+      - "lesion_id"
+      - "path"
+      - "split"
+      - "diagnosis"
+      - "diagnosis_confirm_type"

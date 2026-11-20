@@ -410,6 +410,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `Kaggle <https://www.kaggle.com/datasets/tawsifurrahman/covid19-radiography-database>`__
      - No
      - —
+   * - :doc:`ISIC 2019 <datasets/pyhealth.datasets.ISIC2019Dataset>`
+     - Open (CC BY-NC 4.0)
+     - `ISIC <https://challenge.isic-archive.com/data/#2019>`__
+     - Yes
+     - —
    * - :doc:`ISIC 2020 (SIIM-ISIC melanoma) <datasets/pyhealth.datasets.ISIC2020Dataset>`
      - Open (CC BY-NC 4.0)
      - `ISIC <https://challenge2020.isic-archive.com/>`__
@@ -460,6 +465,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `PhysioNet <https://physionet.org/content/eegmmidb/1.0.0/>`__
      - Yes
      - —
+   * - :doc:`BCI Competition IV 2a <datasets/pyhealth.datasets.BCICompetitionIV2aDataset>`
+     - Open (CC BY-ND)
+     - `BNCI Horizon <https://bnci-horizon-2020.eu/database/data-sets>`__
+     - Yes
+     - —
    * - :doc:`HUP iEEG (epilepsy surgery) <datasets/pyhealth.datasets.HUPiEEGDataset>`
      - Open
      - `OpenNeuro <https://openneuro.org/datasets/ds004100>`__
@@ -475,10 +485,20 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `OpenNeuro <https://openneuro.org/datasets/ds005178>`__
      - No
      - —
+   * - :doc:`PAD-UFES-20 <datasets/pyhealth.datasets.PADUFES20Dataset>`
+     - Open (CC BY 4.0)
+     - `Mendeley Data <https://data.mendeley.com/datasets/zr7vgbcyr2/1>`__
+     - No
+     - —
    * - :doc:`NIH ChestX-ray14 <datasets/pyhealth.datasets.ChestXray14Dataset>`
      - Open
      - `NIH <https://nihcc.app.box.com/v/ChestXray-NIHCC>`__
      - Yes
+     - —
+   * - :doc:`Jichi DR fundus <datasets/pyhealth.datasets.JichiDRDataset>`
+     - Open
+     - `figshare <https://figshare.com/articles/dataset/4879853>`__
+     - No
      - —
    * - :doc:`Medical Segmentation Decathlon <datasets/pyhealth.datasets.MSDSegmentationDataset>`
      - Open
@@ -490,11 +510,21 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `GitHub <https://github.com/sani002/BMD-HS-Dataset>`__
      - No
      - —
+   * - :doc:`HAM10000 (ISIC 2018 Task 3) <datasets/pyhealth.datasets.HAM10000Dataset>`
+     - Open (CC BY-NC 4.0)
+     - `ISIC <https://challenge.isic-archive.com/data/#2018>`__
+     - Yes
+     - —
    * - :doc:`SUPPORT2 <datasets/pyhealth.datasets.Support2Dataset>`
      - Open
      - `UCI <https://archive.ics.uci.edu/dataset/880/support2>`__
      - No
      - —
+   * - :doc:`LNDb (lung nodule CT) <datasets/pyhealth.datasets.LNDbDataset>`
+     - Open, no account (CC BY 4.0 or CC BY-NC-ND 4.0; the record states both)
+     - `Zenodo <https://doi.org/10.5281/zenodo.8348419>`__
+     - No (RAR archives)
+     - One ``dataN.rar`` (~40 CTs) is enough
    * - :doc:`METABRIC <datasets/pyhealth.datasets.MetabricDataset>`
      - Open
      - `GitHub <https://github.com/XintianHan/Survival-MDN>`__
@@ -509,6 +539,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - Open
      - `NCBI <https://ftp.ncbi.nlm.nih.gov/pub/clinvar/>`__
      - No
+     - —
+   * - :doc:`CBIS-DDSM <datasets/pyhealth.datasets.CBISDDSMDataset>`
+     - Open
+     - `TCIA <https://www.cancerimagingarchive.net/collection/cbis-ddsm/>`__
+     - CSVs only; DICOMs (163.5 GB) via the NBIA Data Retriever, or a few series with ``download_series()``
      - —
    * - :doc:`Synthea <datasets/pyhealth.datasets.SyntheaCSVDataset>`
      - Open (synthetic)
@@ -525,6 +560,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `OHDSI <https://www.ohdsi.org/data-standardization/>`__
      - —
      - `MIMIC-IV demo in OMOP <https://physionet.org/content/mimic-iv-demo-omop/0.9/>`__
+   * - :doc:`ABIDE I (PCP connectivity) <datasets/pyhealth.datasets.ABIDEDataset>`
+     - Open, no account (CC BY-NC-SA 3.0)
+     - `PCP / S3 <http://preprocessed-connectomes-project.org/abide/download.html>`__
+     - Yes
+     - ``max_subjects`` partial download
    * - :doc:`MEDS (format) <datasets/pyhealth.datasets.MEDSDataset>`
      - Depends on source
      - `MEDS <https://medical-event-data-standard.github.io/>`__
@@ -552,13 +592,18 @@ Available Datasets
     datasets/pyhealth.datasets.MSDSpleenDataset
     datasets/pyhealth.datasets.CHAOSDataset
     datasets/pyhealth.datasets.RSNAPneumoniaDataset
+    datasets/pyhealth.datasets.PADUFES20Dataset
     datasets/pyhealth.datasets.ISIC2020Dataset
+    datasets/pyhealth.datasets.CBISDDSMDataset
     datasets/pyhealth.datasets.MIMIC3Dataset
+    datasets/pyhealth.datasets.JichiDRDataset
     datasets/pyhealth.datasets.MIMIC4Dataset
+    datasets/pyhealth.datasets.LNDbDataset
     datasets/pyhealth.datasets.MIMIC4EHRDataset
     datasets/pyhealth.datasets.CMMDDataset
     datasets/pyhealth.datasets.MIMIC4NoteDataset
     datasets/pyhealth.datasets.MIMIC4CXRDataset
+    datasets/pyhealth.datasets.ABIDEDataset
     datasets/pyhealth.datasets.MIMIC4EDDataset
     datasets/pyhealth.datasets.MIMIC4ImaGenomeDataset
     datasets/pyhealth.datasets.FHIRDataset
@@ -582,10 +627,13 @@ Available Datasets
     datasets/pyhealth.datasets.GBSGDataset
     datasets/pyhealth.datasets.BMDHSDataset
     datasets/pyhealth.datasets.COVID19CXRDataset
+    datasets/pyhealth.datasets.ISIC2019Dataset
     datasets/pyhealth.datasets.ChestXray14Dataset
     datasets/pyhealth.datasets.ChestImaGenomeDataset
+    datasets/pyhealth.datasets.HAM10000Dataset
     datasets/pyhealth.datasets.PhysioNetDeIDDataset
     datasets/pyhealth.datasets.EEGBCIDataset
+    datasets/pyhealth.datasets.BCICompetitionIV2aDataset
     PTB-XL Dataset <datasets/pyhealth.datasets.PTBXLDataset>
     PhysioNet 2012 Dataset <datasets/pyhealth.datasets.PhysioNet2012Dataset>
     datasets/pyhealth.datasets.TUABDataset
