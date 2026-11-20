@@ -410,6 +410,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `Kaggle <https://www.kaggle.com/datasets/tawsifurrahman/covid19-radiography-database>`__
      - No
      - —
+   * - :doc:`ISIC 2020 (SIIM-ISIC melanoma) <datasets/pyhealth.datasets.ISIC2020Dataset>`
+     - Open (CC BY-NC 4.0)
+     - `ISIC <https://challenge2020.isic-archive.com/>`__
+     - Yes
+     - —
    * - :doc:`Medical Transcriptions <datasets/pyhealth.datasets.MedicalTranscriptionsDataset>`
      - Open (Kaggle account)
      - `Kaggle <https://www.kaggle.com/datasets/tboyle10/medicaltranscriptions>`__
@@ -480,11 +485,6 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `MSD <http://medicaldecathlon.com/>`__
      - Yes
      - —
-   * - :doc:`COVID-BLUES (lung ultrasound) <datasets/pyhealth.datasets.COVIDBLUESDataset>`
-     - Open, no account (CC BY-NC-ND 4.0)
-     - `GitHub <https://github.com/NinaWie/COVID-BLUES>`__
-     - No (``git clone``)
-     - —
    * - :doc:`BMD-HS <datasets/pyhealth.datasets.BMDHSDataset>`
      - Open
      - `GitHub <https://github.com/sani002/BMD-HS-Dataset>`__
@@ -525,6 +525,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `MEDS <https://medical-event-data-standard.github.io/>`__
      - —
      - EHRSHOT ships a MEDS release
+   * - :doc:`COVID-BLUES (lung ultrasound) <datasets/pyhealth.datasets.COVIDBLUESDataset>`
+     - Open, no account (CC BY-NC-ND 4.0)
+     - `GitHub <https://github.com/NinaWie/COVID-BLUES>`__
+     - No (``git clone``)
+     - —
    * - :doc:`FHIR (format) <datasets/pyhealth.datasets.FHIRDataset>`
      - Depends on source
      - `HL7 <https://www.hl7.org/fhir/>`__
@@ -547,6 +552,7 @@ Available Datasets
     datasets/pyhealth.datasets.MSDSpleenDataset
     datasets/pyhealth.datasets.CHAOSDataset
     datasets/pyhealth.datasets.RSNAPneumoniaDataset
+    datasets/pyhealth.datasets.ISIC2020Dataset
     datasets/pyhealth.datasets.MIMIC3Dataset
     datasets/pyhealth.datasets.MIMIC4Dataset
     datasets/pyhealth.datasets.MIMIC4EHRDataset
@@ -575,8 +581,8 @@ Available Datasets
     datasets/pyhealth.datasets.GBSGDataset
     datasets/pyhealth.datasets.BMDHSDataset
     datasets/pyhealth.datasets.COVID19CXRDataset
-    datasets/pyhealth.datasets.COVIDBLUESDataset
     datasets/pyhealth.datasets.ChestXray14Dataset
+    datasets/pyhealth.datasets.COVIDBLUESDataset
     datasets/pyhealth.datasets.ChestImaGenomeDataset
     datasets/pyhealth.datasets.PhysioNetDeIDDataset
     datasets/pyhealth.datasets.EEGBCIDataset
@@ -595,3 +601,4 @@ Available Datasets
     datasets/pyhealth.datasets.splitter
     datasets/pyhealth.datasets.GoldTestSplit
     datasets/pyhealth.datasets.utils
+    datasets/pyhealth.datasets.TCGARNASeqDataset
