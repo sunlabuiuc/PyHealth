@@ -47,8 +47,41 @@ Notes:
     * Every arm starts from the same random initialization.
 
 Results:
-    Paste the table printed by the script here after running it, together with
-    the settings used (seeds, epochs, target sensor, data).
+    Real DSA data, target sensor right arm, 3 repetitions (seeds 0-2), each with
+    a new random split of 6 training / 2 held-out subjects. Settings: SensorLSTM
+    with hidden size 64, Adam with gradient clipping at 1.0, batch size 32,
+    learning rate 3e-3 for sources and target, 8 epochs per source, 40 target
+    epochs (72 for ``no_transfer_matched``), min-max scaling to [-1, 1]. RCC is
+    the mean over the two held-out subjects::
+
+        | arm | mean RCC | std | vs no_transfer | vs matched |
+        |---|---|---|---|---|
+        | no_transfer | 0.5183 | 0.0704 | +0.0000 | -0.0863 |
+        | no_transfer_matched | 0.6045 | 0.1048 | +0.0863 | +0.0000 |
+        | ipd | 0.5039 | 0.0142 | -0.0143 | -0.1006 |
+        | equal | 0.5538 | 0.0539 | +0.0355 | -0.0507 |
+        | inverse | 0.4515 | 0.0417 | -0.0668 | -0.1531 |
+
+    Findings in this reduced setting (the paper trains far longer and repeats
+    15 times):
+
+    * Transfer did not beat the matched baseline: ``ipd`` was better than it in
+      1 of 3 seeds, ``equal`` in 1 of 3 and ``inverse`` in 0 of 3.
+    * ``ipd`` was not better than ``equal``; it was better than ``inverse`` on
+      average (+0.052, 2 of 3 seeds). With 3 seeds and paired standard errors of
+      0.03-0.09 none of these differences is reliable.
+    * The IPD ordering was stable and sensible: the left arm and torso were
+      closest to the right arm, the legs farthest. Pretraining gave a lower loss
+      after the first target epoch, but the baselines caught up.
+    * Accuracy is far below the paper's (about 0.85 for LSTM without transfer),
+      most likely because of the much shorter training; the target loss was still
+      falling at the end of training.
+
+    Deviations from the paper: far fewer epochs and repetitions, one shared
+    learning rate for sources and target, a fixed fine-tuning rate and number of
+    epochs (the paper's validation-loss rule gives a negative rate when the loss
+    is above one), Adam with gradient clipping, and a train / val / test split in
+    which the two held-out subjects are one "val" and one "test" subject.
 """
 
 import argparse
@@ -157,11 +190,30 @@ def save_result(path: str, arm: str, seed: int, rcc: float) -> None:
         json.dump(data, f, indent=2)
 
 
+def load_merged(paths: list[str]) -> dict[str, dict[str, float]]:
+    """Merges results files into ``{arm: {seed: RCC}}``.
+
+    Args:
+        paths: Results JSON files, e.g. from separate runs of other seeds.
+
+    Returns:
+        The merged results, in the order of ARMS.
+
+    Examples:
+        >>> load_merged(["run_a.json", "run_b.json"])  # doctest: +SKIP
+    """
+    merged: dict[str, dict[str, float]] = {}
+    for path in paths:
+        for arm, by_seed in load_results(path).items():
+            merged.setdefault(arm, {}).update(by_seed)
+    return {arm: merged[arm] for arm in ARMS if arm in merged}
+
+
 def merge_results(paths: list[str]) -> dict[str, list[float]]:
     """Merges results files into RCC lists per arm, in the order of ARMS.
 
     Args:
-        paths: Results JSON files, e.g. from separate runs of other seeds.
+        paths: Results JSON files.
 
     Returns:
         Maps each arm to its RCC values.
@@ -169,11 +221,46 @@ def merge_results(paths: list[str]) -> dict[str, list[float]]:
     Examples:
         >>> merge_results(["run_a.json", "run_b.json"])  # doctest: +SKIP
     """
-    merged: dict[str, dict[str, float]] = {}
-    for path in paths:
-        for arm, by_seed in load_results(path).items():
-            merged.setdefault(arm, {}).update(by_seed)
-    return {arm: list(merged[arm].values()) for arm in ARMS if arm in merged}
+    return {arm: list(v.values()) for arm, v in load_merged(paths).items()}
+
+
+def paired_table(merged: dict[str, dict[str, float]], reference: str) -> str:
+    """Compares every arm with a reference arm, seed by seed.
+
+    All arms of a seed share the subject split and the initialization, so the
+    per-seed difference removes much of the split-to-split noise.
+
+    Args:
+        merged: Results as ``{arm: {seed: RCC}}``.
+        reference: The arm to compare against.
+
+    Returns:
+        A Markdown table with the mean difference, its standard error and the
+        number of seeds where the arm beat the reference.
+
+    Examples:
+        >>> paired_table({"a": {"0": 0.5}, "b": {"0": 0.6}}, "a")  # doctest: +SKIP
+    """
+    ref = merged[reference]
+    lines = [
+        f"Paired difference (arm minus {reference}), per seed:",
+        "",
+        "| arm | seeds | mean diff | std error | arm better in |",
+        "|---|---|---|---|---|",
+    ]
+    for arm, values in merged.items():
+        if arm == reference:
+            continue
+        seeds = sorted(set(ref) & set(values))
+        diffs = np.array([values[sd] - ref[sd] for sd in seeds])
+        if len(diffs) == 0:
+            continue
+        error = diffs.std(ddof=1) / np.sqrt(len(diffs)) if len(diffs) > 1 else np.nan
+        lines.append(
+            f"| {arm} | {len(diffs)} | {diffs.mean():+.4f} | {error:.4f} "
+            f"| {int((diffs > 0).sum())} of {len(diffs)} |"
+        )
+    return "\n".join(lines)
 
 
 def summarize(results: dict[str, list[float]]) -> str:
@@ -362,8 +449,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main() -> None:
     """Runs the ablation (or summarizes saved results) and prints the table."""
     args = parse_args()
-    results = merge_results(args.summarize) if args.summarize else run(args)
+    if args.summarize:
+        merged = load_merged(args.summarize)
+        results = {arm: list(v.values()) for arm, v in merged.items()}
+    else:
+        results = run(args)
+        merged = None
     table = summarize(results)
+    if merged is not None:
+        for reference in ("no_transfer_matched", "equal"):
+            if reference in merged:
+                table += "\n\n" + paired_table(merged, reference)
     print("\n" + table)
     if args.out:
         with open(args.out, "w") as f:
