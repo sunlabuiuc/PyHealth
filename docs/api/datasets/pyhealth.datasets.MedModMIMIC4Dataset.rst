@@ -23,3 +23,14 @@ builds synthetic samples with the same contract.
     :show-inheritance:
 
 .. autofunction:: pyhealth.datasets.split_by_medmod
+
+MedSigLIP image embeddings
+--------------------------
+
+For the extension, :mod:`pyhealth.datasets.medmod.medsiglip` replaces the
+ResNet-34 image features with those of a frozen ``google/medsiglip-448``
+image encoder. Each image is embedded once and saved to one ``.npz`` file,
+where the embeddings are looked up by image file name.
+
+.. automodule:: pyhealth.datasets.medmod.medsiglip
+    :members:
