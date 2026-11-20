@@ -19,7 +19,11 @@ Getting the data
 - **Clinical sheet** (70 KB):
   ``wget https://www.cancerimagingarchive.net/wp-content/uploads/CMMD_clinicaldata_revision.xlsx``
   into ``root``. Reading it needs ``openpyxl``; a CSV export named
-  ``CMMD_clinicaldata_revision.csv`` works without it.
+  ``CMMD_clinicaldata_revision.csv`` works without it. The sheet must have
+  the columns ``ID1``, ``LeftRight`` and ``classification``. ``openpyxl`` is
+  not in PyHealth's test environment, so the ``.xlsx`` read test
+  (``test_xlsx_clinical_sheet``) runs only where it is installed; CI covers
+  the CSV path, which shares all code after the read.
 - **DICOMs** (22.86 GB, 1,775 patients, 5,202 images): install the `NBIA Data
   Retriever <https://www.cancerimagingarchive.net/tcia-data-retriever/>`_,
   download the manifest

@@ -1,8 +1,11 @@
 """Molecular subtype classification task for the CMMD mammography dataset."""
 
+import logging
 from typing import Any, ClassVar
 
 from .base_task import BaseTask
+
+logger = logging.getLogger(__name__)
 
 #: Molecular subtypes of the CMMD clinical sheet, in label-index order.
 CMMD_SUBTYPES = ("Luminal A", "Luminal B", "HER2-enriched", "triple negative")
@@ -18,9 +21,12 @@ class CMMDSubtypeClassification(BaseTask):
     2021). One sample per mammogram (one breast, one CC or MLO view) whose
     own breast has a clinical row with a subtype, matched on the DICOM
     laterality, so 4 classes with the labels of :data:`CMMD_SUBTYPES`.
-    Images without a subtype (all of D1, the 12 D2 benign rows, the 4 D2
-    malignant rows with no subtype, and unlabelled contralateral breasts)
-    are skipped. The classes are imbalanced: the
+    Only breasts labelled malignant (``label == 1``) are used. Images that
+    are not malignant or have no subtype (all of D1, the 12 D2 benign rows,
+    the 4 D2 malignant rows with no subtype, and unlabelled contralateral
+    breasts) are skipped. A subtype value not in :data:`CMMD_SUBTYPES` is
+    skipped too, with one warning per distinct value. The classes are
+    imbalanced: the
     sheet has 152 / 376 / 135 / 86 rows. Split by ``patient_id``.
 
     The image is read lazily with the ``dicom`` processor at 512 x 512,
@@ -68,8 +74,21 @@ class CMMDSubtypeClassification(BaseTask):
         """
         samples = []
         for event in patient.get_events(event_type="images"):
+            if not _is_malignant(event):
+                continue
             subtype = str(event.subtype or "").strip()
+            if subtype in ("", "nan", "None"):
+                continue
             if subtype not in CMMD_SUBTYPES:
+                warned = self.__dict__.setdefault("_warned_subtypes", set())
+                if subtype not in warned:
+                    warned.add(subtype)
+                    logger.warning(
+                        "CMMD subtype %r is not one of %s; those images are "
+                        "skipped",
+                        subtype,
+                        list(CMMD_SUBTYPES),
+                    )
                 continue
             samples.append(
                 {
@@ -83,3 +102,13 @@ class CMMDSubtypeClassification(BaseTask):
                 }
             )
         return samples
+
+
+def _is_malignant(event: Any) -> bool:
+    """Return whether an ``images`` event has the malignant label (1)."""
+    try:
+        return (
+            int(float(event.has_label)) == 1 and int(float(event.label)) == 1
+        )
+    except (TypeError, ValueError):
+        return False

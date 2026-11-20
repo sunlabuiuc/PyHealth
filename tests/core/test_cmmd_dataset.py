@@ -106,6 +106,21 @@ class TestCMMDDataset(unittest.TestCase):
         ):
             CMMDDataset(root=str(self.root), cache_dir=str(self.temp_dir / "c"))
 
+    def test_missing_required_column_raises_value_error(self):
+        build_cmmd_root(self.root, CLINICAL.drop(columns=["LeftRight"]))
+        with self.assertRaisesRegex(ValueError, "LeftRight"):
+            CMMDDataset(root=str(self.root), cache_dir=str(self.temp_dir / "c"))
+
+    def test_duplicate_breast_rows_warn(self):
+        clinical = pd.concat([CLINICAL, CLINICAL.iloc[[0]]], ignore_index=True)
+        build_cmmd_root(self.root, clinical)
+        with self.assertLogs("pyhealth.datasets.cmmd", level="WARNING") as logs:
+            CMMDDataset(root=str(self.root), cache_dir=str(self.temp_dir / "c"))
+        self.assertIn("D1-0001", "\n".join(logs.output))
+
+    # openpyxl is not in PyHealth's CI test environment, so this test is
+    # skipped there and only runs where openpyxl is installed. The CSV path
+    # used by the other tests shares all code after the sheet is read.
     @unittest.skipUnless(openpyxl is not None, "openpyxl is not installed")
     def test_xlsx_clinical_sheet(self):
         (self.root / "CMMD_clinicaldata_revision.csv").unlink()

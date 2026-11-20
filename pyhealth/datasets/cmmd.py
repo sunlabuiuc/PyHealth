@@ -16,6 +16,7 @@ _DEFAULT_CLINICAL = "CMMD_clinicaldata_revision"
 _METADATA_FILE = "cmmd-metadata-pyhealth.csv"
 _MARKER_FILE = "cmmd-metadata-key.txt"
 _CLASSES = {"benign": 0, "malignant": 1}
+_REQUIRED_COLUMNS = ("ID1", "LeftRight", "classification")
 _VIEWS = {"cranio-caudal": "CC", "medio-lateral oblique": "MLO"}
 _COLUMNS = [
     "patient_id", "record_id", "image_path", "laterality", "view", "cohort",
@@ -97,39 +98,23 @@ class CMMDDataset(BaseDataset):
     all-malignant (D2) test set.
 
     Getting the data:
-        - Source page: https://www.cancerimagingarchive.net/collection/cmmd/
-          (The Cancer Imaging Archive, doi 10.7937/tcia.eqde-4b16). The data
-          citation is below.
-        - Access: open. No account, registration or data-use agreement is
-          needed. You must follow the TCIA Data Usage Policy and cite the
-          data set.
-        - Clinical sheet (70 KB): ``wget
-          https://www.cancerimagingarchive.net/wp-content/uploads/CMMD_clinicaldata_revision.xlsx``
-          into ``root``.
-        - DICOMs (22.86 GB, 1,775 patients, 5,202 images): install the NBIA
-          Data Retriever
-          (https://www.cancerimagingarchive.net/tcia-data-retriever/),
-          download the manifest ``wget
-          https://www.cancerimagingarchive.net/wp-content/uploads/The-Chinese-Mammography-Database.tcia``,
-          open it in the Data Retriever, choose ``root`` as the destination
-          and start the download. There is no ``download=True``.
-        - Unpacking: nothing to unpack. Reading the ``.xlsx`` needs the
-          optional ``openpyxl`` package (``pip install openpyxl``); a CSV
-          export of the sheet with the same name
-          (``CMMD_clinicaldata_revision.csv``) works without it. Patient id,
-          laterality and view come from the DICOM headers, which needs
-          ``pydicom`` (``pip install pyhealth[imaging]``).
-        - ``root`` layout. The DICOMs can sit in any sub-folder layout, since
-          every ``*.dcm`` under ``root`` is read::
+        Open access on TCIA
+        (https://www.cancerimagingarchive.net/collection/cmmd/, doi
+        10.7937/tcia.eqde-4b16): no account or data-use agreement, CC BY 4.0
+        for images and clinical data. Put the clinical sheet
+        ``CMMD_clinicaldata_revision.xlsx`` (or a ``.csv`` export) in
+        ``root`` and download the DICOMs into ``root`` with the NBIA Data
+        Retriever; every ``*.dcm`` under ``root`` is read, at any depth::
 
-              root/
-                CMMD_clinicaldata_revision.xlsx   # or .csv, or clinical_file=
-                <any>/CMMD/<ID1>/.../*.dcm         # Data Retriever tree
+            root/
+              CMMD_clinicaldata_revision.xlsx   # or .csv, or clinical_file=
+              <any>/CMMD/<ID1>/.../*.dcm         # Data Retriever tree
 
-          Derived metadata is written to ``metadata_dir`` (by default under
-          the PyHealth cache), never into ``root``.
-        - Licence: Creative Commons Attribution 4.0 (CC BY 4.0), for both
-          the images and the clinical data. No NC or ND terms.
+        The sheet must have the columns ``ID1``, ``LeftRight`` and
+        ``classification``. The full download steps (URLs, sizes, the
+        ``.tcia`` manifest, optional packages) are on the
+        ``pyhealth.datasets.CMMDDataset`` docs page
+        (``docs/api/datasets/pyhealth.datasets.CMMDDataset.rst``).
 
     Citation:
         Cui, C., Li, L., Cai, H., Fan, Z., Zhang, L., Dan, T., Li, J., &
@@ -244,10 +229,26 @@ class CMMDDataset(BaseDataset):
 
         clinical = _read_clinical_table(self.clinical_path)
         clinical.columns = [str(c).strip() for c in clinical.columns]
-        labels = {}
+        missing = [c for c in _REQUIRED_COLUMNS if c not in clinical.columns]
+        if missing:
+            raise ValueError(
+                f"CMMD clinical sheet {self.clinical_path} is missing the "
+                f"required column(s) {missing}; found {list(clinical.columns)}."
+            )
+        labels, duplicates = {}, set()
         for _, row in clinical.iterrows():
             side = str(row["LeftRight"]).strip().upper()[:1]
-            labels[(str(row["ID1"]).strip(), side)] = row
+            key = (str(row["ID1"]).strip(), side)
+            if key in labels:
+                duplicates.add(key)
+            labels[key] = row
+        if duplicates:
+            logger.warning(
+                "CMMD clinical sheet has more than one row for %d (ID1, "
+                "LeftRight) key(s), e.g. %s; the last row of each is used",
+                len(duplicates),
+                sorted(duplicates)[:5],
+            )
 
         rows, unlabeled, unknown = [], 0, set()
         for dirpath, _, filenames in os.walk(self.source_root):
