@@ -33,6 +33,13 @@ checkpoints from https://github.com/nyuad-cai/MedFuse, Git LFS):
 Ablation: ``--train-encoders`` also trains both encoders (the paper's Joint
 Fusion) instead of freezing them.
 
+MedSigLIP extension: ``--embeddings FILE`` (written by
+``python -m pyhealth.datasets.medmod.medsiglip``) replaces the CXR ResNet-34
+with the stored embeddings of a frozen MedSigLIP image encoder: the model is
+built with ``cxr_backbone=nn.Identity()`` and ``cxr_feature_dim=1152``, each
+batch's image input is looked up by image file name, and ``--cxr-weights`` is
+not used. The stored vectors are fixed, so there is no image augmentation.
+
 Results (test set, 1 seed): AUROC 0.840 (95% CI 0.810-0.868), AUPRC 0.513.
 Paper: AUROC 0.842 +- 0.004, AUPRC 0.515 +- 0.020.
 
@@ -51,9 +58,11 @@ from pathlib import Path
 import numpy as np
 import torch
 from sklearn.metrics import average_precision_score, roc_auc_score
+from torch import nn
 
 from pyhealth.datasets import get_dataloader
 from pyhealth.datasets.medmod.image_presets import get_preset, load_cxr
+from pyhealth.datasets.medmod.medsiglip import load_embeddings, lookup_embeddings
 from pyhealth.models import EHRCXREarlyFusion
 
 # sha256 of MedFuse's Git LFS checkpoint files.
@@ -122,20 +131,24 @@ def load_data(args: argparse.Namespace):
     return dataset.set_task(task, split=MedModSplit())
 
 
-def add_images(batch: dict, transform) -> dict:
-    """Loads and transforms the images of a batch into ``batch["cxr"]``."""
+def add_images(batch: dict, transform, table=None) -> dict:
+    """Loads and transforms the images of a batch into ``batch["cxr"]``, or,
+    with ``table`` (``--embeddings``), looks up their stored embeddings."""
+    if table is not None:
+        batch["cxr"] = lookup_embeddings(batch["image_path"], *table)
+        return batch
     images = [transform(load_cxr(path)) for path in batch["image_path"]]
     batch["cxr"] = torch.stack(images)
     return batch
 
 
 @torch.no_grad()
-def evaluate(model, samples, transform) -> tuple[float, float, float]:
+def evaluate(model, samples, transform, table=None) -> tuple[float, float, float]:
     """Returns AUROC, AUPRC and the mean loss on ``samples``."""
     model.eval()
     y_true, y_prob, losses = [], [], []
     for batch in get_dataloader(samples, batch_size=64):
-        output = model(**add_images(batch, transform))
+        output = model(**add_images(batch, transform, table))
         losses.append(float(output["loss"]) * len(batch["image_path"]))
         y_true.append(output["y_true"].cpu().reshape(-1))
         y_prob.append(output["y_prob"].cpu().reshape(-1))
@@ -154,6 +167,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ehr-weights", help="MedFuse uni_ehr_all checkpoint")
     parser.add_argument("--cxr-weights", help="MedFuse cxr_rad_full checkpoint")
     parser.add_argument("--train-encoders", action="store_true")
+    parser.add_argument("--embeddings", help="MedSigLIP .npz instead of a ResNet")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--lr", type=float, default=9.515e-05)
@@ -166,6 +180,8 @@ def parse_args() -> argparse.Namespace:
             "set --synthetic N, or all of --ehr-root, --cxr-root, "
             "--image-dir and --cache-dir"
         )
+    if args.embeddings and args.cxr_weights:
+        parser.error("--cxr-weights is for the ResNet, not --embeddings")
     return args
 
 
@@ -184,9 +200,16 @@ def main() -> None:
     if args.cxr_weights:
         state = load_checkpoint(args.cxr_weights, CXR_SHA256)
         weights["cxr_state_dict"] = cxr_state_dict(state)
-    if len(weights) < 2:
+    table, image_encoder = None, {}
+    if args.embeddings:
+        table = load_embeddings(args.embeddings)[:2]
+        image_encoder = {"cxr_backbone": nn.Identity(),
+                         "cxr_feature_dim": table[1].shape[1]}
+    if len(weights) + bool(table) < 2:
         print("Encoders without MedFuse weights are random: smoke test only.")
-    model = EHRCXREarlyFusion(train, freeze_encoders=not args.train_encoders, **weights)
+    model = EHRCXREarlyFusion(
+        train, freeze_encoders=not args.train_encoders, **weights, **image_encoder
+    )
 
     trainable = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.Adam(trainable, lr=args.lr, betas=(0.9, 0.9))
@@ -201,7 +224,7 @@ def main() -> None:
     best_auroc, best_state, waited = -1.0, None, 0
     for epoch in range(args.epochs + 1):
         # As MedFuse: validate before each epoch; the last pass only validates.
-        val_auroc, _, val_loss = evaluate(model, val, eval_tf)
+        val_auroc, _, val_loss = evaluate(model, val, eval_tf, table)
         if val_auroc > best_auroc:
             best_auroc, waited = val_auroc, 0
             best_state = {k: v.clone() for k, v in model.state_dict().items()}
@@ -213,14 +236,14 @@ def main() -> None:
         model.train()
         loader = get_dataloader(train, batch_size=args.batch_size, shuffle=True)
         for batch in loader:
-            loss = model(**add_images(batch, train_tf))["loss"]
+            loss = model(**add_images(batch, train_tf, table))["loss"]
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
         scheduler.step(val_loss)
 
     model.load_state_dict(best_state)
-    auroc, auprc, _ = evaluate(model, test, eval_tf)
+    auroc, auprc, _ = evaluate(model, test, eval_tf, table)
     print("RESULT", json.dumps({"test_auroc": auroc, "test_auprc": auprc}))
 
 

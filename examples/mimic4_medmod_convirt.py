@@ -34,6 +34,20 @@ MedMod's linear eval (src/scripts/lineareval/mortality/multimodal.sh;
 models/finetune.py) with the encoders frozen, as in the paper's Table 4:
 AdamW lr 0.001, batch 256, at most 200 epochs, early stopping on val AUROC
 (patience 30), train augmentation; MedMod reports the final epoch.
+
+MedSigLIP extension: ``--embeddings FILE`` (written by
+``python -m pyhealth.datasets.medmod.medsiglip``) replaces the ResNet-34 with
+the stored embeddings of a frozen MedSigLIP image encoder, in both steps:
+ConVIRT is built with ``cxr_backbone=nn.Identity()`` and
+``cxr_feature_dim=1152``, and each batch's image input is looked up by image
+file name. The stored vectors are fixed, so there is no image augmentation;
+pass the same file to both steps.
+
+    python examples/mimic4_medmod_convirt.py pretrain ... \\
+        --embeddings /data/medsiglip_448.npz --out runs/convirt_medsiglip
+    python examples/mimic4_medmod_convirt.py probe ... \\
+        --embeddings /data/medsiglip_448.npz \\
+        --checkpoint runs/convirt_medsiglip/epoch_065.pt
 """
 
 from __future__ import annotations
@@ -48,10 +62,12 @@ from pathlib import Path
 import numpy as np
 import torch
 from sklearn.metrics import average_precision_score, roc_auc_score
+from torch import nn
 from torch.optim.optimizer import Optimizer, required
 
 from pyhealth.datasets import get_dataloader, split_by_medmod
 from pyhealth.datasets.medmod.image_presets import get_preset, load_cxr
+from pyhealth.datasets.medmod.medsiglip import load_embeddings, lookup_embeddings
 from pyhealth.models import ConVIRT, ConVIRTLinearProbe
 
 
@@ -100,9 +116,25 @@ def default_device() -> str:
     return "mps" if torch.backends.mps.is_available() else "cpu"
 
 
-def with_images(batch: dict, transform) -> dict:
-    batch["cxr"] = torch.stack([transform(load_cxr(p)) for p in batch["image_path"]])
+def with_images(batch: dict, transform, table=None) -> dict:
+    """Adds the image input: the loaded, transformed images or, with ``table``
+    (``--embeddings``), their stored MedSigLIP embeddings."""
+    if table is not None:
+        batch["cxr"] = lookup_embeddings(batch["image_path"], *table)
+    else:
+        images = [transform(load_cxr(p)) for p in batch["image_path"]]
+        batch["cxr"] = torch.stack(images)
     return batch
+
+
+def build_convirt(dataset, args) -> ConVIRT:
+    """ConVIRT with a ResNet, or reading stored embeddings (``--embeddings``)."""
+    if args.table is None:
+        return ConVIRT(dataset, cxr_backbone=args.backbone,
+                       temperature=args.temperature)
+    return ConVIRT(dataset, cxr_backbone=nn.Identity(),
+                   cxr_feature_dim=args.table[1].shape[1],
+                   temperature=args.temperature)
 
 
 def pretrain(dataset, out: Path, args) -> None:
@@ -113,8 +145,7 @@ def pretrain(dataset, out: Path, args) -> None:
     dev = torch.device(args.device)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)  # the presets draw from numpy's global RNG
-    model = ConVIRT(dataset, cxr_backbone=args.backbone,
-                    temperature=args.temperature).to(dev)
+    model = build_convirt(dataset, args).to(dev)
     opt = LARS(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=1e-4)
     # created in MedMod's order (simclr_model.py:88-93)
     cosine = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(opt, 500)
@@ -137,7 +168,7 @@ def pretrain(dataset, out: Path, args) -> None:
         loader.epoch = epoch + 1  # shuffle order depends on (seed, epoch)
         losses, sizes = [], []
         for batch in loader:
-            batch = with_images(batch, train_tf if training else eval_tf)
+            batch = with_images(batch, train_tf if training else eval_tf, args.table)
             with torch.set_grad_enabled(training):
                 loss = model(**batch)["loss"]
                 if training:
@@ -176,7 +207,7 @@ def probe(train, val, test, checkpoint: Path, args) -> dict:
     dev = torch.device(args.device)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
-    convirt = ConVIRT(train, cxr_backbone=args.backbone)
+    convirt = build_convirt(train, args)
     convirt.load_state_dict(
         torch.load(checkpoint, map_location="cpu", weights_only=True)["model"])
     model = ConVIRTLinearProbe(train, convirt).to(dev)
@@ -189,7 +220,7 @@ def probe(train, val, test, checkpoint: Path, args) -> dict:
         model.eval()
         ys, ps = [], []
         for batch in get_dataloader(part, batch_size=args.batch_size):
-            out = model(**with_images(batch, eval_tf))
+            out = model(**with_images(batch, eval_tf, args.table))
             ys.append(out["y_true"].float().cpu().reshape(-1))
             ps.append(out["y_prob"].float().cpu().reshape(-1))
         y, p = torch.cat(ys).numpy(), torch.cat(ps).numpy()
@@ -204,7 +235,7 @@ def probe(train, val, test, checkpoint: Path, args) -> dict:
                                 seed=args.seed, drop_last=True)
         loader.epoch = epoch + 1
         for batch in loader:
-            loss = model(**with_images(batch, train_tf))["loss"]
+            loss = model(**with_images(batch, train_tf, args.table))["loss"]
             opt.zero_grad()
             loss.backward()
             opt.step()
@@ -241,9 +272,12 @@ def main() -> None:
     ap.add_argument("--lr", type=float, default=0.6044)
     ap.add_argument("--temperature", type=float, default=0.01)
     ap.add_argument("--backbone", default="resnet34")
+    ap.add_argument("--embeddings",
+                    help="MedSigLIP .npz: use stored image embeddings, not a ResNet")
     ap.add_argument("--seed", type=int, default=84305)
     ap.add_argument("--device", default=default_device())
     args = ap.parse_args()
+    args.table = load_embeddings(args.embeddings)[:2] if args.embeddings else None
 
     if args.synthetic:
         from pyhealth.datasets.medmod.synthetic import (

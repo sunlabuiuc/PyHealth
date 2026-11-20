@@ -6,7 +6,9 @@
 The extension swaps the ResNet-34 image encoder of both models for a frozen
 MedSigLIP image encoder (``google/medsiglip-448``). A frozen encoder gives the
 same output for an image every time, so each image is embedded once here and
-the models read the stored vectors.
+the models read the stored vectors: :func:`lookup_embeddings` gives a batch's
+image input for a model built with ``cxr_backbone=nn.Identity()`` and
+``cxr_feature_dim=1152`` (the ``--embeddings`` option of the MedMod examples).
 
 * Model: ``google/medsiglip-448`` at a pinned revision (``REVISION``); only the
   vision tower is loaded (``SiglipVisionModel``), frozen and in eval mode.
@@ -289,6 +291,38 @@ def load_embeddings(path: str | Path) -> tuple[dict[str, int], np.ndarray, dict]
             data["embeddings"],
             json.loads(str(data["meta"])),
         )
+
+
+def lookup_embeddings(
+    paths: Sequence[str | Path], index: dict[str, int], embeddings: np.ndarray
+) -> torch.Tensor:
+    """The stored embeddings of a batch of images, looked up by image path.
+
+    Args:
+        paths: Image paths, e.g. a batch's ``image_path``.
+        index: Key to row, from :func:`load_embeddings`.
+        embeddings: ``[n, dim]``, from :func:`load_embeddings`.
+
+    Returns:
+        A float32 tensor ``[len(paths), dim]``: the image input of a model
+        built with ``cxr_backbone=nn.Identity()`` and ``cxr_feature_dim=dim``.
+
+    Raises:
+        KeyError: An image has no embedding (its name is not shown).
+
+    Examples:
+        >>> import numpy as np
+        >>> from pyhealth.datasets.medmod.medsiglip import lookup_embeddings
+        >>> table = np.arange(6, dtype=np.float32).reshape(2, 3)
+        >>> lookup_embeddings(["/x/b.jpg", "/y/a.jpg"], {"a": 0, "b": 1}, table)
+        tensor([[3., 4., 5.],
+                [0., 1., 2.]])
+    """
+    try:
+        rows = [index[image_key(p)] for p in paths]
+    except KeyError:
+        raise KeyError("An image has no embedding in the file.") from None
+    return torch.from_numpy(embeddings[rows])
 
 
 def compute_embeddings(
