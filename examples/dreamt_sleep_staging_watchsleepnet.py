@@ -4,9 +4,7 @@ Runs the full PyHealth pipeline::
 
     DREAMTDataset -> SleepStagingDREAMT (task) -> WatchSleepNet (model)
 
-and compares configurations that go beyond the paper's own ablations (the
-paper toggled TCN/attention, froze layers, and varied the pretraining data;
-none of that is repeated here). Every configuration trains from scratch on
+and compares configurations. Every configuration trains from scratch on
 DREAMT only, so absolute numbers are far below the paper's pretrained results;
 only the comparison between configurations is meaningful.
 
