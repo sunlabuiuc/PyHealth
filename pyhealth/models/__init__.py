@@ -6,7 +6,7 @@ from .apn import (
     TimeAwarePatchAggregation as TimeAwarePatchAggregation,
     masked_mse as masked_mse,
 )
-from .sensor_lstm import SensorLSTM
+from .sensor_lstm import SensorLSTM  # noqa: F401
 from .base_model import BaseModel
 from .behrt import (
     BEHRT as BEHRT,
