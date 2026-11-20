@@ -7,8 +7,21 @@ from .base_task import BaseTask
 
 logger = logging.getLogger(__name__)
 
+# Unknown subtype values already warned about, per process. Kept at module
+# level so the task instance's ``vars()``, which the task cache key hashes,
+# does not change after a warning.
+_WARNED_SUBTYPES: set[str] = set()
+
 #: Molecular subtypes of the CMMD clinical sheet, in label-index order.
 CMMD_SUBTYPES = ("Luminal A", "Luminal B", "HER2-enriched", "triple negative")
+
+
+def _is_malignant(event: Any) -> bool:
+    """Return whether an ``images`` event has the malignant label (1)."""
+    try:
+        return int(float(event.has_label)) == 1 and int(float(event.label)) == 1
+    except (TypeError, ValueError):
+        return False
 
 
 class CMMDSubtypeClassification(BaseTask):
@@ -80,12 +93,10 @@ class CMMDSubtypeClassification(BaseTask):
             if subtype in ("", "nan", "None"):
                 continue
             if subtype not in CMMD_SUBTYPES:
-                warned = self.__dict__.setdefault("_warned_subtypes", set())
-                if subtype not in warned:
-                    warned.add(subtype)
+                if subtype not in _WARNED_SUBTYPES:
+                    _WARNED_SUBTYPES.add(subtype)
                     logger.warning(
-                        "CMMD subtype %r is not one of %s; those images are "
-                        "skipped",
+                        "CMMD subtype %r is not one of %s; those images are skipped",
                         subtype,
                         list(CMMD_SUBTYPES),
                     )
@@ -102,13 +113,3 @@ class CMMDSubtypeClassification(BaseTask):
                 }
             )
         return samples
-
-
-def _is_malignant(event: Any) -> bool:
-    """Return whether an ``images`` event has the malignant label (1)."""
-    try:
-        return (
-            int(float(event.has_label)) == 1 and int(float(event.label)) == 1
-        )
-    except (TypeError, ValueError):
-        return False

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from pyhealth.datasets import CMMDDataset, get_dataloader
-from pyhealth.tasks import CMMDSubtypeClassification
+from pyhealth.tasks import CMMDSubtypeClassification, cmmd_subtype_classification
 from pyhealth.tasks.cmmd_subtype_classification import CMMD_SUBTYPES
 from tests.core.cmmd_test_utils import CLINICAL, build_cmmd_root, pydicom
 
@@ -52,7 +52,9 @@ class TestCMMDSubtypeClassification(unittest.TestCase):
         self.assertEqual(tuple(batch["image"].shape), (3, 1, 512, 512))
 
     def test_unrecognised_subtype_warns_once_and_is_skipped(self):
+        cmmd_subtype_classification._WARNED_SUBTYPES.clear()
         task = CMMDSubtypeClassification()
+        state_before = dict(vars(task))
         event = SimpleNamespace(
             has_label="1",
             label="1.0",
@@ -73,6 +75,8 @@ class TestCMMDSubtypeClassification(unittest.TestCase):
             self.assertEqual(task(patient), [])
         self.assertEqual(len(logs.output), 1)
         self.assertIn("Luminal C", logs.output[0])
+        # The task cache key hashes vars(task); warning must not change it.
+        self.assertEqual(vars(task), state_before)
 
     def test_benign_breast_with_subtype_is_skipped(self):
         event = SimpleNamespace(
