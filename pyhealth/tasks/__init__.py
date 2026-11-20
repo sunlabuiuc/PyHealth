@@ -181,6 +181,12 @@ from .jichi_davis_grading import JichiDavisGrading as JichiDavisGrading
 from .rsna_pneumonia_classification import (
     RSNAPneumoniaClassification as RSNAPneumoniaClassification,
 )
+from .bcss_tile_classification import (
+    BCSSTileClassification as BCSSTileClassification,
+)
+from .bcss_tissue_segmentation import (
+    BCSSTissueSegmentation as BCSSTissueSegmentation,
+)
 from .isic2020_melanoma_classification import (
     ISIC2020MelanomaClassification as ISIC2020MelanomaClassification,
 )

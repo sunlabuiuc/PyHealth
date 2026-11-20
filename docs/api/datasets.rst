@@ -505,6 +505,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `MSD <http://medicaldecathlon.com/>`__
      - Yes
      - —
+   * - :doc:`BCSS (breast pathology) <datasets/pyhealth.datasets.BCSSDataset>`
+     - Open
+     - `GitHub <https://github.com/PathologyDataScience/BCSS>`__
+     - No
+     - —
    * - :doc:`BMD-HS <datasets/pyhealth.datasets.BMDHSDataset>`
      - Open
      - `GitHub <https://github.com/sani002/BMD-HS-Dataset>`__
@@ -601,6 +606,7 @@ Available Datasets
     datasets/pyhealth.datasets.LNDbDataset
     datasets/pyhealth.datasets.MIMIC4EHRDataset
     datasets/pyhealth.datasets.MIMIC4NoteDataset
+    datasets/pyhealth.datasets.BCSSDataset
     datasets/pyhealth.datasets.MIMIC4CXRDataset
     datasets/pyhealth.datasets.ABIDEDataset
     datasets/pyhealth.datasets.MIMIC4EDDataset
