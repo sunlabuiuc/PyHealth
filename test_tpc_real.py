@@ -1,5 +1,8 @@
-﻿
-"""Integration test for TPC hourly ICU length-of-stay prediction."""
+"""Integration test for TPC hourly ICU length-of-stay prediction.
+
+Loads real eICU data and inspects generated task samples
+under different missing-data rates.
+"""
 
 from multiprocessing import freeze_support
 
@@ -53,19 +56,13 @@ def main() -> None:
             print("Dynamic type:", type(sample["dynamic"]))
             print(
                 "Dynamic structure:",
-                [
-                    getattr(x, "shape", type(x).__name__)
-                    for x in sample["dynamic"]
-                ],
+                [getattr(x, "shape", type(x).__name__) for x in sample["dynamic"]],
             )
 
             print("LOS type:", type(sample["los"]))
             print(
                 "LOS structure:",
-                [
-                    getattr(x, "shape", type(x).__name__)
-                    for x in sample["los"]
-                ],
+                [getattr(x, "shape", type(x).__name__) for x in sample["los"]],
             )
 
     print("\nIntegration test finished.")
@@ -74,4 +71,3 @@ def main() -> None:
 if __name__ == "__main__":
     freeze_support()
     main()
-
