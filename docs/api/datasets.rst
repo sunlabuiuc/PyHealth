@@ -515,6 +515,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `NCBI <https://ftp.ncbi.nlm.nih.gov/pub/clinvar/>`__
      - No
      - —
+   * - :doc:`CBIS-DDSM <datasets/pyhealth.datasets.CBISDDSMDataset>`
+     - Open
+     - `TCIA <https://www.cancerimagingarchive.net/collection/cbis-ddsm/>`__
+     - CSVs only; DICOMs (163.5 GB) via the NBIA Data Retriever, or a few series with ``download_series()``
+     - —
    * - :doc:`Synthea <datasets/pyhealth.datasets.SyntheaCSVDataset>`
      - Open (synthetic)
      - `Synthea <https://synthea.mitre.org/downloads>`__
@@ -554,6 +559,7 @@ Available Datasets
     datasets/pyhealth.datasets.RSNAPneumoniaDataset
     datasets/pyhealth.datasets.PADUFES20Dataset
     datasets/pyhealth.datasets.ISIC2020Dataset
+    datasets/pyhealth.datasets.CBISDDSMDataset
     datasets/pyhealth.datasets.MIMIC3Dataset
     datasets/pyhealth.datasets.MIMIC4Dataset
     datasets/pyhealth.datasets.MIMIC4EHRDataset

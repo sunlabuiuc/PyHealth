@@ -164,6 +164,16 @@ from .rsna_pneumonia_classification import (
 from .isic2020_melanoma_classification import (
     ISIC2020MelanomaClassification as ISIC2020MelanomaClassification,
 )
+from .cbis_ddsm_abnormality_classification import (
+    CBISDDSMAbnormalityClassification as CBISDDSMAbnormalityClassification,
+)
+from .cbis_ddsm_classification import (
+    CBISDDSMBIRADSClassification as CBISDDSMBIRADSClassification,
+    CBISDDSMPathologyClassification as CBISDDSMPathologyClassification,
+)
+from .cbis_ddsm_density_classification import (
+    CBISDDSMDensityClassification as CBISDDSMDensityClassification,
+)
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
     ReadmissionPredictionMIMIC3,
