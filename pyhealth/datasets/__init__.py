@@ -138,6 +138,7 @@ from .tuab import TUABDataset
 from .tuev import TUEVDataset
 from .chbmit import CHBMITDataset as CHBMITDataset
 from .helsinki_neonatal import HelsinkiNeonatalDataset as HelsinkiNeonatalDataset
+from .ludb import LUDBDataset as LUDBDataset
 from .eesm23 import EESM23Dataset as EESM23Dataset
 from .tcga_rna_seq import TCGARNASeqDataset as TCGARNASeqDataset
 from .utils import (

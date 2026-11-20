@@ -237,6 +237,7 @@ from .temple_university_EEG_tasks import (
 from .seizure_detection_helsinki import (
     SeizureDetectionHelsinki as SeizureDetectionHelsinki,
 )
+from .ecg_delineation_ludb import ECGDelineationLUDB as ECGDelineationLUDB
 from .seizure_detection_chbmit import (
     SeizureDetectionCHBMIT as SeizureDetectionCHBMIT,
 )
