@@ -58,6 +58,15 @@ Getting the data
   (non-commercial, attribution, share alike); the repository code is MIT.
   Contact the KiTS organisers for commercial use.
 
+Metadata location
+-----------------
+
+The loader writes its metadata CSV to ``metadata_dir``, never into
+``root``. By default this is ``<cache_dir>/metadata/kits23-<hash>``, where
+``<hash>`` is the first 12 hex digits of the SHA-1 of the resolved
+``root``, so two roots sharing one ``cache_dir`` keep separate CSVs. An
+explicit ``metadata_dir`` is used as given.
+
 API Reference
 -------------
 

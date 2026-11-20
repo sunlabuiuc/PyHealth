@@ -108,9 +108,12 @@ class KiTS23Dataset(BaseDataset):
           (non-commercial, attribution, share alike; the repository code is
           MIT). Contact the KiTS organisers for commercial use.
 
-    The metadata CSV is written to ``metadata_dir`` (by default
-    ``<cache_dir>/metadata/kits23``), never into ``root``. It is rebuilt
-    when ``root``, ``kits23.json`` or the set of downloaded CTs changes.
+    The metadata CSV is written to ``metadata_dir``, never into ``root``.
+    By default this is ``<cache_dir>/metadata/kits23-<hash>``, where
+    ``<hash>`` is the first 12 hex digits of the SHA-1 of the resolved
+    ``root``, so two roots sharing one ``cache_dir`` get separate CSVs. An
+    explicit ``metadata_dir`` is used as given. The CSV is rebuilt when
+    ``root``, ``kits23.json`` or the set of downloaded CTs changes.
 
     Citation:
         Heller, N., Isensee, F., Trofimova, D., et al. The KiTS21 Challenge:
@@ -128,8 +131,10 @@ class KiTS23Dataset(BaseDataset):
     entries in its label list) but sets ``NUM_CLASSES = 4``, giving a four-way
     head for a binary task; here the task is binary. CLIMB splits on the
     first 75% of cases in ``kits23.json`` order; here every sample carries
-    its case id as ``patient_id`` so a patient split (stratified, since only
-    9% of cases are benign) cannot leak. Cases with an unknown ``malignant``
+    its case id as ``patient_id`` so a patient split cannot leak. Only 9% of
+    cases are benign, and PyHealth's ``split_by_patient`` is not stratified,
+    so on a small subset a split may hold one class only, which leaves ROC
+    AUC undefined. Cases with an unknown ``malignant``
     value are dropped by the task rather than counted as benign.
 
     Args:
@@ -137,7 +142,8 @@ class KiTS23Dataset(BaseDataset):
         dataset_name: Optional dataset name. Defaults to ``"kits23"``.
         config_path: Optional table configuration path.
         cache_dir: Directory for PyHealth caches.
-        metadata_dir: Explicit directory for the metadata CSV.
+        metadata_dir: Explicit directory for the metadata CSV. Defaults to
+            ``<cache_dir>/metadata/kits23-<sha1(root)[:12]>``.
         num_workers: Number of workers for dataset processing.
         dev: Whether to limit the dataset to 1000 patients.
         refresh_metadata: Rebuild the metadata CSV even if it is current.
@@ -182,7 +188,9 @@ class KiTS23Dataset(BaseDataset):
         self.metadata_dir = (
             Path(metadata_dir).expanduser()
             if metadata_dir is not None
-            else _resolve_metadata_dir(cache_dir, name)
+            else _resolve_metadata_dir(
+                cache_dir, f"{name}-{self._root_digest(source_root)}"
+            )
         )
         self.metadata_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_path = self.metadata_dir / _METADATA_CSV
@@ -209,6 +217,11 @@ class KiTS23Dataset(BaseDataset):
             num_workers=num_workers,
             dev=dev,
         )
+
+    @staticmethod
+    def _root_digest(source_root: Path) -> str:
+        """Short SHA-1 of the resolved root, keying the default metadata dir."""
+        return hashlib.sha1(str(source_root).encode("utf-8")).hexdigest()[:12]
 
     def _source_key(self) -> str:
         """Hash of the inputs the metadata CSV depends on."""

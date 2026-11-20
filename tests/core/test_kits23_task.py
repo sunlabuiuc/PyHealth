@@ -69,6 +69,23 @@ class TestKiTS23Tasks(unittest.TestCase):
         self.assertEqual(len(volume_task(no_seg)), 1)
         self.assertEqual(len(slice_task(dataset.get_patient("case_00000"))), 1)
 
+    def test_slice_task_skips_shape_mismatch(self):
+        dataset_dir = build_kits23_root(self.tmp / "mismatch")
+        seg = np.zeros((8, 8, 8), dtype=np.uint8)
+        seg[2:6, 2:6, 3] = 2
+        nib.save(
+            nib.Nifti1Image(seg, np.eye(4)),
+            dataset_dir / "case_00001" / "segmentation.nii.gz",
+        )
+        dataset = KiTS23Dataset(
+            root=str(dataset_dir), cache_dir=str(self.tmp / "cache_mismatch")
+        )
+        task = KiTS23MalignancySliceClassification(image_size=12)
+        with self.assertLogs("pyhealth.tasks.kits23_classification", "WARNING") as logs:
+            self.assertEqual(task(dataset.get_patient("case_00001")), [])
+        self.assertIn("case_00001", logs.output[0])
+        self.assertEqual(len(task(dataset.get_patient("case_00000"))), 1)
+
     def test_best_slice_prefers_tumour_then_kidney(self):
         seg = np.zeros((6, 4, 4), dtype=int)
         seg[1, :, :] = 1

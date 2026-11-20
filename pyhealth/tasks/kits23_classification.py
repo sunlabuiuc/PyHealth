@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, ClassVar
 
 import numpy as np
 
 from .base_task import BaseTask
+
+logger = logging.getLogger(__name__)
 
 #: Label of the tumour class in KiTS23 segmentations (1 kidney, 3 cyst).
 KITS23_TUMOR_LABEL = 2
@@ -37,8 +40,10 @@ class KiTS23MalignancyClassification(BaseTask):
     The CT is read lazily by the ``nifti`` processor, reoriented to RAS,
     resampled to ``target_shape`` ``(D, H, W)``, clipped to ``hu_window``
     and min-max scaled, giving a ``(1, D, H, W)`` tensor for 3D models.
-    Only 9% of cases are benign, so use a stratified patient split and
-    report AUROC / AUPRC. For 2D models, see
+    Only 9% of cases are benign; report AUROC / AUPRC. PyHealth's
+    ``split_by_patient`` is not stratified, so on a small subset a split
+    may contain one class only, which makes ROC AUC undefined. For 2D
+    models, see
     :class:`KiTS23MalignancySliceClassification`.
 
     Args:
@@ -124,7 +129,7 @@ class KiTS23MalignancySliceClassification(BaseTask):
     task reads the CT and its segmentation, finds the axial slice with the
     largest tumour cross-section (label 2; the largest kidney slice when a
     case has no tumour voxels), and stacks it with its two neighbours as a
-    ``(3, image_size, image_size)`` tensor, clipped to ``hu_window`` and
+    ``(3, image_size, image_size)`` float32 array, clipped to ``hu_window`` and
     scaled to [0, 1]. Reading full volumes makes ``set_task`` slow on the
     whole dataset (about 42 GB of CT), but the result is cached.
 
@@ -222,7 +227,9 @@ class KiTS23MalignancySliceClassification(BaseTask):
             patient: A PyHealth ``Patient`` with ``cases`` events.
 
         Returns:
-            Sample dicts with ``image`` (a tensor) and ``malignant``.
+            Sample dicts with ``image`` (a float32 numpy array of shape
+            ``(3, image_size, image_size)``) and ``malignant``. Cases whose
+            CT and segmentation shapes differ are logged and skipped.
         """
         from ..processors.image_io.readers.nifti import NiftiReader
 
@@ -234,10 +241,14 @@ class KiTS23MalignancySliceClassification(BaseTask):
                 event.segmentation_path, canonical=True, is_mask=True
             )[0]
             if volume.shape != segmentation.shape:
-                raise ValueError(
-                    f"{event.record_id}: imaging {volume.shape} and "
-                    f"segmentation {segmentation.shape} shapes differ."
+                logger.warning(
+                    "Skipping KiTS23 case %s: imaging shape %s differs from "
+                    "segmentation shape %s.",
+                    event.record_id,
+                    volume.shape,
+                    segmentation.shape,
                 )
+                continue
             samples.append(
                 {
                     "patient_id": patient.patient_id,

@@ -15,6 +15,7 @@ except ImportError:  # pragma: no cover - the test env installs nibabel
     nib = None
 
 from pyhealth.datasets import KiTS23Dataset
+from pyhealth.tasks import KiTS23MalignancyClassification
 
 SHAPE_XYZ = (16, 16, 8)
 
@@ -87,6 +88,48 @@ class TestKiTS23Dataset(unittest.TestCase):
         dataset = KiTS23Dataset(root=str(self.dataset_dir), cache_dir=str(self.cache))
         meta = pd.read_csv(dataset.metadata_path).set_index("record_id")
         self.assertEqual(meta.loc["case_00002", "has_imaging"], 1)
+
+    def test_roots_sharing_cache_dir_keep_separate_metadata(self):
+        first = KiTS23Dataset(root=str(self.dataset_dir), cache_dir=str(self.cache))
+        before = pd.read_csv(first.metadata_path)
+        other_cases = [{"case_id": "case_00100", "malignant": False},
+                       {"case_id": "case_00101", "malignant": True}]
+        other_dir = self.tmp / "other" / "dataset"
+        other_dir.mkdir(parents=True)
+        (other_dir / "kits23.json").write_text(json.dumps(other_cases))
+        for index, case in enumerate(other_cases):
+            write_case(other_dir / case["case_id"], tumor_slice=3, seed=20 + index)
+        second = KiTS23Dataset(root=str(other_dir), cache_dir=str(self.cache))
+
+        self.assertNotEqual(first.metadata_dir, second.metadata_dir)
+        self.assertTrue(first.metadata_dir.name.startswith("kits23-"))
+        pd.testing.assert_frame_equal(pd.read_csv(first.metadata_path), before)
+        self.assertEqual(
+            sorted(pd.read_csv(second.metadata_path)["record_id"]),
+            ["case_00100", "case_00101"],
+        )
+        self.assertEqual(
+            sorted(first.unique_patient_ids),
+            ["case_00000", "case_00001", "case_00002", "case_00003"],
+        )
+        task = KiTS23MalignancyClassification(target_shape=(4, 8, 8))
+        samples = first.set_task(task, num_workers=1)
+        try:
+            self.assertEqual(
+                sorted(s["record_id"] for s in samples),
+                ["case_00000", "case_00001"],
+            )
+        finally:
+            samples.close()
+
+    def test_explicit_metadata_dir_is_used(self):
+        target = self.tmp / "explicit_meta"
+        dataset = KiTS23Dataset(
+            root=str(self.dataset_dir), cache_dir=str(self.cache),
+            metadata_dir=str(target),
+        )
+        self.assertEqual(dataset.metadata_dir, target)
+        self.assertTrue(dataset.metadata_path.exists())
 
     def test_missing_json_raises(self):
         empty = self.tmp / "empty"
