@@ -1,6 +1,7 @@
 """Tests for the CMMD mammography dataset loader."""
 
 import builtins
+import os
 import shutil
 import tempfile
 import unittest
@@ -48,6 +49,47 @@ class TestCMMDDataset(unittest.TestCase):
         self.assertEqual(
             sorted(dataset.unique_patient_ids), ["D1-0001", "D1-0002", "D2-0001"]
         )
+
+    def test_classification_mapping_is_strict(self):
+        clinical = CLINICAL.copy()
+        clinical["classification"] = [" benign ", "MALIGNANT", "Unknown", "malignant"]
+        build_cmmd_root(self.root, clinical)
+        with self.assertLogs("pyhealth.datasets.cmmd", level="WARNING") as logs:
+            dataset = CMMDDataset(
+                root=str(self.root), cache_dir=str(self.temp_dir / "c")
+            )
+        self.assertIn("Unknown", "\n".join(logs.output))
+        metadata = pd.read_csv(dataset.metadata_path)
+        by_key = {
+            (r.patient_id, r.laterality, r.view): (r.has_label, r.label)
+            for r in metadata.itertuples()
+        }
+        self.assertEqual(by_key[("D1-0001", "R", "CC")], (1, 0.0))
+        self.assertEqual(by_key[("D1-0002", "L", "CC")], (1, 1.0))
+        # "Unknown" is neither benign nor malignant: unlabelled, not benign.
+        self.assertEqual(by_key[("D1-0002", "R", "CC")][0], 0)
+        self.assertTrue(pd.isna(by_key[("D1-0002", "R", "CC")][1]))
+        self.assertEqual(by_key[("D2-0001", "L", "CC")], (1, 1.0))
+
+    def test_metadata_refreshes_when_sheet_edited_in_place(self):
+        cache = str(self.temp_dir / "c")
+        dataset = CMMDDataset(root=str(self.root), cache_dir=cache)
+        metadata = pd.read_csv(dataset.metadata_path)
+        self.assertEqual(int(metadata["has_label"].sum()), 6)
+        clinical = CLINICAL.copy()
+        clinical.loc[clinical["ID1"] == "D1-0001", "classification"] = "Malignant"
+        sheet = self.root / "CMMD_clinicaldata_revision.csv"
+        clinical.to_csv(sheet, index=False)
+        # Same path; force a different mtime in case the edit lands in
+        # the same timestamp tick.
+        stat = sheet.stat()
+        os.utime(sheet, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10**9))
+        dataset = CMMDDataset(root=str(self.root), cache_dir=cache)
+        metadata = pd.read_csv(dataset.metadata_path)
+        row = metadata[
+            (metadata["patient_id"] == "D1-0001") & (metadata["view"] == "CC")
+        ].iloc[0]
+        self.assertEqual(row["label"], 1.0)
 
     def test_xlsx_without_openpyxl_raises_clear_error(self):
         (self.root / "CMMD_clinicaldata_revision.xlsx").write_bytes(b"PK")

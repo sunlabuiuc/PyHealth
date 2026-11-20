@@ -3,7 +3,6 @@
 from typing import Any, ClassVar
 
 from .base_task import BaseTask
-from .cmmd_classification import CMMDMalignancyClassification
 
 #: Molecular subtypes of the CMMD clinical sheet, in label-index order.
 CMMD_SUBTYPES = ("Luminal A", "Luminal B", "HER2-enriched", "triple negative")
@@ -14,17 +13,19 @@ class CMMDSubtypeClassification(BaseTask):
 
     Works with :class:`~pyhealth.datasets.CMMDDataset`.
 
-    The CMMD D2 cohort gives the molecular subtype of 749 malignant cases
-    (Luminal A, Luminal B, HER2-enriched, triple negative; Cui et al.,
+    The CMMD D2 cohort (765 sheet rows: 753 malignant, 12 benign) gives
+    the molecular subtype of 749 of its malignant rows (Luminal A, Luminal B, HER2-enriched, triple negative; Cui et al.,
     2021). One sample per mammogram (one breast, one CC or MLO view) whose
     own breast has a clinical row with a subtype, matched on the DICOM
     laterality, so 4 classes with the labels of :data:`CMMD_SUBTYPES`.
-    Images without a subtype (all of D1, the D2 benign rows and unlabelled
-    contralateral breasts) are skipped. The classes are imbalanced: the
+    Images without a subtype (all of D1, the 12 D2 benign rows, the 4 D2
+    malignant rows with no subtype, and unlabelled contralateral breasts)
+    are skipped. The classes are imbalanced: the
     sheet has 152 / 376 / 135 / 86 rows. Split by ``patient_id``.
 
-    Uses the same lazy 512 x 512 single-channel ``dicom`` input as
-    :class:`~pyhealth.tasks.CMMDMalignancyClassification`.
+    The image is read lazily with the ``dicom`` processor at 512 x 512,
+    single channel (the same settings as
+    :class:`~pyhealth.tasks.CMMDMalignancyClassification`).
 
     Examples:
         >>> from pyhealth.datasets import CMMDDataset
@@ -38,7 +39,19 @@ class CMMDSubtypeClassification(BaseTask):
     """
 
     task_name: str = "CMMDSubtypeClassification"
-    input_schema: ClassVar[dict[str, Any]] = CMMDMalignancyClassification.input_schema
+    input_schema: ClassVar[dict[str, Any]] = {
+        "image": (
+            "dicom",
+            {
+                "lazy": True,
+                "image_size": 512,
+                "mode": "L",
+                "normalize": True,
+                "mean": [0.5],
+                "std": [0.5],
+            },
+        )
+    }
     output_schema: ClassVar[dict[str, Any]] = {
         "subtype": ("multiclass", {"labels": list(CMMD_SUBTYPES)})
     }

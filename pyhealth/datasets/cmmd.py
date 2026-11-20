@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_CLINICAL = "CMMD_clinicaldata_revision"
 _METADATA_FILE = "cmmd-metadata-pyhealth.csv"
 _MARKER_FILE = "cmmd-metadata-key.txt"
+_CLASSES = {"benign": 0, "malignant": 1}
 _VIEWS = {"cranio-caudal": "CC", "medio-lateral oblique": "MLO"}
 _COLUMNS = [
     "patient_id", "record_id", "image_path", "laterality", "view", "cohort",
@@ -81,9 +82,12 @@ class CMMDDataset(BaseDataset):
     Images of a breast with no row (the contralateral breast of a one-sided
     case) are kept with ``has_label=0`` and are skipped by the task.
 
-    The collection has two cohorts: D1 (benign and malignant, 1,107 rows)
-    and D2 (malignant with molecular ``subtype`` plus 12 benign, 765 rows),
-    stored in ``cohort``. There is no official split: split by
+    The collection has two cohorts, stored in ``cohort``: D1 (1,107 rows:
+    544 benign, 563 malignant, no subtype) and D2 (765 rows: 753 malignant,
+    749 of them with a molecular ``subtype`` and 4 without, plus 12
+    benign). A ``classification`` other than Benign/Malignant (any case or
+    surrounding whitespace) is logged as a warning and the image is kept
+    with ``has_label=0``. There is no official split: split by
     ``patient_id`` (for example with :class:`~pyhealth.datasets.PatientSplit`)
     so both views and both breasts of a patient stay together.
 
@@ -149,7 +153,9 @@ class CMMDDataset(BaseDataset):
         num_workers: Number of workers for dataset processing.
         dev: Whether to limit the dataset to 1000 patients.
         refresh_metadata: Regenerate the metadata CSV, e.g. after adding
-            DICOMs to ``root``.
+            DICOMs to ``root``. It is regenerated automatically when
+            ``root``, the clinical sheet path, or the sheet's size or
+            modification time changes.
 
     Examples:
         >>> from pyhealth.datasets import CMMDDataset
@@ -198,7 +204,11 @@ class CMMDDataset(BaseDataset):
         self.metadata_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_path = self.metadata_dir / _METADATA_FILE
         marker = self.metadata_dir / _MARKER_FILE
-        key = f"root={self.source_root}|clinical={self.clinical_path}"
+        stat = self.clinical_path.stat()
+        key = (
+            f"root={self.source_root}|clinical={self.clinical_path}"
+            f"|size={stat.st_size}|mtime_ns={stat.st_mtime_ns}"
+        )
         with FileLock(str(self.metadata_dir / (_METADATA_FILE + ".lock"))):
             current = marker.read_text().strip() if marker.exists() else None
             if refresh_metadata or not self.metadata_path.exists() or current != key:
@@ -239,7 +249,7 @@ class CMMDDataset(BaseDataset):
             side = str(row["LeftRight"]).strip().upper()[:1]
             labels[(str(row["ID1"]).strip(), side)] = row
 
-        rows, unlabeled = [], 0
+        rows, unlabeled, unknown = [], 0, set()
         for dirpath, _, filenames in os.walk(self.source_root):
             for filename in sorted(filenames):
                 if not filename.lower().endswith(".dcm"):
@@ -251,6 +261,12 @@ class CMMDDataset(BaseDataset):
                 patient_id = header["patient_id"] or Path(dirpath).name
                 side = header["laterality"][:1]
                 clinical_row = labels.get((patient_id, side))
+                classification, label = "", None
+                if clinical_row is not None:
+                    classification = str(clinical_row["classification"]).strip()
+                    label = _CLASSES.get(classification.lower())
+                    if label is None:
+                        unknown.add(classification)
                 record = {
                     "patient_id": patient_id,
                     "record_id": header["record_id"] or path,
@@ -258,7 +274,7 @@ class CMMDDataset(BaseDataset):
                     "laterality": side,
                     "view": header["view"],
                     "cohort": patient_id.split("-")[0],
-                    "has_label": int(clinical_row is not None),
+                    "has_label": int(label is not None),
                     "label": "",
                     "classification": "",
                     "abnormality": "",
@@ -268,11 +284,10 @@ class CMMDDataset(BaseDataset):
                 if clinical_row is None:
                     unlabeled += 1
                 else:
-                    classification = str(clinical_row["classification"]).strip()
                     subtype = clinical_row.get("subtype")
                     record.update(
                         {
-                            "label": int(classification.lower() == "malignant"),
+                            "label": "" if label is None else label,
                             "classification": classification,
                             "abnormality": clinical_row.get("abnormality", ""),
                             "subtype": "" if pd.isna(subtype) else subtype,
@@ -280,6 +295,12 @@ class CMMDDataset(BaseDataset):
                         }
                     )
                 rows.append(record)
+        if unknown:
+            logger.warning(
+                "CMMD classification values other than Benign/Malignant: %s; "
+                "those images are kept with has_label=0",
+                sorted(unknown),
+            )
         if not rows:
             raise FileNotFoundError(f"No CMMD DICOMs found under {self.source_root}.")
         tmp_path = self.metadata_path.with_suffix(".csv.tmp")
