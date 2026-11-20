@@ -1,9 +1,8 @@
-
 """Test hourly binning, forward filling, and ICU LOS label generation.
 
-Uses synthetic heart rate measurements to verify hourly aggregation,
-missing-value handling, elapsed time since the last observation,
-and hourly remaining length-of-stay labels.
+Uses synthetic heart rate measurements to demonstrate hourly
+aggregation, missing-value handling, time since last observation,
+and remaining ICU length-of-stay label generation.
 """
 
 import pandas as pd
@@ -15,9 +14,9 @@ def main() -> None:
     Creates sample heart rate measurements, aggregates them into
     hourly bins, and forward-fills missing values.
 
-    Calculates the time elapsed since the most recent observation
-    and generates remaining ICU length-of-stay labels starting
-    at hour 5 for a simulated 30-hour ICU stay.
+    Calculates the elapsed time since the most recent observation
+    and generates remaining ICU LOS labels starting at hour 5
+    for a simulated 30-hour ICU stay.
     """
     # Create sample heart rate measurements for an ICU patient.
     data = pd.DataFrame(
@@ -91,3 +90,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
