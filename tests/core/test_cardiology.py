@@ -1,5 +1,6 @@
 """CardiologyDataset and CardiologyDetection, on synthetic Challenge 2020 files."""
 
+import pickle
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,7 +10,8 @@ from scipy.io import savemat
 
 from pyhealth.datasets import CardiologyDataset
 from pyhealth.datasets.cardiology import parse_header
-from pyhealth.tasks import CardiologyDetection
+from pyhealth.tasks import CardiologyDetection, cardiology_detect
+from pyhealth.tasks.cardiology_detect import CARDIOLOGY_CATEGORIES
 
 LEADS = ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"]
 AR_CODE, WA_CODE, OTHER_CODE = "164889003", "164934002", "426783006"
@@ -134,6 +136,36 @@ class TestCardiologyDetection(unittest.TestCase):
         samples = self._samples("cpsc_2018", "A0001", task)
         self.assertEqual(len(samples), 3)
         self.assertEqual(samples[0]["signal"].shape, (12, 1000))
+
+    def test_500_hz_windows_and_labels_equal_the_1x_functions(self):
+        # With the defaults, a 500 Hz recording gives the 1.x windows and
+        # labels exactly (the 1.x functions pickle each window to a file).
+        header = next((self.root / "cpsc_2018").glob("*/A0001.hea"))
+        for category in CARDIOLOGY_CATEGORIES:
+            with self.subTest(category=category), tempfile.TemporaryDirectory() as tmp:
+                ours = self._samples(
+                    "cpsc_2018", "A0001", CardiologyDetection(category)
+                )
+                legacy_fn = getattr(cardiology_detect, f"cardiology_is{category}_fn")
+                legacy = legacy_fn(
+                    [
+                        {
+                            "load_from_path": str(header.parent),
+                            "patient_id": "A0001",
+                            "signal_file": "A0001.mat",
+                            "label_file": "A0001.hea",
+                            "save_to_path": tmp,
+                        }
+                    ]
+                )
+                self.assertEqual(len(ours), len(legacy))
+                for new, old in zip(ours, legacy):
+                    with open(old["epoch_path"], "rb") as handle:
+                        old_window = pickle.load(handle)
+                    np.testing.assert_array_equal(
+                        new["signal"].numpy(), old_window["signal"]
+                    )
+                    self.assertEqual(new["label"], int(old["label"]))
 
     def test_rejects_bad_settings(self):
         with self.assertRaises(ValueError):
