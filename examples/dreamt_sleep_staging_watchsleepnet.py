@@ -4,7 +4,7 @@ Runs the full PyHealth pipeline::
 
     DREAMTDataset -> SleepStagingDREAMT (task) -> WatchSleepNet (model)
 
-and compares configurations. Every configuration trains from scratch on
+and compares configurations that go beyond the paper's own ablations. Every configuration trains from scratch on
 DREAMT only, so absolute numbers are far below the paper's pretrained results;
 only the comparison between configurations is meaningful.
 
@@ -38,6 +38,31 @@ Setup of the reported experiment:
     Cohen's kappa, reported as mean +/- std over seeds.
 
 Results:
+    group                config                 accuracy        macro_f1          rem_f1           kappa
+    baseline             baseline 0.695 +/- 0.008 0.479 +/- 0.003 0.000 +/- 0.000 0.421 +/- 0.010
+    robustness              drop=0.0 0.695 +/- 0.008 0.479 +/- 0.003 0.000 +/- 0.000 0.421 +/- 0.010
+    robustness              drop=0.1 0.543 +/- 0.117 0.343 +/- 0.109 0.000 +/- 0.000 0.199 +/- 0.167
+    robustness              drop=0.2 0.516 +/- 0.128 0.308 +/- 0.123 0.000 +/- 0.000 0.160 +/- 0.187
+    robustness              drop=0.4 0.480 +/- 0.102 0.271 +/- 0.111 0.000 +/- 0.000 0.103 +/- 0.145
+    preprocessing      fill=interpolate 0.670 +/- 0.029 0.462 +/- 0.020 0.000 +/- 0.000 0.377 +/- 0.056
+    preprocessing           fill=median 0.682 +/- 0.027 0.471 +/- 0.016 0.000 +/- 0.000 0.404 +/- 0.040
+    preprocessing         source=e4_ibi 0.605 +/- 0.013 0.418 +/- 0.009 0.000 +/- 0.000 0.263 +/- 0.023
+    preprocessing            norm=night 0.720 +/- 0.008 0.496 +/- 0.005 0.000 +/- 0.000 0.467 +/- 0.015
+    preprocessing            norm=epoch 0.597 +/- 0.067 0.367 +/- 0.102 0.000 +/- 0.000 0.205 +/- 0.155
+    preprocessing          mask_channel 0.673 +/- 0.041 0.464 +/- 0.029 0.000 +/- 0.000 0.381 +/- 0.077
+    causal                causal 0.677 +/- 0.015 0.464 +/- 0.008 0.000 +/- 0.000 0.383 +/- 0.023
+    loss           weighted_ce 0.473 +/- 0.163 0.378 +/- 0.075 0.124 +/- 0.087 0.228 +/- 0.145
+    loss            focal(g=2) 0.663 +/- 0.033 0.458 +/- 0.022 0.000 +/- 0.000 0.373 +/- 0.054
+    context             window=25 0.685 +/- 0.011 0.472 +/- 0.008 0.000 +/- 0.000 0.401 +/- 0.024
+    context             window=50 0.672 +/- 0.009 0.459 +/- 0.012 0.000 +/- 0.000 0.370 +/- 0.029
+    context            window=200 0.706 +/- 0.009 0.485 +/- 0.005 0.000 +/- 0.000 0.440 +/- 0.017
+    labels                4class 0.664 +/- 0.037 0.349 +/- 0.017 0.000 +/- 0.000 0.382 +/- 0.058
+    labels                5class 0.616 +/- 0.022 0.273 +/- 0.007 0.000 +/- 0.000 0.357 +/- 0.029
+    hparams  dropout=0.0,lr=0.001 0.696 +/- 0.010 0.478 +/- 0.008 0.000 +/- 0.000 0.419 +/- 0.024
+    hparams dropout=0.0,lr=0.0003 0.685 +/- 0.011 0.467 +/- 0.010 0.000 +/- 0.000 0.394 +/- 0.025
+    hparams  dropout=0.4,lr=0.001 0.694 +/- 0.020 0.477 +/- 0.012 0.000 +/- 0.000 0.418 +/- 0.036
+    hparams dropout=0.4,lr=0.0003 0.690 +/- 0.005 0.471 +/- 0.002 0.000 +/- 0.000 0.401 +/- 0.007
+
     The baseline model parameters from the paper outperformed most alternate 
     configurations in terms of accuracy and Cohen's Kappa. The main changes  
     that led to better performance than the baseline were preprocessing 
