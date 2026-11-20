@@ -129,6 +129,7 @@ class WatchSleepNet(BaseModel):
         use_attention: Include multi-head attention. Default True.
         bidirectional: Use a BiLSTM. If False the model is causal: the LSTM
             is unidirectional and attention is causally masked. Default True.
+        class_weights: Optional per-class loss weights.
         focal_gamma: Focal-loss gamma; 0 gives plain cross-entropy.
         ignore_index: Label value to ignore in the loss. Default -100.
 
@@ -166,6 +167,7 @@ class WatchSleepNet(BaseModel):
         use_tcn: bool = True,
         use_attention: bool = True,
         bidirectional: bool = True,
+        class_weights: Sequence[float] | None = None,
         focal_gamma: float = 0.0,
         ignore_index: int = -100,
     ) -> None:
@@ -223,6 +225,13 @@ class WatchSleepNet(BaseModel):
         self.fc = nn.Linear(out_dim, num_classes)
         self.softmax = nn.Softmax(dim=-1)
 
+        weight = (
+            torch.tensor(class_weights, dtype=torch.float)
+            if class_weights is not None
+            else None
+        )
+        self.register_buffer("class_weights", weight)
+
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         """Maps IBI epochs to per-epoch logits.
 
@@ -269,6 +278,7 @@ class WatchSleepNet(BaseModel):
         ce = F.cross_entropy(
             flat_logits,
             flat_true,
+            weight=self.class_weights,
             ignore_index=self.ignore_index,
             reduction="none",
         )

@@ -16,7 +16,7 @@ Assumptions (verify against the authors' code and a real DREAMT file):
 """
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -25,28 +25,37 @@ from scipy.signal import butter, find_peaks, sosfiltfilt
 from pyhealth.tasks import BaseTask
 
 IGNORE_INDEX = -100
-STAGE_TO_CLASS = {"W": 0, "N1": 1, "N2": 1, "N3": 1, "R": 2}  # Wake/NREM/REM
+STAGE_SCHEMES: dict[str, dict[str, int]] = {
+    "3class": {"W": 0, "N1": 1, "N2": 1, "N3": 1, "R": 2},  # Wake/NREM/REM
+    "4class": {"W": 0, "N1": 1, "N2": 1, "N3": 2, "R": 3},  # Wake/Light/Deep/REM
+    "5class": {"W": 0, "N1": 1, "N2": 2, "N3": 3, "R": 4},  # Wake/N1/N2/N3/REM
+}
+NUM_CLASSES: dict[str, int] = {"3class": 3, "4class": 4, "5class": 5}
 
 
-def map_stages(stages: pd.Series, ignore_prep: bool = False) -> np.ndarray:
-    """Maps DREAMT stage strings to 0 (Wake), 1 (NREM), 2 (REM) or -100.
+def map_stages(
+    stages: pd.Series, ignore_prep: bool = False, scheme: str = "3class"
+) -> np.ndarray:
+    """Maps DREAMT stage strings to class indices (or -100 to ignore).
 
     Args:
         stages: Per-row ``Sleep_Stage`` values.
         ignore_prep: If True the preparation stage ``P`` is ignored; if False
             it is treated as Wake.
+        scheme: ``"3class"``, ``"4class"`` or ``"5class"``; see
+            ``STAGE_SCHEMES``.
 
     Returns:
         An int64 array with the same length as ``stages``. Unknown values
         (for example ``"Missing"``) become ``-100``.
     """
-    mapping = dict(STAGE_TO_CLASS)
+    mapping = dict(STAGE_SCHEMES[scheme])
     mapping["P"] = IGNORE_INDEX if ignore_prep else 0
     return stages.map(mapping).fillna(IGNORE_INDEX).to_numpy(dtype=np.int64)
 
 
 def epoch_labels(
-    row_labels: np.ndarray, rows_per_epoch: int, n_epochs: int
+    row_labels: np.ndarray, rows_per_epoch: int, n_epochs: int, num_classes: int = 3
 ) -> np.ndarray:
     """Takes the majority class of each epoch.
 
@@ -54,13 +63,14 @@ def epoch_labels(
         row_labels: Per-row class labels (``-100`` for ignored rows).
         rows_per_epoch: Number of rows in one epoch.
         n_epochs: Number of full epochs to label.
+        num_classes: Number of classes in the label scheme.
 
     Returns:
         An int64 array of shape ``(n_epochs,)``. An epoch is ``-100`` when
         fewer than half of its rows carry a valid label.
     """
     rows = row_labels[: n_epochs * rows_per_epoch].reshape(n_epochs, -1)
-    counts = np.stack([(rows == c).sum(axis=1) for c in range(3)], axis=1)
+    counts = np.stack([(rows == c).sum(axis=1) for c in range(num_classes)], axis=1)
     labels = counts.argmax(axis=1).astype(np.int64)
     labels[counts.sum(axis=1) < rows_per_epoch / 2] = IGNORE_INDEX
     return labels
@@ -160,8 +170,9 @@ class SleepStagingDREAMT(BaseTask):
         task_name: ``"SleepStagingDREAMT"``.
         input_schema: ``{"ibi": "tensor"}``. Shape ``(T, 750)``, or
             ``(T, 2, 750)`` when ``add_mask`` is True (IBI plus validity mask).
-        output_schema: ``{"label": "tensor"}``. Shape ``(T,)`` with classes
-            0 Wake, 1 NREM, 2 REM and ``-100`` for ignored epochs.
+        output_schema: ``{"label": "tensor"}``. Shape ``(T,)`` with class
+            indices from ``label_scheme`` and ``-100`` for ignored epochs
+            (3 class: 0 Wake, 1 NREM, 2 REM).
 
     Args:
         ibi_source: ``"bvp"`` detects beats in the BVP waveform (the paper's
@@ -171,6 +182,9 @@ class SleepStagingDREAMT(BaseTask):
         normalize: ``"none"``, ``"night"`` or ``"epoch"`` z-scoring of valid
             IBI values.
         add_mask: Add a second channel marking valid (1) vs missing (0) IBI.
+        label_scheme: ``"3class"`` (Wake/NREM/REM), ``"4class"``
+            (Wake/Light/Deep/REM) or ``"5class"`` (Wake/N1/N2/N3/REM). The
+            number of classes is available as ``num_classes``.
         window_epochs: Epochs per sample. Partial trailing windows are dropped.
         max_epochs: Truncate each night to this many epochs (paper: 1100).
         ignore_prep: Ignore the DREAMT ``P`` stage instead of mapping to Wake.
@@ -178,6 +192,7 @@ class SleepStagingDREAMT(BaseTask):
         epoch_seconds: Epoch length in seconds.
         grid_hz: IBI grid rate (25 Hz gives 750 points per epoch).
         max_ibi: Maximum plausible IBI in seconds.
+        patient_ids: If given, only these participants produce samples.
 
     Examples:
         >>> from pyhealth.datasets import DREAMTDataset
@@ -196,6 +211,7 @@ class SleepStagingDREAMT(BaseTask):
         fill: str = "zero",
         normalize: str = "none",
         add_mask: bool = False,
+        label_scheme: str = "3class",
         window_epochs: int = 100,
         max_epochs: int = 1100,
         ignore_prep: bool = False,
@@ -203,6 +219,7 @@ class SleepStagingDREAMT(BaseTask):
         epoch_seconds: int = 30,
         grid_hz: int = 25,
         max_ibi: float = 2.0,
+        patient_ids: Optional[Sequence[str]] = None,
     ) -> None:
         if ibi_source not in ("bvp", "e4"):
             raise ValueError("ibi_source must be 'bvp' or 'e4'.")
@@ -210,6 +227,10 @@ class SleepStagingDREAMT(BaseTask):
             raise ValueError("fill must be 'zero', 'interpolate' or 'median'.")
         if normalize not in ("none", "night", "epoch"):
             raise ValueError("normalize must be 'none', 'night' or 'epoch'.")
+        if label_scheme not in STAGE_SCHEMES:
+            raise ValueError("label_scheme must be '3class', '4class' or '5class'.")
+        self.label_scheme = label_scheme
+        self.num_classes = NUM_CLASSES[label_scheme]
         self.ibi_source = ibi_source
         self.fill = fill
         self.normalize = normalize
@@ -221,6 +242,7 @@ class SleepStagingDREAMT(BaseTask):
         self.epoch_seconds = epoch_seconds
         self.grid_hz = grid_hz
         self.max_ibi = max_ibi
+        self.patient_ids = list(patient_ids) if patient_ids is not None else None
         super().__init__()
 
     def build_night(
@@ -277,7 +299,10 @@ class SleepStagingDREAMT(BaseTask):
             mask = valid.reshape(n_epochs, points).astype(np.float32)
             x = np.stack([x, mask], axis=1)
         labels = epoch_labels(
-            map_stages(stages, self.ignore_prep), rows_per_epoch, n_epochs
+            map_stages(stages, self.ignore_prep, self.label_scheme),
+            rows_per_epoch,
+            n_epochs,
+            self.num_classes,
         )
         return x, labels
 
@@ -291,6 +316,8 @@ class SleepStagingDREAMT(BaseTask):
             A list of samples with keys ``patient_id``, ``window_idx``,
             ``ibi`` and ``label``. Empty if the 64 Hz file is missing.
         """
+        if self.patient_ids is not None and patient.patient_id not in self.patient_ids:
+            return []
         events = patient.get_events(event_type="dreamt_sleep")
         if not events:
             return []
