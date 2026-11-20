@@ -288,6 +288,7 @@ Available Tasks
     De-Identification NER <tasks/pyhealth.tasks.DeIDNERTask>
     ChestX-ray14 Multilabel Classification <tasks/pyhealth.tasks.ChestXray14MultilabelClassification>
     HAM10000 Skin Lesion Classification <tasks/pyhealth.tasks.HAM10000Classification>
+    HAM10000 Malignancy with Sensitive Attributes <tasks/pyhealth.tasks.HAM10000MalignancyClassification>
     PH2 Artifact Sensitivity Classification <tasks/pyhealth.tasks.PH2ArtifactClassification>
     MSD Segmentation <tasks/pyhealth.tasks.MSDSegmentationTask>
     CHAOS Segmentation Tasks <tasks/pyhealth.tasks.CHAOSSegmentation>
