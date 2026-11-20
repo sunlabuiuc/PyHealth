@@ -1439,32 +1439,32 @@ tr:last-child td {{ border-bottom: 0; }}
 """
 
 
-def flags(imp) -> list[dict[str, Any]]:
+def flags(state) -> list[dict[str, Any]]:
     """Items a clinician should decide on before the model is used.
 
     Backs :meth:`~pyhealth.autoimprove.AutoImprover.flags`; see there.
-    ``imp`` is the improver.
+    ``state`` is the run's :class:`RunState`.
     """
-    review = imp.store.read_json("review.json") or {}
-    best = imp.result().best
-    suspicious = sorted({name for t in imp.trials for name in t.suspicious
+    review = state.store.read_json("review.json") or {}
+    best = state.result().best
+    suspicious = sorted({name for t in state.trials for name in t.suspicious
                          if best is not None and name in {
                              s["name"] for s in best.features}})
     return [
         {**flag, "review": review.get(flag["id"])}
-        for flag in flags_for(imp.task_card, imp.store.read_json("explain.json"),
-                              imp.store.read_json("test.json"), suspicious,
+        for flag in flags_for(state.task_card, state.store.read_json("explain.json"),
+                              state.store.read_json("test.json"), suspicious,
                               features=best.features if best else ())
     ]
 
 
-def held_back(imp, best: Trial | None) -> set[str]:
+def held_back(state, best: Trial | None) -> set[str]:
     """Engineered features of the selection with an open review flag."""
     if best is None or not best.features:
         return set()
     names = {s["name"] for s in best.features}
     held = set()
-    for flag in flags(imp):
+    for flag in flags(state):
         kind, _, name = flag["id"].partition(":")
         if (kind in ("direction", "no_rationale", "suspicion") and name in names
                 and (flag.get("review") or {}).get("decision") != "approved"):
@@ -1473,7 +1473,7 @@ def held_back(imp, best: Trial | None) -> set[str]:
 
 
 def approve(
-    imp,
+    state,
     flag_id: str,
     reviewer: str,
     note: str = "",
@@ -1482,43 +1482,43 @@ def approve(
     """Records a clinician's decision on a flag in ``review.json``.
 
     Backs :meth:`~pyhealth.autoimprove.AutoImprover.approve`; see there.
-    ``imp`` is the improver.
+    ``state`` is the run's :class:`RunState`.
     """
-    if not imp.run_dir:
+    if not state.run_dir:
         raise ValueError("approve needs a run_dir to record the decision")
     if decision not in ("approved", "rejected"):
         raise ValueError("decision must be 'approved' or 'rejected'")
-    known = {flag["id"] for flag in flags(imp)}
+    known = {flag["id"] for flag in flags(state)}
     if flag_id not in known:
         raise ValueError(f"no flag {flag_id!r}; current flags: {sorted(known)}")
-    review = imp.store.read_json("review.json") or {}
+    review = state.store.read_json("review.json") or {}
     review[flag_id] = {"decision": decision, "reviewer": reviewer, "note": note,
                        "date": time.strftime("%Y-%m-%d")}
-    imp.store.write_json("review.json", review)
+    state.store.write_json("review.json", review)
     return review[flag_id]
 
 
-def write_report(imp, path: str | None = None):
+def write_report(state, path: str | None = None):
     """Writes the run's report: HTML, Markdown and JSON.
 
     Backs :meth:`~pyhealth.autoimprove.AutoImprover.report`; see there.
-    ``imp`` is the improver.
+    ``state`` is the run's :class:`RunState`.
     """
     report = build_report(
-        imp.trials, metric=imp.metric, maximize=imp.maximize,
-        promote_se=imp.promote_se, one_se=imp.one_se, space=imp.space,
-        task=imp._task, lessons=imp.lessons,
-        test=imp.store.read_json("test.json"),
-        attribution=imp.store.read_json("attribution.json"),
-        dropped_models=imp.dropped_models, rule=imp.selection_rule(),
-        card=imp.task_card, explanation=imp.store.read_json("explain.json"),
-        review=imp.store.read_json("review.json") or {},
-        confirmed=imp.confirmed, pruning=imp.store.read_json("prune.json"),
-        confirm_se=imp.confirm_se,
-        guardrails=guardrails.guardrail_summary(imp), findings=imp.findings,
+        state.trials, metric=state.metric, maximize=state.maximize,
+        promote_se=state.promote_se, one_se=state.one_se, space=state.space,
+        task=state._task, lessons=state.lessons,
+        test=state.store.read_json("test.json"),
+        attribution=state.store.read_json("attribution.json"),
+        dropped_models=state.dropped_models, rule=state.selection_rule(),
+        card=state.task_card, explanation=state.store.read_json("explain.json"),
+        review=state.store.read_json("review.json") or {},
+        confirmed=state.confirmed, pruning=state.store.read_json("prune.json"),
+        confirm_se=state.confirm_se,
+        guardrails=guardrails.guardrail_summary(state), findings=state.findings,
     )
     if path is None:
-        path = imp.store.path("report.html")
+        path = state.store.path("report.html")
     if path is not None:
         report.save(path)
     return report

@@ -8,6 +8,7 @@ selects the most interpretable one within noise of the best, and its report
 (:meth:`AutoImprover.report`) explains the choice and how the search got there.
 """
 
+from .config import RunConfig
 from .evaluation.guardrails import EvaluationSpec, clearly_worse, metrics_menu
 from .evaluation.records import ImproveResult, Trial
 from .evaluation.report import Report, build_report, load_run, unverified_numbers
@@ -25,7 +26,6 @@ from .evaluation.training import (
     score_predictions,
     train_pipeline,
 )
-from .config import RunConfig
 from .improver import DEFAULT_METRIC, AutoImprover
 from .search.analysis import AnalysisSpec, sample_columns
 from .search.features import EngineeredDataset, FeatureSpace, FeatureSpec

@@ -160,8 +160,8 @@ class TestFeatureSearch(unittest.TestCase):
             again = _improver(self.world, QueueProposer([]), tmp)
             resumed = again.run()
             self.assertEqual(len(resumed.trials), len(result.trials))
-            self.assertEqual([s["name"] for s in again._accepted()],
-                             [s["name"] for s in improver._accepted()])
+            self.assertEqual([s["name"] for s in again.state._accepted()],
+                             [s["name"] for s in improver.state._accepted()])
 
             test = improver.evaluate_on_test(self.world.test, n_boot=50)
             self.assertGreater(test["difference"]["estimate"], 0.05)
@@ -271,7 +271,7 @@ class TestFeatureSearch(unittest.TestCase):
         improver.run()
         baseline = next(t for t in improver.trials if t.agent == "baseline")
         baseline.stopped_early = True  # force a fresh evaluation
-        incumbent = improver._incumbent(cycle=9)
+        incumbent = improver.state._incumbent(cycle=9)
         self.assertIsNotNone(incumbent)
         self.assertEqual(incumbent.agent, "incumbent")
         self.assertFalse(incumbent.stopped_early)

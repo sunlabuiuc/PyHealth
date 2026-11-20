@@ -178,7 +178,7 @@ class TestAnalysisTurns(unittest.TestCase):
             prompt = build_analysis_prompt(proposer.contexts[0])
             self.assertIn("oof_prob", prompt)  # the baseline's predictions
             self.assertIn("fold", prompt)
-            context = improver._context("agent0", "explore", "")
+            context = improver.state._context("agent0", "explore", "")
             self.assertEqual(list(context.findings), improver.findings)
             with open(os.path.join(tmp, "findings.json")) as f:
                 self.assertEqual(json.load(f), improver.findings)

@@ -212,7 +212,7 @@ class TestGuardrailsInARun(unittest.TestCase):
         proposer = GuardrailProposer([shift, backwards])
         with tempfile.TemporaryDirectory() as tmp:
             improver = self.improver(tmp, proposer)
-            with mock.patch("pyhealth.autoimprove.improver.run_config_cv",
+            with mock.patch("pyhealth.autoimprove.state.run_config_cv",
                             self.fake_cv):
                 result = improver.run()
             by_hidden = {t.config.model_params["hidden_dim"]: t.trial_id
@@ -235,7 +235,7 @@ class TestGuardrailsInARun(unittest.TestCase):
             self.assertIn("binary_metrics_fn(", prompt)
             self.assertIn("n_conditions", prompt)
             # later prompts show the guardrail and who fails it
-            lines = improver._context("agent0", "explore", "").evaluations
+            lines = improver.state._context("agent0", "explore", "").evaluations
             self.assertIn(f"fails: #{by_hidden[32]}", lines[0])
             # saved, reported, and restored on resume
             with open(os.path.join(tmp, "evaluations.json")) as f:
@@ -280,7 +280,7 @@ class TestGuardrailsInARun(unittest.TestCase):
         proposer = GuardrailProposer([bad, good])
         with tempfile.TemporaryDirectory() as tmp:
             improver = self.improver(tmp, proposer)
-            with mock.patch("pyhealth.autoimprove.improver.run_config_cv",
+            with mock.patch("pyhealth.autoimprove.state.run_config_cv",
                             self.fake_cv):
                 improver.run()
         self.assertIn("unknown columns ['age']", proposer.contexts[1].feedback)

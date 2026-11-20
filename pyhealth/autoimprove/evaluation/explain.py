@@ -201,10 +201,10 @@ def summarize(
         return entry if entry is not None else (extra or {}).get(name)
 
     groups: dict[str, float] = {}
-    for name, imp in zip(names, importance):
+    for name, state in zip(names, importance):
         entry = info(name)
         group = entry.group if entry is not None and entry.group else "not in the task card"
-        groups[group] = groups.get(group, 0.0) + float(imp / total)
+        groups[group] = groups.get(group, 0.0) + float(state / total)
     features = []
     for j in np.argsort(-importance)[:top_k]:
         name = names[j]
@@ -409,21 +409,21 @@ def _check(expected: str | None, learned: str) -> str:
     return "opposite"
 
 
-def attribute(imp, trial_id: int | None = None) -> dict[str, Any]:
+def attribute(state, trial_id: int | None = None) -> dict[str, Any]:
     """Measures what each changed setting of a trial contributes.
 
     Backs :meth:`~pyhealth.autoimprove.AutoImprover.attribute`; see there.
-    ``imp`` is the improver.
+    ``state`` is the run's :class:`RunState`.
     """
-    result = imp.result()
-    target = result.best if trial_id is None else imp.trials[trial_id]
+    result = state.result()
+    target = result.best if trial_id is None else state.trials[trial_id]
     if target is None or target.error is not None:
         raise ValueError("no successful trial to attribute")
     if target.config.code:
-        out = {"trial_id": target.trial_id, "metric": imp.metric,
+        out = {"trial_id": target.trial_id, "metric": state.metric,
                "reference": "none: generated code has no settings to revert",
                "score": target.score, "rows": []}
-        imp.store.save_result("attribution.json", out, default=str)
+        state.store.save_result("attribution.json", out, default=str)
         return out
     base = result.baseline
     if base is not None and base.error is None and base.config.model == (
@@ -432,10 +432,10 @@ def attribute(imp, trial_id: int | None = None) -> dict[str, Any]:
         reference = base.config
         label = f"the starting pipeline (#{base.trial_id})"
     else:
-        reference, _ = imp.space.validate(PipelineConfig(target.config.model))
+        reference, _ = state.space.validate(PipelineConfig(target.config.model))
         label = f"the default settings of {target.config.model}"
     out: dict[str, Any] = {
-        "trial_id": target.trial_id, "reference": label, "metric": imp.metric,
+        "trial_id": target.trial_id, "reference": label, "metric": state.metric,
         "score": target.score, "rows": [],
     }
     for group in ("model_params", "train_params"):
@@ -448,38 +448,38 @@ def attribute(imp, trial_id: int | None = None) -> dict[str, Any]:
                 dict(target.config.train_params),
             )
             getattr(reverted, group)[name] = ref_params[name]
-            scored = score_config(imp, reverted, target.features)
+            scored = score_config(state, reverted, target.features)
             row = {"setting": name, "from": ref_params[name], "to": value,
                    "score_without": scored["score"],
                    "fold_scores_without": scored["fold_scores"]}
             if scored["fold_scores"] and target.fold_scores:
                 gain, se = paired_gain(
-                    target.fold_scores, scored["fold_scores"], imp.maximize
+                    target.fold_scores, scored["fold_scores"], state.maximize
                 )
-                sign = 1 if imp.maximize else -1
+                sign = 1 if state.maximize else -1
                 better = sum(
                     sign * (a - b) > FOLD_TIE
                     for a, b in zip(target.fold_scores, scored["fold_scores"])
                 )
                 row.update(contribution=gain, se=se, folds_better=better)
             else:
-                sign = 1 if imp.maximize else -1
+                sign = 1 if state.maximize else -1
                 row.update(contribution=sign * (target.score - scored["score"]),
                            se=None, folds_better=None)
             out["rows"].append(row)
-    imp.store.save_result("attribution.json", out, default=str)
+    state.store.save_result("attribution.json", out, default=str)
     return out
 
 
-def score_config(imp, config: PipelineConfig, features=()) -> dict[str, Any]:
-    config, _ = imp.space.validate(config)
-    out = imp._run_config(config, (), features)
-    return {"score": out["metrics"][imp.metric],
+def score_config(state, config: PipelineConfig, features=()) -> dict[str, Any]:
+    config, _ = state.space.validate(config)
+    out = state._run_config(config, (), features)
+    return {"score": out["metrics"][state.metric],
             "fold_scores": out.get("fold_scores", [])}
 
 
 def explain_selection(
-    imp,
+    state,
     top_k: int = 10,
     stability: bool = True,
     max_samples: int = 2000,
@@ -487,9 +487,9 @@ def explain_selection(
     """Explains how the selected model decides, in clinical terms.
 
     Backs :meth:`~pyhealth.autoimprove.AutoImprover.explain`; see there.
-    ``imp`` is the improver.
+    ``state`` is the run's :class:`RunState`.
     """
-    result = imp.result()
+    result = state.result()
     if result.best is None:
         raise ValueError("no successful trial to explain")
     if result.best.config.code:
@@ -497,7 +497,7 @@ def explain_selection(
             "explain() needs the trained model in this process; the selected "
             "trial is generated code, which is trained in its own process")
     config = result.best.config
-    train, val = imp._datasets(result.best.features)
+    train, val = state._datasets(result.best.features)
     extra = {
         s["name"]: FeatureInfo(
             s.get("definition", s["name"]), "engineered",
@@ -519,23 +519,23 @@ def explain_selection(
                 start += width
             if "engineered" in by_field and extra:
                 by_field["engineered"] = list(extra)
-        return summarize(attrib, imp.task_card, by_field, top_k=top_k,
+        return summarize(attrib, state.task_card, by_field, top_k=top_k,
                          extra=extra)
 
-    model = train_pipeline(config, imp.space, train, val, imp.metric,
-                           imp.seed, imp.device)
+    model = train_pipeline(config, state.space, train, val, state.metric,
+                           state.seed, state.device)
     out = ranked(model, train)
     out["trial_id"] = result.best.trial_id
-    if stability and imp.folds is not None and out["features"]:
+    if stability and state.folds is not None and out["features"]:
         tops = []
         everything = np.arange(len(train))
-        for held_out in imp.folds:
+        for held_out in state.folds:
             part, _, part_val = fold_parts(
                 train, val, np.setdiff1d(everything, held_out).tolist(),
                 held_out.tolist())
-            fold_model = train_pipeline(config, imp.space, part, part_val,
-                                        imp.metric, imp.seed, imp.device)
+            fold_model = train_pipeline(config, state.space, part, part_val,
+                                        state.metric, state.seed, state.device)
             tops.append([f["name"] for f in ranked(fold_model, part)["features"]])
         out["stability"] = top_overlap([f["name"] for f in out["features"]], tops)
-    imp.store.save_result("explain.json", out, default=float)
+    state.store.save_result("explain.json", out, default=float)
     return out

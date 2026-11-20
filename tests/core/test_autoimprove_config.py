@@ -109,7 +109,7 @@ class TestRunFromYaml(unittest.TestCase):
 
     def test_default_plan(self):
         improver = AutoImprover(self.train, self.val, RunConfig())
-        self.assertEqual(improver.cycle_plan, ("model",))
+        self.assertEqual(improver.state.cycle_plan, ("model",))
         with self.assertRaisesRegex(ValueError, "search.plan needs kinds"):
             AutoImprover(self.train, self.val, RunConfig(search={"plan": ["modle"]}))
 

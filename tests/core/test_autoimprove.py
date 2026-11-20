@@ -415,7 +415,7 @@ class TestAutoImprover(unittest.TestCase):
             ),
             proposer=LLMProposer(llm), space=SPACE,
         )
-        with mock.patch("pyhealth.autoimprove.improver.run_config_cv", fake_cv):
+        with mock.patch("pyhealth.autoimprove.state.run_config_cv", fake_cv):
             result = improver.run()
         self.assertEqual(result.best.agent, "baseline")
         # baseline, 32, 64, 128, then 100 makes no progress and the run stops
@@ -434,7 +434,7 @@ class TestAutoImprover(unittest.TestCase):
 
         llm = ScriptedLLM([_reply({"model": "MLP", "model_params": {
             "hidden_dim": d, "embedding_dim": 16}}) for d in (16, 32, 64)])
-        with self.assertLogs("pyhealth.autoimprove.improver", "WARNING") as logs:
+        with self.assertLogs("pyhealth.autoimprove.state", "WARNING") as logs:
             improver = AutoImprover(
                 self.train, self.val, RunConfig(
                     search={"proposals_per_round": 3},
@@ -444,7 +444,7 @@ class TestAutoImprover(unittest.TestCase):
                 proposer=LLMProposer(llm), space=SPACE,
             )
         self.assertIn("no baseline", logs.output[0])
-        with mock.patch("pyhealth.autoimprove.improver.run_config_cv", fake_cv):
+        with mock.patch("pyhealth.autoimprove.state.run_config_cv", fake_cv):
             result = improver.run()
         # the best mean, not the trial with the steadiest gain over the first one
         self.assertEqual(result.best.config.model_params["hidden_dim"], 32)
@@ -497,7 +497,7 @@ class TestAutoImprover(unittest.TestCase):
             ),
             proposer=LLMProposer(llm), space=SPACE,
         )
-        with mock.patch("pyhealth.autoimprove.improver.run_config", failing):
+        with mock.patch("pyhealth.autoimprove.state.run_config", failing):
             result = improver.run()
         self.assertIn(secret, result.trials[0].error)  # kept for the user
         self.assertIn("error: ValueError at", llm.prompts[1])
@@ -869,7 +869,7 @@ class TestExplainedRuns(unittest.TestCase):
         target = {"max_depth": 2, "n_estimators": 600}
         llm = ScriptedLLM([_reply({"model": "XGBoost", "model_params": target})])
         with tempfile.TemporaryDirectory() as tmp, mock.patch(
-            "pyhealth.autoimprove.improver.run_config_cv", fake_cv
+            "pyhealth.autoimprove.state.run_config_cv", fake_cv
         ):
             improver = AutoImprover(
                 self.train, self.val, RunConfig(
@@ -960,7 +960,7 @@ class TestExplainedRuns(unittest.TestCase):
         llm = ScriptedLLM([_reply({"model": "XGBoost",
                                    "model_params": {"max_depth": 2}})])
         with tempfile.TemporaryDirectory() as tmp, mock.patch(
-            "pyhealth.autoimprove.improver.run_config_cv", fake_cv
+            "pyhealth.autoimprove.state.run_config_cv", fake_cv
         ):
             improver = AutoImprover(
                 self.train, self.val, RunConfig(
@@ -1026,7 +1026,7 @@ class TestExplainedRuns(unittest.TestCase):
 
         llm = ScriptedLLM([_reply({"model": "XGBoost",
                                    "model_params": {"max_depth": 2}})])
-        with mock.patch("pyhealth.autoimprove.improver.run_config_cv", fake_cv):
+        with mock.patch("pyhealth.autoimprove.state.run_config_cv", fake_cv):
             improver = AutoImprover(
                 self.train, self.val, RunConfig(
                     search={"proposals_per_round": 1},

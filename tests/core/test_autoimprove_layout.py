@@ -64,7 +64,7 @@ class TestLayout(unittest.TestCase):
         top = sorted(p.name for p in PKG.iterdir()
                      if p.suffix == ".py" or (p.is_dir() and p.name != "__pycache__"))
         self.assertEqual(top, ["__init__.py", "config.py", "evaluation", "improver.py",
-                               "search", "utils"])
+                               "search", "state.py", "utils"])
 
     def test_dependency_rule(self):
         problems = []
@@ -74,7 +74,13 @@ class TestLayout(unittest.TestCase):
                 t_area = target.split(".")[0]
                 if target == "improver" and name != "":
                     problems.append(f"{name} imports improver (only __init__ may)")
-                elif area == "utils" and t_area in ("search", "evaluation", "improver"):
+                elif target == "state" and name != "improver":
+                    problems.append(f"{name} imports state (only improver may: the "
+                                    "compartments receive the state as an argument)")
+                elif area in ("search", "evaluation", "utils") and t_area == "config":
+                    problems.append(f"{name} imports config (only the top level may)")
+                elif area == "utils" and t_area in ("search", "evaluation", "improver",
+                                                    "state"):
                     problems.append(f"{name} (utils) imports {target}")
                 elif area == "evaluation" and t_area == "search" and \
                         ".".join(target.split(".")[:2]) not in EVALUATION_MAY_USE:
