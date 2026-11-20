@@ -359,7 +359,7 @@ API Reference
     models/pyhealth.models.ProtoECGNet
     models/pyhealth.models.HeartLang
     models/pyhealth.models.APN
-    models/pyhealth.models.TRACE
+    models/pyhealth.models.tpc
     models/pyhealth.models.MIRA
     models/pyhealth.models.UDC
     models/pyhealth.models.DescEmb

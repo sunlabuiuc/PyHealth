@@ -1,6 +1,11 @@
 Tasks
 ===============
 
+.. toctree::
+    :maxdepth: 1
+
+    tasks/pyhealth.tasks.tpc_day_one
+
 We support various real-world healthcare predictive tasks defined by **function calls**. The following example tasks are collected from top AI/Medical venues, such as:
 
 (i) Drug Recommendation [Yang et al. IJCAI 2021a, Yang et al. IJCAI 2021b, Shang et al. AAAI 2020]
