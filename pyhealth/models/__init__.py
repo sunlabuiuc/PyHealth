@@ -160,3 +160,8 @@ from .dearllm import (
     DearLLM as DearLLM,
     DearLLMGraphEncoder as DearLLMGraphEncoder,
 )
+from .giantmed import (
+    GiantMed as GiantMed,
+    HuggingFaceGiantMedGenerator as HuggingFaceGiantMedGenerator,
+    MediEvidenceFilter as MediEvidenceFilter,
+)
