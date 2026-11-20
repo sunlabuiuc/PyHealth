@@ -274,12 +274,13 @@ Available Tasks
     MSD Segmentation <tasks/pyhealth.tasks.MSDSegmentationTask>
     CHAOS Segmentation Tasks <tasks/pyhealth.tasks.CHAOSSegmentation>
     RSNA Pneumonia Classification <tasks/pyhealth.tasks.RSNAPneumoniaClassification>
-    ABIDE Autism Classification <tasks/pyhealth.tasks.ABIDEAutismClassification>
+    ISIC 2020 Melanoma Classification <tasks/pyhealth.tasks.ISIC2020MelanomaClassification>
     Variant Classification (ClinVar) <tasks/pyhealth.tasks.VariantClassificationClinVar>
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>
     In-Hospital Survival (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalSurvivalMIMIC4>
     METABRIC Survival Prediction <tasks/pyhealth.tasks.MetabricSurvivalPrediction>
+    ABIDE Autism Classification <tasks/pyhealth.tasks.ABIDEAutismClassification>
     Rare-Condition ICU Mortality (KnowRare, MIMIC-IV) <tasks/pyhealth.tasks.KnowRareICUMortalityMIMIC4>
     Lab Nowcasting (MIMIC-III/IV) <tasks/pyhealth.tasks.LabNowcasting>
     ICU Acuity and Therapies (MIMIC-IV) <tasks/pyhealth.tasks.ICUAcuityMIMIC4>
@@ -290,3 +291,4 @@ Available Tasks
     YAIB Tasks (eICU) <tasks/pyhealth.tasks.yaib_eicu>
     Value Set Completion (VSAC) <tasks/pyhealth.tasks.ValueSetCompletion>
     Time-to-event survival (GBSG and SUPPORT) <tasks/pyhealth.tasks.survival_time_to_event>
+    TCGA RNA-seq Survival Prediction <tasks/pyhealth.tasks.TCGASurvivalPrediction>

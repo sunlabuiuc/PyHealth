@@ -10,6 +10,7 @@ from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
 from .cardiology_detect import (
+    CardiologyDetection as CardiologyDetection,
     cardiology_isAD_fn,
     cardiology_isAR_fn,
     cardiology_isBBBFB_fn,
@@ -157,8 +158,8 @@ from .patient_linkage import patient_linkage_mimic3_fn
 from .rsna_pneumonia_classification import (
     RSNAPneumoniaClassification as RSNAPneumoniaClassification,
 )
-from .abide_classification import (
-    ABIDEAutismClassification as ABIDEAutismClassification,
+from .isic2020_melanoma_classification import (
+    ISIC2020MelanomaClassification as ISIC2020MelanomaClassification,
 )
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
@@ -170,6 +171,9 @@ from .sleep_staging import (
     sleep_staging_isruc_fn,
     sleep_staging_shhs_fn,
     sleep_staging_sleepedf_fn,
+)
+from .abide_classification import (
+    ABIDEAutismClassification as ABIDEAutismClassification,
 )
 from .sleep_staging_v2 import SleepStagingSequenceSleepEDF as SleepStagingSequenceSleepEDF
 from .sleep_staging_v2 import SleepStagingSleepEDF
@@ -234,7 +238,7 @@ from .yaib_eicu import (
     YAIBMortalityEICU as YAIBMortalityEICU,
     YAIBSepsisEICU as YAIBSepsisEICU,
 )
-
+from .tcga_survival_prediction import TCGASurvivalPrediction as TCGASurvivalPrediction
 
 def __getattr__(name: str):
     if name == "MPFClinicalPredictionTask":

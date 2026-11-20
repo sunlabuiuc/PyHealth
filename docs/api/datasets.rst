@@ -410,6 +410,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `Kaggle <https://www.kaggle.com/datasets/tawsifurrahman/covid19-radiography-database>`__
      - No
      - —
+   * - :doc:`ISIC 2020 (SIIM-ISIC melanoma) <datasets/pyhealth.datasets.ISIC2020Dataset>`
+     - Open (CC BY-NC 4.0)
+     - `ISIC <https://challenge2020.isic-archive.com/>`__
+     - Yes
+     - —
    * - :doc:`Medical Transcriptions <datasets/pyhealth.datasets.MedicalTranscriptionsDataset>`
      - Open (Kaggle account)
      - `Kaggle <https://www.kaggle.com/datasets/tboyle10/medicaltranscriptions>`__
@@ -480,11 +485,6 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `MSD <http://medicaldecathlon.com/>`__
      - Yes
      - —
-   * - :doc:`ABIDE I (PCP connectivity) <datasets/pyhealth.datasets.ABIDEDataset>`
-     - Open, no account (CC BY-NC-SA 3.0)
-     - `PCP / S3 <http://preprocessed-connectomes-project.org/abide/download.html>`__
-     - Yes
-     - ``max_subjects`` partial download
    * - :doc:`BMD-HS <datasets/pyhealth.datasets.BMDHSDataset>`
      - Open
      - `GitHub <https://github.com/sani002/BMD-HS-Dataset>`__
@@ -520,6 +520,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `OHDSI <https://www.ohdsi.org/data-standardization/>`__
      - —
      - `MIMIC-IV demo in OMOP <https://physionet.org/content/mimic-iv-demo-omop/0.9/>`__
+   * - :doc:`ABIDE I (PCP connectivity) <datasets/pyhealth.datasets.ABIDEDataset>`
+     - Open, no account (CC BY-NC-SA 3.0)
+     - `PCP / S3 <http://preprocessed-connectomes-project.org/abide/download.html>`__
+     - Yes
+     - ``max_subjects`` partial download
    * - :doc:`MEDS (format) <datasets/pyhealth.datasets.MEDSDataset>`
      - Depends on source
      - `MEDS <https://medical-event-data-standard.github.io/>`__
@@ -547,12 +552,13 @@ Available Datasets
     datasets/pyhealth.datasets.MSDSpleenDataset
     datasets/pyhealth.datasets.CHAOSDataset
     datasets/pyhealth.datasets.RSNAPneumoniaDataset
-    datasets/pyhealth.datasets.ABIDEDataset
+    datasets/pyhealth.datasets.ISIC2020Dataset
     datasets/pyhealth.datasets.MIMIC3Dataset
     datasets/pyhealth.datasets.MIMIC4Dataset
     datasets/pyhealth.datasets.MIMIC4EHRDataset
     datasets/pyhealth.datasets.MIMIC4NoteDataset
     datasets/pyhealth.datasets.MIMIC4CXRDataset
+    datasets/pyhealth.datasets.ABIDEDataset
     datasets/pyhealth.datasets.MIMIC4EDDataset
     datasets/pyhealth.datasets.MIMIC4ImaGenomeDataset
     datasets/pyhealth.datasets.FHIRDataset
@@ -595,3 +601,4 @@ Available Datasets
     datasets/pyhealth.datasets.splitter
     datasets/pyhealth.datasets.GoldTestSplit
     datasets/pyhealth.datasets.utils
+    datasets/pyhealth.datasets.TCGARNASeqDataset
