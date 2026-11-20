@@ -27,6 +27,7 @@ from .evaluation.training import (
     run_config_cv,
 )
 from .search import turns
+from .config import RunConfig
 from .search.features import EngineeredDataset, FeatureSpace, FeatureSpec
 from .search.prompts import STRATEGIES
 from .search.proposers import ProposalContext, Proposer
@@ -64,240 +65,118 @@ DEFAULT_METRIC = {
 class AutoImprover:
     """Improves a PyHealth pipeline automatically, by guided search.
 
-    A small population of agents takes turns proposing configurations
-    (model, arguments, training settings). Each one is checked against the
-    search space, trained on the training split and scored on the validation
-    split. The agents see each other's results and follow rotating
-    strategies (explore, refine, crossover, contrast), as in
-    `codegen-classroom <https://github.com/google-research/codegen-classroom>`_.
-    After every cycle the proposer rewrites a short list of lessons from the
-    results, which later prompts (and later runs, with ``lessons_path``) build
-    on. The loop stops after ``n_cycles``, after ``patience`` cycles without
-    progress (no new selection and no better best score), or when the trial
-    or time budget runs out.
+    Each round, a few agents propose attempts: a config from the search space,
+    engineered input features, or a model they write themselves. Every
+    attempt is trained and scored on the same patient-grouped folds (or the
+    validation split), the proposer rewrites its lessons from the results, and
+    the next round builds on them. The search stops after ``budget.rounds``,
+    after ``budget.patience`` rounds without progress, or when the trial or
+    time budget runs out. Among the attempts that beat the baseline, the most
+    interpretable one within noise of the best is selected.
+
+    Every setting is in a :class:`~pyhealth.autoimprove.RunConfig`, usually
+    read from YAML; see that class for what each one does.
 
     The test split is never used during the search. Call
-    :meth:`evaluate_on_test` once afterwards to compare the best config with
-    the starting one on held-out patients.
+    :meth:`evaluate_on_test` once afterwards to compare the selected config
+    with the baseline on held-out patients.
 
-    By default proposals are data, never code: nothing a proposer returns is
-    executed. A ``cycle_plan`` with ``"code"``, ``"evaluation"`` or
-    ``"analysis"`` turns opts in to generated code: a model with its training
-    (:mod:`~pyhealth.autoimprove.search.prompts`), a new evaluation that can become
-    a guardrail (:mod:`~pyhealth.autoimprove.evaluation.guardrails`), or an analysis of
-    the training data (:mod:`~pyhealth.autoimprove.search.analysis`). That code is
+    By default proposals are data, never code. A plan with ``code`` rounds,
+    or evaluation and analysis turns, opts in to generated code, which is
     checked statically and runs in its own process
-    (:mod:`~pyhealth.autoimprove.utils.sandbox`); only predictions, numbers and
-    suppressed tables come back. Scripts that use these turns need an
-    ``if __name__ == "__main__":`` guard.
+    (:mod:`~pyhealth.autoimprove.utils.sandbox`). Scripts that use them need
+    an ``if __name__ == "__main__":`` guard.
 
     Args:
         train_dataset: Training samples, e.g. from
             ``set_task(task, split=PatientSplit(...))``.
         val_dataset: Validation samples, used to score every trial (or, with
-            ``cv_folds``, only for early stopping).
-        proposer: Where proposals come from, e.g. ``LLMProposer(ClaudeLLM())``
-            or ``RandomProposer()``.
-        baseline: The current pipeline, tried first so later trials are
-            compared with it.
-        space: Allowed models and ranges. Defaults to ``SearchSpace()``.
-        metric: Validation metric to optimise. Defaults by label type
-            (:data:`DEFAULT_METRIC`).
-        report_metrics: Extra validation metrics to record.
-        n_agents: Number of agents.
-        n_cycles: Most cycles; each agent proposes once per cycle.
-        patience: Cycles without progress before stopping. A cycle makes
-            progress if the selected trial changes or some trial beats the
-            best score so far. Counting new best scores too keeps a search
-            going while it finds better configs whose gains are still too
-            noisy to be selected.
-        max_trials: Most trials in total (the baseline included).
-        time_budget: Most seconds for the whole search.
-        seed: Training seed, the same for every trial so scores compare fairly.
-            It also fixes the ``cv_folds`` folds.
-        cv_folds: Score each trial by patient-grouped cross-validation with
-            this many folds of ``train_dataset`` instead of on
-            ``val_dataset``. Much less noisy when the validation split is
-            small, at the cost of ``cv_folds`` trainings per trial.
-        device: Torch device for training.
-        run_dir: Directory for ``trials.jsonl``, ``lessons.json`` and
-            ``meta.json``. A run with the same directory resumes where the
-            last one stopped. ``meta.json`` records the settings the trials
-            depend on (metric, ``cv_folds``, ``promote_se``, seed, baseline,
-            search space and data sizes); resuming with any of them changed
-            raises ``ValueError`` rather than mixing old and new trials.
-            Budgets (``n_cycles``, ``max_trials``, ...) may change.
-        lessons_path: A JSON file of lessons to reuse across runs. Lessons
-            are stored per search space and task (inputs, label, models and
-            their arguments), so a run only reads lessons learned on the same
-            kind of search.
-        promote_se: With ``cv_folds``, every trial is compared with the
-            baseline on the shared folds. A trial is a candidate if its gain
-            has a lower bound above 0, the mean minus ``promote_se``
-            standard errors; the baseline is always a candidate. Without a
-            baseline (or if the baseline trial failed) there is nothing to
-            compare with, and every finished trial is a candidate. ``None``
-            selects the best mean.
-        one_se: With ``promote_se``, select the most interpretable
-            candidate (lowest rung, :meth:`SearchSpace.rung`) whose score is
-            within one paired standard error of the best candidate's, the
-            one-SE rule (:func:`select_simplest`). ``False`` selects the
-            candidate with the highest lower bound (:func:`select_trial`).
-        check: Before searching, give every model in the space one training
-            step on a few training samples (:func:`check_models`) and remove
-            the ones that fail, e.g. a model that cannot read one of the
-            task's input types, so no trial is spent on them. They are listed
-            in ``ImproveResult.dropped_models``.
-        task_card: The task's :class:`~pyhealth.tasks.TaskCard` (e.g.
-            ``task.task_card()``): the design choices with their rationale and
-            the feature dictionary. Reports use it to explain the model in
-            clinical terms and to check the directions of its effects.
+            ``evaluation.cv_folds``, only for early stopping).
+        config: A :class:`~pyhealth.autoimprove.RunConfig`, a path to its
+            YAML, a dict, or ``None`` for the defaults.
+        proposer: Where proposals come from. Defaults to the config's
+            ``proposer`` section (random search unless it says ``llm``).
+        space: Allowed models and ranges. Defaults to the config's ``space``
+            section, or ``SearchSpace()``.
         features: A :class:`~pyhealth.autoimprove.FeatureSpace` to search
-            input features as well as settings (needs ``cv_folds``). Cycles
-            alternate: feature cycles hold the model at the current selection
-            and propose groups of specs, each accepted only if its paired gain
-            over the accepted set clears the lower bound (forward selection);
-            model cycles hold the accepted features and propose configs.
-        feature_cycles: Feature cycles and model cycles in each round,
-            e.g. ``(2, 1)``.
-        confirm: After the search, re-score the reference and the top
-            ``confirm_top`` candidates on new folds with ``confirm_seeds``
-            training seeds, and select on those scores (:meth:`confirm`).
-            This removes part of the winner's curse before the test.
-        confirm_top: Candidates confirmed.
-        confirm_seeds: Training seeds per confirmed config.
-        confirm_se: The bound candidates must clear on the confirmation
-            scores, in SEs. Stricter than ``promote_se`` by default, because
-            the confirmed candidates were already chosen as the best of many.
-        prune: After confirmation, drop each accepted feature group whose
-            removal costs less than one SE (:meth:`prune`).
-        early_stop: Stop a trial after 2 folds when every fold so far is
-            below the reference's by more than this margin. ``None`` runs all
-            folds.
-        suspicion_auc: A new feature whose ROC-AUC alone exceeds this (or
-            is below 1 minus it) is flagged as possible leakage and not
-            accepted.
-        task: The task that built the samples. Code, evaluation and analysis
-            prompts include its source code; ``task_card`` defaults to
-            ``task.task_card()``.
-        cycle_plan: The kind of each cycle, repeated in order: any of
-            :data:`TURN_KINDS`, e.g. ``("analysis", "model", "code",
-            "evaluation")``. Defaults to model cycles, alternating with
-            feature cycles by ``feature_cycles`` when ``features`` is set.
-            ``"features"`` needs ``features``; ``"evaluation"`` needs
-            ``cv_folds``. Evaluation and analysis cycles add no trials, so
-            they don't count towards ``patience``.
-        code_timeout: Seconds one training of generated code may take (per
-            fold).
-        eval_timeout: Seconds one evaluation or analysis may take.
-        max_guardrails: Most evaluations active as guardrails at once; more
-            are kept for the report only.
-        guardrail_se: Standard errors by which a trial must be worse than the
-            baseline on a guardrail to be removed from the candidates.
-        max_findings: Most analysis findings kept for prompts.
+            input features as well (needs ``evaluation.cv_folds``).
+        task: The task that built the samples, or its
+            :class:`~pyhealth.tasks.TaskCard`. Its card explains the model in
+            clinical terms in reports; code prompts include its source.
 
     Examples:
-        >>> from pyhealth.autoimprove import (AutoImprover, ClaudeLLM,
-        ...     LLMProposer, PipelineConfig)
-        >>> improver = AutoImprover(
-        ...     train_ds, val_ds, LLMProposer(ClaudeLLM()),
-        ...     baseline=PipelineConfig("RNN", {"hidden_dim": 128}, {"epochs": 10}),
-        ...     n_agents=3, n_cycles=5, run_dir="runs/mortality",
-        ... )  # doctest: +SKIP
+        >>> from pyhealth.autoimprove import AutoImprover
+        >>> improver = AutoImprover(train_ds, val_ds, "runs/mortality.yaml")  # doctest: +SKIP
         >>> result = improver.run()  # doctest: +SKIP
         >>> print(result.summary())  # doctest: +SKIP
-        >>> improver.attribute()  # doctest: +SKIP
         >>> improver.evaluate_on_test(test_ds)  # doctest: +SKIP
-        >>> improver.report("runs/mortality/report.html")  # doctest: +SKIP
+        >>> improver.report()  # doctest: +SKIP
     """
 
     def __init__(
         self,
         train_dataset: SampleDataset,
         val_dataset: SampleDataset,
-        proposer: Proposer,
-        baseline: PipelineConfig | None = None,
+        config: RunConfig | str | dict | None = None,
+        proposer: Proposer | None = None,
         space: SearchSpace | None = None,
-        metric: str | None = None,
-        report_metrics: Sequence[str] = (),
-        n_agents: int = 3,
-        n_cycles: int = 5,
-        patience: int = 2,
-        max_trials: int | None = None,
-        time_budget: float | None = None,
-        seed: int = 0,
-        device: str | None = None,
-        run_dir: str | None = None,
-        lessons_path: str | None = None,
-        cv_folds: int | None = None,
-        promote_se: float | None = 1.0,
-        one_se: bool = True,
-        check: bool = True,
-        task_card: TaskCard | None = None,
         features: FeatureSpace | None = None,
-        feature_cycles: tuple[int, int] = (2, 1),
-        confirm: bool = False,
-        confirm_top: int = 3,
-        confirm_seeds: int = 3,
-        confirm_se: float = 2.0,
-        prune: bool = True,
-        early_stop: float | None = None,
-        suspicion_auc: float = 0.95,
         task: Any = None,
-        cycle_plan: Sequence[str] | None = None,
-        code_timeout: float = 1800.0,
-        eval_timeout: float = 300.0,
-        max_guardrails: int = 3,
-        guardrail_se: float = 1.0,
-        max_findings: int = 12,
     ):
+        self.config = cfg = RunConfig.load(config)
+        search, budget, ev = cfg.search, cfg.budget, cfg.evaluation
+        cv_folds = ev.cv_folds
         if features is not None and not cv_folds:
-            raise ValueError("feature search needs cv_folds")
-        if task_card is None and task is not None and hasattr(task, "task_card"):
-            task_card = task.task_card()
+            raise ValueError("feature search needs evaluation.cv_folds")
+        if isinstance(task, TaskCard):
+            task_card, task = task, None
+        else:
+            task_card = task.task_card() if hasattr(task, "task_card") else None
+        baseline = cfg.baseline.to_pipeline() if cfg.baseline is not None else None
+        if space is None:
+            space = cfg.space.build() if cfg.space is not None else SearchSpace()
         self.train_dataset = train_dataset
         self.val_dataset = val_dataset
-        self.proposer = proposer
+        self.proposer = proposer if proposer is not None else cfg.proposer.build()
         self.baseline = baseline
-        self.space = space or SearchSpace()
+        self.space = space
         self.mode = _label_mode(train_dataset)
-        self.metric = metric or DEFAULT_METRIC.get(self.mode, "loss")
+        self.metric = search.metric or DEFAULT_METRIC.get(self.mode, "loss")
         self.maximize = greater_is_better(self.metric)
-        self.report_metrics = list(report_metrics)
-        self.n_agents = n_agents
-        self.n_cycles = n_cycles
-        self.patience = patience
-        self.max_trials = max_trials
-        self.time_budget = time_budget
-        self.seed = seed
-        self.device = device
-        self.run_dir = run_dir
-        self.store = RunStore(run_dir, lessons_path)
-        self.lessons_path = lessons_path
+        self.report_metrics = list(search.report_metrics)
+        self.n_agents = search.proposals_per_round
+        self.n_cycles = budget.rounds
+        self.patience = budget.patience
+        self.max_trials = budget.max_trials
+        self.time_budget = budget.time_budget
+        self.seed = search.seed
+        self.device = search.device
+        self.run_dir = cfg.output.run_dir
+        self.lessons_path = cfg.output.lessons_path
+        self.store = RunStore(self.run_dir, self.lessons_path)
         self.cv_folds = cv_folds
-        self.promote_se = promote_se if cv_folds else None
-        self.one_se = one_se
+        self.promote_se = ev.promote_se if cv_folds else None
+        self.one_se = ev.one_se
         if self.promote_se is not None and baseline is None:
             logger.warning(
                 "promote_se compares every trial with the baseline, and no "
                 "baseline was given: every finished trial is a candidate, and %s",
-                "the one-SE rule picks among them" if one_se
+                "the one-SE rule picks among them" if ev.one_se
                 else "the best mean score is selected",
             )
         self.folds = (
-            patient_folds(train_dataset, cv_folds, seed) if cv_folds else None
+            patient_folds(train_dataset, cv_folds, self.seed) if cv_folds else None
         )
-        self.check = check
+        self.check = ev.check
         self.task_card = task_card
         self.features = features
-        self.feature_cycles = tuple(feature_cycles)
-        self.confirm_enabled = confirm
-        self.confirm_top = confirm_top
-        self.confirm_seeds = confirm_seeds
-        self.confirm_se = confirm_se
-        self.prune_enabled = prune
-        self.early_stop = early_stop
-        self.suspicion_auc = suspicion_auc
+        self.confirm_enabled = cfg.confirm.enabled
+        self.confirm_top = cfg.confirm.top
+        self.confirm_seeds = cfg.confirm.seeds
+        self.confirm_se = cfg.confirm.se
+        self.prune_enabled = cfg.confirm.prune
+        self.early_stop = budget.early_stop
+        self.suspicion_auc = ev.suspicion_auc
         self.confirmed: dict[int, list[float]] = {}
         self.pruned_id: int | None = None
         self._raw_cache: dict[tuple[str, str], np.ndarray] = {}
@@ -315,12 +194,12 @@ class AutoImprover:
                 f"{self.metric}_sd is the spread between folds."
             )
         self.task = task
-        self.cycle_plan = self._plan(cycle_plan)
-        self.code_timeout = code_timeout
-        self.eval_timeout = eval_timeout
-        self.max_guardrails = max_guardrails
-        self.guardrail_se = guardrail_se
-        self.max_findings = max_findings
+        self.cycle_plan = self._plan(search.plan)
+        self.code_timeout = cfg.code.timeout
+        self.eval_timeout = cfg.guardrails.timeout
+        self.max_guardrails = cfg.guardrails.max
+        self.guardrail_se = cfg.guardrails.se
+        self.max_findings = cfg.analysis.max_findings
         self.evaluations: list[dict[str, Any]] = []
         self.findings: list[str] = []
         self.analyses: list[dict[str, Any]] = []
@@ -336,25 +215,24 @@ class AutoImprover:
         self._settings = self._run_settings()
         self._proposer_failures = 0
 
-    def _plan(self, cycle_plan: Sequence[str] | None) -> tuple[str, ...]:
-        """The cycle plan, checked; the default reproduces feature_cycles."""
-        if cycle_plan is None:
+    def _plan(self, plan: Sequence[str] | None) -> tuple[str, ...]:
+        """The plan, checked: two feature rounds then a model round by default."""
+        if plan is None:
             if self.features is None:
                 return ("model",)
             if not self.proposer.proposes_models:
                 return ("features",)
-            n_features, n_models = self.feature_cycles
-            return ("features",) * n_features + ("model",) * n_models
-        plan = tuple(cycle_plan)
+            return ("features", "features", "model")
+        plan = tuple(plan)
         unknown = [k for k in plan if k not in TURN_KINDS]
         if not plan or unknown:
-            raise ValueError(f"cycle_plan needs kinds from {list(TURN_KINDS)}; "
+            raise ValueError(f"search.plan needs kinds from {list(TURN_KINDS)}; "
                              f"got {list(plan)}")
         if "features" in plan and self.features is None:
-            raise ValueError('a "features" cycle needs features=FeatureSpace(...)')
+            raise ValueError('a "features" round needs features=FeatureSpace(...)')
         if "evaluation" in plan and not self.cv_folds:
-            raise ValueError('an "evaluation" cycle needs cv_folds: guardrails '
-                             "compare trials fold by fold")
+            raise ValueError('an "evaluation" round needs evaluation.cv_folds: '
+                             "guardrails compare trials fold by fold")
         return plan
 
     # ------------------------------------------------------------------ run
@@ -1046,6 +924,7 @@ class AutoImprover:
 
     def _save_settings(self) -> None:
         """Writes run.json: what a report needs besides the trials."""
+        self.store.write_text("config.yaml", self.config.to_yaml())
         self.store.write_json("run.json", {
             "metric": self.metric, "maximize": self.maximize, "task": self._task,
             "cv_folds": self.cv_folds, "promote_se": self.promote_se,

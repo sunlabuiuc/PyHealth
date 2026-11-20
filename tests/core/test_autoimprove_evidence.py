@@ -17,6 +17,7 @@ from pyhealth.autoimprove import (  # noqa: E402
     EvidenceProposer,
     FeatureSpace,
     KnowledgeBase,
+    RunConfig,
     add_literature,
     evidence_lines,
     literature_section,
@@ -103,10 +104,14 @@ class TestEvidence(unittest.TestCase):
     def test_feature_prompts_list_untried_evidence_only(self):
         llm = ScriptedLLM([VISITS, LABS])
         improver = AutoImprover(
-            self.world.train, self.world.val, EvidenceProposer(llm, self.kb),
-            baseline=BASELINE, space=SPACE, cv_folds=5,
-            features=FeatureSpace(self.world, time_key="t", min_patients=5),
-            check=False, n_agents=1, n_cycles=3, feature_cycles=(1, 0))
+            self.world.train, self.world.val, RunConfig(
+                search={"proposals_per_round": 1, "plan": ['features']},
+                budget={"rounds": 3},
+                evaluation={"cv_folds": 5, "check": False},
+                baseline=BASELINE,
+            ),
+            proposer=EvidenceProposer(llm, self.kb), space=SPACE, features=FeatureSpace(self.world, time_key="t", min_patients=5),
+        )
         improver.run()
         feature_prompts = [p for s, p in llm.calls if s == FEATURE_SYSTEM_PROMPT]
         self.assertGreaterEqual(len(feature_prompts), 3)
@@ -181,9 +186,14 @@ class TestEvidence(unittest.TestCase):
         self.assertIn("This model on test: 0.810 (roc_auc).", with_test)
 
         improver = AutoImprover(
-            self.world.train, self.world.val, EvidenceProposer(ScriptedLLM([]), self.kb),
-            baseline=BASELINE, space=SPACE, cv_folds=5, check=False, n_agents=1,
-            n_cycles=1)
+            self.world.train, self.world.val, RunConfig(
+                search={"proposals_per_round": 1},
+                budget={"rounds": 1},
+                evaluation={"cv_folds": 5, "check": False},
+                baseline=BASELINE,
+            ),
+            proposer=EvidenceProposer(ScriptedLLM([]), self.kb), space=SPACE,
+        )
         improver.run()
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "report.html")

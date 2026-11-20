@@ -10,14 +10,15 @@ from datetime import datetime, timedelta
 import polars as pl
 
 from pyhealth.autoimprove import (
-    DEFAULT_MODELS,
     AutoImprover,
+    DEFAULT_MODELS,
     FeatureSpace,
     LLMProposer,
     Param,
     PipelineConfig,
     QueueProposer,
     RandomProposer,
+    RunConfig,
     SearchSpace,
     Trial,
     build_report,
@@ -112,14 +113,16 @@ SPACE = SearchSpace(
 BASELINE = PipelineConfig("LogisticRegression", {"embedding_dim": 8})
 
 
-def _improver(world, proposer, run_dir=None, **kw):
+def _improver(world, proposer, run_dir=None, rounds=6, plan=None, early_stop=None):
     fs = FeatureSpace(world, time_key="t", min_patients=5)
-    kw.setdefault("n_agents", 1)
-    kw.setdefault("n_cycles", 6)
-    kw.setdefault("patience", 6)
-    return AutoImprover(world.train, world.val, proposer, baseline=BASELINE,
-                        space=SPACE, cv_folds=5, features=fs, run_dir=run_dir,
-                        confirm=True, check=False, **kw)
+    config = RunConfig(
+        search={"proposals_per_round": 1, "plan": plan},
+        budget={"rounds": rounds, "patience": 6, "early_stop": early_stop},
+        evaluation={"cv_folds": 5, "check": False},
+        confirm={"enabled": True}, output={"run_dir": run_dir}, baseline=BASELINE,
+    )
+    return AutoImprover(world.train, world.val, config, proposer=proposer, space=SPACE,
+                        features=fs)
 
 
 class TestFeatureSearch(unittest.TestCase):
@@ -213,8 +216,8 @@ class TestFeatureSearch(unittest.TestCase):
                 return '```json\n{"features": [' + json.dumps(LABS_90) + "]}\n```"
 
         # cycles: features, model, features (labs), model, features (labs again)
-        improver = _improver(self.world, LLMProposer(LLM()), n_cycles=5,
-                             feature_cycles=(1, 1))
+        improver = _improver(self.world, LLMProposer(LLM()), rounds=5,
+                             plan=["features", "model"])
         result = improver.run()
         planted = next(t for t in result.trials if t.added == ["count_90d__visits"])
         self.assertTrue(planted.accepted)
@@ -251,7 +254,7 @@ class TestFeatureSearch(unittest.TestCase):
         # early_stop=-1 stops every searched trial after 2 folds; the run
         # still completes, and none of them is accepted or selected.
         queue = QueueProposer([VISITS_90, LABS_90])
-        improver = _improver(self.world, queue, early_stop=-1.0, n_cycles=2)
+        improver = _improver(self.world, queue, early_stop=-1.0, rounds=2)
         result = improver.run()
         stopped = [t for t in result.trials if t.stopped_early]
         self.assertTrue(stopped)
@@ -264,7 +267,7 @@ class TestFeatureSearch(unittest.TestCase):
         # The incumbent is the reference for paired gains, so it must not be
         # cut short by early_stop even when the rule would stop it.
         improver = _improver(self.world, QueueProposer([LABS_90]),
-                             early_stop=-1.0, n_cycles=1)
+                             early_stop=-1.0, rounds=1)
         improver.run()
         baseline = next(t for t in improver.trials if t.agent == "baseline")
         baseline.stopped_early = True  # force a fresh evaluation

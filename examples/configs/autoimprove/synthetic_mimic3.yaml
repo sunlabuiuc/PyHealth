@@ -1,0 +1,13 @@
+# Settings for examples/autoimprove_synthetic_mimic3.py.
+# Every key is checked: see pyhealth.autoimprove.RunConfig for what each does.
+search:
+  metric: roc_auc
+  proposals_per_round: 2      # agents proposing in each round
+budget:
+  rounds: 3
+baseline:                     # the starting pipeline every trial is compared with
+  model: RNN
+  model_params: {hidden_dim: 128}
+  train_params: {epochs: 5}
+proposer:
+  type: random                # or: type: llm, backend: claude | openai | gemini

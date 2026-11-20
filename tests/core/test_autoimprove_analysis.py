@@ -8,7 +8,13 @@ import unittest
 
 import numpy as np
 
-from pyhealth.autoimprove import AnalysisSpec, AutoImprover, Param, PipelineConfig
+from pyhealth.autoimprove import (
+    AnalysisSpec,
+    AutoImprover,
+    Param,
+    PipelineConfig,
+    RunConfig,
+)
 from pyhealth.autoimprove import SearchSpace, sample_columns
 from pyhealth.autoimprove.search.analysis import Out, format_results, run_analysis_job
 from pyhealth.autoimprove.search.proposers import Proposer
@@ -154,10 +160,14 @@ class TestAnalysisTurns(unittest.TestCase):
         proposer = AnalysisProposer([failing, spec])
         with tempfile.TemporaryDirectory() as tmp:
             improver = AutoImprover(
-                train, val, proposer,
-                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
-                space=SPACE, n_agents=1, n_cycles=1, cv_folds=2,
-                cycle_plan=("analysis",), run_dir=tmp, check=False,
+                train, val, RunConfig(
+                    search={"proposals_per_round": 1, "plan": ("analysis",)},
+                    budget={"rounds": 1},
+                    evaluation={"cv_folds": 2, "check": False},
+                    output={"run_dir": tmp},
+                    baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+                ),
+                proposer=proposer, space=SPACE,
             )
             improver.run()
             # the failure went back to the proposer, then the retry ran

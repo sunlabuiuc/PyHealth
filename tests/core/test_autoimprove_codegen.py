@@ -13,6 +13,7 @@ from pyhealth.autoimprove import (
     AutoImprover,
     Param,
     PipelineConfig,
+    RunConfig,
     SearchSpace,
     config_diff,
     load_run,
@@ -226,10 +227,14 @@ class TestCodeTurns(unittest.TestCase):
         proposer = CodeProposer([FAST, broken])
         with tempfile.TemporaryDirectory() as tmp:
             improver = AutoImprover(
-                self.train, self.val, proposer,
-                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
-                space=SPACE, n_agents=2, n_cycles=2, patience=5, cv_folds=2,
-                cycle_plan=("model", "code"), run_dir=tmp, check=False,
+                self.train, self.val, RunConfig(
+                    search={"proposals_per_round": 2, "plan": ("model", "code")},
+                    budget={"rounds": 2, "patience": 5},
+                    evaluation={"cv_folds": 2, "check": False},
+                    output={"run_dir": tmp},
+                    baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+                ),
+                proposer=proposer, space=SPACE,
             )
             result = improver.run()
             kinds = [(t.agent, t.config.model) for t in result.trials]
@@ -254,20 +259,28 @@ class TestCodeTurns(unittest.TestCase):
             self.assertEqual(saved[ok.trial_id]["config"]["code"], FAST)
             # resuming keeps every trial and runs nothing new
             again = AutoImprover(
-                self.train, self.val, CodeProposer([]),
-                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
-                space=SPACE, n_agents=2, n_cycles=2, cv_folds=2,
-                cycle_plan=("model", "code"), run_dir=tmp, check=False,
+                self.train, self.val, RunConfig(
+                    search={"proposals_per_round": 2, "plan": ("model", "code")},
+                    budget={"rounds": 2},
+                    evaluation={"cv_folds": 2, "check": False},
+                    output={"run_dir": tmp},
+                    baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+                ),
+                proposer=CodeProposer([]), space=SPACE,
             ).run()
             self.assertEqual(len(again.trials), len(result.trials))
 
     def test_code_baseline_through_test_and_report(self):
         with tempfile.TemporaryDirectory() as tmp:
             improver = AutoImprover(
-                self.train, self.val, CodeProposer([]),
-                baseline=PipelineConfig("Code", code=FAST, rationale="pooled linear"),
-                space=SPACE, n_agents=1, n_cycles=0, cv_folds=2, run_dir=tmp,
-                check=False,
+                self.train, self.val, RunConfig(
+                    search={"proposals_per_round": 1},
+                    budget={"rounds": 0},
+                    evaluation={"cv_folds": 2, "check": False},
+                    output={"run_dir": tmp},
+                    baseline=PipelineConfig("Code", code=FAST, rationale="pooled linear"),
+                ),
+                proposer=CodeProposer([]), space=SPACE,
             )
             result = improver.run()
             self.assertTrue(result.best.config.code)

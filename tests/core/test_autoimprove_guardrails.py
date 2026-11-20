@@ -14,6 +14,7 @@ from pyhealth.autoimprove import (
     EvaluationSpec,
     Param,
     PipelineConfig,
+    RunConfig,
     SearchSpace,
     clearly_worse,
     load_run,
@@ -195,10 +196,14 @@ class TestGuardrailsInARun(unittest.TestCase):
 
     def improver(self, tmp, proposer):
         return AutoImprover(
-            self.train, self.val, proposer,
-            baseline=PipelineConfig("MLP", {"embedding_dim": 16, "hidden_dim": 16}),
-            space=SPACE, n_agents=2, n_cycles=2, patience=5, cv_folds=3,
-            cycle_plan=("model", "evaluation"), run_dir=tmp, check=False,
+            self.train, self.val, RunConfig(
+                search={"proposals_per_round": 2, "plan": ("model", "evaluation")},
+                budget={"rounds": 2, "patience": 5},
+                evaluation={"cv_folds": 3, "check": False},
+                output={"run_dir": tmp},
+                baseline=PipelineConfig("MLP", {"embedding_dim": 16, "hidden_dim": 16}),
+            ),
+            proposer=proposer, space=SPACE,
         )
 
     def test_guardrail_changes_the_selection(self):
@@ -253,11 +258,21 @@ class TestGuardrailsInARun(unittest.TestCase):
 
     def test_evaluation_cycles_need_cross_validation(self):
         with self.assertRaisesRegex(ValueError, "cv_folds"):
-            AutoImprover(self.train, self.val, GuardrailProposer([]), space=SPACE,
-                         cycle_plan=("model", "evaluation"), check=False)
+            AutoImprover(
+                self.train, self.val, RunConfig(
+                    search={"plan": ("model", "evaluation")},
+                    evaluation={"check": False},
+                ),
+                proposer=GuardrailProposer([]), space=SPACE,
+            )
         with self.assertRaisesRegex(ValueError, "kinds"):
-            AutoImprover(self.train, self.val, GuardrailProposer([]), space=SPACE,
-                         cycle_plan=("model", "dance"), cv_folds=3, check=False)
+            AutoImprover(
+                self.train, self.val, RunConfig(
+                    search={"plan": ("model", "dance")},
+                    evaluation={"cv_folds": 3, "check": False},
+                ),
+                proposer=GuardrailProposer([]), space=SPACE,
+            )
 
     def test_unknown_columns_are_sent_back(self):
         bad = _spec("by_age", {"abs_shift": "lower"}, needs=["age"])

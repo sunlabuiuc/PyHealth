@@ -63,8 +63,8 @@ class TestLayout(unittest.TestCase):
     def test_three_compartments_and_the_improver(self):
         top = sorted(p.name for p in PKG.iterdir()
                      if p.suffix == ".py" or (p.is_dir() and p.name != "__pycache__"))
-        self.assertEqual(top, ["__init__.py", "evaluation", "improver.py", "search",
-                               "utils"])
+        self.assertEqual(top, ["__init__.py", "config.py", "evaluation", "improver.py",
+                               "search", "utils"])
 
     def test_dependency_rule(self):
         problems = []

@@ -63,17 +63,18 @@ import pandas as pd
 import yaml
 
 from pyhealth.autoimprove import (
-    DEFAULT_MODELS,
-    TRAIN_PARAMS,
     AutoImprover,
     ClaudeLLM,
+    DEFAULT_MODELS,
     GeminiLLM,
     LLMProposer,
     OpenAILLM,
     Param,
     PipelineConfig,
     RandomProposer,
+    RunConfig,
     SearchSpace,
+    TRAIN_PARAMS,
     check_models,
     with_xgboost,
 )
@@ -235,6 +236,7 @@ VITAL_TABLES = {
     ),
 }
 TABLES = ["lab", "medication", "diagnosis", *VITAL_TABLES]
+CONFIG = Path(__file__).parent / "configs" / "autoimprove" / "eicu_ihm48.yaml"
 
 
 def write_config(path: Path) -> Path:
@@ -551,11 +553,8 @@ def main():
     parser.add_argument(
         "--llm", choices=["none", "claude", "openai", "gemini"], default="none"
     )
-    parser.add_argument("--agents", type=int, default=3)
-    parser.add_argument("--cycles", type=int, default=6)
-    parser.add_argument("--patience", type=int, default=3)
-    parser.add_argument("--cv-folds", type=int, default=5)
-    parser.add_argument("--time-budget", type=float, default=5400)
+    parser.add_argument("--config", default=str(CONFIG),
+                        help="the run's YAML settings (rounds, agents, folds...)")
     parser.add_argument("--run-dir", default="runs/ihm48_eicu")
     parser.add_argument("--cache-dir", default=None)
     parser.add_argument("--check-space", action="store_true",
@@ -589,14 +588,13 @@ def main():
     proposer = (
         LLMProposer(llms[args.llm]()) if args.llm != "none" else RandomProposer(0)
     )
-    improver = AutoImprover(
-        train, val, proposer, baseline=BASELINES[args.view], space=space,
-        metric="pr_auc", report_metrics=["roc_auc"], n_agents=args.agents,
-        n_cycles=args.cycles, patience=args.patience, time_budget=args.time_budget,
-        seed=0, device="cpu", run_dir=str(run_dir),
-        lessons_path=str(run_dir / "lessons_shared.json"), cv_folds=args.cv_folds,
-        task_card=task_card(args.view),
+    config = RunConfig.from_yaml(args.config).with_overrides(
+        baseline=BASELINES[args.view],
+        output={"run_dir": str(run_dir),
+                "lessons_path": str(run_dir / "lessons_shared.json")},
     )
+    improver = AutoImprover(train, val, config, proposer=proposer, space=space,
+                            task=task_card(args.view))
     start = time.time()
     result = improver.run()
     print(f"\n{len(result.trials)} trials in {time.time() - start:.0f}s")

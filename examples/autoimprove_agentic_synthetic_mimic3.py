@@ -26,33 +26,30 @@ works, not how much it gains.
 
 Usage:
     python examples/autoimprove_agentic_synthetic_mimic3.py --run-dir runs/agentic
-    python examples/autoimprove_agentic_synthetic_mimic3.py --llm openai --rounds 2
+    python examples/autoimprove_agentic_synthetic_mimic3.py --llm openai
+
+Settings (the plan, rounds, agents, baseline...) come from
+``examples/configs/autoimprove/agentic_synthetic_mimic3.yaml``; edit it or
+pass ``--config``.
 """
 
 import argparse
+from pathlib import Path
 
-from pyhealth.autoimprove import (
-    AutoImprover,
-    ClaudeLLM,
-    GeminiLLM,
-    LLMProposer,
-    OpenAILLM,
-    PipelineConfig,
-)
+from pyhealth.autoimprove import AutoImprover, RunConfig
 from pyhealth.datasets import MIMIC3Dataset, PatientSplit
 from pyhealth.tasks import MortalityPredictionMIMIC3
 
 SYNTHETIC_ROOT = "https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III"
-PLAN = ("analysis", "model", "code", "evaluation")
+CONFIG = (Path(__file__).parent / "configs" / "autoimprove"
+          / "agentic_synthetic_mimic3.yaml")
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--llm", choices=["claude", "openai", "gemini"],
-                        default="claude")
-    parser.add_argument("--agents", type=int, default=2)
-    parser.add_argument("--rounds", type=int, default=1,
-                        help="passes through analysis, model, code, evaluation")
+    parser.add_argument("--config", default=str(CONFIG), help="the run's YAML settings")
+    parser.add_argument("--llm", choices=["claude", "openai", "gemini"], default=None,
+                        help="use this LLM instead of the config's backend")
     parser.add_argument("--run-dir", default=None,
                         help="save trials, code and logs here; rerun to resume")
     parser.add_argument("--cache-dir", default=None)
@@ -67,20 +64,12 @@ def main():
     train, val, test = dataset.set_task(
         task, split=PatientSplit(ratios=(0.6, 0.2, 0.2), seed=0))
 
-    llm = {"claude": ClaudeLLM, "openai": OpenAILLM, "gemini": GeminiLLM}[args.llm]()
-    improver = AutoImprover(
-        train, val, LLMProposer(llm),
-        baseline=PipelineConfig("RNN", {"hidden_dim": 128}, {"epochs": 5}),
-        metric="roc_auc",
-        task=task,                 # its source code goes into code prompts
-        cycle_plan=PLAN,
-        cv_folds=3,                # guardrails compare trials fold by fold
-        n_agents=args.agents,
-        n_cycles=len(PLAN) * args.rounds,
-        patience=len(PLAN),
-        code_timeout=900,
-        run_dir=args.run_dir,
-    )
+    config = RunConfig.from_yaml(args.config)
+    if args.llm:
+        config = config.with_overrides(proposer={"type": "llm", "backend": args.llm})
+    if args.run_dir:
+        config = config.with_overrides(output={"run_dir": args.run_dir})
+    improver = AutoImprover(train, val, config, task=task)
     result = improver.run()
     print(result.summary())
 

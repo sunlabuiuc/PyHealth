@@ -18,23 +18,29 @@ callable), or from random search
 
 After each cycle, the LLM proposer rewrites a short list of *lessons* from the
 results. Later prompts build on those lessons, and so do later runs that pass
-``lessons_path``. The search therefore improves the guidance it runs on, as
+``output.lessons_path``. The search therefore improves the guidance it runs on, as
 well as the pipeline.
+
+A run's settings live in a YAML file (:class:`~pyhealth.autoimprove.RunConfig`;
+every key is checked, so a typo is an error):
+
+.. code-block:: yaml
+
+    # runs/mortality.yaml
+    search:   {proposals_per_round: 3}
+    budget:   {rounds: 5}
+    baseline: {model: RNN, model_params: {hidden_dim: 128}, train_params: {epochs: 10}}
+    proposer: {type: llm, backend: claude}
+    evaluation: {cv_folds: 5}         # score by patient-grouped CV
+    output:   {run_dir: runs/mortality}
 
 .. code-block:: python
 
-    from pyhealth.autoimprove import (
-        AutoImprover, ClaudeLLM, LLMProposer, PipelineConfig,
-    )
+    from pyhealth.autoimprove import AutoImprover
     from pyhealth.datasets import PatientSplit
 
     train, val, test = dataset.set_task(task, split=PatientSplit((0.7, 0.1, 0.2)))
-    improver = AutoImprover(
-        train, val, LLMProposer(ClaudeLLM()),
-        baseline=PipelineConfig("RNN", {"hidden_dim": 128}, {"epochs": 10}),
-        n_agents=3, n_cycles=5, run_dir="runs/mortality",
-        cv_folds=5,                  # score by patient-grouped CV
-    )
+    improver = AutoImprover(train, val, "runs/mortality.yaml", task=task)
     result = improver.run()          # resumes if runs/mortality has trials
     print(result.summary())          # validation leaderboard
     improver.attribute()             # what each changed setting contributed
@@ -48,11 +54,11 @@ A search ranks many configs on the same data, so the top score is partly
 luck. On a small validation split this luck can dominate: the winner looks
 best on validation and does worse on test. Three settings guard against it.
 
-- ``cv_folds=5`` scores every trial by patient-grouped cross-validation over
+- ``evaluation.cv_folds: 5`` scores every trial by patient-grouped cross-validation over
   the training split (:func:`~pyhealth.autoimprove.patient_folds`). The
   validation split is then used only for early stopping. Each trial trains
   ``cv_folds`` models.
-- ``promote_se=1.0`` (the default with ``cv_folds``) decides which trials
+- ``evaluation.promote_se: 1.0`` (the default with ``cv_folds``) decides which trials
   are *candidates*. All trials share the same folds, so each is compared
   with the baseline fold by fold. A trial is a candidate if its gain has a
   lower bound above 0: the mean minus one standard error of the per-fold
@@ -116,7 +122,7 @@ features: meaning, clinical group and expected direction of effect. Then:
 
 .. code-block:: python
 
-    improver = AutoImprover(train, val, proposer, ..., task_card=task.task_card())
+    improver = AutoImprover(train, val, config, task=task)  # or task=task.task_card()
     result = improver.run()
     improver.attribute()       # what each changed setting contributed
     improver.explain()         # how the selected model decides
@@ -168,7 +174,7 @@ Reports and saved files hold aggregates only. Every bin and subgroup count
 below 11 patients is suppressed, and effect-bin cut points are midpoints, not
 patient values.
 
-Lessons saved to ``lessons_path`` are stored per search, keyed by the inputs,
+Lessons saved to ``output.lessons_path`` are stored per search, keyed by the inputs,
 the label and the models in the search space. A run reads only the lessons
 learned on the same kind of search, and the lessons may mention only models
 that the space allows.
@@ -259,13 +265,13 @@ Give the improver a FeatureSpace to search inputs as well as settings:
 
 .. code-block:: python
 
-    improver = AutoImprover(
-        train, val, LLMProposer(ClaudeLLM()), baseline=..., space=...,
-        features=fs, cv_folds=5, confirm=True, task_card=task.task_card(),
-    )
+    config = RunConfig.from_yaml("runs/features.yaml")  # evaluation.cv_folds and
+    improver = AutoImprover(train, val, config,       # confirm.enabled set there
+                            features=fs, task=task)
     result = improver.run()
 
-- **Alternating cycles** (``feature_cycles=(2, 1)``). Feature cycles hold
+- **Alternating rounds** (``search.plan: [features, features, model]``, the
+  default with a FeatureSpace). Feature cycles hold
   the model at the current selection, and each agent proposes a group of
   specs with its rationale and expected direction. Model cycles hold the
   accepted features and propose configs. With one side fixed, every accepted
@@ -283,7 +289,7 @@ Give the improver a FeatureSpace to search inputs as well as settings:
     clinician's approval to stay.
   - :class:`~pyhealth.autoimprove.QueueProposer` tries a given ranked list
     in order, with no LLM.
-- **Confirmation** (``confirm=True``). After the search, the leading
+- **Confirmation** (``confirm.enabled: true``). After the search, the leading
   candidates are scored again on new folds with several training seeds
   (:meth:`~pyhealth.autoimprove.AutoImprover.confirm`), and the selection must
   clear a stricter bound (``confirm_se=2``). Candidates picked as the best of
@@ -363,18 +369,21 @@ Code, evaluation and analysis turns
 -----------------------------------
 
 By default nothing a proposer returns is run: configs and feature specs are
-data. A ``cycle_plan`` opts in to three kinds of turn where the LLM writes
+data. A ``search.plan`` opts in to three kinds of turn where the LLM writes
 Python, mixed with model and feature turns on one leaderboard:
+
+.. code-block:: yaml
+
+    search:     {plan: [analysis, model, code, evaluation]}
+    baseline:   {model: RNN, model_params: {hidden_dim: 128}}
+    proposer:   {type: llm, backend: claude}
+    evaluation: {cv_folds: 5}
+    output:     {run_dir: runs/agentic}
 
 .. code-block:: python
 
-    improver = AutoImprover(
-        train, val, LLMProposer(ClaudeLLM()),
-        baseline=PipelineConfig("RNN", {"hidden_dim": 128}),
-        task=task,                       # its source goes into code prompts
-        cycle_plan=("analysis", "model", "code", "evaluation"),
-        cv_folds=5, run_dir="runs/agentic",
-    )
+    improver = AutoImprover(train, val, "runs/agentic.yaml",
+                            task=task)  # its source goes into code prompts
 
 ``code``
     The LLM writes ``build_and_train(train_dataset, val_dataset, *, metric,
@@ -511,6 +520,11 @@ API Reference
         build_report, load_run, unverified_numbers, fold_parts, fit_predict,
         score_predictions, out_of_fold
     :show-inheritance:
+
+.. automodule:: pyhealth.autoimprove.config
+    :members: RunConfig, SearchConfig, BudgetConfig, BaselineConfig, SpaceConfig,
+        ParamConfig, ProposerConfig, EvaluationConfig, ConfirmConfig, CodeConfig,
+        GuardrailConfig, AnalysisConfig, OutputConfig
 
 .. automodule:: pyhealth.autoimprove.evaluation.explain
     :members: attributions, summarize, top_overlap

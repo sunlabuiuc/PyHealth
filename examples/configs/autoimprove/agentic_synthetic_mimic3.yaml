@@ -1,0 +1,21 @@
+# Settings for examples/autoimprove_agentic_synthetic_mimic3.py: the LLM asks
+# questions of the training data, picks configs, writes models and writes new
+# evaluations, in that order, once per pass through the plan.
+search:
+  metric: roc_auc
+  plan: [analysis, model, code, evaluation]
+  proposals_per_round: 2
+budget:
+  rounds: 4                   # one pass through the plan
+  patience: 4
+baseline:
+  model: RNN
+  model_params: {hidden_dim: 128}
+  train_params: {epochs: 5}
+proposer:
+  type: llm
+  backend: claude
+evaluation:
+  cv_folds: 3                 # guardrails compare trials fold by fold
+code:
+  timeout: 900                # seconds per training of generated code

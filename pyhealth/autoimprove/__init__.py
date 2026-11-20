@@ -25,6 +25,7 @@ from .evaluation.training import (
     score_predictions,
     train_pipeline,
 )
+from .config import RunConfig
 from .improver import DEFAULT_METRIC, AutoImprover
 from .search.analysis import AnalysisSpec, sample_columns
 from .search.features import EngineeredDataset, FeatureSpace, FeatureSpec
@@ -104,6 +105,7 @@ __all__ = [
     "PipelineConfig",
     "Proposer",
     "ProposerExhausted",
+    "RunConfig",
     "QueueProposer",
     "RandomProposer",
     "Report",
