@@ -83,8 +83,9 @@ class COVIDBLUESDataset(BaseDataset):
     """COVID-BLUES: bluepoint lung ultrasound videos of COVID-19 suspects.
 
     63 patients (33 PCR-positive, 30 negative) were scanned at up to six BLUE
-    points (L1-L3, R1-R3), giving 362 videos of 60-100 frames (31,746 frames
-    in all). This loader works on frames: there is one event per frame
+    points (L1-L3, R1-R3), giving 362 videos of 7-101 frames each, most of
+    them 60-101 (31,746 frames in all, counted by decoding with PyAV; the
+    dataset README says 60-100). This loader works on frames: there is one event per frame
     image, with the patient's PCR result (``cov_test``) as ``covid``, the
     video id, BLUE point and frame index. When ``severity.csv`` is present,
     each frame also gets its video's expert ``severity_score`` (0-3).
@@ -275,9 +276,10 @@ class COVIDBLUESDataset(BaseDataset):
         Needs the optional ``av`` (PyAV) or ``opencv-python`` package. A
         video's folder is written under a temporary name and renamed when
         complete, so an interrupted run is redone next time. A video that
-        yields no frames (e.g. corrupt, or unreadable by the decoder) gets
-        no folder and a warning, so it is retried on the next run instead
-        of being cached as empty.
+        yields no frames or makes the decoder raise (e.g. a corrupt file)
+        gets no folder and a warning, so it is retried on the next run
+        instead of being cached as empty; the other videos are still
+        decoded. A missing decoder (``ImportError``) is still raised.
 
         Examples:
             >>> dataset = COVIDBLUESDataset(  # doctest: +SKIP
@@ -299,7 +301,21 @@ class COVIDBLUESDataset(BaseDataset):
             partial = self.frames_dir / f".{video.stem}.partial"
             if partial.exists():
                 shutil.rmtree(partial)
-            count = _decode_video(video, partial)
+            try:
+                count = _decode_video(video, partial)
+            except ImportError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - PyAV/cv2 raise many types
+                shutil.rmtree(partial, ignore_errors=True)
+                failed.append(video.name)
+                logger.warning(
+                    "Could not decode %s (%s: %s); it is left out and retried "
+                    "on the next run.",
+                    video,
+                    type(exc).__name__,
+                    exc,
+                )
+                continue
             if count == 0:
                 shutil.rmtree(partial, ignore_errors=True)
                 failed.append(video.name)

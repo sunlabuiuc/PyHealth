@@ -145,6 +145,45 @@ class TestCOVIDBLUESDataset(unittest.TestCase):
             dataset.extract_frames()
         self.assertEqual(decoder.call_count, 1)
 
+    def test_video_that_raises_is_skipped_and_retried(self):
+        def fake_decode(video_path, out_dir):
+            out_dir.mkdir(parents=True, exist_ok=True)
+            write_frame(out_dir / "000000.png", 0)
+            if video_path.stem == "patient_2_L1":
+                # e.g. PyAV raising InvalidDataError on a corrupt .mp4
+                raise ValueError("Invalid data found when processing input")
+            return 1
+
+        with mock.patch.object(
+            covid_blues_module, "_decode_video", side_effect=fake_decode
+        ) as decoder, self.assertLogs(
+            covid_blues_module.logger, level="WARNING"
+        ) as logs:
+            dataset = self._dataset(frames_dir=None, decode_videos=True)
+        self.assertEqual(decoder.call_count, len(VIDEOS))
+        self.assertIn("patient_2_L1", "\n".join(logs.output))
+        self.assertFalse((dataset.frames_dir / "patient_2_L1").exists())
+        self.assertEqual(list(dataset.frames_dir.glob(".*.partial")), [])
+        for stem in VIDEOS:
+            if stem != "patient_2_L1":
+                self.assertTrue((dataset.frames_dir / stem).is_dir(), stem)
+        self.assertNotIn("2", dataset.unique_patient_ids)
+        self.assertIn("1", dataset.unique_patient_ids)
+
+        # Only the failed video is retried on the next run.
+        with mock.patch.object(
+            covid_blues_module, "_decode_video", side_effect=fake_decode
+        ) as decoder, self.assertLogs(covid_blues_module.logger, level="WARNING"):
+            dataset.extract_frames()
+        self.assertEqual(decoder.call_count, 1)
+        self.assertEqual(decoder.call_args.args[0].stem, "patient_2_L1")
+
+    def test_missing_decoder_is_not_swallowed(self):
+        with mock.patch.object(
+            covid_blues_module, "_decode_video", side_effect=ImportError("av")
+        ), self.assertRaises(ImportError):
+            self._dataset(frames_dir=None, decode_videos=True)
+
     def test_severity_tolerates_mp4_suffix_and_warns_on_no_match(self):
         table = pd.read_csv(self.root / "severity.csv")
         table["video_file"] = ["patient_1_L1.mp4"]
@@ -224,6 +263,8 @@ class TestCOVIDBLUESDataset(unittest.TestCase):
                 0,
             )
 
+    # PyAV is optional and not in the CI test environment, so CI may skip
+    # this test; the mocked-PyAV test above still covers the code path.
     @unittest.skipUnless(importlib.util.find_spec("av"), "needs PyAV")
     def test_decode_real_video_with_pyav(self):
         import av
