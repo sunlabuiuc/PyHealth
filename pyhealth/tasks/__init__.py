@@ -10,6 +10,7 @@ from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
 from .cardiology_detect import (
+    CardiologyDetection as CardiologyDetection,
     cardiology_isAD_fn,
     cardiology_isAR_fn,
     cardiology_isBBBFB_fn,
@@ -18,15 +19,15 @@ from .cardiology_detect import (
 )
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
-from .brain_tumor_mri_classification import (
-    BrainTumorMRIClassification as BrainTumorMRIClassification,
-)
 from .chaos_segmentation import (
     CHAOSAbdominalSegmentationCTMRI as CHAOSAbdominalSegmentationCTMRI,
     CHAOSAbdominalSegmentationMRIonly as CHAOSAbdominalSegmentationMRIonly,
     CHAOSLiverSegmentationCTMRI as CHAOSLiverSegmentationCTMRI,
     CHAOSLiverSegmentationCTonly as CHAOSLiverSegmentationCTonly,
     CHAOSLiverSegmentationMRIonly as CHAOSLiverSegmentationMRIonly,
+)
+from .brain_tumor_mri_classification import (
+    BrainTumorMRIClassification as BrainTumorMRIClassification,
 )
 from .covid19_cxr_classification import COVID19CXRClassification
 from .covid19_cxr_generation import (
@@ -160,6 +161,9 @@ from .patient_linkage import patient_linkage_mimic3_fn
 from .rsna_pneumonia_classification import (
     RSNAPneumoniaClassification as RSNAPneumoniaClassification,
 )
+from .isic2020_melanoma_classification import (
+    ISIC2020MelanomaClassification as ISIC2020MelanomaClassification,
+)
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
     ReadmissionPredictionMIMIC3,
@@ -234,7 +238,7 @@ from .yaib_eicu import (
     YAIBMortalityEICU as YAIBMortalityEICU,
     YAIBSepsisEICU as YAIBSepsisEICU,
 )
-
+from .tcga_survival_prediction import TCGASurvivalPrediction as TCGASurvivalPrediction
 
 def __getattr__(name: str):
     if name == "MPFClinicalPredictionTask":

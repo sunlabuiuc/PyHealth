@@ -410,6 +410,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `Kaggle <https://www.kaggle.com/datasets/tawsifurrahman/covid19-radiography-database>`__
      - No
      - —
+   * - :doc:`ISIC 2020 (SIIM-ISIC melanoma) <datasets/pyhealth.datasets.ISIC2020Dataset>`
+     - Open (CC BY-NC 4.0)
+     - `ISIC <https://challenge2020.isic-archive.com/>`__
+     - Yes
+     - —
    * - :doc:`Medical Transcriptions <datasets/pyhealth.datasets.MedicalTranscriptionsDataset>`
      - Open (Kaggle account)
      - `Kaggle <https://www.kaggle.com/datasets/tboyle10/medicaltranscriptions>`__
@@ -475,11 +480,6 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `NIH <https://nihcc.app.box.com/v/ChestXray-NIHCC>`__
      - Yes
      - —
-   * - :doc:`Brain Tumor MRI (Bhuvaji) <datasets/pyhealth.datasets.BrainTumorMRIDataset>`
-     - Open (MIT, per the Kaggle listing)
-     - `GitHub <https://github.com/SartajBhuvaji/Brain-Tumor-Classification-DataSet>`__, `Kaggle <https://www.kaggle.com/datasets/sartajbhuvaji/brain-tumor-classification-mri>`__
-     - No (``git clone`` or ``kaggle datasets download``)
-     - —
    * - :doc:`Medical Segmentation Decathlon <datasets/pyhealth.datasets.MSDSegmentationDataset>`
      - Open
      - `MSD <http://medicaldecathlon.com/>`__
@@ -504,6 +504,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - Open
      - `GDC <https://portal.gdc.cancer.gov/projects/TCGA-PRAD>`__
      - No
+     - —
+   * - :doc:`Brain Tumor MRI (Bhuvaji) <datasets/pyhealth.datasets.BrainTumorMRIDataset>`
+     - Open (MIT, per the Kaggle listing)
+     - `GitHub <https://github.com/SartajBhuvaji/Brain-Tumor-Classification-DataSet>`__, `Kaggle <https://www.kaggle.com/datasets/sartajbhuvaji/brain-tumor-classification-mri>`__
+     - No (``git clone`` or ``kaggle datasets download``)
      - —
    * - :doc:`ClinVar <datasets/pyhealth.datasets.ClinVarDataset>`
      - Open
@@ -547,7 +552,7 @@ Available Datasets
     datasets/pyhealth.datasets.MSDSpleenDataset
     datasets/pyhealth.datasets.CHAOSDataset
     datasets/pyhealth.datasets.RSNAPneumoniaDataset
-    datasets/pyhealth.datasets.BrainTumorMRIDataset
+    datasets/pyhealth.datasets.ISIC2020Dataset
     datasets/pyhealth.datasets.MIMIC3Dataset
     datasets/pyhealth.datasets.MIMIC4Dataset
     datasets/pyhealth.datasets.MIMIC4EHRDataset
@@ -555,6 +560,7 @@ Available Datasets
     datasets/pyhealth.datasets.MIMIC4CXRDataset
     datasets/pyhealth.datasets.MIMIC4EDDataset
     datasets/pyhealth.datasets.MIMIC4ImaGenomeDataset
+    datasets/pyhealth.datasets.BrainTumorMRIDataset
     datasets/pyhealth.datasets.FHIRDataset
     datasets/pyhealth.datasets.MEDSDataset
     datasets/pyhealth.datasets.MIMIC4FHIR
@@ -595,3 +601,4 @@ Available Datasets
     datasets/pyhealth.datasets.splitter
     datasets/pyhealth.datasets.GoldTestSplit
     datasets/pyhealth.datasets.utils
+    datasets/pyhealth.datasets.TCGARNASeqDataset
