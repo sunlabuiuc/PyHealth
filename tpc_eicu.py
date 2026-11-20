@@ -1,4 +1,3 @@
-
 import hashlib
 from typing import Any, ClassVar
 
@@ -74,14 +73,10 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
             return values
 
         key = f"{self.seed}:{stay_id}".encode("utf-8")
-        stay_seed = int.from_bytes(
-            hashlib.sha256(key).digest()[:8], "little"
-        )
+        stay_seed = int.from_bytes(hashlib.sha256(key).digest()[:8], "little")
         rng = np.random.default_rng(stay_seed)
 
-        selected = rng.choice(
-            len(observed), size=n_hide, replace=False
-        )
+        selected = rng.choice(len(observed), size=n_hide, replace=False)
 
         rows, cols = observed[selected].T
         values[rows, cols] = np.nan
@@ -134,19 +129,13 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
             dynamic = self._dynamic(hourly, stay_id, last_hour)
 
             # Keep all observations from hour 0 onward.
-            dynamic["values"] = self._apply_missingness(
-                dynamic["values"], stay_id
-            )
+            dynamic["values"] = self._apply_missingness(dynamic["values"], stay_id)
 
             prediction_hours = [
-                float(hour)
-                for hour in range(self.START_HOUR, last_hour + 1)
+                float(hour) for hour in range(self.START_HOUR, last_hour + 1)
             ]
 
-            remaining = [
-                max(0.0, float(los_hours) - hour)
-                for hour in prediction_hours
-            ]
+            remaining = [max(0.0, float(los_hours) - hour) for hour in prediction_hours]
 
             samples.append(
                 {
