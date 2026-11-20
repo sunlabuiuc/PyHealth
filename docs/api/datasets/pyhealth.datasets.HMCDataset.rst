@@ -13,7 +13,9 @@ data are open under the CC BY 4.0 license.
 
 Point ``root`` at the downloaded ``recordings`` folder or its parent. The
 dataset writes one metadata row per recording that has a
-``_sleepscoring.txt`` file. The default task, ``SleepStagingHMC``, cuts each
+``_sleepscoring.txt`` file, in ``hmc-pyhealth.csv``. This file is written
+once: after completing a partial download, delete it so the new recordings
+are included. The default task, ``SleepStagingHMC``, cuts each
 recording into 30 second epochs on the four EEG derivations, between the
 lights off and lights on markers.
 

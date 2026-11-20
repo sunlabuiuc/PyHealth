@@ -75,7 +75,9 @@ class HMCDataset(BaseDataset):
     ``prepare_metadata`` writes ``hmc-pyhealth.csv`` (one row per recording
     that has both a signal file and a ``_sleepscoring.txt`` file) in
     ``root``, or under ``~/.cache/pyhealth/hmc/<hash of root>`` when
-    ``root`` is not writable. The default task is
+    ``root`` is not writable. The CSV is written once: recordings added
+    after it, for example when a partial download is completed, are not
+    picked up until it is deleted. The default task is
     :class:`~pyhealth.tasks.SleepStagingHMC`.
 
     Getting the data:
@@ -85,10 +87,8 @@ class HMCDataset(BaseDataset):
           https://physionet.org/files/hmc-sleep-staging/1.1/`` (15.7 GB),
           or the 12.9 GB zip file from the same page.
         - ``root``: the downloaded ``recordings`` folder, or its parent.
-        - Disk for the task cache: on SN001 to SN004, ``set_task`` with
-          the default :class:`~pyhealth.tasks.SleepStagingHMC` writes about
-          246 kB per epoch, half of it the processed samples. At that rate
-          the 136,776 epochs of the 151 recordings take about 34 GB.
+        - Disk: the default task cache takes about 34 GB for the 151
+          recordings (extrapolated from SN001 to SN004).
 
     Args:
         root: Folder holding the ``SNxxx.edf`` and
@@ -136,7 +136,8 @@ class HMCDataset(BaseDataset):
         ``signal_file`` and ``label_file`` (the ``_sleepscoring.txt``
         file). Recordings without that file, for example after a partial
         download, are left out with a warning. An existing CSV, in ``root``
-        or in the cache, is left untouched.
+        or in the cache, is left untouched, so delete it to include
+        recordings downloaded after it was written.
 
         Returns:
             None. The CSV path is either ``<root>/hmc-pyhealth.csv`` or
