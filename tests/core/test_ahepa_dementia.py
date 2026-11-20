@@ -1,6 +1,10 @@
 """AHEPADementiaDataset and DementiaClassificationAHEPA, on small .set files."""
 
+import contextlib
+import importlib.util
+import io
 import math
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -495,6 +499,58 @@ class TestAHEPAEndToEnd(_TempDir):
         # no sample has the control label 0.
         by_group = {s["group"]: int(s["label"]) for s in samples}
         self.assertEqual(by_group, {"A": 1, "F": 2})
+
+
+def _load_example():
+    """Load the example script as a module, without running ``main``."""
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "examples"
+        / "eeg"
+        / "ahepa_dementia"
+        / "ahepa_dementia_classification.py"
+    )
+    spec = importlib.util.spec_from_file_location("ahepa_example", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class TestAHEPAExample(_TempDir):
+    """Smoke test of the example script on the synthetic recordings."""
+
+    def test_relative_band_powers_sum_to_one(self):
+        example = _load_example()
+        rate = example.RESAMPLE_RATE
+        t = np.arange(4 * rate) / rate
+        signal = np.stack([np.sin(2 * np.pi * f * t) for f in (2, 6, 10, 20, 30)])
+        power = example.relative_band_power(signal, rate)
+        self.assertEqual(power.shape, (5, 5))
+        np.testing.assert_allclose(power.sum(axis=1), 1.0, rtol=1e-6)
+        # Each sine falls in its own band.
+        np.testing.assert_array_equal(power.argmax(axis=1), np.arange(5))
+
+    def test_main_runs_on_synthetic_recordings(self):
+        example = _load_example()
+        _write_dataset(self.root)
+        cache_dir = str(self.root.parent / "cache")
+
+        def dataset_with_temp_cache(root):
+            return AHEPADementiaDataset(root=root, cache_dir=cache_dir)
+
+        out = io.StringIO()
+        argv = ["ahepa_dementia_classification.py", "--root", str(self.root)]
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(example, "AHEPADementiaDataset", dataset_with_temp_cache),
+            contextlib.redirect_stdout(out),
+        ):
+            example.main()
+
+        printed = out.getvalue()
+        self.assertIn("windows of 4 subjects, 5 features", printed)
+        self.assertIn("kNN (k=3)", printed)
+        self.assertIn("random forest", printed)
 
 
 if __name__ == "__main__":

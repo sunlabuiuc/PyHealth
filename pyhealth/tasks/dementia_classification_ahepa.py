@@ -109,14 +109,9 @@ class DementiaClassificationAHEPA(BaseTask):
     model, so both are parameters.
 
     Reference: ``reference="stored"`` (the default) keeps the recordings as
-    distributed, as the data descriptor encourages (section 4). The cleaned
-    recordings are referenced to the mastoids A1-A2 (section 3.2), and in
-    version 1.0.9 the mean over channels carries a median of 94% of their
-    variance, mostly below 4 Hz: a signal common to all channels, as
-    Bigdely-Shamlo et al. (2015) describe for mastoid references.
-    ``reference="average"`` subtracts the mean over the 19 channels at each
-    time. The API page of this task gives the measurements and the limits of
-    either choice.
+    distributed, referenced to the mastoids A1-A2; ``reference="average"``
+    subtracts the mean over the 19 channels at each time. The API page of
+    this task gives the measurements and the limits of either choice.
 
     Split by patient: every window of a subject carries the same label, and
     the review asks for complete subject-level independence between
@@ -133,6 +128,7 @@ class DementiaClassificationAHEPA(BaseTask):
 
     Each sample contains:
 
+    - ``patient_id``: participant id, for example ``"sub-001"``
     - ``signal``: float32 array, shape ``(19, window_seconds * rate)``,
       ``(19, 2000)`` by default (the recordings are 500 Hz)
     - ``label``: integer class index of ``problem``
