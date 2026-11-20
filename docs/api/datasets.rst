@@ -638,6 +638,7 @@ Available Datasets
     datasets/pyhealth.datasets.DREAMTDataset
     datasets/pyhealth.datasets.SHHSDataset
     datasets/pyhealth.datasets.SleepEDFDataset
+    datasets/pyhealth.datasets.DSADataset
     datasets/pyhealth.datasets.EHRShotDataset
     datasets/pyhealth.datasets.Support2Dataset
     datasets/pyhealth.datasets.MetabricDataset

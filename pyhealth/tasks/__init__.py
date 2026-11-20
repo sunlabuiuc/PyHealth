@@ -17,6 +17,7 @@ from .cardiology_detect import (
     cardiology_isCD_fn,
     cardiology_isWA_fn,
 )
+from .dsa_activity_classification import DSAActivityClassification   # noqa: F401
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .isic2019_classification import (
     ISIC2019Classification as ISIC2019Classification,
