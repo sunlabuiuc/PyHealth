@@ -28,6 +28,27 @@ To use an OpenRouter model in the example, set `OPENROUTER_API_KEY` in your envi
 
 The input budget preserves the current visit and every candidate code and score. If necessary, it assigns fixed shares of remaining space to candidate names, interaction pairs, similar visits and medication history. Unused shares are not redistributed. Interaction pairs are ordered by candidate scores. Candidates are numbered rows of code, score and name; interactions use those row numbers in an adjacency list. Overlapping diagnoses and procedures use the codes already described in the current-visit section. Counts of retained and total names, history visits, similar visits and interaction pairs are printed for every visit. This ordering is a practical approximation and is not an interaction severity ranking; missing names or DDI pairs can materially change the model’s decisions. If the current visit and candidate scores alone exceed the budget, prompt construction fails rather than silently truncating them. The example reports a refinement error, retains the backbone scores for that visit and continues. Supply `--prompt-tokenizer` for an OpenRouter model other than Qwen3-14B. Provider chat formatting can differ from the local tokenizer; verify reported usage.
 
+### Using PyHealth LLM backends
+
+GiantMed takes a `generate(prompt) -> str` callable; it does not require a particular provider. `HuggingFaceGiantMedGenerator` adapts a loaded causal model and tokenizer. The example's `OpenRouterGenerator` is a separate HTTP adapter used by `--openrouter-model`, not a shared PyHealth backend.
+
+PyHealth's `autoimprove` backends, including `OpenAILLM`, `ClaudeLLM` and `GeminiLLM`, instead accept `llm(system, prompt) -> str`. A wrapper can adapt one to GiantMed. For example, with an OpenAI-compatible server already running locally and the optional `openai>=1.45` package installed:
+
+```python
+from pyhealth.autoimprove import OpenAILLM
+
+backend = OpenAILLM(model="your-model", base_url="http://localhost:8000/v1")
+
+def generate(prompt):
+    return backend("Return the requested JSON response.", prompt)
+
+# Pass generate=generate when constructing GiantMed.
+```
+
+The wrapper sends a system message in addition to GiantMed's rendered prompt. It is not equivalent to the example's OpenRouter adapter, which sends a user message and configures temperature, top-p and reasoning settings. `OpenAILLM` returns text only; it does not expose the provider usage or enforce the example's provider-reported input-token limit. Configure an appropriate prompt token counter and budget on GiantMed separately, and assess provider-specific generation behavior before comparing results. Custom backends may raise errors; the example scripts catch per-visit refinement errors and retain the backbone scores, while other callers should define their own error handling.
+
+The AutoImprove proposer normally sends experiment metadata and aggregate results, whereas a GiantMed prompt may contain patient and retrieved-visit information. A backend does not change the sensitivity of its input: use remote services only when the data terms and provider's handling permit it. `LLMEHREncoder` produces embeddings, and DearLLM's example scores conditional perplexities; their model interfaces serve different purposes from GiantMed's text-generation callable.
+
 ### Candidate batching
 
 With a tokenizer and input budget, pass `--candidate-batch-size 32` to refine at most 32 target drugs per request. Each request includes the current visit, every target's code, score and available name, plus the code, score and available name of each boundary drug that interacts with a target. Its indexed interaction list includes **all** boundary interaction pairs involving those targets, including cross-batch pairs. Context drugs are not updated by that request; each drug is updated only in its own target batch. Planning fails before generation if even one target and its complete interaction context cannot fit. The returned `prompt_budget` reports unique DDI coverage, cross-batch pairs, name resolution, per-request token counts and retained history and retrieved visits. `prompts` and `responses` contain all batch calls; the legacy `prompt` and `response` fields contain the first call. Batched responses use zero-based target row numbers as string keys; target ATC codes are also accepted, while out-of-batch and ambiguous duplicate updates are rejected. Indexed responses must contain the complete canonical set of target indices, with no extra numeric keys. Otherwise indexed scores fall back to the backbone because partial or one-based indices cannot be mapped reliably; unambiguous code-keyed scores can still be accepted.
