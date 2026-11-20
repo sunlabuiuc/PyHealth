@@ -131,7 +131,12 @@ class CardiologyDataset(BaseDataset):
     ``prepare_metadata`` writes ``cardiology-<table>-pyhealth.csv`` (one row
     per recording) next to the raw files, or under
     ``~/.cache/pyhealth/cardiology/<hash of root>`` when the dataset directory
-    is not writable. Only the headers are read, so this is fast.
+    is not writable. Only the headers are read, so this is fast. An existing
+    CSV is reused as it is, so recordings added later are not indexed. To
+    re-index, delete the CSV (in ``root`` or in the cache directory) and
+    construct the dataset again. The CSV location is decided by the first
+    selected source's table, and every selected table is read from that
+    same directory.
 
     Changes from the PyHealth 1.x ``CardiologyDataset``: every recording is
     one patient (1.x grouped each folder of up to 1,000 recordings into one
@@ -157,7 +162,7 @@ class CardiologyDataset(BaseDataset):
         dataset_name: Name stored on the dataset. Defaults to ``"cardiology"``.
         config_path: YAML config. Defaults to ``configs/cardiology.yaml``.
         **kwargs: Forwarded to :class:`~pyhealth.datasets.BaseDataset`
-            (``dev``, ``refresh_cache``, ``num_workers``, ``cache_dir``).
+            (``dev``, ``num_workers`` and ``cache_dir``).
 
     Raises:
         ValueError: If both ``sources`` and ``chosen_dataset`` are given, a
@@ -239,7 +244,7 @@ class CardiologyDataset(BaseDataset):
         name), ``record_id``, ``source``, ``signal_file`` (the ``.mat``
         file), ``fs``, ``n_samples``, ``n_leads``, ``age``, ``sex`` and
         ``dx``. An existing CSV, in ``root`` or in the cache, is left
-        untouched.
+        untouched; delete it to re-index.
         """
         root = Path(self.root)
         for source in self.sources:
@@ -263,6 +268,10 @@ class CardiologyDataset(BaseDataset):
     @property
     def default_task(self) -> CardiologyDetection:
         """Returns arrhythmia detection, the task of the 1.x example.
+
+        This lets ``dataset.set_task()`` run with no argument, as
+        :class:`~pyhealth.datasets.CHBMITDataset` does. Pass
+        ``CardiologyDetection(category)`` to detect another category.
 
         Returns:
             :class:`~pyhealth.tasks.CardiologyDetection` for category ``"AR"``.

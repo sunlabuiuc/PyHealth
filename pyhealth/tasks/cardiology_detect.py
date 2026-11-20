@@ -4,6 +4,7 @@ from fractions import Fraction
 from typing import Any, ClassVar
 
 import numpy as np
+import pandas as pd
 import torch
 from scipy.io import loadmat
 from scipy.signal import resample_poly
@@ -550,6 +551,15 @@ CARDIOLOGY_CATEGORIES: dict[str, tuple[str, ...]] = {
 }
 
 
+def _text(value: Any) -> str:
+    """Returns ``value`` as text, with missing values (None, NaN) as ``""``.
+
+    pandas reads the empty ``age`` and ``sex`` cells of the metadata CSV back
+    as NaN, which would otherwise become the string ``"nan"``.
+    """
+    return "" if pd.isna(value) else str(value)
+
+
 class CardiologyDetection(BaseTask):
     """Binary detection of one diagnosis category in 12-lead ECG windows.
 
@@ -589,7 +599,8 @@ class CardiologyDetection(BaseTask):
         target_fs: Sampling rate after resampling. Default is 500.
 
     Raises:
-        ValueError: If ``category`` is unknown or a length is not positive.
+        ValueError: If ``category`` is unknown, a length is not positive, or
+            ``epoch_sec`` or ``shift`` rounds to zero samples at ``target_fs``.
 
     Examples:
         >>> from pyhealth.tasks import CardiologyDetection
@@ -617,6 +628,14 @@ class CardiologyDetection(BaseTask):
             )
         if min(epoch_sec, shift, target_fs) <= 0:
             raise ValueError("epoch_sec, shift and target_fs must be positive.")
+        # Lengths are rounded to whole samples; a window or step that rounds
+        # to zero would divide by zero in ``__call__``.
+        if round(epoch_sec * target_fs) < 1 or round(shift * target_fs) < 1:
+            raise ValueError(
+                "epoch_sec and shift must each span at least one sample at "
+                f"target_fs (got epoch_sec={epoch_sec}, shift={shift}, "
+                f"target_fs={target_fs})."
+            )
         self.category = category
         self.epoch_sec = float(epoch_sec)
         self.shift = float(shift)
@@ -663,8 +682,8 @@ class CardiologyDetection(BaseTask):
                             np.ascontiguousarray(signal[:, start : start + width])
                         ),
                         "label": label,
-                        "age": str(event.age or ""),
-                        "sex": str(event.sex or ""),
+                        "age": _text(event.age),
+                        "sex": _text(event.sex),
                     }
                 )
         return samples

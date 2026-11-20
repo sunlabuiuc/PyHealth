@@ -140,6 +140,31 @@ class TestCardiologyDetection(unittest.TestCase):
             CardiologyDetection("XX")
         with self.assertRaises(ValueError):
             CardiologyDetection("AR", shift=0)
+        # Positive, but rounds to zero samples at target_fs.
+        with self.assertRaises(ValueError):
+            CardiologyDetection("AR", shift=0.001, target_fs=100)
+        with self.assertRaises(ValueError):
+            CardiologyDetection("AR", epoch_sec=0.001, target_fs=100)
+
+    def test_missing_age_and_sex_are_empty_strings(self):
+        # pandas hands the empty age/sex cells of the metadata CSV to the
+        # task as NaN, which must not become the string "nan".
+        header = next((self.root / "georgia").glob("*/E00001.hea"))
+        patient = Patient(self.root, "georgia", header)
+        patient._event.age = float("nan")
+        patient._event.sex = float("nan")
+        samples = CardiologyDetection("WA")(patient)
+        self.assertEqual((samples[0]["age"], samples[0]["sex"]), ("", ""))
+
+    def test_resampling_preserves_signal_values(self):
+        task = CardiologyDetection("AR")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / "const.mat")
+            savemat(path, {"val": np.full((12, 1000), 7, dtype=np.int16)})
+            out = task._load(path, 1000.0)  # 1000 Hz -> 500 Hz
+        self.assertEqual(out.shape, (12, 500))
+        # Ignore filter edge effects at both ends.
+        np.testing.assert_allclose(out[:, 50:-50], 7.0, atol=1e-3)
 
 
 class TestCardiologyDataset(unittest.TestCase):

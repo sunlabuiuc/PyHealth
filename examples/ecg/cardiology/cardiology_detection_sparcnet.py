@@ -98,7 +98,14 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--dev", action="store_true", help="small subset of patients")
-    parser.add_argument("--cache-dir", help="processed-data cache")
+    parser.add_argument(
+        "--cache-dir",
+        default=os.path.join(
+            os.path.expanduser("~"), ".cache", "pyhealth", "cardiology_example"
+        ),
+        help="processed-data cache, kept between runs "
+        "(ignored with --synthetic; default: %(default)s)",
+    )
     args = parser.parse_args()
     if not args.root and not args.synthetic:
         parser.error(
@@ -114,7 +121,9 @@ def main() -> None:
             root=args.root,
             sources=args.sources,
             dev=args.dev,
-            cache_dir=args.cache_dir or os.path.join(scratch, "cache"),
+            cache_dir=(
+                os.path.join(scratch, "cache") if args.synthetic else args.cache_dir
+            ),
         )
         dataset.stats()
         samples = dataset.set_task(CardiologyDetection(args.category))
