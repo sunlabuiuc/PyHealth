@@ -97,6 +97,14 @@ class TestEEGNet(unittest.TestCase):
         self.assertEqual(tuple(out["y_prob"].shape), (4, 3))
         torch.testing.assert_close(out["y_prob"].sum(dim=1), torch.ones(4))
 
+    def test_forward_without_label_skips_loss(self):
+        batch = _batch(self.dataset)
+        del batch["label"]
+        self.model.eval()
+        out = self.model(**batch)
+        self.assertEqual(set(out), {"y_prob", "logit"})
+        self.assertEqual(tuple(out["y_prob"].shape), (4, 3))
+
     def test_forward_binary_outputs(self):
         dataset = _dataset(4, 128, mode="binary")
         out = EEGNet(dataset=dataset)(**_batch(dataset))

@@ -159,8 +159,8 @@ class EEGNet(BaseModel):
     :class:`~pyhealth.tasks.SeizureDetectionCHBMIT`. The network has two
     blocks:
 
-    1. a temporal convolution (``F1`` filters, ``kernel_length`` samples),
-       then a depthwise spatial convolution over all channels (``D`` filters
+    1. a temporal convolution (``F1`` filters, ``kernel_length`` samples)
+       and batch norm, then a depthwise spatial convolution over all channels (``D`` filters
        per temporal filter, max-norm 1), batch norm, ELU, average pooling
        by 4 and dropout;
     2. a separable convolution (depthwise ``separable_kernel_length`` then
@@ -183,6 +183,12 @@ class EEGNet(BaseModel):
     kernel is its own choice: the reference code fixes that kernel at 16
     samples. Resampling the data to 128 Hz reproduces the published
     configuration exactly.
+
+    The default ``sampling_rate`` is the paper's 128 Hz, not the rate of the
+    data. PyHealth EEG tasks resample to 200 Hz by default
+    (:class:`~pyhealth.tasks.EEGMotorImageryEEGBCI`,
+    :class:`~pyhealth.tasks.SeizureDetectionCHBMIT`, the TUH tasks), so with
+    their defaults pass ``sampling_rate=200``, or resample the task to 128 Hz.
 
     Dropout: the paper uses 0.5 for within-subject and 0.25 for cross-subject
     classification. The default, 0.25, matches subject-wise splits.
@@ -366,12 +372,14 @@ class EEGNet(BaseModel):
         Args:
             **kwargs: A batch from :func:`~pyhealth.datasets.get_dataloader`:
                 the signal feature of shape ``(batch, channels, time)`` (or
-                ``(batch, time)`` for one channel) and the label. Pass
-                ``embed=True`` to also return the flattened features.
+                ``(batch, time)`` for one channel) and, optionally, the
+                label. Pass ``embed=True`` to also return the flattened
+                features.
 
         Returns:
-            A dict with ``loss`` (scalar), ``y_prob`` and ``logit`` of shape
-            ``(batch, output_size)``, ``y_true``, and ``embed`` of shape
+            A dict with ``y_prob`` and ``logit`` of shape
+            ``(batch, output_size)``, ``loss`` (scalar) and ``y_true`` when
+            the batch has the label, and ``embed`` of shape
             ``(batch, embedding_dim)`` when requested.
         """
         x = kwargs[self.feature_keys[0]].to(self.device).float()
@@ -382,13 +390,15 @@ class EEGNet(BaseModel):
         emb = self.block2(self.block1(x)).flatten(start_dim=1)
         logits = self.fc(emb)
 
-        y_true = kwargs[self.label_keys[0]].to(self.device)
         results = {
-            "loss": self.label_processor.loss(logits, y_true),
             "y_prob": self.label_processor.activation(logits),
-            "y_true": y_true,
             "logit": logits,
         }
+        # Inference batches may come without labels; loss needs them.
+        if self.label_keys[0] in kwargs:
+            y_true = kwargs[self.label_keys[0]].to(self.device)
+            results["loss"] = self.label_processor.loss(logits, y_true)
+            results["y_true"] = y_true
         if kwargs.get("embed", False):
             results["embed"] = emb
         return results
