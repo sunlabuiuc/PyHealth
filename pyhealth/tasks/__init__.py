@@ -232,6 +232,8 @@ from .yaib_eicu import (
     YAIBSepsisEICU as YAIBSepsisEICU,
 )
 
+from .decompensation_mimic3 import DecompensationMIMIC3 as DecompensationMIMIC3
+
 
 def __getattr__(name: str):
     if name == "MPFClinicalPredictionTask":

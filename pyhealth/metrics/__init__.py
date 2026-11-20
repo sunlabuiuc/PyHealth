@@ -14,6 +14,18 @@ from .competing_risks import (
     competing_risk_concordance,
 )
 from .drug_recommendation import ddi_rate_score
+from .event_alarm import (
+    alarm_curve as alarm_curve,
+)
+from .event_alarm import (
+    alarm_event_auprc as alarm_event_auprc,
+)
+from .event_alarm import (
+    alarm_policy as alarm_policy,
+)
+from .event_alarm import (
+    event_alarm_metrics as event_alarm_metrics,
+)
 from .fairness import fairness_metrics_fn
 from .generative import (
     calc_membership_inference,
@@ -66,6 +78,9 @@ __all__ = [
     "Evaluator",
     "RemovalBasedMetric",
     "SufficiencyMetric",
+    "alarm_curve",
+    "alarm_event_auprc",
+    "alarm_policy",
     "alert_rate_metrics",
     "binary_metrics_fn",
     "bootstrap_ci",
@@ -85,6 +100,7 @@ __all__ = [
     "dice_score",
     "evaluate_attribution",
     "evaluate_synthetic_ehr",
+    "event_alarm_metrics",
     "fairness_metrics_fn",
     "integrated_binomial_loglik_td",
     "integrated_brier_score_td",

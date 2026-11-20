@@ -294,6 +294,7 @@ API Reference
     models/pyhealth.models.CNN
     models/pyhealth.models.UNet
     models/pyhealth.models.RNN
+    models/pyhealth.models.DynamicSurvivalRNN
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
     models/pyhealth.models.BEHRT
