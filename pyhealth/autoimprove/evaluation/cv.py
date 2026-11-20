@@ -11,6 +11,7 @@ import numpy as np
 
 from pyhealth.datasets import SampleDataset
 
+from ..search.features import EngineeredDataset
 from ..search.space import PipelineConfig, SearchSpace
 from ..utils import data
 from .scoring import out_of_fold, score_predictions
@@ -232,8 +233,6 @@ def fold_parts(
     Examples:
         >>> fit, held, val = fold_parts(train_ds, val_ds, [0, 1, 2], [3])  # doctest: +SKIP
     """
-    from ..search.features import EngineeredDataset
-
     if isinstance(train_dataset, EngineeredDataset):
         stats = train_dataset.fit_stats(fit_idx)
         train_dataset = train_dataset.with_stats(stats)

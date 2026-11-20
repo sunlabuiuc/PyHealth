@@ -17,6 +17,7 @@ from pyhealth.tasks.task_card import TaskCard
 
 from .evaluation import confirm, explain, guardrails, holdout, report
 from .evaluation.cv import patient_folds, run_config, run_config_cv
+from .evaluation.guardrails import admissible_filter
 from .evaluation.records import ImproveResult, Trial, _parent_of
 from .evaluation.scoring import greater_is_better
 from .evaluation.selection import _better, _rule_text, select_simplest, select_trial
@@ -566,8 +567,6 @@ class AutoImprover:
         return None if base is None else base.trial_id
 
     def _guardrail_fails(self):
-        from .evaluation.guardrails import admissible_filter
-
         if not any(e["status"] == "active" for e in self.evaluations):
             return lambda trial: []
         return admissible_filter(self.evaluations, self._baseline_id(),

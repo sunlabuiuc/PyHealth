@@ -25,46 +25,8 @@ def evaluate_on_test(
 ) -> dict[str, Any]:
     """Retrains the selected and the baseline configs and scores them on test.
 
-    Run this once, after the search. For binary labels the result holds
-    patient-level bootstrap intervals (``bootstrap_ci``) and a paired
-    bootstrap interval for selected minus baseline
-    (``paired_bootstrap_diff``). Other label types get the metric's value
-    on test. When a simpler model was selected over the highest-scoring
-    candidate, that candidate is scored too, so the price of the simpler
-    model is measured on test as well. With a ``run_dir`` the result is
-    saved to ``test.json``; it holds aggregate scores only.
-
-    For binary labels each config also gets its clinical performance
-    (:func:`~pyhealth.metrics.clinical_summary`): calibration, what
-    flagging the top 5, 10 and 20% of risk would catch, net benefit, and
-    results within each subgroup. Counts below 11 patients are
-    suppressed.
-
-    Args:
-        test_dataset: The held-out test samples, never seen by the search.
-        n_boot: Bootstrap resamples (of patients) for the intervals.
-        return_predictions: Also return the test predictions, e.g. to
-            compute other metrics without training again. They are not
-            written to ``test.json``.
-        subgroups: Attribute name to one label per test sample, in the
-            dataset's order, e.g. ``{"sex": [...], "age band": [...]}``.
-
-    Returns:
-        ``{"best": {...}, "baseline": {...}, "difference": {...}}``, with
-        ``best`` the selected config; ``baseline`` and ``difference`` are
-        present when a baseline was given and not selected (``difference``
-        only for binary labels), and ``top`` and ``top_minus_best`` when
-        the highest-scoring candidate differs. With ``return_predictions``,
-        ``"predictions"`` holds ``y_true``, ``patient_ids`` and each
-        config's ``y_prob`` under its name.
-
-    Review gate: engineered features with an open flag (no clinical
-    rationale, an effect opposite to the expected direction, or a
-    suspicious score) are held back until :meth:`approve`; the selection
-    is then also scored without them (``without_flagged``).
-
-    Examples:
-        >>> improver.evaluate_on_test(test_ds)  # doctest: +SKIP
+    Backs :meth:`~pyhealth.autoimprove.AutoImprover.evaluate_on_test`; see there.
+    ``imp`` is the improver.
     """
     result = imp.result()
     if result.best is None:

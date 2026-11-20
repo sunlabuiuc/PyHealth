@@ -35,6 +35,7 @@ from typing import Any
 
 import numpy as np
 
+from ..search.analysis import sample_columns
 from ..utils.sandbox import ContractError, SandboxError, check_or_raise, run_sandboxed
 from .records import Trial
 
@@ -422,8 +423,6 @@ def evaluation_inputs(imp, spec, trials: Sequence[Trial]):
 
 def score_with_evaluations(imp, trial: Trial) -> None:
     """Scores a new trial with every adopted or report-only evaluation."""
-    from .guardrails import run_evaluations
-
     kept = [e for e in imp.evaluations if e["status"] in ("active", "report_only")]
     oof = imp.oof_predictions(trial.trial_id)
     if not kept or oof is None or oof["split"] != "train":
@@ -480,9 +479,6 @@ def load_evaluations(imp) -> None:
 
 def test_guardrails(imp, test_dataset, y_true, probs) -> dict[str, Any]:
     """Each active guardrail's value on test, for every config scored there."""
-    from ..search.analysis import sample_columns
-    from .guardrails import run_evaluations
-
     active = [e for e in imp.evaluations if e["status"] == "active"]
     if not active:
         return {}

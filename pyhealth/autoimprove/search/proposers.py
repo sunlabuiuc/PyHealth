@@ -7,7 +7,9 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import Any
 
+from ..evaluation.guardrails import EvaluationSpec
 from ..utils.llm import LLM
+from .analysis import AnalysisSpec
 from .context import ProposalContext
 from .prompts import (
     ANALYSIS_SYSTEM_PROMPT,
@@ -256,15 +258,11 @@ class LLMProposer(Proposer):
         return self._code_reply(CODE_SYSTEM_PROMPT, build_code_prompt(context), build)
 
     def propose_evaluation(self, context: ProposalContext) -> Any:
-        from ..evaluation.guardrails import EvaluationSpec
-
         return self._code_reply(EVALUATION_SYSTEM_PROMPT,
                                 build_evaluation_prompt(context),
                                 lambda code, meta: EvaluationSpec.from_dict(meta, code))
 
     def propose_analysis(self, context: ProposalContext) -> Any:
-        from .analysis import AnalysisSpec
-
         return self._code_reply(ANALYSIS_SYSTEM_PROMPT, build_analysis_prompt(context),
                                 lambda code, meta: AnalysisSpec.from_dict(meta, code))
 

@@ -7,6 +7,9 @@ import re
 from collections.abc import Sequence
 from typing import Any
 
+from ..evaluation.guardrails import EVALUATION_CONTRACT
+from .analysis import ANALYSIS_CONTRACT
+from .codegen import CODE_CONTRACT, TEMPLATE
 from .context import ProposalContext
 
 
@@ -283,8 +286,6 @@ def build_code_prompt(context: ProposalContext) -> str:
         >>> "build_and_train" in build_code_prompt(context)
         True
     """
-    from .codegen import CODE_CONTRACT, TEMPLATE
-
     parts = _common_parts(context, "Best attempts so far (configs and code)")
     parts.append(CODE_CONTRACT)
     if context.code_examples:
@@ -312,8 +313,6 @@ def build_evaluation_prompt(context: ProposalContext) -> str:
         >>> "evaluate(y_true, y_prob, info)" in build_evaluation_prompt(context)
         True
     """
-    from ..evaluation.guardrails import EVALUATION_CONTRACT
-
     parts = _common_parts(context, "Best attempts so far")
     parts.append(EVALUATION_CONTRACT)
     if context.metrics_menu:
@@ -337,8 +336,6 @@ def build_analysis_prompt(context: ProposalContext) -> str:
         >>> "analyze(data, out)" in build_analysis_prompt(context)
         True
     """
-    from .analysis import ANALYSIS_CONTRACT
-
     parts = _common_parts(context, "Best attempts so far")
     parts.append(ANALYSIS_CONTRACT)
     parts.append("Columns in data: " + (", ".join(context.columns) or "(none)"))

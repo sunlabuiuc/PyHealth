@@ -28,7 +28,9 @@ from typing import Any
 import numpy as np
 
 from ..search.codegen import ENTRY
+from ..utils.data import _label_mode, _probe_indices, _quiet_trainer
 from ..utils.sandbox import ContractError, run_sandboxed
+from .training import predict
 
 
 def fit_predict_code(
@@ -70,10 +72,6 @@ def run_code_trial(
     import torch
 
     from pyhealth.models import BaseModel
-
-    from ..utils.data import _quiet_trainer
-    from .training import predict
-    from ..utils.data import _label_mode
 
     seed = int(payload["seed"])
     random.seed(seed)
@@ -118,8 +116,6 @@ def check_model(model: Any, dataset: Any, mode: str, n: int = 32) -> None:
     import torch
 
     from pyhealth.datasets import get_dataloader
-
-    from ..utils.data import _probe_indices
 
     probe = dataset.subset(_probe_indices(dataset, n))
     batch = next(iter(get_dataloader(probe, len(probe))))

@@ -18,10 +18,13 @@ import numpy as np
 from sklearn.metrics import roc_auc_score
 
 from ..evaluation import guardrails
+from ..evaluation.guardrails import decide, metrics_menu, run_evaluations
 from ..evaluation.records import Trial
 from ..evaluation.selection import _one_se_sets, paired_gain
 from ..utils.errors import describe_error
 from ..utils.sandbox import SandboxError
+from .analysis import format_results, run_analysis_job
+from .codegen import task_context
 from .context import ProposalContext
 from .features import FeatureSpec
 from .proposers import ProposerExhausted
@@ -183,8 +186,6 @@ def judge(imp, trial: Trial, base: Trial, new: Sequence[FeatureSpec]) -> None:
 
 def evaluation_turn(imp, cycle: int, agent: str) -> None:
     """One evaluation proposal: check it, score every trial, adopt or not."""
-    from ..evaluation.guardrails import decide, run_evaluations
-
     feedback = ""
     for _ in range(2):  # one retry when the proposal is invalid
         context = build_context(imp, agent, "explore", feedback, kind="evaluation")
@@ -243,8 +244,6 @@ def evaluation_turn(imp, cycle: int, agent: str) -> None:
 
 def analysis_turn(imp, cycle: int, agent: str) -> None:
     """One analysis: run it on the training split, keep its findings."""
-    from .analysis import format_results, run_analysis_job
-
     feedback = ""
     for _ in range(2):  # one retry when the proposal is invalid or fails
         context = build_context(imp, agent, "explore", feedback, kind="analysis")
@@ -326,9 +325,6 @@ def build_context(imp, agent, strategy, feedback, kind="model") -> ProposalConte
 
 def generated_context(imp, kind: str, done: Sequence[Trial]) -> dict[str, Any]:
     """Context only code, evaluation and analysis prompts need."""
-    from .codegen import task_context
-    from ..evaluation.guardrails import metrics_menu
-
     if imp._task_source is None:
         imp._task_source = task_context(imp.task, imp.train_dataset)
     out: dict[str, Any] = {"task_source": imp._task_source,

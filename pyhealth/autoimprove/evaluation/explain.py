@@ -413,23 +413,8 @@ def _check(expected: str | None, learned: str) -> str:
 def attribute(imp, trial_id: int | None = None) -> dict[str, Any]:
     """Measures what each changed setting of a trial contributes.
 
-    Each setting that differs between the trial (by default the
-    selected one) and its reference is reverted, one at a time, and the
-    reverted config is scored on the same folds. A setting's
-    contribution is the trial's score minus the reverted config's, with
-    its paired standard error. The reference is the baseline when the
-    trial uses the baseline's model, and otherwise the default settings
-    of the trial's own model (arguments of different models cannot be
-    compared). With a ``run_dir`` the result is saved to
-    ``attribution.json``.
-
-    Returns:
-        ``{"trial_id", "reference", "rows": [{"setting", "from", "to",
-        "contribution", "se", "folds_better", "score_without"}], ...}``.
-
-    Examples:
-        >>> improver.attribute()  # doctest: +SKIP
-        {'trial_id': 17, 'reference': 'the starting pipeline (#0)', 'rows': [...]}
+    Backs :meth:`~pyhealth.autoimprove.AutoImprover.attribute`; see there.
+    ``imp`` is the improver.
     """
     result = imp.result()
     target = result.best if trial_id is None else imp.trials[trial_id]
@@ -502,29 +487,9 @@ def explain_selection(
 ) -> dict[str, Any]:
     """Explains how the selected model decides, in clinical terms.
 
-    The selected config is trained on the training split and its
-    predictions on training samples are attributed to the inputs
-    (:func:`~pyhealth.autoimprove.evaluation.explain.attributions`: exact TreeSHAP
-    for trees, integrated gradients for torch models). The summary
-    (:func:`~pyhealth.autoimprove.evaluation.explain.summarize`) gives:
-
-    - importance by the task card's clinical factor groups;
-    - the top features, each with its meaning and the shape of its
-      effect, in bins of at least 11 patients;
-    - each feature's learned direction, compared with the direction the
-      card expects.
-
-    With ``stability`` and ``cv_folds``, the config is also trained on
-    each fold's training part, to show how many of the top features each
-    fold model shares. With a ``run_dir`` the result is saved to
-    ``explain.json``; it holds aggregates only.
-
-    Examples:
-        >>> improver.explain()["groups"]  # doctest: +SKIP
-        [{'group': 'labs', 'share': 0.52}, {'group': 'vital signs', 'share': 0.31}, ...]
+    Backs :meth:`~pyhealth.autoimprove.AutoImprover.explain`; see there.
+    ``imp`` is the improver.
     """
-    from .explain import attributions, summarize, top_overlap
-
     result = imp.result()
     if result.best is None:
         raise ValueError("no successful trial to explain")

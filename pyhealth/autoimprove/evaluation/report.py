@@ -38,7 +38,14 @@ from ..search.space import (
 )
 from ..utils.store import RunStore
 from . import guardrails
-from .records import Trial
+from .records import Trial, _parent_of
+from .selection import (
+    FOLD_TIE,
+    _one_se_sets,
+    paired_gain,
+    select_simplest,
+    select_trial,
+)
 
 EVIDENCE = {
     "measured": "a score or gain read from the trials",
@@ -182,8 +189,6 @@ def load_run(
     Examples:
         >>> load_run("runs/mortality").save("runs/mortality/report.html")  # doctest: +SKIP
     """
-    from .records import Trial
-
     store = RunStore(run_dir)
 
     def read(name, default=None):
@@ -298,8 +303,6 @@ def build_report(
         >>> build_report([base], metric="pr_auc").sections[0].title
         'Summary'
     """
-    from .selection import FOLD_TIE, _one_se_sets, paired_gain, select_simplest, select_trial
-
     space = space or with_xgboost(SearchSpace())
     if isinstance(card, dict):
         card = TaskCard.from_dict(card)
@@ -632,8 +635,6 @@ def _model_section(ctx, rule, attribution, test) -> Section:
 
 
 def _trace_section(ctx, trials, lessons) -> Section:
-    from .records import _parent_of
-
     metric, space = ctx["metric"], ctx["space"]
     blocks = []
     cycles: dict[int, list] = {}
@@ -1441,21 +1442,9 @@ tr:last-child td {{ border-bottom: 0; }}
 def flags(imp) -> list[dict[str, Any]]:
     """Items a clinician should decide on before the model is used.
 
-    Raised from the task card and the latest :meth:`explain` and
-    :meth:`evaluate_on_test` results (kept in memory, or read from
-    ``run_dir`` when resuming a saved run): a missing task card, a top feature with no
-    entry in the card's dictionary, a learned effect opposite to the
-    expected direction, poor calibration, and a large gap between
-    subgroups. Each flag carries the decision recorded with
-    :meth:`approve`, if any.
-
-    Examples:
-        >>> for flag in improver.flags():  # doctest: +SKIP
-        ...     print(flag["id"], flag["detail"])
-        direction:spo2_min learned +, expected -
+    Backs :meth:`~pyhealth.autoimprove.AutoImprover.flags`; see there.
+    ``imp`` is the improver.
     """
-    from .report import flags_for
-
     review = imp.store.read_json("review.json") or {}
     best = imp.result().best
     suspicious = sorted({name for t in imp.trials for name in t.suspicious
@@ -1492,16 +1481,8 @@ def approve(
 ) -> dict[str, Any]:
     """Records a clinician's decision on a flag in ``review.json``.
 
-    Args:
-        flag_id: The ``id`` of a flag from :meth:`flags`.
-        reviewer: Who decided.
-        note: Their reasoning.
-        decision: ``"approved"`` (keep as is) or ``"rejected"`` (change
-            the model or the task before use).
-
-    Examples:
-        >>> improver.approve("direction:spo2_min", "Dr. A",  # doctest: +SKIP
-        ...                  "SpO2 is charted only when low; known artifact")
+    Backs :meth:`~pyhealth.autoimprove.AutoImprover.approve`; see there.
+    ``imp`` is the improver.
     """
     if not imp.run_dir:
         raise ValueError("approve needs a run_dir to record the decision")
@@ -1520,29 +1501,9 @@ def approve(
 def write_report(imp, path: str | None = None):
     """Writes the run's report: HTML, Markdown and JSON.
 
-    The report explains the selected model and how the search got there:
-    the model and its settings in plain words, why it was selected (the
-    selection rule, its rung on the interpretability ladder and the
-    price of choosing it over the highest-scoring candidate), what each
-    changed setting contributed (if :meth:`attribute` was run), the test
-    comparison (if :meth:`evaluate_on_test` was run), and the reasoning
-    trace: every trial with its hypothesis, change, result and verdict.
-    Statements are labelled by their evidence: measured, tested or
-    hypothesis. It holds definitions, configs and aggregate scores only.
-
-    Args:
-        path: Where to write the HTML; ``.md`` and ``.json`` files are
-            written next to it. Defaults to ``report.html`` in
-            ``run_dir``; with neither, nothing is written.
-
-    Returns:
-        The :class:`~pyhealth.autoimprove.evaluation.report.Report`.
-
-    Examples:
-        >>> improver.report("runs/mortality/report.html")  # doctest: +SKIP
+    Backs :meth:`~pyhealth.autoimprove.AutoImprover.report`; see there.
+    ``imp`` is the improver.
     """
-    from .report import build_report
-
     report = build_report(
         imp.trials, metric=imp.metric, maximize=imp.maximize,
         promote_se=imp.promote_se, one_se=imp.one_se, space=imp.space,

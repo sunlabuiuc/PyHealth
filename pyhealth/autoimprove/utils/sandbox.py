@@ -64,6 +64,8 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
+from .errors import describe_error
+
 logger = logging.getLogger(__name__)
 
 ALLOWED_IMPORTS = frozenset({
@@ -320,8 +322,6 @@ def run_sandboxed(
 
 def _child(code, runner, blob, send, log_path, memory_gb, label) -> None:
     """The child process: limits, then the module, then the runner."""
-    from .errors import describe_error
-
     try:
         _limit(log_path, memory_gb)
         payload = pickle.loads(blob)

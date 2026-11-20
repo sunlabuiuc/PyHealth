@@ -27,22 +27,8 @@ def _feature_groups(best: Trial, trials: Sequence[Trial]) -> list[tuple[int, lis
 def confirm(imp) -> dict[str, Any]:
     """Re-scores the leading candidates on new folds and several seeds.
 
-    The baseline (if any), the selection and the top ``confirm_top`` candidates
-    by mean are scored again on folds drawn with a new seed, each
-    averaged over ``confirm_seeds`` training seeds. The selection is then
-    made on these scores, with the stricter bound ``confirm_se``; after
-    :meth:`prune`, the pruned selection is the result.
-    Candidates chosen among many on the same folds are partly lucky (the
-    winner's curse); new folds and seeds remove part of that luck before
-    the one test evaluation. The same training
-    patients are reused, so only the test split is fully independent.
-
-    Returns:
-        ``{"seeds", "fold_seed", "scores": {trial_id: [fold scores]}}``,
-        also saved to ``confirm.json``.
-
-    Examples:
-        >>> improver.confirm()  # doctest: +SKIP
+    Backs :meth:`~pyhealth.autoimprove.AutoImprover.confirm`; see there.
+    ``imp`` is the improver.
     """
     result = imp.result()
     baseline = result.baseline
@@ -92,23 +78,8 @@ def confirm_scores(imp, config, specs) -> list[float]:
 def prune(imp) -> dict[str, Any]:
     """Drops accepted feature groups that the selected model doesn't need.
 
-    On the confirmation folds and seeds, each feature group of the
-    selected trial (the features one trial added together) is removed in
-    turn. Its contribution is the score lost without it, with a paired
-    SE: what the group bought (the ablation). The group whose removal
-    costs least is dropped if that cost is under one SE, and the rest are
-    checked again, until every remaining group pays for itself. A pruned
-    config becomes a new trial and the result: the shortest feature list
-    that keeps the selection's confirmed score within one SE per step.
-
-    Returns:
-        ``{"selected", "ablation": [{"features", "trial_id",
-        "contribution", "se"}], "dropped": [[names]], "final"}``, also
-        saved to ``prune.json``.
-
-    Examples:
-        >>> improver.prune()["dropped"]  # doctest: +SKIP
-        [['exists_90d__med_orders_SABA']]
+    Backs :meth:`~pyhealth.autoimprove.AutoImprover.prune`; see there.
+    ``imp`` is the improver.
     """
     best = imp.result().best
     if best is None or not best.features or best.trial_id not in imp.confirmed:
