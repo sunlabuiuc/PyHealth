@@ -62,9 +62,11 @@ from .cardiology import CardiologyDataset
 from .chaos import CHAOSDataset as CHAOSDataset
 from .chest_imagenome import ChestImaGenomeDataset as ChestImaGenomeDataset
 from .chestxray14 import ChestXray14Dataset
+from .ham10000 import HAM10000Dataset as HAM10000Dataset
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
 from .covid19_cxr import COVID19CXRDataset
+from .isic2019 import ISIC2019Dataset as ISIC2019Dataset
 from .ptbxl import PTBXLDataset as PTBXLDataset
 from .chapman_shaoxing import ChapmanShaoxingDataset as ChapmanShaoxingDataset
 from .physionet2012 import PhysioNet2012Dataset as PhysioNet2012Dataset
@@ -85,14 +87,17 @@ from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
 from .mimic4 import MIMIC4EDDataset as MIMIC4EDDataset
 from .fhir import FHIRDataset, MIMIC4FHIR
+from .lndb import LNDbDataset as LNDbDataset
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
 from .pad_ufes_20 import PADUFES20Dataset as PADUFES20Dataset
 from .physionet_deid import PhysioNetDeIDDataset
+from .jichi import JichiDRDataset as JichiDRDataset
 from .rsna_pneumonia import RSNAPneumoniaDataset as RSNAPneumoniaDataset
 from .cbis_ddsm import CBISDDSMDataset as CBISDDSMDataset
 from .isic2020 import ISIC2020Dataset as ISIC2020Dataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
+from .abide import ABIDEDataset as ABIDEDataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
 from .bmd_hs import BMDHSDataset
@@ -122,6 +127,7 @@ from .gold_test_split import GoldTestSplit as GoldTestSplit
 from .mimic4_imagenome import MIMIC4ImaGenomeDataset as MIMIC4ImaGenomeDataset
 from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
 from .ahepa_dementia import AHEPADementiaDataset as AHEPADementiaDataset
+from .bciiv2a import BCICompetitionIV2aDataset as BCICompetitionIV2aDataset
 from .hup_ieeg import HUPiEEGDataset as HUPiEEGDataset
 from .iiic import IIICDataset as IIICDataset
 from .tuab import TUABDataset
