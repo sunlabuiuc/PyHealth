@@ -1,0 +1,20 @@
+version: "1.0"
+tables:
+  lesions:
+    file_path: "cbis-ddsm-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "record_id"
+      - "image_id"
+      - "image_path"
+      - "series_uid"
+      - "laterality"
+      - "view"
+      - "abnormality_id"
+      - "abnormality_type"
+      - "assessment"
+      - "pathology"
+      - "breast_density"
+      - "subtlety"
+      - "split"

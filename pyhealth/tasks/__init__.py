@@ -10,6 +10,7 @@ from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
 from .cardiology_detect import (
+    CardiologyDetection as CardiologyDetection,
     cardiology_isAD_fn,
     cardiology_isAR_fn,
     cardiology_isBBBFB_fn,
@@ -68,6 +69,10 @@ from .ehr_cxr_mimic4 import (
 )
 from .maestro_mortality_mimic4 import (
     MAESTROMortalityMIMIC4 as MAESTROMortalityMIMIC4,
+)
+from .ehr_foundation_model import (
+    EHRFoundationModelTask as EHRFoundationModelTask,
+    EventSource as EventSource,
 )
 from .ehr_text_serialization import (
     CodeDescriber as CodeDescriber,
@@ -149,9 +154,25 @@ from .generate_ehr import (
     decode_dataset,
     to_evaluation_dataframe,
 )
+from .pad_ufes_20_classification import (
+    PADUFES20Classification as PADUFES20Classification,
+)
 from .patient_linkage import patient_linkage_mimic3_fn
 from .rsna_pneumonia_classification import (
     RSNAPneumoniaClassification as RSNAPneumoniaClassification,
+)
+from .isic2020_melanoma_classification import (
+    ISIC2020MelanomaClassification as ISIC2020MelanomaClassification,
+)
+from .cbis_ddsm_abnormality_classification import (
+    CBISDDSMAbnormalityClassification as CBISDDSMAbnormalityClassification,
+)
+from .cbis_ddsm_classification import (
+    CBISDDSMBIRADSClassification as CBISDDSMBIRADSClassification,
+    CBISDDSMPathologyClassification as CBISDDSMPathologyClassification,
+)
+from .cbis_ddsm_density_classification import (
+    CBISDDSMDensityClassification as CBISDDSMDensityClassification,
 )
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
@@ -228,7 +249,7 @@ from .yaib_eicu import (
     YAIBMortalityEICU as YAIBMortalityEICU,
     YAIBSepsisEICU as YAIBSepsisEICU,
 )
-
+from .tcga_survival_prediction import TCGASurvivalPrediction as TCGASurvivalPrediction
 
 def __getattr__(name: str):
     if name == "MPFClinicalPredictionTask":

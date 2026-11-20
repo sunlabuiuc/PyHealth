@@ -20,8 +20,7 @@ def _removed_1x_class(name: str, replacement: str) -> type:
         cls = type(self).__name__
         if cls != name:
             # An in-tree or user dataset still built on the 1.x base class
-            # (e.g. CardiologyDataset, SHHSDataset,
-            # MIMICExtractDataset). It never worked on 2.x: the stub set no
+            # (e.g. SHHSDataset, MIMICExtractDataset). It never worked on 2.x: the stub set no
             # attributes and provided no set_task.
             raise NotImplementedError(
                 f"{cls} is built on {name}, which was removed in PyHealth "
@@ -89,8 +88,11 @@ from .mimic4 import MIMIC4EDDataset as MIMIC4EDDataset
 from .fhir import FHIRDataset, MIMIC4FHIR
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
+from .pad_ufes_20 import PADUFES20Dataset as PADUFES20Dataset
 from .physionet_deid import PhysioNetDeIDDataset
 from .rsna_pneumonia import RSNAPneumoniaDataset as RSNAPneumoniaDataset
+from .cbis_ddsm import CBISDDSMDataset as CBISDDSMDataset
+from .isic2020 import ISIC2020Dataset as ISIC2020Dataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
@@ -127,6 +129,7 @@ from .tuev import TUEVDataset
 from .chbmit import CHBMITDataset as CHBMITDataset
 from .helsinki_neonatal import HelsinkiNeonatalDataset as HelsinkiNeonatalDataset
 from .eesm23 import EESM23Dataset as EESM23Dataset
+from .tcga_rna_seq import TCGARNASeqDataset as TCGARNASeqDataset
 from .utils import (
     collate_fn_dict,
     collate_fn_dict_with_padding,
