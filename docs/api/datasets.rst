@@ -485,6 +485,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `NIH <https://nihcc.app.box.com/v/ChestXray-NIHCC>`__
      - Yes
      - —
+   * - :doc:`Jichi DR fundus <datasets/pyhealth.datasets.JichiDRDataset>`
+     - Open
+     - `figshare <https://figshare.com/articles/dataset/4879853>`__
+     - No
+     - —
    * - :doc:`Medical Segmentation Decathlon <datasets/pyhealth.datasets.MSDSegmentationDataset>`
      - Open
      - `MSD <http://medicaldecathlon.com/>`__
@@ -561,6 +566,7 @@ Available Datasets
     datasets/pyhealth.datasets.ISIC2020Dataset
     datasets/pyhealth.datasets.CBISDDSMDataset
     datasets/pyhealth.datasets.MIMIC3Dataset
+    datasets/pyhealth.datasets.JichiDRDataset
     datasets/pyhealth.datasets.MIMIC4Dataset
     datasets/pyhealth.datasets.MIMIC4EHRDataset
     datasets/pyhealth.datasets.MIMIC4NoteDataset

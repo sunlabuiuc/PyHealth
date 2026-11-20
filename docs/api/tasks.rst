@@ -280,6 +280,7 @@ Available Tasks
     CBIS-DDSM Abnormality Type Classification <tasks/pyhealth.tasks.CBISDDSMAbnormalityClassification>
     CBIS-DDSM Breast Density Classification <tasks/pyhealth.tasks.CBISDDSMDensityClassification>
     Variant Classification (ClinVar) <tasks/pyhealth.tasks.VariantClassificationClinVar>
+    Jichi Davis DR Grading <tasks/pyhealth.tasks.JichiDavisGrading>
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>
     In-Hospital Survival (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalSurvivalMIMIC4>
