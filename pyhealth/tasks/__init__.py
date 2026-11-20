@@ -232,6 +232,9 @@ from .yaib_eicu import (
     YAIBMortalityEICU as YAIBMortalityEICU,
     YAIBSepsisEICU as YAIBSepsisEICU,
 )
+from .tabular_mortality_prediction_eicu import (
+    TabularMortalityPredictionEICU as TabularMortalityPredictionEICU,
+)
 
 
 def __getattr__(name: str):
