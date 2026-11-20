@@ -1,0 +1,86 @@
+version: "1.0.0"
+tables:
+  cpsc_2018:
+    file_path: "cardiology-cpsc_2018-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "record_id"
+    - "source"
+    - "signal_file"
+    - "fs"
+    - "n_samples"
+    - "n_leads"
+    - "age"
+    - "sex"
+    - "dx"
+  cpsc_2018_extra:
+    file_path: "cardiology-cpsc_2018_extra-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "record_id"
+    - "source"
+    - "signal_file"
+    - "fs"
+    - "n_samples"
+    - "n_leads"
+    - "age"
+    - "sex"
+    - "dx"
+  georgia:
+    file_path: "cardiology-georgia-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "record_id"
+    - "source"
+    - "signal_file"
+    - "fs"
+    - "n_samples"
+    - "n_leads"
+    - "age"
+    - "sex"
+    - "dx"
+  ptb:
+    file_path: "cardiology-ptb-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "record_id"
+    - "source"
+    - "signal_file"
+    - "fs"
+    - "n_samples"
+    - "n_leads"
+    - "age"
+    - "sex"
+    - "dx"
+  ptb_xl:
+    file_path: "cardiology-ptb_xl-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "record_id"
+    - "source"
+    - "signal_file"
+    - "fs"
+    - "n_samples"
+    - "n_leads"
+    - "age"
+    - "sex"
+    - "dx"
+  st_petersburg_incart:
+    file_path: "cardiology-st_petersburg_incart-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "record_id"
+    - "source"
+    - "signal_file"
+    - "fs"
+    - "n_samples"
+    - "n_leads"
+    - "age"
+    - "sex"
+    - "dx"
