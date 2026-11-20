@@ -45,7 +45,9 @@ Getting the data
       unzip -q ISIC_2020_Training_JPEG.zip   # -> train/
 
   Or pass ``download=True``, which downloads and unzips the missing files into
-  ``root``.
+  ``root``. A ``train/`` folder with fewer JPEGs than the ground-truth CSV has
+  rows (for example after an interrupted unzip) counts as missing: the zip is
+  downloaded and extracted again, with a warning.
 - **Unpack:** the zip extracts to a ``train/`` folder of 33,126
   ``ISIC_xxxxxxx.jpg`` files; the zip can then be deleted.
 - **root layout:**
@@ -58,7 +60,9 @@ Getting the data
           train/ISIC_0015719.jpg ...
 
 ``root`` is only read, unless ``download=True``, which writes the CSVs and the
-``train/`` folder into it. The derived metadata CSV goes to ``metadata_dir``.
+``train/`` folder into it. The derived metadata CSV goes to ``metadata_dir``,
+and is rebuilt when ``root``, ``drop_duplicates`` or the number of JPEGs in
+``train/`` changes, so images restored after a partial unzip are picked up.
 
 API Reference
 -------------

@@ -99,6 +99,37 @@ class TestISIC2020Dataset(unittest.TestCase):
         meta = pd.read_csv(dataset.metadata_path)
         self.assertIn("ISIC_0000004", set(meta["image_id"]))
 
+    def test_rebuilds_metadata_when_missing_images_are_restored(self):
+        metadata_dir = str(self.tmp / "meta")
+        first = self._dataset(metadata_dir=metadata_dir)
+        self.assertNotIn(
+            "ISIC_0000006", set(pd.read_csv(first.metadata_path)["image_id"])
+        )
+        Image.new("RGB", (12, 8)).save(self.root / "train" / "ISIC_0000006.jpg")
+        second = self._dataset(metadata_dir=metadata_dir)
+        self.assertIn(
+            "ISIC_0000006", set(pd.read_csv(second.metadata_path)["image_id"])
+        )
+
+    def test_v1_ground_truth_is_used_when_v2_is_absent(self):
+        v2 = self.root / "ISIC_2020_Training_GroundTruth_v2.csv"
+        gt = pd.read_csv(v2).drop(columns=["lesion_id"])
+        gt.loc[gt["image_name"] == "ISIC_0000001", "target"] = 1
+        gt.to_csv(self.root / "ISIC_2020_Training_GroundTruth.csv", index=False)
+        v2.unlink()
+        meta = pd.read_csv(self._dataset().metadata_path).set_index("image_id")
+        self.assertEqual(meta.loc["ISIC_0000001", "target"], 1)
+        self.assertTrue(meta["lesion_id"].isna().all())
+
+    def test_missing_lesion_id_column_is_left_blank(self):
+        v2 = self.root / "ISIC_2020_Training_GroundTruth_v2.csv"
+        pd.read_csv(v2).drop(columns=["lesion_id"]).to_csv(v2, index=False)
+        dataset = self._dataset()
+        meta = pd.read_csv(dataset.metadata_path)
+        self.assertEqual(len(meta), 6)
+        self.assertTrue(meta["lesion_id"].isna().all())
+        self.assertEqual(len(dataset.unique_patient_ids), 3)
+
     def test_missing_ground_truth_raises(self):
         (self.root / "ISIC_2020_Training_GroundTruth_v2.csv").unlink()
         with self.assertRaises(FileNotFoundError):
@@ -153,6 +184,55 @@ class TestISIC2020Dataset(unittest.TestCase):
         )
         self.assertTrue((target / "ISIC_2020_Training_Duplicates.csv").exists())
         self.assertEqual(len(pd.read_csv(dataset.metadata_path)), 6)
+
+    def test_download_refetches_incomplete_image_folder(self):
+        target = self.tmp / "partial"
+        (target / "train").mkdir(parents=True)
+        for name in (
+            "ISIC_2020_Training_GroundTruth_v2.csv",
+            "ISIC_2020_Training_Duplicates.csv",
+        ):
+            shutil.copy(self.root / name, target)
+        shutil.copy(self.root / "train" / "ISIC_0000001.jpg", target / "train")
+        urls = []
+
+        def fake_download(url, path):
+            raise AssertionError(f"CSV {url} should not be downloaded again")
+
+        def fake_archives(archive_urls, destination, **kwargs):
+            urls.extend(archive_urls)
+            shutil.copytree(self.root / "train", destination, dirs_exist_ok=True)
+
+        with (
+            mock.patch.object(isic2020_module, "download_file", fake_download),
+            mock.patch.object(isic2020_module, "_download_archives", fake_archives),
+            self.assertLogs("pyhealth.datasets.isic2020", "WARNING") as logs,
+        ):
+            dataset = ISIC2020Dataset(
+                root=str(target), cache_dir=str(self.cache), download=True
+            )
+        self.assertEqual(
+            urls, [isic2020_module.ISIC2020_BASE_URL + "ISIC_2020_Training_JPEG.zip"]
+        )
+        self.assertTrue(any("1 of 8 images" in line for line in logs.output))
+        self.assertEqual(len(pd.read_csv(dataset.metadata_path)), 6)
+
+    def test_download_skips_complete_image_folder(self):
+        target = self.tmp / "complete"
+        shutil.copytree(self.root, target)
+        Image.new("RGB", (12, 8)).save(target / "train" / "ISIC_0000006.jpg")
+
+        def fail(*args, **kwargs):
+            raise AssertionError("nothing should be downloaded")
+
+        with (
+            mock.patch.object(isic2020_module, "download_file", fail),
+            mock.patch.object(isic2020_module, "_download_archives", fail),
+        ):
+            dataset = ISIC2020Dataset(
+                root=str(target), cache_dir=str(self.cache), download=True
+            )
+        self.assertEqual(len(pd.read_csv(dataset.metadata_path)), 7)
 
 
 if __name__ == "__main__":

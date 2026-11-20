@@ -1,6 +1,7 @@
 """SIIM-ISIC 2020 melanoma dermoscopy dataset."""
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -92,7 +93,10 @@ class ISIC2020Dataset(BaseDataset):
               unzip -q ISIC_2020_Training_JPEG.zip   # -> train/
 
           Or pass ``download=True``, which downloads and unzips the missing
-          files into ``root``.
+          files into ``root``. A ``train/`` folder with fewer JPEGs than the
+          ground-truth CSV has rows (for example after an interrupted unzip)
+          counts as missing: the zip is downloaded and extracted again, with
+          a warning.
         - Unpack: the zip extracts to a ``train/`` folder of 33,126
           ``ISIC_xxxxxxx.jpg`` files; the zip can then be deleted.
         - ``root`` layout::
@@ -104,7 +108,9 @@ class ISIC2020Dataset(BaseDataset):
 
           ``root`` is only read, unless ``download=True``, which writes the
           CSVs and the ``train/`` folder into it. The derived metadata CSV
-          always goes to ``metadata_dir``.
+          always goes to ``metadata_dir``. It is rebuilt when ``root``,
+          ``drop_duplicates`` or the number of JPEGs in ``train/`` changes,
+          so images restored after a partial unzip are picked up.
 
     Licence:
         CC BY-NC 4.0 (attribution, non-commercial use only; derivatives
@@ -125,7 +131,8 @@ class ISIC2020Dataset(BaseDataset):
         drop_duplicates: Drop the second image of each pair in
             ``ISIC_2020_Training_Duplicates.csv``. Defaults to True.
         download: Download any missing CSV and the image zip into ``root``.
-            The zip is 24.7 GB. Defaults to False.
+            The zip is 24.7 GB, and is fetched again if ``train/`` holds
+            fewer JPEGs than the ground-truth CSV has rows. Defaults to False.
         dataset_name: Name of the dataset. Defaults to ``"isic2020"``.
         config_path: Table configuration YAML. Defaults to the bundled one.
         cache_dir: Directory for processed caches.
@@ -172,8 +179,11 @@ class ISIC2020Dataset(BaseDataset):
         )
         self.metadata_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_path = self.metadata_dir / _METADATA_FILE
+        # The JPEG count makes a restored or re-extracted image folder
+        # trigger a rebuild, so rows dropped for missing files come back.
         self._source_key = (
             f"root={self.source_root}|drop_duplicates={int(self.drop_duplicates)}"
+            f"|images={self._image_count()}"
         )
         marker = self.metadata_dir / "isic2020-source.txt"
         with FileLock(str(self.metadata_path) + ".lock"):
@@ -198,8 +208,19 @@ class ISIC2020Dataset(BaseDataset):
             dev=dev,
         )
 
+    def _image_count(self) -> int:
+        """The number of JPEGs in ``train/`` (0 if it does not exist)."""
+        if not self.image_dir.is_dir():
+            return 0
+        with os.scandir(self.image_dir) as entries:
+            return sum(e.name.lower().endswith(".jpg") for e in entries)
+
     def _download(self) -> None:
-        """Download the missing ground-truth CSVs and image zip into root."""
+        """Download the missing ground-truth CSVs and image zip into root.
+
+        A ``train/`` folder with fewer JPEGs than the ground-truth CSV has
+        rows is treated as incomplete, and the zip is fetched again.
+        """
         self.source_root.mkdir(parents=True, exist_ok=True)
         if not any((self.source_root / f).exists() for f in _GROUND_TRUTH_FILES):
             name = _GROUND_TRUTH_FILES[0]
@@ -212,7 +233,25 @@ class ISIC2020Dataset(BaseDataset):
                 self.source_root / _DUPLICATES_FILE,
                 "image_name_1",
             )
-        if not self.image_dir.is_dir():
+        complete = self.image_dir.is_dir()
+        if complete:
+            gt_path = next(
+                self.source_root / f
+                for f in _GROUND_TRUTH_FILES
+                if (self.source_root / f).exists()
+            )
+            n_rows = len(pd.read_csv(gt_path, usecols=["image_name"]))
+            n_found = self._image_count()
+            if n_found < n_rows:
+                logger.warning(
+                    "%s has %d of %d images; downloading %s again",
+                    self.image_dir,
+                    n_found,
+                    n_rows,
+                    _IMAGE_ZIP,
+                )
+                complete = False
+        if not complete:
             _download_archives(
                 [ISIC2020_BASE_URL + _IMAGE_ZIP],
                 self.image_dir,
@@ -225,7 +264,8 @@ class ISIC2020Dataset(BaseDataset):
         """Write the metadata CSV, one row per image, to ``metadata_dir``.
 
         Rows whose JPEG is missing are dropped with a warning, so a partial
-        download still loads.
+        download still loads; once the missing files are restored, the next
+        load rebuilds the CSV because the JPEG count is part of the source key.
 
         Raises:
             FileNotFoundError: If no ground-truth CSV or no image is found.
