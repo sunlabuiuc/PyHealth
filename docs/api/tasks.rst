@@ -271,6 +271,7 @@ Available Tasks
     EHR Foundation Model Timelines <tasks/pyhealth.tasks.ehr_foundation_model>
     ED Disposition and Outcomes (MIMIC-IV-ED) <tasks/pyhealth.tasks.ed_disposition_mimic4>
     ChestX-ray14 Binary Classification <tasks/pyhealth.tasks.ChestXray14BinaryClassification>
+    ISIC 2019 Skin Lesion Classification <tasks/pyhealth.tasks.ISIC2019Classification>
     De-Identification NER <tasks/pyhealth.tasks.DeIDNERTask>
     ChestX-ray14 Multilabel Classification <tasks/pyhealth.tasks.ChestXray14MultilabelClassification>
     HAM10000 Skin Lesion Classification <tasks/pyhealth.tasks.HAM10000Classification>

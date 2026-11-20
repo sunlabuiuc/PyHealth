@@ -66,6 +66,7 @@ from .ham10000 import HAM10000Dataset as HAM10000Dataset
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
 from .covid19_cxr import COVID19CXRDataset
+from .isic2019 import ISIC2019Dataset as ISIC2019Dataset
 from .ptbxl import PTBXLDataset as PTBXLDataset
 from .chapman_shaoxing import ChapmanShaoxingDataset as ChapmanShaoxingDataset
 from .physionet2012 import PhysioNet2012Dataset as PhysioNet2012Dataset
