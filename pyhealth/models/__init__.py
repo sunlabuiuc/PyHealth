@@ -85,6 +85,12 @@ from .ehr_fm import (
     HFEHRFoundationModel as HFEHRFoundationModel,
     HFEHRTokenizer as HFEHRTokenizer,
 )
+from .clmbr import (
+    CLMBR as CLMBR,
+    CLMBRConfig as CLMBRConfig,
+    CLMBRTokenizer as CLMBRTokenizer,
+    CLMBRTransformer as CLMBRTransformer,
+)
 from .ehrmamba import EHRMamba, MambaBlock
 from .ehrmamba_cehr import EHRMambaCEHR
 from .vae import VAE
