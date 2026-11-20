@@ -158,17 +158,20 @@ from .patient_linkage import patient_linkage_mimic3_fn
 from .rsna_pneumonia_classification import (
     RSNAPneumoniaClassification as RSNAPneumoniaClassification,
 )
-from .cmmd_classification import (
-    CMMDMalignancyClassification as CMMDMalignancyClassification,
-)
-from .cmmd_subtype_classification import (
-    CMMDSubtypeClassification as CMMDSubtypeClassification,
+from .isic2020_melanoma_classification import (
+    ISIC2020MelanomaClassification as ISIC2020MelanomaClassification,
 )
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
     ReadmissionPredictionMIMIC3,
     ReadmissionPredictionMIMIC4,
     ReadmissionPredictionOMOP,
+)
+from .cmmd_classification import (
+    CMMDMalignancyClassification as CMMDMalignancyClassification,
+)
+from .cmmd_subtype_classification import (
+    CMMDSubtypeClassification as CMMDSubtypeClassification,
 )
 from .sleep_staging import (
     sleep_staging_isruc_fn,
@@ -238,7 +241,7 @@ from .yaib_eicu import (
     YAIBMortalityEICU as YAIBMortalityEICU,
     YAIBSepsisEICU as YAIBSepsisEICU,
 )
-
+from .tcga_survival_prediction import TCGASurvivalPrediction as TCGASurvivalPrediction
 
 def __getattr__(name: str):
     if name == "MPFClinicalPredictionTask":
