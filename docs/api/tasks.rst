@@ -267,6 +267,7 @@ Available Tasks
     Sleep Staging v2 <tasks/pyhealth.tasks.sleep_staging_v2>
     Benchmark EHRShot <tasks/pyhealth.tasks.benchmark_ehrshot>
     EHR Text Serialization (LLM encoders) <tasks/pyhealth.tasks.ehr_text_serialization>
+    EHR Foundation Model Timelines <tasks/pyhealth.tasks.ehr_foundation_model>
     ED Disposition and Outcomes (MIMIC-IV-ED) <tasks/pyhealth.tasks.ed_disposition_mimic4>
     ChestX-ray14 Binary Classification <tasks/pyhealth.tasks.ChestXray14BinaryClassification>
     De-Identification NER <tasks/pyhealth.tasks.DeIDNERTask>
@@ -274,6 +275,11 @@ Available Tasks
     MSD Segmentation <tasks/pyhealth.tasks.MSDSegmentationTask>
     CHAOS Segmentation Tasks <tasks/pyhealth.tasks.CHAOSSegmentation>
     RSNA Pneumonia Classification <tasks/pyhealth.tasks.RSNAPneumoniaClassification>
+    PAD-UFES-20 Skin Lesion Classification <tasks/pyhealth.tasks.PADUFES20Classification>
+    ISIC 2020 Melanoma Classification <tasks/pyhealth.tasks.ISIC2020MelanomaClassification>
+    CBIS-DDSM Mammography Classification <tasks/pyhealth.tasks.cbis_ddsm_classification>
+    CBIS-DDSM Abnormality Type Classification <tasks/pyhealth.tasks.CBISDDSMAbnormalityClassification>
+    CBIS-DDSM Breast Density Classification <tasks/pyhealth.tasks.CBISDDSMDensityClassification>
     Variant Classification (ClinVar) <tasks/pyhealth.tasks.VariantClassificationClinVar>
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>
@@ -289,3 +295,4 @@ Available Tasks
     YAIB Tasks (eICU) <tasks/pyhealth.tasks.yaib_eicu>
     Value Set Completion (VSAC) <tasks/pyhealth.tasks.ValueSetCompletion>
     Time-to-event survival (GBSG and SUPPORT) <tasks/pyhealth.tasks.survival_time_to_event>
+    TCGA RNA-seq Survival Prediction <tasks/pyhealth.tasks.TCGASurvivalPrediction>

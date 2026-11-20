@@ -80,6 +80,17 @@ from .torchvision_model import TorchvisionModel
 from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
 from .llm_ehr_encoder import LLMEHREncoder as LLMEHREncoder
+from .ehr_fm import (
+    EHRFoundationModelBase as EHRFoundationModelBase,
+    HFEHRFoundationModel as HFEHRFoundationModel,
+    HFEHRTokenizer as HFEHRTokenizer,
+)
+from .clmbr import (
+    CLMBR as CLMBR,
+    CLMBRConfig as CLMBRConfig,
+    CLMBRTokenizer as CLMBRTokenizer,
+    CLMBRTransformer as CLMBRTransformer,
+)
 from .ehrmamba import EHRMamba, MambaBlock
 from .ehrmamba_cehr import EHRMambaCEHR
 from .vae import VAE
@@ -144,6 +155,7 @@ from .descemb import (
     simple_subword_tokenize as simple_subword_tokenize,
     simple_word_tokenize as simple_word_tokenize,
 )
+from .bulk_rna_bert import BulkRNABert as BulkRNABert
 from .dearllm import (
     DearLLM as DearLLM,
     DearLLMGraphEncoder as DearLLMGraphEncoder,
