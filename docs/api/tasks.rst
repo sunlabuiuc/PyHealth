@@ -285,6 +285,8 @@ Available Tasks
     Variant Classification (ClinVar) <tasks/pyhealth.tasks.VariantClassificationClinVar>
     Jichi Davis DR Grading <tasks/pyhealth.tasks.JichiDavisGrading>
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
+    LNDb Finding Classification <tasks/pyhealth.tasks.LNDbFindingClassification>
+    LNDb Texture Classification <tasks/pyhealth.tasks.LNDbTextureClassification>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>
     In-Hospital Survival (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalSurvivalMIMIC4>
     METABRIC Survival Prediction <tasks/pyhealth.tasks.MetabricSurvivalPrediction>

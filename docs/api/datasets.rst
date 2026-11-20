@@ -515,6 +515,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `UCI <https://archive.ics.uci.edu/dataset/880/support2>`__
      - No
      - —
+   * - :doc:`LNDb (lung nodule CT) <datasets/pyhealth.datasets.LNDbDataset>`
+     - Open, no account (CC BY 4.0 or CC BY-NC-ND 4.0; the record states both)
+     - `Zenodo <https://doi.org/10.5281/zenodo.8348419>`__
+     - No (RAR archives)
+     - One ``dataN.rar`` (~40 CTs) is enough
    * - :doc:`METABRIC <datasets/pyhealth.datasets.MetabricDataset>`
      - Open
      - `GitHub <https://github.com/XintianHan/Survival-MDN>`__
@@ -578,6 +583,7 @@ Available Datasets
     datasets/pyhealth.datasets.MIMIC3Dataset
     datasets/pyhealth.datasets.JichiDRDataset
     datasets/pyhealth.datasets.MIMIC4Dataset
+    datasets/pyhealth.datasets.LNDbDataset
     datasets/pyhealth.datasets.MIMIC4EHRDataset
     datasets/pyhealth.datasets.MIMIC4NoteDataset
     datasets/pyhealth.datasets.MIMIC4CXRDataset
