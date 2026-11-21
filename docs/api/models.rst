@@ -301,6 +301,7 @@ API Reference
     models/pyhealth.models.TransformersModel
     models/pyhealth.models.LLMEHREncoder
     models/pyhealth.models.HFEHRFoundationModel
+    models/pyhealth.models.CLMBR
     models/pyhealth.models.MEME
     models/pyhealth.models.TransformerDeID
     models/pyhealth.models.RETAIN
@@ -363,5 +364,6 @@ API Reference
     models/pyhealth.models.MIRA
     models/pyhealth.models.UDC
     models/pyhealth.models.DescEmb
+    models/pyhealth.models.bulk_rna_bert
     models/pyhealth.models.DearLLM
 

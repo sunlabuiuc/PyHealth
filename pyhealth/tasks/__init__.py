@@ -10,6 +10,7 @@ from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
 from .cardiology_detect import (
+    CardiologyDetection as CardiologyDetection,
     cardiology_isAD_fn,
     cardiology_isAR_fn,
     cardiology_isBBBFB_fn,
@@ -17,13 +18,22 @@ from .cardiology_detect import (
     cardiology_isWA_fn,
 )
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
+from .isic2019_classification import (
+    ISIC2019Classification as ISIC2019Classification,
+)
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
+from .ham10000_classification import (
+    HAM10000Classification as HAM10000Classification,
+)
 from .chaos_segmentation import (
     CHAOSAbdominalSegmentationCTMRI as CHAOSAbdominalSegmentationCTMRI,
     CHAOSAbdominalSegmentationMRIonly as CHAOSAbdominalSegmentationMRIonly,
     CHAOSLiverSegmentationCTMRI as CHAOSLiverSegmentationCTMRI,
     CHAOSLiverSegmentationCTonly as CHAOSLiverSegmentationCTonly,
     CHAOSLiverSegmentationMRIonly as CHAOSLiverSegmentationMRIonly,
+)
+from .brain_tumor_mri_classification import (
+    BrainTumorMRIClassification as BrainTumorMRIClassification,
 )
 from .covid19_cxr_classification import COVID19CXRClassification
 from .covid19_cxr_generation import (
@@ -83,11 +93,24 @@ from .in_hospital_mortality_meds import (
     InHospitalMortalityMEDS as InHospitalMortalityMEDS,
 )
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
+from .kits23_classification import (
+    KiTS23MalignancyClassification as KiTS23MalignancyClassification,
+    KiTS23MalignancySliceClassification as KiTS23MalignancySliceClassification,
+)
+from .kits23_segmentation import (
+    KiTS23Segmentation as KiTS23Segmentation,
+)
 from .lab_nowcasting import (
     LabNowcasting as LabNowcasting,
     LabNowcastingMIMIC3 as LabNowcastingMIMIC3,
     LabNowcastingMIMIC4 as LabNowcastingMIMIC4,
     lab_flag as lab_flag,
+)
+from .lndb_classification import (
+    LNDbFindingClassification as LNDbFindingClassification,
+)
+from .lndb_texture import (
+    LNDbTextureClassification as LNDbTextureClassification,
 )
 from .length_of_stay_prediction import (
     LengthOfStayPredictioneICU,
@@ -154,9 +177,32 @@ from .generate_ehr import (
     decode_dataset,
     to_evaluation_dataframe,
 )
+from .pad_ufes_20_classification import (
+    PADUFES20Classification as PADUFES20Classification,
+)
 from .patient_linkage import patient_linkage_mimic3_fn
+from .jichi_davis_grading import JichiDavisGrading as JichiDavisGrading
 from .rsna_pneumonia_classification import (
     RSNAPneumoniaClassification as RSNAPneumoniaClassification,
+)
+from .bcss_tile_classification import (
+    BCSSTileClassification as BCSSTileClassification,
+)
+from .bcss_tissue_segmentation import (
+    BCSSTissueSegmentation as BCSSTissueSegmentation,
+)
+from .isic2020_melanoma_classification import (
+    ISIC2020MelanomaClassification as ISIC2020MelanomaClassification,
+)
+from .cbis_ddsm_abnormality_classification import (
+    CBISDDSMAbnormalityClassification as CBISDDSMAbnormalityClassification,
+)
+from .cbis_ddsm_classification import (
+    CBISDDSMBIRADSClassification as CBISDDSMBIRADSClassification,
+    CBISDDSMPathologyClassification as CBISDDSMPathologyClassification,
+)
+from .cbis_ddsm_density_classification import (
+    CBISDDSMDensityClassification as CBISDDSMDensityClassification,
 )
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
@@ -169,7 +215,16 @@ from .sleep_staging import (
     sleep_staging_shhs_fn,
     sleep_staging_sleepedf_fn,
 )
+from .abide_classification import (
+    ABIDEAutismClassification as ABIDEAutismClassification,
+)
 from .sleep_staging_v2 import SleepStagingSequenceSleepEDF as SleepStagingSequenceSleepEDF
+from .covid_blues_classification import (
+    COVIDBLUESFrameClassification as COVIDBLUESFrameClassification,
+)
+from .covid_blues_severity import (
+    COVIDBLUESSeverityClassification as COVIDBLUESSeverityClassification,
+)
 from .sleep_staging_v2 import SleepStagingSleepEDF
 from .sleep_staging_isruc import SleepStagingISRUC as SleepStagingISRUC
 from .sleep_staging_isruc import (
@@ -194,6 +249,12 @@ from .soz_localization_hup import (
 from .eegbci import (
     EEGBCIPatternDiscovery as EEGBCIPatternDiscovery,
     EEGMotorImageryEEGBCI as EEGMotorImageryEEGBCI,
+)
+from .bciiv2a_left_right_imagery import (
+    BCIIV2aLeftRightImagery as BCIIV2aLeftRightImagery,
+)
+from .bciiv2a_motor_imagery import (
+    BCIIV2aMotorImageryClassification as BCIIV2aMotorImageryClassification,
 )
 from .iiic_seizure_classification import (
     EEGSeizureIIIC as EEGSeizureIIIC,
@@ -232,7 +293,7 @@ from .yaib_eicu import (
     YAIBMortalityEICU as YAIBMortalityEICU,
     YAIBSepsisEICU as YAIBSepsisEICU,
 )
-
+from .tcga_survival_prediction import TCGASurvivalPrediction as TCGASurvivalPrediction
 
 def __getattr__(name: str):
     if name == "MPFClinicalPredictionTask":
