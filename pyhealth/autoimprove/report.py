@@ -458,6 +458,8 @@ def _summary(ctx, test, flags, notes) -> Section:
             line += f" against {_ci(test['baseline'])} for the starting pipeline"
             if "difference" in test:
                 line += f"; difference {_ci(test['difference'], signed=True)}"
+        if not has_intervals(test):
+            line += f" ({NO_INTERVALS})"
         blocks.append(("p", line + ". *(measured)*"))
         clinical = b.get("clinical")
         if clinical:
@@ -680,14 +682,18 @@ def _test_section(ctx, test) -> Section:
     headers = ["config", "trial", "model", f"test {metric}"]
     if lift and any(test[k].get("clinical") for k, _ in present):
         headers.append("lift over prevalence")
-    blocks = [("p", ("Each config was retrained on all training patients and "
-                     "scored once on the test patients; intervals are "
-                     "patient-level bootstrap 95% CIs. *(measured)*")),
-              ("table", headers, rows)]
+    scored = ("Each config was retrained on all training patients and scored "
+              "once on the test patients; ")
+    scored += ("intervals are patient-level bootstrap 95% CIs." if has_intervals(test)
+               else f"{NO_INTERVALS}, so treat small differences as unconfirmed.")
+    blocks = [("p", scored + " *(measured)*"), ("table", headers, rows)]
     diffs = []
     if "difference" in test:
         diffs.append(f"selected − starting pipeline: "
                      f"{_ci(test['difference'], signed=True)}")
+    elif "best" in test and "baseline" in test:
+        gain = test["best"]["estimate"] - test["baseline"]["estimate"]
+        diffs.append(f"selected − starting pipeline: {gain:+.3f} (no interval)")
     if "top_minus_best" in test:
         diffs.append(f"highest-scoring − selected: "
                      f"{_ci(test['top_minus_best'], signed=True)}")
@@ -930,6 +936,9 @@ def _checklist_section(ctx, card, explanation, test, attribution) -> Section:
     clinical = (test or {}).get("best", {}).get("clinical")
     subgroups = bool(clinical and clinical.get("subgroups"))
     missing = "not covered"
+    # evaluate_on_test ran, but on a task without intervals or clinical metrics
+    not_binary = bool(test) and not has_intervals(test)
+    hint_test = "run evaluate_on_test"
 
     def where(ok, text, hint):
         return text if ok else f"{missing}: {hint}"
@@ -959,9 +968,12 @@ def _checklist_section(ctx, card, explanation, test, attribution) -> Section:
             ", with the attribution of each setting" if attribution else "")),
         ("Discrimination and calibration, with uncertainty", where(
             bool(clinical), "Performance in clinical terms",
-            "run evaluate_on_test")),
+            hint_test + " (intervals and calibration need a binary task)"
+            if not_binary else hint_test)),
         ("Clinical utility", where(bool(clinical), "Performance in clinical terms: "
-                                   "alerts and net benefit", "run evaluate_on_test")),
+                                   "alerts and net benefit",
+                                   "alerts and net benefit need a binary task"
+                                   if not_binary else hint_test)),
         ("Fairness: performance in subgroups", where(
             subgroups, "Performance in clinical terms: subgroups",
             "pass subgroups to evaluate_on_test")),
@@ -1322,6 +1334,26 @@ def _pm(gain, se, better=None, n=None) -> str:
 
 def _signed(value) -> str:
     return f"{value:+.3f}"
+
+
+NO_INTERVALS = ("point estimates without confidence intervals: bootstrap intervals "
+                "are computed for binary tasks only")
+
+
+def has_intervals(test: dict[str, Any] | None) -> bool:
+    """Whether an ``evaluate_on_test`` result holds confidence intervals.
+
+    Binary tasks get patient-level bootstrap intervals; other label types
+    get the metric's value only, and the report must not promise more.
+
+    Examples:
+        >>> has_intervals({"best": {"estimate": 0.3, "lower": 0.2, "upper": 0.4}})
+        True
+        >>> has_intervals({"metric": "f1_macro", "best": {"estimate": 0.15}})
+        False
+    """
+    return any(isinstance(r, dict) and r.get("lower") is not None
+               for r in (test or {}).values())
 
 
 def _ci(r: dict[str, Any], signed: bool = False) -> str:
