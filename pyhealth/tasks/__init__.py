@@ -209,6 +209,12 @@ from .readmission_prediction import (
     ReadmissionPredictionMIMIC4,
     ReadmissionPredictionOMOP,
 )
+from .cmmd_classification import (
+    CMMDMalignancyClassification as CMMDMalignancyClassification,
+)
+from .cmmd_subtype_classification import (
+    CMMDSubtypeClassification as CMMDSubtypeClassification,
+)
 from .sleep_staging import (
     sleep_staging_isruc_fn,
     sleep_staging_shhs_fn,

@@ -1,0 +1,18 @@
+version: "1.0"
+tables:
+  images:
+    file_path: "cmmd-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "record_id"
+      - "image_path"
+      - "laterality"
+      - "view"
+      - "cohort"
+      - "has_label"
+      - "label"
+      - "classification"
+      - "abnormality"
+      - "subtype"
+      - "age"

@@ -289,6 +289,8 @@ Available Tasks
     LNDb Finding Classification <tasks/pyhealth.tasks.LNDbFindingClassification>
     LNDb Texture Classification <tasks/pyhealth.tasks.LNDbTextureClassification>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>
+    CMMD Malignancy Classification <tasks/pyhealth.tasks.CMMDMalignancyClassification>
+    CMMD Molecular Subtype Classification <tasks/pyhealth.tasks.CMMDSubtypeClassification>
     In-Hospital Survival (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalSurvivalMIMIC4>
     BCSS Tile Classification <tasks/pyhealth.tasks.BCSSTileClassification>
     BCSS Tissue Segmentation <tasks/pyhealth.tasks.BCSSTissueSegmentation>
