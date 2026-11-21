@@ -127,6 +127,8 @@ class TestEHRCXREarlyFusion(unittest.TestCase):
         self.assertEqual(model(**self.batch)["logit"].shape, (4, 1))
         with self.assertRaises(ValueError):
             _model(self.dataset, cxr_backbone=backbone)
+        with self.assertRaises(ValueError):
+            _model(self.dataset, cxr_backbone="resnet18", cxr_feature_dim=10)
 
     def test_augmentation_only_in_training_mode(self) -> None:
         model = _model(self.dataset, augment_cxr=True)

@@ -110,6 +110,7 @@ class EHRCXREarlyFusion(BaseModel):
             untrained torchvision ResNet, or a module that maps images to
             ``[batch, cxr_feature_dim]`` (for example a frozen MedSigLIP).
         cxr_feature_dim: Output size of ``cxr_backbone`` when it is a module.
+            Leave it unset for a ResNet name, which sets its own size.
         freeze_encoders: Whether to freeze the LSTM and the image encoder.
             Frozen encoders also stay in eval mode when the model is set to
             train mode, so BatchNorm statistics do not change.
@@ -192,6 +193,11 @@ class EHRCXREarlyFusion(BaseModel):
         classifier_in = ehr_hidden_dim
         if cxr_feature_key is not None:
             if isinstance(cxr_backbone, str):
+                if cxr_feature_dim is not None:
+                    raise ValueError(
+                        "cxr_feature_dim is only for a module backbone; a "
+                        "ResNet sets its own output size."
+                    )
                 self.cxr_encoder, cxr_dim = build_resnet(cxr_backbone)
             else:
                 if cxr_feature_dim is None:
