@@ -57,6 +57,9 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.XGBoostModel`
      - Features are tabular (engineered labs, demographics) or bags of codes; you want the standard strong baseline
      - Gradient-boosted trees; fit with ``model.fit`` (not ``Trainer.train``); exact TreeSHAP; needs ``pip install "pyhealth[xgboost]"``
+   * - :doc:`models/pyhealth.models.td_cnn_lstm`
+     - You want real-time ICU mortality risk for each measurement-time state of irregular event streams
+     - Temporal-difference training needs paired ``next_*`` successor states and a custom loop that calls ``model.update_target()`` after each optimizer step
 
 How BaseModel Works
 --------------------
@@ -360,6 +363,7 @@ API Reference
     models/pyhealth.models.ProtoECGNet
     models/pyhealth.models.HeartLang
     models/pyhealth.models.APN
+    models/pyhealth.models.td_cnn_lstm
     models/pyhealth.models.TRACE
     models/pyhealth.models.MIRA
     models/pyhealth.models.UDC
