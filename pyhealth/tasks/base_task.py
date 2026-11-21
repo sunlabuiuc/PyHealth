@@ -15,6 +15,11 @@ class BaseTask(ABC):
     implement ``__call__``. They may also describe themselves with
     :meth:`task_card`.
 
+    Instance state (as left by ``__init__``), class-level configuration, and
+    ``version`` are part of the ``set_task`` cache key. Bump ``version`` when
+    ``__call__`` or ``pre_filter`` changes in a way that alters generated
+    samples.
+
     Examples:
         >>> class Mortality(BaseTask):
         ...     task_name = "mortality"
@@ -29,6 +34,16 @@ class BaseTask(ABC):
     task_name: str
     input_schema: Dict[str, Union[str, Type]]
     output_schema: Dict[str, Union[str, Type]]
+
+    #: Bump when ``__call__`` or ``pre_filter`` logic changes in a way that
+    #: alters the generated samples. Instance state alone cannot detect this.
+    version: str = "1"
+
+    #: Attribute names that do not affect the generated samples and must not
+    #: invalidate the cache (e.g. ``num_workers``, ``verbose``). Denylist, not
+    #: allowlist: forgetting an entry here costs a spurious rebuild, whereas
+    #: forgetting to allowlist a semantic arg silently reuses a stale cache.
+    fingerprint_exclude: frozenset[str] = frozenset()
 
     def __init__(
         self,
