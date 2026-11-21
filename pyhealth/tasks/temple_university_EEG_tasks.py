@@ -27,4 +27,4 @@ def read_edf_uv(
     Examples:
         >>> from pyhealth.tasks.temple_university_EEG_tasks import read_edf_uv
         >>> data, ch_names, sfreq = read_edf_uv(
-        ...
+        ..."""
