@@ -50,6 +50,12 @@ class HAM10000Dataset(BaseDataset):
     in one part. The images do not identify patients, so a patient with
     several lesions can still appear in more than one part.
 
+    Age, sex and body site of the training images are only in the Harvard
+    Dataverse ``HAM10000_metadata.csv``. When it is in ``root`` they are
+    added as ``age``, ``sex`` and ``localization``, which subgroup analyses
+    such as :class:`~pyhealth.tasks.HAM10000MalignancyClassification` need;
+    without it these attributes are empty.
+
     The official validation (193) and test (1,512) images are indexed too
     when ``splits`` asks for them. Their lesion ids were not released, so
     each of those images is its own patient. Every event has a ``split``
@@ -89,15 +95,18 @@ class HAM10000Dataset(BaseDataset):
           Or pass ``download=True``, which downloads and unzips the missing
           files of the requested ``splits`` into ``root``.
         - Unpack: each zip extracts to a folder of the same name; the zips
-          can then be deleted. Instead of the lesion groupings CSV, the
-          Dataverse ``HAM10000_metadata`` file is accepted, saved as
-          ``HAM10000_metadata.csv`` (``wget -O HAM10000_metadata.csv
+          can then be deleted.
+        - Demographics (optional): save the Dataverse ``HAM10000_metadata``
+          file as ``HAM10000_metadata.csv`` in ``root`` (``wget -O
+          HAM10000_metadata.csv
           "https://dataverse.harvard.edu/api/access/datafile/4338392?format=original"``).
+          It also replaces the lesion groupings CSV if that is missing.
         - ``root`` layout (validation and test folders only when
           ``splits`` asks for them)::
 
               isic2018_task3/                                <- root
                   ISIC2018_Task3_Training_LesionGroupings.csv
+                  HAM10000_metadata.csv                      (optional)
                   ISIC2018_Task3_Training_Input/ISIC_0024306.jpg ...
                   ISIC2018_Task3_Training_GroundTruth/
                       ISIC2018_Task3_Training_GroundTruth.csv
@@ -183,7 +192,16 @@ class HAM10000Dataset(BaseDataset):
         )
         self.metadata_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_path = self.metadata_dir / _METADATA_FILE
-        self._source_key = f"root={self.source_root}|splits={','.join(self.splits)}"
+        dataverse = self.source_root / _DATAVERSE_METADATA
+        demographics = (
+            f"{dataverse.stat().st_size}:{dataverse.stat().st_mtime_ns}"
+            if dataverse.exists()
+            else None
+        )
+        self._source_key = (
+            f"root={self.source_root}|splits={','.join(self.splits)}"
+            f"|demographics={demographics}"
+        )
         marker = self.metadata_dir / "ham10000-source.txt"
         with FileLock(str(self.metadata_path) + ".lock"):
             current = marker.read_text().strip() if marker.exists() else None
@@ -252,6 +270,29 @@ class HAM10000Dataset(BaseDataset):
             f"{HAM10000_BASE_URL}."
         )
 
+    def _demographics(self) -> pd.DataFrame | None:
+        """Return ``image``, ``age``, ``sex``, ``localization``, or None."""
+        dataverse = self.source_root / _DATAVERSE_METADATA
+        if not dataverse.exists():
+            logger.info("No %s; age and sex are empty.", dataverse)
+            return None
+        meta = pd.read_csv(dataverse)
+        if "image_id" not in meta.columns:
+            raise ValueError(
+                f"{dataverse} has no image_id column. Download the CSV with "
+                "?format=original; the default Dataverse download is "
+                "tab-separated."
+            )
+        if not {"age", "sex"} <= set(meta.columns):
+            logger.warning("%s has no age/sex columns; they stay empty.", dataverse)
+            return None
+        if "localization" not in meta.columns:
+            meta["localization"] = None
+        meta["sex"] = meta["sex"].map({"male": "M", "female": "F"})
+        return meta.rename(columns={"image_id": "image"})[
+            ["image", "age", "sex", "localization"]
+        ]
+
     def prepare_metadata(self) -> None:
         """Write the metadata CSV, one row per image, to ``metadata_dir``.
 
@@ -291,9 +332,15 @@ class HAM10000Dataset(BaseDataset):
                         "patient.",
                         n_missing,
                     )
+                demographics = self._demographics()
+                if demographics is not None:
+                    gt = gt.merge(demographics, on="image", how="left")
             else:
                 gt["lesion_id"] = None
                 gt["diagnosis_confirm_type"] = None
+            for column in ("age", "sex", "localization"):
+                if column not in gt.columns:
+                    gt[column] = None
             image_dir = self.source_root / _input_dir(split)
             gt["path"] = [str(image_dir / f"{i}.jpg") for i in gt["image"]]
             exists = gt["path"].map(lambda p: Path(p).is_file())
@@ -321,6 +368,9 @@ class HAM10000Dataset(BaseDataset):
                         "split": split,
                         "diagnosis": gt["diagnosis"],
                         "diagnosis_confirm_type": gt["diagnosis_confirm_type"],
+                        "age": gt["age"],
+                        "sex": gt["sex"],
+                        "localization": gt["localization"],
                     }
                 )
             )
