@@ -118,12 +118,19 @@ class MedModDecompensationMIMIC4(BaseTask):
     ``ehr``: the 17 MedFuse variables of
     :class:`~pyhealth.tasks.EHRCXRMortalityMIMIC4` and their masks, in
     ``bin_hours`` bins over the ``window_hours`` before ``t``:
-    ``[window_hours / bin_hours, 34]``. Only ICU data of the stay is used;
-    bins before ICU admission stay empty. While the window starts at ICU
-    admission, chart values charted just before it (admission height and
-    weight) count towards its first bin, as in the mortality task. Once the
-    window starts later, the last value of each variable before the window is
-    carried into the first bin with mask 0.
+    ``[window_hours / bin_hours, 34]``. Only ICU data of the stay is used:
+    labs from before ICU admission are never used. The one exception is chart
+    values of the stay charted shortly before admission (MIMIC-IV charts
+    admission height and weight just before ``intime``), as in the mortality
+    task:
+
+    - While ``t <= window_hours``, the window starts at or before admission.
+      These chart values sit in their own bin, or in the first bin if they
+      are older than the window, and count as measured. All other bins before
+      admission are empty.
+    - Once ``t > window_hours``, the window starts after admission. The last
+      value of each variable before the window, chart or lab, is carried into
+      the first bin with mask 0.
 
     ``cxr``: the last image with a view in ``view_positions`` taken between
     ICU admission and ``t`` (inclusive). Images taken after ``t`` never enter

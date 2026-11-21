@@ -25,29 +25,43 @@ Ablations (none of them are in the MedMod paper):
 
 By default the script writes a small synthetic MIMIC-IV + MIMIC-CXR tree (random
 values and images, no patient data) and runs the whole pipeline on it in about a
-minute on a CPU. Those numbers say nothing about performance. For the real data
-(credentialed PhysioNet access), pass the roots:
+minute on a CPU, so it runs without credentialed data access. Those numbers say
+nothing about performance. For the real data (credentialed PhysioNet access), pass
+the roots:
 
     python examples/mimic4_decompensation_daft.py \\
         --ehr-root /path/to/mimiciv/3.1 --cxr-root /path/to/mimic-cxr-jpg/2.1.0 \\
-        --task mortality --image-size 224 --epochs 5 --pretrained
+        --task mortality --image-size 224 --backbone resnet34 --hidden 256 \\
+        --epochs 15 --lr 3e-4 --batch-size 32 --pretrained
 
-Results on the real data (in-hospital mortality, paired cohort, MIMIC-IV 3.1,
-4,689 / 655 / 1,338 train / val / test stays, one seed, 5 epochs, lr 1e-4,
-ResNet-34 from ImageNet weights, best epoch by validation AUROC):
+Results on the real data (MIMIC-IV 3.1, paired stays, 15 epochs, lr 3e-4, batch 32,
+ResNet-34 from ImageNet weights, best epoch by validation AUROC, mean +- std over
+three seeds, each a different 70/10/20 patient split).
 
-    model                  test AUROC  test AUPRC  MedMod (AUROC / AUPRC)
-    EHR-only LSTM               0.835       0.511  0.829 / 0.502
-    MedFuse                     0.822       0.425  0.819 / 0.482
-    DAFT, cxr_to_ehr            0.794       0.376  0.826 / 0.494
-    DAFT, ehr_to_cxr            0.799       0.438  -
+In-hospital mortality (``EHRCXRMortalityMIMIC4``, 4,689 / 655 / 1,338 stays for
+seed 0):
 
-Findings: the EHR-only baseline and MedFuse match the paper. DAFT is about 0.03
-AUROC below the paper's DAFT in this short, untuned setting (the paper also
-pretrains the image encoder on MIMIC-CXR labels). The original DAFT direction
-(the EHR state conditions the image) gives a clearly better AUPRC than MedMod's
-direction. No fusion model beats EHR-only here, which is in line with the
-paper's own remark that the gain from adding X-rays is small and task dependent.
+    model                  test AUROC      test AUPRC      MedMod (AUROC / AUPRC)
+    EHR-only LSTM          0.822 +- 0.020  0.480 +- 0.048  0.829 / 0.502
+    MedFuse                0.815 +- 0.017  0.478 +- 0.047  0.819 / 0.482
+    DAFT, cxr_to_ehr       0.818 +- 0.022  0.496 +- 0.048  0.826 / 0.494
+    DAFT, ehr_to_cxr       0.821 +- 0.016  0.480 +- 0.040  -
+
+Decompensation (``MedModDecompensationMIMIC4``, every 4 h, about 16,800 test
+samples per split, 2.3 to 3.0% positive):
+
+    model                  test AUROC      test AUPRC
+    EHR-only LSTM          0.919 +- 0.009  0.456 +- 0.063
+    MedFuse                0.916 +- 0.013  0.447 +- 0.049
+    DAFT, cxr_to_ehr       0.922 +- 0.011  0.464 +- 0.052
+    DAFT, ehr_to_cxr       0.923 +- 0.011  0.461 +- 0.065
+
+Findings: on mortality, EHR-only and DAFT are within the spread of MedMod's numbers.
+With the same training for every model, adding the X-ray helps little: DAFT in
+MedMod's direction gains AUPRC on every mortality seed (+0.016 +- 0.003), and on
+decompensation no model clearly beats EHR-only once the image must come from before
+the prediction time. MedMod reports decompensation with hourly samples and an X-ray
+pairing that can look ahead, so those numbers are not comparable.
 """
 
 from __future__ import annotations
