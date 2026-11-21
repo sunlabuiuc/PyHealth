@@ -539,6 +539,106 @@ class TestEEGAbnormalTUAB(unittest.TestCase):
         self.assertEqual(task.input_schema, {"signal": "tensor"})
 
 
+class TestEEGAbnormalTUABRobustness(unittest.TestCase):
+    """Float sampling rates and skipped recordings."""
+
+    ELECTRODES = (
+        "FP1", "F7", "T3", "T5", "O1", "FP2", "F8", "T4",
+        "T6", "O2", "F3", "C3", "P3", "F4", "C4", "P4",
+    )
+    CH_NAMES = tuple(f"EEG {c}-REF" for c in ELECTRODES)
+
+    def _patient(self) -> _DummyPatient:
+        return _DummyPatient(
+            patient_id="patient-0",
+            events=[_DummyEvent(signal_file="/dummy/path.edf", label="normal")],
+        )
+
+    def test_call_accepts_float_resample_rate(self):
+        # resample_rate is typed float; it used to raise TypeError when
+        # the window bounds were used as slice indices.
+        for rate in (200.0, 256.0):
+            with self.subTest(rate=rate):
+                task = EEGAbnormalTUAB(resample_rate=rate, compute_stft=False)
+                raw = np.random.randn(len(self.CH_NAMES), int(rate) * 25)
+                with patch.object(
+                    EEGAbnormalTUAB,
+                    "read_and_process_edf",
+                    return_value=(raw, list(self.CH_NAMES)),
+                ):
+                    samples = task(self._patient())
+                self.assertEqual(len(samples), 2)
+                self.assertEqual(samples[0]["signal"].shape, (16, int(rate) * 10))
+                self.assertEqual(samples[1]["start_time"], int(rate) * 10)
+
+    def test_unreadable_recording_is_skipped_with_a_warning(self):
+        task = EEGAbnormalTUAB(compute_stft=False)
+        with (
+            patch.object(
+                EEGAbnormalTUAB,
+                "read_and_process_edf",
+                side_effect=ValueError("bad EDF header"),
+            ),
+            self.assertLogs(
+                "pyhealth.tasks.temple_university_EEG_tasks", level="WARNING"
+            ) as logs,
+        ):
+            samples = task(self._patient())
+        self.assertEqual(samples, [])
+        self.assertIn("/dummy/path.edf", logs.output[0])
+        self.assertIn("bad EDF header", logs.output[0])
+
+    def test_recording_missing_an_electrode_is_skipped_with_a_warning(self):
+        # The bipolar montage needs all 16 electrodes; a recording without
+        # one used to raise from convert_to_bipolar and stop set_task.
+        task = EEGAbnormalTUAB(compute_stft=False)
+        ch_names = [c for c in self.CH_NAMES if c != "EEG T5-REF"]
+        raw = np.random.randn(len(ch_names), 200 * 25)
+        patient = _DummyPatient(
+            patient_id="patient-0",
+            events=[
+                _DummyEvent(signal_file="/dummy/path.edf", label="normal"),
+                _DummyEvent(signal_file="/dummy/full.edf", label="abnormal"),
+            ],
+        )
+        full = (np.random.randn(len(self.CH_NAMES), 200 * 25), list(self.CH_NAMES))
+        with (
+            patch.object(
+                EEGAbnormalTUAB,
+                "read_and_process_edf",
+                side_effect=[(raw, ch_names), full],
+            ),
+            self.assertLogs(
+                "pyhealth.tasks.temple_university_EEG_tasks", level="WARNING"
+            ) as logs,
+        ):
+            samples = task(patient)
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("/dummy/path.edf", logs.output[0])
+        self.assertIn("no EEG T5-REF channel", logs.output[0])
+        self.assertEqual({s["signal_file"] for s in samples}, {"/dummy/full.edf"})
+        self.assertEqual(len(samples), 2)
+
+    def test_warning_names_every_missing_electrode(self):
+        task = EEGAbnormalTUAB(compute_stft=False)
+        absent = {"EEG T5-REF", "EEG O1-REF"}
+        ch_names = [c for c in self.CH_NAMES if c not in absent]
+        raw = np.random.randn(len(ch_names), 200 * 25)
+        with (
+            patch.object(
+                EEGAbnormalTUAB,
+                "read_and_process_edf",
+                return_value=(raw, ch_names),
+            ),
+            self.assertLogs(
+                "pyhealth.tasks.temple_university_EEG_tasks", level="WARNING"
+            ) as logs,
+        ):
+            samples = task(self._patient())
+        self.assertEqual(samples, [])
+        self.assertIn("no EEG T5-REF, EEG O1-REF channels,", logs.output[0])
+
+
 class TestTUABMetadataCachePerRoot(unittest.TestCase):
     """Two dataset roots must never share cached metadata.
 
