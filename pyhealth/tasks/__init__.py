@@ -40,6 +40,9 @@ from .covid19_cxr_generation import (
     COVID19CXRImageGeneration as COVID19CXRImageGeneration,
 )
 from .ptbxl_multilabel_classification import PTBXLMultilabelClassification as PTBXLMultilabelClassification
+from .ptbxl_label_group_classification import (
+    PTBXLLabelGroupClassification as PTBXLLabelGroupClassification,
+)
 from .ptbxl_heartlang import PTBXLHeartLangClassification as PTBXLHeartLangClassification
 from .chapman_shaoxing_classification import (
     ChapmanShaoxingSNOMEDClassification as ChapmanShaoxingSNOMEDClassification,
