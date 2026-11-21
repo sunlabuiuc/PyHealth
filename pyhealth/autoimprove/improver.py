@@ -23,6 +23,7 @@ from pyhealth.trainer import get_metrics_fn
 
 from .evaluate import (
     MAX_LABEL_SCAN,
+    chance_fold_scores,
     check_models,
     describe_error,
     fold_parts,
@@ -493,7 +494,30 @@ class AutoImprover:
             self.confirm()
             if self.prune_enabled and self.features is not None:
                 self.prune()
+        self._check_signal()
         return self.result()
+
+    def _check_signal(self) -> None:
+        """Compares the selection and baseline with chance (binary CV only).
+
+        Saves ``signal.json``, read by :meth:`flags` and :meth:`report`, and
+        warns when the gains may not reflect any signal in the inputs.
+        """
+        best = self.result().best
+        if self.mode != "binary" or self.folds is None or best is None:
+            return
+        chance = chance_fold_scores(self._labels(), self.folds, self.metric)
+        if chance is None or not self.maximize:
+            return
+        base = next((t for t in self.trials
+                     if t.agent == "baseline" and t.fold_scores), None)
+        check = signal_check(chance, best.fold_scores,
+                             base.fold_scores if base else None, self.metric)
+        if check is None:
+            return
+        self._save_result("signal.json", check, str)
+        if check["no_signal"]:
+            logger.warning("No signal check: %s", check["detail"])
 
     def _cycle_kind(self, cycle: int) -> str:
         if self.features is None:
@@ -1339,9 +1363,10 @@ class AutoImprover:
         :meth:`evaluate_on_test` results (kept in memory, or read from
         ``run_dir`` when resuming a saved run): a missing task card, a top feature with no
         entry in the card's dictionary, a learned effect opposite to the
-        expected direction, poor calibration, and a large gap between
-        subgroups. Each flag carries the decision recorded with
-        :meth:`approve`, if any.
+        expected direction, poor calibration, a large gap between
+        subgroups, and (binary tasks with ``cv_folds``) a baseline or
+        selection that does not beat a chance-level ranking. Each flag
+        carries the decision recorded with :meth:`approve`, if any.
 
         Examples:
             >>> for flag in improver.flags():  # doctest: +SKIP
@@ -1361,7 +1386,8 @@ class AutoImprover:
                                   self._read_json("test.json"), suspicious,
                                   features=best.features if best else (),
                                   fold_events=self._fold_events(),
-                                  min_events=self.min_events_per_fold)
+                                  min_events=self.min_events_per_fold,
+                                  signal=self._read_json("signal.json"))
         ]
 
     def _held_back(self, best: Trial | None) -> set[str]:
@@ -1449,6 +1475,7 @@ class AutoImprover:
             confirmed=self.confirmed, pruning=self._read_json("prune.json"),
             confirm_se=self.confirm_se, fold_events=self._fold_events(),
             min_events=self.min_events_per_fold,
+            signal=self._read_json("signal.json"),
         )
         if path is None and self.run_dir:
             path = os.path.join(self.run_dir, "report.html")
@@ -1654,6 +1681,67 @@ def paired_gain(
         diff = -diff
     se = float(diff.std(ddof=1) / math.sqrt(len(diff))) if len(diff) > 1 else math.inf
     return round(float(diff.mean()), 12), round(se, 12)
+
+
+def signal_check(
+    chance: Sequence[float],
+    selected: Sequence[float],
+    baseline: Sequence[float] | None = None,
+    metric: str = "",
+) -> dict[str, Any] | None:
+    """Compares the selection and the baseline with a chance-level ranking.
+
+    A gain over the baseline is only evidence of signal if the baseline
+    itself beats chance: with labels the inputs cannot predict, a baseline
+    can score below chance and any model that merely reaches chance then
+    looks like an improvement. Each comparison is paired over the folds;
+    ``no_signal`` is set when the baseline or the selection is not above
+    chance by more than one standard error.
+
+    Args:
+        chance: Chance-level score per fold (:func:`chance_fold_scores`).
+        selected: The selected trial's fold scores.
+        baseline: The baseline's fold scores, if a baseline ran.
+        metric: The metric name, for the message.
+
+    Returns:
+        ``{"metric", "chance", "selected": {"gain", "se"}, "baseline":
+        {"gain", "se"} or None, "no_signal", "detail"}``, or ``None`` when
+        the fold scores do not line up with ``chance``.
+
+    Examples:
+        >>> check = signal_check([0.08] * 3, [0.11, 0.10, 0.12],
+        ...                      baseline=[0.07, 0.09, 0.08], metric="pr_auc")
+        >>> check["no_signal"]
+        True
+        >>> signal_check([0.5] * 3, [0.8, 0.82, 0.79], [0.75, 0.76, 0.74])["no_signal"]
+        False
+    """
+    if not chance or len(selected) != len(chance):
+        return None
+    sel_gain, sel_se = paired_gain(selected, chance, maximize=True)
+    base = None
+    if baseline is not None and len(baseline) == len(chance):
+        base_gain, base_se = paired_gain(baseline, chance, maximize=True)
+        base = {"gain": base_gain, "se": base_se}
+    weak_base = base is not None and base["gain"] - base["se"] <= 0
+    weak_sel = sel_gain - sel_se <= 0
+    level = float(np.mean(chance))
+    if weak_base:
+        detail = (f"The baseline's {metric} is not above chance ({level:.3f}; "
+                  f"baseline minus chance {base['gain']:+.3f} ± {base['se']:.3f}), "
+                  "so gains over it may only be gains over a model that learned "
+                  "nothing. Check the label and the inputs, and compare with a "
+                  "null-label control before trusting the improvement.")
+    elif weak_sel:
+        detail = (f"The selected model's {metric} is not above chance "
+                  f"({level:.3f}; selected minus chance {sel_gain:+.3f} ± "
+                  f"{sel_se:.3f}): the inputs may not predict the outcome.")
+    else:
+        detail = ""
+    return {"metric": metric, "chance": [float(c) for c in chance],
+            "selected": {"gain": sel_gain, "se": sel_se}, "baseline": base,
+            "no_signal": weak_base or weak_sel, "detail": detail}
 
 
 def select_trial(
