@@ -80,6 +80,7 @@ Attribution Methods
     interpret/pyhealth.interpret.methods.attention_rollout
     interpret/pyhealth.interpret.methods.raw_attention
     interpret/pyhealth.interpret.methods.grad_cam
+    interpret/pyhealth.interpret.methods.attingrad
     interpret/pyhealth.interpret.methods.deeplift
     interpret/pyhealth.interpret.methods.integrated_gradients
     interpret/pyhealth.interpret.methods.shap
@@ -89,6 +90,14 @@ Attribution Methods
     interpret/pyhealth.interpret.methods.ensemble
     interpret/pyhealth.interpret.methods.baseline
     interpret/pyhealth.interpret.methods.base_interpreter
+
+Explainability Training
+-----------------------
+
+.. toctree::
+    :maxdepth: 4
+
+    interpret/pyhealth.interpret.methods.token_masking
 
 Visualization Utilities
 -----------------------

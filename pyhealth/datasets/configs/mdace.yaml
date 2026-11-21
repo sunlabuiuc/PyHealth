@@ -1,0 +1,17 @@
+version: "1.0"
+tables:
+  mdace:
+    file_path: "mdace.parquet"
+    patient_id: "patient_id"
+    timestamp: "chartdate"
+    timestamp_format: "%Y-%m-%d"
+    attributes:
+    - "hadm_id"
+    - "note_id"
+    - "category"
+    - "description"
+    - "text"
+    - "codes"
+    - "code_systems"
+    - "spans"
+    - "split"

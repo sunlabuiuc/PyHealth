@@ -627,6 +627,7 @@ Available Datasets
     datasets/pyhealth.datasets.MEDSDataset
     datasets/pyhealth.datasets.MIMIC4FHIR
     datasets/pyhealth.datasets.MedicalTranscriptionsDataset
+    datasets/pyhealth.datasets.MDACEDataset
     datasets/pyhealth.datasets.CardiologyDataset
     datasets/pyhealth.datasets.ChapmanShaoxingDataset
     datasets/pyhealth.datasets.eICUDataset
