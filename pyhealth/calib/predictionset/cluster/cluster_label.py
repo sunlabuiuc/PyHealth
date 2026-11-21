@@ -55,7 +55,8 @@ class ClusterLabel(SetPredictor):
         score_type: Nonconformity score to use: "threshold" (default,
             NC score = 1 - p(true class), Sadinle, Lei, and Wasserman 2019)
             or "aps" (Adaptive Prediction Sets, Romano, Sesia, and Candes
-            2020). See :mod:`pyhealth.calib.predictionset.scores`.
+            2020) or "saps" (Sorted Adaptive Prediction Sets, Huang et
+            al. 2024). See :mod:`pyhealth.calib.predictionset.scores`.
         debug: Whether to use debug mode (processes fewer samples for
             faster iteration)
 
@@ -119,6 +120,7 @@ class ClusterLabel(SetPredictor):
         random_state: int = 42,
         score_type: str = "threshold",
         debug: bool = False,
+        saps_lambda: float = 0.1,
         **kwargs,
     ) -> None:
         super().__init__(model, **kwargs)
@@ -143,6 +145,7 @@ class ClusterLabel(SetPredictor):
         self.device = model.device
         self.debug = debug
         self.score_type = score_type
+        self.saps_lambda = saps_lambda
 
         # Store alpha
         if not isinstance(alpha, float):
@@ -244,7 +247,11 @@ class ClusterLabel(SetPredictor):
 
         # Compute non-conformity scores (higher = less conforming)
         conformity_scores = true_class_nc_scores(
-            y_prob, y_true, score_type=self.score_type, rng=self.rng
+            y_prob,
+            y_true,
+            score_type=self.score_type,
+            rng=self.rng,
+            saps_lambda=self.saps_lambda,
         )
 
         # Compute cluster-specific thresholds
@@ -346,7 +353,10 @@ class ClusterLabel(SetPredictor):
         # Include class y if its NC score <= NC threshold
         y_prob_np = pred["y_prob"].detach().cpu().numpy()
         nc_scores = all_class_nc_scores(
-            y_prob_np, score_type=self.score_type, rng=self.rng
+            y_prob_np,
+            score_type=self.score_type,
+            rng=self.rng,
+            saps_lambda=self.saps_lambda,
         )
         nc_scores = torch.as_tensor(
             nc_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype
