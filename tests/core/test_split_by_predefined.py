@@ -31,6 +31,41 @@ def as_lists(parts):
     return [p.tolist() for p in parts]
 
 
+# Indices returned by the previous implementations (upstream/master) for
+# make_dataset() with seed=42 and get_index=True.
+EXPECTED = {
+    "split_by_sample_tuh": [
+        [16, 10, 15, 20, 12, 14, 7, 6, 9, 3],
+        [0, 17, 5, 11, 19, 2, 4, 18, 1, 13, 8],
+        [21, 22, 23, 24, 25, 26, 27, 28, 29],
+    ],
+    "split_by_patient_tuh": [
+        [9, 10, 11, 6, 7, 8, 18, 19, 20],
+        [12, 13, 14, 3, 4, 5, 15, 16, 17, 0, 1, 2],
+        [21, 22, 23, 24, 25, 26, 27, 28, 29],
+    ],
+    "split_by_sample_conformal_tuh": [
+        [16, 10, 15, 20, 12, 14, 7, 6, 9, 3],
+        [0, 17, 5, 11, 19],
+        [2, 4, 18, 1, 13, 8],
+        [21, 22, 23, 24, 25, 26, 27, 28, 29],
+    ],
+    "split_by_patient_conformal_tuh": [
+        [9, 10, 11, 6, 7, 8, 18, 19, 20],
+        [12, 13, 14, 3, 4, 5],
+        [15, 16, 17, 0, 1, 2],
+        [21, 22, 23, 24, 25, 26, 27, 28, 29],
+    ],
+}
+
+WRAPPER_RATIOS = {
+    "split_by_sample_tuh": [0.5, 0.5],
+    "split_by_patient_tuh": [0.5, 0.5],
+    "split_by_sample_conformal_tuh": [0.5, 0.25, 0.25],
+    "split_by_patient_conformal_tuh": [0.5, 0.25, 0.25],
+}
+
+
 class TestSplitByPredefined(unittest.TestCase):
     def test_exported_from_package(self):
         from pyhealth.datasets import split_by_predefined
@@ -122,3 +157,9 @@ class TestSplitByPredefined(unittest.TestCase):
                 ds, ratios, seed=42, get_index=True, by_patient=by_patient
             )
             self.assertEqual(as_lists(wrapped), as_lists(direct), name)
+
+    def test_wrappers_match_previous_behavior(self):
+        ds = make_dataset()
+        for name, ratios in WRAPPER_RATIOS.items():
+            parts = getattr(D, name)(ds, ratios, seed=42, get_index=True)
+            self.assertEqual(as_lists(parts), EXPECTED[name], name)
