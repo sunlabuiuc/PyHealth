@@ -231,6 +231,7 @@ Available Tasks
     COVID-19 CXR Image Generation <tasks/pyhealth.tasks.COVID19CXRImageGeneration>
     PTB-XL Multilabel Classification <tasks/pyhealth.tasks.PTBXLMultilabelClassification>
     PTB-XL HeartLang Classification <tasks/pyhealth.tasks.PTBXLHeartLangClassification>
+    PTB-XL Heartbeat MI <tasks/pyhealth.tasks.PTBXLHeartbeatMI>
     Chapman-Shaoxing ECG Classification <tasks/pyhealth.tasks.ChapmanShaoxingSuperclassClassification>
     PhysioNet 2012 Forecasting <tasks/pyhealth.tasks.PhysioNet2012Forecasting>
     Disease Progression (MIMIC-IV + Chest ImaGenome) <tasks/pyhealth.tasks.DiseaseProgressionMIMIC4>
