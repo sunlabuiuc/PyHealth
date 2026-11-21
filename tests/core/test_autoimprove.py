@@ -299,6 +299,36 @@ class TestAutoImprover(unittest.TestCase):
         self.assertIs(result.best,
                       select_simplest(result.trials, True, 1.0, SPACE.rung)[0])
 
+    def test_few_events_per_fold_warn_and_flag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            improver = AutoImprover(
+                self.train, self.val, RandomProposer(seed=0),
+                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+                space=SPACE, n_agents=1, n_cycles=1, cv_folds=3, run_dir=tmp,
+                min_events_per_fold=1000,
+            )
+            with self.assertLogs("pyhealth.autoimprove.improver", "WARNING") as logs:
+                improver.run()
+            self.assertTrue(any("positive samples" in m for m in logs.output))
+            events = improver._fold_events()
+            labels = [float(self.train[i]["label"]) for i in range(len(self.train))]
+            self.assertEqual(len(events), 3)
+            self.assertEqual(sum(events), int(sum(labels)))
+            flag = next(f for f in improver.flags() if f["id"] == "few_events")
+            self.assertEqual(flag["kind"], "data")
+            self.assertIn(", ".join(map(str, events)), flag["detail"])
+            self.assertIn("few_events", improver.report().to_markdown())
+            # the saved run keeps the counts, so load_run raises the flag too
+            with open(os.path.join(tmp, "run.json")) as f:
+                self.assertEqual(json.load(f)["fold_events"], events)
+            self.assertIn("few_events", load_run(tmp, space=SPACE).to_markdown())
+        improver.min_events_per_fold = 0
+        self.assertNotIn("few_events", [f["id"] for f in improver.flags()])
+        # without cross-validation there are no folds to count
+        plain = AutoImprover(self.train, self.val, RandomProposer(seed=0),
+                             space=SPACE, n_agents=1, n_cycles=1)
+        self.assertIsNone(plain._fold_events())
+
     def test_clipped_repeat_names_the_clipping(self):
         llm = ScriptedLLM([
             _reply({"model": "RNN", "model_params": {"hidden_dim": 999,

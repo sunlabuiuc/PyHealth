@@ -219,6 +219,8 @@ def load_run(
             "scores", {}).items()},
         pruning=read("prune.json"),
         confirm_se=settings.get("confirm_se", 2.0),
+        fold_events=settings.get("fold_events"),
+        min_events=settings.get("min_events_per_fold", 10),
     )
 
 
@@ -244,6 +246,8 @@ def build_report(
     confirmed: dict[int, list[float]] | None = None,
     pruning: dict[str, Any] | None = None,
     confirm_se: float = 2.0,
+    fold_events: Sequence[int] | None = None,
+    min_events: int = 10,
 ) -> Report:
     """Builds a report from a run's trials and, optionally, its test and attribution.
 
@@ -274,6 +278,9 @@ def build_report(
             ``AutoImprover.confirm``; the selection is then made on them.
         pruning: The result of ``AutoImprover.prune``.
         confirm_se: The bound used on the confirmation scores.
+        fold_events: Positive samples in each CV fold, for the ``few_events``
+            flag; ``None`` raises no flag.
+        min_events: The fewest positives per fold without that flag.
 
     Examples:
         >>> from pyhealth.autoimprove import Trial
@@ -397,7 +404,8 @@ def build_report(
         "by_id": {t.trial_id: t for t in done},
     }
     flags = [{**f, "review": review.get(f["id"])}
-             for f in flags_for(card, explanation, test)]
+             for f in flags_for(card, explanation, test, fold_events=fold_events,
+                                min_events=min_events)]
     sections = [
         _summary(ctx, test, flags, notes),
         _task_section(task, dropped_models or {}, card),
@@ -980,7 +988,8 @@ def _checklist_section(ctx, card, explanation, test, attribution) -> Section:
 
 
 def flags_for(
-    card, explanation, test, suspicious=(), features=()
+    card, explanation, test, suspicious=(), features=(), fold_events=None,
+    min_events=10,
 ) -> list[dict[str, str]]:
     """Items for clinician review, from the task card, explanation and test.
 
@@ -996,12 +1005,22 @@ def flags_for(
         >>> spec = {"name": "count_90d__visits", "rationale": "none: random"}
         >>> [f["id"] for f in flags_for(None, None, None, features=[spec])]
         ['no_task_card', 'no_rationale:count_90d__visits']
+        >>> [f["id"] for f in flags_for(None, None, None, fold_events=[7, 6, 7])]
+        ['no_task_card', 'few_events']
     """
     out = []
     if card is None:
         out.append({"id": "no_task_card", "kind": "task",
                     "detail": "No task card: the cohort, outcome and features have "
                               "no recorded clinical rationale."})
+    if fold_events and min(fold_events) < min_events:
+        out.append({"id": "few_events", "kind": "data",
+                    "detail": f"The cross-validation folds have "
+                              f"{', '.join(map(str, fold_events))} positive "
+                              f"samples (fewer than {min_events} per fold), so one "
+                              "lucky fold can carry a trial's whole gain. Fewer "
+                              "folds do not fix this; treat the search's gains as "
+                              "unconfirmed and confirm them on more events."})
     for f in (explanation or {}).get("features", []):
         if f["check"] == "opposite":
             out.append({
