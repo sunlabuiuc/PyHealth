@@ -154,9 +154,20 @@ class BaseConformal(SetPredictor):
               peaked or flat the model's predicted distribution is for each
               individual input. See :mod:`pyhealth.calib.predictionset.scores`
               for the exact formula.
+            - "raps": Regularized Adaptive Prediction Sets (Angelopoulos et
+              al. 2021). The APS score plus a penalty for low-ranked
+              classes, with hyperparameters ``raps_lambda`` (default 0.1)
+              and ``raps_kreg`` (default 1). See
+              :mod:`pyhealth.calib.predictionset.scores` for the exact
+              formula.
         random_state: Optional int seed for the RNG used by score_type="aps"
-            (the U ~ Uniform(0,1) draws). Ignored for score_type="threshold".
+            and score_type="raps" (the U ~ Uniform(0,1) draws and the rank
+            tie-breaking). Ignored for score_type="threshold".
         debug: Whether to use debug mode (processes fewer samples)
+        raps_lambda: Penalty weight for score_type="raps" (Angelopoulos
+            et al. 2021); default 0.1. Ignored for other score types.
+        raps_kreg: Ranks above k_reg are penalized for score_type="raps";
+            default 1. Ignored for other score types.
 
     Examples:
         >>> from pyhealth.datasets import ISRUCDataset, split_by_patient
@@ -211,6 +222,8 @@ class BaseConformal(SetPredictor):
         score_type: str = "threshold",
         random_state: int | None = None,
         debug: bool = False,
+        raps_lambda: float = 0.1,
+        raps_kreg: int = 1,
         **kwargs,
     ) -> None:
         super().__init__(model, **kwargs)
@@ -235,6 +248,8 @@ class BaseConformal(SetPredictor):
         self.device = model.device
         self.debug = debug
         self.score_type = score_type
+        self.raps_lambda = raps_lambda
+        self.raps_kreg = raps_kreg
         self.rng = np.random.default_rng(random_state)
 
         # Store alpha
@@ -258,7 +273,12 @@ class BaseConformal(SetPredictor):
             Non-conformity scores of shape (N,) — higher means less conforming.
         """
         return true_class_nc_scores(
-            y_prob, y_true, score_type=self.score_type, rng=self.rng
+            y_prob,
+            y_true,
+            score_type=self.score_type,
+            rng=self.rng,
+            raps_lambda=self.raps_lambda,
+            raps_kreg=self.raps_kreg,
         )
 
     def calibrate(self, cal_dataset: IterableDataset):
@@ -331,7 +351,11 @@ class BaseConformal(SetPredictor):
 
         y_prob = pred["y_prob"].detach().cpu().numpy()
         nc_scores = all_class_nc_scores(
-            y_prob, score_type=self.score_type, rng=self.rng
+            y_prob,
+            score_type=self.score_type,
+            rng=self.rng,
+            raps_lambda=self.raps_lambda,
+            raps_kreg=self.raps_kreg,
         )
         nc_scores = torch.as_tensor(
             nc_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype

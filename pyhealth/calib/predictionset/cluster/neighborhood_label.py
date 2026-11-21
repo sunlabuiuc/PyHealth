@@ -69,9 +69,11 @@ class NeighborhoodLabel(SetPredictor):
         score_type: Conformity score to use: "threshold" (default,
             conformity score = p(true class), Sadinle, Lei, and Wasserman
             2019) or "aps" (Adaptive Prediction Sets, Romano, Sesia, and
-            Candes 2020). See :mod:`pyhealth.calib.predictionset.scores`.
+            Candes 2020) or "raps" (Regularized Adaptive Prediction Sets,
+            Angelopoulos et al. 2021). See
+            :mod:`pyhealth.calib.predictionset.scores`.
         random_state: Optional int seed for the RNG used by
-            score_type="aps". Ignored for score_type="threshold".
+            score_type="aps" and score_type="raps". Ignored for score_type="threshold".
         debug: If True, process fewer samples for faster iteration.
 
     Examples:
@@ -116,6 +118,8 @@ class NeighborhoodLabel(SetPredictor):
         score_type: str = "threshold",
         random_state: int | None = None,
         debug: bool = False,
+        raps_lambda: float = 0.1,
+        raps_kreg: int = 1,
         **kwargs,
     ) -> None:
         super().__init__(model, **kwargs)
@@ -139,6 +143,8 @@ class NeighborhoodLabel(SetPredictor):
         self.device = model.device
         self.debug = debug
         self.score_type = score_type
+        self.raps_lambda = raps_lambda
+        self.raps_kreg = raps_kreg
         self.rng = np.random.default_rng(random_state)
 
         if not (0.0 < alpha < 1.0):
@@ -202,7 +208,12 @@ class NeighborhoodLabel(SetPredictor):
             )
 
         conformity_scores = true_class_conformity_scores(
-            y_prob, y_true, score_type=self.score_type, rng=self.rng
+            y_prob,
+            y_true,
+            score_type=self.score_type,
+            rng=self.rng,
+            raps_lambda=self.raps_lambda,
+            raps_kreg=self.raps_kreg,
         )
 
         k = min(self.k_neighbors, N)
@@ -323,7 +334,11 @@ class NeighborhoodLabel(SetPredictor):
 
         y_prob_np = pred["y_prob"].detach().cpu().numpy()
         conformity_scores = all_class_conformity_scores(
-            y_prob_np, score_type=self.score_type, rng=self.rng
+            y_prob_np,
+            score_type=self.score_type,
+            rng=self.rng,
+            raps_lambda=self.raps_lambda,
+            raps_kreg=self.raps_kreg,
         )
         conformity_scores = torch.as_tensor(
             conformity_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype
