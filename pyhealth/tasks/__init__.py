@@ -6,6 +6,7 @@ from .task_card import (
 )
 from .competing_risks import CompetingRisksPreprocessor as CompetingRisksPreprocessor
 from .competing_risks_pbc import CompetingRisksPBC as CompetingRisksPBC
+from .seer_survival import SEERSurvivalPrediction as SEERSurvivalPrediction
 from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification

@@ -1,0 +1,7 @@
+Patient ID,Record number recode,Year of diagnosis,Site recode ICD-O-3/WHO 2008,Primary Site,Sex,Age recode with <1 year olds and 90+,Histologic Type ICD-O-3,Grade Recode (thru 2017),"Derived AJCC Stage Group, 6th ed (2004-2015)",Laterality,Marital status at diagnosis,CS tumor size (2004-2015),CS extension (2004-2015),CS lymph nodes (2004-2015),CS mets at dx (2004-2015),Survival months,SEER cause-specific death classification
+00001,01,2004,Lung and Bronchus,C341,Female,65-69,8140,Grade II,III,Left,Married,035,300,100,00,8,Dead (attributable to this cancer dx)
+00001,02,2007,Lung and Bronchus,C342,Female,65-69,8070,Grade I,I,Right,Married,020,100,000,00,12,Alive or dead of other cause
+00002,01,2005,Lung and Bronchus,C349,Male,70-74,8140,Grade II,II,Left,Single,055,100,100,00,4,Alive or dead of other cause
+00002,02,2009,Lung and Bronchus,C349,Male,70-74,8140,Grade II,II,Left,Single,055,100,100,00,18,Alive or dead of other cause
+00003,01,2008,Lung and Bronchus,C341,Male,55-59,8070,Grade III,IV,Right,Single,060,400,300,10,25,Dead (missing/unknown COD)
+00004,01,2009,Lung and Bronchus,C349,Female,60-64,8140,Grade II,I,Left,Unknown, ,100,000,00,Unknown,Alive or dead of other cause

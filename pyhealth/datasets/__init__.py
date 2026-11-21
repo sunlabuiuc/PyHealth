@@ -76,6 +76,7 @@ from .physionet2012 import PhysioNet2012Dataset as PhysioNet2012Dataset
 from .dreamt import DREAMTDataset
 from .ehrshot import EHRShotDataset
 from .eicu import eICUDataset
+from .seer import SEERDataset as SEERDataset
 from .isruc import ISRUCDataset
 from .medical_transcriptions import MedicalTranscriptionsDataset
 from .msd import (

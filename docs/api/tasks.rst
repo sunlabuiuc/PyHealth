@@ -215,6 +215,7 @@ Available Tasks
     Base Task <tasks/pyhealth.tasks.BaseTask>
     Task Card <tasks/pyhealth.tasks.TaskCard>
     PBC Competing Risks <tasks/pyhealth.tasks.competing_risks_pbc>
+    SEER Survival Prediction <tasks/pyhealth.tasks.SEERSurvivalPrediction>
     Competing-Risk Preprocessing <tasks/pyhealth.tasks.competing_risks>
     In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
     In-Hospital Mortality (MEDS) <tasks/pyhealth.tasks.InHospitalMortalityMEDS>
