@@ -911,6 +911,10 @@ def split_by_predefined(
     Returns:
         ``(train, val, test)`` for 2 ratios, ``(train, val, cal, test)`` for 3
         ratios; ``SampleDataset`` views, or index tensors if ``get_index``.
+        
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If ``ratios`` is invalid or a sample lacks ``split_key``.
 
     Examples:
         >>> from pyhealth.datasets import split_by_predefined
@@ -918,10 +922,11 @@ def split_by_predefined(
         ...     samples, [0.8, 0.2], seed=42, by_patient=True
         ... )
     """
-    assert len(ratios) in (2, 3), (
-        "ratios must have 2 (train/val) or 3 (train/val/cal) elements"
-    )
-    assert abs(sum(ratios) - 1.0) < 1e-6, "ratios must sum to 1.0"
+    if len(ratios) not in (2, 3):
+        raise ValueError(
+            "ratios must have 2 (train/val) or 3 (train/val/cal) elements"
+        )
+    _validate_ratios(ratios, expected_length=len(ratios))
 
     pool: dict = {}  # group key (patient ID or sample index) -> sample indices
     holdout: list[int] = []
@@ -930,8 +935,10 @@ def split_by_predefined(
         # A patient belongs to one partition, so the first sample decides.
         for pid, indices in dataset.patient_to_index.items():
             first = dataset[indices[0]]
-            assert split_key in first, (
-                f"Patient {pid}: sample missing '{split_key}' field."
+            if split_key not in first:
+                raise ValueError(
+                    f"Patient {pid}: sample missing '{split_key}' field."
+                )
             )
             if first[split_key] == train_value:
                 pool[pid] = list(indices)
@@ -942,8 +949,10 @@ def split_by_predefined(
     else:
         for i in range(len(dataset)):
             sample = dataset[i]  # read once per sample
-            assert split_key in sample, (
-                f"Sample {i} is missing the '{split_key}' field."
+            if split_key not in sample:
+                raise ValueError(
+                    f"Sample {i} is missing the '{split_key}' field."
+                )
             )
             if sample[split_key] == train_value:
                 pool[i] = [i]
