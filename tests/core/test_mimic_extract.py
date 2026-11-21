@@ -242,6 +242,10 @@ class TestMIMICExtractDataset(unittest.TestCase):
         cls.cache = Path(tempfile.mkdtemp())
         build_mimic_extract_tables(_patients(), _vitals_labs(), cls.root)
         cls.dataset = MIMICExtractDataset(root=str(cls.root), cache_dir=cls.cache)
+        # Build the event cache once here (it starts Dask, a few seconds) so
+        # the tests below each run in milliseconds instead of the first one
+        # paying for the build.
+        _ = cls.dataset.unique_patient_ids
 
     @classmethod
     def tearDownClass(cls):
