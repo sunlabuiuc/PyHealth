@@ -236,6 +236,14 @@ class PhysioNet2012Dataset(BaseDataset):
     The tables are built once from the raw record files and written into
     ``root`` (:data:`EVENTS_CSV`, :data:`PATIENTS_CSV`).
 
+    Getting the data:
+        - Source: https://physionet.org/content/challenge-2012/1.0.0/
+        - Access: open, no account needed.
+        - Download: pass ``download=True``, or fetch it yourself with
+          ``wget -r -N -c -np https://physionet.org/files/challenge-2012/1.0.0/``.
+        - ``root``: the folder holding the extracted ``set-a/``, ``set-b/`` and
+          ``set-c/`` folders.
+
     Args:
         root: Directory with the extracted ``set-a/``, ``set-b/``, ``set-c/``
             folders (and ``Outcomes-*.txt``), or where to download them.

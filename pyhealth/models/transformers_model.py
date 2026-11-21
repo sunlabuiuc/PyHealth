@@ -129,7 +129,7 @@ class TransformersModel(BaseModel):
         self.max_chunks = max_chunks
         self.pooling = pooling
 
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         hidden_dim = self.model.config.hidden_size
         self.dropout = nn.Dropout(dropout)
         self.fc = nn.Linear(hidden_dim, output_size)
@@ -209,8 +209,8 @@ class TransformersModel(BaseModel):
         embeddings = self.encode(kwargs[self.feature_key])
         logits = self.fc(self.dropout(embeddings))
         y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
+        loss = self.label_processor.loss(logits, y_true)
+        y_prob = self.label_processor.activation(logits)
         return {
             "loss": loss,
             "y_prob": y_prob,

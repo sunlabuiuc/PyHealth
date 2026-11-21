@@ -229,6 +229,8 @@ def _window_is_seizure(
 class SeizureDetectionCHBMIT(BaseTask):
     """Binary seizure detection on CHB-MIT, in the CBraMod windowing.
 
+    Works with :class:`~pyhealth.datasets.CHBMITDataset`.
+
     For each EDF this task:
 
     1. reads the file and keeps 16 bipolar channels (missing ones are zero)

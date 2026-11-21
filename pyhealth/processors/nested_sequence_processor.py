@@ -3,11 +3,11 @@ from typing import Any, Dict, List, Iterable
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor, TokenProcessorInterface, _warn_truncated
+from .base_processor import LegacyFeatureProcessor, TokenProcessorInterface, _warn_truncated
 
 
 @register_processor("nested_sequence")
-class NestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
+class NestedSequenceProcessor(LegacyFeatureProcessor, TokenProcessorInterface):
     """
     Feature processor for nested categorical sequences with vocabulary.
 
@@ -220,7 +220,7 @@ class NestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
 
 
 @register_processor("nested_sequence_floats")
-class NestedFloatsProcessor(FeatureProcessor):
+class NestedFloatsProcessor(LegacyFeatureProcessor):
     """
     Feature processor for nested numerical sequences without vocabulary.
 
@@ -257,11 +257,15 @@ class NestedFloatsProcessor(FeatureProcessor):
     """
 
     stores_tensor = True
+    _saw_values: bool | None = None
+    """Whether ``fit()`` saw any values; None for a processor pickled before
+    this was recorded."""
 
     def __init__(self, forward_fill: bool = True, padding: int = 0):
         self._max_inner_len = 1  # Maximum length of inner sequences
         self.forward_fill = forward_fill
         self._padding = padding  # Additional padding beyond observed max
+        self._saw_values = False
 
     def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Determine maximum inner sequence length.
@@ -287,6 +291,7 @@ class NestedFloatsProcessor(FeatureProcessor):
         # This ensures the processor can handle sequences longer than those in training data
         observed_max = max(1, max_inner_len)
         self._max_inner_len = observed_max + self._padding
+        self._saw_values = max_inner_len > 0
 
     def process(self, value: List[List[float]]) -> torch.Tensor:
         """Process nested numerical sequence with optional forward fill.

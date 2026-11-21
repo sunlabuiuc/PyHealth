@@ -60,6 +60,7 @@ from torch import Tensor, nn
 from pyhealth.datasets import SampleDataset
 from pyhealth.models.base_model import BaseModel
 from pyhealth.models.survival_mdn import _value_tensor as _first
+from pyhealth.processors import LabelProcessor
 
 __all__ = ["TrajSurv", "cox_partial_likelihood_loss", "rank_n_contrast_loss"]
 
@@ -260,9 +261,9 @@ class TrajSurv(BaseModel):
 
     The input is an hourly multivariate series, such as the ``dynamic``
     field of :class:`~pyhealth.tasks.InHospitalSurvivalMIMIC4`
-    (a :class:`~pyhealth.processors.SequenceProcessorV2` series, already
+    (a :class:`~pyhealth.processors.JaggedFeatureProcessor` series, already
     imputed and standardized by the processor) or a dense ``[T, F]`` tensor.
-    Only single-level ``sequence_v2`` series are supported; every series
+    Only single-level ``jagged`` series are supported; every series
     needs at least one record.
     The CDE's control path has ``1 + 2F`` channels: time (divided by
     ``time_scale``), the ``F`` values, and for each feature the fraction of
@@ -335,6 +336,12 @@ class TrajSurv(BaseModel):
         Machine Learning for Healthcare, 2025.
     """
 
+    @property
+    def label_processors(self) -> dict[str, LabelProcessor]:
+        """None: the survival outputs are scored by the model, not as a label,
+        so the Trainer reports only the loss."""
+        return {}
+
     def __init__(
         self,
         dataset: SampleDataset,
@@ -356,7 +363,6 @@ class TrajSurv(BaseModel):
         time_grid: Tensor | None = None,
     ) -> None:
         super().__init__(dataset)
-        self.mode = None
         for key in (feature_key, static_key, alignment_key):
             if key is not None and key not in dataset.input_schema:
                 raise ValueError(f"{key!r} is not in dataset.input_schema")
@@ -452,7 +458,7 @@ class TrajSurv(BaseModel):
         if "values" not in roles:
             raise ValueError(f"{key!r} has no values; TrajSurv needs numeric series")
         if any(isinstance(entry, tuple) for entry in entries):
-            # SequenceProcessorV2's collate appends the offsets of the packed
+            # JaggedFeatureProcessor's collate appends the offsets of the packed
             # records after the schema's tensors.
             roles.setdefault("offsets", len(entries))
         return roles

@@ -98,7 +98,7 @@ class EHRMambaCEHR(BaseModel):
             ]
         )
         self.dropout = nn.Dropout(dropout)
-        out_dim = self.get_output_size()
+        out_dim = self.label_processor.output_size()
         self.fc = nn.Linear(embedding_dim, out_dim)
         self._forecasting_head: Optional[nn.Module] = None
 
@@ -131,8 +131,8 @@ class EHRMambaCEHR(BaseModel):
         y_true = kwargs[self.label_key].to(self.device).float()
         if y_true.dim() == 1:
             y_true = y_true.unsqueeze(-1)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
+        loss = self.label_processor.loss(logits, y_true)
+        y_prob = self.label_processor.activation(logits)
         return {
             "loss": loss,
             "y_prob": y_prob,

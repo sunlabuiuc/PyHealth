@@ -18,6 +18,7 @@ from pyhealth.medcode import ATC
 from pyhealth.datasets import SampleDataset
 
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
+from pyhealth.models.utils import save_ddi_adj
 
 
 def _import_ogb(min_version: str = "1.3.5") -> None:
@@ -584,11 +585,6 @@ class MoleRec(BaseModel):
         else:
             raise ValueError(f"MoleRec requires exactly one label key, but got {self.label_keys}")
         
-        if not hasattr(self, 'mode') or not self.mode:
-            if self.label_key in self.dataset.output_schema:
-                self.mode = self._resolve_mode(self.dataset.output_schema[self.label_key])
-            else:
-                self.mode = "multilabel"
 
         try:
             _import_ogb("1.3.5")
@@ -673,7 +669,9 @@ class MoleRec(BaseModel):
     
             # save ddi adj
         ddi_adj = self.generate_ddi_adj()
-        np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj.numpy())
+        self.ddi_adj_matrix = save_ddi_adj(
+            ddi_adj, os.path.join(CACHE_PATH, "ddi_adj.npy")
+        )
 
     def generate_ddi_adj(self) -> torch.FloatTensor:
         """Generates the DDI graph adjacency matrix."""

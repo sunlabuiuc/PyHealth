@@ -1,0 +1,17 @@
+version: "1.0"
+tables:
+  series:
+    file_path: "chaos-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "record_id"
+      - "series_path"
+      - "mask_dir"
+      - "modality"
+      - "sequence"
+      - "phase"
+      - "split"
+      - "n_slices"
+      - "n_masks"
+      - "has_mask"

@@ -7,6 +7,8 @@ from .base_task import BaseTask
 class MedicalTranscriptionsClassification(BaseTask):
     """Task for classifying medical transcriptions into medical specialties.
 
+    Works with :class:`~pyhealth.datasets.MedicalTranscriptionsDataset`.
+
     This task takes medical transcription text as input and predicts the
     corresponding medical specialty. It processes patient records containing
     mtsamples events and extracts transcription and medical specialty

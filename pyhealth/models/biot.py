@@ -287,7 +287,7 @@ class BIOT(BaseModel):
                  **kwargs):
         super().__init__(dataset=dataset)
         _get_linear_attention_transformer()
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.biot = BIOTClassifier(emb_size=emb_size,
                                    heads=heads,
                                    depth=depth,
@@ -336,9 +336,9 @@ class BIOT(BaseModel):
         label_key = self.label_keys[0]
         y_true = kwargs[label_key].to(self.device)
         
-        loss_fn = self.get_loss_function()
+        loss_fn = self.label_processor.loss
         loss = loss_fn(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
+        y_prob = self.label_processor.activation(logits)
         
         results = {
             "loss": loss,

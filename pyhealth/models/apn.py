@@ -13,7 +13,6 @@ details such as the default sizes.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
 from typing import Any
 
 import torch
@@ -21,6 +20,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from ..datasets import SampleDataset
+from ..processors import LabelProcessor, RegressionLabelProcessor
 from .base_model import BaseModel
 
 
@@ -239,8 +239,6 @@ class APN(BaseModel):
             raise ValueError("APN expects exactly one label field (the targets).")
         self.label_key = self.label_keys[0]
         self.value_key, self.time_key, self.query_key = value_key, time_key, query_key
-        # The Trainer scores the flattened observed targets as a regression.
-        self.mode = "regression"
         self.num_variables = self._num_variables(dataset)
         self.hidden_dim = hidden_dim
         self.num_patches = num_patches
@@ -329,35 +327,25 @@ class APN(BaseModel):
             out["y_prob"] = forecast
         return out
 
-    def get_loss_function(self) -> Callable[..., torch.Tensor]:
-        """Returns :func:`masked_mse`, the loss that :meth:`forward` uses.
+    @property
+    def label_processors(self) -> dict[str, LabelProcessor]:
+        """The forecasts, scored as a regression with :func:`masked_mse`.
 
-        The label is a ``"tensor"`` field, which :class:`BaseModel` cannot map
-        to a loss, so APN supplies its own.
-
-        Returns:
-            :func:`masked_mse`.
-
-        Examples:
-            >>> model.get_loss_function() is masked_mse  # doctest: +SKIP
-            True
-        """
-        return masked_mse
-
-    def prepare_y_prob(self, logits: torch.Tensor) -> torch.Tensor:
-        """Returns the forecasts unchanged; a regression has no link function.
-
-        Args:
-            logits: Forecasts of any shape.
-
-        Returns:
-            ``logits``.
+        The label is a ``"tensor"`` field, which is not a label processor, so
+        APN supplies its own: the Trainer scores the observed targets as a
+        regression.
 
         Examples:
-            >>> model.prepare_y_prob(torch.zeros(2, 3, 4)).shape  # doctest: +SKIP
-            torch.Size([2, 3, 4])
+            >>> model.label_processor.loss(pred, target)  # doctest: +SKIP
         """
-        return logits
+        return {self.label_key: _ForecastLabel()}
+
+
+class _ForecastLabel(RegressionLabelProcessor):
+    """A regression over the observed (finite) targets of a forecast."""
+
+    def loss(self, logits: torch.Tensor, y_true: Any, **kwargs: Any) -> torch.Tensor:
+        return masked_mse(logits, y_true)
 
 
 def masked_mse(prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:

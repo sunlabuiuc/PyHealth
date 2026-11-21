@@ -342,9 +342,14 @@ class TestAPN(unittest.TestCase):
     def test_loss_and_probability_helpers(self):
         dataset = _dataset(_synthetic_samples(n=8))
         model = APN(dataset, hidden_dim=8, num_patches=4, time_dim=4)
-        self.assertIs(model.get_loss_function(), masked_mse)
+        self.assertEqual(model.mode, "regression")
         logits = torch.randn(2, 3, 3)
-        self.assertIs(model.prepare_y_prob(logits), logits)
+        target = torch.randn(2, 3, 3)
+        target[0, 0, 0] = float("nan")
+        torch.testing.assert_close(
+            model.label_processor.loss(logits, target), masked_mse(logits, target)
+        )
+        self.assertIs(model.label_processor.activation(logits), logits)
 
     def test_forward_backward_and_inference(self):
         dataset = _dataset(_synthetic_samples(n=8))

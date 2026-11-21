@@ -9,6 +9,8 @@ from .base_task import BaseTask
 class InHospitalMortalityMIMIC4(BaseTask):
     """Task for predicting in-hospital mortality using MIMIC-IV dataset.
 
+    Works with :class:`~pyhealth.datasets.MIMIC4EHRDataset`.
+
     This task leverages lab results to predict the likelihood of in-hospital
     mortality.
 

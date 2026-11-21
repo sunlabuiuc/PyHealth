@@ -185,6 +185,9 @@ class TestTrajSurvModel(unittest.TestCase):
     def test_forward_backward_and_outputs(self):
         dataset = _dense_dataset(n=8)
         model = TrajSurv(dataset, feature_key="series", hidden_dim=8)
+        # No label processor: the Trainer reports only the loss.
+        self.assertEqual(model.label_processors, {})
+        self.assertIsNone(model.mode)
         self.assertEqual(model.input_channels, 4)  # time + 3 features, no mask
         batch = next(iter(get_dataloader(dataset, batch_size=4)))
         out = model(**batch)

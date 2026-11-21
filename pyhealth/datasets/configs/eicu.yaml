@@ -195,5 +195,173 @@ tables:
       - "admitdxname"
       - "admitdxtext"
 
+  vitalperiodic:
+    file_path: "vitalPeriodic.csv"
+    patient_id: "uniquepid"
+    timestamp: null
+    join:
+      - file_path: "patient.csv"
+        "on": "patientunitstayid"
+        how: "inner"
+        columns:
+          - "uniquepid"
+          - "patienthealthsystemstayid"
+          - "unitvisitnumber"
+          - "hospitaladmitoffset"
+          - "hospitaldischargeoffset"
+          - "unitdischargeoffset"
+          - "hospitaldischargeyear"
+          - "hospitaldischargestatus"
+    attributes:
+      - "patientunitstayid"
+      - "observationoffset"
+      - "temperature"
+      - "sao2"
+      - "heartrate"
+      - "respiration"
+      - "systemicsystolic"
+      - "systemicdiastolic"
+      - "systemicmean"
 
+  vitalaperiodic:
+    file_path: "vitalAperiodic.csv"
+    patient_id: "uniquepid"
+    timestamp: null
+    join:
+      - file_path: "patient.csv"
+        "on": "patientunitstayid"
+        how: "inner"
+        columns:
+          - "uniquepid"
+          - "patienthealthsystemstayid"
+          - "unitvisitnumber"
+          - "hospitaladmitoffset"
+          - "hospitaldischargeoffset"
+          - "unitdischargeoffset"
+          - "hospitaldischargeyear"
+          - "hospitaldischargestatus"
+    attributes:
+      - "patientunitstayid"
+      - "observationoffset"
+      - "noninvasivesystolic"
+      - "noninvasivediastolic"
+      - "noninvasivemean"
 
+  intakeoutput:
+    file_path: "intakeOutput.csv"
+    patient_id: "uniquepid"
+    timestamp: null
+    join:
+      - file_path: "patient.csv"
+        "on": "patientunitstayid"
+        how: "inner"
+        columns:
+          - "uniquepid"
+          - "patienthealthsystemstayid"
+          - "unitvisitnumber"
+          - "hospitaladmitoffset"
+          - "hospitaldischargeoffset"
+          - "unitdischargeoffset"
+          - "hospitaldischargeyear"
+          - "hospitaldischargestatus"
+    attributes:
+      - "patientunitstayid"
+      - "intakeoutputoffset"
+      - "celllabel"
+      - "cellvaluenumeric"
+
+  respiratorycharting:
+    file_path: "respiratoryCharting.csv"
+    patient_id: "uniquepid"
+    timestamp: null
+    join:
+      - file_path: "patient.csv"
+        "on": "patientunitstayid"
+        how: "inner"
+        columns:
+          - "uniquepid"
+          - "patienthealthsystemstayid"
+          - "unitvisitnumber"
+          - "hospitaladmitoffset"
+          - "hospitaldischargeoffset"
+          - "unitdischargeoffset"
+          - "hospitaldischargeyear"
+          - "hospitaldischargestatus"
+    attributes:
+      - "patientunitstayid"
+      - "respchartoffset"
+      - "respcharttypecat"
+      - "respchartvaluelabel"
+      - "respchartvalue"
+
+  nursecharting:
+    file_path: "nurseCharting.csv"
+    patient_id: "uniquepid"
+    timestamp: null
+    join:
+      - file_path: "patient.csv"
+        "on": "patientunitstayid"
+        how: "inner"
+        columns:
+          - "uniquepid"
+          - "patienthealthsystemstayid"
+          - "unitvisitnumber"
+          - "hospitaladmitoffset"
+          - "hospitaldischargeoffset"
+          - "unitdischargeoffset"
+          - "hospitaldischargeyear"
+          - "hospitaldischargestatus"
+    attributes:
+      - "patientunitstayid"
+      - "nursingchartoffset"
+      - "nursingchartcelltypevalname"
+      - "nursingchartvalue"
+
+  infusiondrug:
+    file_path: "infusionDrug.csv"
+    patient_id: "uniquepid"
+    timestamp: null
+    join:
+      - file_path: "patient.csv"
+        "on": "patientunitstayid"
+        how: "inner"
+        columns:
+          - "uniquepid"
+          - "patienthealthsystemstayid"
+          - "unitvisitnumber"
+          - "hospitaladmitoffset"
+          - "hospitaldischargeoffset"
+          - "unitdischargeoffset"
+          - "hospitaldischargeyear"
+          - "hospitaldischargestatus"
+    attributes:
+      - "patientunitstayid"
+      - "infusionoffset"
+      - "drugname"
+      - "drugrate"
+      - "patientweight"
+
+  respiratorycare:
+    file_path: "respiratoryCare.csv"
+    patient_id: "uniquepid"
+    timestamp: null
+    join:
+      - file_path: "patient.csv"
+        "on": "patientunitstayid"
+        how: "inner"
+        columns:
+          - "uniquepid"
+          - "patienthealthsystemstayid"
+          - "unitvisitnumber"
+          - "hospitaladmitoffset"
+          - "hospitaldischargeoffset"
+          - "unitdischargeoffset"
+          - "hospitaldischargeyear"
+          - "hospitaldischargestatus"
+    attributes:
+      - "patientunitstayid"
+      - "respcarestatusoffset"
+      - "ventstartoffset"
+      - "ventendoffset"
+      - "priorventstartoffset"
+      - "priorventendoffset"

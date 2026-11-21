@@ -784,7 +784,7 @@ class TFMTokenizer(BaseModel):
         )
 
         if use_classifier:
-            output_size = self.get_output_size()
+            output_size = self.label_processor.output_size()
             self.classifier = TFM_TOKEN_Classifier(
                 emb_size=emb_size,
                 code_book_size=code_book_size,
@@ -835,10 +835,10 @@ class TFMTokenizer(BaseModel):
 
             # Reshape tokens to (B, C, T) for multi-channel classifier
             logits = self.classifier(tokens_reshaped, num_ch=C)
-            loss_fn = self.get_loss_function()
+            loss_fn = self.label_processor.loss
             cls_loss = loss_fn(logits, y_true)
             total_loss = recon_loss + vq_loss + cls_loss
-            y_prob = self.prepare_y_prob(logits)
+            y_prob = self.label_processor.activation(logits)
 
             results.update(
                 {

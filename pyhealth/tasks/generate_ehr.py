@@ -132,6 +132,8 @@ def _mimic_visits(
 class EHRGenerationMIMIC3(BaseTask):
     """Per-visit ICD-9 code sets from MIMIC-III as multi-hot rows. For HALO.
 
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
+
     HALO's transformer consumes a multi-hot vector per context position, so
     this hands it exactly that and nothing is repacked on the way in.
 
@@ -169,6 +171,8 @@ class EHRGenerationMIMIC3(BaseTask):
 class EHRGenerationMIMIC4(BaseTask):
     """Per-visit ICD code sets from MIMIC-IV as multi-hot rows. For HALO.
 
+    Works with :class:`~pyhealth.datasets.MIMIC4Dataset`.
+
     MIMIC-IV's diagnosis codes live on ``icd_code`` rather than MIMIC-III's
     ``icd9_code``; otherwise identical to :class:`EHRGenerationMIMIC3`.
 
@@ -204,6 +208,8 @@ class EHRGenerationMIMIC4(BaseTask):
 
 class EHRSequenceGenerationMIMIC3(BaseTask):
     """Per-visit ICD-9 code indices from MIMIC-III. For GPT2 and PromptEHR.
+
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
 
     Both are token-sequence models: they flatten each visit into a stream of
     code ids, so indices are what they want. Handing them the multi-hot form
@@ -241,6 +247,8 @@ class EHRSequenceGenerationMIMIC3(BaseTask):
 class EHRSequenceGenerationMIMIC4(BaseTask):
     """Per-visit ICD code indices from MIMIC-IV. For GPT2 and PromptEHR.
 
+    Works with :class:`~pyhealth.datasets.MIMIC4Dataset`.
+
     Examples:
         >>> from pyhealth.datasets import MIMIC4Dataset
         >>> from pyhealth.tasks import EHRSequenceGenerationMIMIC4
@@ -273,6 +281,8 @@ class EHRSequenceGenerationMIMIC4(BaseTask):
 
 class EHRCodeSetGenerationMIMIC3(BaseTask):
     """One pooled ICD-9 code set per MIMIC-III patient. For MedGAN and CorGAN.
+
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
 
     Bag-of-codes generators emit a single aggregate vector per patient, so the
     visit axis is collapsed here rather than inside the model. ``min_visits``
@@ -313,6 +323,8 @@ class EHRCodeSetGenerationMIMIC3(BaseTask):
 
 class EHRCodeSetGenerationMIMIC4(BaseTask):
     """One pooled ICD code set per MIMIC-IV patient. For MedGAN and CorGAN.
+
+    Works with :class:`~pyhealth.datasets.MIMIC4Dataset`.
 
     Examples:
         >>> from pyhealth.datasets import MIMIC4Dataset
