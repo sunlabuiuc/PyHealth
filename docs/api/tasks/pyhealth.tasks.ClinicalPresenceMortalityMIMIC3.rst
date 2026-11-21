@@ -39,7 +39,9 @@ Load the dataset with ``MIMIC3Dataset(root, tables=["labevents"])``, the
 - **Groups.** ``black`` (ethnicity contains "BLACK"), ``female``, and
   ``public_insurance`` (any insurance other than Private, so Self Pay counts as
   public). 1 marks the marginalised group. The flags travel with each sample
-  for evaluation and are never features.
+  for evaluation and are never features, but the Group strategies use them as
+  imputation predictors, so they reach the classifier indirectly, through the
+  imputed labs.
 
 Imputation needs the whole cohort, so the task's ``pre_filter`` runs it once,
 before the samples are written. It assigns a seeded patient split, 80/10/10 by

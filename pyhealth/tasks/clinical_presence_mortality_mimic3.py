@@ -9,7 +9,9 @@ first 24 hours, with missing values imputed at the cohort level (median, MICE,
 group MICE, a corrected version of either, or MissForest-style; fit on training
 patients only, or on the reference code's pool). The label is in-hospital death
 within 8 days of admission. Black, female and public-insurance flags travel
-with each sample for subgroup evaluation, but are never features.
+with each sample for subgroup evaluation. They are never features, but the
+group strategies use them as imputation predictors, so they reach the
+classifier indirectly, through the imputed labs.
 
 Dataset link:
     https://physionet.org/content/mimiciii/1.4/
@@ -628,7 +630,9 @@ class ClinicalPresenceMortalityMIMIC3(BaseTask):
           training range.
 
     ``add_missing_indicators=True`` gives the paper's "Missing" variants, such
-    as Group MICE Missing. The group flags are never features.
+    as Group MICE Missing. The group flags are never features, but the
+    ``group_*`` strategies use them as imputation predictors, so they reach the
+    classifier indirectly, through the imputed labs.
 
     Differences from the reference code: the index admission is the latest by
     admission time; the label uses ``hospital_expire_flag`` and the discharge
