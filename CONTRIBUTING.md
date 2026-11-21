@@ -59,43 +59,4 @@ A pull request switches to `status: manual`:
   The first time, the review asks for changes and warns you. If a later
   review finds the same problem, the pull request switches to manual.
 
-It never switches to manual because it is too large for AI review (clear
-notebook outputs or split the pull request, then comment `/review` again),
-because you pushed during a review (the new commit is reviewed instead), or
-because a review couldn't finish (comment `/review` to try again).
-
-For non-trivial changes, please discuss them in an issue first.
-
-## Submit an Issue
-
-[Submit an issue](https://github.com/sunlabuiuc/PyHealth/issues) on GitHub to
-report a bug or propose a new feature. For bug reports, please include:
-
-- A quick summary
-- Steps to reproduce (with sample code if possible)
-- What you expected to happen
-- What actually happens
-- Why you think this might be happening, and anything you tried that did not work
-
-## PR Contribution Rules (enforced in CI)
-
-Any pull request that modifies a file under `pyhealth/` must:
-
-- Keep newly added/modified lines free of [ruff](https://docs.astral.sh/ruff/)
-  lint violations (`ruff check`, 88-char line length). Pre-existing lint
-  issues elsewhere in a touched file are not blocked.
-- Give every new or modified top-level public class/function a `>>>` usage
-  example in its docstring, so it renders as example code in the API docs.
-
-These rules are checked by `.github/workflows/pr_contribution_rules.yml`,
-which runs `tools/check_pr_rules.py`. You can run the same check locally:
-
-```bash
-python tools/check_pr_rules.py --base <base_sha> --head HEAD
-```
-
-## Community
-
-Join our
-[Slack workspace](https://join.slack.com/t/pyhealthworkspace/shared_invite/zt-1j8h4da47-ZZWENUYax7SlgCRHNyL2DQ)
-to ask questions, discuss ideas, and share your work.
+It never switches to manual because it is

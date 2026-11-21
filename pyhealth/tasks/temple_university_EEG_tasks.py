@@ -62,6 +62,8 @@ class EEGEventsTUEV(BaseTask):
       - "signal": np.ndarray, shape (16, 256*5)
       - "offending_channel": int
       - "label": int
+      - "split": str, "train" or "eval", the dataset's official partition.
+        Used by pyhealth.datasets.split_by_predefined.
 
     Examples:
         >>> from pyhealth.datasets import TUEVDataset
@@ -189,7 +191,8 @@ class EEGEventsTUEV(BaseTask):
         Iterates over both 'train' and 'eval' splits.
         Each sample includes a 'split' field and a precomputed 'stft' tensor.
 
-        Expected patient events to include a `signal_file` attribute pointing to an .edf file.
+        Expected patient events to include a `signal_file` attribute pointing to
+        an .edf file.
         """
         pid = patient.patient_id
         samples: List[Dict[str, Any]] = []
@@ -258,6 +261,8 @@ class EEGAbnormalTUAB(BaseTask):
     Each returned sample contains:
       - "signal": np.ndarray, shape (16, 2000)
       - "label": int (0 = normal, 1 = abnormal)
+      - "split": str, "train" or "eval", the dataset's official partition.
+        Used by pyhealth.datasets.split_by_predefined.
 
     Examples:
         >>> from pyhealth.datasets import TUABDataset
@@ -389,8 +394,9 @@ class EEGAbnormalTUAB(BaseTask):
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Processes one patient. Creates one 10-second window sample per segment.
 
-        Iterates over both 'train' and 'eval' splits. 
-        Each sample includes a 'split' field and, when compute_stft=True, a precomputed 'stft' tensor.
+        Iterates over both 'train' and 'eval' splits.
+        Each sample includes a 'split' field and, when compute_stft=True, a
+        precomputed 'stft' tensor.
         """
         pid = patient.patient_id
         samples: List[Dict[str, Any]] = []
@@ -451,7 +457,3 @@ class EEGAbnormalTUAB(BaseTask):
                     )
 
         return samples
-            
-    
-    
-    
