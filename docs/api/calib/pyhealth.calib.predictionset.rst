@@ -30,6 +30,7 @@ Available Methods
    pyhealth.calib.predictionset.RC3P
    pyhealth.calib.predictionset.ClusterLabel
    pyhealth.calib.predictionset.NeighborhoodLabel
+   pyhealth.calib.predictionset.GroupConditionalConformal
 
 BaseConformal (Standard Split Conformal Prediction)
 ----------------------------------------------------
@@ -153,6 +154,14 @@ NeighborhoodLabel (Neighborhood Conformal Prediction)
    larger alpha; below it, a larger ``k_neighbors`` can also help.
 
 .. autoclass:: pyhealth.calib.predictionset.NeighborhoodLabel
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+GroupConditionalConformal (Fair / Group-Conditional Conformal Prediction)
+--------------------------------------------------------------------------
+
+.. autoclass:: pyhealth.calib.predictionset.GroupConditionalConformal
    :members:
    :undoc-members:
    :show-inheritance:

@@ -36,7 +36,7 @@ from .improver import (
     select_trial,
 )
 from .knowledge import Document, Evidence, KnowledgeBase, parse_effect, pubmed_query
-from .llm import LLM, ClaudeLLM
+from .llm import LLM, ClaudeLLM, GeminiLLM, OpenAILLM
 from .proposers import (
     STRATEGIES,
     LLMProposer,
@@ -73,10 +73,12 @@ __all__ = [
     "EvidenceProposer",
     "FeatureSpace",
     "FeatureSpec",
+    "GeminiLLM",
     "ImproveResult",
     "KnowledgeBase",
     "LLMProposer",
     "ModelSpec",
+    "OpenAILLM",
     "Param",
     "PipelineConfig",
     "Proposer",
