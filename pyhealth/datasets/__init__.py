@@ -127,8 +127,6 @@ from .splitter import (
     split_by_subject as split_by_subject,
     split_by_visit as split_by_visit,
     split_by_visit_conformal as split_by_visit_conformal,
-    split_by_visit,
-    split_by_visit_conformal,
 )
 from .gold_test_split import GoldTestSplit as GoldTestSplit
 from .mimic4_imagenome import MIMIC4ImaGenomeDataset as MIMIC4ImaGenomeDataset
