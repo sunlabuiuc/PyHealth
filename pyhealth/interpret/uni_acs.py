@@ -17,16 +17,7 @@ def find_novel_breakpoints(
     shap_values: np.ndarray,
     n_bins: int = 50,
 ) -> np.ndarray:
-    """Find feature boundaries from zero crossings of smoothed SHAP values.
-
-    Args:
-        values: Feature values for training samples.
-        shap_values: SHAP contributions for the same samples.
-        n_bins: Number of bins used to smooth the SHAP relationship.
-
-    Returns:
-        Sorted breakpoints separating different risk regions.
-    """
+    """Find breakpoints from zero crossings of a smoothed SHAP curve."""
     values = np.asarray(values, dtype=float)
     shap_values = np.asarray(shap_values, dtype=float)
 
@@ -36,37 +27,62 @@ def find_novel_breakpoints(
         raise ValueError("Inputs must be finite.")
     if n_bins < 3:
         raise ValueError("n_bins must be at least 3.")
-
     if np.unique(values).size < 3:
         return np.array([])
 
-    # Calculate average SHAP contributions within equal-width bins
-    edges = np.linspace(values.min(), values.max(), n_bins + 1)
-    centers = (edges[:-1] + edges[1:]) / 2
+    order = np.argsort(values)
+    values = values[order]
+    shap_values = shap_values[order]
 
-    groups = np.searchsorted(edges[1:-1], values, side="right")
-    counts = np.bincount(groups, minlength=n_bins)
-    totals = np.bincount(groups, weights=shap_values, minlength=n_bins)
+    # Follow the original moving-average construction
+    xs = np.linspace(values[0], values[-1], n_bins)
+    x = [xs[0]]
+    y = [shap_values[0]]
 
-    valid = counts > 0
-    means = np.full(n_bins, np.nan)
-    means[valid] = totals[valid] / counts[valid]
-    means = np.interp(centers, centers[valid], means[valid])
+    for i in range(1, n_bins):
+        left, right = xs[i - 1], xs[i]
 
-    # Smooth the SHAP curve and locate zero crossings
-    xs = np.linspace(centers[0], centers[-1], 100)
-    ys = np.asarray(csaps(centers, means, xs, smooth=0.5)).ravel()
+        if i == n_bins - 1:
+            mask = (values >= left) & (values <= right)
+        else:
+            mask = (values >= left) & (values < right)
 
-    changes = np.where(np.signbit(ys[:-1]) != np.signbit(ys[1:]))[0]
+        x.append((left + right) / 2)
+        y.append(shap_values[mask].mean() if mask.any() else np.nan)
+
+    x.append(xs[-1])
+    y.append(shap_values[-1])
+
+    # Interpolate missing bins using array positions
+    y = np.asarray(y, dtype=float)
+    indices = np.arange(len(y))
+    valid = np.isfinite(y)
+    y = np.interp(indices, indices[valid], y[valid])
+
+    # Automatically select spline smoothing
+    spline_x = np.linspace(x[0], x[-1], 100)
+    result = csaps(x, y, spline_x)
+    spline_y = np.asarray(result.values).ravel()
+
+    # Find crossings of the zero-SHAP baseline
+    changes = np.where(np.sign(spline_y[1:]) !=
+                       np.sign(spline_y[:-1]))[0]
+
     breakpoints = []
+    start = spline_x[0]
 
     for i in changes:
-        x1, x2 = xs[i], xs[i + 1]
-        y1, y2 = ys[i], ys[i + 1]
+        x1, x2 = spline_x[i], spline_x[i + 1]
+        y1, y2 = spline_y[i], spline_y[i + 1]
+
+        if y2 == y1:
+            continue
+
         crossing = x1 - y1 * (x2 - x1) / (y2 - y1)
 
-        if np.any(values <= crossing) and np.any(values > crossing):
+        if np.any((values >= start) & (values <= crossing)):
             breakpoints.append(crossing)
+            start = crossing
 
     return np.unique(breakpoints)
 
