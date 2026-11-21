@@ -111,9 +111,9 @@ class LARS(Optimizer):
 
 
 def default_device() -> str:
-    if torch.cuda.is_available():
-        return "cuda"
-    return "mps" if torch.backends.mps.is_available() else "cpu"
+    """CUDA if available, else CPU; MPS only with ``--device mps``, since it
+    crashes on some macOS and torch versions."""
+    return "cuda" if torch.cuda.is_available() else "cpu"
 
 
 def with_images(batch: dict, transform, table=None) -> dict:
