@@ -76,6 +76,18 @@ class MIMICExtractBinaryTask(BaseTask):
         ValueError: If ``variables`` is empty, ``window_hours`` is not
             positive, ``gap_hours`` is negative, or ``aggregates`` is empty or
             contains an unknown name.
+
+    Examples:
+        Subclasses set ``task_name`` and implement :meth:`label`:
+
+        >>> from pyhealth.tasks import MIMICExtractBinaryTask
+        >>> class ProlongedICUStay(MIMICExtractBinaryTask):
+        ...     task_name = "ProlongedICUStay"
+        ...     def label(self, stay):
+        ...         return int(float(stay["los_icu"]) > 14)
+        >>> task = ProlongedICUStay(variables=["heart rate"], window_hours=12)
+        >>> task.window_hours, task.output_schema
+        (12, {'label': 'binary'})
     """
 
     input_schema: ClassVar[dict[str, str]] = {"features": "tensor"}
