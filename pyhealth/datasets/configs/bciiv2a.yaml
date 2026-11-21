@@ -1,0 +1,14 @@
+version: "1.0"
+tables:
+  sessions:
+    # Template: BCICompetitionIV2aDataset writes a resolved copy whose
+    # file_path names the derived metadata CSV in its metadata cache directory.
+    file_path: "bciiv2a-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "record_id"
+      - "subject_id"
+      - "session"
+      - "split"
+      - "signal_file"

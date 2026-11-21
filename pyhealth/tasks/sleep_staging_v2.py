@@ -1,6 +1,8 @@
-from typing import Any, Dict
+from typing import Any, ClassVar
 
 import mne
+import numpy as np
+import torch
 
 from pyhealth.tasks import BaseTask
 
@@ -42,8 +44,8 @@ class SleepStagingSleepEDF(BaseTask):
     """
 
     task_name: str = "SleepStaging"
-    input_schema: Dict[str, str] = {"signal": "tensor"}
-    output_schema: Dict[str, str] = {"label": "multiclass"}
+    input_schema: ClassVar[dict[str, str]] = {"signal": "tensor"}
+    output_schema: ClassVar[dict[str, str]] = {"label": "multiclass"}
 
     def __init__(self, chunk_duration: float = 30.0):
         """Initializes the SleepStagingSleepEDF task.
@@ -155,4 +157,163 @@ class SleepStagingSleepEDF(BaseTask):
                     }
                 )
 
+        return samples
+
+
+class SleepStagingSequenceSleepEDF(BaseTask):
+    """Sequence-to-sequence sleep staging on Sleep EDF, AASM stages.
+
+    Works with :class:`~pyhealth.datasets.SleepEDFDataset`.
+
+    Each sample is ``seq_len`` consecutive 30 s epochs of one EEG channel,
+    labeled with the AASM stage of every epoch: W=0, N1=1, N2=2, N3=3, REM=4.
+    The Rechtschaffen and Kales stages 3 and 4 are merged into N3. This is the
+    input of sequence models such as DeepSleepNet and SalientSleepNet, and of
+    SleepKD (Liang et al., IJCAI 2023), which use 20-epoch sequences of
+    Fpz-Cz at 100 Hz.
+
+    Epochs scored "Sleep stage ?" or "Movement time" are not used, and a
+    window never spans one: windows are cut from runs of consecutive scored
+    epochs, and the end of a run shorter than a window is dropped. Wake
+    before the first and after the last sleep epoch is trimmed to
+    ``wake_edge_minutes``, as in DeepSleepNet's preprocessing.
+
+    ``signal`` is in microvolts, the unit DeepSleepNet was trained on (MNE
+    reads volts). EEG is about 1e-5 V, so in volts the first convolution's
+    output variance falls far below BatchNorm's ``eps``.
+
+    Attributes:
+        task_name (str): The name of the task, "SleepStagingSequence".
+        input_schema (dict[str, str]): ``{"signal": "tensor"}``, a float array
+            of shape ``(seq_len, 1, 30 * sfreq)``.
+        output_schema (dict[str, Any]): ``{"label": "tensor"}`` (``torch.long``),
+            the ``(seq_len,)`` stage of each epoch. The labels are a tensor rather than a
+            ``timeseries_multiclass`` label because sequence models such as
+            DeepSleepNet are bidirectional: each epoch's prediction uses the
+            later epochs of the window too.
+
+    Examples:
+        >>> from pyhealth.datasets import SleepEDFDataset
+        >>> from pyhealth.tasks import SleepStagingSequenceSleepEDF
+        >>> dataset = SleepEDFDataset(
+        ...     root="/path/to/sleep-edf-database-expanded-1.0.0",
+        ...     subset="cassette",
+        ... )
+        >>> samples = dataset.set_task(SleepStagingSequenceSleepEDF(seq_len=20))
+    """
+
+    task_name: str = "SleepStagingSequence"
+    input_schema: ClassVar[dict[str, str]] = {"signal": "tensor"}
+    output_schema: ClassVar[dict[str, Any]] = {
+        "label": ("tensor", {"dtype": torch.long})
+    }
+
+    EPOCH_SECONDS: float = 30.0
+    STAGES: ClassVar[dict[str, int]] = {
+        "Sleep stage W": 0,
+        "Sleep stage 1": 1,
+        "Sleep stage 2": 2,
+        "Sleep stage 3": 3,
+        "Sleep stage 4": 3,
+        "Sleep stage R": 4,
+    }
+
+    def __init__(
+        self,
+        seq_len: int = 20,
+        stride: int | None = None,
+        channel: str = "EEG Fpz-Cz",
+        wake_edge_minutes: float | None = 30.0,
+    ):
+        """Initializes the SleepStagingSequenceSleepEDF task.
+
+        Args:
+            seq_len (int): Number of 30 s epochs in a sample. Default is 20.
+            stride (int | None): Number of epochs between the starts of two
+                windows. Default is ``seq_len`` (non-overlapping windows).
+            channel (str): The EEG channel to use. Default is "EEG Fpz-Cz";
+                the cassette subset also has "EEG Pz-Oz".
+            wake_edge_minutes (float | None): Wake kept before the first and
+                after the last sleep epoch of a night, in minutes. ``None``
+                keeps the whole recording. Default is 30.
+        """
+        if seq_len < 1:
+            raise ValueError(f"seq_len must be at least 1, got {seq_len}.")
+        stride = seq_len if stride is None else stride
+        if stride < 1:
+            raise ValueError(f"stride must be at least 1, got {stride}.")
+        self.seq_len = seq_len
+        self.stride = stride
+        self.channel = channel
+        self.wake_edge_minutes = wake_edge_minutes
+        super().__init__()
+
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
+        """Cuts each night of the patient into ``seq_len``-epoch samples.
+
+        Args:
+            patient: A patient object containing SleepEDF data.
+
+        Returns:
+            samples: a list of samples, each a dict with patient_id, night,
+                start (the onset of the window in the recording, in
+                seconds), signal (a ``numpy.ndarray`` of shape
+                ``(seq_len, 1, 30 * sfreq)``) and label (a ``numpy.ndarray``
+                of ``seq_len`` stage codes).
+        """
+        samples = []
+        for event in patient.get_events():
+            data = mne.io.read_raw_edf(
+                event.signal_file,
+                include=[self.channel],
+                preload=True,
+                verbose="error",
+            )
+            ann = mne.read_annotations(event.label_file)
+            data.set_annotations(ann, emit_warning=False)
+            if not set(ann.description) & set(self.STAGES):
+                continue
+            # Stages 3 and 4 share code 3, so the event codes are the AASM codes.
+            events, _ = mne.events_from_annotations(
+                data,
+                event_id=self.STAGES,
+                chunk_duration=self.EPOCH_SECONDS,
+                verbose="error",
+            )
+            epoch_len = round(self.EPOCH_SECONDS * data.info["sfreq"])
+            starts = events[:, 0] - data.first_samp
+            labels = events[:, 2]
+            # An epoch must lie fully inside the recording; the last
+            # annotation often runs past its end.
+            keep = starts + epoch_len <= data.n_times
+            starts, labels = starts[keep], labels[keep]
+
+            if self.wake_edge_minutes is not None:
+                asleep = np.flatnonzero(labels != 0)
+                if asleep.size == 0:
+                    continue
+                edge = round(self.wake_edge_minutes * 60 * data.info["sfreq"])
+                lo = starts[asleep[0]] - edge
+                hi = starts[asleep[-1]] + edge
+                keep = (starts >= lo) & (starts <= hi)
+                starts, labels = starts[keep], labels[keep]
+
+            signal = data.get_data(picks=[self.channel])[0] * 1e6  # V -> uV
+            # Runs of consecutive epochs: a gap means an unscored epoch.
+            breaks = np.flatnonzero(np.diff(starts) != epoch_len) + 1
+            for run in np.split(np.arange(len(starts)), breaks):
+                for i in range(0, len(run) - self.seq_len + 1, self.stride):
+                    idx = run[i : i + self.seq_len]
+                    window = np.stack([signal[s : s + epoch_len] for s in starts[idx]])[
+                        :, None, :
+                    ].astype(np.float32)
+                    samples.append(
+                        {
+                            "patient_id": patient.patient_id,
+                            "night": event.night,
+                            "start": float(starts[idx[0]] / data.info["sfreq"]),
+                            "signal": window,
+                            "label": labels[idx].astype(np.int64),
+                        }
+                    )
         return samples
