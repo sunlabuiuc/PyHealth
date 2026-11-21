@@ -97,6 +97,8 @@ class TestConVIRT(unittest.TestCase):
         self.assertEqual(probe.linear.in_features, HIDDEN + 10)
         with self.assertRaises(ValueError):
             _convirt(self.dataset, cxr_backbone=nn.Identity())
+        with self.assertRaises(ValueError):
+            _convirt(self.dataset, cxr_backbone="resnet18", cxr_feature_dim=10)
 
     def test_forward_outputs(self) -> None:
         output = _convirt(self.dataset)(**self.batch)

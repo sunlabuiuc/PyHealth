@@ -193,9 +193,11 @@ class ConVIRT(BaseModel):
     Args:
         dataset: Sample dataset used for model configuration.
         ehr_feature_key: Input key of the EHR tensor ``[batch, time, dim]``.
-        cxr_feature_key: Key of the image tensor ``[batch, 3, H, W]`` in the
-            batch. It need not be a dataset input: a training loop can load
-            and augment the images of each batch and add them under this key.
+        cxr_feature_key: Key of the image input in the batch: an image tensor
+            ``[batch, 3, H, W]`` for a ResNet, or ``[batch, cxr_feature_dim]``
+            embeddings with ``cxr_backbone=nn.Identity()``. It need not be a
+            dataset input: a training loop can load the images (or look up
+            the embeddings) of each batch and add them under this key.
         ehr_hidden_dim: Hidden size of the LSTM.
         ehr_num_layers: Number of LSTM layers.
         projection_dim: Size of the embeddings the loss compares.
@@ -258,6 +260,11 @@ class ConVIRT(BaseModel):
         super().__init__(dataset=dataset)
         if temperature <= 0:
             raise ValueError("temperature must be positive.")
+        if isinstance(cxr_backbone, str) and cxr_feature_dim is not None:
+            raise ValueError(
+                "cxr_feature_dim is only for a module backbone; a ResNet sets "
+                "its own output size."
+            )
         if not isinstance(cxr_backbone, str):
             if cxr_feature_dim is None:
                 raise ValueError("cxr_feature_dim is required for a module.")
@@ -344,8 +351,10 @@ class ConVIRTLinearProbe(BaseModel):
 
     The encoders are copied from ``convirt``, frozen and kept in eval mode,
     and the projection heads are dropped. A single linear layer reads the
-    concatenated encoder outputs (``ehr_hidden_dim + 512`` features) and is
-    the only trained part, ``641`` parameters with the default sizes.
+    concatenated encoder outputs (``ehr_hidden_dim + cxr_dim`` features) and
+    is the only trained part. ``cxr_dim`` is 512 for a ResNet-34, giving
+    ``641`` parameters with the default sizes, or ``cxr_feature_dim`` for
+    precomputed embeddings (1,152 for MedSigLIP, giving 1,281 parameters).
 
     As the encoders are frozen and images are not augmented, the features can
     be computed once with :meth:`extract_features`, and the layer
@@ -422,7 +431,8 @@ class ConVIRTLinearProbe(BaseModel):
             dataloader: Dataloader of the dataset.
 
         Returns:
-            The features ``[samples, ehr_hidden_dim + 512]`` and the labels.
+            The features ``[samples, ehr_hidden_dim + cxr_dim]`` and the
+            labels.
 
         Examples:
             >>> features, labels = probe.extract_features(loader)  # doctest: +SKIP

@@ -40,7 +40,7 @@ built with ``cxr_backbone=nn.Identity()`` and ``cxr_feature_dim=1152``, each
 batch's image input is looked up by image file name, and ``--cxr-weights`` is
 not used. The stored vectors are fixed, so there is no image augmentation.
 
-Results (test set, 1 seed): AUROC 0.840 (95% CI 0.810-0.868), AUPRC 0.513.
+Results (test set): pending a real-data run of this script.
 Paper: AUROC 0.842 +- 0.004, AUPRC 0.515 +- 0.020.
 
 Deviation: frozen encoders stay in eval mode during training; MedFuse sets the
@@ -173,6 +173,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lr", type=float, default=9.515e-05)
     parser.add_argument("--patience", type=int, default=15)
     parser.add_argument("--seed", type=int, default=0)
+    # MPS only with --device mps: it crashes on some macOS and torch versions.
+    parser.add_argument(
+        "--device", default="cuda" if torch.cuda.is_available() else "cpu"
+    )
     args = parser.parse_args()
     real = (args.ehr_root, args.cxr_root, args.image_dir, args.cache_dir)
     if not args.synthetic and not all(real):
@@ -203,13 +207,15 @@ def main() -> None:
     table, image_encoder = None, {}
     if args.embeddings:
         table = load_embeddings(args.embeddings)[:2]
-        image_encoder = {"cxr_backbone": nn.Identity(),
-                         "cxr_feature_dim": table[1].shape[1]}
+        image_encoder = {
+            "cxr_backbone": nn.Identity(),
+            "cxr_feature_dim": table[1].shape[1],
+        }
     if len(weights) + bool(table) < 2:
         print("Encoders without MedFuse weights are random: smoke test only.")
     model = EHRCXREarlyFusion(
         train, freeze_encoders=not args.train_encoders, **weights, **image_encoder
-    )
+    ).to(args.device)
 
     trainable = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.Adam(trainable, lr=args.lr, betas=(0.9, 0.9))
