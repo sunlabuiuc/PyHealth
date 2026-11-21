@@ -485,6 +485,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `OpenNeuro <https://openneuro.org/datasets/ds005178>`__
      - No
      - —
+   * - :doc:`AHEPA Dementia EEG <datasets/pyhealth.datasets.AHEPADementiaDataset>`
+     - Open
+     - `OpenNeuro <https://openneuro.org/datasets/ds004504>`__
+     - No
+     - —
    * - :doc:`PAD-UFES-20 <datasets/pyhealth.datasets.PADUFES20Dataset>`
      - Open (CC BY 4.0)
      - `Mendeley Data <https://data.mendeley.com/datasets/zr7vgbcyr2/1>`__
@@ -651,6 +656,7 @@ Available Datasets
     datasets/pyhealth.datasets.HAM10000Dataset
     datasets/pyhealth.datasets.PhysioNetDeIDDataset
     datasets/pyhealth.datasets.EEGBCIDataset
+    datasets/pyhealth.datasets.AHEPADementiaDataset
     datasets/pyhealth.datasets.BCICompetitionIV2aDataset
     PTB-XL Dataset <datasets/pyhealth.datasets.PTBXLDataset>
     PhysioNet 2012 Dataset <datasets/pyhealth.datasets.PhysioNet2012Dataset>

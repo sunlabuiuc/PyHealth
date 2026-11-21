@@ -262,6 +262,7 @@ Available Tasks
     Ear-EEG Sleep Staging (EESM23) <tasks/pyhealth.tasks.SleepStagingEarEEG>
     IIIC Seizure Classification <tasks/pyhealth.tasks.iiic_seizure_classification>
     EEGBCI Tasks <tasks/pyhealth.tasks.eegbci>
+    AHEPA Dementia Classification <tasks/pyhealth.tasks.DementiaClassificationAHEPA>
     BCI Competition IV 2a Motor Imagery <tasks/pyhealth.tasks.BCIIV2aMotorImageryClassification>
     BCI Competition IV 2a Left vs Right Hand <tasks/pyhealth.tasks.BCIIV2aLeftRightImagery>
     PTB-XL Tasks <tasks/pyhealth.tasks.ptbxl>
