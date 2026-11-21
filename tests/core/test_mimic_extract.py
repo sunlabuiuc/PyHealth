@@ -250,7 +250,10 @@ class TestMIMICExtractDataset(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.root)
-        shutil.rmtree(cls.cache)
+        # litdata keeps the task cache memory-mapped after set_task, and
+        # Windows cannot delete mapped files, so cleanup there is best effort.
+        # Elsewhere (including CI) a failed cleanup still fails the test.
+        shutil.rmtree(cls.cache, ignore_errors=sys.platform == "win32")
 
     def test_patient_count(self):
         self.assertEqual(sorted(self.dataset.unique_patient_ids), ["1", "2", "3"])
@@ -292,6 +295,7 @@ class TestMIMICExtractDataset(unittest.TestCase):
         labels = sorted(int(s["label"]) for s in samples)
         self.assertEqual(labels, [0, 1, 1])
         self.assertEqual(len(samples[0]["features"]), 24 * 2 * 3)
+        samples.close()
 
 
 class TestDatasetErrors(unittest.TestCase):
