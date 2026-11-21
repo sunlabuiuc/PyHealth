@@ -209,6 +209,7 @@ class ConVIRT(BaseModel):
             under ``cxr_feature_key``. A module is used as given, so freeze
             it beforehand if it should not train.
         cxr_feature_dim: Output size of ``cxr_backbone`` when it is a module.
+            Leave it unset for a ResNet name, which sets its own size.
         augment_cxr: Whether to augment images in training mode, with the
             SimCLRv2-style transforms of MedMod.
         cxr_mean: Mean the images were normalized with, to undo before
