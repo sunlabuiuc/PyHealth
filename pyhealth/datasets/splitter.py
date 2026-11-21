@@ -939,7 +939,7 @@ def split_by_predefined(
                 raise ValueError(
                     f"Patient {pid}: sample missing '{split_key}' field."
                 )
-            )
+            
             if first[split_key] == train_value:
                 pool[pid] = list(indices)
             else:
@@ -953,7 +953,7 @@ def split_by_predefined(
                 raise ValueError(
                     f"Sample {i} is missing the '{split_key}' field."
                 )
-            )
+            
             if sample[split_key] == train_value:
                 pool[i] = [i]
             else:
