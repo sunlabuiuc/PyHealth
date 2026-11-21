@@ -17,6 +17,7 @@ from typing import Dict, Optional
 
 import torch
 
+from pyhealth.interpret.api import AttentionInterpretable
 from pyhealth.models.base_model import BaseModel
 from .base_interpreter import BaseInterpreter
 
@@ -35,27 +36,16 @@ class AttentionRollout(BaseInterpreter):
     It serves as the standard baseline that gradient-based attention methods
     are compared against.
 
-    .. note::
-        "Gradient-free" refers to the attribution **math**: no backward pass
-        is run and no gradients enter the rollout computation. It does **not**
-        mean the call is safe inside ``torch.no_grad()``. The shared
-        attention-readout plumbing registers a gradient hook on the attention
-        tensors during the forward pass, so running ``attribute(**batch)``
-        under ``torch.no_grad()`` raises a ``RuntimeError``. Call it under the
-        default (grad-enabled) context.
-
-    This interpreter works with any model that exposes the attention-readout
-    methods ``set_attention_hooks``, ``get_attention_layers``, and
-    ``get_relevance_tensor`` (currently :class:`~pyhealth.models.Transformer`
-    and :class:`~pyhealth.models.StageAttentionNet`). Compatibility is checked
-    by duck-typing in ``__init__`` rather than by requiring a named interface,
-    since these methods are general attention readout and not specific to any
-    one method.
+    This interpreter requires :class:`~pyhealth.interpret.api.AttentionInterpretable`
+    (currently Transformer and StageAttentionNet). It captures maps under
+    ``torch.no_grad()`` without registering backward hooks or changing parameter
+    gradients. Custom models must accept ``capture_gradients=False`` in
+    ``set_attention_hooks``; matching method names alone are insufficient.
 
     The algorithm, per feature key:
 
-    1. Enable attention hooks via ``model.set_attention_hooks(True)`` and run a
-       single forward pass (no backward pass).
+    1. Enable map capture with ``capture_gradients=False`` and run a single
+       forward pass under ``torch.no_grad()`` (no backward pass).
     2. Retrieve per-layer attention maps via ``model.get_attention_layers()``,
        discarding the gradient element of each ``(attn_map, attn_grad)`` pair.
     3. Fuse heads (mean) to get one ``[batch, seq, seq]`` matrix per layer.
@@ -123,25 +113,14 @@ class AttentionRollout(BaseInterpreter):
                 "Currently supported values: mean."
             )
 
-        required_methods = [
-            "set_attention_hooks",
-            "get_attention_layers",
-            "get_relevance_tensor",
-        ]
-        missing_methods = [m for m in required_methods if not hasattr(model, m)]
-
-        if missing_methods:
-            raise TypeError(
-                "AttentionRollout requires a model that exposes the attention "
-                "interpretability methods: "
-                f"{', '.join(required_methods)}. "
-                f"Missing: {', '.join(missing_methods)}."
-            )
+        if not isinstance(model, AttentionInterpretable):
+            raise TypeError("Model must implement AttentionInterpretable interface")
 
         super().__init__(model)
         self.head_fusion = head_fusion
 
 
+    @torch.no_grad()
     def attribute(
         self,
         target_class_idx: Optional[int] = None,
@@ -169,13 +148,11 @@ class AttentionRollout(BaseInterpreter):
                 row-stochastic matrices).
 
         Note:
-            Do not call this method inside a ``torch.no_grad()`` context. Even
-            though rollout uses no gradients, enabling attention hooks registers
-            a gradient hook during the forward pass, which requires grad-enabled
-            tensors and otherwise raises a ``RuntimeError``.
+            Runs under ``torch.no_grad()`` and can also be called inside an
+            existing no-grad context. Only attention maps are captured.
         """
 
-        self.model.set_attention_hooks(True)
+        self.model.set_attention_hooks(True, capture_gradients=False)
         try:
             self.model(**data)
         finally:
