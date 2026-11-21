@@ -55,6 +55,24 @@ class TestGrid(unittest.TestCase):
         out = sample_on_grid(times, [1.0, 2.0, 3.0], timedelta(hours=1))
         np.testing.assert_array_equal(out[:, 0], [2.0, NAN, 3.0])
 
+    def test_sample_on_grid_keeps_each_features_last_observed_value(self):
+        # Rows in one step that are each missing some features, as from
+        # pivoting lab events by chart time: no row may erase an earlier
+        # observed value of another feature in the same step.
+        times = [T0, T0 + timedelta(minutes=10), T0 + timedelta(minutes=45)]
+        values = [[139.0, 4.1, 110.0], [141.0, 4.5, NAN], [NAN, NAN, 180.0]]
+        out = sample_on_grid(times, values, timedelta(hours=1))
+        np.testing.assert_array_equal(out, [[141.0, 4.5, 180.0]])
+
+    def test_timeseries_processor_does_not_mark_observed_values_missing(self):
+        times = [T0, T0 + timedelta(minutes=45), T0 + timedelta(hours=1)]
+        values = np.array([[140.0, NAN], [NAN, 4.0], [NAN, NAN]])
+        p = TimeseriesProcessor(missing_indicators=True)
+        p.fit([{"x": (times, values)}], "x")
+        out = p.process((times, values)).numpy()
+        np.testing.assert_array_equal(out[0], [140.0, 4.0, 0.0, 0.0])
+        np.testing.assert_array_equal(out[1], [140.0, 4.0, 1.0, 1.0])
+
     def test_temporal_timeseries_processor_uses_the_shared_grid(self):
         value = ([T0, T0 + timedelta(hours=2)], np.array([[1.0], [3.0]]))
         p = TemporalTimeseriesProcessor()
