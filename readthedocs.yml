@@ -8,9 +8,9 @@ build:
 sphinx:
     configuration: docs/conf.py
 
-formats:
-    - epub
-    - htmlzip
+# HTML only. Each extra format (epub, htmlzip) reruns Sphinx over every page,
+# which pushed builds past Read the Docs' 15-minute limit.
+formats: []
 
 python:
     install:
