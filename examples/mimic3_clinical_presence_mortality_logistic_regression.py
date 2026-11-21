@@ -97,7 +97,6 @@ from sklearn.metrics import roc_auc_score
 import pyhealth
 from pyhealth.datasets import MIMIC3Dataset, get_dataloader
 from pyhealth.metrics.fairness_utils import capacity_fairness_metrics
-from pyhealth.metrics.fairness_utils.capacity import _bootstrap
 from pyhealth.models import LogisticRegression
 from pyhealth.tasks import ClinicalPresenceMortalityMIMIC3
 from pyhealth.trainer import Trainer
@@ -461,11 +460,37 @@ def order_shift(first, after, min_rows=ORDER_MIN_ROWS):
     return out
 
 
+def bootstrap_metrics(y, p, threshold, n_bootstrap, rng, group):
+    """Each metric on n_bootstrap resamples of one group, one value per resample.
+
+    capacity_fairness_metrics runs the same loop but returns only the mean and sd.
+    From the same rng state, both draw the same resamples.
+    """
+    n = len(y)
+    out = {m: np.empty(n_bootstrap) for m in METRICS}
+    for b in range(n_bootstrap):
+        idx = rng.choice(n, size=n, replace=True)
+        yb, pb = y[idx], p[idx]
+        n_pos = yb.sum()
+        if n_pos in (0, n):
+            raise ValueError(
+                f"A bootstrap resample of the {group} group has only one "
+                "class; use a larger evaluation set."
+            )
+        selected = pb >= threshold
+        out["auc"][b] = roc_auc_score(yb, pb)
+        out["prioritization_rate"][b] = selected.mean()
+        out["fnr"][b] = yb[~selected].sum() / n_pos
+        out["fpr"][b] = (1 - yb[selected]).sum() / (n - n_pos)
+    return out
+
+
 def paired_differences(y, p_first, p_after, fields, cap, n_bootstrap):
     """(axis, group, metric, mean, std) of first - after, on evaluate's resamples.
 
     capacity_fairness_metrics resamples from RandomState(42), protected group
-    first, so both strategies see the same patients in every resample.
+    first, so both strategies see the same patients in every resample. The
+    paired sd needs every resample, which bootstrap_metrics keeps.
     """
     k = int(len(y) * cap)
     if k < 1:
@@ -475,11 +500,15 @@ def paired_differences(y, p_first, p_after, fields, cap, n_bootstrap):
         threshold = float(np.sort(p)[-k])
         rng = np.random.RandomState(42)  # capacity_fairness_metrics' default seed
         if flag is None:
-            return _bootstrap(y, p, threshold, n_bootstrap, rng, "population")
+            return bootstrap_metrics(y, p, threshold, n_bootstrap, rng, "population")
         marg, rest = flag == 1, flag == 0
         # The protected group first, as capacity_fairness_metrics resamples
-        a = _bootstrap(y[marg], p[marg], threshold, n_bootstrap, rng, "protected")
-        b = _bootstrap(y[rest], p[rest], threshold, n_bootstrap, rng, "unprotected")
+        a = bootstrap_metrics(
+            y[marg], p[marg], threshold, n_bootstrap, rng, "protected"
+        )
+        b = bootstrap_metrics(
+            y[rest], p[rest], threshold, n_bootstrap, rng, "unprotected"
+        )
         return {key: a[key] - b[key] for key in a}
 
     flags = {"Overall": None}
