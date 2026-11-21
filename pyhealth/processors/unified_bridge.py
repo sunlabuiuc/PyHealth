@@ -17,7 +17,7 @@ batch.
 import copy
 from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar, TypeVar, cast
 
 import torch
 
@@ -49,8 +49,10 @@ _UNK = TokenProcessorInterface.UNK
 
 _BRIDGES: dict[type, type["UnifiedBridge"]] = {}
 
+B = TypeVar("B", bound="UnifiedBridge")
 
-def _bridges[B: "UnifiedBridge"](legacy_cls: type) -> Callable[[type[B]], type[B]]:
+
+def _bridges(legacy_cls: type) -> Callable[[type[B]], type[B]]:
     """Registers a bridge class for ``legacy_cls`` (and its subclasses)."""
 
     def register(bridge_cls: type[B]) -> type[B]:

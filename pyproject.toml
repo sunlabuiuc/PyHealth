@@ -20,7 +20,7 @@ authors = [
 ]
 description = "A deep learning toolkit for healthcare AI: EHR (MIMIC, eICU, OMOP), clinical text, biosignals and medical imaging"
 readme = "README.rst"
-requires-python = ">=3.12,<3.14"
+requires-python = ">=3.11,<3.14"
 dependencies = [
   "torch>=2.10",
   "torchvision",
@@ -49,6 +49,7 @@ dependencies = [
   "orjson~=3.10",
   "narwhals>=2.13,<3",
   "more-itertools~=10.8.0",
+  "typing-extensions>=4.12",
   "einops>=0.8.0",
   "linear-attention-transformer>=0.19.1",
 ]
@@ -78,6 +79,7 @@ classifiers = [
   "Intended Audience :: Developers",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
@@ -126,7 +128,8 @@ build-backend = "hatchling.build"
 #
 [tool.ruff]
 line-length = 88
-target-version = "py313"
+# The oldest supported Python, so ruff rejects newer syntax.
+target-version = "py311"
 
 
 ### Hatchling

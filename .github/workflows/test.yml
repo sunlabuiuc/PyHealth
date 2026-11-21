@@ -80,3 +80,21 @@ jobs:
               },
           }, indent=2))
           PY
+
+  # The oldest supported Python, with pip instead of pixi: catches syntax and
+  # standard-library APIs newer than requires-python allows.
+  oldest-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install PyHealth
+        run: |
+          python -m pip install --upgrade pip
+          # transformers is held below 5 to match pixi.lock: 5.x cannot build
+          # fast tokenizers for some test models without sentencepiece.
+          python -m pip install -e ".[imaging]" pytest pytest-timeout "transformers<5"
+      - name: Run core tests
+        run: python -m pytest tests/core -q -p no:cacheprovider --timeout=900
