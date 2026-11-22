@@ -313,6 +313,10 @@ class AutoImprover:
         suspicion_auc: A new feature whose ROC-AUC alone exceeds this (or
             is below 1 minus it) is flagged as possible leakage and not
             accepted.
+        min_events_per_fold: With ``cv_folds`` on a binary task, warn and
+            raise a ``few_events`` flag when a fold has fewer positive
+            samples than this. With so few events one lucky fold can carry a
+            trial's whole gain, so the search's gains are unconfirmed.
 
     Examples:
         >>> from pyhealth.autoimprove import (AutoImprover, ClaudeLLM,
@@ -361,6 +365,7 @@ class AutoImprover:
         prune: bool = True,
         early_stop: float | None = None,
         suspicion_auc: float = 0.95,
+        min_events_per_fold: int = 10,
     ):
         if features is not None and not cv_folds:
             raise ValueError("feature search needs cv_folds")
@@ -384,6 +389,7 @@ class AutoImprover:
         self._results: dict[str, Any] = {}
         self.lessons_path = lessons_path
         self.cv_folds = cv_folds
+        self.min_events_per_fold = min_events_per_fold
         self.promote_se = promote_se if cv_folds else None
         self.one_se = one_se
         if self.promote_se is not None and baseline is None:
@@ -533,7 +539,19 @@ class AutoImprover:
         self._fingerprint = space_fingerprint(self.space, self.train_dataset)
 
     def _warn_if_small_validation(self, min_positives: int = 30) -> None:
-        if self.mode != "binary" or self.cv_folds:
+        if self.mode != "binary":
+            return
+        if self.cv_folds:
+            events = self._fold_events()
+            if events and min(events) < self.min_events_per_fold:
+                logger.warning(
+                    "The %d folds have %s positive samples. With fewer than %d "
+                    "per fold, one lucky fold can carry a trial's whole gain: "
+                    "treat the search's gains as unconfirmed until "
+                    "evaluate_on_test (or more events) supports them.",
+                    len(events), ", ".join(map(str, events)),
+                    self.min_events_per_fold,
+                )
             return
         positives = _positive_count(self.val_dataset)
         if positives is not None and positives < min_positives:
@@ -544,6 +562,14 @@ class AutoImprover:
                 "leaderboard.",
                 positives,
             )
+
+    def _fold_events(self) -> list[int] | None:
+        """Positive samples in each CV fold (binary tasks with CV only)."""
+        if (self.mode != "binary" or not self.folds
+                or len(self.train_dataset) > MAX_LABEL_SCAN):
+            return None
+        labels = self._labels()
+        return [int((labels[fold] > 0.5).sum()) for fold in self.folds]
 
     def result(self) -> ImproveResult:
         """The current state as an :class:`ImproveResult`.
@@ -1333,7 +1359,9 @@ class AutoImprover:
             {**flag, "review": review.get(flag["id"])}
             for flag in flags_for(self.task_card, self._read_json("explain.json"),
                                   self._read_json("test.json"), suspicious,
-                                  features=best.features if best else ())
+                                  features=best.features if best else (),
+                                  fold_events=self._fold_events(),
+                                  min_events=self.min_events_per_fold)
         ]
 
     def _held_back(self, best: Trial | None) -> set[str]:
@@ -1419,7 +1447,8 @@ class AutoImprover:
             card=self.task_card, explanation=self._read_json("explain.json"),
             review=self._read_json("review.json") or {},
             confirmed=self.confirmed, pruning=self._read_json("prune.json"),
-            confirm_se=self.confirm_se,
+            confirm_se=self.confirm_se, fold_events=self._fold_events(),
+            min_events=self.min_events_per_fold,
         )
         if path is None and self.run_dir:
             path = os.path.join(self.run_dir, "report.html")
@@ -1538,6 +1567,8 @@ class AutoImprover:
             "one_se": self.one_se, "seed": self.seed,
             "models": sorted(self.space.models), "rule": self.selection_rule(),
             "dropped_models": self.dropped_models, "confirm_se": self.confirm_se,
+            "fold_events": self._fold_events(),
+            "min_events_per_fold": self.min_events_per_fold,
         }
         with open(os.path.join(self.run_dir, "run.json"), "w") as f:
             json.dump(settings, f, indent=1)
