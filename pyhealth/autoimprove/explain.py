@@ -104,11 +104,11 @@ def attributions(
                                         code_keys)
         for key in model.feature_keys:
             if key in code_keys:
-                index = _codes(batch[key])
-                if key in contrib and np.size(contrib[key]) == index.size:
+                code_ids = _codes(batch[key])
+                if key in contrib and np.size(contrib[key]) == code_ids.size:
                     # e.g. a logistic regression flattens nested codes first
-                    _add_codes(codes.setdefault(key, []), index,
-                               np.reshape(contrib[key], index.shape))
+                    _add_codes(codes.setdefault(key, []), code_ids,
+                               np.reshape(contrib[key], code_ids.shape))
                 else:
                     skipped[key] = "codes: the embedding was not used per code"
                 continue
@@ -316,7 +316,10 @@ def _numeric_means(loader, keys) -> dict[str, torch.Tensor]:
 def _integrated_gradients(model, batch, means, steps, layers=None,
                           code_keys=()) -> dict[str, np.ndarray]:
     """Integrated gradients for numeric fields and, through their embedding
-    layers, code fields (one value per code occurrence)."""
+    layers, code fields (one value per code occurrence).
+
+    Assumes the model calls each code field's embedding once per forward.
+    """
     device = next(model.parameters()).device
     keys = [k for k in model.feature_keys if k in means and _numeric(batch[k]) is not None]
     code_keys = list(code_keys)

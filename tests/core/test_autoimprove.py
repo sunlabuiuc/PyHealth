@@ -1240,9 +1240,13 @@ class TestClinicalReport(unittest.TestCase):
         data = create_sample_dataset(samples, {"codes": "sequence"},
                                      {"label": "binary"})
         model = self._code_model(data, "codes")
-        out = attributions(model, data, steps=4)
+        out = attributions(model, data, steps=4, batch_size=8)  # several batches
         entry = self._check_code_columns(data, "codes", model, out)
         self.assertEqual(sorted(entry["names"]), ["bad", "ok", "x"])
+        self.assertEqual(out["sample_index"], list(range(36)))
+        sub = attributions(model, data, steps=2, batch_size=8, max_samples=10)
+        self.assertEqual(len(sub["sample_index"]), 10)
+        self.assertEqual(sub["fields"]["codes"]["values"].shape[0], 10)
         values = dict(zip(entry["names"], entry["values"].T))
         self.assertEqual(sorted(set(values["bad"])), [0.0, 1.0, 2.0])
         self.assertEqual(sorted(set(values["ok"])), [0.0, 1.0])
