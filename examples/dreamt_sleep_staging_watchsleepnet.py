@@ -4,9 +4,10 @@ Runs the full PyHealth pipeline::
 
     DREAMTDataset -> SleepStagingDREAMT (task) -> WatchSleepNet (model)
 
-and compares configurations that go beyond the paper's own ablations. Every configuration trains from scratch on
-DREAMT only, so absolute numbers are far below the paper's pretrained results;
-only the comparison between configurations is meaningful.
+and compares configurations that go beyond the paper's own ablations. Every 
+configuration trains from scratch on DREAMT only, so absolute numbers are far 
+below the paper's pretrained results; only the comparison between configurations 
+is meaningful.
 
 Ablation groups (``--groups``):
     preprocessing: IBI source (own BVP peak detection vs the device ``IBI``
@@ -19,12 +20,10 @@ Ablation groups (``--groups``):
     labels: 3-class (Wake/NREM/REM), 4-class (Wake/Light/Deep/REM) and
         5-class (Wake/N1/N2/N3/REM) staging.
     hparams: a small dropout x learning-rate grid.
-    robustness: the trained baseline evaluated while a random fraction of
-        test epochs have their IBI zeroed (simulating motion artefacts).
 
 Usage:
     # Fast end-to-end check on tiny synthetic DREAMT-style files (no data
-    # needed; this is what graders / reviewers should run):
+    # needed:
     python examples/dreamt_sleep_staging_watchsleepnet.py --synthetic
 
     # Real run on a subset of DREAMT (point --root at the version folder):
@@ -38,30 +37,26 @@ Setup of the reported experiment:
     Cohen's kappa, reported as mean +/- std over seeds.
 
 Results:
-    group                config                 accuracy        macro_f1          rem_f1           kappa
-    baseline             baseline 0.695 +/- 0.008 0.479 +/- 0.003 0.000 +/- 0.000 0.421 +/- 0.010
-    robustness              drop=0.0 0.695 +/- 0.008 0.479 +/- 0.003 0.000 +/- 0.000 0.421 +/- 0.010
-    robustness              drop=0.1 0.543 +/- 0.117 0.343 +/- 0.109 0.000 +/- 0.000 0.199 +/- 0.167
-    robustness              drop=0.2 0.516 +/- 0.128 0.308 +/- 0.123 0.000 +/- 0.000 0.160 +/- 0.187
-    robustness              drop=0.4 0.480 +/- 0.102 0.271 +/- 0.111 0.000 +/- 0.000 0.103 +/- 0.145
-    preprocessing      fill=interpolate 0.670 +/- 0.029 0.462 +/- 0.020 0.000 +/- 0.000 0.377 +/- 0.056
-    preprocessing           fill=median 0.682 +/- 0.027 0.471 +/- 0.016 0.000 +/- 0.000 0.404 +/- 0.040
-    preprocessing         source=e4_ibi 0.605 +/- 0.013 0.418 +/- 0.009 0.000 +/- 0.000 0.263 +/- 0.023
-    preprocessing            norm=night 0.720 +/- 0.008 0.496 +/- 0.005 0.000 +/- 0.000 0.467 +/- 0.015
-    preprocessing            norm=epoch 0.597 +/- 0.067 0.367 +/- 0.102 0.000 +/- 0.000 0.205 +/- 0.155
-    preprocessing          mask_channel 0.673 +/- 0.041 0.464 +/- 0.029 0.000 +/- 0.000 0.381 +/- 0.077
-    causal                causal 0.677 +/- 0.015 0.464 +/- 0.008 0.000 +/- 0.000 0.383 +/- 0.023
-    loss           weighted_ce 0.473 +/- 0.163 0.378 +/- 0.075 0.124 +/- 0.087 0.228 +/- 0.145
-    loss            focal(g=2) 0.663 +/- 0.033 0.458 +/- 0.022 0.000 +/- 0.000 0.373 +/- 0.054
-    context             window=25 0.685 +/- 0.011 0.472 +/- 0.008 0.000 +/- 0.000 0.401 +/- 0.024
-    context             window=50 0.672 +/- 0.009 0.459 +/- 0.012 0.000 +/- 0.000 0.370 +/- 0.029
-    context            window=200 0.706 +/- 0.009 0.485 +/- 0.005 0.000 +/- 0.000 0.440 +/- 0.017
-    labels                4class 0.664 +/- 0.037 0.349 +/- 0.017 0.000 +/- 0.000 0.382 +/- 0.058
-    labels                5class 0.616 +/- 0.022 0.273 +/- 0.007 0.000 +/- 0.000 0.357 +/- 0.029
-    hparams  dropout=0.0,lr=0.001 0.696 +/- 0.010 0.478 +/- 0.008 0.000 +/- 0.000 0.419 +/- 0.024
-    hparams dropout=0.0,lr=0.0003 0.685 +/- 0.011 0.467 +/- 0.010 0.000 +/- 0.000 0.394 +/- 0.025
-    hparams  dropout=0.4,lr=0.001 0.694 +/- 0.020 0.477 +/- 0.012 0.000 +/- 0.000 0.418 +/- 0.036
-    hparams dropout=0.4,lr=0.0003 0.690 +/- 0.005 0.471 +/- 0.002 0.000 +/- 0.000 0.401 +/- 0.007
+        group                config        accuracy        macro_f1          rem_f1           kappa
+     baseline              baseline 0.691 +/- 0.030 0.476 +/- 0.018 0.000 +/- 0.000 0.420 +/- 0.045
+preprocessing      fill=interpolate 0.673 +/- 0.029 0.463 +/- 0.020 0.000 +/- 0.000 0.380 +/- 0.054
+preprocessing           fill=median 0.687 +/- 0.007 0.470 +/- 0.004 0.000 +/- 0.000 0.400 +/- 0.013
+preprocessing         source=e4_ibi 0.651 +/- 0.001 0.445 +/- 0.002 0.000 +/- 0.000 0.331 +/- 0.002
+preprocessing            norm=night 0.724 +/- 0.009 0.499 +/- 0.006 0.000 +/- 0.000 0.475 +/- 0.019
+preprocessing            norm=epoch 0.635 +/- 0.018 0.433 +/- 0.009 0.000 +/- 0.000 0.301 +/- 0.026
+preprocessing          mask_channel 0.692 +/- 0.019 0.475 +/- 0.014 0.000 +/- 0.000 0.411 +/- 0.037
+       causal                causal 0.681 +/- 0.025 0.466 +/- 0.017 0.000 +/- 0.000 0.385 +/- 0.046
+         loss           weighted_ce 0.392 +/- 0.033 0.357 +/- 0.014 0.185 +/- 0.022 0.170 +/- 0.040
+         loss            focal(g=2) 0.682 +/- 0.018 0.470 +/- 0.012 0.000 +/- 0.000 0.400 +/- 0.029
+      context             window=25 0.676 +/- 0.013 0.464 +/- 0.007 0.000 +/- 0.000 0.382 +/- 0.016
+      context             window=50 0.675 +/- 0.004 0.463 +/- 0.003 0.000 +/- 0.000 0.382 +/- 0.013
+      context            window=200 0.700 +/- 0.008 0.480 +/- 0.005 0.000 +/- 0.000 0.427 +/- 0.016
+       labels                4class 0.668 +/- 0.018 0.351 +/- 0.007 0.000 +/- 0.000 0.390 +/- 0.030
+       labels                5class 0.601 +/- 0.023 0.266 +/- 0.009 0.000 +/- 0.000 0.333 +/- 0.031
+      hparams  dropout=0.0,lr=0.001 0.688 +/- 0.022 0.473 +/- 0.013 0.000 +/- 0.000 0.406 +/- 0.037
+      hparams dropout=0.0,lr=0.0003 0.677 +/- 0.033 0.466 +/- 0.021 0.000 +/- 0.000 0.386 +/- 0.057
+      hparams  dropout=0.4,lr=0.001 0.693 +/- 0.013 0.474 +/- 0.010 0.000 +/- 0.000 0.409 +/- 0.026
+      hparams dropout=0.4,lr=0.0003 0.683 +/- 0.023 0.469 +/- 0.013 0.000 +/- 0.000 0.398 +/- 0.034
 
     The baseline model parameters from the paper outperformed most alternate 
     configurations in terms of accuracy and Cohen's Kappa. The main changes  
@@ -214,7 +209,6 @@ def build_configs(args: argparse.Namespace) -> list[dict[str, Any]]:
         }
 
     configs = [cfg("baseline", "baseline")]
-    configs[0]["corrupt"] = args.corrupt if "robustness" in args.groups else []
     g = args.groups
     if "preprocessing" in g:
         configs += [
@@ -265,30 +259,20 @@ def evaluate(
     model: WatchSleepNet,
     loader: Any,
     num_classes: int,
-    drop_prob: float = 0.0,
-    seed: int = 0,
 ) -> dict[str, float]:
-    """Scores a model on a loader, optionally corrupting the input.
+    """Scores a model on a loader.
 
     Args:
         model: Trained model.
         loader: Dataloader yielding batches with ``ibi`` and ``label``.
         num_classes: Number of classes (REM is the last one).
-        drop_prob: Probability of zeroing the whole IBI of an epoch at test time.
-        seed: Seed of the corruption mask.
 
     Returns:
         dict with accuracy, macro_f1, rem_f1 and kappa over non-ignored epochs.
     """
     model.eval()
-    gen = torch.Generator().manual_seed(seed)
     ys, ps = [], []
     for batch in loader:
-        if drop_prob > 0:
-            x = batch["ibi"]
-            keep = (torch.rand(x.shape[:2], generator=gen) >= drop_prob).to(x.dtype)
-            batch = dict(batch)
-            batch["ibi"] = x * keep.reshape(*keep.shape, *([1] * (x.dim() - 2)))
         out = model(**batch)
         y = out["y_true"].reshape(-1).cpu().numpy()
         p = out["y_prob"].argmax(-1).reshape(-1).cpu().numpy()
@@ -373,10 +357,7 @@ class Runner:
             max_grad_norm=1.0,
         )
         result = {"metrics": evaluate(model, test_dl, task.num_classes)}
-        result["corrupt"] = {
-            p: evaluate(model, test_dl, task.num_classes, drop_prob=p, seed=seed)
-            for p in cfg.get("corrupt", [])
-        }
+
         return result
 
 
@@ -398,7 +379,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--root", type=str, help="DREAMT version folder")
     p.add_argument("--synthetic", action="store_true", help="tiny fake data run")
-    p.add_argument("--groups", nargs="+", default=groups + ["robustness"])
+    p.add_argument("--groups", nargs="+", default=groups)
     p.add_argument("--max-patients", type=int, default=None)
     p.add_argument("--seeds", type=int, default=3)
     p.add_argument("--epochs", type=int, default=20)
@@ -407,7 +388,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--window", type=int, default=100, help="epochs per sample")
     p.add_argument("--windows", type=int, nargs="+", default=[25, 50, 100, 200])
     p.add_argument("--max-epochs", type=int, default=1100)
-    p.add_argument("--corrupt", type=float, nargs="+", default=[0.0, 0.1, 0.2, 0.4])
     p.add_argument("--full-size", action="store_true", help="paper-sized model")
     p.add_argument("--out", type=str, default="dreamt_ablation_results.json")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -439,9 +419,6 @@ def main() -> None:
             runs = [runner.run(cfg, seed) for seed in range(args.seeds)]
             rows.append({"group": cfg["group"], "config": cfg["name"]})
             rows[-1].update(summarise([r["metrics"] for r in runs]))
-            for p in cfg.get("corrupt", []):
-                rows.append({"group": "robustness", "config": f"drop={p}"})
-                rows[-1].update(summarise([r["corrupt"][p] for r in runs]))
             print(rows[-1], flush=True)
 
     table = pd.DataFrame(rows)
