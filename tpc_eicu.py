@@ -1,3 +1,19 @@
+"""
+Author: Manling Tan, Yining Jin, Xiao Luo
+NetID: manling4, yining34, xiaoluo6
+
+Paper Title:
+Temporal Pointwise Convolutional Networks for
+Length of Stay Prediction in the Intensive Care Unit
+
+Paper Authors:
+Emma Rocheteau, Pietro Liò, and Stephanie Hyland (2021)
+
+Paper URL:
+https://arxiv.org/abs/2007.09483
+"""
+
+
 import hashlib
 from typing import Any, ClassVar
 
