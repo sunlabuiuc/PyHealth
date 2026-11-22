@@ -68,8 +68,10 @@ Results:
       out-of-bag trees with a Bayesian prior (Sec. 3.1). This affects how far
       PyHealth's CaliForest can reproduce the paper's calibration results.
 
-    MIMIC-Extract: to be filled in from a run on real data (run by the
-    authors of this example; aggregate results only).
+    MIMIC-Extract: results on the real cohort are not included here, since
+    the data needs credentialed PhysioNet access. Running the script with
+    ``--root`` on MIMIC-Extract's ``all_hourly_data.h5`` reproduces them
+    (the paper uses 10 splits, 300 trees, depth 10; depth 5 for LOS > 7 d).
 """
 
 import argparse
