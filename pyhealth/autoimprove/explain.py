@@ -333,7 +333,8 @@ def _integrated_gradients(model, batch, means, steps, layers=None,
     def scale(key):
         def hook(_module, _inputs, output):
             embedded[key] = output.detach()
-            scaled[key] = output * state["alpha"]
+            # A fresh leaf, so frozen embeddings (no grad) work too.
+            scaled[key] = (output.detach() * state["alpha"]).requires_grad_()
             return scaled[key]
         return hook
 

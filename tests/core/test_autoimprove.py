@@ -1116,7 +1116,7 @@ class TestClinicalReport(unittest.TestCase):
         self.assertEqual(sum(b["n"] for b in bins), 100)
 
     def test_effect_bins_with_one_bin_of_several_values(self):
-        # A rare code: 12 patients have it once, 3 twice. The small bins
+        # A rare code: 12 samples at 0, 3 at 1. The small bins
         # merge into one holding every value, which has no cut point.
         value = np.array([0.0] * 12 + [1.0] * 3)
         bins = _effect_bins(value, value * 0.5, np.arange(15), 11, 5)
@@ -1265,6 +1265,19 @@ class TestClinicalReport(unittest.TestCase):
                 entry = self._check_code_columns(data, "visits", model, out)
                 values = dict(zip(entry["names"], entry["values"].T))
                 self.assertEqual(sorted(set(values["b"])), [0.0, 2.0])
+
+    def test_code_attributions_with_frozen_embeddings(self):
+        # Frozen embeddings (e.g. EmbeddingModel(freeze_pretrained=True))
+        # still get per-code attributions.
+        samples = [{"patient_id": f"p{i}", "codes": ["a", "b"][: 1 + i % 2],
+                    "label": i % 2} for i in range(20)]
+        data = create_sample_dataset(samples, {"codes": "sequence"},
+                                     {"label": "binary"})
+        model = self._code_model(data, "codes")
+        model.embedding_model.embedding_layers["codes"].weight.requires_grad_(False)
+        out = attributions(model, data, steps=4)
+        entry = self._check_code_columns(data, "codes", model, out)
+        self.assertEqual(sorted(entry["names"]), ["a", "b"])
 
     def test_code_attributions_with_a_pyhealth_model(self):
         samples = [{"patient_id": f"p{i}", "codes": ["a", "b"][: 1 + i % 2],
