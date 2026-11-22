@@ -376,20 +376,6 @@ class _SeededDataLoader(DataLoader):
         return super().__iter__()
 
 
-def _sample_collate_fn(dataset) -> Callable:
-    """Collate function for a SampleDataset: fields whose processor defines
-    ``collate()`` are batched by it, the rest padded or listed."""
-    processors = {**dataset.input_processors, **dataset.output_processors}
-    collators = {
-        key: processor.collate
-        for key, processor in processors.items()
-        if callable(getattr(processor, "collate", None))
-    }
-    if not collators:
-        return collate_fn_dict_with_padding
-    return functools.partial(collate_fn_dict_with_padding, collators=collators)
-
-
 def get_dataloader(
     dataset: litdata.StreamingDataset,
     batch_size: int,
@@ -447,13 +433,25 @@ def get_dataloader(
                 "later set_shuffle/set_epoch calls would not reach them. Use "
                 "persistent_workers=False or shuffle=False."
             )
+        # Fields whose processor defines collate() are batched by it.
+        processors = {**dataset.input_processors, **dataset.output_processors}
+        collators = {
+            key: processor.collate
+            for key, processor in processors.items()
+            if callable(getattr(processor, "collate", None))
+        }
+        collate_fn = (
+            functools.partial(collate_fn_dict_with_padding, collators=collators)
+            if collators
+            else collate_fn_dict_with_padding
+        )
         return _SeededDataLoader(
             dataset,
             shuffle_samples=shuffle,
             seed=seed,
             batch_size=batch_size,
             generator=generator,
-            collate_fn=_sample_collate_fn(dataset),
+            collate_fn=collate_fn,
             **loader_kwargs,
         )
     if hasattr(dataset, "set_shuffle"):  # another iterable dataset, e.g. litdata's

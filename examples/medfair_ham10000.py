@@ -18,10 +18,11 @@ Dataverse ``HAM10000_metadata.csv`` next to the ISIC 2018 folders):
     python examples/medfair_ham10000.py --root /path/to/isic2018_task3 \\
         --cache-dir /path/to/cache --attribute sex --epochs 15
 
-MEDFAIR reports with sex as the attribute (Table A9, minimax Pareto, mean of
-3 seeds): ERM 85.20 overall / 83.12 worst-group AUC / 3.31 gap, resampling
-86.94 / 85.04 / 3.09. Its age results use a 4-group binning that is not
-published, so they are not directly comparable to ``--attribute age_group``.
+MEDFAIR reports with sex as the attribute (appendix Table A9 of
+arXiv:2210.01725v2, in-distribution, minimax Pareto, mean of 3 seeds): ERM
+85.20 overall / 83.12 worst-group AUC / 3.31 gap, resampling 86.94 / 85.04 /
+3.09. Its age results use a 4-group binning that is not published, so they
+are not directly comparable to ``--attribute age_group``.
 """
 
 from __future__ import annotations

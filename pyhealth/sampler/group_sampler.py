@@ -1,5 +1,6 @@
 """Subgroup resampling (Idrissi et al., CLeaR 2022), a MEDFAIR baseline."""
 
+import functools
 from collections.abc import Hashable, Iterator, Sequence
 from typing import Any
 
@@ -7,8 +8,6 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset, Sampler
-
-from ..datasets.utils import _sample_collate_fn
 
 
 def _hashable(value: Any) -> Hashable:
@@ -111,6 +110,19 @@ class _IndexView(Dataset):
         return self.dataset[index]
 
 
+def _collate_fn(dataset: Any):
+    # Imported here: pyhealth.datasets.imaging imports this package.
+    from ..datasets.utils import collate_fn_dict_with_padding
+
+    processors = {**dataset.input_processors, **dataset.output_processors}
+    collators = {
+        key: processor.collate
+        for key, processor in processors.items()
+        if callable(getattr(processor, "collate", None))
+    }
+    return functools.partial(collate_fn_dict_with_padding, collators=collators)
+
+
 def get_group_balanced_dataloader(
     dataset: Any,
     batch_size: int,
@@ -183,6 +195,6 @@ def get_group_balanced_dataloader(
         _IndexView(dataset),
         batch_size=batch_size,
         sampler=sampler,
-        collate_fn=_sample_collate_fn(dataset),
+        collate_fn=_collate_fn(dataset),
         **loader_kwargs,
     )
