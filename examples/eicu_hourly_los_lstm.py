@@ -1,8 +1,21 @@
-"""Training and ablation extension points for the hourly ICU LOS task.
 
-Contributor: Xiao Luo; UIUC NetID: xiaoluo6.
-Paper: Temporal Pointwise Convolutional Networks for Length of Stay Prediction
-in the Intensive Care Unit, https://arxiv.org/abs/2007.09483.
+"""
+Contributors: Manling Tan, Yining Jin, Xiao Luo
+NetIDs: manling4, yining34, xiaoluo6
+
+Paper Title:
+Temporal Pointwise Convolutional Networks for
+Length of Stay Prediction in the Intensive Care Unit
+
+Paper Authors:
+Emma Rocheteau, Pietro Liò, and Stephanie Hyland (2021)
+
+Paper URL:
+https://arxiv.org/abs/2007.09483
+"""
+
+
+"""Training and ablation extension points for the hourly ICU LOS task.
 
 STATUS: scaffold. This file does not yet train a model or report results.
 The runnable data/task check is:
