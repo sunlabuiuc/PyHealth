@@ -1,5 +1,5 @@
 """
-Author: Manling Tan, Yining Jin, Xiao Luo
+Contributors: Manling Tan, Yining Jin, Xiao Luo
 NetID: manling4, yining34, xiaoluo6
 
 Paper Title:
