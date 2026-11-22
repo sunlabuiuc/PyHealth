@@ -51,8 +51,9 @@ def attributions(
     max_samples: int = 2000,
     steps: int = 20,
     batch_size: int = 256,
+    min_cell: int = MIN_CELL,
 ) -> dict[str, Any]:
-    """Per-sample contributions of each numeric input column to the logit.
+    """Per-sample contributions of each input column (numeric or code) to the logit.
 
     Args:
         model: A trained PyHealth model.
@@ -60,6 +61,8 @@ def attributions(
         max_samples: Most samples used, evenly spaced through the dataset.
         steps: Integrated-gradient steps (torch models).
         batch_size: Samples per forward pass.
+        min_cell: Codes seen in fewer distinct patients are merged into one
+            ``"other codes"`` column, so no rare code is named.
 
     Returns:
         ``{"method", "fields": {field: {"values": (n, p), "contributions":
@@ -67,7 +70,8 @@ def attributions(
         series of shape ``(time, features)`` are reduced to one column per
         feature: contributions summed over time, values averaged. Code
         fields have one column per code, named in ``"names"``: the code's
-        count in the sample and its summed contribution.
+        count in the sample and its summed contribution. Codes are counted
+        once per occurrence; the baseline of a code field is a zero embedding.
 
     Examples:
         >>> out = attributions(model, train_ds)  # doctest: +SKIP
@@ -137,7 +141,8 @@ def attributions(
             entry["contributions"].append(c)
     for key, rows in codes.items():
         if key not in skipped:
-            fields[key] = _code_columns(rows, _code_names(model, dataset, key))
+            fields[key] = _code_columns(rows, _code_names(model, dataset, key),
+                                        patient_ids, min_cell)
     return {
         "method": "TreeSHAP (exact)" if trees else
                   f"integrated gradients from the mean input ({steps} steps)",
@@ -357,8 +362,9 @@ def _integrated_gradients(model, batch, means, steps, layers=None,
                 grads = torch.autograd.grad(logit[:, 0].sum(), wrt,
                                             allow_unused=True)
             for k, g in zip(keys, grads):
-                if g is not None:
-                    total[k] += g.detach()
+                if g is None:  # as before code fields: an unused input fails
+                    raise RuntimeError(f"the model does not use the input {k!r}")
+                total[k] += g.detach()
             for k, g in zip([k for k in code_keys if k in scaled], grads[len(keys):]):
                 if g is not None:
                     code_total[k] = code_total.get(k, 0) + g.detach()
@@ -405,25 +411,45 @@ def _add_codes(rows, index, contrib) -> None:
         rows.append(row)
 
 
-def _code_columns(rows, vocab: dict[int, str]) -> dict[str, Any]:
+OTHER_CODES = "other codes"
+
+
+def _code_columns(rows, vocab: dict[int, str], patient_ids=None,
+                  min_cell: int = 1) -> dict[str, Any]:
     """One column per code seen in ``rows``: counts and contributions.
+
+    Codes seen in fewer than ``min_cell`` distinct patients share one
+    ``"other codes"`` column, so they are never named.
 
     Examples:
         >>> out = _code_columns([{2: [1, 0.5]}, {2: [2, 0.2], 3: [1, -0.1]}],
         ...                     {2: "I10", 3: "E11"})
         >>> out["names"], out["values"][0].tolist(), out["contributions"][0].tolist()
         (['I10', 'E11'], [[1.0, 0.0], [2.0, 1.0]], [[0.5, 0.0], [0.2, -0.1]])
+        >>> _code_columns([{2: [1, 0.5]}, {2: [2, 0.2], 3: [1, -0.1]}],
+        ...               {2: "I10", 3: "E11"}, ["p1", "p2"], 2)["names"]
+        ['I10', 'other codes']
     """
-    seen = sorted({code for row in rows for code in row})
-    column = {code: j for j, code in enumerate(seen)}
-    values = np.zeros((len(rows), len(seen)))
-    contribs = np.zeros((len(rows), len(seen)))
+    if patient_ids is None:
+        patient_ids = range(len(rows))
+    patients: dict[int, set] = {}
+    for pid, row in zip(patient_ids, rows):
+        for code in row:
+            patients.setdefault(code, set()).add(pid)
+    named = sorted(c for c, p in patients.items() if len(p) >= min_cell)
+    rare = len(named) < len(patients)
+    column = {code: j for j, code in enumerate(named)}
+    width = len(named) + rare
+    values = np.zeros((len(rows), width))
+    contribs = np.zeros((len(rows), width))
     for i, row in enumerate(rows):
         for code, (count, c) in row.items():
-            values[i, column[code]] = count
-            contribs[i, column[code]] = c
+            j = column.get(code, len(named))
+            values[i, j] += count
+            contribs[i, j] += c
+    names = [vocab.get(code, f"code {code}") for code in named]
     return {"values": [values], "contributions": [contribs],
-            "names": [vocab.get(code, f"code {code}") for code in seen]}
+            "names": names + [OTHER_CODES] * rare}
 
 
 def _code_names(model, dataset, key) -> dict[int, str]:

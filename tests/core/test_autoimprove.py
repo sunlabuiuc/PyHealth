@@ -1279,16 +1279,56 @@ class TestClinicalReport(unittest.TestCase):
                                      {"label": "binary"})
         model = self._code_model(data, "codes")
         model.embedding_model.embedding_layers["codes"].weight.requires_grad_(False)
-        out = attributions(model, data, steps=4)
+        out = attributions(model, data, steps=4, min_cell=1)
         entry = self._check_code_columns(data, "codes", model, out)
         self.assertEqual(sorted(entry["names"]), ["a", "b"])
+
+    def test_rare_codes_are_not_named(self):
+        # "rare" is in 5 patients (< 11): it joins "other codes" with its
+        # counts and contributions, and summarize() never names it.
+        samples = [{"patient_id": f"p{i}",
+                    "codes": ["common", "rare"] if i < 5 else ["common"],
+                    "label": int(i < 10)} for i in range(30)]
+        data = create_sample_dataset(samples, {"codes": "sequence"},
+                                     {"label": "binary"})
+        model = self._code_model(data, "codes")
+        out = attributions(model, data, steps=4)
+        entry = out["fields"]["codes"]
+        self.assertEqual(entry["names"], ["common", "other codes"])
+        self.assertEqual(entry["values"][:, 1].sum(), 5)
+        layer = model.embedding_model.embedding_layers["codes"]
+        rare = data.input_processors["codes"].code_vocab["rare"]
+        per_code = float((layer.weight[rare] @ model.weight).detach())
+        np.testing.assert_allclose(entry["contributions"][:5, 1], per_code,
+                                   atol=1e-4)
+        names = {f["name"] for f in summarize(out, top_k=5)["features"]}
+        self.assertNotIn("rare", names)
+
+    def test_an_unused_numeric_input_fails(self):
+        samples = [{"patient_id": f"p{i}", "x": [float(i), 1.0],
+                    "label": i % 2} for i in range(12)]
+        data = create_sample_dataset(samples, {"x": "tensor"}, {"label": "binary"})
+
+        class Unused(torch.nn.Module):
+            feature_keys = ("x",)
+
+            def __init__(self):
+                super().__init__()
+                self.bias = torch.nn.Parameter(torch.zeros(1))
+
+            def forward(self, **batch):
+                return {"logit": self.bias.expand(len(batch["x"]), 1)}
+
+        with self.assertRaisesRegex(RuntimeError, "does not use the input 'x'"):
+            attributions(Unused(), data, steps=2)
 
     def test_code_attributions_with_a_pyhealth_model(self):
         samples = [{"patient_id": f"p{i}", "codes": ["a", "b"][: 1 + i % 2],
                     "label": i % 2} for i in range(20)]
         data = create_sample_dataset(samples, {"codes": "sequence"},
                                      {"label": "binary"})
-        out = attributions(LogisticRegression(data, embedding_dim=4), data, steps=3)
+        model = LogisticRegression(data, embedding_dim=4)
+        out = attributions(model, data, steps=3, min_cell=1)
         self.assertEqual(out["skipped"], {})
         self.assertEqual(sorted(out["fields"]["codes"]["names"]), ["a", "b"])
         self.assertEqual(out["fields"]["codes"]["values"].shape, (20, 2))
