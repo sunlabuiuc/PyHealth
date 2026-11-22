@@ -50,6 +50,11 @@ class SEERFeatureProcessor(TensorProcessor):
 
     Field slices map the original field names to their encoded column positions.
 
+    In one-hot mode, tumor sizes outside 1-988 (SEER special codes such as
+    999 for unknown) get their own indicator columns. In numeric mode, coded
+    fields keep their SEER code as a number, so a special code such as 999 is
+    standardized like a measurement.
+
     Examples:
         >>> processor = SEERFeatureProcessor(("stage",), "one_hot")
         >>> processor.fit([{"features": {"stage": "I"}}], "features")
@@ -71,7 +76,15 @@ class SEERFeatureProcessor(TensorProcessor):
         self._scaling: dict[str, tuple[float, float]] = {}
 
     def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
-        """Learn category vocabularies and scaling from the supplied partition."""
+        """Learn category vocabularies and scaling from the supplied partition.
+
+        Args:
+            samples: Training samples, each holding a mapping of SEER fields.
+            field: Key of the field mapping in each sample.
+
+        Raises:
+            ValueError: If ``samples`` is empty.
+        """
         counts: dict[str, Counter[str]] = {name: Counter() for name in self.fields}
         for sample in samples:
             for name, counter in counts.items():
@@ -121,7 +134,17 @@ class SEERFeatureProcessor(TensorProcessor):
         return float(self._levels[field][value])
 
     def process(self, value: Mapping[str, str | int | None]) -> torch.Tensor:
-        """Convert raw fields into a vector using fitted training statistics."""
+        """Convert raw fields into a vector using fitted training statistics.
+
+        Args:
+            value: Mapping from each SEER field name to its raw value.
+
+        Returns:
+            A float vector of length ``size()``.
+
+        Raises:
+            RuntimeError: If the processor has not been fitted.
+        """
         width = self.size()
         if width is None:
             raise RuntimeError("Fit the SEER processor on training samples first")

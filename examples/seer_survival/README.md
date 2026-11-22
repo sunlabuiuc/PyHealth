@@ -29,7 +29,9 @@ checkpoints, held-out scores, and paired ablation differences.
 The Case Listing used the November 2025 SEER Research Data submission, 17
 registries (2000–2023). The
 [SEER*Stat session](Lung_2004_2009_current.ss) stores the cohort and export
-settings. Access to the real records requires individual authorization.
+settings. It holds only the database name, selection and variable list, no
+patient records or local paths. Access to the real records requires individual
+authorization.
 [SEER data access](https://seer.cancer.gov/data/access.html)
 
 1. Select malignant, first-primary lung and bronchus tumors diagnosed in

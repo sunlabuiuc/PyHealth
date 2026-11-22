@@ -72,7 +72,18 @@ class SEERSurvivalPrediction(BaseTask):
         super().__init__()
 
     def __call__(self, patient: "Patient") -> list[dict[str, Any]]:
-        """Extract diagnosis-time fields and labels from one patient's events."""
+        """Extract diagnosis-time fields and labels from one patient's events.
+
+        Args:
+            patient: A patient with one ``tumor`` event per primary tumor.
+
+        Returns:
+            One sample per eligible tumor with ``patient_id``, ``record_id``,
+            ``features`` and a binary ``label`` (1 if the patient survived at
+            least ``horizon_months``, 0 for a cancer death before it). Tumors
+            with unknown survival or a non-cancer death before the horizon
+            are skipped.
+        """
         samples = []
         for tumor in patient.get_events(event_type="tumor"):
             months = tumor.survival_months

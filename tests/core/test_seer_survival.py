@@ -85,6 +85,30 @@ def test_numeric_codes_and_unseen_formatted_categories() -> None:
     assert processor.process({"histology": "8100", "stage": "I"})[1] < 0
 
 
+def test_numeric_keeps_special_tumor_size_codes() -> None:
+    processor = SEERFeatureProcessor(("tumor_size",), "numeric")
+    processor.fit(
+        [{"x": {"tumor_size": size}} for size in ("010", "030", "999")], "x"
+    )
+    center, scale = processor._scaling["tumor_size"]
+    assert center == pytest.approx(1039 / 3)
+    vector = processor.process({"tumor_size": "999"})
+    assert vector.tolist() == [pytest.approx((999 - center) / scale)]
+
+
+def test_reduced_task_encodes_without_extent(seer_dataset: SEERDataset) -> None:
+    split = SubjectSplit((("00001",), ("00002",)))
+    task = SEERSurvivalPrediction(encoding="numeric", include_extent=False)
+    train, test = seer_dataset.set_task(task, split=split)
+    try:
+        processor = train.input_processors["features"]
+        assert set(processor.field_slices).isdisjoint(SEER_EXTENT_FEATURES)
+        assert train[0]["features"].shape == (len(processor.field_slices),)
+    finally:
+        train.close()
+        test.close()
+
+
 @pytest.mark.parametrize("horizon", [0, -1, 12.5, True])
 def test_requires_a_positive_whole_month_horizon(horizon: int) -> None:
     with pytest.raises(ValueError, match="positive integer"):

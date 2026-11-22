@@ -26,10 +26,12 @@ for primary site, histology, extension, lymph nodes, and metastases. It
 assigns zero-based ordinal codes in sorted order to formatted categories
 observed in training. Blank values use -1 and unseen formatted categories are
 imputed to the training mean. These ordinal codes approximate the paper's
-numeric input representation on a newer formatted export.
+numeric input representation on a newer formatted export. Exported codes are
+used as numbers, so a special code such as tumor size 999 (unknown) is
+standardized like a measurement; one-hot encoding keeps it separate.
 
-Pass ``split=`` at task creation so PyHealth fits vocabulary and scaling on
-training patients only. Use ``include_extent=False`` with the same split to
+Pass ``split=`` to ``dataset.set_task`` so PyHealth fits vocabulary and
+scaling on training patients only. Use ``include_extent=False`` with the same split to
 remove stage, tumor size, extension, lymph nodes, and metastases together.
 The fitted processor's ``field_slices`` maps source fields to vector columns.
 

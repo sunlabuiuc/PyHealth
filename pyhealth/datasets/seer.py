@@ -54,7 +54,9 @@ _DEATH_CLASSES = {
 _FEATURE_FORMATS = {
     "age_group": re.compile(r"[0-9]{1,2}(?:-[0-9]{1,2}|\+)?(?: years?)?|<1 year"),
     "histology": re.compile(r"[0-9]{4}"),
-    "stage": re.compile(r"(?:0(?:a|is)?|I{1,3}|IV)(?:[A-C]| NOS)?|OCCULT", re.IGNORECASE),
+    "stage": re.compile(
+        r"(?:0(?:a|is)?|I{1,3}|IV)(?:[A-C]| NOS)?|OCCULT", re.IGNORECASE
+    ),
 }
 _MISSING_FEATURE_VALUES = {"", "unknown", "unk stage", "na", "n/a", "blank(s)"}
 
