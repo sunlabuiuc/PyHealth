@@ -164,6 +164,25 @@ class TestMIMICExtractTasks(unittest.TestCase):
         self.assertEqual(task.output_schema, {"label": "binary"})
         self.assertEqual(task.input_schema, {"features": "tensor"})
 
+    def test_variable_names_are_case_insensitive(self):
+        # MIMIC-Extract's own names ("Heart Rate") match the dataset's
+        # lower-case names, and are stored lower case.
+        task = MIMICExtractMortalityHospital(variables=["Heart Rate", "GLUCOSE"])
+        self.assertEqual(task.variables, ["heart rate", "glucose"])
+        grid = _features(task(self.p1)[0])
+        self.assertEqual(grid[0, 0, 0], 80.0)  # heart rate mean is populated
+
+    def test_event_names_are_case_insensitive(self):
+        patient = _patient(
+            "p4", [_stay(401, 2.0, 0, 0), _hour(401, 0, "Heart Rate", 70.0)]
+        )
+        task = MIMICExtractMortalityHospital(variables=VARIABLES)
+        self.assertEqual(_features(task(patient)[0])[0, 0, 0], 70.0)
+
+    def test_duplicate_variable_names_rejected(self):
+        with self.assertRaises(ValueError):
+            MIMICExtractMortalityHospital(variables=["heart rate", "Heart Rate"])
+
     def test_invalid_arguments(self):
         with self.assertRaises(ValueError):
             MIMICExtractMortalityHospital(variables=[])

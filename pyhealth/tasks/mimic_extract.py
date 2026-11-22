@@ -61,7 +61,9 @@ class MIMICExtractBinaryTask(BaseTask):
     Args:
         variables: Ordered names of the hourly variables to use as features.
             The order fixes the feature layout, so it must be the same for
-            every stay.
+            every stay. Names are matched case-insensitively (stored lower
+            case, as ``MIMICExtractDataset`` stores them), so MIMIC-Extract's
+            own names such as ``"Heart Rate"`` work.
         window_hours: Hours from ICU admission used as input. Default 24.
         gap_hours: Hours between the end of the window and the prediction
             time. Stays shorter than ``window_hours + gap_hours`` are
@@ -73,9 +75,9 @@ class MIMICExtractBinaryTask(BaseTask):
         code_mapping: Passed through to :class:`BaseTask`.
 
     Raises:
-        ValueError: If ``variables`` is empty, ``window_hours`` is not
-            positive, ``gap_hours`` is negative, or ``aggregates`` is empty or
-            contains an unknown name.
+        ValueError: If ``variables`` is empty or has names that are equal
+            ignoring case, ``window_hours`` is not positive, ``gap_hours`` is
+            negative, or ``aggregates`` is empty or contains an unknown name.
 
     Examples:
         Subclasses set ``task_name`` and implement :meth:`label`:
@@ -115,7 +117,14 @@ class MIMICExtractBinaryTask(BaseTask):
                 f"aggregates must be a non-empty subset of {AGGREGATES}, "
                 f"got {list(aggregates)}"
             )
-        self.variables = list(variables)
+        names = [str(v).strip().lower() for v in variables]
+        duplicates = sorted({n for n in names if names.count(n) > 1})
+        if duplicates:
+            raise ValueError(
+                f"variables must be unique ignoring case, got duplicates of "
+                f"{duplicates}"
+            )
+        self.variables = names
         self.window_hours = window_hours
         self.gap_hours = gap_hours
         self.aggregates = [a for a in AGGREGATES if a in aggregates]
@@ -154,7 +163,7 @@ class MIMICExtractBinaryTask(BaseTask):
             filters=[(STAY_ID, "==", stay_id), (HOUR, "<", n_hours)],
         )
         for event in hourly:
-            col = var_index.get(event[VARIABLE])
+            col = var_index.get(str(event[VARIABLE]).strip().lower())
             if col is None:
                 continue
             row = int(event[HOUR])

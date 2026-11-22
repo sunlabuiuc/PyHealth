@@ -4,6 +4,7 @@ import importlib.util
 import shutil
 import sys
 import tempfile
+import types
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -213,6 +214,53 @@ class TestPrepare(unittest.TestCase):
         with (
             mock.patch.dict(sys.modules, {"tables": None}),
             self.assertRaisesRegex(ImportError, "pip install tables"),
+        ):
+            prepare_mimic_extract(self.root)
+
+    def _fake_hdf5(self, tables):
+        """Patches PyTables and ``pd.HDFStore`` so the HDF5 read path runs
+        without PyTables installed (as in CI). ``tables`` maps HDF5 keys to
+        the DataFrames the fake store returns."""
+
+        class FakeStore:
+            def __init__(self, path, mode="r"):
+                self.path = path
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def __iter__(self):
+                return iter(f"/{key}" for key in tables)
+
+            def __getitem__(self, key):
+                return tables[key]
+
+        return (
+            mock.patch.dict(sys.modules, {"tables": types.ModuleType("tables")}),
+            mock.patch("pyhealth.datasets.mimicextract.pd.HDFStore", FakeStore),
+        )
+
+    def test_reads_h5_simulated(self):
+        (self.root / "all_hourly_data_4.h5").touch()
+        fake_tables, fake_store = self._fake_hdf5(
+            {"patients": _patients(), "vitals_labs": _vitals_labs()}
+        )
+        with fake_tables, fake_store:
+            prepare_mimic_extract(self.root, pop_size=4, max_hours=24)
+        self.assertEqual(len(pd.read_csv(self.root / PATIENTS_CSV)), 4)
+        self.assertEqual(len(pd.read_csv(self.root / VITALS_LABS_CSV)), 5)
+        self.assertTrue((self.root / PARAMS_JSON).is_file())
+
+    def test_missing_h5_table_simulated(self):
+        (self.root / "all_hourly_data.h5").touch()
+        fake_tables, fake_store = self._fake_hdf5({"patients": _patients()})
+        with (
+            fake_tables,
+            fake_store,
+            self.assertRaisesRegex(ValueError, "vitals_labs"),
         ):
             prepare_mimic_extract(self.root)
 
