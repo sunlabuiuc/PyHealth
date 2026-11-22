@@ -154,8 +154,8 @@ def load_run(
     """Builds the report of a run from its directory alone.
 
     Reads ``trials.jsonl`` and, when present, ``run.json``, ``lessons.json``,
-    ``card.json``, ``attribution.json``, ``explain.json``, ``test.json`` and
-    ``review.json``. Runs written before ``run.json``
+    ``card.json``, ``attribution.json``, ``explain.json``, ``test.json``,
+    ``signal.json`` and ``review.json``. Runs written before ``run.json``
     existed need ``metric`` (and ``maximize`` for a metric where lower is
     better). Their selection is recomputed under the rule the report states,
     and the report says so: the search itself may have chosen another trial.
@@ -221,6 +221,7 @@ def load_run(
         confirm_se=settings.get("confirm_se", 2.0),
         fold_events=settings.get("fold_events"),
         min_events=settings.get("min_events_per_fold", 10),
+        signal=read("signal.json"),
     )
 
 
@@ -248,6 +249,7 @@ def build_report(
     confirm_se: float = 2.0,
     fold_events: Sequence[int] | None = None,
     min_events: int = 10,
+    signal: dict[str, Any] | None = None,
 ) -> Report:
     """Builds a report from a run's trials and, optionally, its test and attribution.
 
@@ -281,6 +283,7 @@ def build_report(
         fold_events: Positive samples in each CV fold, for the ``few_events``
             flag; ``None`` raises no flag.
         min_events: The fewest positives per fold without that flag.
+        signal: The comparison with chance, from ``signal.json``.
 
     Examples:
         >>> from pyhealth.autoimprove import Trial
@@ -405,7 +408,7 @@ def build_report(
     }
     flags = [{**f, "review": review.get(f["id"])}
              for f in flags_for(card, explanation, test, fold_events=fold_events,
-                                min_events=min_events)]
+                                min_events=min_events, signal=signal)]
     sections = [
         _summary(ctx, test, flags, notes),
         _task_section(task, dropped_models or {}, card),
@@ -445,7 +448,7 @@ def build_report(
         "card": card.to_dict() if card is not None else None,
         "explanation": explanation, "flags": flags,
         "confirmed": {str(k): v for k, v in (confirmed or {}).items()},
-        "pruning": pruning,
+        "pruning": pruning, "signal": signal,
         "trials": [_public_trial(t) for t in trials],
     }
     return Report(title, sections, data)
@@ -456,6 +459,8 @@ def _summary(ctx, test, flags, notes) -> Section:
     sel, ref, metric = ctx["selected"], ctx["reference"], ctx["metric"]
     space = ctx["space"]
     blocks = [("p", f"**Note.** {n}") for n in notes]
+    blocks += [("p", f"**No signal?** {f['detail']} *(measured)*")
+               for f in flags if f["id"] == "no_signal"]
     blocks += [("p", (f"**Selected: #{sel.trial_id}, "
                      f"{_model_words(sel.config, space)}.** "
                      f"{_score_line(sel, ref, ctx)} *(measured)*"))]
@@ -675,7 +680,8 @@ def _test_section(ctx, test) -> Section:
     names = {"best": "selected", "baseline": "starting pipeline",
              "top": "highest-scoring candidate"}
     present = [(k, n) for k, n in names.items() if k in test]
-    # PR-AUC's chance level is the prevalence, so only there is the ratio a lift.
+    # PR-AUC's chance level is about the prevalence, so only there is the
+    # ratio a lift.
     lift = metric == "pr_auc"
     rows = []
     for key, name in present:
@@ -1001,7 +1007,7 @@ def _checklist_section(ctx, card, explanation, test, attribution) -> Section:
 
 def flags_for(
     card, explanation, test, suspicious=(), features=(), fold_events=None,
-    min_events=10,
+    min_events=10, signal=None,
 ) -> list[dict[str, str]]:
     """Items for clinician review, from the task card, explanation and test.
 
@@ -1010,6 +1016,9 @@ def flags_for(
     predicted the outcome almost perfectly, which usually means leakage.
     ``features`` are the selection's engineered specs; those without a
     rationale are flagged whether or not ``explanation`` is given.
+    ``signal`` is the comparison with chance
+    (:func:`~pyhealth.autoimprove.improver.signal_check`); a run whose
+    baseline or selection does not beat chance gets a ``no_signal`` flag.
 
     Examples:
         >>> [f["id"] for f in flags_for(None, None, None)]
@@ -1019,8 +1028,13 @@ def flags_for(
         ['no_task_card', 'no_rationale:count_90d__visits']
         >>> [f["id"] for f in flags_for(None, None, None, fold_events=[7, 6, 7])]
         ['no_task_card', 'few_events']
+        >>> weak = {"no_signal": True, "detail": "The baseline is not above chance."}
+        >>> [f["id"] for f in flags_for(None, None, None, signal=weak)]
+        ['no_signal', 'no_task_card']
     """
     out = []
+    if signal and signal.get("no_signal"):
+        out.append({"id": "no_signal", "kind": "signal", "detail": signal["detail"]})
     if card is None:
         out.append({"id": "no_task_card", "kind": "task",
                     "detail": "No task card: the cohort, outcome and features have "

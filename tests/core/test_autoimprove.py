@@ -31,15 +31,16 @@ from pyhealth.autoimprove import (
     paired_gain,
     select_simplest,
     select_trial,
+    signal_check,
     train_pipeline,
     unverified_numbers,
     with_xgboost,
 )
 from pyhealth.autoimprove import space as space_module
-from pyhealth.autoimprove.evaluate import patient_folds
+from pyhealth.autoimprove.evaluate import chance_fold_scores, patient_folds
 from pyhealth.autoimprove.explain import _effect_bins, attributions, summarize
 from pyhealth.autoimprove.proposers import ProposalContext, parse_json
-from pyhealth.autoimprove.report import has_intervals
+from pyhealth.autoimprove.report import flags_for, has_intervals
 from pyhealth.datasets import create_sample_dataset
 from pyhealth.models import LogisticRegression
 from pyhealth.processors import BinaryLabelProcessor
@@ -580,6 +581,136 @@ class TestAutoImprover(unittest.TestCase):
         self.assertIn("difference", test)
         self.assertLessEqual(test["best"]["lower"], test["best"]["upper"])
         self.assertNotIn("predictions", test)
+
+
+def _random_ap(labels, n=20000, seed=0):
+    """Mean average precision of random rankings, by simulation."""
+    rng = np.random.default_rng(seed)
+    y = np.asarray(labels)
+    ranks = np.arange(1, len(y) + 1)
+    total = 0.0
+    for _ in range(n):
+        p = rng.permutation(y)
+        total += (np.cumsum(p) / ranks)[p == 1].mean()
+    return total / n
+
+
+class TestSignalCheck(unittest.TestCase):
+    """A baseline or selection that does not beat chance is flagged."""
+
+    def test_chance_fold_scores(self):
+        folds = [np.array([0, 1]), np.array([2, 3, 4, 5])]
+        labels = [1, 0, 1, 1, 0, 0]
+        chance = chance_fold_scores(labels, folds, "pr_auc")
+        # one positive of two: a random ranking puts it first half the time
+        self.assertAlmostEqual(chance[0], 0.75)
+        # matches the mean average precision of random rankings
+        self.assertAlmostEqual(chance[1], _random_ap([1, 1, 0, 0]), places=2)
+        self.assertEqual(chance_fold_scores([0, 0], [np.array([0, 1])], "pr_auc"),
+                         [0.0])
+        self.assertEqual(chance_fold_scores(labels, folds, "roc_auc"), [0.5, 0.5])
+        self.assertIsNone(chance_fold_scores(labels, folds, "accuracy"))
+
+    def test_signal_check(self):
+        chance = [0.08, 0.08, 0.08]
+        # the benchmark's null runs: a baseline at chance, a selection a bit above
+        weak = signal_check(chance, [0.11, 0.12, 0.10], [0.07, 0.09, 0.08], "pr_auc")
+        self.assertTrue(weak["no_signal"])
+        self.assertIn("baseline", weak["detail"])
+        self.assertAlmostEqual(weak["baseline"]["gain"], 0.0)
+        # a selection at chance, without a baseline
+        flat = signal_check(chance, [0.07, 0.09, 0.08], metric="pr_auc")
+        self.assertTrue(flat["no_signal"])
+        self.assertIsNone(flat["baseline"])
+        self.assertIn("selected model", flat["detail"])
+        strong = signal_check(chance, [0.40, 0.45, 0.42], [0.30, 0.33, 0.31])
+        self.assertFalse(strong["no_signal"])
+        self.assertEqual(strong["detail"], "")
+        self.assertIsNone(signal_check(chance, [0.4, 0.5]))  # folds do not line up
+
+    def test_flag_and_report(self):
+        weak = signal_check([0.5] * 3, [0.52, 0.5, 0.51], [0.47, 0.48, 0.46],
+                            "roc_auc")
+        self.assertEqual(flags_for(None, None, None, signal=weak)[0]["id"],
+                         "no_signal")
+        self.assertNotIn("no_signal", [f["id"] for f in flags_for(
+            None, None, None, signal={**weak, "no_signal": False})])
+        base = Trial(0, -1, "baseline", "baseline", PipelineConfig("MLP"),
+                     metric_name="roc_auc", score=0.47, fold_scores=[0.47, 0.48, 0.46])
+        report = build_report([base], metric="roc_auc", signal=weak)
+        self.assertIn("No signal?", report.to_markdown())
+        self.assertEqual(report.data["signal"], weak)
+
+    def _run(self, label, run_dir, **kwargs):
+        train, val, _ = _datasets(label=label)
+        improver = AutoImprover(
+            train, val, RandomProposer(0),
+            baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+            space=SPACE, n_agents=1, n_cycles=1, cv_folds=3, run_dir=run_dir,
+            check=False, **kwargs,
+        )
+        improver.run()
+        return improver
+
+    def test_null_labels_are_flagged(self):
+        rng = random.Random(7)
+        with tempfile.TemporaryDirectory() as tmp:
+            improver = self._run(lambda codes: int(rng.random() < 0.3), tmp)
+            with open(os.path.join(tmp, "signal.json")) as f:
+                saved = json.load(f)
+            self.assertTrue(saved["no_signal"])
+            self.assertEqual(len(saved["chance"]), 3)
+            self.assertIn("no_signal", [f["id"] for f in improver.flags()])
+            self.assertIn("No signal?", improver.report().to_markdown())
+            self.assertIn("No signal?", load_run(tmp).to_markdown())
+
+    def test_confirmed_runs_compare_on_the_confirmation_folds(self):
+        # After confirm, the selection, the baseline and chance are all
+        # compared on the confirmation folds.
+        calls = []
+
+        def spy(chance, selected, baseline, metric="roc_auc"):
+            calls.append((chance, selected, baseline))
+            return signal_check(chance, selected, baseline, metric)
+
+        with (tempfile.TemporaryDirectory() as tmp,
+              mock.patch("pyhealth.autoimprove.improver.signal_check", spy)):
+            improver = self._run(None, tmp, confirm=True)
+        self.assertTrue(improver.confirmed)
+        chance, selected, baseline = calls[-1]
+        best = improver.result().best
+        base = next(t for t in improver.trials if t.agent == "baseline")
+        folds = patient_folds(improver.train_dataset, 3, improver.seed + 1)
+        expected = chance_fold_scores(improver._labels(), folds, improver.metric)
+        np.testing.assert_allclose(chance, expected)
+        self.assertEqual(list(selected), list(improver.confirmed[best.trial_id]))
+        self.assertEqual(baseline, improver.confirmed.get(base.trial_id))
+
+    def test_a_stale_signal_file_is_removed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "signal.json"), "w") as f:
+                json.dump({"no_signal": True, "detail": "old run"}, f)
+            with mock.patch("pyhealth.autoimprove.improver.MAX_LABEL_SCAN", 10):
+                improver = self._run(None, tmp)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "signal.json")))
+            self.assertNotIn("no_signal", [f["id"] for f in improver.flags()])
+
+    def test_large_datasets_skip_the_check(self):
+        # Above MAX_LABEL_SCAN the check would read every training sample.
+        with (tempfile.TemporaryDirectory() as tmp,
+              mock.patch("pyhealth.autoimprove.improver.MAX_LABEL_SCAN", 10),
+              self.assertLogs("pyhealth.autoimprove.improver", "INFO") as logs):
+            improver = self._run(None, tmp)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "signal.json")))
+            self.assertNotIn("no_signal", [f["id"] for f in improver.flags()])
+        self.assertTrue(any("Skipped the chance check" in m for m in logs.output))
+
+    def test_real_labels_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            improver = self._run(None, tmp)
+            with open(os.path.join(tmp, "signal.json")) as f:
+                self.assertFalse(json.load(f)["no_signal"])
+            self.assertNotIn("no_signal", [f["id"] for f in improver.flags()])
 
 
 class TestLabelTypes(unittest.TestCase):
