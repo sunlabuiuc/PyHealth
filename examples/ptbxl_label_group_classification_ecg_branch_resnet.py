@@ -58,8 +58,40 @@ Usage::
         --root /data/ptb-xl/1.0.3 --experiments fusion --seeds 0,1,2 \\
         --out-dir runs/ptbxl
 
-Findings: see ``summary.md`` produced by the run. Results on ``--synthetic``
-data only show that the pipeline runs; they say nothing about real ECGs.
+Findings (PTB-XL 1.0.3, one T4 GPU, ``--epochs 10 --head-epochs 5``, test
+macro AUROC on fold 10; mean +/- std over seeds 0 and 1 unless noted):
+
+======================================  ===============  ======
+Configuration                           Ours             Paper
+======================================  ===============  ======
+Black box, single 1D ResNet             0.878 +/- 0.008  0.9086
+Black-box branches, no fusion           0.868 +/- 0.006  0.9052
+Black-box branches, logit fusion        0.880 +/- 0.012  --
+Black-box branches, feature fusion      0.871 +/- 0.007  --
+Feature fusion, random init             0.876 +/- 0.011  --
+ProtoECGNet, branches averaged          0.659 +/- 0.014  0.9120
+ProtoECGNet, learned fusion             0.710 +/- 0.025  0.9213
+======================================  ===============  ======
+
+* Black boxes land 0.03-0.04 below the paper (no hyperparameter search, at
+  most 20 backbone epochs). A trained fusion head changes them by -0.01 to
+  +0.03 depending on the seed, i.e. within seed-to-seed noise.
+* ProtoECGNet (PyHealth implementation, paper's staged protocol at this
+  budget) does not reproduce: it stays about 0.16 below the black boxes. Its
+  learned fusion helps in both seeds (+0.06, +0.04). After prototype
+  projection the classifier-stage loss starts near 25,000; a longer
+  classifier stage and a warm-started fusion head did not close the gap.
+  The paper trains each stage for up to 200 epochs at lr 1e-4 after a
+  1000-trial search.
+* Grouping (seed 0 only): black box physician 0.864 / spectral 0.887 /
+  random 0.865; ProtoECGNet 0.735 / 0.719 / 0.752. No evidence that the
+  physician grouping beats data-driven or random groups.
+* Label efficiency (seed 0; 10/25/50/100% of training patients): black box
+  0.717 / 0.781 / 0.813 / 0.864, ProtoECGNet 0.646 / 0.648 / 0.731 / 0.735.
+  The black box is ahead at every fraction.
+
+Results on ``--synthetic`` data only show that the pipeline runs; they say
+nothing about real ECGs.
 """
 
 import argparse
