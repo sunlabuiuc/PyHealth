@@ -1277,6 +1277,14 @@ class TestClinicalReport(unittest.TestCase):
         self.assertTrue(all(b["n"] >= 11 for b in bins))
         self.assertEqual(sum(b["n"] for b in bins), 100)
 
+    def test_effect_bins_with_one_bin_of_several_values(self):
+        # A rare code: 12 samples at 0, 3 at 1. The small bins
+        # merge into one holding every value, which has no cut point.
+        value = np.array([0.0] * 12 + [1.0] * 3)
+        bins = _effect_bins(value, value * 0.5, np.arange(15), 11, 5)
+        self.assertEqual([b["label"] for b in bins], ["all values"])
+        self.assertEqual(bins[0]["n"], 15)
+
     def test_logistic_attributions_are_exact(self):
         model = LogisticRegression(self.train, embedding_dim=8)
         out = attributions(model, self.train, max_samples=100)
@@ -1345,6 +1353,147 @@ class TestClinicalReport(unittest.TestCase):
         self.assertEqual(values.shape, (30, 2))
         np.testing.assert_allclose(contribs, values * [0.5, -1.0])
         self.assertEqual(sorted(np.unique(values[:, 1])), [1.0, 2.0])  # visits with "b"
+
+    def _code_model(self, data, key, flatten=False):
+        """A linear model on summed code embeddings: each code occurrence
+        adds exactly ``embedding[code] @ weight`` to the logit."""
+        vocab = len(data.input_processors[key].code_vocab)
+
+        class Codes(torch.nn.Module):
+            feature_keys = (key,)
+
+            def __init__(self):
+                super().__init__()
+                torch.manual_seed(0)
+                self.embedding_model = torch.nn.Module()
+                self.embedding_model.embedding_layers = torch.nn.ModuleDict(
+                    {key: torch.nn.Embedding(vocab, 4, padding_idx=0)})
+                self.weight = torch.nn.Parameter(torch.randn(4))
+
+            def forward(self, **batch):
+                x = batch[key]
+                if flatten:  # like LogisticRegression on nested codes
+                    x = x.reshape(len(x), -1)
+                e = self.embedding_model.embedding_layers[key](x)
+                pooled = e.reshape(len(x), -1, e.shape[-1]).sum(dim=1)
+                return {"logit": (pooled @ self.weight).unsqueeze(-1)}
+
+        return Codes()
+
+    def _check_code_columns(self, data, key, model, out):
+        processor = data.input_processors[key]
+        layer = model.embedding_model.embedding_layers[key]
+        per_code = (layer.weight @ model.weight).detach().numpy()
+        entry = out["fields"][key]
+        self.assertEqual(out["skipped"], {})
+        expected = np.asarray([per_code[processor.code_vocab[name]]
+                               for name in entry["names"]])
+        np.testing.assert_allclose(entry["contributions"],
+                                   entry["values"] * expected, atol=1e-4)
+        return entry
+
+    def test_code_attributions_per_code(self):
+        # A sequence of codes: one column per code seen (padding dropped),
+        # valued by its count in the sample, with the summed contribution of
+        # its occurrences (exact for a model linear in the embeddings).
+        samples = [{"patient_id": f"p{i}",
+                    "codes": ["bad", "x"] * (1 + i % 2) if i % 3 == 0 else ["ok"],
+                    "label": int(i % 3 == 0)} for i in range(36)]
+        data = create_sample_dataset(samples, {"codes": "sequence"},
+                                     {"label": "binary"})
+        model = self._code_model(data, "codes")
+        out = attributions(model, data, steps=4, batch_size=8)  # several batches
+        entry = self._check_code_columns(data, "codes", model, out)
+        self.assertEqual(sorted(entry["names"]), ["bad", "ok", "x"])
+        self.assertEqual(out["sample_index"], list(range(36)))
+        sub = attributions(model, data, steps=2, batch_size=8, max_samples=10)
+        self.assertEqual(len(sub["sample_index"]), 10)
+        self.assertEqual(sub["fields"]["codes"]["values"].shape[0], 10)
+        values = dict(zip(entry["names"], entry["values"].T))
+        self.assertEqual(sorted(set(values["bad"])), [0.0, 1.0, 2.0])
+        self.assertEqual(sorted(set(values["ok"])), [0.0, 1.0])
+        summary = summarize(out, top_k=3)
+        self.assertEqual({f["group"] for f in summary["features"]}, {"codes"})
+        self.assertEqual([g["group"] for g in summary["groups"]], ["codes"])
+        self.assertEqual({f["name"] for f in summary["features"]}, {"bad", "ok", "x"})
+
+    def test_nested_code_attributions(self):
+        # Nested codes (visits of codes), embedded as is or flattened first.
+        samples = [{"patient_id": f"p{i}",
+                    "visits": [["a", "b"], ["b"]] if i % 2 else [["c"]],
+                    "label": i % 2} for i in range(30)]
+        data = create_sample_dataset(samples, {"visits": "nested_sequence"},
+                                     {"label": "binary"})
+        for flatten in (False, True):
+            with self.subTest(flatten=flatten):
+                model = self._code_model(data, "visits", flatten=flatten)
+                out = attributions(model, data, steps=4)
+                entry = self._check_code_columns(data, "visits", model, out)
+                values = dict(zip(entry["names"], entry["values"].T))
+                self.assertEqual(sorted(set(values["b"])), [0.0, 2.0])
+
+    def test_code_attributions_with_frozen_embeddings(self):
+        # Frozen embeddings (e.g. EmbeddingModel(freeze_pretrained=True))
+        # still get per-code attributions.
+        samples = [{"patient_id": f"p{i}", "codes": ["a", "b"][: 1 + i % 2],
+                    "label": i % 2} for i in range(20)]
+        data = create_sample_dataset(samples, {"codes": "sequence"},
+                                     {"label": "binary"})
+        model = self._code_model(data, "codes")
+        model.embedding_model.embedding_layers["codes"].weight.requires_grad_(False)
+        out = attributions(model, data, steps=4, min_cell=1)
+        entry = self._check_code_columns(data, "codes", model, out)
+        self.assertEqual(sorted(entry["names"]), ["a", "b"])
+
+    def test_rare_codes_are_not_named(self):
+        # "rare" is in 5 patients (< 11): it joins "other codes" with its
+        # counts and contributions, and summarize() never names it.
+        samples = [{"patient_id": f"p{i}",
+                    "codes": ["common", "rare"] if i < 5 else ["common"],
+                    "label": int(i < 10)} for i in range(30)]
+        data = create_sample_dataset(samples, {"codes": "sequence"},
+                                     {"label": "binary"})
+        model = self._code_model(data, "codes")
+        out = attributions(model, data, steps=4)
+        entry = out["fields"]["codes"]
+        self.assertEqual(entry["names"], ["common", "other codes"])
+        self.assertEqual(entry["values"][:, 1].sum(), 5)
+        layer = model.embedding_model.embedding_layers["codes"]
+        rare = data.input_processors["codes"].code_vocab["rare"]
+        per_code = float((layer.weight[rare] @ model.weight).detach())
+        np.testing.assert_allclose(entry["contributions"][:5, 1], per_code,
+                                   atol=1e-4)
+        names = {f["name"] for f in summarize(out, top_k=5)["features"]}
+        self.assertNotIn("rare", names)
+
+    def test_an_unused_numeric_input_fails(self):
+        samples = [{"patient_id": f"p{i}", "x": [float(i), 1.0],
+                    "label": i % 2} for i in range(12)]
+        data = create_sample_dataset(samples, {"x": "tensor"}, {"label": "binary"})
+
+        class Unused(torch.nn.Module):
+            feature_keys = ("x",)
+
+            def __init__(self):
+                super().__init__()
+                self.bias = torch.nn.Parameter(torch.zeros(1))
+
+            def forward(self, **batch):
+                return {"logit": self.bias.expand(len(batch["x"]), 1)}
+
+        with self.assertRaisesRegex(RuntimeError, "does not use the input 'x'"):
+            attributions(Unused(), data, steps=2)
+
+    def test_code_attributions_with_a_pyhealth_model(self):
+        samples = [{"patient_id": f"p{i}", "codes": ["a", "b"][: 1 + i % 2],
+                    "label": i % 2} for i in range(20)]
+        data = create_sample_dataset(samples, {"codes": "sequence"},
+                                     {"label": "binary"})
+        model = LogisticRegression(data, embedding_dim=4)
+        out = attributions(model, data, steps=3, min_cell=1)
+        self.assertEqual(out["skipped"], {})
+        self.assertEqual(sorted(out["fields"]["codes"]["names"]), ["a", "b"])
+        self.assertEqual(out["fields"]["codes"]["values"].shape, (20, 2))
 
     @unittest.skipUnless(importlib.util.find_spec("xgboost"), "needs xgboost")
     def test_tree_attributions(self):
