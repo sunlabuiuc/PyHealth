@@ -51,6 +51,9 @@ from .covid19_cxr_generation import (
     COVID19CXRImageGeneration as COVID19CXRImageGeneration,
 )
 from .ptbxl_multilabel_classification import PTBXLMultilabelClassification as PTBXLMultilabelClassification
+from .ptbxl_multiclass_classification import (
+    PTBXLMulticlassClassification as PTBXLMulticlassClassification,
+)
 from .ptbxl_heartlang import PTBXLHeartLangClassification as PTBXLHeartLangClassification
 from .cpsc2018_heartlang import (
     CPSC2018HeartLangClassification as CPSC2018HeartLangClassification,

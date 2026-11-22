@@ -73,6 +73,10 @@ from .covid19_cxr import COVID19CXRDataset
 from .isic2019 import ISIC2019Dataset as ISIC2019Dataset
 from .ptbxl import PTBXLDataset as PTBXLDataset
 from .covid_blues import COVIDBLUESDataset as COVIDBLUESDataset
+from .ptbxl import (  # noqa: E402
+    compute_ptbxl_lead_stats as compute_ptbxl_lead_stats,
+    load_ptbxl_lead_stats as load_ptbxl_lead_stats,
+)
 from .chapman_shaoxing import ChapmanShaoxingDataset as ChapmanShaoxingDataset
 from .physionet2012 import PhysioNet2012Dataset as PhysioNet2012Dataset
 from .dreamt import DREAMTDataset

@@ -25,9 +25,11 @@ import torch
 from pyhealth.datasets.ptbxl import (
     AGE_CENSOR_SENTINEL,
     PTBXLDataset,
+    compute_ptbxl_lead_stats,
     format_patient_id,
     is_age_censored,
     is_age_missing,
+    load_ptbxl_lead_stats,
     load_ptbxl_record,
     metadata_filename,
     parse_scp_codes,
@@ -38,6 +40,12 @@ from pyhealth.tasks.ptbxl import (
     _to_bool,
     aggregate_diagnostic_superclasses,
     load_diagnostic_class_map,
+)
+from pyhealth.tasks.ptbxl_multiclass_classification import (
+    PTBXLMulticlassClassification,
+)
+from pyhealth.tasks.ptbxl_multilabel_classification import (
+    PTBXLMultilabelClassification,
 )
 
 FIXTURE_ROOT = (
@@ -50,12 +58,13 @@ def _write_dummy_wfdb(
     n_leads: int = 12,
     n_samples: int = 50,
     fs: int = 100,
+    offset: int = 0,
 ) -> None:
     """Write a minimal WFDB record (header + int16 dat) for tests."""
     record_base.parent.mkdir(parents=True, exist_ok=True)
     data = np.zeros((n_samples, n_leads), dtype=np.int16)
     for lead in range(n_leads):
-        data[:, lead] = np.arange(n_samples, dtype=np.int16) + lead
+        data[:, lead] = np.arange(n_samples, dtype=np.int16) + lead + offset
     Path(str(record_base) + ".dat").write_bytes(data.tobytes())
     name = record_base.name
     lines = [f"{name} {n_leads} {fs} {n_samples}"]
@@ -972,6 +981,207 @@ class TestPTBXLMultilabelClassification(unittest.TestCase):
         prepped = task._prepare_signal(rec, 100)
         canonical = load_ptbxl_record(rec)[:, :1000]
         np.testing.assert_allclose(prepped, canonical, atol=1e-5)
+
+
+@unittest.skipUnless(
+    _WFDB_AVAILABLE,
+    "wfdb not installed; install the 'pyhealth[ptbxl]' extra to run these tests",
+)
+class TestPTBXLTrainLeadStats(unittest.TestCase):
+    """compute_ptbxl_lead_stats / load_ptbxl_lead_stats artifacts."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.root = _materialize_fixture(Path(cls.tmp) / "data")
+        # Offset the fold-9/10 records so train-fold subsets produce
+        # genuinely different statistics (the default dummies are identical).
+        for rec in ("00002_lr", "00003_lr"):
+            _write_dummy_wfdb(
+                cls.root / "records100" / "00000" / rec,
+                n_samples=50,
+                fs=100,
+                offset=400,
+            )
+        cls.dataset = PTBXLDataset(
+            root=str(cls.root),
+            metadata_cache_dir=Path(cls.tmp) / "meta",
+            sampling_rate=100,
+            cache_dir=Path(cls.tmp) / "ds_cache",
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def _manual_stats(self, folds):
+        meta_path = (
+            self.dataset.metadata_cache_dir / self.dataset.metadata_file_name
+        )
+        meta = pd.read_csv(meta_path)
+        rows = meta[meta["strat_fold"].astype(int).isin(folds)]
+        signals = [
+            load_ptbxl_record(str(p)).astype(np.float64)
+            for p in rows["signal_file"]
+        ]
+        return signals
+
+    def test_stats_match_manual_per_lead_calculation(self):
+        path = compute_ptbxl_lead_stats(self.dataset, train_folds=(1, 2, 3))
+        mean, std = load_ptbxl_lead_stats(path)
+        signals = self._manual_stats((1, 2, 3))
+        # Fixture folds 1/2/3 are ecg 1, 4, 5 (three records).
+        self.assertEqual(len(signals), 3)
+        cat = np.concatenate(signals, axis=1)
+        np.testing.assert_allclose(mean, cat.mean(axis=1), rtol=1e-5)
+        np.testing.assert_allclose(std, cat.std(axis=1), rtol=1e-5)
+
+    def test_stats_exclude_non_train_folds(self):
+        all_mean, _ = load_ptbxl_lead_stats(
+            compute_ptbxl_lead_stats(
+                self.dataset, train_folds=(1, 2, 3, 9, 10)
+            )
+        )
+        partial_mean, _ = load_ptbxl_lead_stats(
+            compute_ptbxl_lead_stats(self.dataset, train_folds=(1, 2, 3))
+        )
+        # Fold 9/10 records differ, so the two fits must differ.
+        self.assertFalse(np.allclose(all_mean, partial_mean))
+
+    def test_stats_cached_and_fold_keyed(self):
+        path_a = compute_ptbxl_lead_stats(self.dataset, train_folds=(1, 2, 3))
+        again = compute_ptbxl_lead_stats(self.dataset, train_folds=(1, 2, 3))
+        self.assertEqual(path_a, again)
+        self.assertTrue(path_a.is_file())
+        path_b = compute_ptbxl_lead_stats(self.dataset, train_folds=(1, 9, 10))
+        self.assertNotEqual(path_a, path_b)
+        compute_ptbxl_lead_stats(self.dataset, train_folds=(1, 2, 3), force=True)
+        self.assertTrue(path_a.is_file())
+
+    def test_stats_empty_or_unknown_folds_raise(self):
+        with self.assertRaisesRegex(ValueError, "must not be empty"):
+            compute_ptbxl_lead_stats(self.dataset, train_folds=())
+        with self.assertRaisesRegex(ValueError, "No records"):
+            compute_ptbxl_lead_stats(self.dataset, train_folds=(99,))
+
+    def test_load_stats_missing_file_raises(self):
+        missing = Path(self.tmp) / "nope.npz"
+        with self.assertRaises(FileNotFoundError):
+            load_ptbxl_lead_stats(missing)
+
+    def test_multilabel_train_stats_matches_manual(self):
+        path = compute_ptbxl_lead_stats(self.dataset, train_folds=(1, 2, 3))
+        mean, std = load_ptbxl_lead_stats(path)
+        task = PTBXLMultilabelClassification(
+            scp_statements_path=self.root / "scp_statements.csv",
+            standardize="train_stats",
+            stats_path=path,
+        )
+        rec = str(self.root / "records100" / "00000" / "00002_lr")
+        raw = load_ptbxl_record(rec).astype(np.float64)
+        # _prepare_signal pads to 10 * rate before normalizing.
+        padded = np.pad(raw, ((0, 0), (0, 1000 - raw.shape[1])))
+        out = task._prepare_signal(rec, 100)
+        expected = (padded - mean[:, None]) / (std[:, None] + 1e-6)
+        np.testing.assert_allclose(out, expected, atol=1e-5)
+        # Train-fit stats do NOT force this record's own mean to zero.
+        self.assertGreater(float(np.abs(out.mean(axis=1)).max()), 1e-3)
+
+    def test_multilabel_train_stats_requires_stats_path(self):
+        with self.assertRaisesRegex(ValueError, "stats_path is required"):
+            PTBXLMultilabelClassification(
+                scp_statements_path=self.root / "scp_statements.csv",
+                standardize="train_stats",
+            )
+        with self.assertRaises(FileNotFoundError):
+            PTBXLMultilabelClassification(
+                scp_statements_path=self.root / "scp_statements.csv",
+                standardize="train_stats",
+                stats_path=Path(self.tmp) / "missing.npz",
+            )
+
+
+@unittest.skipUnless(
+    _WFDB_AVAILABLE,
+    "wfdb not installed; install the 'pyhealth[ptbxl]' extra to run these tests",
+)
+class TestPTBXLMulticlassClassification(unittest.TestCase):
+    """PTBXLMulticlassClassification over a fixture variant with AFIB."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.root = _materialize_fixture(self.tmp / "data")
+        # Add AFIB to ecg 4 so the target class exists in the fixture.
+        db = pd.read_csv(self.root / "ptbxl_database.csv")
+        db.loc[db["ecg_id"] == 4, "scp_codes"] = (
+            "{'IMI': 100.0, 'LVH': 80.0, 'AFIB': 60.0}"
+        )
+        db.to_csv(self.root / "ptbxl_database.csv", index=False)
+        self.dataset = PTBXLDataset(
+            root=str(self.root),
+            metadata_cache_dir=self.tmp / "meta",
+            sampling_rate=100,
+            cache_dir=self.tmp / "ds_cache",
+        )
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_labels_and_empty_drop(self):
+        task = PTBXLMulticlassClassification(target_dx="AF", standardize=None)
+        samples = self.dataset.set_task(task, num_workers=1)
+        # ecg 5 (empty scp_codes) is dropped; the other four are kept.
+        self.assertEqual(len(samples), 4)
+        by_record = {str(s["record_id"]): int(s["label"]) for s in samples}
+        self.assertEqual(by_record["1"], 0)  # NORM -> normal
+        self.assertEqual(by_record["2"], 2)  # IMI+SR -> other
+        self.assertEqual(by_record["3"], 2)  # PACE -> other
+        self.assertEqual(by_record["4"], 1)  # AFIB -> target
+        for s in samples:
+            self.assertEqual(tuple(s["signal"].shape), (12, 1000))
+            self.assertIn("strat_fold", s)
+        vocab = samples.output_processors["label"].label_vocab
+        # Fixed class order, matching the benchmark loss layout.
+        self.assertEqual(vocab, {"normal": 0, "target": 1, "other": 2})
+
+    def test_target_takes_precedence_over_normal(self):
+        db = pd.read_csv(self.root / "ptbxl_database.csv")
+        db.loc[db["ecg_id"] == 1, "scp_codes"] = (
+            "{'NORM': 100.0, 'AFIB': 60.0}"
+        )
+        db.to_csv(self.root / "ptbxl_database.csv", index=False)
+        dataset = PTBXLDataset(
+            root=str(self.root),
+            metadata_cache_dir=self.tmp / "meta2",
+            sampling_rate=100,
+            cache_dir=self.tmp / "ds_cache2",
+        )
+        task = PTBXLMulticlassClassification(target_dx="AF", standardize=None)
+        samples = dataset.set_task(task, num_workers=1)
+        by_record = {str(s["record_id"]): int(s["label"]) for s in samples}
+        self.assertEqual(by_record["1"], 1)  # NORM + AFIB -> target
+
+    def test_target_dx_for_other_diagnosis(self):
+        task = PTBXLMulticlassClassification(target_dx="LBBB", standardize=None)
+        samples = self.dataset.set_task(task, num_workers=1)
+        by_record = {str(s["record_id"]): int(s["label"]) for s in samples}
+        # No LBBB in the fixture: only normal (1) and other (2).
+        self.assertEqual(by_record["1"], 0)
+        self.assertEqual(by_record["4"], 2)
+
+    def test_invalid_target_dx_raises(self):
+        with self.assertRaisesRegex(ValueError, "target_dx must be one of"):
+            PTBXLMulticlassClassification(target_dx="STE")
+
+    def test_paper_fold_split_constant_shape(self):
+        from pyhealth.tasks.ptbxl_multiclass_classification import (
+            PTBXL_PAPER_FOLD_SPLITS,
+        )
+        self.assertEqual(sorted(PTBXL_PAPER_FOLD_SPLITS), [1, 2, 3, 4, 5])
+        for val_fold, test_fold in PTBXL_PAPER_FOLD_SPLITS.values():
+            self.assertNotEqual(val_fold, test_fold)
+            self.assertIn(val_fold, range(1, 11))
+            self.assertIn(test_fold, range(1, 11))
 
 
 if __name__ == "__main__":

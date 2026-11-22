@@ -106,7 +106,17 @@ class PTBXLMultilabelClassification(BaseTask):
             least this value (0 keeps everything, including
             unknown-confidence form/rhythm statements). Defaults to 0.0.
         standardize: ``"record"`` applies per-lead z-scoring within each
-            record; ``None`` keeps raw millivolts. Defaults to ``"record"``.
+            record; ``"train_stats"`` applies per-lead z-scoring using mean
+            and std fitted on the training folds only (requires
+            ``stats_path``; see
+            :func:`~pyhealth.datasets.compute_ptbxl_lead_stats`); ``None``
+            keeps raw millivolts. Defaults to ``"record"``.
+        stats_path: Path to a per-lead train-statistics ``.npz`` artifact,
+            required when ``standardize="train_stats"`` and ignored
+            otherwise. Compute it with
+            :func:`~pyhealth.datasets.compute_ptbxl_lead_stats` **before**
+            ``set_task`` so the statistics come only from the training
+            folds. Defaults to None.
         remove_baseline: If True, applies a 0.5 Hz high-pass Butterworth
             filter to remove baseline wander (used in the ProtoECGNet paper).
             Defaults to False.
@@ -145,18 +155,39 @@ class PTBXLMultilabelClassification(BaseTask):
         label_set: str = "diagnostic",
         min_likelihood: float = 0.0,
         standardize: str | None = "record",
+        stats_path: str | os.PathLike | None = None,
         remove_baseline: bool = False,
     ) -> None:
         if label_set not in _LABEL_SETS:
             raise ValueError(f"label_set must be one of {_LABEL_SETS}")
-        if standardize not in ("record", None):
-            raise ValueError("standardize must be 'record' or None")
+        if standardize not in ("record", "train_stats", None):
+            raise ValueError(
+                "standardize must be 'record', 'train_stats', or None"
+            )
         # Resolve to a canonical string so the cache key is stable.
         self.scp_statements_path = str(Path(scp_statements_path).resolve())
         self.label_set = label_set
         self.min_likelihood = min_likelihood
         self.standardize = standardize
         self.remove_baseline = remove_baseline
+        self.stats_path = (
+            str(Path(stats_path).resolve()) if stats_path is not None else None
+        )
+        self._lead_mean: np.ndarray | None = None
+        self._lead_std: np.ndarray | None = None
+        if standardize == "train_stats":
+            if self.stats_path is None:
+                raise ValueError(
+                    "stats_path is required when standardize='train_stats'. "
+                    "Compute it with "
+                    "pyhealth.datasets.compute_ptbxl_lead_stats(dataset, "
+                    "train_folds=...) before constructing the task."
+                )
+            from pyhealth.datasets.ptbxl import load_ptbxl_lead_stats
+
+            self._lead_mean, self._lead_std = load_ptbxl_lead_stats(
+                self.stats_path
+            )
         super().__init__()
 
     def _prepare_signal(self, signal_file: str, sampling_rate: int) -> np.ndarray:
@@ -192,6 +223,10 @@ class PTBXLMultilabelClassification(BaseTask):
             mean = signal.mean(axis=1, keepdims=True)
             std = signal.std(axis=1, keepdims=True)
             signal = (signal - mean) / (std + 1e-6)
+        elif self.standardize == "train_stats":
+            signal = (signal - self._lead_mean[:, None]) / (
+                self._lead_std[:, None] + 1e-6
+            )
         return np.ascontiguousarray(signal, dtype=np.float32)
 
     def __call__(self, patient: Any) -> list[dict[str, Any]]:
