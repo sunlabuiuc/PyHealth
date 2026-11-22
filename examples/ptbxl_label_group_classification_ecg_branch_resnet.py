@@ -36,8 +36,13 @@ three ablations that the paper does not contain:
 
 Both models get the same backbone-epoch budget (ProtoECGNet: feature extractor
 + joint stage; black box: twice as many branch epochs), the same early
-stopping, class weights, optimizer and seeds. Scores use logits (ProtoECGNet
-logits can underflow a float32 sigmoid after projection). Results are
+stopping, class weights, optimizer and seeds. Fusion heads of both models
+start from their trained branch heads (a random start is kept as a control).
+ProtoECGNet's classifier stage, which follows prototype projection, gets
+``--classifier-epochs`` (15) because projection moves the prototypes onto
+non-negative feature windows and the last layer starts far from a good fit.
+Scores use logits (ProtoECGNet logits can underflow a float32 sigmoid after
+projection). Results are
 appended to ``<out-dir>/results.jsonl`` as runs finish (re-running skips
 finished runs) and ``<out-dir>/summary.md`` reports mean +/- std over seeds.
 
@@ -326,10 +331,14 @@ def build_model(
             label_cooccurrence=cooccurrence,
         )
     fusion, _, init = spec["fusion"].partition("_")
+    backbones = {n: {"backbone": s["backbone"]} for n, s in settings.items()}
+    if spec["grouping"] == "single":
+        # The paper's full-label black-box baseline is a 1D ResNet-18.
+        backbones = {n: {"backbone": "resnet1d"} for n in groups}
     return ECGBranchResNet(
         samples,
         label_groups=groups,
-        branch_kwargs={n: {"backbone": s["backbone"]} for n, s in settings.items()},
+        branch_kwargs=backbones,
         fusion=fusion,
         fusion_init=init or "branches",
         dropout=args.dropout,
@@ -375,9 +384,50 @@ def run_specs(args: argparse.Namespace) -> Iterator[dict]:
             yield dict(zip(("model", "grouping", "fusion", "fraction", "seed"), spec))
 
 
+def protocol(spec: dict) -> int:
+    """Training-protocol version of a run specification.
+
+    Version 2 (current) gives ProtoECGNet a longer classifier stage and a
+    learned fusion head warm-started from the branch classifiers, and trains
+    the ``single`` baseline with a 1D ResNet. Runs recorded under an older
+    version are re-run and left out of the summary.
+
+    Args:
+        spec: Run specification.
+
+    Returns:
+        The protocol version.
+    """
+    return 2 if spec["model"] == "proto" or spec["grouping"] == "single" else 1
+
+
 def run_key(spec: dict) -> str:
-    """Unique string id of a run specification."""
-    return "{model}|{grouping}|{fusion}|{fraction}|{seed}".format(**spec)
+    """Unique string id of a run specification (with its protocol version)."""
+    key = "{model}|{grouping}|{fusion}|{fraction}|{seed}".format(**spec)
+    return key if protocol(spec) == 1 else f"{key}|p{protocol(spec)}"
+
+
+@torch.no_grad()
+def init_proto_fusion(model: ProtoECGNet) -> None:
+    """Copies ProtoECGNet's branch classifiers into its fusion head.
+
+    The fused model then starts exactly at the branch-wise ("average")
+    prediction, as ``ECGBranchResNet(fusion_init="branches")`` does, instead of
+    from a random layer over hundreds of large similarity scores.
+
+    Args:
+        model: A ProtoECGNet with ``fusion="learned"``.
+    """
+    weight = torch.zeros_like(model.fusion_classifier.weight)
+    offset = 0
+    for name in model.branch_names:
+        branch = model.branches[name]
+        index = model.branch_index(name)
+        width = branch.num_prototypes
+        weight[index, offset : offset + width] = branch.classifier.weight
+        offset += width
+    model.fusion_classifier.weight.copy_(weight)
+    model.fusion_classifier.bias.zero_()
 
 
 def seed_everything(seed: int) -> None:
@@ -465,8 +515,14 @@ def train_and_evaluate(
         model.project_prototypes(
             get_dataloader(train, batch_size=args.batch_size, shuffle=False)
         )
-        stage("classifier", args.head_epochs)
+        # After projection the prototypes are real (non-negative) feature
+        # windows, every similarity is large and the -0.5 initial weights give
+        # logits in the thousands; the last layer needs many more steps than
+        # a fusion head to recover (paper: up to 200 epochs at lr 1e-4).
+        stage("classifier", args.classifier_epochs)
         if spec["fusion"] == "learned":
+            if args.proto_fusion_init == "classifier":
+                init_proto_fusion(model)
             stage("fusion", args.head_epochs)
     else:
         stage("branches" if spec["fusion"] != "none" else "all", 2 * args.epochs)
@@ -485,6 +541,7 @@ def train_and_evaluate(
     row = {
         **spec,
         "key": run_key(spec),
+        "protocol": protocol(spec),
         "val_macro_auroc": round(macro_auroc(y_val, s_val), 4),
         "test_macro_auroc": round(macro_auroc(y_test, s_test), 4),
         "train_samples": len(train_index),
@@ -530,6 +587,7 @@ def summarize(rows: list[dict], args: argparse.Namespace) -> str:
     Returns:
         Markdown text with one table per experiment.
     """
+    rows = [r for r in rows if r.get("key") == run_key(r)]
     frame = pd.DataFrame(rows)
     lines = [
         "# ProtoECGNet vs. ECGBranchResNet on PTB-XL (71 labels)",
@@ -633,7 +691,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seeds", default="0", help="comma list, e.g. 0,1,2")
     parser.add_argument("--fractions", default="0.1,0.25,0.5,1.0")
     parser.add_argument("--epochs", type=int, default=None, help="backbone epochs")
-    parser.add_argument("--head-epochs", type=int, default=None)
+    parser.add_argument(
+        "--head-epochs", type=int, default=None, help="fusion-stage epochs"
+    )
+    parser.add_argument(
+        "--classifier-epochs",
+        type=int,
+        default=None,
+        help="ProtoECGNet classifier-stage epochs (after projection)",
+    )
+    parser.add_argument(
+        "--proto-fusion-init",
+        choices=["classifier", "random"],
+        default="classifier",
+        help="ProtoECGNet fusion head start: branch classifiers or random",
+    )
     parser.add_argument("--patience", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -664,6 +736,7 @@ def parse_args() -> argparse.Namespace:
     defaults = {
         "epochs": 3 if tiny else 15,
         "head_epochs": 2 if tiny else 5,
+        "classifier_epochs": 2 if tiny else 15,
         "patience": 3 if tiny else 5,
         "width": 8 if tiny else 64,
         "proto_dim": 16 if tiny else 512,
