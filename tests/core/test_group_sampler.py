@@ -48,10 +48,11 @@ class TestGroupBalancedSampler(unittest.TestCase):
         self.assertEqual(first, list(b))
         self.assertNotEqual(first, list(a))
 
-    def test_seeds_do_not_overlap_across_epochs(self):
+    def test_next_epoch_differs_from_next_seed(self):
+        # seed + epoch seeding made seed 0 / epoch 1 replay seed 1 / epoch 0
         a = GroupBalancedSampler(SEXES, num_samples=64, seed=0)
         b = GroupBalancedSampler(SEXES, num_samples=64, seed=1)
-        list(a)
+        a.set_epoch(1)
         self.assertNotEqual(list(a), list(b))
 
     def test_set_epoch_replays_a_pass(self):

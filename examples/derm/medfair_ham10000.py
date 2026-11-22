@@ -15,7 +15,7 @@ temporary directory and runs the whole pipeline as a smoke test; its numbers
 mean nothing. On the real data (open access, see ``HAM10000Dataset``; put the
 Dataverse ``HAM10000_metadata.csv`` next to the ISIC 2018 folders):
 
-    python examples/medfair_ham10000.py --root /path/to/isic2018_task3 \\
+    python examples/derm/medfair_ham10000.py --root /path/to/isic2018_task3 \\
         --cache-dir /path/to/cache --attribute sex --epochs 15
 
 MEDFAIR reports with sex as the attribute (appendix Table A9 of
@@ -186,6 +186,8 @@ def main() -> None:
         train, val, test = dataset.set_task(
             task, split=PatientSplit((0.8, 0.1, 0.1), seed=0)
         )
+        # Reading a field decodes the whole cached sample, so collect the
+        # groups in one pass per split and reuse them for every run.
         groups = {
             name: [part[i][args.attribute] for i in range(len(part))]
             for name, part in (("train", train), ("val", val), ("test", test))
