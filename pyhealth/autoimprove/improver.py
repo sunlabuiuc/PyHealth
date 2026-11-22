@@ -506,6 +506,11 @@ class AutoImprover:
         best = self.result().best
         if self.mode != "binary" or self.folds is None or best is None:
             return
+        if len(self.train_dataset) > MAX_LABEL_SCAN:
+            # Reading every label would load every training sample.
+            logger.info("Skipped the chance check: more than %d training samples.",
+                        MAX_LABEL_SCAN)
+            return
         chance = chance_fold_scores(self._labels(), self.folds, self.metric)
         if chance is None or not self.maximize:
             return

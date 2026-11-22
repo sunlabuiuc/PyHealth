@@ -664,6 +664,16 @@ class TestSignalCheck(unittest.TestCase):
             self.assertIn("No signal?", improver.report().to_markdown())
             self.assertIn("No signal?", load_run(tmp).to_markdown())
 
+    def test_large_datasets_skip_the_check(self):
+        # Above MAX_LABEL_SCAN the check would read every training sample.
+        with (tempfile.TemporaryDirectory() as tmp,
+              mock.patch("pyhealth.autoimprove.improver.MAX_LABEL_SCAN", 10),
+              self.assertLogs("pyhealth.autoimprove.improver", "INFO") as logs):
+            improver = self._run(None, tmp)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "signal.json")))
+            self.assertNotIn("no_signal", [f["id"] for f in improver.flags()])
+        self.assertTrue(any("Skipped the chance check" in m for m in logs.output))
+
     def test_real_labels_pass(self):
         with tempfile.TemporaryDirectory() as tmp:
             improver = self._run(None, tmp)
