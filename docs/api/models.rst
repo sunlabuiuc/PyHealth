@@ -57,6 +57,9 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.XGBoostModel`
      - Features are tabular (engineered labs, demographics) or bags of codes; you want the standard strong baseline
      - Gradient-boosted trees; fit with ``model.fit`` (not ``Trainer.train``); exact TreeSHAP; needs ``pip install "pyhealth[xgboost]"``
+   * - :doc:`models/pyhealth.models.td_cnn_lstm`
+     - You want real-time ICU mortality risk for each measurement-time state of irregular event streams
+     - Temporal-difference training needs paired ``next_*`` successor states and a custom loop that calls ``model.update_target()`` after each optimizer step
 
 How BaseModel Works
 --------------------
@@ -300,6 +303,8 @@ API Reference
     models/pyhealth.models.BiteNet
     models/pyhealth.models.TransformersModel
     models/pyhealth.models.LLMEHREncoder
+    models/pyhealth.models.HFEHRFoundationModel
+    models/pyhealth.models.CLMBR
     models/pyhealth.models.MEME
     models/pyhealth.models.TransformerDeID
     models/pyhealth.models.RETAIN
@@ -316,6 +321,7 @@ API Reference
     models/pyhealth.models.ETHOS
     models/pyhealth.models.JambaEHR
     models/pyhealth.models.ContraWR
+    models/pyhealth.models.EEGNet
     models/pyhealth.models.DeepSleepNet
     models/pyhealth.models.SleepKD
     models/pyhealth.models.SparcNet
@@ -326,6 +332,7 @@ API Reference
     models/pyhealth.models.Agent
     models/pyhealth.models.GRASP
     models/pyhealth.models.MedFuse
+    models/pyhealth.models.MAESTRO
     models/pyhealth.models.DAFT
     models/pyhealth.models.DiPro
     models/pyhealth.models.MedLink
@@ -338,6 +345,7 @@ API Reference
     models/pyhealth.models.PromptEHR
     models/pyhealth.models.MedGAN
     models/pyhealth.models.CorGAN
+    models/pyhealth.models.TarDiff
     models/pyhealth.models.Synthea
     models/pyhealth.models.SDOH
     models/pyhealth.models.SequenceEmbeddingModel
@@ -356,7 +364,11 @@ API Reference
     models/pyhealth.models.ProtoECGNet
     models/pyhealth.models.HeartLang
     models/pyhealth.models.APN
+    models/pyhealth.models.td_cnn_lstm
     models/pyhealth.models.TRACE
     models/pyhealth.models.MIRA
     models/pyhealth.models.UDC
+    models/pyhealth.models.DescEmb
+    models/pyhealth.models.bulk_rna_bert
+    models/pyhealth.models.DearLLM
 

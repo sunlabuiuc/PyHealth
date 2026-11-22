@@ -1,0 +1,15 @@
+version: "1.0"
+tables:
+  scans:
+    # Template: ABIDEDataset writes a resolved copy whose file_path names the
+    # derived metadata CSV in its metadata cache directory.
+    file_path: "abide-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "record_id"
+      - "site"
+      - "dx_group"
+      - "age"
+      - "sex"
+      - "roi_file"

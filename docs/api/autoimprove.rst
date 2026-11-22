@@ -156,7 +156,9 @@ features: meaning, clinical group and expected direction of effect. Then:
     wrong expectation, confounding by indication, overlap with a related
     feature, a coding artifact, a data error or leakage;
   - poor calibration;
-  - a large gap between subgroups.
+  - a large gap between subgroups;
+  - no signal: on binary cross-validation, the selection and the baseline
+    don't clearly beat chance (skipped above 50,000 training samples).
 
   :meth:`~pyhealth.autoimprove.AutoImprover.approve` records each decision
   in ``review.json``, and the report shows it.

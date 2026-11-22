@@ -91,8 +91,10 @@ class MEDSDataset(BaseDataset):
         question for the maintainer.
 
     Getting the data:
-        MEDS is a format, not a dataset. Convert a source dataset with an ETL
-        from the MEDS ecosystem (for example MIMIC-IV with ``MIMIC_IV_MEDS``,
+        MEDS is a format, not a dataset. The MEDS documentation,
+        https://medical-event-data-standard.github.io/, describes the schema
+        and lists the available ETLs. Convert a source dataset with one of
+        them (for example MIMIC-IV with ``MIMIC_IV_MEDS``,
         https://github.com/Medical-Event-Data-Standard/MIMIC_IV_MEDS), or use a
         release that already ships in MEDS, such as EHRSHOT's ``EHRSHOT_MEDS.zip``
         (see :class:`EHRShotDataset`).
