@@ -22,35 +22,39 @@ Hourly remaining ICU length of stay
 Implementation status
 ---------------------
 
-The baseline implements adult/five-hour eligibility, admission static features,
-hourly remaining-LOS labels and synthetic CSV validation. Dynamic extraction
-uses existing YAIB helpers provisionally. This is a partial contribution under
-active integration, not a final training/ablation implementation.
+The task implements adult/five-hour eligibility, admission static features,
+hourly remaining-LOS labels, configurable observation removal, optional
+decay features, and synthetic CSV validation. Dynamic extraction uses
+existing YAIB helpers provisionally. Model training and ablation
+experiments are documented separately.
 
-``TPCLengthOfStayEICU()`` works with zero observation removal and no decay.
-Nonzero ``missing_rate`` and ``include_decay=True`` deliberately raise
-``NotImplementedError`` when samples are processed, rather than silently
-producing unimplemented results.
+``TPCLengthOfStayEICU()`` supports observation removal through
+``missing_rate`` values from 0.0 to 1.0. Missing observations
+are represented by NaN, with deterministic masking based on
+the random seed and stay identifier.
+
+When ``include_decay=True``, decay features are calculated
+after observation removal. Observed values reset decay to
+1.0; unobserved values decay by a factor of 0.75 per hour.
+
 
 Extension points
 ----------------
 
-* ``TODO(B)`` in ``pyhealth/tasks/tpc_eicu.py``: review dynamic feature coverage
-  and hourly aggregation, confirm training-only normalization/forward fill,
-  and integrate decay after removal. For masking, A/B should reuse the existing
-  ``_apply_missingness`` in the repository-root ``tpc_eicu.py`` prototype after
-  checking compatibility. It already implements seeded removal of hourly cells;
-  this placeholder is an integration boundary, not a request to write it again.
-  Confirm raw-row versus aggregated-cell removal and rerun the pending tests.
+* ``pyhealth/tasks/tpc_eicu.py`` implements hourly remaining-LOS
+  preprocessing, configurable observation removal, and optional
+  decay features. Observation removal is deterministic and
+  applied before decay calculation.
 * ``TODO(A)`` in ``examples/eicu_hourly_los_lstm.py``: integrate existing training
   work where available and complete explicit LSTM
   training, patient-disjoint splits, agreed losses/metrics and the two-training
   by three-test missingness study. This file is a scaffold and raises until
   implemented. The example filename is present but the rubric's working
   ablation requirement is still outstanding.
-* Disabled preprocessing contract tests in ``tests/core/test_tpc_eicu.py``
-  retain numerical expectations. Enable and revise these after the shared
-  interface is confirmed. Skipped tests are pending work, not passing coverage.
+* Preprocessing contract tests in ``tests/core/test_tpc_eicu.py``
+  cover observation removal and decay. Some hourly aggregation,
+  forward-fill, and combined preprocessing tests remain skipped
+  pending verification.
 * Extend the integration check with actual model training when the training
   implementation is available. Its current scope ends at CSV-to-task outputs.
 
@@ -87,8 +91,11 @@ nursecharting using eICUDataset. One sample is produced per eligible stay:
 * Labels at hours 5..H have shape (H-4,1) and equal total LOS hours minus h.
   Exact-discharge labels may be zero. The observation horizon is capped;
   remaining LOS is not capped.
-* Planned decay mirrors dynamic dimensions/times. Existing schema wiring is
-  provisional until preprocessing review.
+* ``missing_rate`` controls removal of observed hourly feature cells.
+  A rate of 0.0 preserves observations; 1.0 removes all observed cells.
+* ``include_decay=True`` adds decay features matching the dynamic
+  feature dimensions. Decay resets to 1.0 upon observation and
+  decreases by a factor of 0.75 per unobserved hour.
 * Split by patient_id rather than stay_id. Fit learned processors on training
   patients only. Existing YAIB label processors min-max scale training targets;
   activated predictions return original hours. Avoid double unscaling.
