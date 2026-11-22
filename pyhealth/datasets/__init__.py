@@ -131,6 +131,8 @@ from .gold_test_split import GoldTestSplit as GoldTestSplit
 from .mimic4_imagenome import MIMIC4ImaGenomeDataset as MIMIC4ImaGenomeDataset
 from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
 from .ahepa_dementia import AHEPADementiaDataset as AHEPADementiaDataset
+from .nch_sleep import NCHSleepDataset as NCHSleepDataset
+from .chat import CHATDataset as CHATDataset
 from .bciiv2a import BCICompetitionIV2aDataset as BCICompetitionIV2aDataset
 from .hup_ieeg import HUPiEEGDataset as HUPiEEGDataset
 from .iiic import IIICDataset as IIICDataset

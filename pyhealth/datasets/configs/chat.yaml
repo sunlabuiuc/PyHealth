@@ -1,0 +1,22 @@
+version: "1.0"
+tables:
+  studies:
+    file_path: "chat-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "visit"
+    - "record_id"
+    - "signal_file"
+    - "annotation_file"
+    - "annotation_format"
+    - "sfreq"
+    - "duration_sec"
+    - "channels"
+    - "n_apnea"
+    - "n_hypopnea"
+    - "sleep_hours"
+    - "ahi"
+    - "age_years"
+    - "male"
+    - "race"

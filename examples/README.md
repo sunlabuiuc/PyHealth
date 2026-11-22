@@ -44,6 +44,7 @@ Older examples that no longer run, or that duplicated a maintained one, are in
 | [`eeg/`](eeg/) | EEG events and abnormality (TUEV, TUAB), sleep staging (Sleep-EDF, ISRUC), dementia classification (AHEPA), seizure onset zone localization (HUP iEEG), EEGBCI pattern discovery; SparcNet, ContraWR, BIOT, TFM-Tokenizer |
 | [`conformal_eeg/`](conformal_eeg/) | Conformal prediction on TUEV/TUAB: conventional, k-means cluster, neighbourhood (NCP), covariate shift |
 | [`ecg/`](ecg/) | PTB-XL multi-label ECG classification, including ProtoECGNet |
+| [`sleep_apnea/`](sleep_apnea/README.md) | Synthetic NCH Sleep DataBank and CHAT sleep studies for `NCHSleepDataset` and `CHATDataset`, with the arrays of the apnea-missing-modality pipeline; no data access needed |
 | [`benchmark_perf/`](benchmark_perf/README.md) | Speed and memory benchmarks against PyHealth 1.x, pandas and meds_reader |
 
 ## Top-level notebooks

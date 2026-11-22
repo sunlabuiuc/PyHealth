@@ -1,0 +1,23 @@
+version: "1.0"
+tables:
+  studies:
+    file_path: "nch_sleep-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: "study_start"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    attributes:
+    - "study_id"
+    - "record_id"
+    - "signal_file"
+    - "annotation_file"
+    - "sfreq"
+    - "duration_sec"
+    - "channels"
+    - "n_apnea"
+    - "n_hypopnea"
+    - "sleep_hours"
+    - "ahi"
+    - "age_days"
+    - "gender"
+    - "race"
+    - "ethnicity"

@@ -390,6 +390,16 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `NSRR <https://sleepdata.org/datasets/shhs>`__
      - No
      - —
+   * - :doc:`NCH Sleep DataBank <datasets/pyhealth.datasets.NCHSleepDataset>`
+     - Restricted (request)
+     - `NSRR <https://sleepdata.org/datasets/nchsdb>`__
+     - No
+     - —
+   * - :doc:`CHAT <datasets/pyhealth.datasets.CHATDataset>`
+     - Restricted (request)
+     - `NSRR <https://sleepdata.org/datasets/chat>`__
+     - No
+     - —
    * - :doc:`TUAB / TUEV <datasets/pyhealth.datasets.TUABDataset>`
      - Free, request form
      - `TUH EEG <https://isip.piconepress.com/projects/nedc/html/tuh_eeg/>`__
@@ -642,6 +652,8 @@ Available Datasets
     datasets/pyhealth.datasets.SyntheaCSVDataset
     datasets/pyhealth.datasets.DREAMTDataset
     datasets/pyhealth.datasets.SHHSDataset
+    datasets/pyhealth.datasets.NCHSleepDataset
+    datasets/pyhealth.datasets.CHATDataset
     datasets/pyhealth.datasets.SleepEDFDataset
     datasets/pyhealth.datasets.EHRShotDataset
     datasets/pyhealth.datasets.Support2Dataset
