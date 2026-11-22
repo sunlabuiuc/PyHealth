@@ -1,6 +1,5 @@
-"""Hourly remaining ICU length-of-stay task with missingness experiments.
-
-Authors: Manling Tan, Yining Jin, Xiao Luo
+"""
+Contributors: Manling Tan, Yining Jin, Xiao Luo
 NetIDs: manling4, yining34, xiaoluo6
 
 Paper Title:
@@ -13,6 +12,9 @@ Emma Rocheteau, Pietro Liò, and Stephanie Hyland (2021)
 Paper URL:
 https://arxiv.org/abs/2007.09483
 """
+
+
+"""Hourly remaining ICU length-of-stay task with missingness experiments."""
 
 import hashlib
 from copy import deepcopy
