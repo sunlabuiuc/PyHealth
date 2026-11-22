@@ -312,3 +312,4 @@ Available Tasks
     Value Set Completion (VSAC) <tasks/pyhealth.tasks.ValueSetCompletion>
     Time-to-event survival (GBSG and SUPPORT) <tasks/pyhealth.tasks.survival_time_to_event>
     TCGA RNA-seq Survival Prediction <tasks/pyhealth.tasks.TCGASurvivalPrediction>
+    Censored Survival (SUPPORT2) <tasks/pyhealth.tasks.Support2SurvivalTask>
