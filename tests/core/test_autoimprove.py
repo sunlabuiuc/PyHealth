@@ -641,13 +641,13 @@ class TestSignalCheck(unittest.TestCase):
         self.assertIn("No signal?", report.to_markdown())
         self.assertEqual(report.data["signal"], weak)
 
-    def _run(self, label, run_dir):
+    def _run(self, label, run_dir, **kwargs):
         train, val, _ = _datasets(label=label)
         improver = AutoImprover(
             train, val, RandomProposer(0),
             baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
             space=SPACE, n_agents=1, n_cycles=1, cv_folds=3, run_dir=run_dir,
-            check=False,
+            check=False, **kwargs,
         )
         improver.run()
         return improver
@@ -663,6 +663,37 @@ class TestSignalCheck(unittest.TestCase):
             self.assertIn("no_signal", [f["id"] for f in improver.flags()])
             self.assertIn("No signal?", improver.report().to_markdown())
             self.assertIn("No signal?", load_run(tmp).to_markdown())
+
+    def test_confirmed_runs_compare_on_the_confirmation_folds(self):
+        # After confirm, the selection, the baseline and chance are all
+        # compared on the confirmation folds.
+        calls = []
+
+        def spy(chance, selected, baseline, metric="roc_auc"):
+            calls.append((chance, selected, baseline))
+            return signal_check(chance, selected, baseline, metric)
+
+        with (tempfile.TemporaryDirectory() as tmp,
+              mock.patch("pyhealth.autoimprove.improver.signal_check", spy)):
+            improver = self._run(None, tmp, confirm=True)
+        self.assertTrue(improver.confirmed)
+        chance, selected, baseline = calls[-1]
+        best = improver.result().best
+        base = next(t for t in improver.trials if t.agent == "baseline")
+        folds = patient_folds(improver.train_dataset, 3, improver.seed + 1)
+        expected = chance_fold_scores(improver._labels(), folds, improver.metric)
+        np.testing.assert_allclose(chance, expected)
+        self.assertEqual(list(selected), list(improver.confirmed[best.trial_id]))
+        self.assertEqual(baseline, improver.confirmed.get(base.trial_id))
+
+    def test_a_stale_signal_file_is_removed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "signal.json"), "w") as f:
+                json.dump({"no_signal": True, "detail": "old run"}, f)
+            with mock.patch("pyhealth.autoimprove.improver.MAX_LABEL_SCAN", 10):
+                improver = self._run(None, tmp)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "signal.json")))
+            self.assertNotIn("no_signal", [f["id"] for f in improver.flags()])
 
     def test_large_datasets_skip_the_check(self):
         # Above MAX_LABEL_SCAN the check would read every training sample.

@@ -503,6 +503,10 @@ class AutoImprover:
         Saves ``signal.json``, read by :meth:`flags` and :meth:`report`, and
         warns when the gains may not reflect any signal in the inputs.
         """
+        # A signal.json from an earlier run in this run_dir no longer applies.
+        self._results.pop("signal.json", None)
+        if self.run_dir and os.path.exists(os.path.join(self.run_dir, "signal.json")):
+            os.remove(os.path.join(self.run_dir, "signal.json"))
         best = self.result().best
         if self.mode != "binary" or self.folds is None or best is None:
             return
@@ -511,13 +515,22 @@ class AutoImprover:
             logger.info("Skipped the chance check: more than %d training samples.",
                         MAX_LABEL_SCAN)
             return
-        chance = chance_fold_scores(self._labels(), self.folds, self.metric)
-        if chance is None or not self.maximize:
-            return
         base = next((t for t in self.trials
                      if t.agent == "baseline" and t.fold_scores), None)
-        check = signal_check(chance, best.fold_scores,
-                             base.fold_scores if base else None, self.metric)
+        folds, selected = self.folds, best.fold_scores
+        base_scores = base.fold_scores if base else None
+        if best.trial_id in self.confirmed and (
+            base is None or base.trial_id in self.confirmed
+        ):
+            # Compare on the confirmation folds: fresh scores for both, and
+            # chance on the same partition.
+            folds = patient_folds(self.train_dataset, len(self.folds), self.seed + 1)
+            selected = self.confirmed[best.trial_id]
+            base_scores = self.confirmed[base.trial_id] if base else None
+        chance = chance_fold_scores(self._labels(), folds, self.metric)
+        if chance is None or not self.maximize:
+            return
+        check = signal_check(chance, selected, base_scores, self.metric)
         if check is None:
             return
         self._save_result("signal.json", check, str)

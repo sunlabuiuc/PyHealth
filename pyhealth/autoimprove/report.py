@@ -680,7 +680,8 @@ def _test_section(ctx, test) -> Section:
     names = {"best": "selected", "baseline": "starting pipeline",
              "top": "highest-scoring candidate"}
     present = [(k, n) for k, n in names.items() if k in test]
-    # PR-AUC's chance level is the prevalence, so only there is the ratio a lift.
+    # PR-AUC's chance level is about the prevalence, so only there is the
+    # ratio a lift.
     lift = metric == "pr_auc"
     rows = []
     for key, name in present:
