@@ -39,6 +39,7 @@ from pyhealth.autoimprove import space as space_module
 from pyhealth.autoimprove.evaluate import patient_folds
 from pyhealth.autoimprove.explain import _effect_bins, attributions, summarize
 from pyhealth.autoimprove.proposers import ProposalContext, parse_json
+from pyhealth.autoimprove.report import has_intervals
 from pyhealth.datasets import create_sample_dataset
 from pyhealth.models import LogisticRegression
 from pyhealth.processors import BinaryLabelProcessor
@@ -1270,6 +1271,26 @@ class TestReportIntegrity(unittest.TestCase):
         self.assertEqual(report.data["verdicts"][4], "failed: KeyError")
         nothing = build_report([old], metric="pr_auc")
         self.assertNotIn("10023", nothing.to_json())
+
+    def test_no_intervals_promised_without_them(self):
+        # Multiclass and multilabel tasks get the metric's value only.
+        test = {"metric": "f1_macro",
+                "best": {"estimate": 0.153, "trial_id": 1},
+                "baseline": {"estimate": 0.112, "trial_id": 0}}
+        self.assertFalse(has_intervals(test))
+        self.assertTrue(has_intervals({"best": _CI}))
+        text = self._report(test=test).to_markdown()
+        self.assertNotIn("95% CI", text)
+        self.assertIn("bootstrap intervals are computed for binary tasks only", text)
+        self.assertIn("selected − starting pipeline: +0.041 (no interval)", text)
+        self.assertIn("alerts and net benefit need a binary task", text)
+        self.assertIn("intervals and calibration need a binary task", text)
+        self.assertNotIn("run evaluate_on_test", text)
+
+        binary = self._report(test={"metric": "pr_auc",
+                                    "best": {**_CI, "trial_id": 1}}).to_markdown()
+        self.assertIn("patient-level bootstrap 95% CIs", binary)
+        self.assertNotIn("binary tasks only", binary)
 
     def test_test_results_for_another_trial_are_left_out(self):
         fresh = {"metric": "pr_auc", "best": {**_CI, "trial_id": 1},
