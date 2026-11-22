@@ -1,6 +1,10 @@
+"""Fast, deterministic unit tests for pyhealth.interpret.uni_acs."""
+
+import importlib.util
+import unittest
+
 import numpy as np
 import pandas as pd
-import pytest
 
 from pyhealth.interpret.uni_acs import (
     UniACS,
@@ -11,181 +15,201 @@ from pyhealth.interpret.uni_acs import (
     predict_score,
 )
 
-
-@pytest.fixture
-def sample_data():
-    X = pd.DataFrame({
-        "age": [20, 30, 40, 50, 60, 70, 80, 90],
-        "heart_rate": [65, 72, 80, 95, 110, 85, 75, 100],
-    })
-
-    shap_values = np.array([
-        [-0.4, -0.2],
-        [-0.3, -0.1],
-        [-0.2, 0.0],
-        [-0.1, 0.1],
-        [0.1, 0.3],
-        [0.2, 0.1],
-        [0.3, -0.1],
-        [0.4, 0.2],
-    ])
-
-    return X, shap_values
+HAS_SHAP = importlib.util.find_spec("shap") is not None
+HAS_SKLEARN = importlib.util.find_spec("sklearn") is not None
 
 
-def test_build_score_table(sample_data):
-    X, shap_values = sample_data
+class TestUniACS(unittest.TestCase):
+    """Unit tests for UniACS and its functional helpers."""
 
-    table, unit = build_score_table(
-        X, shap_values, top_k=2, threshold=0.01
-    )
-
-    assert len(table["feature"].unique()) == 2
-    assert unit > 0
-    assert np.issubdtype(table["points"].dtype, np.integer)
-    assert np.isfinite(table["mean_shap"]).all()
-
-
-def test_top_k_selection(sample_data):
-    X, shap_values = sample_data
-
-    table, _ = build_score_table(
-        X, shap_values, top_k=1, threshold=0.01
-    )
-
-    assert len(table["feature"].unique()) == 1
-    assert table["feature"].iloc[0] == "age"
-
-
-def test_predict_score(sample_data):
-    X, shap_values = sample_data
-
-    table, _ = build_score_table(
-        X, shap_values, top_k=2, threshold=0.01
-    )
-
-    scores = predict_score(X, table)
-
-    assert len(scores) == len(X)
-    assert np.issubdtype(scores.dtype, np.integer)
-
-
-def test_score_boundaries():
-    table = pd.DataFrame({
-        "feature": ["age", "age", "age"],
-        "group": [0, 1, 2],
-        "upper_bound": [40, 60, np.inf],
-        "points": [0, 2, 5],
-    })
-
-    X = pd.DataFrame({"age": [30, 40, 50, 60, 70]})
-
-    scores = predict_score(X, table)
-
-    np.testing.assert_array_equal(scores, [0, 0, 2, 2, 5])
-
-
-def test_clinical_score_shift(sample_data):
-    X, shap_values = sample_data
-
-    table, _ = build_score_table(
-        X, shap_values, top_k=2, threshold=0.01
-    )
-
-    clinical_table = make_clinical_score_table(table)
-
-    assert (clinical_table["clinical_points"] >= 0).all()
-
-    minimums = clinical_table.groupby("feature")[
-        "clinical_points"
-    ].min()
-
-    assert (minimums == 0).all()
-
-
-def test_probability_conversion():
-    scores = np.array([-2, 0, 2])
-    probs = predict_proba_from_score(scores, 0.5, 0.0)
-
-    assert np.all((probs > 0) & (probs < 1))
-    assert np.all(np.diff(probs) > 0)
-    assert probs[1] == pytest.approx(0.5)
-
-
-def test_novel_breakpoints():
-    values = np.linspace(-3, 3, 100)
-    shap_values = values.copy()
-
-    breaks = find_novel_breakpoints(values, shap_values)
-
-    assert len(breaks) >= 1
-    assert np.all(np.isfinite(breaks))
-    assert np.all(np.diff(breaks) > 0)
-    assert np.all((breaks > values.min()) & (breaks < values.max()))
-
-
-@pytest.mark.parametrize("method", ["quantile", "novel"])
-def test_uni_acs_class(sample_data, method):
-    X, shap_values = sample_data
-
-    model = UniACS(top_k=2, threshold=0.01, method=method)
-    model.fit(X, shap_values, expected_value=0.0)
-
-    scores = model.predict_score(X)
-    probs = model.predict_proba(X)
-    table = model.get_score_table()
-
-    assert len(scores) == len(X)
-    assert len(probs) == len(X)
-    assert np.isfinite(probs).all()
-    assert len(table) > 0
-
-
-def test_predict_before_fit(sample_data):
-    X, _ = sample_data
-    model = UniACS()
-
-    with pytest.raises(ValueError):
-        model.predict_score(X)
-
-
-def test_invalid_method(sample_data):
-    X, shap_values = sample_data
-
-    with pytest.raises(ValueError):
-        build_score_table(
-            X, shap_values, method="invalid"
+    def setUp(self) -> None:
+        self.X = pd.DataFrame(
+            {
+                "age": [20, 30, 40, 50, 60, 70, 80, 90],
+                "heart_rate": [65, 72, 80, 95, 110, 85, 75, 100],
+            }
+        )
+        self.shap_values = np.array(
+            [
+                [-0.4, -0.2],
+                [-0.3, -0.1],
+                [-0.2, 0.0],
+                [-0.1, 0.1],
+                [0.1, 0.3],
+                [0.2, 0.1],
+                [0.3, -0.1],
+                [0.4, 0.2],
+            ]
         )
 
+    def test_build_score_table(self) -> None:
+        table, unit = build_score_table(
+            self.X, self.shap_values, top_k=2, threshold=0.01
+        )
+        self.assertEqual(len(table["feature"].unique()), 2)
+        self.assertGreater(unit, 0.0)
+        self.assertTrue(np.issubdtype(table["points"].dtype, np.integer))
+        self.assertTrue(np.isfinite(table["mean_shap"]).all())
 
-def test_invalid_novel_input():
-    values = np.array([1.0, 2.0, np.nan])
-    shap_values = np.array([0.1, 0.2, 0.3])
+    def test_top_k_selection(self) -> None:
+        table, _ = build_score_table(
+            self.X, self.shap_values, top_k=1, threshold=0.01
+        )
+        self.assertEqual(len(table["feature"].unique()), 1)
+        self.assertEqual(table["feature"].iloc[0], "age")
 
-    with pytest.raises(ValueError):
-        find_novel_breakpoints(values, shap_values)
+    def test_predict_score(self) -> None:
+        table, _ = build_score_table(
+            self.X, self.shap_values, top_k=2, threshold=0.01
+        )
+        scores = predict_score(self.X, table)
+        self.assertEqual(len(scores), len(self.X))
+        self.assertTrue(np.issubdtype(scores.dtype, np.integer))
 
+    def test_predict_clinical_score_non_negative(self) -> None:
+        table, _ = build_score_table(
+            self.X, self.shap_values, top_k=2, threshold=0.01
+        )
+        clinical_scores = predict_score(self.X, table, clinical=True)
+        self.assertEqual(len(clinical_scores), len(self.X))
+        self.assertTrue((clinical_scores >= 0).all())
 
-def test_fit_from_data():
-    from sklearn.datasets import make_classification
+    def test_score_boundaries(self) -> None:
+        table = pd.DataFrame(
+            {
+                "feature": ["age", "age", "age"],
+                "group": [0, 1, 2],
+                "upper_bound": [40.0, 60.0, np.inf],
+                "points": [0, 2, 5],
+            }
+        )
+        X = pd.DataFrame({"age": [30, 40, 50, 60, 70]})
+        scores = predict_score(X, table)
+        np.testing.assert_array_equal(scores, [0, 0, 2, 2, 5])
 
-    X, y = make_classification(
-        n_samples=100,
-        n_features=5,
-        n_informative=3,
-        n_redundant=0,
-        random_state=42,
+    def test_binary_and_out_of_range_values_do_not_overflow(self) -> None:
+        """Ensure values above training max do not trigger IndexError."""
+        X_train = pd.DataFrame({"flag": [0, 0, 0, 1, 1, 1]})
+        shap_train = np.array([[-0.2], [-0.2], [-0.1], [0.2], [0.2], [0.3]])
+        table, _ = build_score_table(
+            X_train, shap_train, top_k=1, threshold=0.01, method="quantile"
+        )
+        self.assertTrue(np.isinf(table["upper_bound"].iloc[-1]))
+
+        X_test = pd.DataFrame({"flag": [-1, 0, 1, 5]})
+        scores = predict_score(X_test, table)
+        self.assertEqual(len(scores), 4)
+        self.assertTrue(np.issubdtype(scores.dtype, np.integer))
+
+    def test_clinical_score_shift(self) -> None:
+        table, _ = build_score_table(
+            self.X, self.shap_values, top_k=2, threshold=0.01
+        )
+        clinical_table = make_clinical_score_table(table)
+        self.assertTrue((clinical_table["clinical_points"] >= 0).all())
+        minimums = clinical_table.groupby("feature")["clinical_points"].min()
+        self.assertTrue((minimums == 0).all())
+
+    def test_probability_conversion(self) -> None:
+        scores = np.array([-2, 0, 2])
+        probs = predict_proba_from_score(scores, 0.5, 0.0)
+        self.assertTrue(np.all((probs > 0) & (probs < 1)))
+        self.assertTrue(np.all(np.diff(probs) > 0))
+        self.assertAlmostEqual(float(probs[1]), 0.5, places=6)
+
+    def test_novel_breakpoints(self) -> None:
+        values = np.linspace(-3.0, 3.0, 100)
+        shap_values = values.copy()
+        breaks = find_novel_breakpoints(values, shap_values)
+        self.assertGreaterEqual(len(breaks), 1)
+        self.assertTrue(np.all(np.isfinite(breaks)))
+        self.assertTrue(np.all(np.diff(breaks) > 0))
+        self.assertTrue(np.all((breaks > values.min()) & (breaks < values.max())))
+
+    def test_novel_breakpoints_few_unique_values(self) -> None:
+        values = np.array([0.0, 0.0, 1.0, 1.0])
+        shap_values = np.array([-0.1, -0.1, 0.1, 0.1])
+        breaks = find_novel_breakpoints(values, shap_values)
+        self.assertEqual(len(breaks), 0)
+
+    def test_uni_acs_class_methods(self) -> None:
+        for method in ("quantile", "novel"):
+            with self.subTest(method=method):
+                model = UniACS(top_k=2, threshold=0.01, method=method)
+                model.fit(self.X, self.shap_values, expected_value=0.0)
+
+                scores = model.predict_score(self.X)
+                clinical = model.predict_score(self.X, clinical=True)
+                probs = model.predict_proba(self.X)
+                table = model.get_score_table()
+
+                self.assertEqual(len(scores), len(self.X))
+                self.assertEqual(len(clinical), len(self.X))
+                self.assertTrue((clinical >= 0).all())
+                self.assertEqual(len(probs), len(self.X))
+                self.assertTrue(np.isfinite(probs).all())
+                self.assertGreater(len(table), 0)
+
+    def test_predict_before_fit(self) -> None:
+        model = UniACS()
+        with self.assertRaises(ValueError):
+            model.predict_score(self.X)
+        with self.assertRaises(ValueError):
+            model.get_score_table()
+
+    def test_invalid_inputs(self) -> None:
+        with self.assertRaises(ValueError):
+            build_score_table(self.X, self.shap_values, method="invalid")
+        with self.assertRaises(ValueError):
+            UniACS(top_k=0)
+        with self.assertRaises(ValueError):
+            UniACS(threshold=0.0)
+        with self.assertRaises(ValueError):
+            find_novel_breakpoints(
+                np.array([1.0, 2.0, np.nan]),
+                np.array([0.1, 0.2, 0.3]),
+            )
+        with self.assertRaises(ValueError):
+            find_novel_breakpoints(
+                np.array([1.0, 2.0, 3.0]),
+                np.array([0.1, 0.2, 0.3]),
+                n_bins=2,
+            )
+
+    def test_missing_feature_column_raises(self) -> None:
+        model = UniACS(top_k=2, threshold=0.01, method="quantile")
+        model.fit(self.X, self.shap_values, expected_value=0.0)
+        with self.assertRaises(ValueError):
+            model.predict_score(pd.DataFrame({"age": [30, 50]}))
+
+    @unittest.skipUnless(
+        HAS_SHAP and HAS_SKLEARN,
+        "Optional 'shap' and 'scikit-learn' packages are required.",
     )
-    X = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
+    def test_fit_from_data(self) -> None:
+        from sklearn.datasets import make_classification
 
-    model = UniACS(top_k=3, threshold=0.01, method="quantile")
-    model.fit_from_data(X, y)
+        X, y = make_classification(
+            n_samples=100,
+            n_features=5,
+            n_informative=3,
+            n_redundant=0,
+            random_state=42,
+        )
+        X_df = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
 
-    scores = model.predict_score(X[:10])
-    probs = model.predict_proba(X[:10])
+        model = UniACS(top_k=3, threshold=0.01, method="quantile")
+        model.fit_from_data(X_df, y)
 
-    assert len(scores) == 10
-    assert len(probs) == 10
-    assert np.isfinite(probs).all()
-    assert model.model is not None
-    assert len(model.get_score_table()) > 0
+        scores = model.predict_score(X_df[:10])
+        probs = model.predict_proba(X_df[:10])
+
+        self.assertEqual(len(scores), 10)
+        self.assertEqual(len(probs), 10)
+        self.assertTrue(np.isfinite(probs).all())
+        self.assertIsNotNone(model.model)
+        self.assertGreater(len(model.get_score_table()), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
