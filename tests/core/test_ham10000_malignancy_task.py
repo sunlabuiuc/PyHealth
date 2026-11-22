@@ -137,6 +137,13 @@ class TestHAM10000DemographicsFile(unittest.TestCase):
         with self.assertRaises(ValueError):
             HAM10000Dataset(root=str(self.root), cache_dir=str(self.tmp / "cache"))
 
+    def test_tab_separated_file_raises_without_groupings(self):
+        path = self.root / "HAM10000_metadata.csv"
+        pd.read_csv(path).to_csv(path, sep="\t", index=False)
+        (self.root / "ISIC2018_Task3_Training_LesionGroupings.csv").unlink()
+        with self.assertRaisesRegex(ValueError, "format=original"):
+            HAM10000Dataset(root=str(self.root), cache_dir=str(self.tmp / "cache"))
+
 
 class TestHAM10000WithoutDemographics(unittest.TestCase):
     def test_columns_empty_and_task_yields_nothing(self):

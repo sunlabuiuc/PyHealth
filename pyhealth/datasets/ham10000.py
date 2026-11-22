@@ -54,7 +54,8 @@ class HAM10000Dataset(BaseDataset):
     Dataverse ``HAM10000_metadata.csv``. When it is in ``root`` they are
     added as ``age``, ``sex`` and ``localization``, which subgroup analyses
     such as :class:`~pyhealth.tasks.HAM10000MalignancyClassification` need;
-    without it these attributes are empty.
+    without it these attributes are empty. Metadata cached by earlier
+    versions lacks these columns and is rebuilt once.
 
     The official validation (193) and test (1,512) images are indexed too
     when ``splits`` asks for them. Their lesion ids were not released, so
@@ -250,6 +251,20 @@ class HAM10000Dataset(BaseDataset):
                     f"(first line: {first_line[:80]!r})."
                 )
 
+    def _dataverse_metadata(self) -> pd.DataFrame | None:
+        """Return the Dataverse metadata table, or None if it is not in root."""
+        path = self.source_root / _DATAVERSE_METADATA
+        if not path.exists():
+            return None
+        meta = pd.read_csv(path)
+        if "image_id" not in meta.columns:
+            raise ValueError(
+                f"{path} has no image_id column. Download the CSV with "
+                "?format=original; the default Dataverse download is "
+                "tab-separated."
+            )
+        return meta
+
     def _lesion_ids(self) -> pd.DataFrame:
         """Return ``image``, ``lesion_id``, ``diagnosis_confirm_type``."""
         groupings = self.source_root / _GROUPINGS_FILE
@@ -257,9 +272,8 @@ class HAM10000Dataset(BaseDataset):
             return pd.read_csv(groupings)[
                 ["image", "lesion_id", "diagnosis_confirm_type"]
             ]
-        dataverse = self.source_root / _DATAVERSE_METADATA
-        if dataverse.exists():
-            meta = pd.read_csv(dataverse)
+        meta = self._dataverse_metadata()
+        if meta is not None:
             return meta.rename(
                 columns={"image_id": "image", "dx_type": "diagnosis_confirm_type"}
             )[["image", "lesion_id", "diagnosis_confirm_type"]]
@@ -272,19 +286,14 @@ class HAM10000Dataset(BaseDataset):
 
     def _demographics(self) -> pd.DataFrame | None:
         """Return ``image``, ``age``, ``sex``, ``localization``, or None."""
-        dataverse = self.source_root / _DATAVERSE_METADATA
-        if not dataverse.exists():
-            logger.info("No %s; age and sex are empty.", dataverse)
+        meta = self._dataverse_metadata()
+        if meta is None:
+            logger.info("No %s; age and sex are empty.", _DATAVERSE_METADATA)
             return None
-        meta = pd.read_csv(dataverse)
-        if "image_id" not in meta.columns:
-            raise ValueError(
-                f"{dataverse} has no image_id column. Download the CSV with "
-                "?format=original; the default Dataverse download is "
-                "tab-separated."
-            )
         if not {"age", "sex"} <= set(meta.columns):
-            logger.warning("%s has no age/sex columns; they stay empty.", dataverse)
+            logger.warning(
+                "%s has no age/sex columns; they stay empty.", _DATAVERSE_METADATA
+            )
             return None
         if "localization" not in meta.columns:
             meta["localization"] = None

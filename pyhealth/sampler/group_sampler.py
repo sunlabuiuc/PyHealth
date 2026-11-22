@@ -136,8 +136,10 @@ def get_group_balanced_dataloader(
 ) -> DataLoader:
     """Training loader that resamples a sample dataset by subgroup.
 
-    A drop-in replacement for :func:`~pyhealth.datasets.get_dataloader` on the
-    training split. Give the groups either as a sample field (``group_key``,
+    Use it instead of :func:`~pyhealth.datasets.get_dataloader` for the
+    training split. The order comes from the weighted sampler, so there is
+    no ``shuffle`` argument, and the epoch is advanced by the sampler rather
+    than the dataset's own seeding. Give the groups either as a sample field (``group_key``,
     read from every sample once, which decodes its inputs too) or directly
     (``groups``, in dataset order); likewise for the optional labels.
 

@@ -88,7 +88,9 @@ def group_fairness_metrics_fn(
           calibration error (10 equal-width bins on [0, 1]) and binary
           cross-entropy.
         - ``fpr``, ``fnr``: false positive / negative rate at ``threshold``.
-        - ``tpr_at_tnr80``: sensitivity at 80% specificity.
+        - ``tpr_at_tnr80``: sensitivity at 80% specificity, linearly
+          interpolated on the ROC curve at FPR 0.2 as in MEDFAIR, so it can
+          sit between two achievable operating points.
         - ``worst_auc``, ``auc_gap``: lowest subgroup AUC, and highest minus
           lowest.
         - ``eqodd``: equalized odds, ``1 - (|dFPR| + |dTPR|) / 2`` between
