@@ -1,6 +1,19 @@
-# Contributor: Xiao Luo, UIUC NetID xiaoluo6.
-# Paper: Temporal Pointwise Convolutional Networks for Length of Stay
-# Prediction in the Intensive Care Unit. https://arxiv.org/abs/2007.09483
+"""
+Author: Manling Tan, Yining Jin, Xiao Luo
+NetID: manling4, yining34, xiaoluo6
+
+Paper Title:
+Temporal Pointwise Convolutional Networks for
+Length of Stay Prediction in the Intensive Care Unit
+
+Paper Authors:
+Emma Rocheteau, Pietro Liò, and Stephanie Hyland (2021)
+
+Paper URL:
+https://arxiv.org/abs/2007.09483
+"""
+
+
 """Small synthetic eICU records; adapted from YAIB regression fixtures."""
 
 from pathlib import Path
