@@ -13,7 +13,6 @@ Paper URL:
 https://arxiv.org/abs/2007.09483
 """
 
-
 """Hourly remaining ICU length-of-stay task with missingness experiments."""
 
 import hashlib
@@ -106,9 +105,7 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
 
         keep = [
             stay_id
-            for stay_id, hours in stays.select(
-                "stay_id", "los_hours"
-            ).iter_rows()
+            for stay_id, hours in stays.select("stay_id", "los_hours").iter_rows()
             if np.isfinite(hours)
             and hours >= self.START_HOUR
             and np.isfinite(static[stay_id][0])
@@ -127,9 +124,7 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
             )
         )
 
-        return stays, hourly, {
-            key: static[key] for key in keep
-        }
+        return stays, hourly, {key: static[key] for key in keep}
 
     @staticmethod
     def _decay(values: np.ndarray) -> np.ndarray:
@@ -153,9 +148,7 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
         """
 
         if values.ndim != 2:
-            raise ValueError(
-                "values must be a 2D (hours, features) array"
-            )
+            raise ValueError("values must be a 2D (hours, features) array")
 
         n_hours, n_features = values.shape
 
@@ -196,9 +189,7 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
 
         observed = np.argwhere(~np.isnan(values))
 
-        n_hide = round(
-            len(observed) * self.missing_rate
-        )
+        n_hide = round(len(observed) * self.missing_rate)
 
         if n_hide == 0:
             return values
@@ -272,10 +263,7 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
                 last_hour - 1,
             )
 
-            dynamic["time"] = [
-                float(h)
-                for h in range(1, last_hour + 1)
-            ]
+            dynamic["time"] = [float(h) for h in range(1, last_hour + 1)]
 
             dynamic["values"] = self._apply_missingness(
                 dynamic["values"],
@@ -302,9 +290,7 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
                 "patient_id": patient.patient_id,
                 "stay_id": stay_id,
                 "dynamic": dynamic,
-                "static": self._static_series(
-                    static[stay_id]
-                ),
+                "static": self._static_series(static[stay_id]),
                 "los": self._labels(
                     prediction_hours,
                     remaining,
@@ -314,9 +300,7 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
             if self.include_decay:
                 sample["decay"] = {
                     "time": list(dynamic["time"]),
-                    "values": self._decay(
-                        dynamic["values"]
-                    ),
+                    "values": self._decay(dynamic["values"]),
                 }
 
             samples.append(sample)
