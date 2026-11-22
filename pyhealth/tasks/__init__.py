@@ -51,6 +51,11 @@ from .physionet2012_forecasting import (
     physionet2012_benchmark_split as physionet2012_benchmark_split,
     physionet2012_statistics as physionet2012_statistics,
 )
+from .physionet2012_mortality import (
+    PhysioNet2012InHospitalMortality as PhysioNet2012InHospitalMortality,
+    build_mortality_sample as build_mortality_sample,
+    physionet2012_normalization as physionet2012_normalization,
+)
 from .deid_ner import DeIDNERTask
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
 # New exports must use the redundant `X as X` form: this module has no
