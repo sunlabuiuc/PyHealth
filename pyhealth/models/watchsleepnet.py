@@ -9,16 +9,9 @@ stage per epoch (Wake / NREM / REM by default). Pipeline::
 
     (B, T, L) -> ResNet (per epoch) -> Linear -> TCN -> BiLSTM
               -> multi-head self-attention -> Linear -> (B, T, num_classes)
-
-Note:
-    The paper only specifies the ResNet's input (L=750) and output
-    (256 maps x 3 points). The strides and channel widths used here are
-    assumptions chosen to satisfy that and are configurable; check them
-    against the authors' repository.
 """
 
 from collections.abc import Sequence
-from typing import Any
 
 import torch
 import torch.nn.functional as F
@@ -34,8 +27,8 @@ class ResidualBlock1d(nn.Module):
     Args:
         in_channels: Number of input channels.
         out_channels: Number of output channels.
-        kernel_size: Convolution kernel size (odd).
-        stride: Stride of the first convolution (downsamples time).
+        kernel_size: Convolution kernel size.
+        stride: Stride of the first convolution.
     """
 
     def __init__(

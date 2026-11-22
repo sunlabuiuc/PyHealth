@@ -7,12 +7,6 @@ grid), with one Wake / NREM / REM label per epoch.
 Reference:
     Wang et al. "WatchSleepNet: A Novel Model and Pretraining Approach for
     Advancing Sleep Staging with Smartwatches." CHIL 2025 (PMLR 287).
-
-Assumptions (verify against the authors' code and a real DREAMT file):
-    * Rows of the 64 Hz file are uniformly sampled, so time = row / 64.
-    * The provided ``IBI`` column is in seconds and is non-empty only at beats.
-    * The 750 points per epoch are a 25 Hz fixed-rate IBI series. The paper
-      does not say how IBI is placed on that grid; a zero-order hold is used.
 """
 
 from pathlib import Path
