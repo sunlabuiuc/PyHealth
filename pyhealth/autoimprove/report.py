@@ -968,7 +968,7 @@ def _checklist_section(ctx, card, explanation, test, attribution) -> Section:
             ", with the attribution of each setting" if attribution else "")),
         ("Discrimination and calibration, with uncertainty", where(
             bool(clinical), "Performance in clinical terms",
-            hint_test + " (intervals and calibration need a binary task)"
+            "intervals and calibration need a binary task"
             if not_binary else hint_test)),
         ("Clinical utility", where(bool(clinical), "Performance in clinical terms: "
                                    "alerts and net benefit",

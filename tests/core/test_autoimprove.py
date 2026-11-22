@@ -1254,6 +1254,8 @@ class TestReportIntegrity(unittest.TestCase):
         self.assertIn("bootstrap intervals are computed for binary tasks only", text)
         self.assertIn("selected − starting pipeline: +0.041 (no interval)", text)
         self.assertIn("alerts and net benefit need a binary task", text)
+        self.assertIn("intervals and calibration need a binary task", text)
+        self.assertNotIn("run evaluate_on_test", text)
 
         binary = self._report(test={"metric": "pr_auc",
                                     "best": {**_CI, "trial_id": 1}}).to_markdown()
