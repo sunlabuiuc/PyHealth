@@ -1,20 +1,9 @@
-"""Temporal validation extension for Uni-ACS on MIMIC-IV 3.1 (2008-2019 vs 2020-2022).
+"""Evaluate Uni-ACS across MIMIC-IV 3.1 sepsis admission eras.
 
-Implements the temporal generalizability extension proposed for CSE6250:
-    - Fits the predictive model, SHAP attributions, and Uni-ACS scoring table
-      on the historical MIMIC-IV cohort (``anchor_year_group`` in 2008-2019).
-    - Evaluates both in-period holdout performance (2008-2019 test split) and
-      prospective temporal generalization on newer admissions (2020-2022).
-    - Compares ``top_k`` feature-set sizes (5, 10, 15) and ``"quantile"`` vs
-      ``"novel"`` discretization across both periods.
-
-Usage:
-    Run with synthetic temporal-shift data (no MIMIC-IV files required):
-        python examples/uni_acs_mimic31_temporal_validation.py
-
-    Run on local MIMIC-IV 3.1 tables (requires ``scikit-learn`` and ``shap``):
-        python examples/uni_acs_mimic31_temporal_validation.py \\
-            --mimic-dir ~/Desktop/mimiciv-3.1
+Run without arguments for a synthetic demonstration, or pass
+--mimic-dir /path/to/mimiciv-3.1 for the local ICD-defined sepsis experiment.
+The real-data mode uses the derived ICD-defined sepsis cohort and lab features.
+Add --audit-eras to print cohort counts and exit before reading labs.
 """
 
 from __future__ import annotations
@@ -25,148 +14,66 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from scipy.special import expit
+from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
 
 from pyhealth.interpret.uni_acs import UniACS
 
-HISTORICAL_GROUPS = {
-    "2008 - 2010",
-    "2011 - 2013",
-    "2014 - 2016",
-    "2017 - 2019",
-}
-TEMPORAL_GROUPS = {"2020 - 2022"}
 
-# Standard MIMIC-IV d_labitems itemids for first-24h ICU mortality features
-MIMIC31_LAB_ITEMIDS = {
-    50813: "lactate",
-    50912: "creatinine",
-    50885: "bilirubin",
-    51006: "bun",
-    51301: "wbc",
-    51265: "platelets",
-    50983: "sodium",
-    50971: "potassium",
-    50931: "glucose",
-    51221: "hematocrit",
-    50882: "bicarbonate",
-    50868: "aniongap",
-    50902: "chloride",
-}
+def assign_admission_eras(cohort: pd.DataFrame) -> pd.DataFrame:
+    """Report era inclusion and exclusion counts and return eligible admissions."""
+    if cohort["subject_id"].duplicated().any():
+        raise ValueError("Expected one sepsis admission per patient.")
 
+    # Anchor-year bounds are in real years. Shift both bounds by the
+    # admission's year offset and retain only unambiguous era assignments.
+    anchor_bounds = cohort["anchor_year_group"].str.extract(r"^(\d{4}) - (\d{4})$")
+    year_offset = cohort["admittime"].dt.year - cohort["anchor_year"]
+    first_year = anchor_bounds[0].astype(float) + year_offset
+    last_year = anchor_bounds[1].astype(float) + year_offset
+    valid_years = first_year.notna() & last_year.notna() & first_year.le(last_year)
+    historical = valid_years & first_year.ge(2008) & last_year.le(2019)
+    recent = valid_years & first_year.ge(2020) & last_year.le(2022)
+    keep = historical | recent
 
-def _roc_auc(y_true: np.ndarray, y_score: np.ndarray) -> float:
-    y_true = np.asarray(y_true, dtype=int)
-    y_score = np.asarray(y_score, dtype=float)
-    pos = y_score[y_true == 1]
-    neg = y_score[y_true == 0]
-    if len(pos) == 0 or len(neg) == 0:
-        return float("nan")
-    diffs = pos[:, None] - neg[None, :]
-    return float((np.sum(diffs > 0) + 0.5 * np.sum(diffs == 0)) / (len(pos) * len(neg)))
-
-
-def _average_precision(y_true: np.ndarray, y_score: np.ndarray) -> float:
-    y_true = np.asarray(y_true, dtype=int)
-    y_score = np.asarray(y_score, dtype=float)
-    n_pos = int(y_true.sum())
-    if n_pos == 0:
-        return float("nan")
-    order = np.argsort(-y_score, kind="mergesort")
-    y_sorted = y_true[order]
-    tp = np.cumsum(y_sorted)
-    ranks = np.arange(1, len(y_sorted) + 1)
-    return float(np.sum((tp / ranks)[y_sorted == 1]) / n_pos)
-
-
-def _brier(y_true: np.ndarray, y_prob: np.ndarray) -> float:
-    return float(np.mean((np.asarray(y_prob) - np.asarray(y_true)) ** 2))
-
-
-def load_mimic31_temporal_cohort(
-    mimic_dir: Path,
-    max_lab_chunks: int | None = None,
-) -> tuple[pd.DataFrame, np.ndarray, pd.DataFrame, np.ndarray]:
-    """Build historical (2008-2019) and temporal (2020-2022) ICU cohorts.
-
-    Extracts demographics and first-24-hour ICU lab summaries from raw
-    MIMIC-IV 3.1 ``hosp/`` and ``icu/`` tables.
-    """
-    patients = pd.read_csv(
-        mimic_dir / "hosp" / "patients.csv.gz",
-        usecols=["subject_id", "gender", "anchor_age", "anchor_year_group"],
+    outside = valid_years & (first_year.lt(2008) | last_year.gt(2022))
+    crosses_boundary = (
+        valid_years & ~outside & first_year.lt(2020) & last_year.ge(2020)
     )
-    admissions = pd.read_csv(
-        mimic_dir / "hosp" / "admissions.csv.gz",
-        usecols=["subject_id", "hadm_id", "admittime", "hospital_expire_flag"],
+    counts = {
+        "Historical (2008-2019)": int(historical.sum()),
+        "Recent (2020-2022)": int(recent.sum()),
+        "Estimated year range extends outside 2008-2022": int(outside.sum()),
+        "Estimated year range crosses the 2020 boundary": int(crosses_boundary.sum()),
+        "Missing or invalid year range": int((~valid_years).sum()),
+    }
+    if sum(counts.values()) != len(cohort):
+        raise ValueError("Era audit did not account for every admission.")
+
+    print("\nAdmission era audit")
+    for label, count in counts.items():
+        print(f"  {label}: {count:,}")
+    print(f"  Total excluded: {(~keep).sum():,}")
+    return cohort.loc[keep].assign(recent=recent.loc[keep])
+
+
+def load_mimic31_temporal_cohort(mimic_dir: Path):
+    """Collect labs available by 24 hours for the ICD-defined sepsis cohort."""
+    from uni_acs_mimic31_features import LAB_NAMES, extract_labs, get_lab_items, load_cohort
+
+    cohort = assign_admission_eras(load_cohort(mimic_dir / "derived"))
+    labs = extract_labs(
+        cohort,
+        get_lab_items(mimic_dir),
+        data_path=mimic_dir,
+        require_available=True,
     )
-    icustays = pd.read_csv(
-        mimic_dir / "icu" / "icustays.csv.gz",
-        usecols=["subject_id", "hadm_id", "stay_id", "intime", "los"],
-    )
-
-    # Keep first ICU stay per hospital admission
-    icustays["intime"] = pd.to_datetime(icustays["intime"])
-    first_icu = (
-        icustays.sort_values("intime")
-        .drop_duplicates(subset=["hadm_id"], keep="first")
-    )
-
-    cohort = first_icu.merge(admissions, on=["subject_id", "hadm_id"], how="inner")
-    cohort = cohort.merge(patients, on="subject_id", how="inner")
-    cohort["gender_m"] = (cohort["gender"] == "M").astype(float)
-
-    hadm_intime = cohort.set_index("hadm_id")["intime"]
-    valid_hadm = set(hadm_intime.index)
-    target_itemids = set(MIMIC31_LAB_ITEMIDS.keys())
-
-    # Stream labevents.csv.gz in chunks and keep first-24h measurements
-    lab_chunks = []
-    reader = pd.read_csv(
-        mimic_dir / "hosp" / "labevents.csv.gz",
-        usecols=["hadm_id", "itemid", "charttime", "valuenum"],
-        chunksize=500_000,
-    )
-    for idx, chunk in enumerate(reader):
-        if max_lab_chunks is not None and idx >= max_lab_chunks:
-            break
-        chunk = chunk[
-            chunk["itemid"].isin(target_itemids)
-            & chunk["hadm_id"].isin(valid_hadm)
-            & chunk["valuenum"].notna()
-        ]
-        if chunk.empty:
-            continue
-        chunk["charttime"] = pd.to_datetime(chunk["charttime"])
-        intime_aligned = chunk["hadm_id"].map(hadm_intime)
-        hours = (chunk["charttime"] - intime_aligned).dt.total_seconds() / 3600.0
-        chunk = chunk[(hours >= -6.0) & (hours <= 24.0)]
-        if not chunk.empty:
-            lab_chunks.append(chunk[["hadm_id", "itemid", "valuenum"]])
-
-    if lab_chunks:
-        labs = pd.concat(lab_chunks, ignore_index=True)
-        labs["feature"] = labs["itemid"].map(MIMIC31_LAB_ITEMIDS)
-        lab_pivot = (
-            labs.groupby(["hadm_id", "feature"])["valuenum"]
-            .mean()
-            .unstack("feature")
-            .reset_index()
-        )
-        cohort = cohort.merge(lab_pivot, on="hadm_id", how="left")
-
-    feature_cols = ["anchor_age", "gender_m", "los"] + [
-        col for col in MIMIC31_LAB_ITEMIDS.values() if col in cohort.columns
-    ]
-
-    hist_mask = cohort["anchor_year_group"].isin(HISTORICAL_GROUPS)
-    temp_mask = cohort["anchor_year_group"].isin(TEMPORAL_GROUPS)
-
-    X_hist = cohort.loc[hist_mask, feature_cols].reset_index(drop=True)
-    y_hist = cohort.loc[hist_mask, "hospital_expire_flag"].to_numpy(dtype=int)
-    X_temp = cohort.loc[temp_mask, feature_cols].reset_index(drop=True)
-    y_temp = cohort.loc[temp_mask, "hospital_expire_flag"].to_numpy(dtype=int)
-
-    return X_hist, y_hist, X_temp, y_temp
+    data = cohort.merge(labs, on="hadm_id", how="left", validate="one_to_one")
+    data["gender_male"] = data["gender"].eq("M").astype(int)
+    features = ["age", "gender_male", *LAB_NAMES.values()]
+    X = data.reindex(columns=features)
+    y = data["hospital_mortality"].to_numpy(dtype=int)
+    recent = data["recent"].to_numpy()
+    return X.loc[~recent], y[~recent], X.loc[recent], y[recent]
 
 
 def generate_synthetic_temporal_cohorts(
@@ -249,19 +156,20 @@ def evaluate_temporal_split(
             tp_scores = scorer.predict_score(X_temporal_test)
             tp_probs = scorer.predict_proba(X_temporal_test)
 
+            in_auc = roc_auc_score(y_inperiod_test, in_scores)
+            temporal_auc = roc_auc_score(y_temporal_test, tp_scores)
             rows.append(
                 {
                     "method": method,
                     "top_k": k_eff,
                     "categories": len(scorer.get_score_table()),
-                    "inperiod_auroc": _roc_auc(y_inperiod_test, in_scores),
-                    "temporal_auroc": _roc_auc(y_temporal_test, tp_scores),
-                    "auroc_delta": (
-                        _roc_auc(y_temporal_test, tp_scores)
-                        - _roc_auc(y_inperiod_test, in_scores)
-                    ),
-                    "inperiod_brier": _brier(y_inperiod_test, in_probs),
-                    "temporal_brier": _brier(y_temporal_test, tp_probs),
+                    "inperiod_auroc": in_auc,
+                    "temporal_auroc": temporal_auc,
+                    "auroc_delta": temporal_auc - in_auc,
+                    "inperiod_auprc": average_precision_score(y_inperiod_test, in_scores),
+                    "temporal_auprc": average_precision_score(y_temporal_test, tp_scores),
+                    "inperiod_brier": brier_score_loss(y_inperiod_test, in_probs),
+                    "temporal_brier": brier_score_loss(y_temporal_test, tp_probs),
                 }
             )
     return pd.DataFrame(rows)
@@ -280,11 +188,25 @@ def main() -> None:
             "Uses synthetic shift if omitted."
         ),
     )
+    parser.add_argument(
+        "--audit-eras",
+        action="store_true",
+        help="Print admission era counts and exit before reading lab events.",
+    )
     args = parser.parse_args()
 
+    if args.audit_eras:
+        if args.mimic_dir is None:
+            parser.error("--audit-eras requires --mimic-dir.")
+        from uni_acs_mimic31_features import load_cohort
+
+        assign_admission_eras(load_cohort(args.mimic_dir / "derived"))
+        return
+
     if args.mimic_dir is not None:
+        from sklearn.impute import SimpleImputer
         from sklearn.model_selection import train_test_split
-        from uni_acs_utils import aggregate_shap, impute_data, train_calibrated_rf
+        from uni_acs_utils import aggregate_shap, evaluate, print_metrics, train_calibrated_rf
 
         X_hist_raw, y_hist, X_temp_raw, y_temp = load_mimic31_temporal_cohort(
             args.mimic_dir
@@ -292,10 +214,23 @@ def main() -> None:
         X_fit_raw, X_in_raw, y_fit, y_in = train_test_split(
             X_hist_raw, y_hist, test_size=0.3, stratify=y_hist, random_state=42
         )
-        X_fit, X_in, X_temp = impute_data(X_fit_raw, X_in_raw, X_temp_raw)
+        imputer = SimpleImputer(strategy="median", keep_empty_features=True)
+        X_fit = pd.DataFrame(imputer.fit_transform(X_fit_raw), columns=X_fit_raw.columns)
+        X_in = pd.DataFrame(imputer.transform(X_in_raw), columns=X_fit.columns)
+        X_temp = pd.DataFrame(imputer.transform(X_temp_raw), columns=X_fit.columns)
         model = train_calibrated_rf(X_fit, y_fit)
+        for period, X_test, y_test in (
+            ("Historical holdout", X_in, y_in),
+            ("Recent holdout", X_temp, y_temp),
+        ):
+            probs = model.predict_proba(X_test)[:, 1]
+            print_metrics(f"Calibrated RandomForest - {period}", evaluate(y_test, probs, probs))
+
+        # Match the random-split SHAP sample size using historical training only.
+        X_fit = X_fit.sample(n=min(2000, len(X_fit)), random_state=42)
         shap_fit, expected_value = aggregate_shap(model, X_fit)
-        label = f"MIMIC-IV 3.1 ({args.mimic_dir})"
+        n_train = len(X_fit_raw)
+        label = "MIMIC-IV 3.1 ICD-defined sepsis (estimated admission eras)"
     else:
         X_hist, y_hist, shap_hist, X_temp, y_temp, expected_value = (
             generate_synthetic_temporal_cohorts()
@@ -304,12 +239,13 @@ def main() -> None:
         X_fit, X_in = X_hist.iloc[:split], X_hist.iloc[split:]
         shap_fit = shap_hist[:split]
         y_in = y_hist[split:]
+        n_train = len(X_fit)
         label = "Synthetic Temporal Shift Cohort (2008-2019 vs 2020-2022)"
 
     print(f"Uni-ACS Temporal Validation — {label}")
     print(
         f"Sizes (fit / 2008-2019 test / 2020-2022 test): "
-        f"{len(X_fit)} / {len(X_in)} / {len(X_temp)}"
+        f"{n_train} / {len(X_in)} / {len(X_temp)}"
     )
     print(
         f"Mortality rates (in-period / temporal): "
@@ -317,7 +253,8 @@ def main() -> None:
     )
 
     df = evaluate_temporal_split(
-        X_fit, shap_fit, expected_value, X_in, y_in, X_temp, y_temp
+        X_fit, shap_fit, expected_value, X_in, y_in, X_temp, y_temp,
+        top_k_values=(5, 10, 14) if args.mimic_dir else (5, 10, 15),
     )
     print(df.to_string(index=False, float_format=lambda v: f"{v:.4f}"))
 

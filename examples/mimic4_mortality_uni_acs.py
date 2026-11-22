@@ -1,35 +1,12 @@
-"""Uni-ACS clinical scoring example and ablation study for MIMIC-IV mortality.
+"""Compare Uni-ACS feature counts, discretization methods, and calibration.
 
-Demonstrates the Unified Auto Clinical Scoring (Uni-ACS) workflow from
-Li et al. (2022) and runs an ablation over:
-    1. Feature-set size: ``top_k`` in ``(3, 5, 10, 15)``
-    2. Discretization method: ``"quantile"`` vs ``"novel"`` (spline zero-crossing)
-    3. Probability mapping: approximate log-odds sigmoid vs held-out isotonic
-       calibration (when ``scikit-learn`` is installed)
+Run with synthetic data:
+    python examples/mimic4_mortality_uni_acs.py
 
-Usage:
-    Run directly with deterministic synthetic clinical data (no protected
-    MIMIC-IV files required):
-        python examples/mimic4_mortality_uni_acs.py
+Run with the authors' preprocessed MIMIC-IV data (requires scikit-learn and SHAP):
+    python examples/mimic4_mortality_uni_acs.py --csv /path/to/mimiciv_sepsis.csv
 
-    Optionally run on a local MIMIC-IV sepsis CSV (requires ``scikit-learn``
-    and ``shap``):
-        python examples/mimic4_mortality_uni_acs.py --csv /path/to/mimiciv_sepsis.csv
-
-Experimental Setup (Synthetic Default):
-    - 1,500 synthetic ICU admissions with 15 clinical features (demographics,
-      vitals, and labs) and non-linear log-odds mortality risk (~20% event rate).
-    - Split into 900 score-fitting samples, 300 calibration samples, and
-      300 held-out test samples.
-    - Evaluated with AUROC, AUPRC, Brier score, and total score categories.
-
-Key Findings (Synthetic Default, seed=42):
-    - Increasing ``top_k`` from 3 to 10 steadily improves AUROC and AUPRC while
-      expanding table size; moving from 10 to 15 adds uninformative features
-      with minimal or no discrimination gain, illustrating the parsimony vs.
-      accuracy trade-off.
-    - ``method="novel"`` produces substantially fewer score categories than
-      ``method="quantile"`` by splitting only at zero-SHAP crossings.
+See mimic4_mortality_uni_acs_results.md for the setup and measured results.
 """
 
 from __future__ import annotations
@@ -82,11 +59,13 @@ def _average_precision(y_true: np.ndarray, y_score: np.ndarray) -> float:
     if n_pos == 0:
         return float("nan")
     order = np.argsort(-y_score, kind="mergesort")
-    y_sorted = y_true[order]
-    tp = np.cumsum(y_sorted)
-    ranks = np.arange(1, len(y_sorted) + 1)
-    precisions = tp / ranks
-    return float(np.sum(precisions[y_sorted == 1]) / n_pos)
+    scores = y_score[order]
+    # Evaluate precision once per score threshold, including all ties.
+    threshold_ends = np.r_[np.flatnonzero(scores[:-1] != scores[1:]), len(scores) - 1]
+    true_positives = np.cumsum(y_true[order])[threshold_ends]
+    precision = true_positives / (threshold_ends + 1)
+    recall_increase = np.diff(true_positives, prepend=0) / n_pos
+    return float(np.dot(precision, recall_increase))
 
 
 def _brier_score(y_true: np.ndarray, y_prob: np.ndarray) -> float:

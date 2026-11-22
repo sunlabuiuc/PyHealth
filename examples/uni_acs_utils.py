@@ -65,7 +65,7 @@ def train_calibrated_rf(X_train, y_train, n_estimators=260, cv=5):
 def aggregate_shap(model, X):
     """Average logit-transformed positive-class TreeSHAP over the CV forests.
 
-    This mirrors our D2.4 experiment. It is an approximation: applying a
+    This is an approximation: applying a
     nonlinear logit transform to individual probability-scale SHAP values
     does not preserve SHAP additivity, and it does not explain isotonic output.
     """
