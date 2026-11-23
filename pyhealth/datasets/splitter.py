@@ -243,22 +243,28 @@ class SubjectSplit(Split):
         parts = split.split_indices({pid: [i] for i, pid in enumerate(ids)})
         return cls(tuple([ids[i] for i in part] for part in parts))
 
-    def save(self, path: str | Path) -> None:
+    def save(self, path: str | Path, drawn_with: dict | None = None) -> None:
         """Writes the patient lists to ``path`` as JSON.
 
         The file is written next to ``path`` and then renamed into place, so
         a run reading it concurrently never sees a partly written split.
+
+        Args:
+            path: Where to write.
+            drawn_with: The ``to_dict()`` of the split the lists were drawn
+                with, kept so :meth:`load_or_draw` can check it.
         """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"subjects": [list(part) for part in self.subjects], "drawn_with": drawn_with}
         partial = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-        partial.write_text(json.dumps([list(part) for part in self.subjects]))
+        partial.write_text(json.dumps(payload))
         os.replace(partial, path)
 
     @classmethod
     def load(cls, path: str | Path) -> "SubjectSplit":
         """Reads patient lists written by :meth:`save`."""
-        return cls(tuple(json.loads(Path(path).read_text())))
+        return cls(tuple(json.loads(Path(path).read_text())["subjects"]))
 
     @classmethod
     def load_or_draw(cls, dataset, name: str, split: "PatientSplit") -> "SubjectSplit":
@@ -266,9 +272,8 @@ class SubjectSplit(Split):
 
         The lists are kept in ``<dataset cache>/splits/<name>.json`` and drawn
         over every patient of ``dataset`` (:meth:`draw`). Once saved, the
-        file is used as it is and ``split`` is ignored, so patients added to
-        the dataset later are in no part; draw a new split under another
-        name to include them.
+        file is used as it is, so patients added to the dataset later are in
+        no part; draw a new split under another name to include them.
 
         Args:
             dataset: A :class:`~pyhealth.datasets.BaseDataset`.
@@ -279,15 +284,22 @@ class SubjectSplit(Split):
             The saved split.
 
         Raises:
-            ValueError: If ``name`` is not a plain file name.
+            ValueError: If ``name`` is not a plain file name, or a split of
+                that name was drawn with a different ``split``.
         """
         if not name or Path(name).name != name or name in (".", ".."):
             raise ValueError(f"Split name must be a plain file name, got {name!r}.")
         path = Path(dataset.cache_dir) / "splits" / f"{name}.json"
         if path.exists():
+            saved = json.loads(path.read_text())["drawn_with"]
+            if saved != split.to_dict():
+                raise ValueError(
+                    f"The saved split {name!r} was drawn with {saved}, not "
+                    f"{split.to_dict()}. Use another name for a different split."
+                )
             return cls.load(path)
         drawn = cls.draw(dataset.unique_patient_ids, split)
-        drawn.save(path)
+        drawn.save(path, drawn_with=split.to_dict())
         return drawn
 
     def to_dict(self) -> dict:

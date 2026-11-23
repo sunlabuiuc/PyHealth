@@ -109,7 +109,10 @@ class EventBirthProcessor(FeatureProcessor):
     The input is one record ``{"values": [[...]]}``; the output is the
     datetime ``age`` years before the origin of the sample's timeline (see
     :class:`EventStreamProcessor`), or None when the age is missing. Models
-    that tokenize age read it next to the events.
+    that tokenize age read it next to the events. Without a birth time,
+    :class:`~pyhealth.models.CLMBR` counts ages from the sample's first
+    event, so that sample's ages are wrong. The YAIB cohorts keep stays
+    whose age is missing or out of range, so a few samples can hit this.
 
     Args:
         age_index: Column of the age, in years.

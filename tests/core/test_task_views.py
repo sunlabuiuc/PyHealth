@@ -304,9 +304,12 @@ class TestSetTaskWithViews(unittest.TestCase):
         path = Path(self.dataset.cache_dir) / "splits" / "seed0.json"
         self.assertTrue(path.exists())
         again = SubjectSplit.load_or_draw(
-            self.dataset, "seed0", PatientSplit((0.5, 0.5), seed=9)
+            self.dataset, "seed0", PatientSplit((0.6, 0.2, 0.2), seed=0)
         )
         self.assertEqual(again, self.plan)
+        # Another seed under the same name is an error, not the old split.
+        with self.assertRaisesRegex(ValueError, "drawn with"):
+            SubjectSplit.load_or_draw(self.dataset, "seed0", PatientSplit((0.5, 0.5), seed=9))
 
     def test_views_share_samples_labels_and_split(self):
         plain = self._set(ViewTask())
@@ -511,6 +514,11 @@ class TestEventsView(unittest.TestCase):
                 hour = round((when - ORIGIN).total_seconds() / 3600)
                 rebuilt[hour, names.index(code.split("/", 1)[1])] = value
             self.assertTrue(np.allclose(rebuilt, values, equal_nan=True))
+
+    def test_missing_age_gives_no_birth_time(self):
+        from pyhealth.processors import EventBirthProcessor
+
+        self.assertIsNone(EventBirthProcessor().process({"values": [[float("nan"), 1.0]]}))
 
     def test_birth_time_comes_from_the_age(self):
         from pyhealth.processors.event_processor import ORIGIN
