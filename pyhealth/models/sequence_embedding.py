@@ -263,7 +263,7 @@ def level_embeddings(
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset
-        >>> from pyhealth.models.sequence_embedding import level_embeddings
+        >>> from pyhealth.models import level_embeddings
         >>> samples = [{"patient_id": "p0", "label": 0, "visits": {"children": [
         ...     {"tokens": ["A", "B"]}]}}, {"patient_id": "p1", "label": 1,
         ...     "visits": {"children": [{"tokens": ["C"]}]}}]
@@ -311,7 +311,7 @@ class SequenceEmbeddingModel(BaseModel):
             size (default 128). A ``{field: ...}`` dict sets fields one by
             one: an int for all of a field's levels, or one
             :class:`LevelEmbedding` per level, innermost first. Unlisted
-            fields get 128. See :func:`level_embeddings`.
+            fields get 128. See :func:`~pyhealth.models.level_embeddings`.
         flatten_spatial: Per V2 field, one bool per level (default all True).
             True flattens all value axes before the projection, giving
             ``[N, values]``. False flattens only the non-spatial axes and
