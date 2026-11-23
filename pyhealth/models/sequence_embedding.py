@@ -308,7 +308,8 @@ class SequenceEmbeddingModel(BaseModel):
         dataset: The dataset, with fitted processors.
         embedding_dim: The embedding sizes. One int gives every token
             namespace and every values projection of every V2 field that
-            size (default 128). A ``{field: ...}`` dict sets fields one by
+            size (default 128); a level with ``K`` namespaces and values is
+            then ``size * (K + 1)`` wide. A ``{field: ...}`` dict sets fields one by
             one: an int for all of a field's levels, or one
             :class:`LevelEmbedding` per level, innermost first. Unlisted
             fields get 128. See :func:`~pyhealth.models.level_embeddings`.
