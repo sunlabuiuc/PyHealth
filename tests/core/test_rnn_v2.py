@@ -759,5 +759,65 @@ class TestTraining(unittest.TestCase):
         self.assertTrue(any(g is not None and torch.any(g != 0) for g in grads))
 
 
+class TestDefaultEmbeddingDim(unittest.TestCase):
+    """RNN_V2(dataset) builds without hand-written embedding sizes."""
+
+    @classmethod
+    def setUpClass(cls):
+        samples = [
+            {
+                "patient_id": f"p{i}",
+                "labs": {
+                    "tokens": ["Glucose", "Sodium"][: 1 + i % 2],
+                    "values": [[float(i)], [float(i) + 1]][: 1 + i % 2],
+                },
+                "visits": {"children": [{"tokens": ["A", "B"][: 1 + i % 2]}, {"tokens": ["C"]}]},
+                "label": i % 2,
+            }
+            for i in range(6)
+        ]
+        cls.dataset = create_sample_dataset(
+            samples,
+            {
+                "labs": (
+                    "jagged",
+                    {"levels": [{"ordering": "set", "tokens": 1, "values": [1]}]},
+                ),
+                "visits": (
+                    "jagged",
+                    {"levels": [{"ordering": "set", "tokens": 1}, {"ordering": "sequence"}]},
+                ),
+            },
+            {"label": "binary"},
+        )
+
+    def test_no_settings(self):
+        model = RNN_V2(self.dataset)
+        batch = next(iter(get_dataloader(self.dataset, batch_size=6)))
+        output = model(**batch)
+        output["loss"].backward()
+        self.assertTrue(bool(torch.isfinite(output["loss"])))
+        self.assertEqual(model.embedding.embedding_dim_per_level("labs"), (256,))
+        self.assertEqual(model.embedding.embedding_dim_per_level("visits"), (128, 0))
+
+    def test_one_int_or_per_field(self):
+        model = RNN_V2(self.dataset, embedding_dim=8)
+        self.assertEqual(model.embedding.embedding_dim_per_level("labs"), (16,))
+        model = RNN_V2(
+            self.dataset,
+            embedding_dim={"labs": 4, "visits": [{"tokens": (6,)}, {}]},
+        )
+        self.assertEqual(model.embedding.embedding_dim_per_level("labs"), (8,))
+        self.assertEqual(model.embedding.embedding_dim_per_level("visits"), (6, 0))
+        # An unlisted field gets the default.
+        model = RNN_V2(self.dataset, embedding_dim={"labs": 4})
+        self.assertEqual(model.embedding.embedding_dim_per_level("visits"), (128, 0))
+
+    def test_invalid_size(self):
+        for bad in (0, -1, True):
+            with self.subTest(size=bad), self.assertRaisesRegex(ValueError, "positive int"):
+                RNN_V2(self.dataset, embedding_dim=bad)
+
+
 if __name__ == "__main__":
     unittest.main()

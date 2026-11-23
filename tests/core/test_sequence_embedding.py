@@ -86,7 +86,6 @@ class TestConfiguration(unittest.TestCase):
 
     def test_rejects_bad_configurations(self):
         bad: list[dict[str, Any]] = [
-            {"embedding_dim": {}},  # labs missing
             {"embedding_dim": {**LAB_DIMS, "other": [{}]}},
             {"embedding_dim": {"labs": [{"tokens": (4, 2), "values": 3}]}},  # one level
             {"embedding_dim": {"labs": [{"tokens": (4,), "values": 3}, {}]}},  # K = 2
@@ -152,8 +151,9 @@ class TestConfiguration(unittest.TestCase):
             {"labs": ("jagged", {"levels": LABS}), "age": "tensor"},
             {"y": "binary"},
         )
-        with self.assertRaisesRegex(ValueError, "no entry for \\['age'\\]"):
-            SequenceEmbeddingModel(dataset, embedding_dim=LAB_DIMS)
+        # A field left out of embedding_dim gets the default size.
+        defaulted = SequenceEmbeddingModel(dataset, embedding_dim=LAB_DIMS)
+        self.assertEqual(defaulted.embedding_dim_per_level("age"), (128,))
         model = SequenceEmbeddingModel(
             dataset, embedding_dim={**LAB_DIMS, "age": [{"values": 4}]}
         )

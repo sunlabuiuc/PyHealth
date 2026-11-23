@@ -238,6 +238,50 @@ class _FieldEmbedding(nn.Module):
         return levels
 
 
+def level_embeddings(
+    processor: JaggedFeatureProcessor, size: int
+) -> list[LevelEmbedding]:
+    """One :class:`LevelEmbedding` per level of a field, every size ``size``.
+
+    Each level gets a ``size``-wide embedding for each of its token
+    namespaces and a ``size``-wide projection of its values; a level
+    without tokens or values gets none. This is what an int
+    ``embedding_dim`` expands to.
+
+    Args:
+        processor: The field's fitted processor.
+        size: The size of every embedding and projection.
+
+    Returns:
+        The levels' :class:`LevelEmbedding`, innermost first.
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> from pyhealth.models.sequence_embedding import level_embeddings
+        >>> samples = [{"patient_id": "p0", "label": 0, "visits": {"children": [
+        ...     {"tokens": ["A", "B"]}]}}, {"patient_id": "p1", "label": 1,
+        ...     "visits": {"children": [{"tokens": ["C"]}]}}]
+        >>> levels = [{"ordering": "set", "tokens": 1}, {"ordering": "sequence"}]
+        >>> dataset = create_sample_dataset(
+        ...     samples, {"visits": ("jagged", {"levels": levels})}, {"label": "binary"})
+        >>> level_embeddings(dataset.input_processors["visits"], 16)
+        [{'tokens': (16,)}, {}]
+    """
+    if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
+        raise ValueError(f"embedding_dim must be a positive int, got {size!r}.")
+    vocab_size, value_dim = processor.vocab_size(), processor.value_dim()
+    levels: list[LevelEmbedding] = []
+    for depth in range(processor.depth + 1):
+        namespaces, shape = vocab_size[depth], value_dim[depth]
+        level: LevelEmbedding = {}
+        if namespaces is not None:
+            level["tokens"] = (size,) * len(namespaces)
+        if shape is not None:
+            level["values"] = size
+        levels.append(level)
+    return levels
+
+
 class SequenceEmbeddingModel(BaseModel):
     """Embeds the packed records of every :class:`JaggedFeatureProcessor` field.
 
@@ -257,8 +301,12 @@ class SequenceEmbeddingModel(BaseModel):
 
     Args:
         dataset: The dataset, with fitted processors.
-        embedding_dim: Per V2 field, one :class:`LevelEmbedding` per level,
-            innermost first. Every V2 field must be listed.
+        embedding_dim: The embedding sizes. One int gives every token
+            namespace and every values projection of every V2 field that
+            size (default 128). A ``{field: ...}`` dict sets fields one by
+            one: an int for all of a field's levels, or one
+            :class:`LevelEmbedding` per level, innermost first. Unlisted
+            fields get 128. See :func:`level_embeddings`.
         flatten_spatial: Per V2 field, one bool per level (default all True).
             True flattens all value axes before the projection, giving
             ``[N, values]``. False flattens only the non-spatial axes and
@@ -294,7 +342,7 @@ class SequenceEmbeddingModel(BaseModel):
     def __init__(
         self,
         dataset: SampleDataset,
-        embedding_dim: Mapping[str, Sequence[LevelEmbedding]],
+        embedding_dim: int | Mapping[str, int | Sequence[LevelEmbedding]] = 128,
         flatten_spatial: Mapping[str, Sequence[bool]] | None = None,
         pretrain: Sequence[PretrainedEmbedding] | None = None,
         mask: MaskMode = "ignore",
@@ -308,6 +356,8 @@ class SequenceEmbeddingModel(BaseModel):
             if isinstance(processor, JaggedFeatureProcessor)
         }
         flatten_spatial = dict(flatten_spatial or {})
+        if isinstance(embedding_dim, int):
+            embedding_dim = dict.fromkeys(processors, embedding_dim)
         for name, config in (
             ("embedding_dim", embedding_dim),
             ("flatten_spatial", flatten_spatial),
@@ -318,9 +368,12 @@ class SequenceEmbeddingModel(BaseModel):
                     f"{name} names {sorted(unknown)}, which are not "
                     f"JaggedFeatureProcessor fields ({sorted(processors)})."
                 )
-        missing = processors.keys() - set(embedding_dim)
-        if missing:
-            raise ValueError(f"embedding_dim has no entry for {sorted(missing)}.")
+        embedding_dim = {
+            field: level_embeddings(processor, embedding_dim.get(field, 128))
+            if isinstance(embedding_dim.get(field, 128), int)
+            else embedding_dim[field]
+            for field, processor in processors.items()
+        }
         self.embedding_layers = nn.ModuleDict(
             {
                 field: _FieldEmbedding(
