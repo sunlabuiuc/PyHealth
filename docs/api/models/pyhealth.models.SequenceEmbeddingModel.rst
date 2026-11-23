@@ -12,6 +12,8 @@ values, concatenated; each level keeps its offsets and times.
     :undoc-members:
     :show-inheritance:
 
+.. autofunction:: pyhealth.models.sequence_embedding.level_embeddings
+
 .. autoclass:: pyhealth.models.LevelEmbedding
     :members:
 

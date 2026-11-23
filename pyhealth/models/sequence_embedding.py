@@ -358,6 +358,11 @@ class SequenceEmbeddingModel(BaseModel):
         flatten_spatial = dict(flatten_spatial or {})
         if isinstance(embedding_dim, int):
             embedding_dim = dict.fromkeys(processors, embedding_dim)
+        elif not isinstance(embedding_dim, Mapping):
+            raise TypeError(
+                "embedding_dim must be an int or a {field: int or levels} dict, "
+                f"got {type(embedding_dim).__name__}."
+            )
         for name, config in (
             ("embedding_dim", embedding_dim),
             ("flatten_spatial", flatten_spatial),

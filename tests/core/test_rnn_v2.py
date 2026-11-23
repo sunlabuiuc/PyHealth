@@ -817,6 +817,9 @@ class TestDefaultEmbeddingDim(unittest.TestCase):
         for bad in (0, -1, True):
             with self.subTest(size=bad), self.assertRaisesRegex(ValueError, "positive int"):
                 RNN_V2(self.dataset, embedding_dim=bad)
+        for bad in (64.0, [64], "64"):
+            with self.subTest(size=bad), self.assertRaisesRegex(TypeError, "must be an int or"):
+                RNN_V2(self.dataset, embedding_dim=bad)
 
 
 if __name__ == "__main__":
