@@ -1,7 +1,6 @@
 import logging
 import os
 import re
-from typing import Dict, List, Optional
 
 import pandas as pd
 
@@ -11,7 +10,7 @@ from pyhealth.tasks.sleep_staging_nsrr import SleepStagingCardioRespiratory
 logger = logging.getLogger(__name__)
 
 # EDF file name pattern per cohort; group "visit" is optional, "pid" is required.
-_EDF_PATTERNS: Dict[str, "re.Pattern[str]"] = {
+_EDF_PATTERNS: dict[str, "re.Pattern[str]"] = {
     "shhs": re.compile(r"^(?P<visit>shhs[12])-(?P<pid>\d+)\.edf$", re.IGNORECASE),
     "mesa": re.compile(r"^mesa-sleep-(?P<pid>\d+)\.edf$", re.IGNORECASE),
 }
@@ -63,9 +62,9 @@ class NSRRSleepDataset(BaseDataset):
         self,
         root: str,
         cohort: str = "shhs",
-        dataset_name: Optional[str] = None,
-        config_path: Optional[str] = None,
-        cache_dir: Optional[str] = None,
+        dataset_name: str | None = None,
+        config_path: str | None = None,
+        cache_dir: str | None = None,
         num_workers: int = 1,
         dev: bool = False,
     ) -> None:
@@ -106,8 +105,8 @@ class NSRRSleepDataset(BaseDataset):
             ValueError: If no EDF file with a matching annotation is found.
         """
         pattern = _EDF_PATTERNS[cohort]
-        xml_files: Dict[str, str] = {}
-        edf_files: List[str] = []
+        xml_files: dict[str, str] = {}
+        edf_files: list[str] = []
         for folder, _, names in os.walk(root):
             for name in names:
                 if name.lower().endswith("-profusion.xml"):

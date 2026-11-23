@@ -9,8 +9,9 @@ fixed number of points per epoch and paired with 4-class sleep stage labels.
 import logging
 import os
 import xml.etree.ElementTree as ET
+from collections.abc import Sequence
 from fractions import Fraction
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 import numpy as np
 from scipy.signal import resample_poly
@@ -23,12 +24,12 @@ EPOCH_SECONDS: int = 30
 
 #: Points per 30 s epoch after resampling (wav2sleep, Sec. 4.1):
 #: ~34 Hz for ECG/PPG and ~8.5 Hz for respiratory effort.
-POINTS_PER_EPOCH: Dict[str, int] = {"ecg": 1024, "ppg": 1024, "thx": 256, "abd": 256}
+POINTS_PER_EPOCH: dict[str, int] = {"ecg": 1024, "ppg": 1024, "thx": 256, "abd": 256}
 
 #: Accepted (lower-cased) EDF channel labels per modality. SHHS uses e.g.
 #: ``ECG`` / ``THOR RES`` / ``ABDO RES``; MESA uses ``EKG`` / ``Pleth`` /
 #: ``Thor`` / ``Abdo``.
-CHANNEL_ALIASES: Dict[str, Tuple[str, ...]] = {
+CHANNEL_ALIASES: dict[str, tuple[str, ...]] = {
     "ecg": ("ecg", "ekg"),
     "ppg": ("pleth", "ppg"),
     "thx": ("thor res", "thor", "thx"),
@@ -37,7 +38,7 @@ CHANNEL_ALIASES: Dict[str, Tuple[str, ...]] = {
 
 #: NSRR profusion stage codes -> label for each supported label scheme.
 #: Codes not listed (e.g. 9 = unscored) are dropped.
-LABEL_SCHEMES: Dict[str, Dict[int, int]] = {
+LABEL_SCHEMES: dict[str, dict[int, int]] = {
     # Wake / Light (N1+N2) / Deep (N3+N4) / REM -- the wav2sleep classes.
     "four_class": {0: 0, 1: 1, 2: 1, 3: 2, 4: 2, 5: 3},
     # Wake / N1 / N2 / N3(+N4) / REM -- the AASM classes.
@@ -49,7 +50,7 @@ LABEL_SCHEMES: Dict[str, Dict[int, int]] = {
 
 def _read_edf_channels(
     path: str, labels: Sequence[str]
-) -> Dict[str, Tuple[np.ndarray, float]]:
+) -> dict[str, tuple[np.ndarray, float]]:
     """Reads selected channels of an EDF file at their native sampling rate.
 
     Unlike ``mne.io.read_raw_edf``, channels recorded at different rates are
@@ -81,7 +82,7 @@ def _read_edf_channels(
     names = ["label", "transducer", "unit", "pmin", "pmax", "dmin", "dmax"]
     widths = [16, 80, 8, 8, 8, 8, 8, 80, 8, 32]
     names += ["prefilter", "nsamp", "reserved"]
-    cols: Dict[str, List[str]] = {}
+    cols: dict[str, list[str]] = {}
     offset = 0
     for name, width in zip(names, widths):
         cols[name] = [
@@ -103,7 +104,7 @@ def _read_edf_channels(
 
     starts = np.concatenate(([0], np.cumsum(nsamp)))
     wanted = {lab.lower() for lab in labels}
-    out: Dict[str, Tuple[np.ndarray, float]] = {}
+    out: dict[str, tuple[np.ndarray, float]] = {}
     data = np.memmap(
         path,
         dtype="<i2",
@@ -156,7 +157,7 @@ def _to_epochs(
     native = rate * EPOCH_SECONDS
     if abs(native - round(native)) > 1e-6:
         raise ValueError(f"{rate} Hz does not give a whole number of samples/epoch")
-    native = int(round(native))
+    native = round(native)
     x = signal[: n_epochs * native].astype(np.float64)
     if normalize:
         x = x - x.mean()
@@ -201,8 +202,12 @@ class SleepStagingCardioRespiratory(BaseTask):
     """
 
     task_name: str = "SleepStagingCardioRespiratory"
-    input_schema: Dict[str, str] = {"ecg": "tensor", "thx": "tensor", "abd": "tensor"}
-    output_schema: Dict[str, str] = {"label": "multiclass"}
+    input_schema: dict[str, str] = {  # noqa: RUF012
+        "ecg": "tensor",
+        "thx": "tensor",
+        "abd": "tensor",
+    }
+    output_schema: dict[str, str] = {"label": "multiclass"}  # noqa: RUF012
 
     def __init__(
         self,
@@ -230,12 +235,12 @@ class SleepStagingCardioRespiratory(BaseTask):
         self.input_schema = {m: "tensor" for m in modalities}
         super().__init__()
 
-    def _process_recording(self, event: Any, pid: str) -> List[Dict[str, Any]]:
+    def _process_recording(self, event: Any, pid: str) -> list[dict[str, Any]]:
         aliases = [a for m in self.modalities for a in CHANNEL_ALIASES[m]]
         channels = _read_edf_channels(event.signal_file, aliases)
         stages = _read_stage_codes(event.label_file)
 
-        found: Dict[str, Tuple[np.ndarray, float]] = {}
+        found: dict[str, tuple[np.ndarray, float]] = {}
         for modality in self.modalities:
             label = next((a for a in CHANNEL_ALIASES[modality] if a in channels), None)
             if label is None:
@@ -258,7 +263,7 @@ class SleepStagingCardioRespiratory(BaseTask):
             label = mapping.get(int(stages[i]))
             if label is None:  # unscored epoch
                 continue
-            sample: Dict[str, Any] = {
+            sample: dict[str, Any] = {
                 "patient_id": pid,
                 "visit": visit,
                 "epoch": i,
@@ -269,7 +274,7 @@ class SleepStagingCardioRespiratory(BaseTask):
             samples.append(sample)
         return samples
 
-    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
         """Builds one sample per scored 30 s epoch for a patient.
 
         Args:
@@ -281,7 +286,7 @@ class SleepStagingCardioRespiratory(BaseTask):
             that are unreadable or lack a requested channel are skipped.
         """
         pid = patient.patient_id
-        samples: List[Dict[str, Any]] = []
+        samples: list[dict[str, Any]] = []
         for event in patient.get_events():
             try:
                 samples.extend(self._process_recording(event, pid))
