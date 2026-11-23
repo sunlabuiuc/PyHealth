@@ -198,7 +198,7 @@ class TestYAIBViews(unittest.TestCase):
 
         for other in (YAIBMortalityMIMIC3, YAIBMortalityEICU):
             self.assertEqual(sorted(other.views), sorted(YAIBMortalityMIMIC4.views))
-            for view in ("jagged", "dense"):
+            for view in YAIBMortalityMIMIC4.views:
                 ours, theirs = YAIBMortalityMIMIC4.views[view], other.views[view]
                 for key in ours:
                     self.assertEqual(ours[key][0], theirs[key][0])

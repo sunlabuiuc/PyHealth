@@ -259,7 +259,9 @@ class SubjectSplit(Split):
 
         The lists are kept in ``<dataset cache>/splits/<name>.json`` and drawn
         over every patient of ``dataset`` (:meth:`draw`). Once saved, the
-        file is used as it is and ``split`` is ignored.
+        file is used as it is and ``split`` is ignored, so patients added to
+        the dataset later are in no part; draw a new split under another
+        name to include them.
 
         Args:
             dataset: A :class:`~pyhealth.datasets.BaseDataset`.

@@ -63,6 +63,8 @@ Each takes a required ``timeline``: the input fields on the label's timeline (th
 - ``AudioProcessor``: For audio signal data
 - ``SignalProcessor``: For general signal data (e.g., EEG, ECG)
 - ``TimeseriesProcessor``: For time-series data; optional ``normalization`` (``"zscore"`` or ``"minmax"``, fitted on the training split) and ``missing_indicators``
+- ``DenseSeriesProcessor`` / ``DenseStaticProcessor``: Numeric records as padded tensors with a step mask, for the ``dense`` task view
+- ``EventStreamProcessor`` / ``EventBirthProcessor``: Numeric records as coded event timelines for EHR foundation models, for the ``events`` task view
 - ``TimeImageProcessor``: For time-stamped image sequences (e.g., serial X-rays)
 - ``TimeRegionImageProcessor``: For the same regions cropped from time-stamped images
 - ``TensorProcessor``: For pre-processed tensor data; optional ``normalization``, ``missing_indicators`` and ``impute_strategy="zero"``
@@ -617,6 +619,10 @@ API Reference
     processors/pyhealth.processors.SignalProcessor
     processors/pyhealth.processors.TimeseriesProcessor
     processors/pyhealth.processors.TemporalTimeseriesProcessor
+    processors/pyhealth.processors.DenseSeriesProcessor
+    processors/pyhealth.processors.DenseStaticProcessor
+    processors/pyhealth.processors.EventStreamProcessor
+    processors/pyhealth.processors.EventBirthProcessor
     processors/pyhealth.processors.TimeImageProcessor
     processors/pyhealth.processors.TimeRegionImageProcessor
     processors/pyhealth.processors.TensorProcessor
