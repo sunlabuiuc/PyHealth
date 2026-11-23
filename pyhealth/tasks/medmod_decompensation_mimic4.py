@@ -125,9 +125,13 @@ class MedModDecompensationMIMIC4(BaseTask):
     ``intime``), as in the mortality task:
 
     - While ``t <= window_hours``, the window starts at or before admission.
-      These chart values sit in their own bin, or in the first bin if they
-      are older than the window, and count as measured. All other bins before
-      admission are empty.
+      These chart values count as measured, in the bin of their own time, or
+      in the first bin if they are older than the window. Bins start at
+      ``t - window_hours``, so when ``t`` is a multiple of ``bin_hours`` (as
+      with the defaults) a bin edge falls on admission and these values sit
+      in bins before it; otherwise the bin that spans admission can hold such
+      a value together with the first values after admission. All other
+      bins before admission are empty.
     - Once ``t > window_hours``, the window starts after admission. The last
       value of each variable before the window, chart or lab, is carried into
       the first bin with mask 0.

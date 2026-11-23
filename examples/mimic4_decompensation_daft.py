@@ -44,7 +44,7 @@ ResNet-34 from ImageNet weights, best epoch by validation AUROC, mean +- std ove
 three seeds, each a different 70/10/20 patient split). They were produced with these
 tasks, models and settings and the PyHealth ``Trainer``, by a runner in our project
 repository that also trains :class:`~pyhealth.models.MedFuse`; this script covers
-the EHR-only and DAFT rows. Small differences from the table are expected across
+the EHR-only and DAFT rows, not the MedFuse ones. Small differences from the table are expected across
 hardware (the runs used an Apple GPU).
 
 In-hospital mortality (``EHRCXRMortalityMIMIC4``, 4,689 / 655 / 1,338 stays for
@@ -65,12 +65,13 @@ samples per split, 2.3 to 3.0% positive):
     DAFT, cxr_to_ehr       0.922 +- 0.011  0.464 +- 0.052
     DAFT, ehr_to_cxr       0.923 +- 0.011  0.461 +- 0.065
 
-Findings: on mortality, EHR-only and DAFT are within the spread of MedMod's numbers.
-With the same training for every model, adding the X-ray helps little: DAFT in
-MedMod's direction gains AUPRC on every mortality seed (+0.016 +- 0.003), and on
-decompensation no model clearly beats EHR-only once the image must come from before
-the prediction time. MedMod reports decompensation with hourly samples and an X-ray
-pairing that can look ahead, so those numbers are not comparable.
+Findings: with the same training for every model, the X-ray adds little. On
+mortality, EHR-only and DAFT are within the spread of MedMod's numbers. On
+decompensation, no model clearly beats EHR-only once the image must come from
+before the prediction time. MedMod's decompensation numbers are not comparable: it
+samples every hour (Sec. 4.1), and its code (``get_recent_cxr`` in
+``src/data/utils.py``, github.com/nyuad-cai/MedMod) pairs one X-ray per stay with
+every hour, so an early hour can see a later image.
 """
 
 from __future__ import annotations
