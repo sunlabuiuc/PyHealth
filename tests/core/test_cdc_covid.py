@@ -93,7 +93,16 @@ class TestCDCCOVID(unittest.TestCase):
         positive = demographics(fake_patient(death_yn="Yes"))[0]
         self.assertEqual((negative["mortality"], positive["mortality"]), (0, 1))
         self.assertEqual(negative["case_month"], "2021-01")
-        self.assertEqual(len(negative["features"]), len(feature_names("demographics")))
+        names = feature_names("demographics")
+        self.assertEqual(len(negative["features"]), len(names))
+        self.assertEqual(len(names), len(set(names)))
+
+        official_other = demographics(fake_patient(sex="Other"))[0]["features"]
+        unrecognized = demographics(fake_patient(sex="Not listed"))[0]["features"]
+        self.assertEqual(official_other[names.index("sex=Other")], 1.0)
+        self.assertEqual(official_other[names.index("sex=Unrecognized")], 0.0)
+        self.assertEqual(unrecognized[names.index("sex=Other")], 0.0)
+        self.assertEqual(unrecognized[names.index("sex=Unrecognized")], 1.0)
 
         preoutcome = CDCCOVIDMortalityPrediction("preoutcome")(fake_patient())[0]
         self.assertEqual(len(preoutcome["features"]), len(feature_names("preoutcome")))

@@ -20,6 +20,7 @@ from .base_task import BaseTask
 from .task_card import FeatureInfo, TaskCard
 
 _MISSING = {"", "missing", "unknown", "na", "nan", "none", "<na>"}
+_UNRECOGNIZED = "Unrecognized"
 _CATEGORIES: dict[str, tuple[str, ...]] = {
     "age_group": (
         "0 - 17 years",
@@ -62,10 +63,10 @@ def _clean(value: Any) -> str:
 
 
 def _one_hot(value: Any, levels: tuple[str, ...]) -> list[float]:
-    """Encode fixed CDC categories plus missing and other buckets."""
+    """Encode fixed CDC categories plus missing and unrecognized buckets."""
     text = _clean(value)
-    category = text if text in levels else ("Missing" if not text else "Other")
-    vocabulary = (*levels, "Missing", "Other")
+    category = text if text in levels else ("Missing" if not text else _UNRECOGNIZED)
+    vocabulary = (*levels, "Missing", _UNRECOGNIZED)
     return [float(category == level) for level in vocabulary]
 
 
@@ -105,7 +106,7 @@ def feature_names(feature_set: str) -> list[str]:
     names = [
         f"{field}={level}"
         for field in fields
-        for level in (*_CATEGORIES[field], "Missing", "Other")
+        for level in (*_CATEGORIES[field], "Missing", _UNRECOGNIZED)
     ]
     if feature_set == "preoutcome":
         for field in _NUMERIC:
