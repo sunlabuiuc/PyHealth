@@ -68,6 +68,18 @@ def bank_state_digest(
 
     Classifier weights are excluded so classifier-only refit keeps the binding.
     Values, dtypes and shapes are hashed on CPU independently of tensor device.
+
+    Args:
+        state: Native model tensor state, including the complete feature/bank state.
+        label_names: Ordered classifier vocabulary.
+        architecture: H1 architecture dictionary stored in checkpoint metadata.
+
+    Returns:
+        SHA256 hexadecimal digest; classifier parameters are excluded.
+
+    Examples:
+        >>> digest = bank_state_digest(  # doctest: +SKIP
+        ...     model.state_dict(), labels, architecture)
     """
     digest = hashlib.sha256(
         _json_bytes(
@@ -107,6 +119,19 @@ def validate_projection_provenance(
     This checks checkpoint integrity. Source input hashes bind the exact
     preprocessed waveforms seen during native projection; input reconstruction
     against an external dataset is a separate verification step.
+
+    Args:
+        provenance: Saved source bundle, including its bank and bundle fingerprints.
+        state: Native model tensor state to check against the source claims.
+        label_names: Ordered classifier vocabulary.
+        architecture: H1 architecture dictionary to match.
+
+    Raises:
+        ValueError: A fingerprint, source identity, label or coordinate is incompatible.
+
+    Examples:
+        >>> validate_projection_provenance(  # doctest: +SKIP
+        ...     provenance, state, labels, architecture)
     """
     if not isinstance(provenance, dict) or provenance.get("format_version") != 1:
         raise ValueError("Unsupported projection provenance format.")
@@ -195,7 +220,17 @@ def validate_projection_provenance(
 
 
 def checked_projection_provenance(model: "ProtoECGNetH1") -> dict[str, Any] | None:
-    """Return a validated copy, or None when no sources are bound."""
+    """Return a validated copy, or None when no sources are bound.
+
+    Args:
+        model: H1 model whose current feature/bank state must match its saved sources.
+
+    Returns:
+        An independent validated source-bundle copy, or None if no sources are bound.
+
+    Examples:
+        >>> provenance = checked_projection_provenance(model)  # doctest: +SKIP
+    """
     provenance = getattr(model, "_projection_provenance", None)
     if provenance is None:
         return None
@@ -324,6 +359,21 @@ def project_with_sources(
     source hashes are captured from this same pass, not a second iteration.
     Context is JSON-compatible declared preprocessing/protocol metadata, not
     a certificate that an external dataset has been reconstructed.
+
+    Args:
+        model: H1 model to project using the existing standard algorithm.
+        loader: Ascending-ECG-ID training batches with signals, targets and metadata.
+        source_context: JSON-compatible preprocessing/protocol context to retain.
+
+    Returns:
+        Branch-keyed source records; uncovered prototypes remain None.
+
+    Raises:
+        ValueError: Training order, metadata, inputs or the model configuration differ.
+
+    Examples:
+        >>> sources = project_with_sources(  # doctest: +SKIP
+        ...     model, ascending_training_loader, source_context={"split": "train"})
     """
     _check_math(model)
     context = json.loads(_json_bytes({} if source_context is None else source_context))

@@ -69,6 +69,9 @@ class MorphologyPrototypeBranch(PrototypeBranch):
         Branch inputs use ``(batch, leads, time)``. The containing model must
         handle data conversion, paired forwards, stages and provenance. This
         branch alone is not a PyHealth Trainer model or checkpoint converter.
+
+    Examples:
+        >>> branch = MorphologyPrototypeBranch(12, 52)  # doctest: +SKIP
     """
 
     def __init__(
@@ -360,6 +363,9 @@ class ProtoECGNetH1(ProtoECGNet):
         Projection uses the inherited training-loader algorithm and persists
         ECG-linked sources with a bank/feature fingerprint. Conversion of
         historical research checkpoints remains a separate operation.
+
+    Examples:
+        >>> model = ProtoECGNetH1(dataset, lambda_cons=117608.0)  # doctest: +SKIP
     """
 
     def __init__(

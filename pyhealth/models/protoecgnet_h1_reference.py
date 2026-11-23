@@ -50,6 +50,19 @@ def convert_reference_checkpoint(
         records are copied to that record but NOT asserted as verified native
         provenance. Call ``bind_reconstructed_reference_sources`` to reconstruct
         all saved source patches before persisting bank-linked provenance.
+
+    Args:
+        model: Destination native H1 model with the same architecture and label order.
+        checkpoint: Trusted, already-loaded epoch-35 research refit checkpoint payload.
+
+    Raises:
+        ValueError: Architecture, labels, statistics, roles or source tensors differ.
+        KeyError: The supported research checkpoint schema is incomplete.
+
+    Examples:
+        >>> native, mapping = convert_reference_checkpoint(  # doctest: +SKIP
+        ...     model, trusted_reference_checkpoint)
+        >>> model.load_state_dict(native, strict=True)  # doctest: +SKIP
     """
     _check_math(model)
     spec = checkpoint["run_spec"]
@@ -269,6 +282,25 @@ def bind_reconstructed_reference_sources(
     leaves model weights, BN buffers, mode and existing provenance unchanged.
     Saved pre-projection similarity is retained as a historical value, not
     recomputed with the projected bank. No optimizer state is imported.
+
+    Args:
+        model: Eval-mode H1 refit model with the already-imported fixed bank.
+        sources: Saved prototype-ordered historical source records.
+        source_batches: Batches for exactly the unique saved-source training ECGs.
+        source_context: JSON-compatible input/protocol identities to persist.
+        atol: Fixed absolute tolerance for source-patch reconstruction.
+        rtol: Fixed relative tolerance for source-patch reconstruction.
+
+    Returns:
+        Validated bank-linked provenance, attached only after all patches pass.
+
+    Raises:
+        ValueError: Any source, metadata, feature state or reconstructed patch differs.
+
+    Examples:
+        >>> provenance = bind_reconstructed_reference_sources(  # doctest: +SKIP
+        ...     model.eval(), saved_sources, source_batches,
+        ...     source_context={"checkpoint_sha256": checkpoint_sha256})
     """
     _check_math(model)
     _require(

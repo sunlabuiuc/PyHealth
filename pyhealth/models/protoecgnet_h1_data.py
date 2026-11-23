@@ -133,6 +133,13 @@ def make_ecg_noisy_view(
         A new CPU float32 tensor in the original shape. As in the research
         data function, clean is detached for NumPy noise generation. H1 model
         gradients still propagate through both clean/noisy model branches.
+
+    Examples:
+        >>> clean = torch.zeros(1, 12, 1000)
+        >>> noisy = make_ecg_noisy_view(
+        ...     clean, [1], stream_seed=2026111801, epoch_or_draw=1)
+        >>> torch.equal(noisy, clean)
+        True
     """
     if not isinstance(clean, Tensor) or clean.dtype != torch.float32:
         raise TypeError("clean must be a CPU float32 tensor.")
@@ -218,6 +225,11 @@ def create_h1_ptbxl_dataset(
     Returns:
         SampleDataset with one signal feature, a fixed multilabel processor,
         and raw ecg_id/record_id/patient_id/strat_fold metadata on every row.
+
+    Examples:
+        >>> dataset = create_h1_ptbxl_dataset(  # doctest: +SKIP
+        ...     signals, targets, ecg_ids=ecg_ids, patient_ids=patient_ids,
+        ...     folds=folds, split="train")
     """
     allowed = {"train": set(range(1, 9)), "validation": {9}, "test": {10}}
     if split not in allowed:
@@ -294,6 +306,10 @@ class PairedECGLoader:
         shuffle: Shuffle samples using the native PyHealth loader.
         seed: Native sample-order seed; distinct from the noise stream seed.
         **loader_kwargs: Options forwarded to get_dataloader, e.g. num_workers.
+
+    Examples:
+        >>> pairs = PairedECGLoader(  # doctest: +SKIP
+        ...     dataset, batch_size=32, stream_seed=2026111801)
     """
 
     def __init__(
