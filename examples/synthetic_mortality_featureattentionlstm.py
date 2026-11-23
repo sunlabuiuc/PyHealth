@@ -33,17 +33,17 @@ Key Findings:
     50             | 0.983 +/- 0.028      | 0.985 +/- 0.024      | 0 / 100
 """
 
-from typing import List, Set, Tuple
+from typing import List, Set, Tuple # pyright: ignore[reportMissingModuleSource]
 
-import numpy as np
-import torch
-from torch.utils.data import DataLoader, TensorDataset
+import numpy as np  # pyright: ignore[reportMissingModuleSource]
+import torch    # pyright: ignore[reportMissingModuleSource]
+from torch.utils.data import DataLoader, TensorDataset  # pyright: ignore[reportMissingModuleSource]
 
-from pyhealth.models import FeatureAttentionLSTM
+from pyhealth.models import FeatureAttentionLSTM    # pyright: ignore[reportMissingModuleSource]
 
 
 class SyntheticTimeSeriesDataset:
-    #Lightweight dataset metadata wrapper for FeatureAttentionLSTM.
+    """Lightweight dataset metadata wrapper for FeatureAttentionLSTM."""
 
     def __init__(self, feature_dim: int, output_dim: int = 2) -> None:
         self.input_info = {"ts_features": {"input_dim": feature_dim}}
@@ -98,7 +98,7 @@ def train_and_evaluate_variant(
     epochs: int = 6,
     lr: float = 1e-3,
 ) -> Tuple[float, float, Set[int]]:
-    #Train one seed and return AUROC, AUPRC, and top-100 indices.
+    """Train one seed and return AUROC, AUPRC, and top-100 indices."""
     torch.manual_seed(seed)
     np.random.seed(seed)
 
@@ -179,7 +179,7 @@ def train_and_evaluate_variant(
 
 
 def run_ablation() -> None:
-    #Execute dimensionality and random-seed consistency ablation study.
+    """Execute dimensionality and random-seed consistency ablation study."""
     feature_dims = [231, 100, 50]
     seeds = [0, 1, 2, 3, 4]
 
