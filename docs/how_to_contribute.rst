@@ -209,7 +209,8 @@ On a pull request, CI runs only the tests your change can affect, not the
 whole suite. ``tools/select_tests.py`` follows imports from each changed file
 to the test modules that use it. A new model with its own test usually runs a
 handful of modules. A change under ``docs/`` or ``examples/`` runs only the
-tests that name the changed file, usually none. The test job's summary lists
+tests that import the changed example or name the file, usually none. The
+test job's summary lists
 each selected test and the import chain that selected it.
 
 - **Run the same selection locally**: ``make testaffected`` runs the tests

@@ -11,6 +11,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+import unittest.mock
 from pathlib import Path
 
 _TOOL = Path(__file__).resolve().parents[2] / "tools" / "select_tests.py"
@@ -73,6 +74,12 @@ FILES = {
         "SCRIPT = Path(__file__).parents[2] / 'examples' / 'toy' / 'run_toy.py'\n"
         "PAGE = 'docs/api/toy.rst'\n"
     ),
+    # Examples imported as modules, one through a package that imports another.
+    "examples/pipeline.py": "from pyhealth.models import RNN\n",
+    "examples/bench/__init__.py": "",
+    "examples/bench/runner.py": "from examples.pipeline import RNN\n",
+    "tests/core/test_pipeline.py": "from examples import pipeline\n",
+    "tests/core/test_bench.py": "from examples.bench import runner\n",
 }
 
 
@@ -92,17 +99,20 @@ class SelectTestsTest(unittest.TestCase):
 
     def test_reexport_resolves_to_defining_module(self):
         # Both tests import through models/__init__, but only one uses RNN.
-        self.assertEqual(self.select("pyhealth/models/rnn.py"), {"test_rnn"})
+        self.assertEqual(self.select("pyhealth/models/rnn.py"),
+                         {"test_rnn", "test_pipeline", "test_bench"})
 
     def test_transitive_dependency(self):
         self.assertEqual(self.select("pyhealth/models/base.py"),
-                         {"test_rnn", "test_cnn", "test_uses_helper"})
+                         {"test_rnn", "test_cnn", "test_uses_helper",
+                          "test_pipeline", "test_bench"})
 
     def test_init_change_selects_its_importers(self):
         # test_uses_helper imports pyhealth.models.cnn, which runs the
         # package __init__ too.
         self.assertEqual(self.select("pyhealth/models/__init__.py"),
-                         {"test_rnn", "test_cnn", "test_uses_helper"})
+                         {"test_rnn", "test_cnn", "test_uses_helper",
+                          "test_pipeline", "test_bench"})
 
     def test_init_reexport_only_change_is_narrowed(self):
         new = self.root / "pyhealth/models/__init__.py"
@@ -116,7 +126,8 @@ class SelectTestsTest(unittest.TestCase):
         new = self.root / "pyhealth/models/__init__.py"
         old = new.read_text() + "SETTING = 1\n"
         sel = self.select("pyhealth/models/__init__.py", base_source=lambda p: old)
-        self.assertEqual(sel, {"test_rnn", "test_cnn", "test_uses_helper"})
+        self.assertEqual(sel, {"test_rnn", "test_cnn", "test_uses_helper",
+                          "test_pipeline", "test_bench"})
 
     def test_lazy_getattr_and_function_level_import(self):
         self.assertEqual(self.select("pyhealth/tasks/lazy.py"), {"test_lazy_inner"})
@@ -164,8 +175,44 @@ class SelectTestsTest(unittest.TestCase):
         # Another file with the same tree but a name no test mentions.
         self.assertEqual(self.select("examples/other/run.py"), set())
 
+    def test_examples_imported_as_modules_are_selected(self):
+        self.assertEqual(self.select("examples/bench/runner.py"), {"test_bench"})
+        self.assertEqual(self.select("examples/pipeline.py"),
+                         {"test_pipeline", "test_bench"})
+        # pyhealth changes reach tests through the examples they import.
+        self.assertIn("test_bench", self.select("pyhealth/models/rnn.py"))
+
+    def test_deleted_example_selects_its_importers(self):
+        (self.root / "examples/bench/runner.py").unlink()
+        self.graph = st.Graph(root=self.root)
+        self.assertEqual(self.select("examples/bench/runner.py"), {"test_bench"})
+
     def test_tool_stem_matching_an_identifier_selects_nothing(self):
         self.assertEqual(self.select("tools/coverage_report.py"), set())
+
+    def github_output(self, sel):
+        out = self.root / "github_output"
+        with unittest.mock.patch.dict("os.environ", {"GITHUB_OUTPUT": str(out)}):
+            st.github_output(sel, n_files=1, total=9)
+        return dict(line.split("=", 1) for line in out.read_text().splitlines())
+
+    def test_github_output_lists_selected_paths_per_suite(self):
+        # .github/workflows/test.yml reads these keys.
+        sel = st.select(["pyhealth/models/cnn.py"], self.graph)
+        self.assertEqual(self.github_output(sel), {
+            "mode": "some", "selected": "2", "suite_total": "9",
+            "core": "tests/core/test_cnn.py tests/core/test_uses_helper.py",
+            "nlp": "",
+        })
+
+    def test_github_output_for_all_and_none(self):
+        everything = self.github_output(st.select(["pixi.lock"], self.graph))
+        self.assertEqual((everything["mode"], everything["selected"],
+                          everything["core"], everything["nlp"]),
+                         ("all", "9", "tests/core", "tests/nlp"))
+        nothing = self.github_output(st.select(["README.rst"], self.graph))
+        self.assertEqual((nothing["mode"], nothing["selected"], nothing["core"]),
+                         ("none", "0", ""))
 
     def test_any_all_wins(self):
         self.assertEqual(self.select("pyhealth/models/rnn.py", "pixi.lock"), st.ALL)

@@ -5,7 +5,7 @@ The whole suite grows with every dataset, model and task; a PR touching one
 model should not pay for all of them. This script maps changed files to the
 test modules that (transitively) import them, using a static import graph
 rebuilt from source on every run — nothing is cached or stored, and parsing
-the whole package takes well under a second.
+the package, tests and examples takes a few seconds.
 
 Why symbol-level: tests import through re-exporting package ``__init__``s
 (``from pyhealth.models import RNN``), and those ``__init__``s eagerly import
@@ -47,6 +47,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = "pyhealth"
 TESTS = "tests"
+# Trees outside the package that tests import as modules
+# (``from examples.survival_pipeline import ...``); parsed into the graph too.
+IMPORTED_TREES = ("examples",)
 # Test directories CI runs (under tests/) -> pixi environment that runs them.
 SUITES = {"core": "test", "nlp": "nlp"}
 
@@ -153,11 +156,14 @@ class Graph:
         self.root = root
         self.package = package
         self.tests = tests
+        self.trees = (package, tests, *IMPORTED_TREES)
         self.modules: dict[str, Module] = {}
         self.by_path: dict[str, Module] = {}
         self.deep_rdeps: dict[str, set] = defaultdict(set)
         self.shallow_rdeps: dict[str, set] = defaultdict(set)
-        for top in (package, tests):
+        for top in self.trees:
+            if not (root / top).is_dir():
+                continue
             for path in sorted((root / top).rglob("*.py")):
                 rel = path.relative_to(root).as_posix()
                 if "__pycache__" in rel:
@@ -176,7 +182,7 @@ class Graph:
     # -- parsing -----------------------------------------------------------
 
     def internal(self, name: str) -> bool:
-        return name.split(".")[0] in (self.package, self.tests)
+        return name.split(".")[0] in self.trees
 
     def _parse(self, mod: Module) -> None:
         try:
@@ -274,8 +280,12 @@ class Graph:
         (or ``import target`` when name is None) depends on."""
         if not self.internal(target):
             return set(), set()
-        if target not in self.modules or name is None:
+        if name is None:
             return set(), {target}  # missing => phantom node (deleted module)
+        if target not in self.modules:
+            # A namespace package (examples/ has no __init__) or a deleted
+            # module: ``name`` may be its submodule, so depend on that too.
+            return set(), {target, f"{target}.{name}"}
         mod = self.modules[target]
         if not mod.is_pkg:
             return set(), {target}
@@ -290,8 +300,9 @@ class Graph:
             deep |= d
         if not deep:
             # Defined in the __init__ itself, star-imported, or unknown:
-            # depend on the whole package.
-            deep.add(target)
+            # depend on the whole package, and on the submodule ``name``
+            # would be (a deleted one is imported this way too).
+            deep |= {target, sub}
         return shallow, deep
 
     def _link(self, mod: Module) -> None:
@@ -416,7 +427,14 @@ def _classify(path: str, graph: Graph):
     if parts[0] == graph.package and Path(path).suffix.lower() in DOC_SUFFIXES:
         return set()  # package READMEs etc.
     if path.startswith(REFERENCED_PREFIXES):
-        return graph.referencing(parts[0], parts[-1])
+        # Tests that load the file by path name it; tests that import it as
+        # a module (examples/) reach it through the graph.
+        hits = graph.referencing(parts[0], parts[-1])
+        if path in graph.by_path:
+            hits.add(graph.by_path[path].name)
+        elif path.endswith(".py") and parts[0] in graph.trees:
+            hits.add(_module_name(path))  # deleted: its importers still point here
+        return hits
     if parts[0] not in (graph.package, graph.tests, "test-resources"):
         if (path in IGNORE_FILES or path.startswith(IGNORE_PREFIXES)
                 or Path(path).suffix.lower() in DOC_SUFFIXES):
