@@ -58,6 +58,11 @@ from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
 from .disease_progression_mimic4 import (
     DiseaseProgressionMIMIC4 as DiseaseProgressionMIMIC4,
 )
+from .delphi_trajectory import (
+    DelphiTrajectoryMEDS as DelphiTrajectoryMEDS,
+    DelphiTrajectoryMIMIC4 as DelphiTrajectoryMIMIC4,
+    DelphiTrajectoryUKB as DelphiTrajectoryUKB,
+)
 from .drug_recommendation import (
     DrugRecommendationEICU,
     DrugRecommendationMIMIC3,

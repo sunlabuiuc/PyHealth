@@ -224,6 +224,8 @@ Available Tasks
     Prolonged Length of Stay (MEDS) <tasks/pyhealth.tasks.ProlongedLengthOfStayMEDS>
     ETHOS Timelines (MEDS) <tasks/pyhealth.tasks.EthosTimelineMEDS>
     ETHOS Zero-Shot Outcomes (MEDS) <tasks/pyhealth.tasks.EthosOutcomeMEDS>
+    Delphi Trajectory (MEDS) <tasks/pyhealth.tasks.DelphiTrajectoryMEDS>
+    Delphi Trajectory (MIMIC-IV) <tasks/pyhealth.tasks.DelphiTrajectoryMIMIC4>
     MIMIC-III ICD-9 Coding <tasks/pyhealth.tasks.MIMIC3ICD9Coding>
     BMD-HS Disease Classification <tasks/pyhealth.tasks.bmd_hs_disease_classification>
     Cardiology Detection <tasks/pyhealth.tasks.cardiology_detect>
