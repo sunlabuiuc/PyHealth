@@ -6,7 +6,11 @@ import numpy as np
 import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
-from pyhealth.models import CHET, compute_cooccurrence_adj
+from pyhealth.models import (
+    CHET,
+    SingleHeadAttentionLayer,
+    compute_cooccurrence_adj,
+)
 
 
 class TestCHET(unittest.TestCase):
@@ -443,6 +447,61 @@ class TestCHET(unittest.TestCase):
             hidden_dim=32,
             adj=adj,
         )
+
+        # Track GRU and transition attention invocations across visits
+        gru_counts: list[int] = []
+        attn_counts: list[int] = []
+
+        hook_gru = model.gru.register_forward_hook(
+            lambda module, input, output: gru_counts.append(input[0].shape[0])
+        )
+        hook_attn = model.transition_attn.register_forward_hook(
+            lambda module, input, output: attn_counts.append(input[0].shape[0])
+        )
+
+        try:
+            batches = list(get_dataloader(dataset, batch_size=1, shuffle=False))
+
+            # Test Patient 3: ["c1"] -> ["c1"] (only recurring M1 at visit 1)
+            gru_counts.clear()
+            attn_counts.clear()
+            model(**batches[3])
+            # Visit 0 calls GRU (1 code), Visit 1 calls GRU (1 recurring code)
+            self.assertEqual(gru_counts, [1, 1])
+            # Transition attention does not fire because neither M2 nor M3 exists
+            self.assertEqual(len(attn_counts), 0)
+
+            # Test Patient 1: ["c1"] -> ["c2"] (only neighbor transition M2 at visit 1)
+            gru_counts.clear()
+            attn_counts.clear()
+            model(**batches[1])
+            # Visit 0 calls GRU (1 code), Visit 1 does not call recurrent GRU
+            self.assertEqual(gru_counts, [1])
+            # Transition attention fires exactly once at visit 1 for 1 code (M2)
+            self.assertEqual(attn_counts, [1])
+
+            # Test Patient 2: ["c1"] -> ["c3"] (only novel condition M3 at visit 1)
+            gru_counts.clear()
+            attn_counts.clear()
+            model(**batches[2])
+            # Visit 0 calls GRU (1 code), Visit 1 does not call recurrent GRU
+            self.assertEqual(gru_counts, [1])
+            # Transition attention fires exactly once at visit 1 for 1 code (M3)
+            self.assertEqual(attn_counts, [1])
+
+            # Test Patient 0: ["c1"] -> ["c1", "c2", "c3"] (all M1, M2, M3 fire)
+            gru_counts.clear()
+            attn_counts.clear()
+            model(**batches[0])
+            # Visit 0 calls GRU (1 code), Visit 1 calls GRU (1 recurring code)
+            self.assertEqual(gru_counts, [1, 1])
+            # Transition attention fires for 2 codes (neighbor M2 and novel M3)
+            self.assertEqual(attn_counts, [2])
+        finally:
+            hook_gru.remove()
+            hook_attn.remove()
+
+        # Full batch forward
         loader = get_dataloader(dataset, batch_size=4, shuffle=False)
         batch = next(iter(loader))
         out = model(**batch)
@@ -451,6 +510,37 @@ class TestCHET(unittest.TestCase):
         self.assertTrue(torch.isfinite(out["logit"]).all())
         self.assertTrue(torch.isfinite(out["embed"]).all())
         self.assertTrue(torch.isfinite(out["loss"]))
+
+    def test_single_head_attention_differing_sizes(self):
+        """Tests SingleHeadAttentionLayer with differing query, key, and value dims."""
+        # 1. With explicit value_input_size differing from query_size, key_size
+        layer = SingleHeadAttentionLayer(
+            query_size=12,
+            key_size=16,
+            value_size=32,
+            attention_size=8,
+            value_input_size=20,
+        )
+        q = torch.randn(3, 12)
+        k = torch.randn(5, 16)
+        v = torch.randn(5, 20)
+        out = layer(q, k, v)
+        self.assertEqual(out.shape, (3, 32))
+        self.assertTrue(torch.isfinite(out).all())
+
+        # 2. With default value_input_size=None (v features match value_size)
+        layer_default = SingleHeadAttentionLayer(
+            query_size=14,
+            key_size=18,
+            value_size=28,
+            attention_size=10,
+        )
+        q2 = torch.randn(2, 14)
+        k2 = torch.randn(4, 18)
+        v2 = torch.randn(4, 28)
+        out2 = layer_default(q2, k2, v2)
+        self.assertEqual(out2.shape, (2, 28))
+        self.assertTrue(torch.isfinite(out2).all())
 
     def test_custom_adjacency_matrix(self):
         dataset = create_sample_dataset(

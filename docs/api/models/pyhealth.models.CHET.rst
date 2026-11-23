@@ -15,7 +15,12 @@ Dynamic Disease Graphs:
 - Co-occurrence adjacency can be precomputed from the training dataset via
   ``compute_cooccurrence_adj(dataset, feature_key)`` or automatically
   computed from the dataset during initialization when ``adj=None``.
-  Only training data should be used to avoid data leakage. When user-supplied,
+  Only training data should be used to avoid data leakage; when ``adj=None``,
+  ensure only the training split is passed. Unlike ``ehr_cooccurrence_adjacency``
+  in ``pyhealth.models.utils`` (which computes unweighted 0/1 matrices over
+  drug label sets for recommendation models), ``compute_cooccurrence_adj``
+  operates on input code features, supports self-loops, and row-normalizes
+  transition probabilities for disease graph convolutions. When user-supplied,
   ``adj`` is expected to be row-normalized with the padding row and column
   (index 0) zeroed.
 - Note that per-visit dense N x N adjacency multiplications and the

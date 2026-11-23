@@ -57,7 +57,11 @@ def compute_cooccurrence_adj(
 
     Note:
         To prevent data leakage, compute this adjacency matrix using only the
-        training dataset split rather than the combined dataset.
+        training dataset split rather than the combined dataset. Unlike
+        ``ehr_cooccurrence_adjacency`` in ``pyhealth.models.utils`` which builds
+        binary matrices over label sets for recommendation models, this helper
+        operates on input code features, supports self-loops, and row-normalizes
+        transition probabilities for disease graph convolutions.
 
     Args:
         dataset: PyHealth SampleDataset containing clinical samples.
@@ -139,18 +143,26 @@ def compute_cooccurrence_adj(
 class SingleHeadAttentionLayer(nn.Module):
     """Single-head attention layer for transition state updates.
 
+    Args:
+        query_size: Feature dimension of query vectors.
+        key_size: Feature dimension of key vectors.
+        value_size: Output feature dimension after value projection.
+        attention_size: Dimension of attention projection space.
+        value_input_size: Optional input feature dimension of value vectors.
+            If None, defaults to ``value_size``.
+
     Examples:
         >>> import torch
         >>> from pyhealth.models import SingleHeadAttentionLayer
         >>> layer = SingleHeadAttentionLayer(
         ...     query_size=16,
-        ...     key_size=16,
+        ...     key_size=24,
         ...     value_size=32,
         ...     attention_size=16,
         ... )
         >>> q = torch.randn(4, 16)
-        >>> k = torch.randn(5, 16)
-        >>> v = torch.randn(5, 16)
+        >>> k = torch.randn(5, 24)
+        >>> v = torch.randn(5, 32)
         >>> out = layer(q, k, v)
         >>> out.shape
         torch.Size([4, 32])
@@ -162,12 +174,14 @@ class SingleHeadAttentionLayer(nn.Module):
         key_size: int,
         value_size: int,
         attention_size: int,
+        value_input_size: int | None = None,
     ) -> None:
         super().__init__()
         self.attention_size = attention_size
+        v_in = value_input_size if value_input_size is not None else value_size
         self.dense_q = nn.Linear(query_size, attention_size)
         self.dense_k = nn.Linear(key_size, attention_size)
-        self.dense_v = nn.Linear(query_size, value_size)
+        self.dense_v = nn.Linear(v_in, value_size)
 
     def forward(
         self,
@@ -262,9 +276,10 @@ class CHET(BaseModel):
             Default is 32.
         adj: Optional precomputed adjacency matrix of shape ``(num_codes, num_codes)``.
             If None, computed automatically from dataset co-occurrences. Only the
-            training split should be used to construct this matrix. When user-supplied,
-            `adj` is expected to be row-normalized with the padding row and column
-            (index 0) zeroed.
+            training split should be used to construct this matrix or passed when
+            adj is None to prevent evaluation leakage. When user-supplied, `adj` is
+            expected to be row-normalized with the padding row and column (index 0)
+            zeroed.
         dropout: Dropout rate applied to patient representations.
             Default is 0.1.
 
@@ -387,6 +402,7 @@ class CHET(BaseModel):
             key_size=graph_size,
             value_size=hidden_dim,
             attention_size=attention_size,
+            value_input_size=graph_size,
         )
 
         # Dot-product attention across visits
