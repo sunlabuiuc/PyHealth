@@ -681,7 +681,15 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
             if mask is None:
                 if value is not None:
                     v = value.to(device)
-                    mask = (v.abs().sum(dim=-1) != 0).int()
+                    if processor.is_token():
+                        # Raw token indices (PAD = 0). Flat codes are
+                        # [batch, seq]; nested codes are [batch, visits, codes].
+                        # Summing the last dim would drop the sequence axis.
+                        mask = (v != 0).int()
+                    else:
+                        # Continuous features are [batch, seq, feat]. 0.0 is a
+                        # valid measurement; only an all-zero vector is padding.
+                        mask = (v.abs().sum(dim=-1) != 0).int()
                 else:
                     # Cannot determine mask; fall back to last position
                     last_idx = torch.full(
