@@ -295,6 +295,16 @@ class TestObservationPeriodCensoring(unittest.TestCase):
             mapped.input_schema["conditions"],
             ("sequence", {"code_mapping": ("ICD9CM", "CCSCM")}),
         )
+        # code_mapping stays the first positional argument. A dict here must
+        # not be read as check_observation_period.
+        positional = MortalityPredictionOMOP({"conditions": ("ICD9CM", "CCSCM")})
+        self.assertEqual(
+            positional.input_schema["conditions"],
+            ("sequence", {"code_mapping": ("ICD9CM", "CCSCM")}),
+        )
+        self.assertFalse(positional.check_observation_period)
+        with self.assertRaises(TypeError):
+            MortalityPredictionOMOP({"conditions": ("ICD9CM", "CCSCM")}, True)
 
     def test_mortality_prediction_omop_observation_period_censoring(self):
         start = datetime(2150, 1, 1, 8, 0, 0)
@@ -399,17 +409,36 @@ class TestObservationPeriodCensoring(unittest.TestCase):
         with self.assertRaises(ValueError):
             MortalityPredictionOMOP(min_followup=timedelta(days=-1))
 
-        # No min_followup: the horizon is the next visit, and a death counts
-        # only while that same period still covers the patient.
+        # No min_followup: the horizon is the next visit. A death after that
+        # visit is 0 when the period still covers the horizon, same as a
+        # death past min_followup.
         until_next = MortalityPredictionOMOP(check_observation_period=True)
-        covered_death = _mortality_patient(
+        death_after_horizon = _mortality_patient(
             start,
             discharge,
             datetime(2150, 1, 20, 8, 0, 0),
             [_period("2150-01-01", "2150-01-25")],
             death=datetime(2150, 1, 22, 0, 0, 0),
         )
-        self.assertEqual(until_next(covered_death)[0]["mortality"], 1)
+        self.assertEqual(until_next(death_after_horizon)[0]["mortality"], 0)
+        death_before_next = _mortality_patient(
+            start,
+            discharge,
+            datetime(2150, 1, 20, 8, 0, 0),
+            [_period("2150-01-01", "2150-01-25")],
+            death=datetime(2150, 1, 15, 0, 0, 0),
+        )
+        self.assertEqual(until_next(death_before_next)[0]["mortality"], 1)
+        # Death before the next visit counts even when the period ends
+        # before that visit.
+        observed_before_next = _mortality_patient(
+            start,
+            discharge,
+            datetime(2150, 2, 1, 8, 0, 0),
+            [_period("2150-01-01", "2150-01-20")],
+            death=datetime(2150, 1, 18, 0, 0, 0),
+        )
+        self.assertEqual(until_next(observed_before_next)[0]["mortality"], 1)
         survivor_until_next = _mortality_patient(
             start,
             discharge,
@@ -432,6 +461,23 @@ class TestObservationPeriodCensoring(unittest.TestCase):
             [_period("2150-01-01", "2150-01-10")],
         )
         self.assertEqual(until_next(censored_before_next), [])
+
+    def test_mortality_warns_once_when_observation_period_is_missing(self):
+        start = datetime(2150, 1, 1, 8, 0, 0)
+        patient = _mortality_patient(
+            start,
+            "2150-01-03 12:00:00",
+            datetime(2150, 2, 1, 8, 0, 0),
+            [],
+        )
+        task = MortalityPredictionOMOP(check_observation_period=True)
+        with self.assertLogs(
+            "pyhealth.tasks.mortality_prediction", level="WARNING"
+        ) as logs:
+            self.assertEqual(task(patient), [])
+        self.assertIn("observation_period", logs.output[0])
+        with self.assertNoLogs("pyhealth.tasks.mortality_prediction", level="WARNING"):
+            self.assertEqual(task(patient), [])
 
     def test_readmission_prediction_omop_observation_period_censoring(self):
         task = ReadmissionPredictionOMOP(

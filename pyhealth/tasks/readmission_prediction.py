@@ -1,12 +1,18 @@
+import logging
 from datetime import date, datetime, time, timedelta
 from typing import Any, Dict, List  # noqa: UP035
 
 from pyhealth.data import Event, Patient
 from pyhealth.tasks import BaseTask
 
+logger = logging.getLogger(__name__)
+
 
 def _calendar_day(value: Any) -> date | None:
-    """Calendar day of an OMOP date, datetime, or ``YYYY-MM-DD`` string."""
+    """Calendar day of an OMOP date, datetime, or ``YYYY-MM-DD`` string.
+
+    Unparseable values return None, and that observation period is skipped.
+    """
     if isinstance(value, datetime):
         return value.date()
     if isinstance(value, date):
@@ -501,7 +507,11 @@ class ReadmissionPredictionOMOP(BaseTask):
     Set ``check_observation_period=True`` to drop a non-readmitted visit
     whose observation period ends before ``discharge + window``. Readmitted
     visits stay, as long as the visit itself is inside an observation period.
-    The check is off by default.
+    The check is off by default and keyword-only.
+
+    ``observation_period`` is not in
+    :class:`~pyhealth.datasets.OMOPDataset`'s default tables. With the check
+    on, include it in ``tables``. Otherwise every visit is dropped.
 
     Examples:
         >>> from datetime import timedelta
@@ -534,6 +544,7 @@ class ReadmissionPredictionOMOP(BaseTask):
         self,
         window: timedelta = timedelta(days=15),
         exclude_minors: bool = True,
+        *,
         check_observation_period: bool = False,
         **kwargs,
     ) -> None:
@@ -544,10 +555,10 @@ class ReadmissionPredictionOMOP(BaseTask):
                 considered a readmission. Defaults to 15 days.
             exclude_minors: Whether to exclude visits where the patient
                 was under 18 years old. Defaults to True.
-            check_observation_period: When True, require one observation
-                period to cover the visit. A visit that is not a readmission
-                also needs that period to reach ``discharge + window``.
-                Defaults to False.
+            check_observation_period: Keyword-only. When True, require one
+                observation period to cover the visit. A visit that is not a
+                readmission also needs that period to reach
+                ``discharge + window``. Defaults to False.
             **kwargs: Passed to :class:`~pyhealth.tasks.BaseTask`, e.g.
                 ``code_mapping``.
         """
@@ -555,6 +566,7 @@ class ReadmissionPredictionOMOP(BaseTask):
         self.window = window
         self.exclude_minors = exclude_minors
         self.check_observation_period = check_observation_period
+        self._warned_missing_observation_period = False
 
     def __call__(self, patient: Patient) -> List[Dict]:
         """
@@ -591,6 +603,14 @@ class ReadmissionPredictionOMOP(BaseTask):
         observation_periods: list[Event] = []
         if self.check_observation_period:
             observation_periods = patient.get_events(event_type="observation_period")
+            if not observation_periods and not self._warned_missing_observation_period:
+                logger.warning(
+                    "ReadmissionPredictionOMOP check_observation_period is on, "
+                    "but this patient has no observation_period events. "
+                    "Include observation_period in OMOPDataset tables, or "
+                    "every visit is dropped."
+                )
+                self._warned_missing_observation_period = True
 
         samples = []
         # Skip the last admission since we need a "next" admission
