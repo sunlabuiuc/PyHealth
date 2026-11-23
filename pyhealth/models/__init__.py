@@ -35,6 +35,7 @@ from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D
 from .deepsleepnet import DeepSleepNet as DeepSleepNet
 from .deepr import Deepr, DeeprLayer
+from .eegnet import EEGNet as EEGNet
 from .embedding import EmbeddingModel
 from .sequence_embedding import (
     LevelEmbedding as LevelEmbedding,
@@ -52,6 +53,7 @@ from .graphcare import GraphCare
 from .grasp import GRASP, GRASPLayer
 from .dipro import DiPro as DiPro
 from .daft import DAFT as DAFT, DAFTBlock as DAFTBlock, DAFTLayer as DAFTLayer
+from .maestro import MAESTRO as MAESTRO
 from .medfuse import MedFuse, MedFuseLayer
 from .medlink import MedLink
 from .micron import MICRON, MICRONLayer
@@ -79,6 +81,17 @@ from .torchvision_model import TorchvisionModel
 from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
 from .llm_ehr_encoder import LLMEHREncoder as LLMEHREncoder
+from .ehr_fm import (
+    EHRFoundationModelBase as EHRFoundationModelBase,
+    HFEHRFoundationModel as HFEHRFoundationModel,
+    HFEHRTokenizer as HFEHRTokenizer,
+)
+from .clmbr import (
+    CLMBR as CLMBR,
+    CLMBRConfig as CLMBRConfig,
+    CLMBRTokenizer as CLMBRTokenizer,
+    CLMBRTransformer as CLMBRTransformer,
+)
 from .ehrmamba import EHRMamba, MambaBlock
 from .ehrmamba_cehr import EHRMambaCEHR
 from .vae import VAE
@@ -98,12 +111,14 @@ from .protoecgnet import (
     ResNet1dBackbone as ResNet1dBackbone,
     ResNet2dBackbone as ResNet2dBackbone,
 )
+from .td_cnn_lstm import TDCNNLSTM as TDCNNLSTM
 from .generators.halo import HALO
 from .generators.gpt2 import GPT2
 from .generators.promptehr import PromptEHR
 from .generators.medgan import MedGAN
 from .generators.synthea import Synthea as Synthea
 from .generators.corgan import CorGAN as CorGAN
+from .generators.tardiff import TarDiff as TarDiff
 from .survival_mdn import SurvivalMDN as SurvivalMDN
 from .personalized_survival_moe import PersonalizedSurvivalMoE as PersonalizedSurvivalMoE
 from .cet import CET as CET
@@ -141,6 +156,11 @@ from .descemb import (
     DescEmbCodeEncoder as DescEmbCodeEncoder,
     simple_subword_tokenize as simple_subword_tokenize,
     simple_word_tokenize as simple_word_tokenize,
+)
+from .bulk_rna_bert import BulkRNABert as BulkRNABert
+from .dearllm import (
+    DearLLM as DearLLM,
+    DearLLMGraphEncoder as DearLLMGraphEncoder,
 )
 from .chet import (
     CHET as CHET,
