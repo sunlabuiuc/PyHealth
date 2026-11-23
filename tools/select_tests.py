@@ -571,7 +571,9 @@ def run(sel: Selection, graph: Graph, pytest_args=()) -> int:
     for suite, env in SUITES.items():  # same paths --github-output writes
         tests = [f"{TESTS}/{suite}"] if sel.mode == ALL else sel.suite(suite)
         if tests:
-            status |= sh("pixi", "run", "-e", env, "pytest", "-v", *pytest_args, *tests)
+            # `python -m`: a bare `pytest` can resolve to another venv's on PATH
+            status |= sh("pixi", "run", "-e", env, "python", "-m", "pytest", "-v",
+                         *pytest_args, *tests)
     return status
 
 
