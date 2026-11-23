@@ -891,7 +891,11 @@ jobs:
                 const t = m ? Date.parse(m[1]) : NaN;
                 if (t >= start && t < end) lines.push(m[2].replace(/\x1b\[[0-9;]*m/g, ''));
               }
-              const header = lines.findLastIndex((l) => l.startsWith('##[group]Run pixi run -e test coverage json'));
+              // the step's first command; the pixi one is from runs before
+              // tools/coverage_report.py, kept while their PRs are reviewed
+              const header = lines.findLastIndex((l) =>
+                l.startsWith('##[group]Run python tools/coverage_report.py') ||
+                l.startsWith('##[group]Run pixi run -e test coverage json'));
               const endgroup = header < 0 ? -1 : lines.indexOf('##[endgroup]', header);
               if (endgroup < 0) return null;
               const output = lines.slice(endgroup + 1); // skip the step header

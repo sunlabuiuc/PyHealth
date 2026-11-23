@@ -1,5 +1,11 @@
 name: Python Test
 
+# PRs run only the tests their change can affect (tools/select_tests.py), and
+# report coverage merged with the baseline the last full run on master saved
+# (tools/coverage_report.py), so the total still reflects the whole suite.
+# Master, the weekly run, and manual dispatches run everything and refresh
+# that baseline. The `full-ci` label makes a PR run everything too (re-run
+# the job after adding it).
 on:
   pull_request:
   push:
@@ -10,9 +16,22 @@ on:
       - master
   # a /merge by the AI review workflow starts no push run, so it dispatches one
   workflow_dispatch:
+  # keeps the coverage baseline fresh (artifacts expire) and backstops anything
+  # test selection might miss
+  schedule:
+    - cron: '0 7 * * 1'
 
 permissions:
   contents: read
+  # to find and download master's coverage baseline
+  actions: read
+  # to read the PR's labels at run time
+  pull-requests: read
+
+# a new push to a PR supersedes its running tests; other runs never cancel
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -22,7 +41,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          # full history so the coverage report can diff against the base commit
+          # full history: test selection and the coverage report diff against
+          # older commits
           fetch-depth: 0
 
       - name: Install Python environment needed for the relpo command
@@ -30,53 +50,118 @@ jobs:
         with:
           python-version: '3.13'
 
+      # The newest successful full run on the base branch whose commit this
+      # PR's merge commit contains. Tests are then selected against that same
+      # commit, so the baseline and this run together cover every test.
+      - name: Find the coverage baseline
+        id: baseline
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          runs=$(gh api "repos/$REPO/actions/workflows/test.yml/runs?branch=$BASE_REF&status=success&per_page=30" \
+            --jq '.workflow_runs[] | select(.event != "pull_request") | "\(.id) \(.head_sha)"')
+          while read -r id sha; do
+            [[ "$id" =~ ^[0-9]+$ && "$sha" =~ ^[0-9a-f]{40}$ ]] || continue
+            git merge-base --is-ancestor "$sha" HEAD || continue
+            if gh run download "$id" -R "$REPO" -n coverage-baseline -D "$RUNNER_TEMP/baseline" 2>/dev/null; then
+              echo "using the baseline from run $id at $sha"
+              echo "sha=$sha" >> "$GITHUB_OUTPUT"
+              echo "file=$RUNNER_TEMP/baseline/coverage-baseline.db" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done <<< "$runs"
+          echo "::notice::no coverage baseline found; running the full suite"
+
+      - name: Select affected tests
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          BASELINE_SHA: ${{ steps.baseline.outputs.sha }}
+        run: |
+          full=""
+          if [ "$EVENT" != pull_request ]; then
+            full="$EVENT run"
+          elif [ -z "$BASELINE_SHA" ]; then
+            full="no coverage baseline"
+          elif gh api "repos/$REPO/issues/$PR/labels" --jq '.[].name' | grep -qx full-ci; then
+            full="full-ci label"
+          fi
+          if [ -n "$full" ]; then
+            python tools/select_tests.py --all --reason "$full" --github-output
+          else
+            python tools/select_tests.py --base "$BASELINE_SHA" --github-output
+          fi
+
       - name: Install pixi
+        if: steps.select.outputs.mode != 'none'
         run: 'curl -fsSL https://pixi.sh/install.sh | sh'
 
       - name: Add pixi to path
+        if: steps.select.outputs.mode != 'none'
         run: 'echo "${HOME}/.pixi/bin" >> $GITHUB_PATH'
 
       # we have to install the environment without --lock, as otherwise the
       # pyproject.toml sha1 changes due to different whitespace in the build
       # environment
       - name: Create the environment, which updates the lock file
+        if: steps.select.outputs.mode != 'none'
         run: 'pixi install'
 
+      # Selection follows imported names, so a test can skip a module whose
+      # only link to it is an eager package __init__ — which an import-time
+      # error there would still break. Importing every subpackage catches that.
+      - name: Check that every subpackage imports
+        if: steps.select.outputs.mode == 'some'
+        run: |
+          pixi run -e test python -m compileall -q pyhealth
+          pixi run -e test python -c "$(python tools/select_tests.py --all --smoke 2>/dev/null)"
+
       - name: Run core tests
-        run: 'pixi run -e test pytest tests/core -v --cov=pyhealth --cov-report='
+        if: steps.select.outputs.core != ''
+        env:
+          TESTS: ${{ steps.select.outputs.core }}
+        run: 'pixi run -e test pytest $TESTS -v --cov=pyhealth --cov-report='
 
       - name: Run NLP tests
-        if: ${{ !cancelled() }}
-        run: 'pixi run -e nlp pytest tests/nlp -v --cov=pyhealth --cov-append --cov-report='
+        if: ${{ !cancelled() && steps.select.outputs.nlp != '' }}
+        env:
+          TESTS: ${{ steps.select.outputs.nlp }}
+        run: 'pixi run -e nlp pytest $TESTS -v --cov=pyhealth --cov-append --cov-report='
 
+      - name: Install the coverage reporter
+        if: ${{ !cancelled() }}
+        run: 'python -m pip install --quiet "coverage>=7.6,<8"'
+
+      # coverage.yml and ai-review.yml parse this step's output; see
+      # tools/coverage_report.py before changing it
       - name: Report test coverage
         if: ${{ !cancelled() }}
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          MODE: ${{ steps.select.outputs.mode }}
+          BASELINE: ${{ steps.baseline.outputs.file }}
+          BASELINE_SHA: ${{ steps.baseline.outputs.sha }}
+          SELECTED: ${{ steps.select.outputs.selected }}
+          SUITE_TOTAL: ${{ steps.select.outputs.suite_total }}
         run: |
-          pixi run -e test coverage json -q -o coverage.json
-          git diff --name-only --diff-filter=d "$BASE_SHA" HEAD -- 'pyhealth/*.py' > modified.txt || true
-          python - <<'PY'
-          import json, os
+          python tools/coverage_report.py
 
-          with open("coverage.json") as f:
-              report = json.load(f)
+      # PR runs merge their coverage with this
+      - name: Stage the coverage baseline
+        if: success() && github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        run: 'cp .coverage "$RUNNER_TEMP/coverage-baseline.db"'
 
-          def summarize(s):
-              return {
-                  "percent_covered": round(s["percent_covered"], 2),
-                  "covered_lines": s["covered_lines"],
-                  "num_statements": s["num_statements"],
-              }
-
-          files = {os.path.relpath(k): v["summary"] for k, v in report["files"].items()}
-          with open("modified.txt") as f:
-              modified = [line.strip() for line in f if line.strip()]
-
-          print(json.dumps({
-              "total": summarize(report["totals"]),
-              "modified_files": {
-                  p: summarize(files[p]) if p in files else None for p in modified
-              },
-          }, indent=2))
-          PY
+      - name: Save the coverage baseline
+        if: success() && github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-baseline
+          path: ${{ runner.temp }}/coverage-baseline.db
+          retention-days: 90
+          if-no-files-found: error
