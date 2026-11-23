@@ -70,7 +70,9 @@ class HMCDataset(BaseDataset):
     with four EEG derivations (F4-M1, C4-M1, O2-M1, C3-M2), two EOG, chin
     EMG and ECG. Each recording is one subject, so ``patient_id`` is the
     recording id, for example ``"SN001"``. Version 1.1 removed SN014, SN064
-    and SN135, so the ids run from SN001 to SN154 with those three gaps.
+    and SN135, so the ids run from SN001 to SN154 with those three gaps
+    (see the Release Notes and the ``RECORDS`` file at
+    https://physionet.org/content/hmc-sleep-staging/1.1/).
 
     ``prepare_metadata`` writes ``hmc-pyhealth.csv`` (one row per recording
     that has both a signal file and a ``_sleepscoring.txt`` file) in
