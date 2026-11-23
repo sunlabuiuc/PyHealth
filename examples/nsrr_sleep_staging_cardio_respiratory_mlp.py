@@ -19,6 +19,27 @@ only demonstrate that the pipeline and the ablation work, NOT the paper's
 results. To run on real data, download SHHS or MESA from https://sleepdata.org
 (an approved data-use request is required) and pass ``--root``.
 
+Results on real SHHS data (25 nights, shhs1-200001 to shhs1-200025). Mean +/- SD
+over seeds 1-5; each seed gives a different split of the nights into 15 train,
+5 validation and 5 test nights (about 5,300 test epochs), and also seeds
+PyTorch. ``MLP`` (embedding and hidden size 32), batch size 64, Adam, 5 epochs;
+accuracy and Cohen's kappa on the test nights:
+
+    Configuration                 Labels        Accuracy          Cohen kappa
+    ECG only                      four_class    0.461 +/- 0.023   0.112 +/- 0.046
+    Respiration only (THX+ABD)    four_class    0.503 +/- 0.035   0.186 +/- 0.052
+    All modalities                four_class    0.502 +/- 0.025   0.186 +/- 0.046
+    All modalities, 5-class       five_class    0.475 +/- 0.028   0.173 +/- 0.053
+    All modalities, sleep/wake    sleep_wake    0.696 +/- 0.041   0.309 +/- 0.075
+
+Findings: respiration beat ECG in all five seeds (kappa +0.07 on average). The
+three signals together matched respiration alone on average (ahead in four
+seeds by under 0.03, behind in one by 0.04), so this setup shows no clear gain
+from combining signals. Kappa is not comparable across label schemes because
+chance agreement differs. This is a small-sample result for a plain MLP that
+sees one epoch at a time; it is not a test of the paper's claim, which relies
+on the wav2sleep model. Reproducing it needs approved NSRR access.
+
 Examples:
     python examples/nsrr_sleep_staging_cardio_respiratory_mlp.py
     python examples/nsrr_sleep_staging_cardio_respiratory_mlp.py \\
@@ -30,6 +51,7 @@ import os
 import tempfile
 
 import numpy as np
+import torch
 
 from pyhealth.datasets import NSRRSleepDataset, get_dataloader, split_by_patient
 from pyhealth.models import MLP
@@ -116,6 +138,9 @@ def write_synthetic_cohort(root, n_patients, n_epochs, seed=0):
 
 def run_experiment(dataset, modalities, label_scheme, epochs, seed):
     """Trains an MLP for one task configuration and returns test metrics."""
+    # Seed PyTorch too: the split seed alone leaves model initialisation and
+    # batch order random, so repeated runs would give different metrics.
+    torch.manual_seed(seed)
     task = SleepStagingCardioRespiratory(
         modalities=modalities, label_scheme=label_scheme
     )
