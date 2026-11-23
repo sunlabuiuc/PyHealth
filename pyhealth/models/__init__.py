@@ -88,3 +88,6 @@ from .heartlang import (
 )
 from .meme import MEME as MEME
 from .meme import DomainSelfAttention as DomainSelfAttention
+from .feature_attention_lstm import FeatureAttentionLSTM
+
+__all__ = [name for name in globals() if not name.startswith("_")]
