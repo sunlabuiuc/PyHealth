@@ -58,7 +58,9 @@ from .imaging.patches import PatchDataset as PatchDataset
 from .imaging.stats import (
     compute_foreground_intensity_stats as compute_foreground_intensity_stats,
 )
+from .bcss import BCSSDataset as BCSSDataset
 from .cardiology import CardiologyDataset
+from .brain_tumor_mri import BrainTumorMRIDataset as BrainTumorMRIDataset
 from .chaos import CHAOSDataset as CHAOSDataset
 from .chest_imagenome import ChestImaGenomeDataset as ChestImaGenomeDataset
 from .chestxray14 import ChestXray14Dataset
@@ -68,6 +70,7 @@ from .cosmic import COSMICDataset
 from .covid19_cxr import COVID19CXRDataset
 from .isic2019 import ISIC2019Dataset as ISIC2019Dataset
 from .ptbxl import PTBXLDataset as PTBXLDataset
+from .covid_blues import COVIDBLUESDataset as COVIDBLUESDataset
 from .chapman_shaoxing import ChapmanShaoxingDataset as ChapmanShaoxingDataset
 from .physionet2012 import PhysioNet2012Dataset as PhysioNet2012Dataset
 from .dreamt import DREAMTDataset
@@ -90,6 +93,7 @@ from .mimic4 import MIMIC4EDDataset as MIMIC4EDDataset
 from .fhir import FHIRDataset, MIMIC4FHIR
 from .lndb import LNDbDataset as LNDbDataset
 from .mimicextract import MIMICExtractDataset
+from .kits23 import KiTS23Dataset as KiTS23Dataset
 from .omop import OMOPDataset
 from .pad_ufes_20 import PADUFES20Dataset as PADUFES20Dataset
 from .physionet_deid import PhysioNetDeIDDataset
@@ -127,6 +131,7 @@ from .splitter import (
 from .gold_test_split import GoldTestSplit as GoldTestSplit
 from .mimic4_imagenome import MIMIC4ImaGenomeDataset as MIMIC4ImaGenomeDataset
 from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
+from .ahepa_dementia import AHEPADementiaDataset as AHEPADementiaDataset
 from .bciiv2a import BCICompetitionIV2aDataset as BCICompetitionIV2aDataset
 from .hup_ieeg import HUPiEEGDataset as HUPiEEGDataset
 from .iiic import IIICDataset as IIICDataset

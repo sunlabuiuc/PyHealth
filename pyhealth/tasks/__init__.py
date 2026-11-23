@@ -32,12 +32,16 @@ from .chaos_segmentation import (
     CHAOSLiverSegmentationCTonly as CHAOSLiverSegmentationCTonly,
     CHAOSLiverSegmentationMRIonly as CHAOSLiverSegmentationMRIonly,
 )
+from .brain_tumor_mri_classification import (
+    BrainTumorMRIClassification as BrainTumorMRIClassification,
+)
 from .covid19_cxr_classification import COVID19CXRClassification
 from .covid19_cxr_generation import (
     COVID19CXRImageGeneration as COVID19CXRImageGeneration,
 )
 from .ptbxl_multilabel_classification import PTBXLMultilabelClassification as PTBXLMultilabelClassification
 from .ptbxl_heartlang import PTBXLHeartLangClassification as PTBXLHeartLangClassification
+from .ptbxl_heartbeat import PTBXLHeartbeatMI as PTBXLHeartbeatMI
 from .chapman_shaoxing_classification import (
     ChapmanShaoxingSNOMEDClassification as ChapmanShaoxingSNOMEDClassification,
     ChapmanShaoxingSuperclassClassification as ChapmanShaoxingSuperclassClassification,
@@ -89,6 +93,13 @@ from .in_hospital_mortality_meds import (
     InHospitalMortalityMEDS as InHospitalMortalityMEDS,
 )
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
+from .kits23_classification import (
+    KiTS23MalignancyClassification as KiTS23MalignancyClassification,
+    KiTS23MalignancySliceClassification as KiTS23MalignancySliceClassification,
+)
+from .kits23_segmentation import (
+    KiTS23Segmentation as KiTS23Segmentation,
+)
 from .lab_nowcasting import (
     LabNowcasting as LabNowcasting,
     LabNowcastingMIMIC3 as LabNowcastingMIMIC3,
@@ -174,6 +185,12 @@ from .jichi_davis_grading import JichiDavisGrading as JichiDavisGrading
 from .rsna_pneumonia_classification import (
     RSNAPneumoniaClassification as RSNAPneumoniaClassification,
 )
+from .bcss_tile_classification import (
+    BCSSTileClassification as BCSSTileClassification,
+)
+from .bcss_tissue_segmentation import (
+    BCSSTissueSegmentation as BCSSTissueSegmentation,
+)
 from .isic2020_melanoma_classification import (
     ISIC2020MelanomaClassification as ISIC2020MelanomaClassification,
 )
@@ -202,6 +219,12 @@ from .abide_classification import (
     ABIDEAutismClassification as ABIDEAutismClassification,
 )
 from .sleep_staging_v2 import SleepStagingSequenceSleepEDF as SleepStagingSequenceSleepEDF
+from .covid_blues_classification import (
+    COVIDBLUESFrameClassification as COVIDBLUESFrameClassification,
+)
+from .covid_blues_severity import (
+    COVIDBLUESSeverityClassification as COVIDBLUESSeverityClassification,
+)
 from .sleep_staging_v2 import SleepStagingSleepEDF
 from .sleep_staging_isruc import SleepStagingISRUC as SleepStagingISRUC
 from .sleep_staging_isruc import (
@@ -220,6 +243,9 @@ from .seizure_detection_chbmit import (
 )
 from .sleep_staging_ear_eeg import (
     SleepStagingEarEEG as SleepStagingEarEEG,
+)
+from .dementia_classification_ahepa import (
+    DementiaClassificationAHEPA as DementiaClassificationAHEPA,
 )
 from .soz_localization_hup import (
     SOZLocalizationHUP as SOZLocalizationHUP,

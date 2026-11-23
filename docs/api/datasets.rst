@@ -490,6 +490,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `OpenNeuro <https://openneuro.org/datasets/ds005178>`__
      - No
      - —
+   * - :doc:`AHEPA Dementia EEG <datasets/pyhealth.datasets.AHEPADementiaDataset>`
+     - Open
+     - `OpenNeuro <https://openneuro.org/datasets/ds004504>`__
+     - No
+     - —
    * - :doc:`PAD-UFES-20 <datasets/pyhealth.datasets.PADUFES20Dataset>`
      - Open (CC BY 4.0)
      - `Mendeley Data <https://data.mendeley.com/datasets/zr7vgbcyr2/1>`__
@@ -509,6 +514,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - Open
      - `MSD <http://medicaldecathlon.com/>`__
      - Yes
+     - —
+   * - :doc:`BCSS (breast pathology) <datasets/pyhealth.datasets.BCSSDataset>`
+     - Open
+     - `GitHub <https://github.com/PathologyDataScience/BCSS>`__
+     - No
      - —
    * - :doc:`BMD-HS <datasets/pyhealth.datasets.BMDHSDataset>`
      - Open
@@ -535,10 +545,20 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `GitHub <https://github.com/XintianHan/Survival-MDN>`__
      - Yes
      - —
+   * - :doc:`KiTS23 (kidney tumour CT) <datasets/pyhealth.datasets.KiTS23Dataset>`
+     - Open, no account (CC BY-NC-SA 4.0)
+     - `GitHub <https://github.com/neheller/kits23>`__ + `Hugging Face <https://huggingface.co/datasets/neheller/KiTS-Challenge-Imaging>`__
+     - No (``kits23_download_data``)
+     - Single CTs by URL (``wget``)
    * - :doc:`TCGA-PRAD <datasets/pyhealth.datasets.TCGAPRADDataset>`
      - Open
      - `GDC <https://portal.gdc.cancer.gov/projects/TCGA-PRAD>`__
      - No
+     - —
+   * - :doc:`Brain Tumor MRI (Bhuvaji) <datasets/pyhealth.datasets.BrainTumorMRIDataset>`
+     - Open (MIT, per the Kaggle listing)
+     - `GitHub <https://github.com/SartajBhuvaji/Brain-Tumor-Classification-DataSet>`__, `Kaggle <https://www.kaggle.com/datasets/sartajbhuvaji/brain-tumor-classification-mri>`__
+     - No (``git clone`` or ``kaggle datasets download``)
      - —
    * - :doc:`ClinVar <datasets/pyhealth.datasets.ClinVarDataset>`
      - Open
@@ -570,6 +590,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `MEDS <https://medical-event-data-standard.github.io/>`__
      - —
      - EHRSHOT ships a MEDS release
+   * - :doc:`COVID-BLUES (lung ultrasound) <datasets/pyhealth.datasets.COVIDBLUESDataset>`
+     - Open, no account (CC BY-NC-ND 4.0)
+     - `GitHub <https://github.com/NinaWie/COVID-BLUES>`__
+     - No (``git clone``)
+     - —
    * - :doc:`FHIR (format) <datasets/pyhealth.datasets.FHIRDataset>`
      - Depends on source
      - `HL7 <https://www.hl7.org/fhir/>`__
@@ -601,10 +626,13 @@ Available Datasets
     datasets/pyhealth.datasets.LNDbDataset
     datasets/pyhealth.datasets.MIMIC4EHRDataset
     datasets/pyhealth.datasets.MIMIC4NoteDataset
+    datasets/pyhealth.datasets.BCSSDataset
     datasets/pyhealth.datasets.MIMIC4CXRDataset
     datasets/pyhealth.datasets.ABIDEDataset
     datasets/pyhealth.datasets.MIMIC4EDDataset
+    datasets/pyhealth.datasets.KiTS23Dataset
     datasets/pyhealth.datasets.MIMIC4ImaGenomeDataset
+    datasets/pyhealth.datasets.BrainTumorMRIDataset
     datasets/pyhealth.datasets.FHIRDataset
     datasets/pyhealth.datasets.MEDSDataset
     datasets/pyhealth.datasets.MIMIC4FHIR
@@ -629,10 +657,12 @@ Available Datasets
     datasets/pyhealth.datasets.COVID19CXRDataset
     datasets/pyhealth.datasets.ISIC2019Dataset
     datasets/pyhealth.datasets.ChestXray14Dataset
+    datasets/pyhealth.datasets.COVIDBLUESDataset
     datasets/pyhealth.datasets.ChestImaGenomeDataset
     datasets/pyhealth.datasets.HAM10000Dataset
     datasets/pyhealth.datasets.PhysioNetDeIDDataset
     datasets/pyhealth.datasets.EEGBCIDataset
+    datasets/pyhealth.datasets.AHEPADementiaDataset
     datasets/pyhealth.datasets.BCICompetitionIV2aDataset
     PTB-XL Dataset <datasets/pyhealth.datasets.PTBXLDataset>
     PhysioNet 2012 Dataset <datasets/pyhealth.datasets.PhysioNet2012Dataset>

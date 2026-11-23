@@ -251,6 +251,36 @@ class TestInputs(unittest.TestCase):
         glucose = MedModDecompensationMIMIC4.FEATURES.index("glu")
         self.assertEqual(sample["ehr"][:, N_FEATURES + glucose].sum(), 0)
 
+    def test_chart_value_just_before_admission(self):
+        samples = self._by_hour(_hr(-1, value=60), stay_hours=52)
+        # t=8: the window is [-40, 8), so the -1 h value sits in its own bin,
+        # the last one before admission, and counts as measured.
+        ehr = samples[8]["ehr"]
+        self.assertEqual(ehr[19, HR], 60)
+        self.assertEqual(ehr[19, N_FEATURES + HR], 1)
+        self.assertEqual(ehr[:, N_FEATURES:].sum(), 1)
+        # t=48: the window starts at admission; the value goes to the first bin.
+        ehr = samples[48]["ehr"]
+        self.assertEqual(ehr[0, HR], 60)
+        self.assertEqual(ehr[0, N_FEATURES + HR], 1)
+        # t=52: the window starts after admission; it is carried in unmeasured.
+        ehr = samples[52]["ehr"]
+        self.assertEqual(ehr[0, HR], 60)
+        self.assertEqual(ehr[:, N_FEATURES:].sum(), 0)
+
+    def test_bin_spanning_admission(self):
+        task = MedModDecompensationMIMIC4(sample_every_hours=1)
+        samples = {
+            s["hour"]: s
+            for s in task(_patient(_hr(-0.5, value=60), _hr(0.5, value=80)))
+        }
+        # t=5 is not a multiple of the 2 h bins: the window is [-43, 5) and bin 21,
+        # [-1, 1), spans admission, so it holds the -0.5 h and the 0.5 h value.
+        ehr = samples[5]["ehr"]
+        self.assertEqual(ehr[21, HR], 80)
+        self.assertEqual(ehr[21, N_FEATURES + HR], 1)
+        self.assertEqual(ehr[:, N_FEATURES + HR].sum(), 1)
+
     def test_latest_image_up_to_prediction_time(self):
         samples = self._by_hour(
             _hr(1), _cxr(6, "a.jpg"), _cxr(11, "b.jpg"), stay_hours=16
