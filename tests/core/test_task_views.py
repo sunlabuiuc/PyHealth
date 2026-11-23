@@ -468,5 +468,86 @@ class TestDenseView(unittest.TestCase):
         self.assertEqual(declared, set(DENSE_MODELS))
 
 
+class TestEventsView(unittest.TestCase):
+    """The foundation-model view: the same measurements as coded events."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.samples = _yaib_samples(8)
+        cls.task = YAIBMortalityMIMIC4(view="events")
+        cls.dataset = create_sample_dataset(
+            cls.samples, cls.task.input_schema, cls.task.output_schema
+        )
+
+    def test_one_event_per_measured_value(self):
+        from pyhealth.processors.event_processor import ORIGIN
+
+        names = YAIBMortalityMIMIC4.DYNAMIC_FEATURES
+        for i, sample in enumerate(self.samples):
+            values = np.array(sample["dynamic"]["values"])
+            events = self.dataset[i]["dynamic"]
+            self.assertEqual(len(events), int((~np.isnan(values)).sum()))
+            rebuilt = np.full(values.shape, np.nan)
+            for when, code, value, _ in events:
+                hour = round((when - ORIGIN).total_seconds() / 3600)
+                rebuilt[hour, names.index(code.split("/", 1)[1])] = value
+            self.assertTrue(np.allclose(rebuilt, values, equal_nan=True))
+
+    def test_birth_time_comes_from_the_age(self):
+        from pyhealth.processors.event_processor import ORIGIN
+
+        age = self.samples[1]["static"]["values"][0][0]
+        birth = self.dataset[1]["static"]
+        self.assertAlmostEqual((ORIGIN - birth).days / 365.25, age, places=2)
+
+    def test_codes_can_be_mapped_to_a_model_vocabulary(self):
+        from pyhealth.tasks.views import numeric_series_views
+
+        views = numeric_series_views(
+            dynamic=2, static=1, dynamic_names=["hr", "crea"],
+            event_codes={"crea": "LOINC/2160-0"}, event_units={"crea": "mg/dL"},
+        )
+        name, config = views["events"]["dynamic"]
+        from pyhealth.processors import get_processor
+
+        processor = get_processor(name)(**config)
+        events = processor.process({"time": [1], "values": [[70.0, 1.2]]})
+        self.assertEqual([e[1:] for e in events], [
+            ("YAIB/hr", 70.0, None), ("LOINC/2160-0", 1.2, "mg/dL"),
+        ])
+        self.assertNotIn("events", numeric_series_views(dynamic=2, static=1))
+
+    def test_foundation_model_trains_on_the_events_view(self):
+        try:
+            from transformers import GPT2Config, GPT2Model
+        except ImportError:
+            self.skipTest("transformers is not installed")
+        from pyhealth.models import CLMBR, HFEHRFoundationModel
+        from pyhealth.models.ehr_fm import HFEHRTokenizer
+
+        self.assertEqual(YAIBMortalityMIMIC4(model=HFEHRFoundationModel).view, "events")
+        self.assertEqual(YAIBMortalityMIMIC4(model=CLMBR).view, "events")
+        tokens = []
+        for name in YAIBMortalityMIMIC4.DYNAMIC_FEATURES:
+            for low, high in ((-1e308, 0.0), (0.0, 1e308)):
+                tokens.append({
+                    "code": f"YAIB/{name}", "type": "numerical_range",
+                    "tokenization": {"unit": "None", "range_start": low, "range_end": high},
+                })
+        tokenizer = HFEHRTokenizer({"tokens": tokens})
+        backbone = GPT2Model(GPT2Config(
+            vocab_size=len(tokenizer), n_positions=64, n_embd=8, n_layer=1, n_head=2,
+        ))
+        model = HFEHRFoundationModel(
+            self.dataset, backbone=backbone, tokenizer=tokenizer, max_length=64
+        )
+        # The model finds the view's fields without being told their keys.
+        self.assertEqual((model.events_key, model.birth_key), ("dynamic", "static"))
+        batch = next(iter(get_dataloader(self.dataset, batch_size=4)))
+        output = model(**batch)
+        self.assertTrue(bool(torch.isfinite(output["loss"])))
+        self.assertEqual(model.coverage_report()["coverage"], 1.0)
+
+
 if __name__ == "__main__":
     unittest.main()

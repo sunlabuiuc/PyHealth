@@ -159,14 +159,22 @@ selects the first of them the task offers, and building a model on a dataset
 of another view raises an error naming the view to use. ``view=`` also takes
 an input schema of your own.
 
-The YAIB tasks offer two views. ``"jagged"`` is read by
+The YAIB tasks offer three views. ``"jagged"`` is read by
 :class:`~pyhealth.models.RNN_V2`, which also handles the per-hour labels of
 the AKI, sepsis and length-of-stay tasks. ``"dense"`` gives padded tensors
 with an explicit mask and is read by RNN, MultimodalRNN, TCN, Transformer,
 RETAIN, MultimodalRETAIN, MultimodalAdaCare, GRASP, Agent, JambaEHR, StageNet,
 MLP, LogisticRegression, KnowRare, BEHRT, BiteNet and UDC, for the tasks with
 one label per stay (mortality, kidney function). Both views hold the same
-values: they differ only in layout.
+values: they differ only in layout. ``"events"`` writes the same
+measurements as a timeline of coded events, one per measured value and with
+nothing imputed or scaled, for the EHR foundation models
+(:class:`~pyhealth.models.HFEHRFoundationModel`,
+:class:`~pyhealth.models.CLMBR`). Each feature's code defaults to
+``"YAIB/<feature>"``; pass ``event_codes`` to
+:func:`~pyhealth.tasks.views.numeric_series_views` to write the codes a
+pretrained model's vocabulary uses, and check
+``model.coverage_report()`` to see how many events it recognised.
 
 To give your own task views, set ``views`` and ``default_view`` instead of
 ``input_schema``. Tasks whose samples share a layout take their views from a

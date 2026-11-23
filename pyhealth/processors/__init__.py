@@ -65,6 +65,7 @@ from .tensor_processor import TensorProcessor
 from .text_processor import TextProcessor
 from .timeseries_processor import TimeseriesProcessor
 from .dense_processor import DenseSeriesProcessor, DenseStaticProcessor
+from .event_processor import EventBirthProcessor, EventStreamProcessor
 from .timeseries_label_processor import (
     TimeseriesBinaryLabelProcessor,
     TimeseriesLabelProcessor,
@@ -142,6 +143,8 @@ __all__ = [
     "TimeseriesProcessor",
     "DenseSeriesProcessor",
     "DenseStaticProcessor",
+    "EventBirthProcessor",
+    "EventStreamProcessor",
     "TimeseriesRegressionLabelProcessor",
     "TimeImageProcessor",
     "TimeRegionImageProcessor",

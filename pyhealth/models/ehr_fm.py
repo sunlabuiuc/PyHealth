@@ -40,6 +40,7 @@ from torch import nn
 
 from ..datasets import SampleDataset
 from .base_model import BaseModel
+from ..processors import EventBirthProcessor, EventStreamProcessor
 from .utils import save_array_atomically
 
 logger = logging.getLogger(__name__)
@@ -173,6 +174,8 @@ class EHRFoundationModelBase(BaseModel):
         tensor([[1.]])
     """
 
+    accepted_views = ("events",)
+
     def __init__(
         self,
         dataset: SampleDataset,
@@ -188,14 +191,27 @@ class EHRFoundationModelBase(BaseModel):
             raise ValueError(f"mode must be one of {FM_MODES}, not {mode!r}")
         if len(self.label_keys) != 1:
             raise ValueError(f"{type(self).__name__} supports exactly one label")
+        # With the "events" view of a task, the timeline and birth time are
+        # the fields those processors wrote, whatever their keys.
+        processors = getattr(dataset, "input_processors", None) or {}
+        if events_key is None and "events" not in self.feature_keys:
+            events_key = next(
+                (k for k, p in processors.items() if isinstance(p, EventStreamProcessor)),
+                None,
+            )
         events_key = events_key or "events"
         if events_key not in self.feature_keys:
             raise ValueError(
                 f"{events_key!r} is not an input of the dataset; build it with "
-                "EHRFoundationModelTask"
+                "EHRFoundationModelTask, or with a task's \"events\" view"
             )
         if birth_key is None and "birth_datetime" in self.feature_keys:
             birth_key = "birth_datetime"
+        if birth_key is None:
+            birth_key = next(
+                (k for k, p in processors.items() if isinstance(p, EventBirthProcessor)),
+                None,
+            )
         self.events_key = events_key
         self.birth_key = birth_key
         self.label_key = self.label_keys[0]

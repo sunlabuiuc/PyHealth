@@ -276,7 +276,10 @@ class _YAIBMIMIC4Task(BaseTask):
     # YAIB's preprocessing (forward fill, training mean, standardize, missing
     # indicators) lives in the shared recipe, so every view applies it alike.
     views: ClassVar[dict[str, dict[str, Any]]] = numeric_series_views(
-        dynamic=len(_DYNAMIC_FEATURES), static=len(_STATIC_FEATURES)
+        dynamic=len(_DYNAMIC_FEATURES),
+        static=len(_STATIC_FEATURES),
+        dynamic_names=list(_DYNAMIC_FEATURES),
+        age_index=_STATIC_FEATURES.index("age"),
     )
     default_view: ClassVar[str] = "jagged"
     feature_roles: ClassVar[dict[str, str]] = {

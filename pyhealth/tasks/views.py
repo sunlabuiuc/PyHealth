@@ -24,6 +24,15 @@ View names
     built on :class:`~pyhealth.models.EmbeddingModel`, such as
     :class:`~pyhealth.models.RNN` and :class:`~pyhealth.models.Transformer`.
 
+``"events"``
+    A timeline of coded events, one ``(time, code, value, unit)`` per
+    measured value (:class:`~pyhealth.processors.EventStreamProcessor`), and
+    the birth time derived from the age. Nothing is imputed or scaled. Read
+    by the EHR foundation models
+    (:class:`~pyhealth.models.HFEHRFoundationModel`,
+    :class:`~pyhealth.models.CLMBR`), which map the codes to their own
+    vocabulary. Offered when the recipe is given the feature names.
+
 More views (``"tabular"``, ``"timed"``, ``"codes"``) are planned;
 :data:`VIEW_NAMES` lists the names models may declare.
 """
@@ -32,10 +41,17 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Mapping, Sequence
 
 #: Every view name a recipe may offer and a model may accept.
-VIEW_NAMES: tuple[str, ...] = ("jagged", "dense", "timed", "tabular", "codes")
+VIEW_NAMES: tuple[str, ...] = (
+    "jagged",
+    "dense",
+    "events",
+    "timed",
+    "tabular",
+    "codes",
+)
 
 
 @dataclass(frozen=True)
@@ -103,6 +119,10 @@ def numeric_series_views(
     preprocessing: Preprocessing = YAIB_PREPROCESSING,
     dynamic_key: str = "dynamic",
     static_key: str = "static",
+    dynamic_names: Sequence[str] | None = None,
+    event_codes: Mapping[str, str] | None = None,
+    event_units: Mapping[str, str] | None = None,
+    age_index: int | None = 0,
 ) -> dict[str, dict[str, Any]]:
     """Views for a task with a numeric time series and a static record.
 
@@ -117,6 +137,14 @@ def numeric_series_views(
         preprocessing: Imputation and scaling shared by the views.
         dynamic_key: Sample key of the time series.
         static_key: Sample key of the static record.
+        dynamic_names: Name of each time-series feature, in column order.
+            With it, the recipe also offers the ``"events"`` view.
+        event_codes: Feature name to the code a foundation model's
+            vocabulary uses for it, e.g. ``{"crea": "LOINC/2160-0"}``. A
+            feature without one is written as ``"YAIB/<name>"``.
+        event_units: Feature name to unit, written on its events.
+        age_index: Column of the age (in years) in the static record, for
+            the birth time of the ``"events"`` view; None if there is none.
 
     Returns:
         View name to input schema, for a task's ``views`` attribute.
@@ -132,7 +160,7 @@ def numeric_series_views(
         [48]
     """
     pre = preprocessing
-    return {
+    views = {
         "jagged": {
             dynamic_key: (
                 "jagged",
@@ -164,3 +192,22 @@ def numeric_series_views(
             ),
         },
     }
+    if dynamic_names is not None:
+        if len(dynamic_names) != dynamic:
+            raise ValueError(
+                f"dynamic_names has {len(dynamic_names)} names for {dynamic} features."
+            )
+        events: dict[str, Any] = {
+            dynamic_key: (
+                "event_stream",
+                {
+                    "names": list(dynamic_names),
+                    "codes": dict(event_codes or {}),
+                    "units": dict(event_units or {}),
+                },
+            ),
+        }
+        if age_index is not None:
+            events[static_key] = ("event_birth", {"age_index": age_index})
+        views["events"] = events
+    return views
