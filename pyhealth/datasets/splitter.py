@@ -1,4 +1,3 @@
-import hashlib
 import json
 import logging
 import math
@@ -217,6 +216,66 @@ class SubjectSplit(Split):
                 seen[subject] = index
         object.__setattr__(self, "subjects", tuple(parts))
 
+    @classmethod
+    def draw(cls, patient_ids: Sequence[str], split: "PatientSplit") -> "SubjectSplit":
+        """Fixes a seeded split as explicit patient lists.
+
+        A seeded split shuffles the patients that have samples, so tasks
+        with different cohorts can put one patient in different parts.
+        Drawn once over every patient of a dataset (and saved), the lists
+        put each patient in the same part for every task and every view.
+
+        Args:
+            patient_ids: The patients to assign, usually all of a dataset.
+            split: The seeded split to apply, training ratio first.
+
+        Returns:
+            One part per ratio; each patient is in exactly one.
+
+        Examples:
+            >>> from pyhealth.datasets import PatientSplit, SubjectSplit
+            >>> split = SubjectSplit.draw(["a", "b", "c", "d"], PatientSplit((0.5, 0.5)))
+            >>> sorted(pid for part in split.subjects for pid in part)
+            ['a', 'b', 'c', 'd']
+        """
+        ids = sorted({str(pid) for pid in patient_ids})
+        parts = split.split_indices({pid: [i] for i, pid in enumerate(ids)})
+        return cls(tuple([ids[i] for i in part] for part in parts))
+
+    def save(self, path: str | Path) -> None:
+        """Writes the patient lists to ``path`` as JSON."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps([list(part) for part in self.subjects]))
+
+    @classmethod
+    def load(cls, path: str | Path) -> "SubjectSplit":
+        """Reads patient lists written by :meth:`save`."""
+        return cls(tuple(json.loads(Path(path).read_text())))
+
+    @classmethod
+    def load_or_draw(cls, dataset, name: str, split: "PatientSplit") -> "SubjectSplit":
+        """The dataset's saved split ``name``, drawn with ``split`` if new.
+
+        The lists are kept in ``<dataset cache>/splits/<name>.json`` and drawn
+        over every patient of ``dataset`` (:meth:`draw`). Once saved, the
+        file is used as it is and ``split`` is ignored.
+
+        Args:
+            dataset: A :class:`~pyhealth.datasets.BaseDataset`.
+            name: Name of the saved split.
+            split: The seeded split to draw a new one with.
+
+        Returns:
+            The saved split.
+        """
+        path = Path(dataset.cache_dir) / "splits" / f"{name}.json"
+        if path.exists():
+            return cls.load(path)
+        drawn = cls.draw(dataset.unique_patient_ids, split)
+        drawn.save(path)
+        return drawn
+
     def to_dict(self) -> dict:
         """JSON description used in the processed-sample cache key.
 
@@ -243,179 +302,16 @@ class SubjectSplit(Split):
         for part in self.subjects:
             missing = [subject for subject in part if subject not in lookup]
             if missing:
+                # A split drawn over a whole dataset lists every patient, and
+                # a task's cohort has samples for only some, so keep it short.
                 logger.warning(
-                    "SubjectSplit subjects not in the dataset (skipped): %s",
-                    missing,
+                    "SubjectSplit: %d listed subjects have no samples (skipped), e.g. %s",
+                    len(missing),
+                    missing[:5],
                 )
             present = [subject for subject in part if subject in lookup]
             indices = np.fromiter(
                 chain.from_iterable(patient_to_index[lookup[subject]] for subject in present),
-                dtype=np.int64,
-            )
-            indices.sort()
-            parts.append(indices)
-        return parts
-
-
-@dataclass(frozen=True)
-class SplitPlan(Split):
-    """A saved assignment of patients to parts: a file, not a seed.
-
-    A seeded split such as :class:`PatientSplit` shuffles the patients that
-    have samples, so two tasks with different cohorts, or the same task after
-    its cohort changes, can put one patient in different parts. A plan fixes
-    the assignment once, over all patients of a dataset, and every task and
-    every view of a task then uses it: a patient is in the same part
-    everywhere, and results on the plan are comparable.
-
-    Use it with ``BaseDataset.set_task(task, split=plan)``. Processors are
-    fitted on the first part. Patients of the plan that a task leaves out
-    simply have no samples; patients with samples that the plan does not
-    list are left out of every part.
-
-    Args:
-        name: Name of the plan, also its file name under the dataset cache.
-        parts: Part name to patient ids, training part first, e.g.
-            ``{"train": [...], "val": [...], "test": [...]}``. Parts must be
-            non-empty and disjoint. Ids are compared as strings.
-
-    Examples:
-        >>> from pyhealth.datasets import PatientSplit, SplitPlan
-        >>> plan = SplitPlan.draw(
-        ...     "demo", ["p1", "p2", "p3", "p4"], PatientSplit((0.5, 0.25, 0.25), seed=0)
-        ... )
-        >>> list(plan.parts)
-        ['train', 'val', 'test']
-        >>> sorted(pid for part in plan.parts.values() for pid in part)
-        ['p1', 'p2', 'p3', 'p4']
-        >>> parts = plan.split_indices({"p1": [0], "p4": [1, 2]})
-        >>> sum(len(part) for part in parts)
-        3
-    """
-
-    name: str
-    parts: Mapping[str, Sequence[str]]
-
-    def __post_init__(self) -> None:
-        """Validate the parts and store each sorted.
-
-        Raises:
-            ValueError: If there are fewer than two parts, a part is empty,
-                or a patient is listed more than once.
-        """
-        # SubjectSplit validates: two or more non-empty, disjoint parts.
-        subjects = SubjectSplit(tuple(self.parts.values())).subjects
-        object.__setattr__(self, "parts", dict(zip(self.parts, subjects)))
-
-    @classmethod
-    def draw(
-        cls,
-        name: str,
-        patient_ids: Sequence[str],
-        split: "PatientSplit",
-        part_names: Sequence[str] | None = None,
-    ) -> "SplitPlan":
-        """Draws a plan by applying a seeded patient split to ``patient_ids``.
-
-        Args:
-            name: Name of the plan.
-            patient_ids: The patients to assign, usually all of a dataset.
-            split: The seeded split to apply, training ratio first.
-            part_names: One name per ratio. Defaults to ``train``/``test``
-                for two parts, ``train``/``val``/``test`` for three, and
-                ``train``, ``part1``, ... otherwise.
-
-        Returns:
-            The plan. Each patient is in exactly one part.
-        """
-        ids = sorted({str(pid) for pid in patient_ids})
-        indices = split.split_indices({pid: [i] for i, pid in enumerate(ids)})
-        if part_names is None:
-            part_names = {2: ("train", "test"), 3: ("train", "val", "test")}.get(
-                len(indices),
-                ("train", *(f"part{k}" for k in range(1, len(indices)))),
-            )
-        if len(part_names) != len(indices):
-            raise ValueError(
-                f"Got {len(part_names)} part names for {len(indices)} parts."
-            )
-        return cls(
-            name=name,
-            parts={
-                part: [ids[i] for i in part_indices]
-                for part, part_indices in zip(part_names, indices)
-            },
-        )
-
-    def save(self, path: str | Path) -> None:
-        """Writes the plan to ``path`` as JSON."""
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"name": self.name, "parts": {k: list(v) for k, v in self.parts.items()}}
-        path.write_text(json.dumps(payload, indent=1))
-
-    @classmethod
-    def load(cls, path: str | Path) -> "SplitPlan":
-        """Reads a plan written by :meth:`save`."""
-        payload = json.loads(Path(path).read_text())
-        return cls(name=payload["name"], parts=payload["parts"])
-
-    @classmethod
-    def load_or_draw(cls, dataset, name: str, split: "PatientSplit") -> "SplitPlan":
-        """Loads the dataset's plan ``name``, drawing and saving it first if new.
-
-        The plan is kept in ``<dataset cache>/splits/<name>.json`` and drawn
-        over every patient of ``dataset``, whatever task is set later.
-
-        Args:
-            dataset: A :class:`~pyhealth.datasets.BaseDataset`.
-            name: Name of the plan.
-            split: The seeded split to draw a new plan with. Ignored when the
-                plan already exists: the saved assignment is used as it is.
-
-        Returns:
-            The saved plan.
-        """
-        path = Path(dataset.cache_dir) / "splits" / f"{name}.json"
-        if path.exists():
-            return cls.load(path)
-        plan = cls.draw(name, dataset.unique_patient_ids, split)
-        plan.save(path)
-        return plan
-
-    def digest(self) -> str:
-        """A hash of the assignment, to record with results."""
-        payload = json.dumps({k: list(v) for k, v in self.parts.items()})
-        return hashlib.sha256(payload.encode()).hexdigest()
-
-    def to_dict(self) -> dict:
-        """JSON description used in the processed-sample cache key."""
-        return {
-            "kind": "plan",
-            "name": self.name,
-            "parts": {k: len(v) for k, v in self.parts.items()},
-            "sha256": self.digest(),
-        }
-
-    def split_indices(
-        self, patient_to_index: Mapping[str, Sequence[int]]
-    ) -> list[np.ndarray]:
-        """Returns one sorted index array per part, training part first.
-
-        Args:
-            patient_to_index: Patient id to the indices of its samples.
-
-        Returns:
-            One ``int64`` array per part. A part is empty when none of its
-            patients has samples.
-        """
-        lookup = {str(pid): pid for pid in patient_to_index}
-        parts: list[np.ndarray] = []
-        for patients in self.parts.values():
-            indices = np.fromiter(
-                chain.from_iterable(
-                    patient_to_index[lookup[pid]] for pid in patients if pid in lookup
-                ),
                 dtype=np.int64,
             )
             indices.sort()

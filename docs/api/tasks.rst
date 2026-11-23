@@ -124,106 +124,84 @@ a single property.
 Task Views
 ----------
 
-A task defines who is in the cohort, when the prediction is made, what the
-label is and which measurements a model may use. How those measurements are
-turned into tensors is a separate choice, and different models need
-different ones. A task can therefore offer several *views*: named input
-schemas over the same samples.
+A task defines the cohort, prediction time, label and measurements. A task
+can also offer several *views*: named input schemas that turn those same
+samples into the input different model families read.
 
 .. code-block:: python
 
-    from pyhealth.datasets import PatientSplit, SplitPlan
-    from pyhealth.models import RNN_V2
+    from pyhealth.datasets import PatientSplit, SubjectSplit
+    from pyhealth.models import Transformer
     from pyhealth.tasks import YAIBMortalityMIMIC4
 
-    task = YAIBMortalityMIMIC4()               # the default view, "jagged"
-    task = YAIBMortalityMIMIC4(view="dense")   # a view by name
-    task = YAIBMortalityMIMIC4(model=RNN_V2)   # the view RNN_V2 reads
+    task = YAIBMortalityMIMIC4()                  # the default view
+    task = YAIBMortalityMIMIC4(view="dense")      # a view by name
+    task = YAIBMortalityMIMIC4(model=Transformer) # the view Transformer reads
 
-    plan = SplitPlan.load_or_draw(dataset, "seed0", PatientSplit((0.8, 0.1, 0.1), seed=0))
-    train, val, test = dataset.set_task(task, split=plan)
-    model = RNN_V2(train, ...)
+    split = SubjectSplit.load_or_draw(dataset, "seed0", PatientSplit((0.8, 0.1, 0.1)))
+    train, val, test = dataset.set_task(task, split=split)
+    model = Transformer(train)
 
-What stays the same across the views of a task, and what may differ:
+Every view of a task uses the same samples, labels and split: ``__call__``
+runs once and is cached once, and ``SubjectSplit.load_or_draw`` saves one
+assignment of patients to parts for every task on the dataset. Everything
+else may differ per view: imputation, scaling, encoding, layout. Whatever a
+view learns from data is learned on the training part, so ``set_task``
+requires ``split=`` for such a view.
 
-- **Same:** the samples ``__call__`` returns (computed once and cached once),
-  the labels, and the split. A :class:`~pyhealth.datasets.SplitPlan` is a
-  saved assignment of patients to parts, so every view, and every task on the
-  same dataset, puts a patient in the same part.
-- **May differ:** imputation, scaling, encoding and tensor layout. Anything a
-  view learns from data is learned on the training part, which is why
-  ``set_task`` requires ``split=`` for such a view.
+The YAIB tasks offer three views:
 
-A model class lists the views it reads in ``accepted_views``. ``model=``
-selects the first of them the task offers, and building a model on a dataset
-of another view raises an error naming the view to use. ``view=`` also takes
-an input schema of your own.
+.. list-table::
+   :header-rows: 1
+   :widths: 15 40 45
 
-The YAIB tasks offer three views. ``"jagged"`` is read by
-:class:`~pyhealth.models.RNN_V2`, which also handles the per-hour labels of
-the AKI, sepsis and length-of-stay tasks. ``"dense"`` gives padded tensors
-with an explicit mask and is read by RNN, MultimodalRNN, TCN, Transformer,
-RETAIN, MultimodalRETAIN, MultimodalAdaCare, GRASP, Agent, JambaEHR, StageNet,
-MLP, LogisticRegression, KnowRare, BEHRT, BiteNet and UDC, for the tasks with
-one label per stay (mortality, kidney function). Both views hold the same
-values: they differ only in layout. ``"events"`` writes the same
-measurements as a timeline of coded events, one per measured value and with
-nothing imputed or scaled, for the EHR foundation models
-(:class:`~pyhealth.models.HFEHRFoundationModel`,
-:class:`~pyhealth.models.CLMBR`). Each feature's code defaults to
-``"YAIB/<feature>"``; override ``codes`` (below) to write the codes a
-pretrained model's vocabulary uses, and check ``model.coverage_report()`` to
-see how many events it recognised.
+   * - View
+     - Input
+     - Read by
+   * - ``jagged`` (default)
+     - Record structures
+     - RNN_V2, also for the per-hour labels
+   * - ``dense``
+     - Padded ``(value, mask)`` and a static vector, same values as ``jagged``
+     - RNN, Transformer, RETAIN, TCN, StageNet, MLP and other sequence models
+   * - ``events``
+     - One ``(time, code, value, unit)`` event per measured value, nothing imputed
+     - HFEHRFoundationModel, CLMBR
 
-**Your own version of a view.** The task fixes the samples, labels and
-split; how a view processes them is yours to change. Change settings of a
-view field by field with ``view_overrides``:
+A model lists the views it reads in ``accepted_views``; building it on
+another view raises an error naming the one to use.
+
+**Your own version of a view.** Change settings field by field with
+``view_overrides``. The given settings replace the processor's (a nested
+setting, such as ``levels``, is replaced whole); a processor spec instead
+of settings swaps the processor:
 
 .. code-block:: python
 
-    # no standardization of the measurements
-    task = YAIBMortalityMIMIC4(
-        view="dense", view_overrides={"dynamic": {"normalize": False}}
-    )
-    # the codes a foundation model's vocabulary uses
-    task = YAIBMortalityMIMIC4(
-        view="events",
-        view_overrides={"dynamic": {"codes": {"crea": "LOINC/2160-0"}}},
-    )
+    YAIBMortalityMIMIC4(view="dense", view_overrides={"dynamic": {"normalize": False}})
+    YAIBMortalityMIMIC4(view="events",
+                        view_overrides={"dynamic": {"codes": {"crea": "LOINC/2160-0"}}})
 
-The given settings replace those of the field's processor (a nested setting,
-such as the ``levels`` of ``"jagged"``, is replaced whole). A processor spec
-in place of the settings, e.g. ``{"static": "raw"}``, swaps the processor.
-For anything further, pass a whole input schema as ``view``; it is named
-``"custom"`` and any model may be built on it. Every version has its own
-processed cache and reads the task's one cache of samples.
+Event codes default to ``"YAIB/<feature>"``, which no pretrained vocabulary
+knows; ``model.coverage_report()`` shows how many events a model recognised.
+Pass a whole input schema as ``view`` for anything further, or subclass the
+task and extend ``views`` to name a view.
 
-To give your own task views, set ``views`` and ``default_view`` instead of
-``input_schema``. Each task defines its views itself, as plain input schemas:
+To give your own task views, set ``views`` (and optionally ``default_view``,
+else the first) instead of ``input_schema``:
 
 .. code-block:: python
 
     class MyICUTask(BaseTask):
         task_name = "MyICUTask"
         views = {
-            "dense": {
-                "dynamic": ("dense_series", {"forward_fill": True}),
-                "static": ("dense_static", {}),
-            },
-            "events": {
-                "dynamic": ("event_stream", {"names": ["hr", "crea"]}),
-            },
+            "dense": {"dynamic": ("dense_series", {}), "static": ("dense_static", {})},
+            "events": {"dynamic": ("event_stream", {"names": ["hr", "crea"]})},
         }
-        default_view = "dense"
         output_schema = {"mortality": "binary"}
 
         def __call__(self, patient):
             ...  # emit "dynamic" and "static" with NaN where not measured
-
-To add a named view to an existing task, subclass it and extend ``views``
-(``views = {**YAIBMortalityMIMIC4.views, "mine": {...}}``). Use the view
-names of the built-in tasks (``"jagged"``, ``"dense"``, ``"events"``) for
-the same layouts, since models declare the names they read.
 
 Processor String Keys
 ----------------------

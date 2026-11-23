@@ -1,6 +1,4 @@
 import copy
-import hashlib
-import inspect
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -217,58 +215,6 @@ class BaseTask(ABC):
             processor, settings = spec if isinstance(spec, tuple) else (spec, {})
             schema[key] = (processor, {**settings, **copy.deepcopy(dict(change))})
         self.input_schema = schema
-
-    def cache_key(self) -> dict[str, Any]:
-        """What identifies the samples ``__call__`` produces, for caching.
-
-        A task without views is identified as before, by its instance
-        attributes and both schemas. A task with views is identified by what
-        defines its samples and not by the selected view, so every view reads
-        the same cached samples: its public instance attributes, its output
-        schema, its public class constants and the source of its classes.
-        Editing the task's code therefore gives it a new cache.
-
-        Returns:
-            A dictionary; ``json.dumps(..., default=str)`` of it is hashed.
-
-        Examples:
-            >>> class Mortality(BaseTask):
-            ...     task_name = "mortality"
-            ...     input_schema = {"labs": "tensor"}
-            ...     output_schema = {"death": "binary"}
-            ...     def __call__(self, patient):
-            ...         return []
-            >>> sorted(Mortality().cache_key())
-            ['input_schema', 'output_schema']
-        """
-        if not self.views:
-            return {
-                **vars(self),
-                "input_schema": self.input_schema,
-                "output_schema": self.output_schema,
-            }
-        skip = {"input_schema", "view"}
-        key: dict[str, Any] = {
-            k: v for k, v in vars(self).items() if k not in skip and not k.startswith("_")
-        }
-        constants: dict[str, Any] = {}
-        sources = hashlib.sha256()
-        for cls in reversed(type(self).__mro__):
-            if cls in (object, ABC, BaseTask):
-                continue
-            for attr, value in vars(cls).items():
-                if attr.startswith("_") or attr in ("views", "input_schema", "view"):
-                    continue
-                if isinstance(value, (bool, int, float, str, tuple, list, dict)):
-                    constants[attr] = value
-            try:
-                sources.update(inspect.getsource(cls).encode())
-            except (OSError, TypeError):  # defined interactively
-                sources.update(cls.__qualname__.encode())
-        key["output_schema"] = self.output_schema
-        key["class_constants"] = constants
-        key["source"] = sources.hexdigest()
-        return key
 
     def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
         return df

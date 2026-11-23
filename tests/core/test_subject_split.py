@@ -8,6 +8,7 @@ import torch
 
 from pyhealth.datasets import (
     BaseDataset,
+    PatientSplit,
     SubjectSplit,
     create_sample_dataset,
     split_by_subject,
@@ -81,6 +82,27 @@ class TestSubjectSplit(unittest.TestCase):
             SubjectSplit((["chb01"],))
         with self.assertRaises(TypeError):
             SubjectSplit(("chb01", "chb02"))
+
+    def test_draw_fixes_a_seeded_split_for_every_cohort(self):
+        ids = [f"p{i:02d}" for i in range(30)]
+        split = SubjectSplit.draw(ids, PatientSplit((0.6, 0.2, 0.2), seed=1))
+        self.assertEqual(sorted(pid for part in split.subjects for pid in part), ids)
+        part_of = {pid: k for k, part in enumerate(split.subjects) for pid in part}
+        # A smaller cohort keeps each of its patients in the same part.
+        cohort = ids[5:17]
+        with self.assertLogs("pyhealth.datasets.splitter", level="WARNING"):
+            parts = split.split_indices({pid: [k] for k, pid in enumerate(cohort)})
+        for k, indices in enumerate(parts):
+            self.assertTrue(all(part_of[cohort[int(i)]] == k for i in indices))
+
+    def test_save_and_load_round_trip(self):
+        split = SubjectSplit.draw(["a", "b", "c", "d"], PatientSplit((0.5, 0.5), seed=4))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "splits" / "demo.json"
+            split.save(path)
+            loaded = SubjectSplit.load(path)
+        self.assertEqual(loaded, split)
+        self.assertEqual(loaded.to_dict(), split.to_dict())
 
     def test_missing_subject_warns_and_is_skipped(self):
         split = SubjectSplit((["chb01"], ["chb02", "chb99"]))

@@ -11,7 +11,7 @@ import pyhealth.models as models
 from pyhealth.datasets import (
     BaseDataset,
     PatientSplit,
-    SplitPlan,
+    SubjectSplit,
     create_sample_dataset,
     get_dataloader,
 )
@@ -139,12 +139,7 @@ class TestViewSelection(unittest.TestCase):
             def __call__(self, patient):
                 return []
 
-        task = Plain()
-        self.assertIsNone(task.view)
-        self.assertEqual(
-            task.cache_key(),
-            {"input_schema": {"x": "raw"}, "output_schema": {"y": "binary"}},
-        )
+        self.assertIsNone(Plain().view)
         with self.assertRaisesRegex(ValueError, "no views"):
             Plain(view="dense")
 
@@ -164,23 +159,6 @@ class TestViewSelection(unittest.TestCase):
         # InHospitalSurvivalMIMIC4 extends the YAIB base with other fields.
         self.assertEqual(InHospitalSurvivalMIMIC4.views, {})
         self.assertIsNone(InHospitalSurvivalMIMIC4().view)
-
-
-class TestCacheKey(unittest.TestCase):
-    def test_views_share_a_key(self):
-        self.assertEqual(ViewTask().cache_key(), ViewTask(view="scaled").cache_key())
-        self.assertEqual(
-            ViewTask().cache_key(), ViewTask(view={"value": "raw"}).cache_key()
-        )
-
-    def test_arguments_and_constants_change_the_key(self):
-        self.assertNotEqual(ViewTask().cache_key(), ViewTask(keep_odd=False).cache_key())
-
-        class Stricter(ViewTask):
-            THRESHOLD = 1
-
-        self.assertNotEqual(ViewTask().cache_key(), Stricter().cache_key())
-        self.assertEqual(Stricter().cache_key()["class_constants"]["THRESHOLD"], 1)
 
 
 class TestYAIBViews(unittest.TestCase):
@@ -240,11 +218,6 @@ class TestYAIBViews(unittest.TestCase):
         # Other fields and the class's own views are untouched.
         self.assertEqual(task.input_schema["static"], YAIBMortalityMIMIC4.views["dense"]["static"])
         self.assertTrue(YAIBMortalityMIMIC4.views["dense"]["dynamic"][1]["normalize"])
-        # Same samples, so the same task cache; another schema, so its own
-        # processed cache.
-        plain = YAIBMortalityMIMIC4(view="dense")
-        self.assertEqual(task.cache_key(), plain.cache_key())
-        self.assertNotEqual(task.input_schema, plain.input_schema)
 
     def test_view_overrides_can_replace_a_processor_and_reject_unknown_keys(self):
         task = YAIBMortalityMIMIC4(view="dense", view_overrides={"static": "raw"})
@@ -271,39 +244,6 @@ class TestYAIBViews(unittest.TestCase):
         self.assertEqual(task.icu_wards, ["X"])
 
 
-class TestSplitPlan(unittest.TestCase):
-    IDS = [f"p{i:03d}" for i in range(N_PATIENTS)]
-
-    def test_draw_assigns_every_patient_once(self):
-        plan = SplitPlan.draw("demo", self.IDS, PatientSplit((0.6, 0.2, 0.2), seed=1))
-        self.assertEqual(list(plan.parts), ["train", "val", "test"])
-        listed = [pid for part in plan.parts.values() for pid in part]
-        self.assertEqual(sorted(listed), self.IDS)
-
-    def test_a_patient_keeps_its_part_whatever_the_cohort(self):
-        plan = SplitPlan.draw("demo", self.IDS, PatientSplit((0.6, 0.2, 0.2), seed=1))
-        part_of = {pid: name for name, part in plan.parts.items() for pid in part}
-        for cohort in (self.IDS, self.IDS[::2], self.IDS[5:17]):
-            mapping = {pid: [k] for k, pid in enumerate(cohort)}
-            for name, indices in zip(plan.parts, plan.split_indices(mapping)):
-                for k in indices:
-                    self.assertEqual(part_of[cohort[int(k)]], name)
-
-    def test_save_and_load_round_trip(self):
-        plan = SplitPlan.draw("demo", self.IDS, PatientSplit((0.7, 0.3), seed=4))
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "splits" / "demo.json"
-            plan.save(path)
-            loaded = SplitPlan.load(path)
-        self.assertEqual(loaded, plan)
-        self.assertEqual(loaded.to_dict(), plan.to_dict())
-        self.assertEqual(list(loaded.parts), ["train", "test"])
-
-    def test_overlapping_parts_are_rejected(self):
-        with self.assertRaises(ValueError):
-            SplitPlan("bad", {"train": ["a", "b"], "test": ["b"]})
-
-
 class TestSetTaskWithViews(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -324,7 +264,7 @@ class TestSetTaskWithViews(unittest.TestCase):
             cache_dir=str(Path(cls.tmp.name) / "cache"),
             num_workers=1,
         )
-        cls.plan = SplitPlan.load_or_draw(
+        cls.plan = SubjectSplit.load_or_draw(
             cls.dataset, "seed0", PatientSplit((0.6, 0.2, 0.2), seed=0)
         )
 
@@ -335,10 +275,10 @@ class TestSetTaskWithViews(unittest.TestCase):
     def _set(self, task):
         return self.dataset.set_task(task, split=self.plan, num_workers=1)
 
-    def test_plan_is_saved_and_reloaded(self):
+    def test_split_is_saved_and_reloaded(self):
         path = Path(self.dataset.cache_dir) / "splits" / "seed0.json"
         self.assertTrue(path.exists())
-        again = SplitPlan.load_or_draw(
+        again = SubjectSplit.load_or_draw(
             self.dataset, "seed0", PatientSplit((0.5, 0.5), seed=9)
         )
         self.assertEqual(again, self.plan)
@@ -346,7 +286,7 @@ class TestSetTaskWithViews(unittest.TestCase):
     def test_views_share_samples_labels_and_split(self):
         plain = self._set(ViewTask())
         scaled = self._set(ViewTask(view="scaled"))
-        for part_plain, part_scaled, name in zip(plain, scaled, self.plan.parts):
+        for part_plain, part_scaled, patients in zip(plain, scaled, self.plan.subjects):
             rows_plain = [
                 (part_plain[i]["patient_id"], int(part_plain[i]["label"]))
                 for i in range(len(part_plain))
@@ -356,7 +296,7 @@ class TestSetTaskWithViews(unittest.TestCase):
                 for i in range(len(part_scaled))
             ]
             self.assertEqual(rows_plain, rows_scaled)
-            self.assertTrue({pid for pid, _ in rows_plain} <= set(self.plan.parts[name]))
+            self.assertTrue({pid for pid, _ in rows_plain} <= set(patients))
         self.assertEqual(scaled[0].view, "scaled")
         self.assertEqual(plain[0].view, "plain")
 
@@ -379,7 +319,7 @@ class TestSetTaskWithViews(unittest.TestCase):
         self.assertTrue(np.isclose(max(_values(train).values()), 1.0))
         processor = train.input_processors["value"]
         train_raw = max(
-            1.0 + int(pid[1:]) + int(pid[1:]) % 2 for pid in self.plan.parts["train"]
+            1.0 + int(pid[1:]) + int(pid[1:]) % 2 for pid in self.plan.subjects[0]
         )
         self.assertAlmostEqual(processor.max, train_raw)
 

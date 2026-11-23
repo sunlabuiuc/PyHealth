@@ -624,11 +624,18 @@ class BaseDataset(ABC):
     def _task_cache_dir(self, task: BaseTask) -> Path:
         """The directory that caches ``task``'s samples for this dataset.
 
-        The name holds the task name and a hash of
-        :meth:`~pyhealth.tasks.BaseTask.cache_key`, so tasks that differ in
-        any argument get their own cache. The views of one task share it.
+        The name holds the task name and a hash of the task's attributes and
+        schemas, so tasks that differ in any argument get their own cache.
+        The views of a task share it: their input schemas key the processed
+        samples instead (see :meth:`set_task`).
         """
-        task_params = json.dumps(task.cache_key(), sort_keys=True, default=str)
+        params = {**vars(task), "output_schema": task.output_schema}
+        if task.views:
+            params.pop("input_schema", None)
+            params.pop("view", None)
+        else:
+            params["input_schema"] = task.input_schema
+        task_params = json.dumps(params, sort_keys=True, default=str)
         return (
             self.cache_dir
             / "tasks"

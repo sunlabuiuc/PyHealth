@@ -41,8 +41,7 @@ class EventStreamProcessor(FeatureProcessor):
         names: Name of each feature, in column order.
         codes: Feature name to the code the model's vocabulary uses for it,
             e.g. ``{"crea": "LOINC/2160-0"}``. A feature without an entry
-            gets ``"<vocabulary>/<name>"``.
-        vocabulary: Prefix of the default codes.
+            gets ``"YAIB/<name>"``.
         units: Feature name to unit, written on its events. Defaults to None.
         time_unit: Unit of the input times: ``"seconds"``, ``"minutes"``,
             ``"hours"`` or ``"days"``.
@@ -63,7 +62,6 @@ class EventStreamProcessor(FeatureProcessor):
         self,
         names: Sequence[str],
         codes: Mapping[str, str] | None = None,
-        vocabulary: str = "YAIB",
         units: Mapping[str, str] | None = None,
         time_unit: str = "hours",
     ) -> None:
@@ -72,14 +70,13 @@ class EventStreamProcessor(FeatureProcessor):
                 f"time_unit must be one of {sorted(_UNIT_SECONDS)}, not {time_unit!r}."
             )
         self.names = list(names)
-        self.vocabulary = vocabulary
         self.time_unit = time_unit
         codes = dict(codes or {})
         units = dict(units or {})
         unknown = (set(codes) | set(units)) - set(self.names)
         if unknown:
             raise ValueError(f"codes/units name unknown features: {sorted(unknown)}.")
-        self.codes = [codes.get(name, f"{vocabulary}/{name}") for name in self.names]
+        self.codes = [codes.get(name, f"YAIB/{name}") for name in self.names]
         self.units = [units.get(name) for name in self.names]
 
     def process(self, value: Any) -> list[tuple[datetime, str, float, str | None]]:
@@ -102,7 +99,7 @@ class EventStreamProcessor(FeatureProcessor):
         return events
 
     def __repr__(self) -> str:
-        return f"EventStreamProcessor(features={len(self.names)}, vocabulary={self.vocabulary!r})"
+        return f"EventStreamProcessor(features={len(self.names)})"
 
 
 @register_processor("event_birth")
