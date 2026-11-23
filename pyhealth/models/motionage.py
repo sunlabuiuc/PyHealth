@@ -257,8 +257,8 @@ class MotionAge(BaseModel):
         y_true = kwargs[self.label_key].to(self.device, torch.float32)
         y_true = y_true.reshape(logit.shape)
         results = {
-            "loss": self.get_loss_function()(logit, y_true),
-            "y_prob": self.prepare_y_prob(logit),
+            "loss": self.label_processor.loss(logit, y_true),
+            "y_prob": self.label_processor.activation(logit),
             "y_true": y_true,
             "logit": logit,
         }
