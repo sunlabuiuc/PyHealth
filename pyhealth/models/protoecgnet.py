@@ -636,7 +636,7 @@ class ProtoECGNet(BaseModel):
                 "layers": layers,
             }
             options.update((branch_kwargs or {}).get(name, {}))
-            self.branches[name] = PrototypeBranch(
+            self.branches[name] = self._make_branch(
                 in_channels, len(members), **options
             )
 
@@ -672,6 +672,12 @@ class ProtoECGNet(BaseModel):
         self._frozen_modules: set[nn.Module] = set()
         # Set by project_prototypes; not in state_dict — persist alongside ckpt.
         self.projection_info: dict[str, list[dict | None]] | None = None
+
+    def _make_branch(
+        self, in_channels: int, num_labels: int, **options
+    ) -> PrototypeBranch:
+        """Build a branch; subclasses may specialize it without changing defaults."""
+        return PrototypeBranch(in_channels, num_labels, **options)
 
     def _prepare_groups(
         self, groups: dict[str, list[str]] | None
