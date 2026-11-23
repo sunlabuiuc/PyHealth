@@ -115,8 +115,9 @@ jobs:
 
       # Selection follows imported names, so a test can skip a module whose
       # only link to it is an eager package __init__ — which an import-time
-      # error there would still break. Importing every subpackage catches that.
-      - name: Check that every subpackage imports
+      # error there would still break. Importing every subpackage the core
+      # tests use (all but pyhealth.nlp, which the NLP job covers) catches that.
+      - name: Check that the tested subpackages import
         if: steps.select.outputs.mode == 'some'
         run: |
           pixi run -e test python -m compileall -q pyhealth

@@ -68,6 +68,11 @@ FILES = {
     "pyhealth/models/report.py": "def coverage_report(): pass\n",
     "tests/core/test_uses_helper.py": "from tests.core.helpers import CNN\n",
     "tests/test_not_in_suite.py": "from pyhealth.models import RNN\n",
+    "tests/core/test_example.py": (
+        "from pathlib import Path\n"
+        "SCRIPT = Path(__file__).parents[2] / 'examples' / 'toy' / 'run_toy.py'\n"
+        "PAGE = 'docs/api/toy.rst'\n"
+    ),
 }
 
 
@@ -152,6 +157,12 @@ class SelectTestsTest(unittest.TestCase):
         self.assertEqual(self.select("README.rst", "docs/index.rst",
                                      "examples/x.py", "tools/bump_version.py",
                                      "pyhealth/models/README.md"), set())
+
+    def test_example_and_docs_files_select_tests_naming_them(self):
+        self.assertEqual(self.select("examples/toy/run_toy.py"), {"test_example"})
+        self.assertEqual(self.select("docs/api/toy.rst"), {"test_example"})
+        # Another file with the same tree but a name no test mentions.
+        self.assertEqual(self.select("examples/other/run.py"), set())
 
     def test_tool_stem_matching_an_identifier_selects_nothing(self):
         self.assertEqual(self.select("tools/coverage_report.py"), set())

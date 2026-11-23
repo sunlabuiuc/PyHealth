@@ -46,26 +46,28 @@ def git_changed(rev: str, *extra) -> list:
     return [line.strip() for line in out.stdout.splitlines() if line.strip()]
 
 
-def rel(path: str) -> str:
-    return os.path.relpath(path, REPO_ROOT)
+def rel(path: str, root: Path = REPO_ROOT) -> str:
+    return os.path.relpath(path, root)
 
 
-def merged_data(mode: str, baseline: str, baseline_sha: str) -> str:
-    """Write the merged data file and return its path."""
-    fresh = REPO_ROOT / ".coverage"
-    if mode == "all":
-        return str(fresh)
-    out = REPO_ROOT / ".coverage.merged"
+def merge(baseline: Path, fresh: Path, changed: set, out: Path,
+          root: Path = REPO_ROOT) -> None:
+    """Write ``baseline`` merged with ``fresh`` to ``out``.
+
+    ``changed`` holds repo-relative paths changed since the baseline commit,
+    deleted ones included: the baseline's data for those is dropped. ``fresh``
+    may not exist (no tests ran)."""
     out.unlink(missing_ok=True)
     merged = CoverageData(basename=str(out))
 
-    base = CoverageData(basename=baseline)
+    base = CoverageData(basename=str(baseline))
     base.read()
-    # deleted files too: they must not linger in the total
-    changed = set(git_changed(baseline_sha))
-    stale = [f for f in base.measured_files() if rel(f) in changed]
-    base.purge_files(stale)
-    merged.update(base)
+    # Copy rather than purge: purge_files() empties a file's lines but keeps
+    # it measured, so a deleted file would linger in the total.
+    kept = {f: base.lines(f) or [] for f in base.measured_files()
+            if rel(f, root) not in changed}
+    if kept:
+        merged.add_lines(kept)
 
     if fresh.exists():
         run = CoverageData(basename=str(fresh))
@@ -73,12 +75,21 @@ def merged_data(mode: str, baseline: str, baseline_sha: str) -> str:
         merged.update(run)
     # A changed file no selected test executed still counts, at 0%, as the
     # full run's --cov=pyhealth source scan would count it.
-    have = {rel(f) for f in merged.measured_files()}
-    missing = {str(REPO_ROOT / p) for p in changed
-               if p not in have and (REPO_ROOT / p).exists()}
+    have = {rel(f, root) for f in merged.measured_files()}
+    missing = {str(root / p) for p in changed
+               if p not in have and (root / p).exists()}
     if missing:
         merged.add_lines({f: set() for f in missing})
     merged.write()
+
+
+def merged_data(mode: str, baseline: str, baseline_sha: str) -> str:
+    """Return the data file to report: this run's, or merged with master's."""
+    fresh = REPO_ROOT / ".coverage"
+    if mode == "all":
+        return str(fresh)
+    out = REPO_ROOT / ".coverage.merged"
+    merge(Path(baseline), fresh, set(git_changed(baseline_sha)), out)
     return str(out)
 
 

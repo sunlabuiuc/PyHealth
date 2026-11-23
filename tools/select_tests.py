@@ -17,7 +17,8 @@ propagate through it.
 
 What that gives up — an import-time error in an unrelated submodule still
 breaks ``import pyhealth.models`` for everyone — is covered by the smoke step
-``--run`` performs first (compile + import every subpackage).
+``--run`` performs first (compile everything, then import every subpackage
+the core tests use: all but ``pyhealth.nlp`` today, which the NLP job runs).
 
 Fail-safe defaults: build/CI config, ``tests/base.py``, this script, and
 anything ``import pyhealth`` itself loads select ALL tests; so does any path
@@ -69,9 +70,14 @@ RUN_ALL_FILES = {
 
 # Non-Python paths outside the package that tests never read.
 IGNORE_PREFIXES = (
-    "docs/", "examples/", "leaderboard/", "figure/", "hackthon/",
-    "chat-assistant/", ".claude/", ".github/",
+    "leaderboard/", "figure/", "hackthon/", "chat-assistant/", ".claude/",
+    ".github/",
 )
+
+# Trees some tests read or import by path (an example script loaded with
+# importlib, a docs page checked against the code). A changed file selects the
+# modules naming both the tree and the file; none means no tests.
+REFERENCED_PREFIXES = ("docs/", "examples/")
 IGNORE_FILES = {
     "README.rst", "LICENSE", "LICENSE.md", ".gitignore", "readthedocs.yml",
     "bounty.yaml",  # bounty board data, read only by its own workflow
@@ -81,14 +87,6 @@ DOC_SUFFIXES = {".md", ".rst", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".pdf"}
 # Directories whose files tests never import or read, unless a test names the
 # file explicitly (checked first).
 LOOSE_IGNORE_PREFIXES = ("tools/",)
-
-# Non-Python trees read at runtime by specific modules: a change counts as a
-# change to those modules. Name the readers, not their package, or the change
-# leaks through every importer of the package.
-OWNED_TREES = {
-    # Shipped as pyhealth/skills/_bundle; only the installer reads it.
-    "skills/": ["tests.core.test_skills_install"],
-}
 
 
 @dataclass
@@ -382,8 +380,10 @@ class Graph:
                 for target, name, star in m.imports
                 if target == pkg and (star or name in names)}
 
-    def referencing(self, token: str) -> set:
-        return {m.name for m in self.modules.values() if token in m.source}
+    def referencing(self, *tokens: str) -> set:
+        """Modules whose source contains every token."""
+        return {m.name for m in self.modules.values()
+                if all(t in m.source for t in tokens)}
 
 
 @dataclass
@@ -415,9 +415,8 @@ def _classify(path: str, graph: Graph):
         return {name}
     if parts[0] == graph.package and Path(path).suffix.lower() in DOC_SUFFIXES:
         return set()  # package READMEs etc.
-    for prefix, owner in OWNED_TREES.items():
-        if path.startswith(prefix):
-            return set(owner)
+    if path.startswith(REFERENCED_PREFIXES):
+        return graph.referencing(parts[0], parts[-1])
     if parts[0] not in (graph.package, graph.tests, "test-resources"):
         if (path in IGNORE_FILES or path.startswith(IGNORE_PREFIXES)
                 or Path(path).suffix.lower() in DOC_SUFFIXES):

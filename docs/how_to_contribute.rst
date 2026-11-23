@@ -208,16 +208,17 @@ Which Tests CI Runs
 On a pull request, CI runs only the tests your change can affect, not the
 whole suite. ``tools/select_tests.py`` follows imports from each changed file
 to the test modules that use it. A new model with its own test usually runs a
-handful of modules, and a docs-only change runs none. The test job's summary
-lists each selected test and the import chain that selected it.
+handful of modules. A change under ``docs/`` or ``examples/`` runs only the
+tests that name the changed file, usually none. The test job's summary lists
+each selected test and the import chain that selected it.
 
 - **Run the same selection locally**: ``make testaffected`` runs the tests
   affected by your branch relative to ``origin/master``, including
   uncommitted changes. ``python tools/select_tests.py --base origin/master``
   only lists them.
 - **Tests must import what they test.** A test that reaches your code only
-  through a string (a registry name, ``getattr``) or a data file it doesn't
-  name can be skipped, so import the class you test.
+  through a string (a registry name, ``getattr``, a ``mock.patch`` target) or
+  a data file it doesn't name can be skipped, so import the class you test.
 - **Everything runs** when you change build or CI configuration
   (``pyproject.toml``, ``pixi.lock``, the workflow), ``tests/base.py`` or a
   ``conftest.py``, or anything ``import pyhealth`` loads. A maintainer can
