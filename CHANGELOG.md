@@ -5,6 +5,18 @@ All notable changes to PyHealth are documented here. Versions follow the
 [releases page](https://github.com/sunlabuiuc/PyHealth/releases) for the
 corresponding tags and wheels.
 
+## Unreleased
+
+### Contributors
+
+Thank you to the 41 people whose pull requests were merged since 2.1.0:
+[@AanshDevpura](https://github.com/AanshDevpura), [@Alhibb](https://github.com/Alhibb), [@arittrosaha](https://github.com/arittrosaha), [@AxelNoun](https://github.com/AxelNoun), [@bhchance](https://github.com/bhchance), [@cgcorea](https://github.com/cgcorea), [@chenyangsu](https://github.com/chenyangsu), [@Chinmaykatpatal](https://github.com/Chinmaykatpatal), [@cpruijsen](https://github.com/cpruijsen), [@crisp-co](https://github.com/crisp-co), [@dalloliogm](https://github.com/dalloliogm), [@DarylOkeke](https://github.com/DarylOkeke), [@Edwin0080](https://github.com/Edwin0080), [@fbonc](https://github.com/fbonc), [@GenericCoder19](https://github.com/GenericCoder19), [@irvifa](https://github.com/irvifa), [@Jathurshan0330](https://github.com/Jathurshan0330), [@jhnwu3](https://github.com/jhnwu3), [@joshb-code](https://github.com/joshb-code), [@JustinHotz](https://github.com/JustinHotz), [@Karnis052](https://github.com/Karnis052), [@kojikojikojikoji](https://github.com/kojikojikojikoji), [@konstde00](https://github.com/konstde00), [@kshah317](https://github.com/kshah317), [@lehendo](https://github.com/lehendo), [@lin-tianyu](https://github.com/lin-tianyu), [@Logiquo](https://github.com/Logiquo), [@MateehUllah](https://github.com/MateehUllah), [@MooseInASuit](https://github.com/MooseInASuit), [@nezek6](https://github.com/nezek6), [@nhajela1](https://github.com/nhajela1), [@Om-singhaI](https://github.com/Om-singhaI), [@pemalama12](https://github.com/pemalama12), [@peterjprudhomme](https://github.com/peterjprudhomme), [@rtmalikian](https://github.com/rtmalikian), [@samehaisaa](https://github.com/samehaisaa), [@solarsys](https://github.com/solarsys), [@thekavishshah](https://github.com/thekavishshah), [@themilan1337](https://github.com/themilan1337), [@theocsav](https://github.com/theocsav), [@yfeng3212](https://github.com/yfeng3212).
+
+Bounties completed in this period, listed with credit on
+[pyhealth.dev/bounties](https://pyhealth.dev/bounties.html) and in `bounty.yaml`:
+BTY-24, 25, 26, 38 and 57 (@irvifa); BTY-50, 66, 68, 74 and 75 (@Alhibb);
+BTY-64 (@irvifa and @samehaisaa); BTY-44 (@thekavishshah); BTY-36 (@Chinmaykatpatal).
+
 ## 2.1.0 — 2026-10-16
 
 A minor release focused on making PyHealth results trustworthy: leakage-free
