@@ -191,7 +191,13 @@ def _length(value: Any) -> int | None:
 
 
 class Data:
-    """Columns of the training split, by attribute or by key."""
+    """Columns of the training split, by attribute or by key.
+
+    Examples:
+        >>> data = Data({"age": np.array([63, 71]), "label": np.array([0, 1])})
+        >>> data.age.tolist(), data["label"].tolist()
+        ([63, 71], [0, 1])
+    """
 
     def __init__(self, columns: Mapping[str, np.ndarray]):
         self._columns = {k: np.asarray(v) for k, v in columns.items()}
@@ -339,6 +345,10 @@ def run_analysis_job(
 
     Raises:
         SandboxError: If the code raised or timed out.
+
+    Examples:
+        >>> results = run_analysis_job(spec, columns, timeout=120)  # doctest: +SKIP
+        >>> print(format_results(results))  # doctest: +SKIP
     """
     payload = {"columns": dict(columns), "min_count": min_count}
     return run_sandboxed(spec.code, f"{__name__}:run_analysis",
@@ -347,7 +357,12 @@ def run_analysis_job(
 
 
 def run_analysis(namespace: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
-    """The child side of :func:`run_analysis_job`."""
+    """The child side of :func:`run_analysis_job`.
+
+    Examples:
+        >>> run_sandboxed(spec.code, "pyhealth.autoimprove.search.analysis:run_analysis",
+        ... {"columns": columns, "min_count": 11})  # doctest: +SKIP
+    """
     analyze = namespace.get(ENTRY)
     if not callable(analyze):
         raise ContractError(f"the module does not define {ENTRY}()")

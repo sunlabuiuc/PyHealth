@@ -12,7 +12,6 @@ from ..search.space import PipelineConfig, _derived
 from .records import Trial
 from .training import patient_folds, run_config_cv
 
-
 FOLD_TIE = 1e-4
 """Fold scores closer than this count as a tie, not as one fold being better."""
 
@@ -206,6 +205,7 @@ def select_simplest(
         ``(selected, top)``.
 
     Examples:
+        >>> from pyhealth.autoimprove import SearchSpace
         >>> base = Trial(0, -1, "baseline", "baseline", PipelineConfig("XGBoost"),
         ...              score=0.50, fold_scores=[0.48, 0.50, 0.52])
         >>> lr = Trial(1, 0, "a0", "explore", PipelineConfig("LogisticRegression"),
@@ -321,6 +321,9 @@ def confirm(state) -> dict[str, Any]:
 
     Backs :meth:`~pyhealth.autoimprove.AutoImprover.confirm`; see there.
     ``state`` is the run's :class:`RunState`.
+
+    Examples:
+        >>> confirm(improver.state)["scores"]  # doctest: +SKIP
     """
     result = state.result()
     baseline = result.baseline
@@ -356,6 +359,11 @@ def confirm(state) -> dict[str, Any]:
 
 
 def confirm_scores(state, config, specs) -> list[float]:
+    """Fold scores of a config, refitted with each confirmation seed on new folds.
+
+    Examples:
+        >>> confirm_scores(improver.state, best.config, best.features)  # doctest: +SKIP
+    """
     train, val = state._datasets(specs)
     runs = [
         run_config_cv(config, state.space, train, val, state.metric,
@@ -372,6 +380,9 @@ def prune(state) -> dict[str, Any]:
 
     Backs :meth:`~pyhealth.autoimprove.AutoImprover.prune`; see there.
     ``state`` is the run's :class:`RunState`.
+
+    Examples:
+        >>> prune(improver.state).get("pruned_trial")  # doctest: +SKIP
     """
     best = state.result().best
     if best is None or not best.features or best.trial_id not in state.confirmed:

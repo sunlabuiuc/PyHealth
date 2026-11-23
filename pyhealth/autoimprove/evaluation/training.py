@@ -297,8 +297,9 @@ def out_of_fold(
         >>> oof = out_of_fold([np.array([1]), np.array([0])],
         ...                   [(np.array([1]), np.array([0.9]), []),
         ...                    (np.array([0]), np.array([0.2]), [])])
-        >>> oof["index"].tolist(), oof["fold"].tolist(), oof["y_prob"].tolist()
-        ([0, 1], [1, 0], [0.20000000298023224, 0.8999999761581543])
+        >>> probs = oof["y_prob"].astype(float).round(3).tolist()
+        >>> oof["index"].tolist(), oof["fold"].tolist(), probs
+        ([0, 1], [1, 0], [0.2, 0.9])
     """
     try:
         y_true = [np.asarray(p[0]) for p in predictions]
@@ -324,7 +325,12 @@ ISOLATED_TIMEOUT = 24 * 3600.0
 
 
 def run_fit_predict_job(namespace: dict[str, Any], payload: dict[str, Any]) -> dict:
-    """The child side of an isolated config trial: :func:`fit_predict`."""
+    """The child side of an isolated config trial: :func:`fit_predict`.
+
+    Examples:
+        >>> fit_predict(config, space, train_ds, val_ds, [val_ds], "pr_auc",
+        ...             isolate=True)  # runs this in a child process  # doctest: +SKIP
+    """
     return fit_predict(payload["config"], payload["space"], payload["train"],
                        payload["val"], payload["predict_on"], payload["metric"],
                        payload["seed"], payload["device"], label=payload["label"])
@@ -671,7 +677,11 @@ def fit_predict_code(
 def run_code_trial(
     namespace: dict[str, Any], payload: dict[str, Any]
 ) -> dict[str, Any]:
-    """The child side of a code trial: train, check, predict."""
+    """The child side of a code trial: train, check, predict.
+
+    Examples:
+        >>> fit_predict_code(code, train_ds, val_ds, [val_ds], "pr_auc")  # runs this in a child  # doctest: +SKIP
+    """
     import torch
 
     from pyhealth.models import BaseModel

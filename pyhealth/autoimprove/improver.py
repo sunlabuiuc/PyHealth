@@ -22,7 +22,7 @@ from .search.proposers import Proposer
 from .search.space import SearchSpace
 from .state import DEFAULT_METRIC, RunState
 
-__all__ = ["AutoImprover", "DEFAULT_METRIC"]
+__all__ = ["DEFAULT_METRIC", "AutoImprover"]
 
 
 class AutoImprover:

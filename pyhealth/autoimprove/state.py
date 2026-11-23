@@ -87,6 +87,10 @@ class RunState:
     the search and evaluation functions, which read and update it: the
     settings, the datasets and folds, the trials, lessons, guardrails and
     findings, and the run's store. Its arguments are AutoImprover's.
+
+    Examples:
+        >>> state = AutoImprover(train_ds, val_ds, "run.yaml").state  # doctest: +SKIP
+        >>> state.trials, state.lessons, state.store.run_dir  # doctest: +SKIP
     """
 
     def __init__(

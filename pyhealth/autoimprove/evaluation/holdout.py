@@ -27,6 +27,9 @@ def evaluate_on_test(
 
     Backs :meth:`~pyhealth.autoimprove.AutoImprover.evaluate_on_test`; see there.
     ``state`` is the run's :class:`RunState`.
+
+    Examples:
+        >>> evaluate_on_test(improver.state, test_ds, n_boot=200)["best"]  # doctest: +SKIP
     """
     result = state.result()
     if result.best is None:

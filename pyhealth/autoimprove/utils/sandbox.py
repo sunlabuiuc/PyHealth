@@ -52,6 +52,7 @@ any ``multiprocessing`` code, a script using these turns needs an
 from __future__ import annotations
 
 import ast
+import contextlib
 import importlib
 import linecache
 import logging
@@ -137,6 +138,11 @@ class SandboxError(RuntimeError):
         full: The error with its message, for the run's log.
         brief: The error without its message (which can quote a raw value
             from a sample), for a proposer's prompt.
+
+    Examples:
+        >>> e = SandboxError("ValueError: bad value 7 at x.py:3", "ValueError at x.py:3")
+        >>> e.brief
+        'ValueError at x.py:3'
     """
 
     def __init__(self, full: str, brief: str):
@@ -169,9 +175,8 @@ def static_check(code: str, entry: str) -> list[str]:
 
     def bad_module(name: str, line: int) -> None:
         root = name.split(".")[0]
-        if root not in ALLOWED_IMPORTS:
-            problems.append(f"line {line}: import of {name} is not allowed")
-        elif any(name == m or name.startswith(m + ".") for m in BLOCKED_MODULES):
+        blocked = any(name == m or name.startswith(m + ".") for m in BLOCKED_MODULES)
+        if root not in ALLOWED_IMPORTS or blocked:
             problems.append(f"line {line}: import of {name} is not allowed")
 
     def bad_attribute(name: str, line: int) -> None:
@@ -200,10 +205,9 @@ def static_check(code: str, entry: str) -> list[str]:
                     bad_module(f"{node.module}.{alias.name}", line)
                     bad_attribute(alias.name, line)
         elif isinstance(node, ast.Name):
-            if node.id in BLOCKED_NAMES:
-                problems.append(f"line {line}: {node.id} is not allowed")
-            elif (node.id.startswith("__") and node.id.endswith("__")
-                  and node.id not in ALLOWED_DUNDERS):
+            dunder = (node.id.startswith("__") and node.id.endswith("__")
+                      and node.id not in ALLOWED_DUNDERS)
+            if node.id in BLOCKED_NAMES or dunder:
                 problems.append(f"line {line}: {node.id} is not allowed")
         elif isinstance(node, ast.Attribute):
             bad_attribute(node.attr, line)
@@ -229,7 +233,13 @@ def _line_of(problem: str) -> int:
 
 
 def check_or_raise(code: str, entry: str) -> None:
-    """Raises ``ValueError`` listing every problem :func:`static_check` finds."""
+    """Raises ``ValueError`` listing every problem :func:`static_check` finds.
+
+    Examples:
+        >>> check_or_raise("import os", "build_and_train")  # doctest: +SKIP
+        Traceback (most recent call last):
+        ValueError: line 1: import of os is not allowed; ...
+    """
     problems = static_check(code, entry)
     if problems:
         raise ValueError("the code was rejected before running: " + "; ".join(problems))
@@ -335,10 +345,8 @@ def _child(code, runner, blob, send, log_path, memory_gb, label) -> None:
     except BaseException as e:  # noqa: BLE001 - every failure is reported
         brief = (f"ContractError: {e}" if isinstance(e, ContractError)
                  else describe_error(e, message=False))
-        try:
+        with contextlib.suppress(Exception):  # e.g. the pipe is gone
             send.send(("error", describe_error(e), brief))
-        except Exception:  # noqa: BLE001 - e.g. the pipe is gone
-            pass
     finally:
         send.close()
 

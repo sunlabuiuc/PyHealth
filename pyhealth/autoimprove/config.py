@@ -67,6 +67,10 @@ class SearchConfig(_Section):
             ``crossover``, ``contrastive``. Defaults to all four.
         seed: Seed for folds, training and sampling.
         device: Torch device; defaults to CUDA when available.
+
+    Examples:
+        >>> SearchConfig(proposals_per_round=4, workers=2).mode
+        'batched'
     """
 
     metric: str | None = None
@@ -102,6 +106,10 @@ class BudgetConfig(_Section):
         time_budget: Most seconds to search.
         early_stop: Stop a trial's folds early once it is this many standard
             errors behind the incumbent.
+
+    Examples:
+        >>> BudgetConfig(rounds=8, time_budget=3600).patience
+        2
     """
 
     rounds: int = Field(5, ge=0)
@@ -112,7 +120,12 @@ class BudgetConfig(_Section):
 
 
 class BaselineConfig(_Section):
-    """The starting pipeline every trial is compared with."""
+    """The starting pipeline every trial is compared with.
+
+    Examples:
+        >>> BaselineConfig(model="RNN", train_params={"epochs": 5}).to_pipeline().model
+        'RNN'
+    """
 
     model: str
     model_params: dict[str, Any] = Field(default_factory=dict)
@@ -127,7 +140,12 @@ class BaselineConfig(_Section):
 
 
 class ParamConfig(_Section):
-    """One searchable setting: see :class:`~pyhealth.autoimprove.Param`."""
+    """One searchable setting: see :class:`~pyhealth.autoimprove.Param`.
+
+    Examples:
+        >>> ParamConfig(kind="float", low=1e-4, high=1e-2, log=True).to_param().log
+        True
+    """
 
     kind: Literal["int", "float", "choice"]
     low: float | None = None
@@ -149,6 +167,10 @@ class SpaceConfig(_Section):
         models: Model names from the default space (plus ``XGBoost``).
             Defaults to all default models.
         train_params: Training settings to add or override, by name.
+
+    Examples:
+        >>> sorted(SpaceConfig(models=["MLP", "XGBoost"]).build().models)
+        ['MLP', 'XGBoost']
     """
 
     models: list[str] | None = None
@@ -181,6 +203,11 @@ class ProposerConfig(_Section):
         seed: For ``random``.
         options: Other keyword arguments for the LLM client (``effort``,
             ``max_tokens``, ``base_url``...).
+
+    Examples:
+        >>> type(ProposerConfig(type="random", seed=1).build()).__name__
+        'RandomProposer'
+        >>> ProposerConfig(type="llm", backend="claude").build()  # doctest: +SKIP
     """
 
     type: Literal["random", "llm"] = "random"
@@ -220,6 +247,10 @@ class EvaluationConfig(_Section):
             raise a ``few_events`` flag when a fold has fewer positive
             samples than this. With so few events one lucky fold can carry a
             trial's whole gain, so the search's gains are unconfirmed.
+
+    Examples:
+        >>> EvaluationConfig(cv_folds=5).promote_se
+        1.0
     """
 
     cv_folds: int | None = None
@@ -231,7 +262,12 @@ class EvaluationConfig(_Section):
 
 
 class ConfirmConfig(_Section):
-    """Re-scoring the leaders on new folds and seeds after the search."""
+    """Re-scoring the leaders on new folds and seeds after the search.
+
+    Examples:
+        >>> ConfirmConfig(enabled=True).seeds
+        3
+    """
 
     enabled: bool = False
     top: int = 3
@@ -241,7 +277,12 @@ class ConfirmConfig(_Section):
 
 
 class CodeConfig(_Section):
-    """Code rounds: models the proposer writes."""
+    """Code rounds: models the proposer writes.
+
+    Examples:
+        >>> CodeConfig(timeout=900).timeout
+        900.0
+    """
 
     timeout: float = 1800.0
 
@@ -260,6 +301,10 @@ class GuardrailConfig(_Section):
         se: Standard errors by which a trial must be worse than the baseline
             on a guardrail to be removed.
         timeout: Seconds one evaluation may take.
+
+    Examples:
+        >>> GuardrailConfig(enabled=True, every=2).turns
+        1
     """
 
     enabled: bool = False
@@ -281,6 +326,10 @@ class AnalysisConfig(_Section):
             first.
         turns: Analyses each time.
         max_findings: Most findings kept for prompts.
+
+    Examples:
+        >>> AnalysisConfig(enabled=True).max_findings
+        12
     """
 
     enabled: bool = False
@@ -295,6 +344,10 @@ class OutputConfig(_Section):
     Attributes:
         run_dir: The run's directory; a run there is resumed.
         lessons_path: A file of lessons shared across runs.
+
+    Examples:
+        >>> OutputConfig(run_dir="runs/mortality").lessons_path is None
+        True
     """
 
     run_dir: str | None = None

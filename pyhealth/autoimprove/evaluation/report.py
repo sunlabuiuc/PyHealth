@@ -431,18 +431,18 @@ def build_report(
     ]
     if selected.config.code:
         sections.append(Section("Generated code", [
-            ("p", f"The selected model was written by the proposer "
-                  f"(#{selected.trial_id}, code {selected.config.code_sha}). It was "
-                  "trained in its own process and scored on the same folds as every "
-                  "other trial."),
+            ("p", (f"The selected model was written by the proposer "
+                   f"(#{selected.trial_id}, code {selected.config.code_sha}). It was "
+                   "trained in its own process and scored on the same folds as every "
+                   "other trial.")),
             ("code", selected.config.code),
         ]))
     if guardrails:
         sections.append(_guardrails_section(guardrails, test))
     if findings:
         sections.append(Section("Findings from data analysis", [
-            ("p", "Aggregates of the training split, with groups under 11 patients "
-                  "withheld; the proposer's reading of them (hypothesis)."),
+            ("p", ("Aggregates of the training split, with groups under 11 "
+                   "patients withheld; the proposer's reading of them (hypothesis).")),
             ("list", list(findings)),
         ]))
     if selected.features:
@@ -496,9 +496,9 @@ def _guardrails_section(guardrails: Sequence[dict[str, Any]], test) -> Section:
         rows.append([g["name"], metrics, g["status"], g.get("reason", ""),
                      removed or ("none" if g["status"] == "active" else "")])
     blocks = [
-        ("p", "Evaluations the proposer wrote. An active guardrail removes from the "
-              "candidates every trial clearly worse than the baseline on it (fold "
-              "by fold, one paired SE); it never replaces the main metric."),
+        ("p", ("Evaluations the proposer wrote. An active guardrail removes from the "
+               "candidates every trial clearly worse than the baseline on it (fold "
+               "by fold, one paired SE); it never replaces the main metric.")),
         ("table", ["evaluation", "metrics", "status", "why", "trials removed"], rows),
     ]
     on_test = (test or {}).get("guardrails")
@@ -1509,6 +1509,9 @@ def flags(state) -> list[dict[str, Any]]:
 
     Backs :meth:`~pyhealth.autoimprove.AutoImprover.flags`; see there.
     ``state`` is the run's :class:`RunState`.
+
+    Examples:
+        >>> [f["id"] for f in flags(improver.state)]  # doctest: +SKIP
     """
     review = state.store.read_json("review.json") or {}
     best = state.result().best
@@ -1527,7 +1530,12 @@ def flags(state) -> list[dict[str, Any]]:
 
 
 def held_back(state, best: Trial | None) -> set[str]:
-    """Engineered features of the selection with an open review flag."""
+    """Engineered features of the selection with an open review flag.
+
+    Examples:
+        >>> held_back(improver.state, improver.result().best)  # doctest: +SKIP
+        {'count_90d__visits'}
+    """
     if best is None or not best.features:
         return set()
     names = {s["name"] for s in best.features}
@@ -1551,6 +1559,9 @@ def approve(
 
     Backs :meth:`~pyhealth.autoimprove.AutoImprover.approve`; see there.
     ``state`` is the run's :class:`RunState`.
+
+    Examples:
+        >>> approve(improver.state, "direction:spo2_min", "Dr. A", "known artifact")  # doctest: +SKIP
     """
     if not state.run_dir:
         raise ValueError("approve needs a run_dir to record the decision")
@@ -1571,6 +1582,9 @@ def write_report(state, path: str | None = None):
 
     Backs :meth:`~pyhealth.autoimprove.AutoImprover.report`; see there.
     ``state`` is the run's :class:`RunState`.
+
+    Examples:
+        >>> write_report(improver.state, "runs/mortality/report.html")  # doctest: +SKIP
     """
     report = build_report(
         state.trials, metric=state.metric, maximize=state.maximize,

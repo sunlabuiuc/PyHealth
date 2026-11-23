@@ -29,7 +29,6 @@ from .prompts import task_context
 from .proposers import ProposalContext, ProposerExhausted
 from .space import _derived, _key
 
-
 logger = logging.getLogger(__name__)
 
 MAX_PROPOSER_FAILURES = 3
@@ -45,7 +44,11 @@ GENERATED_KINDS = ("code", "evaluation", "analysis")
 
 
 def model_turn(state, cycle: int, agent: str, strategy: str, kind: str = "model") -> None:
-    """A model turn, or a code turn (``kind="code"``): propose, check, score."""
+    """A model turn, or a code turn (``kind="code"``): propose, check, score.
+
+    Examples:
+        >>> model_turn(improver.state, cycle=2, agent="agent0", strategy="refine")  # doctest: +SKIP
+    """
     got = propose_config(state, cycle, agent, strategy, kind)
     if got is not None:
         config, notes = got
@@ -61,6 +64,9 @@ def propose_config(state, cycle: int, agent: str, strategy: str, kind: str = "mo
 
     Returns:
         ``(config, notes)``, or ``None`` when the agent made no usable one.
+
+    Examples:
+        >>> config, notes = propose_config(improver.state, 2, "agent0", "refine")  # doctest: +SKIP
     """
     feedback = ""
     accepted = state._accepted()
@@ -122,6 +128,9 @@ def skip_turn(state, agent: str, cycle: int, error: Exception) -> None:
         RuntimeError: After :data:`MAX_PROPOSER_FAILURES` failures in a
             row (e.g. missing credentials), so a broken backend does not
             spend the whole budget.
+
+    Examples:
+        >>> skip_turn(improver.state, "agent0", 2, RuntimeError("rate limited"))  # doctest: +SKIP
     """
     state._proposer_failures += 1
     text = describe_error(error)
@@ -135,7 +144,11 @@ def skip_turn(state, agent: str, cycle: int, error: Exception) -> None:
 
 
 def feature_turn(state, cycle: int, agent: str, strategy: str) -> None:
-    """One feature proposal: validate, test for leaks, score, accept or not."""
+    """One feature proposal: validate, test for leaks, score, accept or not.
+
+    Examples:
+        >>> feature_turn(improver.state, cycle=0, agent="agent0", strategy="explore")  # doctest: +SKIP
+    """
     base = state._incumbent(cycle)
     if base is None:
         return
@@ -190,7 +203,11 @@ def feature_turn(state, cycle: int, agent: str, strategy: str) -> None:
 
 
 def judge(state, trial: Trial, base: Trial, new: Sequence[FeatureSpec]) -> None:
-    """Accepts a feature group if its paired gain over ``base`` clears the bound."""
+    """Accepts a feature group if its paired gain over ``base`` clears the bound.
+
+    Examples:
+        >>> judge(improver.state, trial, incumbent, specs)  # doctest: +SKIP
+    """
     if trial.error is not None or trial.stopped_early:
         trial.accepted = False
         return
@@ -217,7 +234,11 @@ def judge(state, trial: Trial, base: Trial, new: Sequence[FeatureSpec]) -> None:
 
 
 def evaluation_turn(state, cycle: int, agent: str) -> None:
-    """One evaluation proposal: check it, score every trial, adopt or not."""
+    """One evaluation proposal: check it, score every trial, adopt or not.
+
+    Examples:
+        >>> evaluation_turn(improver.state, cycle=1, agent="agent0")  # doctest: +SKIP
+    """
     feedback = ""
     for _ in range(2):  # one retry when the proposal is invalid
         context = build_context(state, agent, "explore", feedback, kind="evaluation")
@@ -286,7 +307,11 @@ def _log_evaluation(state, spec, cycle, agent, status, reason, **fields):
 
 
 def analysis_turn(state, cycle: int, agent: str) -> None:
-    """One analysis: run it on the training split, keep its findings."""
+    """One analysis: run it on the training split, keep its findings.
+
+    Examples:
+        >>> analysis_turn(improver.state, cycle=0, agent="agent0")  # doctest: +SKIP
+    """
     feedback = ""
     for _ in range(2):  # one retry when the proposal is invalid or fails
         context = build_context(state, agent, "explore", feedback, kind="analysis")
@@ -342,6 +367,12 @@ def analysis_turn(state, cycle: int, agent: str) -> None:
 
 
 def build_context(state, agent, strategy, feedback, kind="model") -> ProposalContext:
+    """What one agent sees when it proposes: results, lessons, findings.
+
+    Examples:
+        >>> context = build_context(improver.state, "agent0", "refine", "")  # doctest: +SKIP
+        >>> context.leaderboard[0].score  # doctest: +SKIP
+    """
     result = state.result()
     done = result.leaderboard(k=len(state.trials))
     card = ""
@@ -377,7 +408,11 @@ def build_context(state, agent, strategy, feedback, kind="model") -> ProposalCon
 
 
 def generated_context(state, kind: str, done: Sequence[Trial]) -> dict[str, Any]:
-    """Context only code, evaluation and analysis prompts need."""
+    """Context only code, evaluation and analysis prompts need.
+
+    Examples:
+        >>> generated_context(improver.state, "code", improver.trials)["task_source"]  # doctest: +SKIP
+    """
     if state._task_source is None:
         state._task_source = task_context(state.task, state.train_dataset)
     out: dict[str, Any] = {"task_source": state._task_source,
@@ -395,6 +430,12 @@ def generated_context(state, kind: str, done: Sequence[Trial]) -> dict[str, Any]
 
 
 def evaluation_lines(state) -> list[str]:
+    """One line per proposed evaluation for prompts: status, metrics, failing trials.
+
+    Examples:
+        >>> evaluation_lines(improver.state)  # doctest: +SKIP
+        ['calibration (active): abs_shift lower is better; fails: #4']
+    """
     lines = []
     fails = state._guardrail_fails()
     for e in state.evaluations:
@@ -425,6 +466,9 @@ def play_round(state, cycle: int, kind: str) -> None:
     round and the proposals are then scored together, ``search.workers`` at
     a time. Sequential, each agent proposes after the previous one's trial
     is scored.
+
+    Examples:
+        >>> play_round(improver.state, cycle=3, kind="model")  # doctest: +SKIP
     """
     agents = state.agents(cycle)
     if not (state.batched and kind in BATCHED_KINDS):
@@ -449,7 +493,11 @@ def play_round(state, cycle: int, kind: str) -> None:
 
 
 def take_turn(state, cycle: int, kind: str, agent: str, strategy: str) -> None:
-    """One agent's turn in a round of this kind."""
+    """One agent's turn in a round of this kind.
+
+    Examples:
+        >>> take_turn(improver.state, 3, "code", "agent1", "crossover")  # doctest: +SKIP
+    """
     if kind == "features":
         feature_turn(state, cycle, agent, strategy)
     else:  # "model" or "code"
@@ -458,7 +506,11 @@ def take_turn(state, cycle: int, kind: str, agent: str, strategy: str) -> None:
 
 def before_round(state, cycle: int) -> None:
     """Analyses of the training data, when enabled, before every
-    ``analysis.every``-th round: their findings reach this round's prompts."""
+    ``analysis.every``-th round: their findings reach this round's prompts.
+
+    Examples:
+        >>> before_round(improver.state, cycle=0)  # runs analyses if enabled  # doctest: +SKIP
+    """
     if state.analysis_enabled and cycle % state.analysis_every == 0:
         for agent, _ in state.agents(cycle)[:state.analysis_turns]:
             if state.stopped():
@@ -469,7 +521,11 @@ def before_round(state, cycle: int) -> None:
 def after_round(state, cycle: int) -> None:
     """New evaluations, when enabled, after every ``guardrails.every``-th
     round; each one is scored on every trial so far and may become a
-    guardrail."""
+    guardrail.
+
+    Examples:
+        >>> after_round(improver.state, cycle=1)  # proposes evaluations if enabled  # doctest: +SKIP
+    """
     if state.guardrails_enabled and (cycle + 1) % state.guardrail_every == 0:
         for agent, _ in state.agents(cycle)[:state.guardrail_turns]:
             if state.stopped():

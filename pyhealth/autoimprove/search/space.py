@@ -432,8 +432,8 @@ class SearchSpace:
                 fails the static check.
         """
         if config.code or config.model == CODE_MODEL:
-            from .prompts import ENTRY
             from ..utils.sandbox import check_or_raise
+            from .prompts import ENTRY
 
             if not config.code:
                 raise ValueError(f"a {CODE_MODEL} config needs its code")

@@ -577,6 +577,9 @@ def attribute(state, trial_id: int | None = None) -> dict[str, Any]:
 
     Backs :meth:`~pyhealth.autoimprove.AutoImprover.attribute`; see there.
     ``state`` is the run's :class:`RunState`.
+
+    Examples:
+        >>> attribute(improver.state)["rows"][0]["setting"]  # doctest: +SKIP
     """
     result = state.result()
     target = result.best if trial_id is None else state.trials[trial_id]
@@ -635,6 +638,11 @@ def attribute(state, trial_id: int | None = None) -> dict[str, Any]:
 
 
 def score_config(state, config: PipelineConfig, features=()) -> dict[str, Any]:
+    """Fold scores of one config on the run's folds (used when reverting a setting).
+
+    Examples:
+        >>> score_config(improver.state, best.config, best.features)  # doctest: +SKIP
+    """
     config, _ = state.space.validate(config)
     out = state._run_config(config, (), features)
     return {"score": out["metrics"][state.metric],
@@ -651,6 +659,9 @@ def explain_selection(
 
     Backs :meth:`~pyhealth.autoimprove.AutoImprover.explain`; see there.
     ``state`` is the run's :class:`RunState`.
+
+    Examples:
+        >>> explain_selection(improver.state, top_k=5)["groups"]  # doctest: +SKIP
     """
     result = state.result()
     if result.best is None:

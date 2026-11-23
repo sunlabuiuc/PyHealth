@@ -206,6 +206,10 @@ def run_evaluations(
 
     Raises:
         SandboxError: If the code raised or timed out.
+
+    Examples:
+        >>> result = run_evaluations(spec, y_true, fold, info, [probs_a, probs_b])  # doctest: +SKIP
+        >>> result["values"][0][0]  # doctest: +SKIP
     """
     payload = {"y_true": y_true, "fold": fold, "info": info, "y_probs": list(y_probs),
                "metrics": list(spec.metrics), "checks": checks}
@@ -217,7 +221,12 @@ def run_evaluations(
 def run_evaluation(
     namespace: dict[str, Any], payload: dict[str, Any]
 ) -> dict[str, Any]:
-    """The child side of :func:`run_evaluations`."""
+    """The child side of :func:`run_evaluations`.
+
+    Examples:
+        >>> run_sandboxed(spec.code, "pyhealth.autoimprove.evaluation.guardrails:run_evaluation",
+        ...               payload)  # doctest: +SKIP
+    """
     evaluate = namespace.get(ENTRY)
     if not callable(evaluate):
         raise ContractError(f"the module does not define {ENTRY}()")
@@ -328,6 +337,10 @@ def decide(
 
     Returns:
         ``(status, reason)``, status one of :data:`STATUSES`.
+
+    Examples:
+        >>> decide(spec, result, trial_ids, baseline_id, candidates, 0, 3, 1.0)  # doctest: +SKIP
+        ('active', '...')
     """
     values = result["values"]
     index = {t: i for i, t in enumerate(trial_ids)}
@@ -382,6 +395,10 @@ def failing(
 
     A trial with no scores for this evaluation (e.g. no stored predictions)
     fails every key, since it cannot be shown to pass.
+
+    Examples:
+        >>> failing(spec, record["scores"], baseline_id=0, trial_id=4)  # doctest: +SKIP
+        ['calibration.abs_shift']
     """
     if trial_id == baseline_id:
         return []
@@ -399,6 +416,10 @@ def admissible_filter(
 
     ``evaluations`` are the improver's records (``{"spec", "status",
     "scores"}``).
+
+    Examples:
+        >>> fails = admissible_filter(improver.evaluations, baseline_id=0)  # doctest: +SKIP
+        >>> [t.trial_id for t in improver.trials if not fails(t)]  # doctest: +SKIP
     """
     active = [e for e in evaluations if e["status"] == "active"]
 
@@ -414,6 +435,11 @@ def admissible_filter(
 
 
 def evaluation_inputs(state, spec, trials: Sequence[Trial]):
+    """The labels, folds, columns and predictions an evaluation is run on.
+
+    Examples:
+        >>> y_true, fold, info, probs = evaluation_inputs(improver.state, spec, trials)  # doctest: +SKIP
+    """
     oof = state.oof_predictions(trials[0].trial_id)
     columns = state._columns()
     info = {c: columns[c][oof["index"]] for c in ["patient", *spec.needs]}
@@ -422,7 +448,11 @@ def evaluation_inputs(state, spec, trials: Sequence[Trial]):
 
 
 def score_with_evaluations(state, trial: Trial) -> None:
-    """Scores a new trial with every adopted or report-only evaluation."""
+    """Scores a new trial with every adopted or report-only evaluation.
+
+    Examples:
+        >>> score_with_evaluations(improver.state, improver.trials[-1])  # doctest: +SKIP
+    """
     kept = [e for e in state.evaluations if e["status"] in ("active", "report_only")]
     oof = state.oof_predictions(trial.trial_id)
     if not kept or oof is None or oof["split"] != "train":
@@ -442,6 +472,11 @@ def score_with_evaluations(state, trial: Trial) -> None:
 
 
 def save_evaluations(state) -> None:
+    """Writes ``evaluations.json`` and each evaluation's code to the run.
+
+    Examples:
+        >>> save_evaluations(improver.state)  # doctest: +SKIP
+    """
     if not state.run_dir:
         return
     records = []
@@ -461,7 +496,11 @@ def save_evaluations(state) -> None:
 
 
 def load_evaluations(state) -> None:
-    """Restores a resumed run's evaluations, with their code and scores."""
+    """Restores a resumed run's evaluations, with their code and scores.
+
+    Examples:
+        >>> load_evaluations(improver.state)  # doctest: +SKIP
+    """
     records = state.store.read_json("evaluations.json") or []
     for r in records:
         code = state.store.read_text(f"evaluations/{r['name']}.py")
@@ -478,7 +517,11 @@ def load_evaluations(state) -> None:
 
 
 def test_guardrails(state, test_dataset, y_true, probs) -> dict[str, Any]:
-    """Each active guardrail's value on test, for every config scored there."""
+    """Each active guardrail's value on test, for every config scored there.
+
+    Examples:
+        >>> test_guardrails(improver.state, test_ds, y_true, probs)  # doctest: +SKIP
+    """
     active = [e for e in state.evaluations if e["status"] == "active"]
     if not active:
         return {}
@@ -506,7 +549,11 @@ def test_guardrails(state, test_dataset, y_true, probs) -> dict[str, Any]:
 
 
 def guardrail_summary(state) -> list[dict[str, Any]]:
-    """Each evaluation for the report: spec, status, reason, failing trials."""
+    """Each evaluation for the report: spec, status, reason, failing trials.
+
+    Examples:
+        >>> [g["status"] for g in guardrail_summary(improver.state)]  # doctest: +SKIP
+    """
     fails = state.guardrail_failures()
     return [{
         **e["spec"].to_dict(), "status": e["status"], "reason": e["reason"],

@@ -12,7 +12,6 @@ from collections.abc import Iterator
 from pyhealth.datasets import SampleDataset
 from pyhealth.processors import LabelProcessor
 
-
 MAX_LABEL_SCAN = 50000
 """Most samples whose labels are read to count positives; reading a label runs
 the sample's processors, so larger datasets skip the count."""
