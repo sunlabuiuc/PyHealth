@@ -16,7 +16,7 @@ import torch
 from pyhealth.data import Patient
 from pyhealth.datasets import MEDSDataset, create_sample_dataset, get_dataloader
 from pyhealth.models import Delphi
-from pyhealth.models.delphi import DelphiAgeEncoding
+from pyhealth.models.delphi import DelphiAgeEncoding, _competing_nll
 from pyhealth.processors import LabelProcessor
 from pyhealth.tasks import (
     DelphiTrajectoryMEDS,
@@ -206,6 +206,16 @@ class TestDelphiModel(unittest.TestCase):
         self.assertTrue(torch.isfinite(again["loss"]).all())
         self.assertEqual(again["logit"].shape[0], 1)
 
+    def _full_hazard(self, model, batch):
+        codes, ages = model._codes_and_ages(batch["codes"], batch["ages"])
+        hidden, _ = model._hidden(codes, ages)
+        full = model.lm_head(hidden)
+        last = (codes != 0).sum(dim=1).clamp(min=1) - 1
+        index = torch.arange(codes.size(0), device=codes.device)
+        hazard = full[index, last].clone()
+        hazard[..., 0] = float("-inf")
+        return hazard
+
     def test_dt_pred_is_mean_wait_without_t_min(self):
         token_a = self.vocab["A"]
         batch = self._labeled_batch([[token_a]], [[0.0]], ["B"], [9.0])
@@ -213,10 +223,50 @@ class TestDelphiModel(unittest.TestCase):
             model = _model(self.dataset, t_min=t_min)
             model.eval()
             output = model(**batch)
-            expected = torch.exp(-torch.logsumexp(output["logit"], dim=-1))
+            hazard = self._full_hazard(model, batch)
+            expected = torch.exp(-torch.logsumexp(hazard, dim=-1))
             self.assertTrue(torch.allclose(output["dt_pred"], expected, atol=1e-5))
-            shifted = expected + t_min
-            self.assertFalse(torch.allclose(output["dt_pred"], shifted, atol=1e-3))
+            self.assertFalse(torch.allclose(output["dt_pred"], expected + t_min, atol=1e-3))
+        longer = self._labeled_batch(
+            [[token_a, self.vocab["B"]]],
+            [[0.0, 12.0]],
+            ["C"],
+            [6.0],
+        )
+        model = _model(self.dataset, t_min=1.0, causal_sequence_loss=True)
+        model.eval()
+        longer_out = model(**longer)
+        longer_expected = torch.exp(-torch.logsumexp(self._full_hazard(model, longer), dim=-1))
+        self.assertTrue(torch.allclose(longer_out["dt_pred"], longer_expected, atol=1e-5))
+
+    def test_labeled_time_loss_uses_full_vocabulary(self):
+        token_a = self.vocab["A"]
+        unk = self.vocab["<unk>"]
+        label_ids = {int(index) for index in self.model.label_to_token_idx.tolist()}
+        self.assertNotIn(unk, label_ids)
+        batch = self._labeled_batch([[token_a]], [[0.0]], ["B"], [9.0])
+
+        def boost(_module, _inputs, output):
+            boosted = output.clone()
+            boosted[..., unk] = 8.0
+            return boosted
+
+        handle = self.model.lm_head.register_forward_hook(boost)
+        try:
+            self.model.eval()
+            output = self.model(**batch)
+            hazard = self._full_hazard(self.model, batch)
+        finally:
+            handle.remove()
+        expected_nll, _ = _competing_nll(
+            hazard, batch["time_to_next"].view(-1), self.model.t_min
+        )
+        self.assertTrue(torch.allclose(output["loss_dt"], expected_nll.mean(), atol=1e-5))
+        expected_dt = torch.exp(-torch.logsumexp(hazard, dim=-1))
+        self.assertTrue(torch.allclose(output["dt_pred"], expected_dt, atol=1e-5))
+        label_only = torch.exp(-torch.logsumexp(output["logit"], dim=-1))
+        gap = (output["dt_pred"] - label_only).abs().detach()
+        self.assertGreater(float(gap), 0.05)
 
     def test_delphi_mask_ties_and_birth_age_zero(self):
         token_a = self.vocab["A"]

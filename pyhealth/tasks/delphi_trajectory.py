@@ -229,8 +229,11 @@ class DelphiTrajectoryMIMIC4(BaseTask):
     that admission's timestamp and are ordered by ``seq_num``, so
     ``mask_ties=True`` hides co-occurring codes from each other. An
     in-hospital ``deathtime``, or else ``dod``, adds a terminal ``DEATH``
-    token. A date-only ``dod`` of midnight is moved forward to the last
-    diagnosis when it would otherwise precede that diagnosis.
+    token. A death time earlier than the last diagnosis, whether
+    ``deathtime`` or ``dod``, is moved forward to that diagnosis.
+    ``icd_code`` is used as the token and ``icd_version`` is not, so an
+    ICD-9 code and an ICD-10 code for the same condition stay different
+    tokens.
 
     Args:
         min_events: Shortest history that yields a sample. Default 1.
@@ -329,10 +332,12 @@ class DelphiTrajectoryUKB(DelphiTrajectoryMEDS):
     """Next-event samples from pre-extracted UK Biobank events.
 
     Subclasses :class:`DelphiTrajectoryMEDS` because a pre-extracted UK
-    Biobank table has the same shape as MEDS: an ``event_type``, a timestamp
-    and a ``code``. This class only sets ``event_type="ukb"`` and adds
-    ``UKB_BIRTH`` to the MEDS and SNOMED birth codes. UK Biobank access is
-    credentialed and is not downloaded here.
+    Biobank table has the same shape as MEDS. Build one event per code with
+    ``event_type="ukb"``, a timestamp, and a ``code`` attribute (stored as
+    ``ukb/code``). This class only sets that event type and adds
+    ``UKB_BIRTH`` to the MEDS and SNOMED birth codes. No dataset loader
+    produces these rows. UK Biobank access is credentialed and is not
+    downloaded here.
 
     Examples:
         >>> from pyhealth.tasks import DelphiTrajectoryUKB

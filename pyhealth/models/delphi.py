@@ -196,7 +196,10 @@ class Delphi(BaseModel):
     label, so :class:`~pyhealth.trainer.Trainer` computes multiclass
     metrics) and ``time_to_next`` (days until that event). The loss is
     next-event cross-entropy plus the exponential competing-risks
-    log-likelihood of the wait. ``generate_trajectory`` samples both.
+    log-likelihood of the wait. Cross-entropy uses the label vocabulary.
+    The time loss and ``dt_pred`` use every token except padding, which is
+    the rate ``generate_trajectory`` samples before ``no_repeat`` or
+    ``top_k``.
 
     Args:
         dataset: Sample dataset whose processors supply the code and label
@@ -342,10 +345,10 @@ class Delphi(BaseModel):
         attn = torch.stack(weights).mean(dim=(0, 2))
         return hidden, attn
 
-    def _class_logit(self, full_logit: torch.Tensor, codes: torch.Tensor) -> torch.Tensor:
+    def _last_logits(self, full_logit: torch.Tensor, codes: torch.Tensor) -> torch.Tensor:
         last = (codes != 0).sum(dim=1).clamp(min=1) - 1
         batch = torch.arange(codes.size(0), device=codes.device)
-        return full_logit[batch, last].index_select(-1, self.label_to_token_idx)
+        return full_logit[batch, last]
 
     def forward(self, **kwargs: Any) -> dict[str, torch.Tensor]:
         """Score the next disease and the waiting time.
@@ -354,14 +357,18 @@ class Delphi(BaseModel):
             ``logit`` and ``y_prob`` over the label vocabulary at the last
             real token, plus ``loss``, ``loss_ce``, ``loss_dt``, ``y_true``
             and ``dt_pred`` when labels are present. ``dt_pred`` is the
-            expected waiting time in days, ``exp(-logsumexp(logit))``.
-            ``t_min`` shifts only the time loss, so it is not included.
-            ``attn`` is the attention averaged over layers and heads.
+            expected waiting time in days. It is ``exp(-logsumexp)`` over
+            the full vocabulary at the last real token, with padding
+            removed, the same rate as the time loss. ``t_min`` shifts only
+            that loss, so it is not included. Class logits stay on the
+            label vocabulary for cross-entropy. ``attn`` is the attention
+            averaged over layers and heads.
         """
         codes, ages = self._codes_and_ages(kwargs["codes"], kwargs["ages"])
         hidden, attn = self._hidden(codes, ages)
         full_logit = self.lm_head(hidden)
-        class_logit = self._class_logit(full_logit, codes)
+        last_logit = self._last_logits(full_logit, codes)
+        class_logit = last_logit.index_select(-1, self.label_to_token_idx)
         output: dict[str, torch.Tensor] = {
             "logit": class_logit,
             "y_prob": F.softmax(class_logit, dim=-1),
@@ -371,7 +378,9 @@ class Delphi(BaseModel):
             return output
         y_true = kwargs["next_code"].to(self.device).long().view(-1)
         waits = kwargs["time_to_next"].to(self.device).float().view(-1)
-        target_nll, _ = _competing_nll(class_logit, waits, self.t_min)
+        target_hazard = last_logit.clone()
+        target_hazard[..., 0] = float("-inf")
+        target_nll, _ = _competing_nll(target_hazard, waits, self.t_min)
         loss_ce = F.cross_entropy(class_logit, y_true)
         loss_dt = target_nll.mean()
         n_target = class_logit.size(0)
@@ -383,10 +392,12 @@ class Delphi(BaseModel):
             if bool(step.any()):
                 prefix_logit = full_logit[:, :-1][step]
                 prefix_ce = F.cross_entropy(prefix_logit, codes[:, 1:][step])
-                hazard = full_logit[:, :-1].clone()
-                hazard[..., 0] = float("-inf")
+                prefix_hazard = full_logit[:, :-1].clone()
+                prefix_hazard[..., 0] = float("-inf")
                 prefix_dt = (ages[:, 1:] - ages[:, :-1]).clamp(min=0)
-                prefix_nll, _ = _competing_nll(hazard[step], prefix_dt[step], self.t_min)
+                prefix_nll, _ = _competing_nll(
+                    prefix_hazard[step], prefix_dt[step], self.t_min
+                )
                 n_prefix = int(step.sum())
                 loss_ce = (loss_ce * n_target + prefix_ce * n_prefix) / (
                     n_target + n_prefix
@@ -400,7 +411,7 @@ class Delphi(BaseModel):
                 "loss_ce": loss_ce,
                 "loss_dt": loss_dt,
                 "loss": loss_ce + loss_dt,
-                "dt_pred": torch.exp(-torch.logsumexp(class_logit, dim=-1)),
+                "dt_pred": torch.exp(-torch.logsumexp(target_hazard, dim=-1)),
             }
         )
         return output
@@ -419,11 +430,13 @@ class Delphi(BaseModel):
         """Sample a continuation of each trajectory.
 
         Waiting time is the minimum of independent exponential races, one
-        per token, which is an exponential wait at the total rate and a
-        categorical disease. Padding (index 0) is never sampled. Tokens
-        already in the history are blocked when ``no_repeat`` is set,
-        except ``<unk>`` (index 1). Generation of a row stops at
-        ``max_new_tokens``, ``max_age``, or any ``termination_tokens``.
+        per token except padding. That total rate is the same one the time
+        loss and ``dt_pred`` use. The sampled disease is which race wins.
+        Padding (index 0) is never sampled. Tokens already in the history
+        are blocked when ``no_repeat`` is set, except ``<unk>`` (index 1),
+        and ``top_k`` can drop further tokens before the draw. Generation
+        of a row stops at ``max_new_tokens``, ``max_age``, or any
+        ``termination_tokens``.
 
         Args:
             codes: Token ids ``[B, T]``. Padding is 0 and is stripped.
