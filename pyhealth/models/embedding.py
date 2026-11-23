@@ -302,9 +302,15 @@ class EmbeddingModel(BaseModel):
         for field_name, tensor in inputs.items():
             processor = self.dataset.input_processors.get(field_name, None)
 
-            # A processor that emits several tensors names them in schema():
-            # embed its "value", and use its "mask", when it has one, in place
-            # of a mask guessed from zeros (a standardized value can be 0).
+            if field_name not in self.embedding_layers:
+                # No embedding layer -> passthrough, tuples whole
+                embedded[field_name] = tensor
+                continue
+
+            # A field to embed may arrive as its processor's whole tuple,
+            # named by schema(): embed its "value", and use its "mask", when
+            # it has one, instead of a mask guessed from zeros (a standardized
+            # value can be 0).
             if isinstance(tensor, (tuple, list)) and hasattr(processor, "schema"):
                 parts = dict(zip(processor.schema(), tensor))
                 if "value" in parts:
@@ -313,11 +319,6 @@ class EmbeddingModel(BaseModel):
                         masks is None or field_name not in masks
                     ):
                         masks = {**(masks or {}), field_name: parts["mask"]}
-
-            if field_name not in self.embedding_layers:
-                # No embedding layer -> passthrough
-                embedded[field_name] = tensor
-                continue
 
             # Check if it's a transformer model
             layer = self.embedding_layers[field_name]

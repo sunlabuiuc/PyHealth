@@ -5,10 +5,12 @@ value that was not measured::
 
     {"time": [0, 1, 2], "values": [[7.4, nan], [nan, nan], [7.3, 90.0]]}
 
-and a static record as ``{"values": [[63.0, 1.0, nan, 80.0]]}``. The
-processors here turn those into plain padded tensors with an explicit mask,
-which is what most sequence models read. They apply the same preprocessing
-as the ``"jagged"`` view: forward fill (series only), the training mean, and
+and a static record as ``{"values": [[63.0, 1.0, nan, 80.0]]}``. Most
+sequence models read plain padded tensors with a mask instead of the record
+structures of :class:`~pyhealth.processors.JaggedFeatureProcessor`. The
+processors here give them that layout. The imputation and scaling are done
+by a ``JaggedFeatureProcessor`` inside, so the values are exactly those of
+the ``"jagged"`` view: forward fill (series only), the training mean, then
 zero for a feature never seen in training; standardization; and optional
 missing-value indicators.
 """
@@ -23,12 +25,16 @@ import torch
 
 from . import register_processor
 from .base_processor import LegacyFeatureProcessor
+from .jagged_processor import JaggedFeatureProcessor
 
 
 class _DenseNumeric(LegacyFeatureProcessor):
-    """Shared fitting and scaling of the dense numeric processors."""
+    """Builds and fits the inner jagged processor of one numeric level."""
 
     stores_tensor = True
+    learns_statistics = True  # the imputation means, at least
+    #: The jagged ``ordering`` of the level: ``"series"`` or ``"single"``.
+    ordering: str
 
     def __init__(
         self,
@@ -39,76 +45,45 @@ class _DenseNumeric(LegacyFeatureProcessor):
         self.forward_fill = forward_fill
         self.normalize = normalize
         self.missing_indicator = missing_indicator
-        # Only standardization learns from the data.
-        self.learns_statistics = normalize
+        self.jagged: JaggedFeatureProcessor | None = None
         self.n_features: int | None = None
-        self.mean: np.ndarray | None = None
-        self.std: np.ndarray | None = None
-
-    @staticmethod
-    def _values(value: Any) -> np.ndarray:
-        """The ``[N, F]`` float array of a records value, ``NaN`` if missing."""
-        values = value["values"] if isinstance(value, dict) else value
-        array = np.asarray(values, dtype=np.float64)
-        if array.ndim == 1:
-            array = array[None, :]
-        return array
 
     def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
-        """Learns each feature's mean and standard deviation, ignoring ``NaN``.
+        """Fits the imputation and scaling, on the training part with a split.
 
         Args:
             samples: Sample dictionaries; with a split, the training part.
             field: Key of the field in each sample.
         """
-        count = total = squares = None
         for sample in samples:
-            values = self._values(sample[field])
-            if values.size == 0:
-                continue
-            if count is None:
-                self.n_features = values.shape[1]
-                count = np.zeros(self.n_features)
-                total = np.zeros(self.n_features)
-                squares = np.zeros(self.n_features)
-            seen = ~np.isnan(values)
-            filled = np.where(seen, values, 0.0)
-            count += seen.sum(axis=0)
-            total += filled.sum(axis=0)
-            squares += (filled**2).sum(axis=0)
-        if count is None:
+            values = np.asarray(sample[field]["values"], dtype=np.float64)
+            if values.size:
+                self.n_features = values.shape[-1]
+                break
+        if self.n_features is None:
             raise ValueError(f"No values found for field '{field}'.")
-        if not self.normalize:
-            return
-        observed = count > 0
-        mean = np.where(observed, total / np.maximum(count, 1), 0.0)
-        variance = np.where(observed, squares / np.maximum(count, 1) - mean**2, 1.0)
-        std = np.sqrt(np.maximum(variance, 0.0))
-        # A constant or never-measured feature is left unscaled.
-        self.mean = mean
-        self.std = np.where(std > 0, std, 1.0)
-
-    def _dense(self, value: Any) -> tuple[np.ndarray, np.ndarray]:
-        """Scaled and imputed ``[N, F]`` values and the ``[N, F]`` missing flags."""
-        values = self._values(value)
-        missing = np.isnan(values)
+        impute = [{"method": "mean", "by_dims": ()}, {"method": "zero"}]
+        if self.forward_fill:
+            impute.insert(0, {"method": "forward_fill"})
+        level: dict[str, Any] = {
+            "ordering": self.ordering,
+            "values": [self.n_features],
+            "impute": impute,
+            "missing_indicator": self.missing_indicator,
+        }
         if self.normalize:
-            values = (values - self.mean) / self.std
-        if self.forward_fill and len(values) > 1:
-            # Carry each feature's last measurement forward.
-            index = np.where(~missing, np.arange(len(values))[:, None], -1)
-            last = np.maximum.accumulate(index, axis=0)
-            carried = np.take_along_axis(values, np.maximum(last, 0), axis=0)
-            values = np.where(last >= 0, carried, np.nan)
-        # With standardization 0 is the training mean; without it, plain zero.
-        values = np.nan_to_num(values, nan=0.0)
-        return values, missing
+            level["normalize"] = {"method": "zscore"}
+        self.jagged = JaggedFeatureProcessor(levels=[level])
+        self.jagged.fit(samples, field)
 
     def _tensor(self, value: Any) -> torch.Tensor:
-        values, missing = self._dense(value)
+        """The ``[N, F']`` values, with the missing indicators appended."""
+        roles = (role for _, role in self.jagged.schema())
+        parts = dict(zip(roles, self.jagged.process(value)))
+        values = parts["values"].float()
         if self.missing_indicator:
-            values = np.concatenate([values, missing.astype(np.float64)], axis=1)
-        return torch.tensor(values, dtype=torch.float32)
+            values = torch.cat([values, parts["mask"].float()], dim=-1)
+        return values
 
     def size(self) -> int | None:
         """Width of the value tensor's last dimension, or None before fitting."""
@@ -148,7 +123,7 @@ class DenseSeriesProcessor(_DenseNumeric):
         >>> from pyhealth.processors import DenseSeriesProcessor
         >>> nan = float("nan")
         >>> samples = [{"x": {"time": [0, 1, 2], "values": [[1.0], [nan], [3.0]]}}]
-        >>> processor = DenseSeriesProcessor(normalize=False, forward_fill=True)
+        >>> processor = DenseSeriesProcessor(normalize=False)
         >>> processor.fit(samples, "x")
         >>> value, mask = processor.process(samples[0]["x"])
         >>> value
@@ -158,6 +133,8 @@ class DenseSeriesProcessor(_DenseNumeric):
         >>> mask
         tensor([1., 1., 1.])
     """
+
+    ordering = "series"
 
     def __init__(
         self,
@@ -189,18 +166,20 @@ class DenseStaticProcessor(_DenseNumeric):
 
     Args:
         normalize: Standardize each feature with the training mean and
-            standard deviation; a missing value then becomes 0, the mean.
+            standard deviation.
         missing_indicator: Append one "was not measured" flag per feature.
 
     Examples:
         >>> from pyhealth.processors import DenseStaticProcessor
         >>> nan = float("nan")
-        >>> samples = [{"s": {"values": [[60.0, nan]]}}]
+        >>> samples = [{"s": {"values": [[60.0, nan]]}}, {"s": {"values": [[70.0, 2.0]]}}]
         >>> processor = DenseStaticProcessor(normalize=False)
         >>> processor.fit(samples, "s")
         >>> processor.process(samples[0]["s"])
-        tensor([60.,  0.,  0.,  1.])
+        tensor([60.,  2.,  0.,  1.])
     """
+
+    ordering = "single"
 
     def __init__(self, normalize: bool = True, missing_indicator: bool = True) -> None:
         super().__init__(False, normalize, missing_indicator)

@@ -54,5 +54,48 @@ class TestEmbeddingModelPadding(unittest.TestCase):
         self.assertGreater(embedding.weight.grad[token_index].abs().sum().item(), 0)
 
 
+class TestEmbeddingModelTuples(unittest.TestCase):
+    """Tuple-valued fields: embedded by their "value", passed through whole."""
+
+    def test_tuple_fields(self):
+        from pyhealth.processors.base_processor import FeatureProcessor
+
+        class TimeValue(FeatureProcessor):  # no embedding layer for it
+            def process(self, value):
+                return torch.tensor(value["time"]), torch.tensor(value["value"])
+
+            def schema(self):
+                return ("time", "value")
+
+        samples = [
+            {
+                "patient_id": f"p{i}",
+                "series": {"time": [0.0, 1.0], "values": [[float(i)], [0.0]]},
+                "other": {"time": [0.0], "value": [float(i)]},
+                "label": i % 2,
+            }
+            for i in range(4)
+        ]
+        dataset = create_sample_dataset(
+            samples,
+            {"series": ("dense_series", {"normalize": False}), "other": TimeValue},
+            {"label": "binary"},
+        )
+        model = EmbeddingModel(dataset, embedding_dim=8)
+        time, value = torch.tensor([[0.0]]), torch.tensor([[1.0]])
+        series_value, series_mask = dataset[0]["series"]
+        embedded, masks = model(
+            {"series": (series_value[None], series_mask[None]), "other": (time, value)},
+            output_mask=True,
+        )
+        # A field without a layer keeps its whole tuple, time included.
+        self.assertIsInstance(embedded["other"], tuple)
+        self.assertIs(embedded["other"][0], time)
+        # A field with a layer embeds its value and uses its own mask, so a
+        # step whose value is 0 is not taken for padding.
+        self.assertEqual(tuple(embedded["series"].shape), (1, 2, 8))
+        self.assertTrue(torch.equal(masks["series"], series_mask[None]))
+
+
 if __name__ == "__main__":
     unittest.main()
