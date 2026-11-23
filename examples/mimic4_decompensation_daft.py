@@ -27,16 +27,22 @@ By default the script writes a small synthetic MIMIC-IV + MIMIC-CXR tree (random
 values and images, no patient data) and runs the whole pipeline on it in about a
 minute on a CPU, so it runs without credentialed data access. Those numbers say
 nothing about performance. For the real data (credentialed PhysioNet access), pass
-the roots:
+the roots. These are the settings of the results below; run it once per seed
+(``--seed 0``, ``1`` and ``2``) and average the test scores:
 
     python examples/mimic4_decompensation_daft.py \\
         --ehr-root /path/to/mimiciv/3.1 --cxr-root /path/to/mimic-cxr-jpg/2.1.0 \\
-        --task mortality --image-size 224 --backbone resnet34 --hidden 256 \\
+        --task mortality --paired-only --split 0.7 0.1 0.2 --seed 0 \\
+        --image-size 224 --backbone resnet34 --hidden 256 \\
         --epochs 15 --lr 3e-4 --batch-size 32 --pretrained
 
 Results on the real data (MIMIC-IV 3.1, paired stays, 15 epochs, lr 3e-4, batch 32,
 ResNet-34 from ImageNet weights, best epoch by validation AUROC, mean +- std over
-three seeds, each a different 70/10/20 patient split).
+three seeds, each a different 70/10/20 patient split). They were produced with these
+tasks, models and settings and the PyHealth ``Trainer``, by a runner in our project
+repository that also trains :class:`~pyhealth.models.MedFuse`; this script covers
+the EHR-only and DAFT rows. Small differences from the table are expected across
+hardware (the runs used an Apple GPU).
 
 In-hospital mortality (``EHRCXRMortalityMIMIC4``, 4,689 / 655 / 1,338 stays for
 seed 0):
@@ -311,6 +317,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--split",
+        type=float,
+        nargs=3,
+        default=(0.6, 0.2, 0.2),
+        metavar=("TRAIN", "VAL", "TEST"),
+        help="patient split ratios (the results above use 0.7 0.1 0.2)",
+    )
+    parser.add_argument(
+        "--paired-only",
+        action="store_true",
+        help="keep only samples with an X-ray (the paired cohort of the results)",
+    )
     return parser.parse_args()
 
 
@@ -334,11 +353,15 @@ def main() -> None:
             num_workers=1,
         )
         if args.task == "decompensation":
-            task = MedModDecompensationMIMIC4(image_size=args.image_size)
+            task = MedModDecompensationMIMIC4(
+                image_size=args.image_size, paired_only=args.paired_only
+            )
         else:
-            task = EHRCXRMortalityMIMIC4(image_size=args.image_size)
+            task = EHRCXRMortalityMIMIC4(
+                image_size=args.image_size, paired_only=args.paired_only
+            )
         train, val, test = dataset.set_task(
-            task, split=PatientSplit(ratios=(0.6, 0.2, 0.2), seed=args.seed)
+            task, split=PatientSplit(ratios=tuple(args.split), seed=args.seed)
         )
         label = next(iter(task.output_schema))
         for name, part in (("train", train), ("val", val), ("test", test)):
