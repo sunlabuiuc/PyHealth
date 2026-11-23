@@ -3,7 +3,11 @@
 import pytest
 import torch
 import torch.nn.functional as F
-from pyhealth.models.protoecgnet_h1 import paired_similarity_objective
+from pyhealth.models.protoecgnet_h1 import (
+    MorphologyPrototypeBranch,
+    paired_similarity_objective,
+)
+from torch import nn
 
 
 def test_known_answer_and_analytic_two_sided_gradients():
@@ -153,3 +157,185 @@ def test_device_mismatch_is_rejected_before_computation():
             torch.ones(1, 2),
             torch.ones(1, 2, device="meta"),
         )
+
+
+class TinyMorphologyBackbone(nn.Module):
+    """Small substitute for branch unit tests, not a ResNet parity claim."""
+
+    def __init__(self, in_leads: int, pretrained: bool = False) -> None:
+        super().__init__()
+        assert pretrained is False
+        self.out_channels = 4
+        self.conv = nn.Conv1d(in_leads, self.out_channels, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.conv(x)
+
+
+@pytest.fixture
+def morphology(monkeypatch):
+    from pyhealth.models import protoecgnet
+
+    monkeypatch.setattr(protoecgnet, "ResNet2dBackbone", TinyMorphologyBackbone)
+    with torch.random.fork_rng():
+        torch.manual_seed(681)
+        return MorphologyPrototypeBranch(2, 2, proto_dim=4, prototypes_per_label=2)
+
+
+def test_morphology_configuration_and_bank_ownership(morphology):
+    assert morphology.topk == 5
+    assert morphology.window == 3
+    assert morphology.prototype_vectors.shape == (4, 4, 3)
+    assert morphology.classifier.bias is None
+    torch.testing.assert_close(
+        morphology.prototype_class_identity,
+        torch.tensor([[1.0, 0.0], [1.0, 0.0], [0.0, 1.0], [0.0, 1.0]]),
+    )
+
+
+def test_reference_scale_and_epsilon_have_known_answers(morphology):
+    # D=4, L=3 => int(sqrt(12))/3 = 1. Both vectors are twelve ones.
+    with torch.no_grad():
+        morphology.prototype_vectors.fill_(1.0)
+    windows = torch.ones(1, 2, 12)
+    actual = morphology.similarity_windows(windows)
+    torch.testing.assert_close(actual, torch.full((1, 2, 4), 12 / (12 + 1e-4)))
+    # At tiny norms, F.normalize would hide this epsilon placement difference.
+    windows = torch.full((1, 2, 12), 1e-5)
+    expected = 12e-5 / ((12e-10 + 1e-4) * (12 + 1e-4)) ** 0.5
+    torch.testing.assert_close(
+        morphology.similarity_windows(windows), torch.full((1, 2, 4), expected)
+    )
+
+
+def test_zero_vectors_are_finite_and_keep_gradients(morphology):
+    with torch.no_grad():
+        morphology.prototype_vectors.zero_()
+    windows = torch.zeros(1, 5, 12, requires_grad=True)
+    scores = morphology.similarity_windows(windows)
+    gradients = torch.autograd.grad(
+        scores.sum(), (windows, morphology.prototype_vectors)
+    )
+    assert torch.count_nonzero(scores) == 0
+    assert all(torch.isfinite(gradient).all() for gradient in gradients)
+
+
+def test_reference_activation_buffer_dtype_is_preserved(morphology):
+    morphology.double()
+    windows = torch.ones(1, 5, 12, dtype=torch.float64, requires_grad=True)
+    scores = morphology.similarity_windows(windows)
+    assert scores.dtype == torch.get_default_dtype()
+    gradients = torch.autograd.grad(
+        scores.sum(), (windows, morphology.prototype_vectors)
+    )
+    assert all(gradient.dtype == torch.float64 for gradient in gradients)
+    assert all(gradient.abs().sum() > 0 for gradient in gradients)
+
+
+def test_classwise_reduction_includes_all_zero_targets(morphology):
+    scores = torch.tensor([[1.0, 2.0, 3.0, 4.0], [4.0, 3.0, 2.0, 1.0]])
+    targets = torch.tensor([[1.0, 0.0], [0.0, 0.0]])
+    terms = morphology.prototype_terms(scores, targets)
+    assert terms["clst"].item() == -0.5
+    assert terms["sep"].item() == 4.0
+    assert terms["spars"].item() == 10.0
+    assert terms["cnrst"].item() == 0.0
+
+
+def test_zero_mask_entries_participate_in_maximum(morphology):
+    terms = morphology.prototype_terms(
+        torch.tensor([[-1.0, -2.0, -3.0, -4.0]]), torch.tensor([[1.0, 0.0]])
+    )
+    assert terms["clst"].item() == 0.0
+    assert terms["sep"].item() == -0.5
+    assert terms["spars"].item() == 0.0
+
+
+def test_explicit_zero_cooccurrence_does_not_disable_contrastive(morphology):
+    scores = torch.ones(1, 4)
+    targets = torch.zeros(1, 2)
+    # Identical vectors have off-diagonal cosine 1: the negative mask is active.
+    with torch.no_grad():
+        morphology.prototype_vectors.fill_(1.0)
+    actual = morphology.prototype_terms(scores, targets, torch.zeros(2, 2))
+    torch.testing.assert_close(actual["cnrst"], torch.tensor((1 - 1e-6) / 2))
+
+
+def test_complete_original_loss_has_all_regularizers_once(morphology):
+    scores = torch.tensor([[1.0, 2.0, 3.0, 4.0]], requires_grad=True)
+    targets = torch.tensor([[1.0, 0.0]])
+    logits = morphology.classifier(scores)
+    weights = torch.tensor([2.0, 3.0])
+    result = morphology.original_objective(
+        logits,
+        targets,
+        scores,
+        weights,
+        torch.eye(2),
+        lam_clst=2.0,
+        lam_sep=3.0,
+        lam_spars=4.0,
+        lam_div=5.0,
+        lam_cnrst=6.0,
+    )
+    expected = F.binary_cross_entropy_with_logits(logits, targets, pos_weight=weights)
+    expected = expected + sum(
+        coefficient * result[name]
+        for name, coefficient in zip(
+            ("clst", "sep", "spars", "div", "cnrst"), range(2, 7)
+        )
+    )
+    torch.testing.assert_close(result["loss"], expected)
+    gradients = torch.autograd.grad(
+        result["loss"],
+        (scores, morphology.prototype_vectors, morphology.classifier.weight),
+    )
+    assert all(torch.isfinite(gradient).all() for gradient in gradients)
+    assert all(gradient.abs().sum() > 0 for gradient in gradients)
+
+
+def test_forward_returns_top5_mean_and_reconstructable_logits(morphology):
+    x = torch.arange(36).reshape(2, 2, 9).float() / 36
+    logits, pooled, best = morphology(x)
+    similarities = morphology.similarity_windows(
+        morphology.windows(morphology.feature_map(x))
+    )
+    assert logits.shape == (2, 2)
+    assert pooled.shape == best.shape == (2, 4)
+    torch.testing.assert_close(
+        pooled, similarities.sort(dim=1, descending=True).values[:, :5].mean(1)
+    )
+    torch.testing.assert_close(best, similarities.argmax(1))
+    contributions = pooled[:, None, :] * morphology.classifier.weight[None]
+    torch.testing.assert_close(logits, contributions.sum(-1))
+    logits.sum().backward()
+    assert morphology.backbone.conv.weight.grad is not None
+    assert morphology.prototype_vectors.grad is not None
+
+
+def test_fewer_than_five_windows_is_rejected(morphology):
+    with pytest.raises(ValueError, match="at least five windows"):
+        morphology(torch.ones(1, 2, 6))
+
+
+@pytest.mark.parametrize(
+    "kwargs", [{"num_labels": 0}, {"proto_dim": True}, {"prototypes_per_label": -1}]
+)
+def test_invalid_morphology_configuration_is_rejected(kwargs):
+    options = {"in_channels": 2, "num_labels": 2, **kwargs}
+    with pytest.raises(ValueError, match="positive integer"):
+        MorphologyPrototypeBranch(**options)
+
+
+@pytest.mark.parametrize("shape", [(2, 12), (1, 2, 11), (0, 2, 12), (1, 0, 12)])
+def test_invalid_window_shapes_are_rejected(morphology, shape):
+    with pytest.raises(ValueError):
+        morphology.similarity_windows(torch.ones(shape))
+
+
+@pytest.mark.parametrize(
+    "matrix", [torch.eye(3), torch.full((2, 2), float("nan")), torch.full((2, 2), 1.1)]
+)
+def test_invalid_cooccurrence_is_rejected(morphology, matrix):
+    with pytest.raises(ValueError, match="cooccurrence"):
+        morphology.prototype_terms(torch.ones(1, 4), torch.ones(1, 2), matrix)
