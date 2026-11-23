@@ -157,6 +157,29 @@ class TestViewSelection(unittest.TestCase):
                 def __call__(self, patient):
                     return []
 
+    def test_subclass_can_change_only_the_default_view(self):
+        class DenseFirst(ViewTask):
+            default_view = "scaled"
+
+        self.assertEqual(DenseFirst().view, "scaled")
+        self.assertEqual(DenseFirst.input_schema, {"value": Scale})
+        self.assertEqual(ViewTask().view, "plain")
+        with self.assertRaisesRegex(TypeError, "not one of its views"):
+
+            class Wrong(ViewTask):
+                default_view = "missing"
+
+        with self.assertRaisesRegex(TypeError, "has no views"):
+
+            class NoViews(BaseTask):
+                task_name = "no_views"
+                input_schema = {"x": "raw"}
+                output_schema = {"y": "binary"}
+                default_view = "x"
+
+                def __call__(self, patient):
+                    return []
+
     def test_subclass_with_its_own_schema_drops_inherited_views(self):
         # InHospitalSurvivalMIMIC4 extends the YAIB base with other fields.
         self.assertEqual(InHospitalSurvivalMIMIC4.views, {})

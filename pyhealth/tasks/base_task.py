@@ -75,28 +75,31 @@ class BaseTask(ABC):
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         own = cls.__dict__
-        if "views" in own:
-            views = own["views"]
-            if not views:
-                return
-            default = cls.default_view
-            if default is None:
-                default = next(iter(views))
-                cls.default_view = default
-            if default not in views:
-                raise TypeError(
-                    f"{cls.__name__}.default_view is {default!r}, which is not "
-                    f"one of its views: {sorted(views)}."
-                )
-            # Class-level access (``MyTask.input_schema``) gives the default view.
-            cls.input_schema = views[default]
-            cls.view = default
-        elif "input_schema" in own and cls.views:
+        if "input_schema" in own and "views" not in own and cls.views:
             # A subclass that declares its own input schema does not inherit
             # the views of its base, which describe other fields.
             cls.views = {}
             cls.default_view = None
             cls.view = None
+        if "views" not in own and "default_view" not in own:
+            return
+        views = cls.views
+        if not views:
+            if own.get("default_view") is not None:
+                raise TypeError(f"{cls.__name__} sets default_view but has no views.")
+            return
+        default = cls.default_view
+        if default is None:
+            default = next(iter(views))
+            cls.default_view = default
+        if default not in views:
+            raise TypeError(
+                f"{cls.__name__}.default_view is {default!r}, which is not "
+                f"one of its views: {sorted(views)}."
+            )
+        # Class-level access (``MyTask.input_schema``) gives the default view.
+        cls.input_schema = views[default]
+        cls.view = default
 
     def __init__(
         self,

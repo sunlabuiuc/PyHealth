@@ -150,7 +150,11 @@ class EHRFoundationModelBase(BaseModel):
         cache_dir: Directory for an on-disk embedding cache (frozen mode).
         cache_name: The backbone's identity in the cache key.
         memoize: Keep frozen embeddings in memory across calls and epochs.
-        events_key: The events input. Defaults to ``"events"``.
+        events_key: The events input. Defaults to ``"events"``, or with a
+            task's ``"events"`` view, to the field its
+            :class:`~pyhealth.processors.EventStreamProcessor` wrote (and
+            ``birth_key`` to its
+            :class:`~pyhealth.processors.EventBirthProcessor` field).
         birth_key: The birth time input. Defaults to ``"birth_datetime"`` if
             the dataset has it.
 

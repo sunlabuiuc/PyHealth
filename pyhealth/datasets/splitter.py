@@ -1,6 +1,7 @@
 import json
 import logging
 import math
+import os
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -243,10 +244,16 @@ class SubjectSplit(Split):
         return cls(tuple([ids[i] for i in part] for part in parts))
 
     def save(self, path: str | Path) -> None:
-        """Writes the patient lists to ``path`` as JSON."""
+        """Writes the patient lists to ``path`` as JSON.
+
+        The file is written next to ``path`` and then renamed into place, so
+        a run reading it concurrently never sees a partly written split.
+        """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps([list(part) for part in self.subjects]))
+        partial = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        partial.write_text(json.dumps([list(part) for part in self.subjects]))
+        os.replace(partial, path)
 
     @classmethod
     def load(cls, path: str | Path) -> "SubjectSplit":
