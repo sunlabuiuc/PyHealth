@@ -51,9 +51,6 @@ class BaseTask(ABC):
     Each version is cached separately; all of them read the task's one
     cache of samples (a subclass, being another task, has its own).
 
-    ``feature_roles`` optionally says what each input field means clinically
-    (e.g. ``{"conditions": "diagnoses"}``), whatever its key is called.
-
     Examples:
         >>> class Mortality(BaseTask):
         ...     task_name = "mortality"
@@ -73,8 +70,6 @@ class BaseTask(ABC):
     views: ClassVar[Mapping[str, dict[str, Any]]] = {}
     #: The view used when neither ``view`` nor ``model`` is given.
     default_view: ClassVar[str | None] = None
-    #: Input key to clinical role, e.g. ``{"conditions": "diagnoses"}``.
-    feature_roles: ClassVar[Mapping[str, str]] = {}
     #: The name of the selected view (``"custom"`` for a schema passed as
     #: ``view``), or None for a task without views.
     view: str | None = None

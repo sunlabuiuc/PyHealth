@@ -61,7 +61,6 @@ class ViewTask(BaseTask):
     }
     default_view = "plain"
     output_schema = {"label": "binary"}
-    feature_roles = {"value": "vitals_labs"}
 
     THRESHOLD = 0
 
@@ -270,7 +269,6 @@ class TestYAIBViews(unittest.TestCase):
         task = YAIBMortalityMIMIC4(icu_wards=["X"], model=RNN_V2)
         self.assertEqual(task.view, "jagged")
         self.assertEqual(task.icu_wards, ["X"])
-        self.assertEqual(YAIBMortalityMIMIC4.feature_roles["dynamic"], "vitals_labs")
 
 
 class TestSplitPlan(unittest.TestCase):

@@ -377,10 +377,6 @@ class _YAIBMIMIC3Task(BaseTask):
         },
     }
     default_view: ClassVar[str] = "jagged"
-    feature_roles: ClassVar[dict[str, str]] = {
-        "dynamic": "vitals_labs",
-        "static": "demographics",
-    }
 
     DYNAMIC_FEATURES: ClassVar[list[str]] = list(_DYNAMIC_FEATURES)
     STATIC_FEATURES: ClassVar[list[str]] = list(_STATIC_FEATURES)
