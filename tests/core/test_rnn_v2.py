@@ -820,6 +820,11 @@ class TestDefaultEmbeddingDim(unittest.TestCase):
         for bad in (64.0, [64], "64"):
             with self.subTest(size=bad), self.assertRaisesRegex(TypeError, "must be an int or"):
                 RNN_V2(self.dataset, embedding_dim=bad)
+        # The same checks for one field's size.
+        with self.assertRaisesRegex(ValueError, "positive int"):
+            RNN_V2(self.dataset, embedding_dim={"labs": 0})
+        with self.assertRaisesRegex(TypeError, r"embedding_dim\['labs'\] must be an int"):
+            RNN_V2(self.dataset, embedding_dim={"labs": 64.0})
 
 
 if __name__ == "__main__":

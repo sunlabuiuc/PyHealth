@@ -373,12 +373,19 @@ class SequenceEmbeddingModel(BaseModel):
                     f"{name} names {sorted(unknown)}, which are not "
                     f"JaggedFeatureProcessor fields ({sorted(processors)})."
                 )
-        embedding_dim = {
-            field: level_embeddings(processor, embedding_dim.get(field, 128))
-            if isinstance(embedding_dim.get(field, 128), int)
-            else embedding_dim[field]
-            for field, processor in processors.items()
-        }
+        levels = {}
+        for field, processor in processors.items():
+            size = embedding_dim.get(field, 128)
+            if isinstance(size, int):
+                levels[field] = level_embeddings(processor, size)
+            elif isinstance(size, (list, tuple)):
+                levels[field] = size
+            else:
+                raise TypeError(
+                    f"embedding_dim['{field}'] must be an int or one "
+                    f"LevelEmbedding per level, got {type(size).__name__}."
+                )
+        embedding_dim = levels
         self.embedding_layers = nn.ModuleDict(
             {
                 field: _FieldEmbedding(
