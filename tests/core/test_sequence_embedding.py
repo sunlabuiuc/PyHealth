@@ -86,7 +86,6 @@ class TestConfiguration(unittest.TestCase):
 
     def test_rejects_bad_configurations(self):
         bad: list[dict[str, Any]] = [
-            {"embedding_dim": {}},  # labs missing
             {"embedding_dim": {**LAB_DIMS, "other": [{}]}},
             {"embedding_dim": {"labs": [{"tokens": (4, 2), "values": 3}]}},  # one level
             {"embedding_dim": {"labs": [{"tokens": (4,), "values": 3}, {}]}},  # K = 2
@@ -152,8 +151,9 @@ class TestConfiguration(unittest.TestCase):
             {"labs": ("jagged", {"levels": LABS}), "age": "tensor"},
             {"y": "binary"},
         )
-        with self.assertRaisesRegex(ValueError, "no entry for \\['age'\\]"):
-            SequenceEmbeddingModel(dataset, embedding_dim=LAB_DIMS)
+        # A field left out of embedding_dim gets the default size.
+        defaulted = SequenceEmbeddingModel(dataset, embedding_dim=LAB_DIMS)
+        self.assertEqual(defaulted.embedding_dim_per_level("age"), (128,))
         model = SequenceEmbeddingModel(
             dataset, embedding_dim={**LAB_DIMS, "age": [{"values": 4}]}
         )
@@ -234,6 +234,25 @@ class TestLevels(unittest.TestCase):
         self.assertEqual(out.shape, (6, 5))
         self.assertTrue(torch.all(out[1] == 0))  # step 1 has no record: <pad>
         self.assertTrue(torch.any(out[0] != 0))
+
+    def test_int_embedding_dim_per_namespace_and_spatial_values(self):
+        # Two token namespaces (code, unit) and values: one size each.
+        labs = _dataset(labs=(LABS, LAB_RECORDS))
+        model = SequenceEmbeddingModel(labs, embedding_dim=8)
+        self.assertEqual(model.embedding_dim_per_level("labs"), (8 + 8 + 8, 0))
+        output = model({"labs": _batch(labs, "labs")})["labs"]
+        self.assertEqual(output[0]["embedding"].shape[-1], 24)
+        # Spatial values kept apart still get the int size per position.
+        windows = [
+            {"children": [{"time": [0.0], "tokens": ["sinus"], "values": torch.rand(1, 2, 4).tolist()}]},
+            {"children": [{"time": [0.0], "tokens": ["afib"], "values": torch.rand(1, 2, 4).tolist()}]},
+        ]
+        ecg = _dataset(ecg=(ECG, windows))
+        model = SequenceEmbeddingModel(
+            ecg, embedding_dim=6, flatten_spatial={"ecg": [False, True]}
+        )
+        out = model({"ecg": _batch(ecg, "ecg")})["ecg"][0]["embedding"]
+        self.assertEqual(out.shape, (2, 4, 6 + 6))
 
     def test_flatten_spatial(self):
         windows = [

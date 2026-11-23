@@ -40,6 +40,7 @@ from .sequence_embedding import (
     LevelEmbedding as LevelEmbedding,
     PretrainedEmbedding as PretrainedEmbedding,
     SequenceEmbeddingModel as SequenceEmbeddingModel,
+    level_embeddings as level_embeddings,
 )
 from .armr import ARMR as ARMR
 from .gamenet import GAMENet, GAMENetLayer

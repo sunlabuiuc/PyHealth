@@ -843,8 +843,13 @@ class RNN_V2(BaseModel):
 
     Args:
         dataset: The dataset, with fitted processors.
-        embedding_dim: Per V2 field, one
-            :class:`~pyhealth.models.LevelEmbedding` per level.
+        embedding_dim: The embedding sizes, as in
+            :class:`~pyhealth.models.SequenceEmbeddingModel`: one int, the
+            size of every token namespace embedding and every values
+            projection (default 128), or per field an int or one
+            :class:`~pyhealth.models.LevelEmbedding` per level. A level's
+            record embedding concatenates them, so a level with ``K``
+            namespaces and values is ``size * (K + 1)`` wide.
         hidden_dim: The hidden size of every RNN of a field.
         rnn_type: ``"RNN"``, ``"LSTM"`` or ``"GRU"`` (default), per field.
         num_layers: The layers of each level's RNN, per field.
@@ -892,7 +897,7 @@ class RNN_V2(BaseModel):
     def __init__(
         self,
         dataset: SampleDataset,
-        embedding_dim: Mapping[str, Sequence[LevelEmbedding]],
+        embedding_dim: int | Mapping[str, int | Sequence[LevelEmbedding]] = 128,
         hidden_dim: int | Mapping[str, int] = 128,
         rnn_type: RNNType | Mapping[str, RNNType] = "GRU",
         num_layers: int | Mapping[str, int] = 1,
