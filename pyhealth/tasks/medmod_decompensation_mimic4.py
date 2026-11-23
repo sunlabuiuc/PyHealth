@@ -120,9 +120,9 @@ class MedModDecompensationMIMIC4(BaseTask):
     ``bin_hours`` bins over the ``window_hours`` before ``t``:
     ``[window_hours / bin_hours, 34]``. Only ICU data of the stay is used:
     labs from before ICU admission are never used. The one exception is chart
-    values of the stay charted shortly before admission (MIMIC-IV charts
-    admission height and weight just before ``intime``), as in the mortality
-    task:
+    values recorded under the stay's ``stay_id`` before admission, however
+    early (MIMIC-IV charts admission height and weight just before
+    ``intime``), as in the mortality task:
 
     - While ``t <= window_hours``, the window starts at or before admission.
       These chart values sit in their own bin, or in the first bin if they

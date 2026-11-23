@@ -36,6 +36,9 @@ the roots. These are the settings of the results below; run it once per seed
         --image-size 224 --backbone resnet34 --hidden 256 \\
         --epochs 15 --lr 3e-4 --batch-size 32 --pretrained
 
+For the decompensation table, use the same command with ``--task decompensation``
+(the task's defaults: a prediction every 4 h, a 48 h window, a 24 h horizon).
+
 Results on the real data (MIMIC-IV 3.1, paired stays, 15 epochs, lr 3e-4, batch 32,
 ResNet-34 from ImageNet weights, best epoch by validation AUROC, mean +- std over
 three seeds, each a different 70/10/20 patient split). They were produced with these
