@@ -99,5 +99,6 @@ Older examples that no longer run, or that duplicated a maintained one, are in
 | `patient_linkage_mimic3_medlink.py` | MedLink record linkage (needs `pytrec_eval`) |
 | `physionet_deid_ner_transformer_deid.py` | Transformer de-identification (PhysioNet, credentialed) |
 | `mimic4_mortality_medfuse.py` | MedFuse ablation (synthetic data) |
+| `mimic4_decompensation_daft.py` | DAFT on MedMod decompensation and mortality, with ablations (synthetic data by default) |
 | `support_survival_survival_mdn.py` (with `survival_mdn_data.py`, `survival_mdn_metrics.py`, results in `survival_mdn_results/`) | Survival mixture density network on SUPPORT |
 | `yaib_mimic4_rnn_v2.py` | RNN_V2 on the five MIMIC-IV YAIB tasks |
