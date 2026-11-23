@@ -10,8 +10,9 @@ a foundation model is compared on the same features.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 import numpy as np
 

@@ -2,8 +2,8 @@ import copy
 import hashlib
 import inspect
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Dict, List, Mapping, Optional, Tuple, Union, Type
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import polars as pl
 
@@ -66,18 +66,18 @@ class BaseTask(ABC):
     """
 
     task_name: str
-    input_schema: Dict[str, Union[str, Type]]
-    output_schema: Dict[str, Union[str, Type]]
+    input_schema: dict[str, str | type]
+    output_schema: dict[str, str | type]
 
     #: View name to input schema. Empty for a task with a single input schema.
-    views: ClassVar[Mapping[str, Dict[str, Any]]] = {}
+    views: ClassVar[Mapping[str, dict[str, Any]]] = {}
     #: The view used when neither ``view`` nor ``model`` is given.
-    default_view: ClassVar[Optional[str]] = None
+    default_view: ClassVar[str | None] = None
     #: Input key to clinical role, e.g. ``{"conditions": "diagnoses"}``.
     feature_roles: ClassVar[Mapping[str, str]] = {}
     #: The name of the selected view (``"custom"`` for a schema passed as
     #: ``view``), or None for a task without views.
-    view: Optional[str] = None
+    view: str | None = None
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -107,10 +107,10 @@ class BaseTask(ABC):
 
     def __init__(
         self,
-        code_mapping: Optional[Dict[str, Tuple[str, str]]] = None,
-        view: Union[str, Dict[str, Any], None] = None,
+        code_mapping: dict[str, tuple[str, str]] | None = None,
+        view: str | dict[str, Any] | None = None,
         model: Any = None,
-        view_overrides: Optional[Mapping[str, Any]] = None,
+        view_overrides: Mapping[str, Any] | None = None,
     ):
         """Initialize a task, choosing its view and optional code mapping.
 
@@ -160,7 +160,7 @@ class BaseTask(ABC):
                     schema[field] = (base, kwargs)
             self.input_schema = schema
 
-    def _select_view(self, view: Union[str, Dict[str, Any], None], model: Any) -> None:
+    def _select_view(self, view: str | dict[str, Any] | None, model: Any) -> None:
         """Sets ``input_schema`` and ``view`` from the ``view``/``model`` arguments."""
         name = type(self).__name__
         if view is not None and model is not None:
@@ -223,7 +223,7 @@ class BaseTask(ABC):
             schema[key] = (processor, {**settings, **copy.deepcopy(dict(change))})
         self.input_schema = schema
 
-    def cache_key(self) -> Dict[str, Any]:
+    def cache_key(self) -> dict[str, Any]:
         """What identifies the samples ``__call__`` produces, for caching.
 
         A task without views is identified as before, by its instance
@@ -253,10 +253,10 @@ class BaseTask(ABC):
                 "output_schema": self.output_schema,
             }
         skip = {"input_schema", "view"}
-        key: Dict[str, Any] = {
+        key: dict[str, Any] = {
             k: v for k, v in vars(self).items() if k not in skip and not k.startswith("_")
         }
-        constants: Dict[str, Any] = {}
+        constants: dict[str, Any] = {}
         sources = hashlib.sha256()
         for cls in reversed(type(self).__mro__):
             if cls in (object, ABC, BaseTask):
@@ -300,5 +300,5 @@ class BaseTask(ABC):
         return None
 
     @abstractmethod
-    def __call__(self, patient) -> List[Dict]:
+    def __call__(self, patient) -> list[dict]:
         raise NotImplementedError
