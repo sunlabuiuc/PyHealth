@@ -34,7 +34,7 @@ class CoverageMergeTest(unittest.TestCase):
         self.tool = _load_tool()
         self.root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.root)
-        for name in ("unchanged", "changed", "changed_unrun"):
+        for name in ("unchanged", "changed", "changed_unrun", "never_run"):
             path = self.root / "pyhealth" / f"{name}.py"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("x = 1\n" * 5)
@@ -56,6 +56,7 @@ class CoverageMergeTest(unittest.TestCase):
             "changed": [1, 2, 3],
             "changed_unrun": [1, 2],
             "deleted": [1],
+            "never_run": [],  # what --cov=pyhealth records for an unrun file
         })
         fresh = (self.data(".coverage", fresh_lines) if fresh_lines is not None
                  else self.root / ".coverage")
@@ -81,6 +82,10 @@ class CoverageMergeTest(unittest.TestCase):
     def test_changed_file_no_test_ran_counts_as_uncovered(self):
         # still measured, so it counts in the total at 0%, as in a full run
         self.assertEqual(self.merged({"unchanged": [3]})["changed_unrun"], [])
+
+    def test_unchanged_file_no_test_ever_ran_stays_at_zero(self):
+        # still in the total, at 0%, like a full run's source scan
+        self.assertEqual(self.merged({"unchanged": [3]})["never_run"], [])
 
     def test_no_tests_ran_keeps_the_baseline_for_unchanged_files(self):
         merged = self.merged(None)

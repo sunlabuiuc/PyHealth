@@ -122,6 +122,22 @@ class SelectTestsTest(unittest.TestCase):
                           base_source=lambda p: old if p == "pyhealth/models/__init__.py" else None)
         self.assertEqual(sel, {"test_cnn"})
 
+    def test_init_side_effect_import_is_not_narrowed(self):
+        new = self.root / "pyhealth/models/__init__.py"
+        old = new.read_text()
+        new.write_text(old + "import pyhealth.medcode\n")
+        self.graph = st.Graph(root=self.root)
+        sel = self.select("pyhealth/models/__init__.py", base_source=lambda p: old)
+        self.assertEqual(sel, {"test_rnn", "test_cnn", "test_uses_helper",
+                               "test_pipeline", "test_bench"})
+
+    def test_deleted_test_module_is_not_selected(self):
+        (self.root / "tests/core/test_cnn.py").unlink()
+        self.graph = st.Graph(root=self.root)
+        # A rename shows up as a deletion plus the new file.
+        self.assertEqual(self.select("tests/core/test_cnn.py",
+                                     "tests/core/test_rnn.py"), {"test_rnn"})
+
     def test_init_logic_change_is_not_narrowed(self):
         new = self.root / "pyhealth/models/__init__.py"
         old = new.read_text() + "SETTING = 1\n"

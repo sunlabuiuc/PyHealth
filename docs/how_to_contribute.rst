@@ -226,8 +226,10 @@ each selected test and the import chain that selected it.
   also add the ``full-ci`` label and re-run the job.
 - **Coverage stays whole-repository.** The PR's coverage is merged with the
   last full run on ``master``, so the reported total and each changed file's
-  coverage match what a full run would show. Master, a weekly schedule and
-  manual runs always run every test.
+  coverage match what a full run would show. The one exception: if your
+  change stops tests reaching lines in a file you didn't change, the total
+  still counts them until the next full run on ``master``. Master, a weekly
+  schedule and manual runs always run every test.
 
 Types of Contributions
 ======================

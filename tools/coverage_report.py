@@ -84,7 +84,12 @@ def merge(baseline: Path, fresh: Path, changed: set, out: Path,
 
 
 def merged_data(mode: str, baseline: str, baseline_sha: str) -> str:
-    """Return the data file to report: this run's, or merged with master's."""
+    """Return the data file to report: this run's, or merged with master's.
+
+    No ``source`` is needed to load it: with ``--cov=pyhealth``, coverage
+    writes every pyhealth file no test executed into the data file itself
+    (measured, with no lines), and merge() keeps those entries, so the report
+    counts them at 0% as a full run does."""
     fresh = REPO_ROOT / ".coverage"
     if mode == "all":
         return str(fresh)

@@ -124,10 +124,14 @@ def _absolute(mod: Module, level: int, target: str | None) -> str:
 
 
 def _binding_only(node: ast.stmt) -> bool:
-    """Import, ``__all__`` assignment, or docstring: changes to these in an
-    ``__init__`` only matter to importers of the names involved."""
-    if isinstance(node, (ast.Import, ast.ImportFrom)):
+    """``from x import y``, ``import x as y``, ``__all__`` assignment, or
+    docstring: changes to these in an ``__init__`` only matter to importers
+    of the names involved. A bare ``import pyhealth.x`` is there for its side
+    effects (it binds no new name), so changing one is not narrowed."""
+    if isinstance(node, ast.ImportFrom):
         return True
+    if isinstance(node, ast.Import):
+        return all(alias.asname for alias in node.names)
     if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
         return True
     targets = (node.targets if isinstance(node, ast.Assign)
@@ -479,7 +483,9 @@ def select(paths: list, graph: Graph, base_source=None) -> Selection:
                     for user in graph.users_of(name, names):
                         changed.setdefault(user, f"{path} [re-exports changed]")
     parent = graph.affected(set(changed), deep_only=narrowed)
-    tests = sorted(n for n in parent if graph.is_suite_test(n))
+    # A deleted or renamed test is a seed too; pytest can't run a missing file.
+    tests = sorted(n for n in parent
+                   if n in graph.modules and graph.is_suite_test(n))
     reasons = []
     for test in tests:
         chain, node = [], test
