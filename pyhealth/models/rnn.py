@@ -217,6 +217,8 @@ class RNN(BaseModel):
         }
     """
 
+    accepted_views = ("dense",)
+
     def __init__(
         self,
         dataset: SampleDataset,
@@ -425,6 +427,8 @@ class MultimodalRNN(BaseModel):
             'logit': tensor(...)
         }
     """
+
+    accepted_views = ("dense",)
 
     def __init__(
         self,

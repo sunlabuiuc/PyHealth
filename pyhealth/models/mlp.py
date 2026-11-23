@@ -111,6 +111,8 @@ class MLP(BaseModel, Interpretable):
 
     """
 
+    accepted_views = ("dense",)
+
     def __init__(
         self,
         dataset: SampleDataset,

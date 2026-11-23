@@ -349,6 +349,8 @@ class UDC(BaseModel):
         ['embed', 'logit', 'loss', 'vq_indices', 'vq_loss', 'y_prob', 'y_true']
     """
 
+    accepted_views = ("dense",)
+
     def __init__(
         self,
         dataset: SampleDataset,

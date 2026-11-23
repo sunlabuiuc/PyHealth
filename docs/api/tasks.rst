@@ -136,8 +136,8 @@ schemas over the same samples.
     from pyhealth.models import RNN_V2
     from pyhealth.tasks import YAIBMortalityMIMIC4
 
-    task = YAIBMortalityMIMIC4()               # the default view
-    task = YAIBMortalityMIMIC4(view="jagged")  # a view by name
+    task = YAIBMortalityMIMIC4()               # the default view, "jagged"
+    task = YAIBMortalityMIMIC4(view="dense")   # a view by name
     task = YAIBMortalityMIMIC4(model=RNN_V2)   # the view RNN_V2 reads
 
     plan = SplitPlan.load_or_draw(dataset, "seed0", PatientSplit((0.8, 0.1, 0.1), seed=0))
@@ -158,6 +158,15 @@ A model class lists the views it reads in ``accepted_views``. ``model=``
 selects the first of them the task offers, and building a model on a dataset
 of another view raises an error naming the view to use. ``view=`` also takes
 an input schema of your own.
+
+The YAIB tasks offer two views. ``"jagged"`` is read by
+:class:`~pyhealth.models.RNN_V2`, which also handles the per-hour labels of
+the AKI, sepsis and length-of-stay tasks. ``"dense"`` gives padded tensors
+with an explicit mask and is read by RNN, MultimodalRNN, TCN, Transformer,
+RETAIN, MultimodalRETAIN, MultimodalAdaCare, GRASP, Agent, JambaEHR, StageNet,
+MLP, LogisticRegression, KnowRare, BEHRT, BiteNet and UDC, for the tasks with
+one label per stay (mortality, kidney function). Both views hold the same
+values: they differ only in layout.
 
 To give your own task views, set ``views`` and ``default_view`` instead of
 ``input_schema``. Tasks whose samples share a layout take their views from a

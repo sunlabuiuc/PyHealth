@@ -15,7 +15,16 @@ View names
     a ``single`` record for the static features. Read by
     :class:`~pyhealth.models.RNN_V2`.
 
-More views (``"dense"``, ``"tabular"``, ``"timed"``, ``"codes"``) are planned;
+``"dense"``
+    Plain padded tensors: the measurements as ``(value [T, F], mask [T])``
+    (:class:`~pyhealth.processors.DenseSeriesProcessor`) and the static
+    features as one vector
+    (:class:`~pyhealth.processors.DenseStaticProcessor`), with the same
+    imputation and scaling as ``"jagged"``. Read by the sequence models
+    built on :class:`~pyhealth.models.EmbeddingModel`, such as
+    :class:`~pyhealth.models.RNN` and :class:`~pyhealth.models.Transformer`.
+
+More views (``"tabular"``, ``"timed"``, ``"codes"``) are planned;
 :data:`VIEW_NAMES` lists the names models may declare.
 """
 
@@ -116,7 +125,7 @@ def numeric_series_views(
         >>> from pyhealth.tasks.views import numeric_series_views
         >>> views = numeric_series_views(dynamic=48, static=4)
         >>> sorted(views)
-        ['jagged']
+        ['dense', 'jagged']
         >>> views["jagged"]["dynamic"][0]
         'jagged'
         >>> views["jagged"]["dynamic"][1]["levels"][0]["values"]
@@ -132,6 +141,26 @@ def numeric_series_views(
             static_key: (
                 "jagged",
                 {"levels": [_jagged_level("single", static, pre.static_impute, pre)]},
+            ),
+        },
+        "dense": {
+            dynamic_key: (
+                "dense_series",
+                {
+                    "forward_fill": any(
+                        step.get("method") == "forward_fill"
+                        for step in pre.series_impute
+                    ),
+                    "normalize": pre.normalize is not None,
+                    "missing_indicator": pre.missing_indicator,
+                },
+            ),
+            static_key: (
+                "dense_static",
+                {
+                    "normalize": pre.normalize is not None,
+                    "missing_indicator": pre.missing_indicator,
+                },
             ),
         },
     }

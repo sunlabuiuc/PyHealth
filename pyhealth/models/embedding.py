@@ -16,6 +16,8 @@ from ..processors import (
     StageNetTensorProcessor,
     TensorProcessor,
     TimeseriesProcessor,
+    DenseSeriesProcessor,
+    DenseStaticProcessor,
     DeepNestedSequenceProcessor,
     DeepNestedFloatsProcessor,
 )
@@ -218,6 +220,8 @@ class EmbeddingModel(BaseModel):
                 processor,
                 (
                     TimeseriesProcessor,
+                    DenseSeriesProcessor,
+                    DenseStaticProcessor,
                     StageNetTensorProcessor,
                     NestedFloatsProcessor,
                     DeepNestedFloatsProcessor,
@@ -298,6 +302,18 @@ class EmbeddingModel(BaseModel):
         for field_name, tensor in inputs.items():
             processor = self.dataset.input_processors.get(field_name, None)
 
+            # A processor that emits several tensors names them in schema():
+            # embed its "value", and use its "mask", when it has one, in place
+            # of a mask guessed from zeros (a standardized value can be 0).
+            if isinstance(tensor, (tuple, list)) and hasattr(processor, "schema"):
+                parts = dict(zip(processor.schema(), tensor))
+                if "value" in parts:
+                    tensor = parts["value"]
+                    if parts.get("mask") is not None and (
+                        masks is None or field_name not in masks
+                    ):
+                        masks = {**(masks or {}), field_name: parts["mask"]}
+
             if field_name not in self.embedding_layers:
                 # No embedding layer -> passthrough
                 embedded[field_name] = tensor
@@ -317,10 +333,10 @@ class EmbeddingModel(BaseModel):
                     mask = masks[field_name].to(self.device)
 
                 # Handle 3D input (Batch, Num_Notes, Seq_Len)
-                is_3d = inputs[field_name].dim() == 3
+                is_3d = tensor.dim() == 3
 
                 if is_3d:
-                    b, n, l = inputs[field_name].shape
+                    b, n, l = tensor.shape
                     tensor = tensor.view(b * n, l)
                     if mask is not None:
                         mask = mask.view(b * n, l)

@@ -577,6 +577,8 @@ class MultimodalAdaCare(BaseModel):
         }
     """
 
+    accepted_views = ("dense",)
+
     def __init__(
         self,
         dataset: SampleDataset,

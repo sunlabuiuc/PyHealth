@@ -7,8 +7,15 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from pyhealth.datasets import BaseDataset, PatientSplit, SplitPlan
-from pyhealth.models import BaseModel, RNN_V2
+import pyhealth.models as models
+from pyhealth.datasets import (
+    BaseDataset,
+    PatientSplit,
+    SplitPlan,
+    create_sample_dataset,
+    get_dataloader,
+)
+from pyhealth.models import BaseModel, RNN, RNN_V2
 from pyhealth.processors.base_processor import FeatureProcessor
 from pyhealth.tasks import BaseTask, YAIBMortalityMIMIC4
 from pyhealth.tasks.survival_mimic4 import InHospitalSurvivalMIMIC4
@@ -351,6 +358,114 @@ class TestSetTaskWithViews(unittest.TestCase):
         UndeclaredModel(train)
         train, _, _ = self._set(ViewTask(model=ScaledModel))
         ScaledModel(train)
+
+
+DENSE_MODELS = [
+    "RNN", "MultimodalRNN", "TCN", "Transformer", "RETAIN", "MultimodalRETAIN",
+    "MultimodalAdaCare", "GRASP", "Agent", "JambaEHR", "StageNet", "MLP",
+    "LogisticRegression", "KnowRare", "BEHRT", "BiteNet", "UDC",
+]
+
+
+def _yaib_samples(n=16):
+    """Synthetic YAIB-shaped stays: mostly-missing hourly values and statics."""
+    rng = np.random.default_rng(0)
+    n_dynamic = len(YAIBMortalityMIMIC4.DYNAMIC_FEATURES)
+    n_static = len(YAIBMortalityMIMIC4.STATIC_FEATURES)
+    samples = []
+    for i in range(n):
+        hours = int(rng.integers(5, 25))
+        dynamic = rng.normal(size=(hours, n_dynamic))
+        dynamic[rng.random((hours, n_dynamic)) < 0.6] = np.nan
+        dynamic[:, 7] = np.nan  # a feature never measured
+        static = rng.normal(size=(1, n_static))
+        if i % 3 == 0:
+            static[0, i % n_static] = np.nan
+        samples.append(
+            {
+                "patient_id": f"p{i}",
+                "dynamic": {"time": list(range(hours)), "values": dynamic.tolist()},
+                "static": {"values": static.tolist()},
+                "mortality": i % 2,
+            }
+        )
+    return samples
+
+
+class TestDenseView(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.samples = _yaib_samples()
+        cls.n_dynamic = len(YAIBMortalityMIMIC4.DYNAMIC_FEATURES)
+        cls.dense = cls._dataset("dense")
+        cls.jagged = cls._dataset("jagged")
+
+    @classmethod
+    def _dataset(cls, view):
+        task = YAIBMortalityMIMIC4(view=view)
+        return create_sample_dataset(cls.samples, task.input_schema, task.output_schema)
+
+    def test_dense_values_equal_the_jagged_view(self):
+        """Both views apply the same imputation and scaling to the same data."""
+        f = self.n_dynamic
+        for i in range(len(self.samples)):
+            value, mask = self.dense[i]["dynamic"]
+            jagged_value, jagged_missing, _ = self.jagged[i]["dynamic"]
+            self.assertEqual(value.shape, (jagged_value.shape[0], 2 * f))
+            self.assertTrue(torch.allclose(value[:, :f], jagged_value.float(), atol=1e-5))
+            self.assertTrue(torch.equal(value[:, f:].bool(), jagged_missing))
+            self.assertTrue(torch.equal(mask, torch.ones(value.shape[0])))
+            static = self.dense[i]["static"]
+            jagged_static = self.jagged[i]["static"][0].float().reshape(-1)
+            self.assertTrue(torch.allclose(static[: len(jagged_static)], jagged_static, atol=1e-5))
+
+    def test_forward_fill_then_training_mean(self):
+        nan = float("nan")
+        from pyhealth.processors import DenseSeriesProcessor
+
+        processor = DenseSeriesProcessor(missing_indicator=False)
+        train = [{"x": {"time": [0, 1], "values": [[1.0, nan], [3.0, nan]]}}]
+        processor.fit(train, "x")
+        value, mask = processor.process(
+            {"time": [0, 1, 2], "values": [[nan, 5.0], [3.0, nan], [nan, nan]]}
+        )
+        # Feature 0: mean 2, std 1. Before its first measurement it is the
+        # mean (0); afterwards the last measurement is carried forward.
+        self.assertEqual(value[:, 0].tolist(), [0.0, 1.0, 1.0])
+        # Feature 1 was never measured in training: left unscaled, then carried.
+        self.assertEqual(value[:, 1].tolist(), [5.0, 5.0, 5.0])
+        self.assertEqual(mask.tolist(), [1.0, 1.0, 1.0])
+
+    def test_padding_does_not_change_a_prediction(self):
+        """The explicit mask, not zeros in the data, marks padded steps."""
+        model = RNN(self.dense).eval()
+        alone = next(iter(get_dataloader(self.dense.subset([0]), batch_size=1)))
+        batch = next(iter(get_dataloader(self.dense, batch_size=len(self.samples))))
+        self.assertLess(alone["dynamic"][0].shape[1], batch["dynamic"][0].shape[1])
+        with torch.no_grad():
+            difference = model(**alone)["logit"][0] - model(**batch)["logit"][0]
+        self.assertLess(float(difference.abs().max()), 1e-5)
+
+    def test_models_that_accept_dense_train_on_it(self):
+        batch = next(iter(get_dataloader(self.dense, batch_size=8)))
+        for name in DENSE_MODELS:
+            with self.subTest(model=name):
+                model_class = getattr(models, name)
+                self.assertEqual(YAIBMortalityMIMIC4(model=model_class).view, "dense")
+                torch.manual_seed(0)
+                output = model_class(self.dense)(**batch)
+                output["loss"].backward()
+                self.assertTrue(bool(torch.isfinite(output["loss"])))
+
+    def test_declared_models_are_the_tested_ones(self):
+        declared = {
+            name
+            for name, obj in vars(models).items()
+            if isinstance(obj, type)
+            and issubclass(obj, BaseModel)
+            and "dense" in obj.accepted_views
+        }
+        self.assertEqual(declared, set(DENSE_MODELS))
 
 
 if __name__ == "__main__":
