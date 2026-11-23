@@ -22,41 +22,41 @@ Hourly remaining ICU length of stay
 Implementation status
 ---------------------
 
-The task implements adult/five-hour eligibility, admission static features,
-hourly remaining-LOS labels, configurable observation removal, optional
-decay features, and synthetic CSV validation. Dynamic extraction uses
-existing YAIB helpers provisionally. Model training and ablation
-experiments are documented separately.
+The task implements adult cohort selection, hourly dynamic feature
+extraction, admission static features, and hourly remaining-LOS labels.
+The observation horizon is capped at 336 hours.
 
-``TPCLengthOfStayEICU()`` supports observation removal through
-``missing_rate`` values from 0.0 to 1.0. Missing observations
-are represented by NaN, with deterministic masking based on
-the random seed and stay identifier.
+Observation removal is controlled by ``missing_rate`` (0.0 to 1.0).
+Removal is deterministic for a given seed and stay identifier.
+A rate of 0.0 preserves all observed values, while a rate of 1.0
+removes all observed feature cells.
 
-When ``include_decay=True``, decay features are calculated
-after observation removal. Observed values reset decay to
-1.0; unobserved values decay by a factor of 0.75 per hour.
+When ``include_decay=True``, decay features are calculated after
+observation removal. Observed values reset to 1.0, and unobserved
+values decay by a factor of 0.75 per hour.
+
+Missing dynamic values remain NaN in the task output. Forward filling
+and normalization are handled by the configured YAIB preprocessing
+pipeline.
 
 
 Extension points
 ----------------
 
 * ``pyhealth/tasks/tpc_eicu.py`` implements hourly remaining-LOS
-  preprocessing, configurable observation removal, and optional
-  decay features. Observation removal is deterministic and
-  applied before decay calculation.
-* ``TODO(A)`` in ``examples/eicu_hourly_los_lstm.py``: integrate existing training
-  work where available and complete explicit LSTM
-  training, patient-disjoint splits, agreed losses/metrics and the two-training
-  by three-test missingness study. This file is a scaffold and raises until
-  implemented. The example filename is present but the rubric's working
-  ablation requirement is still outstanding.
-* Preprocessing contract tests in ``tests/core/test_tpc_eicu.py``
-  cover observation removal and decay. Some hourly aggregation,
-  forward-fill, and combined preprocessing tests remain skipped
-  pending verification.
-* Extend the integration check with actual model training when the training
-  implementation is available. Its current scope ends at CSV-to-task outputs.
+  preprocessing, deterministic observation removal, and optional
+  decay features.
+* ``tests/core/test_tpc_eicu.py`` covers cohort selection, static
+  features, LOS labels, observation removal, decay, and temporal
+  consistency. Some hourly aggregation, forward-fill, and combined
+  preprocessing tests remain skipped pending verification.
+* ``examples/eicu_hourly_los_lstm.py`` is the model-training and
+  missingness-ablation integration point. Complete and validate
+  model training, patient-disjoint splits, evaluation metrics,
+  and the two-training by three-test missingness study.
+* The integration checkpoint currently validates synthetic
+  CSV-to-task outputs. It does not replace actual model training
+  or final experimental evaluation.
 
 Runnable validation
 -------------------
