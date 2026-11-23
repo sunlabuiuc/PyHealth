@@ -1,13 +1,19 @@
 """Tests for the MIMIC-III decompensation task (synthetic data only)."""
 
+import gzip
 import math
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import numpy as np
+import polars as pl
+import pytest
 
+from pyhealth.datasets import MIMIC3Dataset
 from pyhealth.tasks.decompensation_mimic3 import (
     _REQUIRED_COLUMNS,
     FEATURES,
+    ITEM_TO_VARIABLE,
     DecompensationMIMIC3,
     age_years,
     apply_range,
@@ -392,3 +398,135 @@ def test_task_survival_samples():
     binary = DecompensationMIMIC3()(patient(deathtime=at(20.0)))[0]
     assert "time_to_event" not in binary
     assert binary["decompensation"] == s["decompensation"]
+
+
+# --- pre_filter ------------------------------------------------------------
+
+
+def _event_frame(rows):
+    """Global event LazyFrame with every column ``pre_filter`` checks.
+
+    ``rows`` are ``(event_type, itemid)`` pairs; ``itemid`` is a string or
+    None. The ``idx`` column identifies each row after filtering.
+    """
+    columns = [f"{t}/{c}" for t, cs in _REQUIRED_COLUMNS.items() for c in cs]
+    data = {name: [None] * len(rows) for name in ["event_type", *columns]}
+    data["event_type"] = [event_type for event_type, _ in rows]
+    for i, (event_type, itemid) in enumerate(rows):
+        if itemid is not None:
+            data[f"{event_type}/itemid"][i] = itemid
+    schema = {name: pl.String for name in data}
+    data["idx"] = list(range(len(rows)))
+    schema["idx"] = pl.Int64
+    return pl.LazyFrame(data, schema=schema)
+
+
+def _mapped_itemid(table):
+    return str(next(i for (t, i) in ITEM_TO_VARIABLE if t == table))
+
+
+def test_pre_filter_keeps_mapped_items_and_other_tables():
+    chart, lab = _mapped_itemid("chartevents"), _mapped_itemid("labevents")
+    unmapped = "99999999"
+    assert ("chartevents", int(unmapped)) not in ITEM_TO_VARIABLE
+    assert ("labevents", int(unmapped)) not in ITEM_TO_VARIABLE
+    rows = [
+        ("chartevents", chart),  # 0 mapped chart item: kept
+        ("chartevents", unmapped),  # 1 unmapped chart item: dropped
+        ("labevents", lab),  # 2 mapped lab item: kept
+        ("labevents", unmapped),  # 3 unmapped lab item: dropped
+        ("patients", None),  # 4 other tables pass through
+        ("admissions", None),  # 5
+        ("icustays", None),  # 6
+        ("chartevents", "not-a-number"),  # 7 non-numeric id: dropped
+        ("chartevents", None),  # 8 missing id: dropped
+    ]
+    out = DecompensationMIMIC3().pre_filter(_event_frame(rows)).collect()
+    assert out["idx"].to_list() == [0, 2, 4, 5, 6]
+
+
+def test_pre_filter_requires_columns():
+    frame = _event_frame([("chartevents", _mapped_itemid("chartevents"))])
+    with pytest.raises(ValueError, match="chartevents/icustay_id"):
+        DecompensationMIMIC3().pre_filter(frame.drop("chartevents/icustay_id"))
+
+
+# --- end to end through MIMIC3Dataset.set_task -----------------------------
+
+CONFIG = (
+    Path(__file__).resolve().parents[2]
+    / "pyhealth" / "datasets" / "configs" / "mimic3_icu.yaml"
+)
+
+# Two made-up adults, one ICU stay each, both with MIMIC-III 1.4 column names:
+# 100 survives; 101 dies in the ICU at 18:00 (8 hours after ICU admission).
+MIMIC3_FILES = {
+    "PATIENTS.csv.gz": (
+        "row_id,subject_id,gender,dob,dod,dod_hosp,dod_ssn,expire_flag\n"
+        "1,100,F,2090-01-01 00:00:00,,,,0\n"
+        "2,101,M,2090-01-01 00:00:00,2150-01-01 18:00:00,"
+        "2150-01-01 18:00:00,,1\n"
+    ),
+    "ADMISSIONS.csv.gz": (
+        "row_id,subject_id,hadm_id,admittime,dischtime,deathtime,"
+        "hospital_expire_flag\n"
+        "1,100,200,2150-01-01 08:00:00,2150-01-06 10:00:00,,0\n"
+        "2,101,201,2150-01-01 08:00:00,2150-01-01 18:00:00,"
+        "2150-01-01 18:00:00,1\n"
+    ),
+    "ICUSTAYS.csv.gz": (
+        "row_id,subject_id,hadm_id,icustay_id,first_careunit,last_careunit,"
+        "first_wardid,last_wardid,intime,outtime,los\n"
+        "1,100,200,300,MICU,MICU,50,50,"
+        "2150-01-01 10:00:00,2150-01-01 22:00:00,0.5\n"
+        "2,101,201,301,MICU,MICU,50,50,"
+        "2150-01-01 10:00:00,2150-01-01 22:00:00,0.5\n"
+    ),
+    "CHARTEVENTS.csv.gz": (
+        "row_id,subject_id,hadm_id,icustay_id,charttime,itemid,value,"
+        "valuenum,valueuom\n"
+        "1,100,200,300,2150-01-01 10:30:00,211,80,80,bpm\n"
+        "2,100,200,300,2150-01-01 19:30:00,211,90,90,bpm\n"
+        "3,100,200,300,2150-01-01 11:00:00,999,1,1,\n"
+        "4,101,201,301,2150-01-01 10:30:00,211,85,85,bpm\n"
+        "5,101,201,301,2150-01-01 14:30:00,211,95,95,bpm\n"
+    ),
+    "LABEVENTS.csv.gz": (
+        "row_id,subject_id,hadm_id,itemid,charttime,value,valuenum,valueuom\n"
+        "1,100,200,50809,2150-01-01 12:00:00,120,120,mg/dL\n"
+        "2,100,200,50809,2150-01-22 06:00:00,300,300,mg/dL\n"
+        "3,101,201,50809,2150-01-01 12:00:00,110,110,mg/dL\n"
+    ),
+}
+
+
+@pytest.fixture(scope="module")
+def synthetic_mimic3(tmp_path_factory):
+    base = tmp_path_factory.mktemp("mimic3_decompensation")
+    root = base / "mimic3"
+    root.mkdir()
+    for name, text in MIMIC3_FILES.items():
+        with gzip.open(root / name, "wt") as f:
+            f.write(text)
+    return MIMIC3Dataset(
+        root=str(root),
+        tables=["chartevents", "labevents"],
+        config_path=str(CONFIG),
+        cache_dir=str(base / "cache"),
+    )
+
+
+def test_set_task_end_to_end(synthetic_mimic3):
+    samples = synthetic_mimic3.set_task(DecompensationMIMIC3())
+    assert len(samples) == 2
+    for i in range(len(samples)):
+        assert {"dynamic", "decompensation"} <= set(samples[i])
+        assert "time_to_event" not in samples[i]
+
+
+def test_set_task_end_to_end_survival(synthetic_mimic3):
+    task = DecompensationMIMIC3(label_mode="survival")
+    samples = synthetic_mimic3.set_task(task)
+    assert len(samples) == 2
+    for i in range(len(samples)):
+        assert {"time_to_event", "event"} <= set(samples[i])

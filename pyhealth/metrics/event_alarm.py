@@ -16,6 +16,13 @@ hours to the event (``time_to_event``) and whether it is observed (``event``).
 A step is *in the window* of an event if the event is observed and falls
 within ``horizon`` hours of it, so an alarm there is a true alarm.
 
+Every observed event counts as an event for recall, including a death that
+falls more than ``horizon`` hours after the last step of its stay, for example
+after ICU discharge. No step of such a stay is in the window of its event, so
+no alarm can warn of it. These events cap event recall below 1 and lower
+``alarm_event_auprc`` and the recall reported by ``event_alarm_metrics``;
+they are not excluded.
+
 All functions only use NumPy.
 """
 
