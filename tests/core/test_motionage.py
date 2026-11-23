@@ -65,6 +65,10 @@ class TestMotionAge(unittest.TestCase):
         cls.wearable, _ = _dataset(None)
         cls.batch = next(iter(get_dataloader(cls.dataset, batch_size=BATCH)))
         cls.wearable_batch = next(iter(get_dataloader(cls.wearable, batch_size=BATCH)))
+        # The first forward pass in a fresh process can be slow (lazy kernel
+        # loading), so run one here and no single test pays for it.
+        with torch.no_grad():
+            MotionAge(cls.dataset, category_sizes=cls.task.category_sizes)(**cls.batch)
 
     def model(self, **kwargs) -> MotionAge:
         torch.manual_seed(0)

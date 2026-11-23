@@ -201,7 +201,10 @@ class TestEvaluateFeatureSets(unittest.TestCase):
 class TestEndToEnd(unittest.TestCase):
     """Synthetic NHANES -> dataset -> task -> MotionAge -> participant table."""
 
-    def test_participant_table_from_pipeline(self):
+    @classmethod
+    def setUpClass(cls):
+        # Built once here, not in the test: PyHealth's first dataset load
+        # starts a Dask cluster (~1-2 s), over the 1 s budget for one test.
         from pyhealth.datasets import get_dataloader
         from pyhealth.datasets.nhanes import NHANESDataset
         from pyhealth.datasets.nhanes_synthetic import generate_synthetic_nhanes
@@ -211,25 +214,27 @@ class TestEndToEnd(unittest.TestCase):
         )
         from pyhealth.trainer import Trainer
 
-        with tempfile.TemporaryDirectory() as tmp:
-            # 5 participants: only the first two edge cases (died within 5
-            # years, aged 72; died after 5 years, aged 64) are labelled adults
-            # with accelerometer data.
-            truth = generate_synthetic_nhanes(
-                f"{tmp}/raw", n_participants=5, n_days=2
-            ).participants
-            dataset = NHANESDataset(root=f"{tmp}/raw", cache_dir=f"{tmp}/cache")
-            task = NHANESMortalityPrediction(seq_len=288, covariate_set=None)
-            samples = dataset.set_task(task)
-            model = MotionAge(samples, hidden_dim=8, num_layers=1)
-            trainer = Trainer(model=model, enable_logging=False)
-            loader = get_dataloader(samples, batch_size=4, shuffle=False)
-            trainer.train(loader, epochs=1)
-            y_true, y_prob, _, ids = trainer.inference(loader, return_patient_ids=True)
-            table = aggregate_window_predictions(ids, y_prob, y_true).merge(
-                participant_fields(samples), on="patient_id", validate="1:1"
-            )
+        tmp = cls.enterClassContext(tempfile.TemporaryDirectory())
+        # 5 participants: only the first two edge cases (died within 5 years,
+        # aged 72; died after 5 years, aged 64) are labelled adults with
+        # accelerometer data.
+        cls.truth = generate_synthetic_nhanes(
+            f"{tmp}/raw", n_participants=5, n_days=2
+        ).participants
+        dataset = NHANESDataset(root=f"{tmp}/raw", cache_dir=f"{tmp}/cache")
+        task = NHANESMortalityPrediction(seq_len=288, covariate_set=None)
+        cls.samples = dataset.set_task(task)
+        model = MotionAge(cls.samples, hidden_dim=8, num_layers=1)
+        trainer = Trainer(model=model, enable_logging=False)
+        loader = get_dataloader(cls.samples, batch_size=4, shuffle=False)
+        trainer.train(loader, epochs=1)
+        y_true, y_prob, _, ids = trainer.inference(loader, return_patient_ids=True)
+        cls.table = aggregate_window_predictions(ids, y_prob, y_true).merge(
+            participant_fields(cls.samples), on="patient_id", validate="1:1"
+        )
 
+    def test_participant_table_from_pipeline(self):
+        table, samples, truth = self.table, self.samples, self.truth
         expected = truth.iloc[:2].assign(patient_id=lambda f: f["SEQN"].astype(str))
         self.assertEqual(table["patient_id"].tolist(), expected["patient_id"].tolist())
         self.assertEqual(table["label"].tolist(), [1, 0])
