@@ -246,6 +246,12 @@ class TestGuardrailsInARun(unittest.TestCase):
                                                  ["calibration.abs_shift"]})
             self.assertTrue(os.path.exists(
                 os.path.join(tmp, "evaluations", "calibration.py")))
+            logged = improver.generated_code("evaluation")
+            self.assertEqual([(r["name"], r["status"]) for r in logged],
+                             [("calibration", "active"), ("accuracy_like", "rejected")])
+            self.assertIn("backwards", logged[1]["reason"])
+            self.assertTrue(os.path.exists(os.path.join(tmp, "generated",
+                                                        "0000_evaluation.json")))
             report = improver.report()
             self.assertEqual(report.data["selected"], by_hidden[64])
             self.assertIn("Guardrails", [s.title for s in report.sections])

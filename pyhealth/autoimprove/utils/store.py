@@ -14,6 +14,8 @@ A :class:`RunStore` is the only code that knows the layout of a run directory:
 ``analysis/``,              analyses, their results and the findings
 ``findings.json``
 ``logs/``                   output of generated code (never shown to an LLM)
+``generated/``              one JSON record per piece of generated code, and
+                            ``index.json`` listing them (:meth:`RunStore.log_code`)
 ``test.json``, ...          results of later steps (test, confirm, explain)
 ==========================  =================================================
 
@@ -22,9 +24,11 @@ Without a ``run_dir`` nothing is written, and results are only kept in memory.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
+import time
 from typing import Any
 
 import numpy as np
@@ -51,6 +55,7 @@ class RunStore:
         self.run_dir = run_dir
         self.lessons_path = lessons_path
         self._results: dict[str, Any] = {}
+        self._code: list[dict[str, Any]] | None = None
 
     # ------------------------------------------------------------- paths
     def path(self, relative: str) -> str | None:
@@ -195,3 +200,69 @@ class RunStore:
             stored[fingerprint] = {"search": search, "lessons": lessons}
             with open(self.lessons_path, "w") as f:
                 json.dump(stored, f, indent=1)
+
+    # ---------------------------------------------------- generated code
+    def generated(self) -> list[dict[str, Any]]:
+        """Every logged piece of generated code, oldest first (resumed runs
+        included)."""
+        if self._code is None:
+            index = self.read_json("generated/index.json") or []
+            self._code = [self.read_json(f"generated/{row['file']}") or row
+                          for row in index]
+        return self._code
+
+    def log_code(self, kind: str, code: str, **fields: Any) -> int:
+        """Records one piece of generated code, whatever happened to it.
+
+        Every attempt is kept, also those rejected before they ran (a failed
+        static check, a repeat) or that failed while running, so a run's
+        generated code can be read in one place: ``generated/NNNN_<kind>.json``
+        per attempt, listed in ``generated/index.json``. Without a run_dir
+        the records are kept in memory only.
+
+        Args:
+            kind: ``code`` (a model), ``evaluation`` or ``analysis``.
+            code: The source.
+            **fields: What is known so far: ``cycle``, ``agent``,
+                ``strategy``, ``name``, ``rationale``, ``status``,
+                ``reason``...
+
+        Returns:
+            The record's number, for :meth:`update_code`.
+
+        Examples:
+            >>> store = RunStore(None)
+            >>> n = store.log_code("code", "def build_and_train(): ...",
+            ...                    status="proposed")
+            >>> store.update_code(n, status="scored", score=0.41)
+            >>> store.generated()[0]["status"], store.generated()[0]["score"]
+            ('scored', 0.41)
+        """
+        records = self.generated()
+        number = len(records)
+        record = {"number": number, "kind": kind,
+                  "file": f"{number:04d}_{kind}.json",
+                  "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                  "code_sha": hashlib.sha256(code.encode()).hexdigest()[:12],
+                  **fields, "code": code}
+        records.append(record)
+        self._write_code(record)
+        return number
+
+    def update_code(self, number: int, **fields: Any) -> None:
+        """Adds what happened next to a logged piece of code."""
+        record = self.generated()[number]
+        code = record.pop("code")
+        record.update(fields)
+        record["code"] = code  # keep the source last, after the summary
+        self._write_code(record)
+
+    def _write_code(self, record: dict[str, Any]) -> None:
+        if self.run_dir is None:
+            return
+        self.write_json(f"generated/{record['file']}", record, default=str)
+        summary = ("number", "kind", "cycle", "agent", "name", "status", "trial_id",
+                   "score", "file")
+        self.write_json("generated/index.json",
+                        [{k: r.get(k) for k in summary} for r in self.generated()],
+                        default=str)

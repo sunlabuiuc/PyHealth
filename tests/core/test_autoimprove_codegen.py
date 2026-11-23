@@ -257,6 +257,19 @@ class TestCodeTurns(unittest.TestCase):
             with open(os.path.join(tmp, "trials.jsonl")) as f:
                 saved = [json.loads(line) for line in f]
             self.assertEqual(saved[ok.trial_id]["config"]["code"], FAST)
+            # every code attempt is logged as JSON, with its outcome
+            logged = improver.generated_code("code")
+            self.assertEqual([(r["status"], r["trial_id"]) for r in logged],
+                             [("scored", ok.trial_id), ("failed", failed.trial_id)])
+            self.assertEqual(logged[0]["code"], FAST)
+            self.assertEqual(logged[0]["fold_scores"], ok.fold_scores)
+            self.assertTrue(logged[1]["reason"].startswith("ContractError"))
+            self.assertIn("must return a pyhealth BaseModel", logged[1]["error"])
+            with open(os.path.join(tmp, "generated", "index.json")) as f:
+                index = json.load(f)
+            self.assertEqual([r["status"] for r in index], ["scored", "failed"])
+            with open(os.path.join(tmp, "generated", index[1]["file"])) as f:
+                self.assertEqual(json.load(f)["code"], broken)
             # resuming keeps every trial and runs nothing new
             again = AutoImprover(
                 self.train, self.val, RunConfig(

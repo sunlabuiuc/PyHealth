@@ -206,6 +206,7 @@ class RunState:
             self._fingerprint += "-" + "-".join(generated)
         self._settings = self._run_settings()
         self._proposer_failures = 0
+        self._pending_code: dict[tuple, int] = {}
 
     def _plan(self, plan: Sequence[str] | None) -> tuple[str, ...]:
         """The plan, checked: two feature rounds then a model round by default."""
@@ -589,12 +590,32 @@ class RunState:
         except Exception as e:  # noqa: BLE001 - a failed trial is feedback
             trial.error = describe_error(e)
             trial.error_brief = describe_error(e, message=False)
+        self._log_code_result(trial)
         self.trials.append(trial)
         if save:
             self._save_trial(trial)
         if self.evaluations:
             guardrails.save_evaluations(self)
         return trial
+
+    def _log_code_result(self, trial: Trial) -> None:
+        """Adds a code trial's outcome to its generated-code record."""
+        if not trial.config.code:
+            return
+        number = self._pending_code.pop((trial.cycle, trial.agent, trial.config.code),
+                                        None)
+        if number is None:
+            if trial.agent != "baseline":
+                return  # a re-run (confirmation, pruning) of logged code
+            number = self.store.log_code("code", trial.config.code, cycle=trial.cycle,
+                                         agent="baseline", name="baseline",
+                                         rationale=trial.config.rationale)
+        self.store.update_code(
+            number, status="failed" if trial.error else "scored",
+            trial_id=trial.trial_id, score=trial.score, metrics=trial.metrics,
+            fold_scores=trial.fold_scores, seconds=trial.seconds,
+            reason=trial.error_brief or "", error=trial.error or "",
+            log=f"logs/trial_{trial.trial_id}*.log")
 
     def _early_stop_rule(self):
         reference = next((t for t in self.trials if t.agent == "baseline"

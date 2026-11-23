@@ -456,11 +456,25 @@ child process (:mod:`~pyhealth.autoimprove.utils.sandbox`):
   ``torch.save``...), ``exec``-like builtins and dunder attributes;
 - the child has no network (a new user and network namespace, where Linux
   allows it), no credentials in its environment, a wall-clock limit
-  (``code_timeout``, ``eval_timeout``), a 64 MB cap on files it writes and
+  (``code.timeout``, ``guardrails.timeout``), a 64 MB cap on files it writes and
   optionally a memory cap;
 - its output goes to ``run_dir/logs/``, never to the LLM; only predictions,
   numbers and suppressed tables come back, and errors reach the LLM without
   their messages (which can quote raw values).
+
+Every piece of generated code is logged for inspection, also attempts
+rejected before they ran (a failed static check, a repeat, an unknown
+column): ``run_dir/generated/NNNN_<kind>.json`` holds the code, the round,
+agent, strategy and rationale, its status (``scored``, ``failed``,
+``rejected``, ``active``, ``ok``...), the reason and full error, and its
+scores or findings; ``generated/index.json`` lists them all, one line each.
+:meth:`~pyhealth.autoimprove.AutoImprover.generated_code` returns the same
+records in Python, with or without a ``run_dir``:
+
+.. code-block:: python
+
+    for r in improver.generated_code("code"):
+        print(r["number"], r["status"], r["score"], r["reason"])
 
 This keeps a buggy proposal from crashing or stalling the search and stops
 accidental file, network or credential use. It runs as your user, though,

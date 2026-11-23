@@ -189,6 +189,11 @@ class TestAnalysisTurns(unittest.TestCase):
                                                         "0_length.json")))
             self.assertTrue(os.path.exists(os.path.join(tmp, "analysis",
                                                         "0_broken.py")))
+            logged = improver.generated_code("analysis")
+            self.assertEqual([(r["name"], r["status"]) for r in logged],
+                             [("broken", "failed"), ("length", "ok")])
+            self.assertIn("no column", logged[0]["reason"])
+            self.assertEqual(logged[1]["findings"], improver.findings)
             report = improver.report()
             self.assertIn("Findings from data analysis",
                           [s.title for s in report.sections])

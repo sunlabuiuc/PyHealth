@@ -158,6 +158,23 @@ class AutoImprover:
         """A trial's out-of-fold predictions on the training split, if stored."""
         return self.state.oof_predictions(trial_id)
 
+    def generated_code(self, kind: str | None = None) -> list[dict[str, Any]]:
+        """Every piece of code the proposer wrote, and what happened to it.
+
+        One record per attempt (also those rejected before they ran): its
+        ``kind`` (``code``, ``evaluation`` or ``analysis``), round, agent,
+        rationale, ``status`` (e.g. ``scored``, ``failed``, ``rejected``,
+        ``active``, ``ok``), the reason or full error, scores where there are
+        any, and the ``code``. With a ``run_dir`` they are also saved as
+        ``generated/NNNN_<kind>.json``, listed in ``generated/index.json``.
+
+        Examples:
+            >>> for r in improver.generated_code("code"):  # doctest: +SKIP
+            ...     print(r["number"], r["status"], r["score"], r["reason"])
+        """
+        records = self.state.store.generated()
+        return [r for r in records if kind is None or r["kind"] == kind]
+
     def guardrail_failures(self) -> dict[int, list[str]]:
         """Trials removed from the candidates, with the guardrails they fail."""
         return self.state.guardrail_failures()

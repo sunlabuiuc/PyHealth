@@ -81,9 +81,12 @@ def propose_config(state, cycle: int, agent: str, strategy: str, kind: str = "mo
             config, notes = state.space.validate(proposal)
         except ValueError as e:
             feedback = f"your last proposal was rejected: {e}"
+            _log_code(state, kind, cycle, agent, strategy, proposal, "rejected", str(e))
             continue
         key = _key(config, accepted)
         if key in context.tried or key in taken:
+            _log_code(state, kind, cycle, agent, strategy, proposal, "repeat",
+                      "repeats an earlier trial")
             feedback = "your last proposal repeated an earlier trial"
             if notes:
                 feedback += (
@@ -92,11 +95,24 @@ def propose_config(state, cycle: int, agent: str, strategy: str, kind: str = "mo
                     + "). Stay inside the ranges listed above"
                 )
             continue
+        number = _log_code(state, kind, cycle, agent, strategy, config, "proposed")
+        if number is not None:
+            state._pending_code[(cycle, agent, config.code)] = number
         return config, notes
     logger.warning(
         "%s made no usable proposal in cycle %d: %s", agent, cycle, feedback
     )
     return None
+
+
+def _log_code(state, kind, cycle, agent, strategy, proposal, status, reason=""):
+    """Logs a code proposal (only code rounds write code); returns its number."""
+    if kind != "code":
+        return None
+    return state.store.log_code(
+        "code", getattr(proposal, "code", "") or "", cycle=cycle, agent=agent,
+        strategy=strategy, name=f"{agent} round {cycle}",
+        rationale=getattr(proposal, "rationale", ""), status=status, reason=reason)
 
 
 def skip_turn(state, agent: str, cycle: int, error: Exception) -> None:
@@ -218,9 +234,11 @@ def evaluation_turn(state, cycle: int, agent: str) -> None:
         if unknown:
             feedback = (f"your last proposal needs unknown columns {unknown}; "
                         f"use only {sorted(state._columns())}")
+            _log_evaluation(state, spec, cycle, agent, "invalid", feedback)
             continue
         if any(e["spec"].name == spec.name for e in state.evaluations):
             feedback = f"an evaluation named {spec.name!r} exists; propose another"
+            _log_evaluation(state, spec, cycle, agent, "invalid", feedback)
             continue
         record = {"spec": spec, "status": "rejected", "reason": "",
                   "scores": {}, "cycle": cycle, "agent": agent}
@@ -251,11 +269,20 @@ def evaluation_turn(state, cycle: int, agent: str) -> None:
                     state.max_guardrails, state.guardrail_se)
         state.evaluations.append(record)
         guardrails.save_evaluations(state)
+        _log_evaluation(state, spec, cycle, agent, record["status"], record["reason"],
+                        trials_scored=len(record["scores"]),
+                        log=f"logs/evaluation_{spec.name}.log")
         logger.info("evaluation %s: %s (%s)", spec.name, record["status"],
                     record["reason"])
         return
     logger.warning("%s made no usable evaluation in cycle %d: %s", agent, cycle,
                    feedback)
+
+
+def _log_evaluation(state, spec, cycle, agent, status, reason, **fields):
+    state.store.log_code("evaluation", spec.code, cycle=cycle, agent=agent,
+                         name=spec.name, rationale=spec.rationale, status=status,
+                         reason=reason, metrics=dict(spec.metrics), **fields)
 
 
 def analysis_turn(state, cycle: int, agent: str) -> None:
@@ -282,6 +309,10 @@ def analysis_turn(state, cycle: int, agent: str) -> None:
                 log_path=state.store.log_path(f"analysis_{number}_{spec.name}"))
         except SandboxError as e:
             feedback = f"your last analysis failed: {e.brief}"
+            state.store.log_code(
+                "analysis", spec.code, cycle=cycle, agent=agent, name=spec.name,
+                question=spec.question, rationale=spec.rationale, status="failed", reason=e.brief,
+                error=e.full, log=f"logs/analysis_{number}_{spec.name}.log")
             continue
         text = format_results(results)
         try:
@@ -296,6 +327,11 @@ def analysis_turn(state, cycle: int, agent: str) -> None:
         record = {**spec.to_dict(), "cycle": cycle, "agent": agent,
                   "results": results, "findings": list(found)}
         state.analyses.append(record)
+        state.store.log_code(
+            "analysis", spec.code, cycle=cycle, agent=agent, name=spec.name,
+            question=spec.question, rationale=spec.rationale, status="ok", findings=list(found),
+            tables=sorted(results) if isinstance(results, dict) else None,
+            log=f"logs/analysis_{number}_{spec.name}.log")
         if state.run_dir:
             state.store.write_text(os.path.join("analysis", f"{number}_{spec.name}.json"),
                         json.dumps(record, indent=1, default=str))
