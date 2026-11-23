@@ -6,6 +6,11 @@
     :undoc-members:
     :show-inheritance:
 
+.. autoclass:: pyhealth.tasks.mortality_prediction.MultimodalMortalityPredictionMIMIC3
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 .. autoclass:: pyhealth.tasks.mortality_prediction.MortalityPredictionMIMIC4
     :members:
     :undoc-members:

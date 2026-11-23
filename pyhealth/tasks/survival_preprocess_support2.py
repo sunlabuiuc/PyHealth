@@ -9,6 +9,8 @@ logger = logging.getLogger(__name__)
 class SurvivalPreprocessSupport2(BaseTask):
     """Preprocessing task for survival probability prediction models using SUPPORT2 dataset.
 
+    Works with :class:`~pyhealth.datasets.Support2Dataset`.
+
     This task extracts features and labels from raw patient data to prepare samples
     for model training. It extracts patient demographics, diagnoses, clinical
     measurements, and vital signs, and pairs them with ground truth survival
@@ -66,7 +68,7 @@ class SurvivalPreprocessSupport2(BaseTask):
         ...     root=str(test_data_path),
         ...     tables=["support2"]
         ... )
-        >>> print(f"Loaded dataset with {len(dataset.unique_patient_ids)} patients\n")
+        >>> print(f"Loaded dataset with {len(dataset.unique_patient_ids)} patients")
         >>>
         >>> # Step 2: Apply preprocessing task to extract features and labels
         >>> print("Step 2: Apply Survival Preprocessing Task")
@@ -74,7 +76,7 @@ class SurvivalPreprocessSupport2(BaseTask):
         >>> sample_dataset = dataset.set_task(task=task)
         >>> print(f"Generated {len(sample_dataset)} samples")
         >>> print(f"Input schema: {sample_dataset.input_schema}")
-        >>> print(f"Output schema: {sample_dataset.output_schema}\n")
+        >>> print(f"Output schema: {sample_dataset.output_schema}")
         >>>
         >>> # Helper function to decode tensor indices to feature strings
         >>> def decode_features(tensor, processor):

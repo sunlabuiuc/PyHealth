@@ -570,7 +570,7 @@ class HeartLang(BaseModel):
                     "checkpoint does not match the backbone: missing "
                     f"{missing}, unexpected {unexpected}"
                 )
-        self.mlp_head = nn.Linear(embed_dim, self.get_output_size())
+        self.mlp_head = nn.Linear(embed_dim, self.label_processor.output_size())
         self.freeze_backbone = freeze_backbone
         if freeze_backbone:
             for param in self.backbone.parameters():
@@ -623,10 +623,10 @@ class HeartLang(BaseModel):
         features = self.embed(**kwargs)
         logits = self.mlp_head(features)
         result = {
-            "logit": logits, "y_prob": self.prepare_y_prob(logits), "embed": features,
+            "logit": logits, "y_prob": self.label_processor.activation(logits), "embed": features,
         }
         if self.label_key in kwargs:
             y_true = kwargs[self.label_key].to(self.device)
-            result["loss"] = self.get_loss_function()(logits, y_true)
+            result["loss"] = self.label_processor.loss(logits, y_true)
             result["y_true"] = y_true
         return result

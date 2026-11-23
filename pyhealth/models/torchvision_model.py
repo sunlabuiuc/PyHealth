@@ -154,7 +154,7 @@ class TorchvisionModel(BaseModel):
             final_layer = getattr(final_layer, name)
         hidden_dim = final_layer.in_features
         self.hidden_dim = hidden_dim  # Store for embedding extraction
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         layer_name = final_layer_name.split(".")[0]
         setattr(self.model, layer_name, nn.Linear(hidden_dim, output_size))
         
@@ -179,6 +179,7 @@ class TorchvisionModel(BaseModel):
                 - loss: classification loss (if embed=False)
                 - y_prob: predicted probabilities (if embed=False)
                 - y_true: true labels (if embed=False)
+                - logit: the classifier's raw outputs (if embed=False)
                 - embed: embeddings before final layer (if embed=True)
         """
         x = kwargs[self.feature_key]
@@ -200,12 +201,13 @@ class TorchvisionModel(BaseModel):
             # Standard forward pass
             logits = self.model(x)
             y_true = kwargs[self.label_key].to(self.device)
-            loss = self.get_loss_function()(logits, y_true)
-            y_prob = self.prepare_y_prob(logits)
+            loss = self.label_processor.loss(logits, y_true)
+            y_prob = self.label_processor.activation(logits)
             return {
                 "loss": loss,
                 "y_prob": y_prob,
                 "y_true": y_true,
+                "logit": logits,
             }
 
     def _extract_embeddings(self, x: torch.Tensor) -> torch.Tensor:
@@ -303,8 +305,8 @@ class TorchvisionModel(BaseModel):
         logits = fc_layer(embeddings)
         
         y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
+        loss = self.label_processor.loss(logits, y_true)
+        y_prob = self.label_processor.activation(logits)
         
         return {
             "loss": loss,

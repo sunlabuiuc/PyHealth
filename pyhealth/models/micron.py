@@ -4,10 +4,10 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
-import numpy as np
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
+from pyhealth.models.utils import save_ddi_adj
 from pyhealth.processors.base_processor import FeatureProcessor
 from pyhealth.processors import (
     SequenceProcessor, StageNetProcessor, StageNetTensorProcessor, TimeseriesProcessor, TensorProcessor, MultiHotProcessor
@@ -217,7 +217,7 @@ class MICRON(BaseModel):
                 "The processor type is: " + type(label_processor).__name__
             )
         
-        num_drugs = label_processor.size()
+        num_drugs = label_processor.output_size()
         if num_drugs == 0:
             raise ValueError("Label processor returned 0 size")
         
@@ -230,7 +230,9 @@ class MICRON(BaseModel):
 
         # save ddi adjacency matrix for later use
         ddi_adj = self.generate_ddi_adj()
-        np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj)
+        self.ddi_adj_matrix = save_ddi_adj(
+            ddi_adj, os.path.join(CACHE_PATH, "ddi_adj.npy")
+        )
 
     @staticmethod
     def _split_temporal(feature):

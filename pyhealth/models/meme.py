@@ -225,7 +225,7 @@ class MEME(BaseModel):
         ]
         self.embedding_dim = self.text_encoder.embedding_dim
         self.attention = DomainSelfAttention(self.embedding_dim, dropout)
-        self.fc = nn.Linear(self.embedding_dim, self.get_output_size())
+        self.fc = nn.Linear(self.embedding_dim, self.label_processor.output_size())
 
     # ------------------------------------------------------------ embedding
     @property
@@ -283,10 +283,10 @@ class MEME(BaseModel):
         attended, attention = self.attention(embeddings.transpose(0, 1))
         pooled = attended[:, 0] if self.readout == "first" else attended.mean(dim=1)
         logits = self.fc(pooled)
-        out = {"logit": logits, "y_prob": self.prepare_y_prob(logits),
+        out = {"logit": logits, "y_prob": self.label_processor.activation(logits),
                "embed": pooled, "attention": attention}
         if self.label_key in kwargs:
             y_true = kwargs[self.label_key].to(self.device)
-            out["loss"] = self.get_loss_function()(logits, y_true)
+            out["loss"] = self.label_processor.loss(logits, y_true)
             out["y_true"] = y_true
         return out

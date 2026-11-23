@@ -430,7 +430,7 @@ class GradientBoostedTreeModel(BaseModel):
         if val_data is not None:
             eval_X, eval_y = self._collect(val_data, "val_data")
         if self.mode == "multiclass":
-            n_classes = self.get_output_size()
+            n_classes = self.label_processor.output_size()
             missing = sorted(set(range(n_classes)) - set(np.unique(y).tolist()))
             if missing:
                 raise ValueError(
@@ -494,7 +494,7 @@ class GradientBoostedTreeModel(BaseModel):
         """Predicts with the fitted trees.
 
         ``logit`` is the trees' raw margin (not an inverted probability), and
-        ``loss`` is ``get_loss_function()`` on it.
+        ``loss`` is ``label_processor.loss`` on it.
 
         Returns:
             ``{"logit", "y_prob"}``, plus ``"loss"`` and ``"y_true"`` when the
@@ -508,7 +508,7 @@ class GradientBoostedTreeModel(BaseModel):
         if self.label_key in kwargs:
             y_true = kwargs[self.label_key].to(self.device)
             results["y_true"] = y_true
-            results["loss"] = self.get_loss_function()(logit, y_true)
+            results["loss"] = self.label_processor.loss(logit, y_true)
         return results
 
     # ------------------------------------------------------------------

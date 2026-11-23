@@ -1,0 +1,22 @@
+version: "1.0"
+tables:
+  cases:
+    file_path: "kits23-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "record_id"
+      - "image_path"
+      - "segmentation_path"
+      - "has_imaging"
+      - "malignant"
+      - "tumor_histologic_subtype"
+      - "tumor_isup_grade"
+      - "pathology_t_stage"
+      - "pathology_n_stage"
+      - "pathology_m_stage"
+      - "pathologic_size"
+      - "radiographic_size"
+      - "gender"
+      - "age_at_nephrectomy"
+      - "vital_status"

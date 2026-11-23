@@ -142,6 +142,14 @@ class EESM23Dataset(BaseDataset):
     ``sub-007`` and ``sub-008`` validation, ``sub-009`` and ``sub-010``
     test.
 
+    Getting the data:
+        - Source: https://openneuro.org/datasets/ds005178
+        - Access: open, no account needed.
+        - Download: the OpenNeuro "Download" button, the ``openneuro-py`` client,
+          or ``aws s3 sync --no-sign-request s3://openneuro.org/ds005178
+          ds005178-download/``.
+        - ``root``: the BIDS root (the ``ds005178-download`` folder).
+
     Args:
         root: BIDS root (for example the ``ds005178-download`` folder).
         dataset_name: Name stored on the dataset. Defaults to ``"eesm23"``.
