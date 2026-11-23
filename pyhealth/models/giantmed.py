@@ -110,7 +110,7 @@ class GiantMed:
             if (
                 not isinstance(prompt_template, str)
                 or not prompt_template.strip()
-                or len(prompt_template.splitlines()) != 1
+                or prompt_template.splitlines() != [prompt_template]
             ):
                 raise ValueError(
                     "prompt_template must be a nonempty single-line string"
@@ -657,9 +657,14 @@ class GiantMed:
         """Refine probabilities and report candidate and response coverage.
 
         Returns:
-            A dict containing ``probabilities``, ``prompt``, ``response``,
-            ``candidates``, ``updated``, and ``status``. A malformed or partial
-            response leaves unmatched scores unchanged and is visible in status.
+            A dict with refined ``probabilities``, candidate codes in
+            ``candidates``, accepted codes in ``updated``, codes whose scores
+            differ from the backbone in ``changed``, and a ``status``. ``prompt``
+            and ``response`` contain the first prompt and response, or ``None``
+            when there are no candidates. When candidates exist, ``prompts``
+            and ``responses`` contain all batches and ``prompt_budget`` holds
+            budget details (or ``None`` if budgeting is disabled). A malformed
+            or partial response leaves unmatched scores unchanged.
         """
         values = np.asarray(probabilities, dtype=float)
         if (

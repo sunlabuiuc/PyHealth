@@ -86,7 +86,7 @@ class OpenRouterGenerator:
         ):
             raise ValueError(
                 f"Provider reported {actual_tokens} input tokens, exceeding "
-                f"the {self.max_input_tokens} token limit; stopping the run"
+                f"the {self.max_input_tokens} token limit"
             )
         content = payload["choices"][0]["message"]["content"]
         if self.response_trace:
@@ -295,6 +295,17 @@ def main(mimic_version=3):
         parser.error("choose only one model or demo responder")
     if args.openrouter_model and not os.environ.get("OPENROUTER_API_KEY"):
         parser.error("OPENROUTER_API_KEY must be set in the environment")
+    if args.candidate_batch_size is not None:
+        if args.candidate_batch_size < 1:
+            parser.error("--candidate-batch-size must be positive")
+        if not (
+            args.prompt_tokenizer
+            or args.model
+            or args.openrouter_model == "qwen/qwen3-14b"
+        ):
+            parser.error(
+                "--candidate-batch-size requires --prompt-tokenizer or --model"
+            )
     if not args.ndc_rxcui or not args.ndc_atc:
         parser.error("supply --ndc-rxcui and --ndc-atc for reference medication labels")
     if bool(args.medi) != bool(args.ingredient_cache):

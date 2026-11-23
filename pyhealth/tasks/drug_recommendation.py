@@ -99,6 +99,9 @@ class DrugRecommendationMIMIC3(BaseTask):
     }
     output_schema: Dict[str, str] = {"drugs": "multilabel"}
 
+    # Keep default task instance attributes compatible with existing cache keys.
+    ndc_to_atc3: dict[str, str] | None = None
+
     def __init__(self, *args, ndc_to_atc3: dict[str, str] | None = None, **kwargs):
         """Initialize the task, optionally supplying an explicit NDC-to-ATC3 map.
 
@@ -106,8 +109,9 @@ class DrugRecommendationMIMIC3(BaseTask):
         unmapped NDCs are excluded rather than falling back to another source.
         """
         super().__init__(*args, **kwargs)
-        self.ndc_to_atc3 = None if ndc_to_atc3 is None else dict(ndc_to_atc3)
-        self.cache_version = "ndc_to_atc3_v2"
+        if ndc_to_atc3 is not None:
+            self.ndc_to_atc3 = dict(ndc_to_atc3)
+        self.cache_version = "ndc_to_atc3_v1"
 
     def map_drugs(self, ndc_codes: Iterable[Any]) -> list[str]:
         """Map NDCs to task labels using the selected mapping source."""
@@ -265,10 +269,14 @@ class DrugRecommendationMIMIC4(BaseTask):
     }
     output_schema: Dict[str, str] = {"drugs": "multilabel"}
 
+    # Keep default task instance attributes compatible with existing cache keys.
+    ndc_to_atc3: dict[str, str] | None = None
+
     def __init__(self, *args, ndc_to_atc3: dict[str, str] | None = None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.ndc_to_atc3 = None if ndc_to_atc3 is None else dict(ndc_to_atc3)
-        self.cache_version = "ndc_to_atc3_v2"
+        if ndc_to_atc3 is not None:
+            self.ndc_to_atc3 = dict(ndc_to_atc3)
+        self.cache_version = "ndc_to_atc3_v1"
 
     def map_drugs(self, ndc_codes: Iterable[Any]) -> list[str]:
         """Map NDCs to task labels using the selected mapping source."""

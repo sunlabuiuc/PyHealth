@@ -812,6 +812,10 @@ def test_custom_instruction_template_preserves_prompt_contract(mode):
         "{boundary!r}",
         "{boundary:>10}",
         "{boundary}\nextra",
+        "{boundary}\n",
+        "{boundary}\r",
+        "{boundary}\r\n",
+        "{boundary}\u2028",
         "{boundary}\vextra",
         "{boundary.__class__}",
         "{boundary",
@@ -820,6 +824,37 @@ def test_custom_instruction_template_preserves_prompt_contract(mode):
 def test_invalid_prompt_template_rejected(template):
     with pytest.raises(ValueError, match="prompt_template"):
         GiantMed(["A"], [[0]], lambda p: "{}", [], prompt_template=template)
+
+
+@pytest.mark.parametrize("suffix", ["\n", "\r", "\r\n", "\u2028"])
+def test_trailing_line_break_rejected_with_budget(suffix):
+    with pytest.raises(ValueError, match="single-line"):
+        GiantMed(
+            ["A"],
+            [[0]],
+            lambda p: "{}",
+            [],
+            prompt_template="Assess {boundary}." + suffix,
+            prompt_token_counter=len,
+            max_prompt_tokens=4096,
+        )
+
+
+@pytest.mark.parametrize(
+    "size, expected", [("4", "requires --prompt-tokenizer"), ("0", "must be positive")]
+)
+def test_example_rejects_invalid_batch_configuration(
+    monkeypatch, capsys, size, expected
+):
+    import sys
+
+    from examples.drug_recommendation.giantmed_mimic3 import main
+
+    monkeypatch.setattr(sys, "argv", ["example", "--candidate-batch-size", size])
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 2
+    assert expected in capsys.readouterr().err
 
 
 def test_prompt_metadata_has_stable_patient_independent_hash():
