@@ -57,6 +57,29 @@ class TestCHET(unittest.TestCase):
         # All entries must be non-negative and finite
         self.assertTrue((adj >= 0.0).all())
         self.assertTrue(torch.isfinite(adj).all())
+        # Connected rows must be row-normalized (sum to 1.0)
+        row_sums = adj.sum(dim=-1)
+        active_rows = row_sums > 0
+        self.assertTrue(
+            torch.allclose(
+                row_sums[active_rows], torch.ones_like(row_sums[active_rows])
+            )
+        )
+
+    def test_multiple_feature_keys_warning(self):
+        dataset = create_sample_dataset(
+            samples=self.samples,
+            input_schema=self.input_schema,
+            output_schema={"label": "binary"},
+        )
+        with self.assertWarns(UserWarning):
+            CHET(
+                dataset=dataset,
+                feature_keys=["conditions", "procedures"],
+                code_size=16,
+                graph_size=16,
+                hidden_dim=32,
+            )
 
     def test_invalid_args(self):
         dataset = create_sample_dataset(

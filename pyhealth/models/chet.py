@@ -10,6 +10,7 @@ Intelligence (AAAI 2022). https://arxiv.org/abs/2112.05195
 from __future__ import annotations
 
 import math
+import warnings
 from typing import Any
 
 import numpy as np
@@ -26,6 +27,10 @@ def compute_cooccurrence_adj(
     self_loop: bool = True,
 ) -> torch.Tensor:
     """Computes a normalized co-occurrence adjacency matrix from a dataset.
+
+    Note:
+        To prevent data leakage, compute this adjacency matrix using only the
+        training dataset split rather than the combined dataset.
 
     Args:
         dataset: PyHealth SampleDataset containing clinical samples.
@@ -209,11 +214,19 @@ class CHET(BaseModel):
     persistent recurrent conditions, emergent neighbor conditions, and novel
     unrelated conditions across visits using context-aware transition functions.
 
+    Note:
+        Per-visit dense N x N adjacency multiplications scale quadratically with
+        vocabulary size N, so large vocabularies (e.g. MIMIC-sized) may require
+        pruned or filtered code sets.
+
     Args:
         dataset: PyHealth SampleDataset containing patient samples and schemas.
         feature_keys: Optional list of feature keys to use from dataset.
-            Defaults to the first feature key in dataset.
+            CHET operates on a single sequential disease code feature. If multiple
+            keys are supplied, only the primary key (feature_keys[0]) is used and
+            a warning is emitted. Defaults to the first feature key in dataset.
         label_key: Optional label key to predict. Defaults to the first label key.
+            If the dataset defines multiple labels, specify the target label_key.
         code_size: Dimensionality of center and neighbor code embeddings.
             Default is 48.
         graph_size: Hidden dimension of graph representation layer.
@@ -223,7 +236,8 @@ class CHET(BaseModel):
         attention_size: Dimension of single-head transition attention.
             Default is 32.
         adj: Optional precomputed adjacency matrix of shape ``(num_codes, num_codes)``.
-            If None, computed automatically from dataset co-occurrences.
+            If None, computed automatically from dataset co-occurrences. Only the
+            training split should be used to construct this matrix.
         dropout: Dropout rate applied to patient representations.
             Default is 0.1.
 
@@ -286,6 +300,14 @@ class CHET(BaseModel):
             self.label_key = self.label_keys[0]
 
         self.primary_feature_key = self.feature_keys[0]
+        if len(self.feature_keys) > 1:
+            warnings.warn(
+                f"CHET operates on a single disease code feature key. "
+                f"Multiple feature keys were provided ({self.feature_keys}); "
+                f"only the primary key '{self.primary_feature_key}' will be used.",
+                UserWarning,
+                stacklevel=2,
+            )
         proc = self.dataset.input_processors[self.primary_feature_key]
         vocab = getattr(proc, "code_vocab", None)
         if vocab is None:
