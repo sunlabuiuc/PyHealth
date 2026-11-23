@@ -101,6 +101,8 @@ def _window_series(
 class MedModDecompensationMIMIC4(BaseTask):
     """Death within the next 24 hours, predicted during an ICU stay.
 
+    Works with :class:`~pyhealth.datasets.MIMIC4Dataset`.
+
     Samples: for every eligible ICU stay, one sample at each prediction time
     ``t`` (hours since ICU admission) that is a multiple of
     ``sample_every_hours``, greater than ``min_hours`` and not after the end
@@ -116,12 +118,23 @@ class MedModDecompensationMIMIC4(BaseTask):
     ``ehr``: the 17 MedFuse variables of
     :class:`~pyhealth.tasks.EHRCXRMortalityMIMIC4` and their masks, in
     ``bin_hours`` bins over the ``window_hours`` before ``t``:
-    ``[window_hours / bin_hours, 34]``. Only ICU data of the stay is used;
-    bins before ICU admission stay empty. While the window starts at ICU
-    admission, chart values charted just before it (admission height and
-    weight) count towards its first bin, as in the mortality task. Once the
-    window starts later, the last value of each variable before the window is
-    carried into the first bin with mask 0.
+    ``[window_hours / bin_hours, 34]``. Only ICU data of the stay is used:
+    labs from before ICU admission are never used. The one exception is chart
+    values recorded under the stay's ``stay_id`` before admission, however
+    early (MIMIC-IV charts admission height and weight just before
+    ``intime``), as in the mortality task:
+
+    - While ``t <= window_hours``, the window starts at or before admission.
+      These chart values count as measured, in the bin of their own time, or
+      in the first bin if they are older than the window. Bins start at
+      ``t - window_hours``, so when ``t`` is a multiple of ``bin_hours`` (as
+      with the defaults) a bin edge falls on admission and these values sit
+      in bins before it; otherwise the bin that spans admission can hold such
+      a value together with the first values after admission. All other
+      bins before admission are empty.
+    - Once ``t > window_hours``, the window starts after admission. The last
+      value of each variable before the window, chart or lab, is carried into
+      the first bin with mask 0.
 
     ``cxr``: the last image with a view in ``view_positions`` taken between
     ICU admission and ``t`` (inclusive). Images taken after ``t`` never enter

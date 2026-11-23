@@ -174,7 +174,9 @@ features: meaning, clinical group and expected direction of effect. Then:
     wrong expectation, confounding by indication, overlap with a related
     feature, a coding artifact, a data error or leakage;
   - poor calibration;
-  - a large gap between subgroups.
+  - a large gap between subgroups;
+  - no signal: on binary cross-validation, the selection and the baseline
+    don't clearly beat chance (skipped above 50,000 training samples).
 
   :meth:`~pyhealth.autoimprove.AutoImprover.approve` records each decision
   in ``review.json``, and the report shows it.
@@ -551,7 +553,7 @@ API Reference
         with_xgboost, patient_folds, run_config_cv, select_trial, paired_gain,
         check_models, describe_error, select_simplest, config_diff, Report,
         build_report, load_run, unverified_numbers, fold_parts, fit_predict,
-        score_predictions, out_of_fold
+        score_predictions, out_of_fold, chance_fold_scores, signal_check
     :show-inheritance:
 
 .. automodule:: pyhealth.autoimprove.state

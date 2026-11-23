@@ -197,6 +197,8 @@ class _CHAOSSegmentationBase(BaseTask):
 class CHAOSLiverSegmentationCTMRI(_CHAOSSegmentationBase):
     """Official CHAOS task 1: liver segmentation from CT and MRI.
 
+    Works with :class:`~pyhealth.datasets.CHAOSDataset`.
+
     This is the official cross-modality liver task.  A single model sees CT and
     MR series as separate single-channel samples; they are not registered or
     concatenated as paired channels.
@@ -218,6 +220,8 @@ class CHAOSLiverSegmentationCTMRI(_CHAOSSegmentationBase):
 class CHAOSLiverSegmentationCTonly(_CHAOSSegmentationBase):
     """Official CHAOS task 2: liver segmentation from CT only.
 
+    Works with :class:`~pyhealth.datasets.CHAOSDataset`.
+
     Examples:
         >>> from pyhealth.tasks import CHAOSLiverSegmentationCTonly
         >>> CHAOSLiverSegmentationCTonly().modalities
@@ -234,6 +238,8 @@ class CHAOSLiverSegmentationCTonly(_CHAOSSegmentationBase):
 
 class CHAOSLiverSegmentationMRIonly(_CHAOSSegmentationBase):
     """Official CHAOS task 3: liver segmentation from MRI only.
+
+    Works with :class:`~pyhealth.datasets.CHAOSDataset`.
 
     MRI includes T1-DUAL in/out phase and T2-SPIR series.
 
@@ -253,6 +259,8 @@ class CHAOSLiverSegmentationMRIonly(_CHAOSSegmentationBase):
 
 class CHAOSAbdominalSegmentationCTMRI(_CHAOSSegmentationBase):
     """Official CHAOS task 4: abdominal organs from CT and MRI.
+
+    Works with :class:`~pyhealth.datasets.CHAOSDataset`.
 
     CT annotates the liver only.  MRI annotates liver, spleen and both kidneys,
     so the shared output has five classes including background.
@@ -280,6 +288,8 @@ class CHAOSAbdominalSegmentationCTMRI(_CHAOSSegmentationBase):
 
 class CHAOSAbdominalSegmentationMRIonly(_CHAOSSegmentationBase):
     """Official CHAOS task 5: abdominal organs from MRI only.
+
+    Works with :class:`~pyhealth.datasets.CHAOSDataset`.
 
     Examples:
         >>> from pyhealth.tasks import CHAOSAbdominalSegmentationMRIonly

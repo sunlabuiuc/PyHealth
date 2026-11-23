@@ -28,9 +28,16 @@ from .config import RunConfig
 from .evaluation import guardrails, selection
 from .evaluation.guardrails import admissible_filter
 from .evaluation.records import ImproveResult, Trial, _parent_of
-from .evaluation.selection import _better, _rule_text, select_simplest, select_trial
+from .evaluation.selection import (
+    _better,
+    _rule_text,
+    select_simplest,
+    select_trial,
+    signal_check,
+)
 from .evaluation.training import (
     EarlyStop,
+    chance_fold_scores,
     check_models,
     greater_is_better,
     patient_folds,
@@ -51,6 +58,7 @@ from .search.space import (
     space_fingerprint,
 )
 from .search.turns import PLAN_KINDS
+from .utils import data
 from .utils.data import (
     _label_mode,
     _positive_count,
@@ -149,6 +157,7 @@ class RunState:
         self.prune_enabled = cfg.confirm.prune
         self.early_stop = budget.early_stop
         self.suspicion_auc = ev.suspicion_auc
+        self.min_events_per_fold = ev.min_events_per_fold
         self.confirmed: dict[int, list[float]] = {}
         self.pruned_id: int | None = None
         self._raw_cache: dict[tuple[str, str], np.ndarray] = {}
@@ -256,7 +265,19 @@ class RunState:
         self._fingerprint = space_fingerprint(self.space, self.train_dataset)
 
     def _warn_if_small_validation(self, min_positives: int = 30) -> None:
-        if self.mode != "binary" or self.cv_folds:
+        if self.mode != "binary":
+            return
+        if self.cv_folds:
+            events = self._fold_events()
+            if events and min(events) < self.min_events_per_fold:
+                logger.warning(
+                    "The %d folds have %s positive samples. With fewer than %d "
+                    "per fold, one lucky fold can carry a trial's whole gain: "
+                    "treat the search's gains as unconfirmed until "
+                    "evaluate_on_test (or more events) supports them.",
+                    len(events), ", ".join(map(str, events)),
+                    self.min_events_per_fold,
+                )
             return
         positives = _positive_count(self.val_dataset)
         if positives is not None and positives < min_positives:
@@ -267,6 +288,14 @@ class RunState:
                 "leaderboard.",
                 positives,
             )
+
+    def _fold_events(self) -> list[int] | None:
+        """Positive samples in each CV fold (binary tasks with CV only)."""
+        if (self.mode != "binary" or not self.folds
+                or len(self.train_dataset) > data.MAX_LABEL_SCAN):
+            return None
+        labels = self._labels()
+        return [int((labels[fold] > 0.5).sum()) for fold in self.folds]
 
     def result(self) -> ImproveResult:
         """The current state as an :class:`ImproveResult`.
@@ -331,9 +360,9 @@ class RunState:
             (800, 1)
         """
         if trial_id not in self._oof:
-            data = self.store.load_arrays(f"preds/trial_{trial_id}.npz")
-            if data is not None:
-                self._oof[trial_id] = {**data, "split": str(data["split"])}
+            arrays = self.store.load_arrays(f"preds/trial_{trial_id}.npz")
+            if arrays is not None:
+                self._oof[trial_id] = {**arrays, "split": str(arrays["split"])}
         return self._oof.get(trial_id)
 
     def _columns(self) -> dict[str, np.ndarray]:
@@ -657,11 +686,51 @@ class RunState:
 
     def finish(self) -> None:
         """Confirms the leaders on new folds and seeds, and prunes features,
-        when the config asks for it."""
+        when the config asks for it; then compares the selection and the
+        baseline with chance (``signal.json``)."""
         if self.confirm_enabled and self.folds is not None and not self.confirmed:
             selection.confirm(self)
             if self.prune_enabled and self.features is not None:
                 selection.prune(self)
+        self._check_signal()
+
+    def _check_signal(self) -> None:
+        """Compares the selection and baseline with chance (binary CV only).
+
+        Saves ``signal.json``, read by :meth:`flags` and :meth:`report`, and
+        warns when the gains may not reflect any signal in the inputs.
+        """
+        # A signal.json from an earlier run in this run_dir no longer applies.
+        self.store.remove("signal.json")
+        best = self.result().best
+        if self.mode != "binary" or self.folds is None or best is None:
+            return
+        if len(self.train_dataset) > data.MAX_LABEL_SCAN:
+            # Reading every label would load every training sample.
+            logger.info("Skipped the chance check: more than %d training samples.",
+                        data.MAX_LABEL_SCAN)
+            return
+        base = next((t for t in self.trials
+                     if t.agent == "baseline" and t.fold_scores), None)
+        folds, selected = self.folds, best.fold_scores
+        base_scores = base.fold_scores if base else None
+        if best.trial_id in self.confirmed and (
+            base is None or base.trial_id in self.confirmed
+        ):
+            # Compare on the confirmation folds: fresh scores for both, and
+            # chance on the same partition.
+            folds = patient_folds(self.train_dataset, len(self.folds), self.seed + 1)
+            selected = self.confirmed[best.trial_id]
+            base_scores = self.confirmed[base.trial_id] if base else None
+        chance = chance_fold_scores(self._labels(), folds, self.metric)
+        if chance is None or not self.maximize:
+            return
+        check = signal_check(chance, selected, base_scores, self.metric)
+        if check is None:
+            return
+        self.store.save_result("signal.json", check, str)
+        if check["no_signal"]:
+            logger.warning("No signal check: %s", check["detail"])
 
     def _run_config(
         self, config: PipelineConfig, report_metrics, features=(), stop_if=None,
@@ -738,6 +807,8 @@ class RunState:
             "one_se": self.one_se, "seed": self.seed,
             "models": sorted(self.space.models), "rule": self.selection_rule(),
             "dropped_models": self.dropped_models, "confirm_se": self.confirm_se,
+            "fold_events": self._fold_events(),
+            "min_events_per_fold": self.min_events_per_fold,
         })
         if self.task_card is not None:
             self.store.write_json("card.json", self.task_card.to_dict())

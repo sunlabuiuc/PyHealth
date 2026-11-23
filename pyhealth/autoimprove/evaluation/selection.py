@@ -67,6 +67,68 @@ def paired_gain(
     return round(float(diff.mean()), 12), round(se, 12)
 
 
+def signal_check(
+    chance: Sequence[float],
+    selected: Sequence[float],
+    baseline: Sequence[float] | None = None,
+    metric: str = "",
+) -> dict[str, Any] | None:
+    """Compares the selection and the baseline with a chance-level ranking.
+
+    A gain over the baseline is only evidence of signal if the baseline
+    itself beats chance: with labels the inputs cannot predict, a baseline
+    can score below chance and any model that merely reaches chance then
+    looks like an improvement. Each comparison is paired over the folds;
+    ``no_signal`` is set when the baseline or the selection is not above
+    chance by more than one standard error.
+
+    Args:
+        chance: Chance-level score per fold (:func:`chance_fold_scores`).
+        selected: The selected trial's fold scores.
+        baseline: The baseline's fold scores, if a baseline ran.
+        metric: The metric name, for the message.
+
+    Returns:
+        ``{"metric", "chance", "selected": {"gain", "se"}, "baseline":
+        {"gain", "se"} or None, "no_signal", "detail"}``, or ``None`` when
+        the fold scores do not line up with ``chance``.
+
+    Examples:
+        >>> check = signal_check([0.08] * 3, [0.11, 0.10, 0.12],
+        ...                      baseline=[0.07, 0.09, 0.08], metric="pr_auc")
+        >>> check["no_signal"]
+        True
+        >>> signal_check([0.5] * 3, [0.8, 0.82, 0.79], [0.75, 0.76, 0.74])["no_signal"]
+        False
+    """
+    if not chance or len(selected) != len(chance):
+        return None
+    sel_gain, sel_se = paired_gain(selected, chance, maximize=True)
+    base = None
+    if baseline is not None and len(baseline) == len(chance):
+        base_gain, base_se = paired_gain(baseline, chance, maximize=True)
+        base = {"gain": base_gain, "se": base_se}
+    weak_base = base is not None and base["gain"] - base["se"] <= 0
+    weak_sel = sel_gain - sel_se <= 0
+    level = float(np.mean(chance))
+    if weak_base:
+        detail = (f"The baseline's {metric} is not above chance ({level:.3f}; "
+                  f"baseline minus chance {base['gain']:+.3f} ± {base['se']:.3f}), "
+                  "so gains over it may only be gains over a model that learned "
+                  "nothing. Check the label and the inputs, and compare with a "
+                  "null-label control before trusting the improvement.")
+    elif weak_sel:
+        detail = (f"The selected model's {metric} is not above chance "
+                  f"({level:.3f}; selected minus chance {sel_gain:+.3f} ± "
+                  f"{sel_se:.3f}): the inputs may not predict the outcome.")
+    else:
+        detail = ""
+    return {"metric": metric, "chance": [float(c) for c in chance],
+            "selected": {"gain": sel_gain, "se": sel_se}, "baseline": base,
+            "no_signal": weak_base or weak_sel, "detail": detail}
+
+
+
 def select_trial(
     trials: Sequence[Trial], maximize: bool, promote_se: float | None = None
 ) -> Trial | None:

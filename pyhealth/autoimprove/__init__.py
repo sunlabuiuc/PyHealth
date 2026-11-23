@@ -12,8 +12,14 @@ from .config import RunConfig
 from .evaluation.guardrails import EvaluationSpec, clearly_worse, metrics_menu
 from .evaluation.records import ImproveResult, Trial
 from .evaluation.report import Report, build_report, load_run, unverified_numbers
-from .evaluation.selection import paired_gain, select_simplest, select_trial
+from .evaluation.selection import (
+    paired_gain,
+    select_simplest,
+    select_trial,
+    signal_check,
+)
 from .evaluation.training import (
+    chance_fold_scores,
     check_models,
     fit_predict,
     fold_parts,
@@ -113,6 +119,7 @@ __all__ = [
     "Trial",
     "add_literature",
     "build_report",
+    "chance_fold_scores",
     "check_models",
     "config_diff",
     "describe_error",
@@ -130,6 +137,7 @@ __all__ = [
     "score",
     "select_simplest",
     "select_trial",
+    "signal_check",
     "train_pipeline",
     "unverified_numbers",
     "with_xgboost",

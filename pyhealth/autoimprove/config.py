@@ -216,6 +216,10 @@ class EvaluationConfig(_Section):
         check: Remove models that cannot read the inputs before searching.
         suspicion_auc: An engineered feature that alone separates the labels
             this well is flagged as possible leakage.
+        min_events_per_fold: With ``cv_folds`` on a binary task, warn and
+            raise a ``few_events`` flag when a fold has fewer positive
+            samples than this. With so few events one lucky fold can carry a
+            trial's whole gain, so the search's gains are unconfirmed.
     """
 
     cv_folds: int | None = None
@@ -223,6 +227,7 @@ class EvaluationConfig(_Section):
     one_se: bool = True
     check: bool = True
     suspicion_auc: float = 0.95
+    min_events_per_fold: int = Field(10, ge=1)
 
 
 class ConfirmConfig(_Section):

@@ -93,6 +93,12 @@ class RunStore:
         text = self.read_text(relative)
         return None if text is None else json.loads(text)
 
+    def remove(self, relative: str) -> None:
+        """Forgets a result, in memory and on disk."""
+        self._results.pop(relative, None)
+        if self.exists(relative):
+            os.remove(self.path(relative))
+
     def save_result(self, name: str, out: dict[str, Any], default) -> None:
         """Keeps a result in memory and, with a run_dir, writes it there.
 

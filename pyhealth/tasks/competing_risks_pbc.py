@@ -100,6 +100,8 @@ def _features(row: Event) -> list[float]:
 class CompetingRisksPBC(BaseTask):
     """Extract one baseline first-event sample without future-value backfill.
 
+    Works with :class:`~pyhealth.datasets.PBCDataset`.
+
     Status strings are alive=0 (right censoring), dead=1, transplanted=2.
     This task accepts the author's longitudinal pbc2.csv, not R's numeric-label
     pbc schema. Time is unshifted years from baseline. The fixed vocabulary
