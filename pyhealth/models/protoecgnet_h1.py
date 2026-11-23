@@ -32,6 +32,7 @@ existing ProtoECGNet defaults. ProtoECGNetH1 adds the paired model interface.
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import copy
 import math
 from numbers import Real
 from typing import Any
@@ -356,9 +357,9 @@ class ProtoECGNetH1(ProtoECGNet):
     Note:
         Clean evaluation requires model.eval(). Its loss follows the current
         stage and excludes consistency; classification_loss exposes BCE alone.
-        Projection uses the inherited training-loader algorithm and returns
-        loader-relative sources. Durable ECG-linked provenance and conversion
-        of historical research checkpoints require a separate adapter.
+        Projection uses the inherited training-loader algorithm and persists
+        ECG-linked sources with a bank/feature fingerprint. Conversion of
+        historical research checkpoints remains a separate operation.
     """
 
     def __init__(
@@ -423,6 +424,8 @@ class ProtoECGNetH1(ProtoECGNet):
             setattr(self, name, value)
         self.set_label_statistics(class_weights, label_cooccurrence)
         self.set_stage("joint")
+        self._projection_provenance: dict[str, Any] | None = None
+        self.register_load_state_dict_post_hook(self._check_loaded_projection)
 
     @staticmethod
     def _coefficient(name: str, value: Real) -> float:
@@ -644,6 +647,91 @@ class ProtoECGNetH1(ProtoECGNet):
             "reference_commit": "fefbe6166a87a961c9c65d220d6344e8d53f2c49",
         }
 
+    def project_prototypes(
+        self,
+        dataloader: Any,
+        *,
+        source_context: dict[str, Any] | None = None,
+    ) -> dict[str, list[dict[str, Any] | None]]:
+        """Project using clean training ECGs and bind sources to the exact bank.
+
+        Args:
+            dataloader: Deterministic loader with strictly increasing ecg_id,
+                patient_id, strat_fold (1-8), signal and multi-hot labels.
+            source_context: Optional JSON-compatible preprocessing/protocol
+                descriptors. Raw-input fingerprints are captured automatically.
+
+        Returns:
+            Morphology source records with inherited sample/window/similarity
+            fields and stable ECG/patient/fold/latent-coordinate metadata.
+            Uncovered prototypes have None sources.
+        """
+        from .protoecgnet_h1_checkpoint import project_with_sources
+
+        return project_with_sources(self, dataloader, source_context=source_context)
+
+    def get_projection_provenance(self) -> dict[str, Any] | None:
+        """Return a checked copy of the binding; reject stale feature/bank state."""
+        from .protoecgnet_h1_checkpoint import checked_projection_provenance
+
+        return checked_projection_provenance(self)
+
+    def clear_projection_provenance(self) -> None:
+        """Explicitly discard source claims before further joint training."""
+        self._projection_provenance = None
+        self.projection_info = None
+
+    def prototype_contributions(self, signal: Tensor) -> dict[str, Tensor]:
+        """Return contributions after validating any attached source binding."""
+        self.get_projection_provenance()
+        return super().prototype_contributions(signal)
+
+    def load_state_dict(
+        self,
+        state_dict: dict[str, Any],
+        strict: bool = True,
+        assign: bool = False,
+    ) -> Any:
+        """Prevalidate bound source records before copying checkpoint tensors.
+
+        Bound checkpoints require strict loading. Unbound partial loading keeps
+        the normal Module API; clear existing source claims explicitly first.
+        """
+        from .protoecgnet_h1_checkpoint import (
+            _check_math,
+            validate_projection_provenance,
+        )
+
+        extra = state_dict.get("_extra_state", {})
+        provenance = (
+            extra.get("projection_provenance") if isinstance(extra, dict) else None
+        )
+        if not strict and (
+            provenance is not None or self._projection_provenance is not None
+        ):
+            raise ValueError("Bound H1 projection checkpoints require strict loading.")
+        if isinstance(extra, dict) and extra:
+            if extra.get("label_names") != self.label_names:
+                raise ValueError(
+                    "H1 checkpoint label order does not match the dataset."
+                )
+            if extra.get("architecture") != self._architecture():
+                raise ValueError("H1 checkpoint architecture does not match the model.")
+        if provenance is not None:
+            _check_math(self)
+            validate_projection_provenance(
+                provenance, state_dict, self.label_names, self._architecture()
+            )
+        return super().load_state_dict(state_dict, strict=strict, assign=assign)
+
+    def _check_loaded_projection(
+        self,
+        module: torch.nn.Module,
+        incompatible_keys: Any,
+    ) -> None:
+        # Also runs when H1 is loaded recursively as a child of another module.
+        self.get_projection_provenance()
+
     def get_extra_state(self) -> dict[str, Any]:
         """Save ordered labels, architecture, objective settings and stage."""
         names = (
@@ -662,6 +750,7 @@ class ProtoECGNetH1(ProtoECGNet):
             "architecture": self._architecture(),
             "objective": {name: getattr(self, name) for name in names},
             "contrastive_enabled": self._contrastive_enabled,
+            "projection_provenance": self.get_projection_provenance(),
         }
 
     def set_extra_state(self, state: dict[str, Any]) -> None:
@@ -692,4 +781,14 @@ class ProtoECGNetH1(ProtoECGNet):
         for name, value in coefficients.items():
             setattr(self, name, value)
         self._contrastive_enabled = state["contrastive_enabled"]
+        self._projection_provenance = copy.deepcopy(state.get("projection_provenance"))
+        self.projection_info = (
+            None
+            if self._projection_provenance is None
+            else {
+                "morphology": copy.deepcopy(
+                    self._projection_provenance["source_records"]
+                )
+            }
+        )
         self.set_stage(state["stage"])

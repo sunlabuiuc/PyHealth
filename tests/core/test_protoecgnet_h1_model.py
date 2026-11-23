@@ -45,6 +45,7 @@ def dataset():
             {
                 "patient_id": f"patient_{index}",
                 "ecg_id": 100 + index,
+                "strat_fold": 1,
                 "signal": clean,
                 "labels": labels,
                 "noisy_signal": clean + 0.01 * torch.randn(2, 9, generator=generator),
