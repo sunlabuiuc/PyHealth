@@ -353,7 +353,9 @@ class Delphi(BaseModel):
         Returns:
             ``logit`` and ``y_prob`` over the label vocabulary at the last
             real token, plus ``loss``, ``loss_ce``, ``loss_dt``, ``y_true``
-            and ``dt_pred`` (expected days) when labels are present.
+            and ``dt_pred`` when labels are present. ``dt_pred`` is the
+            expected waiting time in days, ``exp(-logsumexp(logit))``.
+            ``t_min`` shifts only the time loss, so it is not included.
             ``attn`` is the attention averaged over layers and heads.
         """
         codes, ages = self._codes_and_ages(kwargs["codes"], kwargs["ages"])
@@ -369,7 +371,7 @@ class Delphi(BaseModel):
             return output
         y_true = kwargs["next_code"].to(self.device).long().view(-1)
         waits = kwargs["time_to_next"].to(self.device).float().view(-1)
-        target_nll, lse = _competing_nll(class_logit, waits, self.t_min)
+        target_nll, _ = _competing_nll(class_logit, waits, self.t_min)
         loss_ce = F.cross_entropy(class_logit, y_true)
         loss_dt = target_nll.mean()
         n_target = class_logit.size(0)
@@ -398,7 +400,7 @@ class Delphi(BaseModel):
                 "loss_ce": loss_ce,
                 "loss_dt": loss_dt,
                 "loss": loss_ce + loss_dt,
-                "dt_pred": torch.exp(-lse),
+                "dt_pred": torch.exp(-torch.logsumexp(class_logit, dim=-1)),
             }
         )
         return output

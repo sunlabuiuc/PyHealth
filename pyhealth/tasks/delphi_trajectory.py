@@ -10,6 +10,9 @@ Each task turns one patient's events into prefix-to-next-event samples
 (``codes``, ``ages``, ``next_code``, ``time_to_next``) for
 :class:`~pyhealth.models.Delphi`. Ages are days since birth. Nothing here
 downloads UK Biobank or PhysioNet data.
+:class:`DelphiTrajectoryUKB` subclasses :class:`DelphiTrajectoryMEDS`
+because a pre-extracted UK Biobank table has the same timestamp-and-code
+shape as MEDS; it only changes the event type and the birth codes.
 """
 
 from __future__ import annotations
@@ -325,10 +328,11 @@ class DelphiTrajectoryMIMIC4(BaseTask):
 class DelphiTrajectoryUKB(DelphiTrajectoryMEDS):
     """Next-event samples from pre-extracted UK Biobank events.
 
-    UK Biobank access is credentialed and is not downloaded here. Events use
-    ``event_type="ukb"`` and a ``code`` attribute, the same shape as MEDS.
-    ``UKB_BIRTH`` is a birth anchor in addition to the MEDS and SNOMED birth
-    codes.
+    Subclasses :class:`DelphiTrajectoryMEDS` because a pre-extracted UK
+    Biobank table has the same shape as MEDS: an ``event_type``, a timestamp
+    and a ``code``. This class only sets ``event_type="ukb"`` and adds
+    ``UKB_BIRTH`` to the MEDS and SNOMED birth codes. UK Biobank access is
+    credentialed and is not downloaded here.
 
     Examples:
         >>> from pyhealth.tasks import DelphiTrajectoryUKB

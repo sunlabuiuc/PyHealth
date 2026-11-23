@@ -206,6 +206,18 @@ class TestDelphiModel(unittest.TestCase):
         self.assertTrue(torch.isfinite(again["loss"]).all())
         self.assertEqual(again["logit"].shape[0], 1)
 
+    def test_dt_pred_is_mean_wait_without_t_min(self):
+        token_a = self.vocab["A"]
+        batch = self._labeled_batch([[token_a]], [[0.0]], ["B"], [9.0])
+        for t_min in (1.0, 2.5):
+            model = _model(self.dataset, t_min=t_min)
+            model.eval()
+            output = model(**batch)
+            expected = torch.exp(-torch.logsumexp(output["logit"], dim=-1))
+            self.assertTrue(torch.allclose(output["dt_pred"], expected, atol=1e-5))
+            shifted = expected + t_min
+            self.assertFalse(torch.allclose(output["dt_pred"], shifted, atol=1e-3))
+
     def test_delphi_mask_ties_and_birth_age_zero(self):
         token_a = self.vocab["A"]
         token_b = self.vocab["B"]
