@@ -222,8 +222,8 @@ class TestStageAttentionNetFlatRelevance(unittest.TestCase):
         self.assertTrue(torch.equal(picked[0], torch.full((seq_len,), 2.0)))
         self.assertTrue(torch.equal(picked[1], torch.full((seq_len,), 1.0)))
 
-    def test_get_relevance_tensor_explicit_mask_and_fallback_branches(self):
-        """Explicit masks, embedding access, and embed=True stay available."""
+    def test_get_relevance_tensor_explicit_mask(self):
+        """An explicit per-timestep mask overrides the values."""
         embedding = self.model.get_embedding_model()
         self.assertIsInstance(embedding, torch.nn.Module)
 
@@ -245,6 +245,92 @@ class TestStageAttentionNetFlatRelevance(unittest.TestCase):
             {"codes": _marked_relevance(batch_size, seq_len)},
             **overridden,
         )["codes"]
+        self.assertTrue(torch.equal(picked[0], torch.zeros(seq_len)))
+        self.assertTrue(torch.equal(picked[1], torch.full((seq_len,), 1.0)))
+
+    def test_get_relevance_tensor_falls_back_to_last_position_without_value(self):
+        """With no value and no mask, every row uses the final position."""
+        _, values = self.batch["codes"]
+        batch_size, seq_len = values.shape
+        processor = self.model.dataset.input_processors["codes"]
+        original_schema = processor.schema
+        processor.schema = lambda: ("time",)
+        try:
+            picked = self.model.get_relevance_tensor(
+                {"codes": _marked_relevance(batch_size, seq_len)},
+                codes=(self.batch["codes"][0],),
+            )["codes"]
+        finally:
+            processor.schema = original_schema
+
+        expected = torch.full((seq_len,), float(seq_len - 1))
+        self.assertTrue(torch.equal(picked[0], expected))
+        self.assertTrue(torch.equal(picked[1], expected))
+
+
+class TestStageAttentionNetFlatContinuousRelevance(unittest.TestCase):
+    """Flat stagenet_tensor values are [batch, seq] and have no feature axis."""
+
+    def setUp(self):
+        samples = [
+            {
+                "patient_id": "patient-0",
+                "visit_id": "visit-0",
+                "vitals": ([0.0, 1.0, 2.0], [1.5, 2.0, 2.5]),
+                "label": 1,
+            },
+            {
+                "patient_id": "patient-1",
+                "visit_id": "visit-1",
+                "vitals": ([0.0, 1.0], [3.0, 4.0]),
+                "label": 0,
+            },
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"vitals": "stagenet_tensor"},
+            output_schema={"label": "binary"},
+            dataset_name="test_stagenet_mha_flat_continuous",
+        )
+        self.model = StageNetMHA(
+            dataset=dataset, chunk_size=2, levels=2, num_heads=2
+        )
+        self.batch = next(
+            iter(get_dataloader(dataset, batch_size=2, shuffle=False))
+        )
+
+    def test_flat_continuous_keeps_a_per_timestep_mask(self):
+        """A scalar series must not collapse the sequence axis."""
+        processor = self.model.dataset.input_processors["vitals"]
+        _, values = self.batch["vitals"]
+        self.assertFalse(processor.is_token())
+        self.assertEqual(processor.dim(), (1, 1))
+        self.assertEqual(tuple(values.shape), (2, 3))
+        self.assertEqual(values[1, 2].item(), 0.0)
+        self.assertNotEqual(values[1, 1].item(), 0.0)
+
+        batch_size, seq_len = values.shape
+        picked = self.model.get_relevance_tensor(
+            {"vitals": _marked_relevance(batch_size, seq_len)},
+            **self.batch,
+        )["vitals"]
+        self.assertTrue(torch.equal(picked[0], torch.full((seq_len,), 2.0)))
+        self.assertTrue(torch.equal(picked[1], torch.full((seq_len,), 1.0)))
+
+    def test_explicit_sequence_mask_is_not_collapsed(self):
+        """A [batch, seq] mask is already time-aligned and must be kept."""
+        time, values = self.batch["vitals"]
+        batch_size, seq_len = values.shape
+        mask = (values != 0).int()
+        mask[0].zero_()
+        mask[0, 0] = 1
+        overridden = dict(self.batch)
+        overridden["vitals"] = (time, values, mask)
+
+        picked = self.model.get_relevance_tensor(
+            {"vitals": _marked_relevance(batch_size, seq_len)},
+            **overridden,
+        )["vitals"]
         self.assertTrue(torch.equal(picked[0], torch.zeros(seq_len)))
         self.assertTrue(torch.equal(picked[1], torch.full((seq_len,), 1.0)))
 
@@ -308,6 +394,19 @@ class TestStageAttentionNetRelevanceOtherFeatures(unittest.TestCase):
             )
         )
         self.assertTrue(torch.equal(picked["visits"][1], torch.zeros(visits.shape[1])))
+
+        lab_time, lab_values = batch["labs"]
+        feature_mask = (lab_values.abs().sum(dim=-1, keepdim=True) != 0).int()
+        feature_mask = feature_mask.expand_as(lab_values).clone()
+        feature_mask[0, 2] = 0
+        masked = dict(batch)
+        masked["labs"] = (lab_time, lab_values, feature_mask)
+        masked_labs = model.get_relevance_tensor(
+            {"labs": lab_rows, "visits": visit_rows},
+            **masked,
+        )["labs"]
+        self.assertTrue(torch.equal(masked_labs[0], torch.full((3,), 1.0)))
+        self.assertTrue(torch.equal(masked_labs[1], torch.full((3,), 1.0)))
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)

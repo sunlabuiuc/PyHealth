@@ -678,18 +678,26 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
             if len(feature) == len(schema) + 1 and mask is None:
                 mask = feature[-1]
 
+            # Flat values are [batch, seq]. An inner axis (feature vectors)
+            # exists only when the processor's value rank is greater than 1.
+            # Summing that axis on a flat tensor drops the sequence dimension
+            # and makes mask.sum(dim=1) raise IndexError.
+            has_inner_axis = False
+            if "value" in schema and not processor.is_token():
+                has_inner_axis = processor.dim()[schema.index("value")] > 1
+
             if mask is None:
                 if value is not None:
                     v = value.to(device)
-                    if processor.is_token():
-                        # Raw token indices (PAD = 0). Flat codes are
-                        # [batch, seq]; nested codes are [batch, visits, codes].
-                        # Summing the last dim would drop the sequence axis.
-                        mask = (v != 0).int()
-                    else:
-                        # Continuous features are [batch, seq, feat]. 0.0 is a
-                        # valid measurement; only an all-zero vector is padding.
+                    if has_inner_axis:
+                        # 0.0 is a valid measurement; only an all-zero
+                        # feature vector is padding.
                         mask = (v.abs().sum(dim=-1) != 0).int()
+                    else:
+                        # Token indices use PAD = 0, including nested codes
+                        # [batch, visits, codes]. Flat continuous scalars
+                        # have no feature axis, so 0.0 is padding.
+                        mask = (v != 0).int()
                 else:
                     # Cannot determine mask; fall back to last position
                     last_idx = torch.full(
@@ -702,7 +710,7 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
                     continue
             else:
                 mask = mask.to(device)
-                if not processor.is_token() and value is not None and value.dim() == mask.dim():
+                if has_inner_axis and value is not None and value.dim() == mask.dim():
                     mask = mask.any(dim=-1).int()
 
             if mask.dim() == 3:
