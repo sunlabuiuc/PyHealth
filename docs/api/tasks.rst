@@ -171,31 +171,59 @@ measurements as a timeline of coded events, one per measured value and with
 nothing imputed or scaled, for the EHR foundation models
 (:class:`~pyhealth.models.HFEHRFoundationModel`,
 :class:`~pyhealth.models.CLMBR`). Each feature's code defaults to
-``"YAIB/<feature>"``; pass ``event_codes`` to
-:func:`~pyhealth.tasks.views.numeric_series_views` to write the codes a
-pretrained model's vocabulary uses, and check
-``model.coverage_report()`` to see how many events it recognised.
+``"YAIB/<feature>"``; override ``codes`` (below) to write the codes a
+pretrained model's vocabulary uses, and check ``model.coverage_report()`` to
+see how many events it recognised.
 
-To give your own task views, set ``views`` and ``default_view`` instead of
-``input_schema``. Tasks whose samples share a layout take their views from a
-recipe in :mod:`pyhealth.tasks.views`, so a view name means the same thing in
-every task:
+**Your own version of a view.** The task fixes the samples, labels and
+split; how a view processes them is yours to change. Change settings of a
+view field by field with ``view_overrides``:
 
 .. code-block:: python
 
-    from pyhealth.tasks.views import numeric_series_views
+    # no standardization of the measurements
+    task = YAIBMortalityMIMIC4(
+        view="dense", view_overrides={"dynamic": {"normalize": False}}
+    )
+    # the codes a foundation model's vocabulary uses
+    task = YAIBMortalityMIMIC4(
+        view="events",
+        view_overrides={"dynamic": {"codes": {"crea": "LOINC/2160-0"}}},
+    )
+
+The given settings replace those of the field's processor (a nested setting,
+such as the ``levels`` of ``"jagged"``, is replaced whole). A processor spec
+in place of the settings, e.g. ``{"static": "raw"}``, swaps the processor.
+For anything further, pass a whole input schema as ``view``; it is named
+``"custom"`` and any model may be built on it. Every version has its own
+processed cache and reads the task's one cache of samples.
+
+To give your own task views, set ``views`` and ``default_view`` instead of
+``input_schema``. Each task defines its views itself, as plain input schemas:
+
+.. code-block:: python
 
     class MyICUTask(BaseTask):
         task_name = "MyICUTask"
-        views = numeric_series_views(dynamic=48, static=4)
-        default_view = "jagged"
+        views = {
+            "dense": {
+                "dynamic": ("dense_series", {"forward_fill": True}),
+                "static": ("dense_static", {}),
+            },
+            "events": {
+                "dynamic": ("event_stream", {"names": ["hr", "crea"]}),
+            },
+        }
+        default_view = "dense"
         output_schema = {"mortality": "binary"}
 
         def __call__(self, patient):
             ...  # emit "dynamic" and "static" with NaN where not measured
 
-.. automodule:: pyhealth.tasks.views
-    :members: numeric_series_views, Preprocessing, YAIB_PREPROCESSING, VIEW_NAMES
+To add a named view to an existing task, subclass it and extend ``views``
+(``views = {**YAIBMortalityMIMIC4.views, "mine": {...}}``). Use the view
+names of the built-in tasks (``"jagged"``, ``"dense"``, ``"events"``) for
+the same layouts, since models declare the names they read.
 
 Processor String Keys
 ----------------------

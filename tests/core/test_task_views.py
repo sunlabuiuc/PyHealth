@@ -19,7 +19,6 @@ from pyhealth.models import BaseModel, RNN, RNN_V2
 from pyhealth.processors.base_processor import FeatureProcessor
 from pyhealth.tasks import BaseTask, YAIBMortalityMIMIC4
 from pyhealth.tasks.survival_mimic4 import InHospitalSurvivalMIMIC4
-from pyhealth.tasks.views import YAIB_PREPROCESSING, numeric_series_views
 
 N_PATIENTS = 30
 
@@ -216,14 +215,56 @@ class TestYAIBViews(unittest.TestCase):
             },
         )
 
-    def test_recipe_returns_independent_schemas(self):
-        first = numeric_series_views(dynamic=3, static=2)
-        first["jagged"]["dynamic"][1]["levels"][0]["impute"].clear()
-        second = numeric_series_views(dynamic=3, static=2)
-        self.assertEqual(
-            len(second["jagged"]["dynamic"][1]["levels"][0]["impute"]),
-            len(YAIB_PREPROCESSING.series_impute),
+    def test_the_three_datasets_define_the_same_views(self):
+        """Each task file is self-contained, so the copies must not drift."""
+        from pyhealth.tasks import YAIBMortalityEICU, YAIBMortalityMIMIC3
+
+        for other in (YAIBMortalityMIMIC3, YAIBMortalityEICU):
+            self.assertEqual(sorted(other.views), sorted(YAIBMortalityMIMIC4.views))
+            for view in ("jagged", "dense"):
+                ours, theirs = YAIBMortalityMIMIC4.views[view], other.views[view]
+                for key in ours:
+                    self.assertEqual(ours[key][0], theirs[key][0])
+                    self.assertEqual(
+                        _without_widths(ours[key][1]), _without_widths(theirs[key][1])
+                    )
+
+    def test_view_overrides_change_settings_of_one_field(self):
+        task = YAIBMortalityMIMIC4(
+            view="dense", view_overrides={"dynamic": {"normalize": False}}
         )
+        self.assertEqual(task.view, "dense")
+        self.assertEqual(
+            task.input_schema["dynamic"],
+            ("dense_series", {"forward_fill": True, "normalize": False, "missing_indicator": True}),
+        )
+        # Other fields and the class's own views are untouched.
+        self.assertEqual(task.input_schema["static"], YAIBMortalityMIMIC4.views["dense"]["static"])
+        self.assertTrue(YAIBMortalityMIMIC4.views["dense"]["dynamic"][1]["normalize"])
+        # Same samples, so the same task cache; another schema, so its own
+        # processed cache.
+        plain = YAIBMortalityMIMIC4(view="dense")
+        self.assertEqual(task.cache_key(), plain.cache_key())
+        self.assertNotEqual(task.input_schema, plain.input_schema)
+
+    def test_view_overrides_can_replace_a_processor_and_reject_unknown_keys(self):
+        task = YAIBMortalityMIMIC4(view="dense", view_overrides={"static": "raw"})
+        self.assertEqual(task.input_schema["static"], "raw")
+        with self.assertRaisesRegex(ValueError, "not inputs of the view 'dense'"):
+            YAIBMortalityMIMIC4(view="dense", view_overrides={"labs": {}})
+
+    def test_subclass_can_add_a_named_view(self):
+        class Mine(YAIBMortalityMIMIC4):
+            views = {
+                **YAIBMortalityMIMIC4.views,
+                "unscaled": {
+                    "dynamic": ("dense_series", {"normalize": False}),
+                    "static": ("dense_static", {"normalize": False}),
+                },
+            }
+
+        self.assertEqual(Mine().view, "jagged")
+        self.assertEqual(Mine(view="unscaled").input_schema["static"][1], {"normalize": False})
 
     def test_view_for_model_and_wards_argument(self):
         task = YAIBMortalityMIMIC4(icu_wards=["X"], model=RNN_V2)
@@ -358,6 +399,17 @@ class TestSetTaskWithViews(unittest.TestCase):
         UndeclaredModel(train)
         train, _, _ = self._set(ViewTask(model=ScaledModel))
         ScaledModel(train)
+
+
+def _without_widths(settings):
+    """Processor settings without the feature counts, which differ by dataset."""
+    if isinstance(settings, dict):
+        return {
+            k: _without_widths(v) for k, v in settings.items() if k != "values"
+        }
+    if isinstance(settings, (list, tuple)):
+        return [_without_widths(v) for v in settings]
+    return settings
 
 
 DENSE_MODELS = [
@@ -501,21 +553,24 @@ class TestEventsView(unittest.TestCase):
         self.assertAlmostEqual((ORIGIN - birth).days / 365.25, age, places=2)
 
     def test_codes_can_be_mapped_to_a_model_vocabulary(self):
-        from pyhealth.tasks.views import numeric_series_views
-
-        views = numeric_series_views(
-            dynamic=2, static=1, dynamic_names=["hr", "crea"],
-            event_codes={"crea": "LOINC/2160-0"}, event_units={"crea": "mg/dL"},
-        )
-        name, config = views["events"]["dynamic"]
         from pyhealth.processors import get_processor
 
+        task = YAIBMortalityMIMIC4(
+            view="events",
+            view_overrides={
+                "dynamic": {"codes": {"crea": "LOINC/2160-0"}, "units": {"crea": "mg/dL"}}
+            },
+        )
+        name, config = task.input_schema["dynamic"]
         processor = get_processor(name)(**config)
-        events = processor.process({"time": [1], "values": [[70.0, 1.2]]})
-        self.assertEqual([e[1:] for e in events], [
-            ("YAIB/hr", 70.0, None), ("LOINC/2160-0", 1.2, "mg/dL"),
-        ])
-        self.assertNotIn("events", numeric_series_views(dynamic=2, static=1))
+        names = YAIBMortalityMIMIC4.DYNAMIC_FEATURES
+        row = [float("nan")] * len(names)
+        row[names.index("crea")], row[names.index("hr")] = 1.2, 70.0
+        events = processor.process({"time": [1], "values": [row]})
+        self.assertEqual(
+            sorted(e[1:] for e in events),
+            sorted([("YAIB/hr", 70.0, None), ("LOINC/2160-0", 1.2, "mg/dL")]),
+        )
 
     def test_foundation_model_trains_on_the_events_view(self):
         try:

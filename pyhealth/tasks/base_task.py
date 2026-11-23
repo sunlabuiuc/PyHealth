@@ -1,3 +1,4 @@
+import copy
 import hashlib
 import inspect
 from abc import ABC, abstractmethod
@@ -28,8 +29,27 @@ class BaseTask(ABC):
         task = MyTask(model=RETAIN)   # the first view RETAIN accepts
         task = MyTask()               # the default view
 
-    ``view`` may also be an input schema of your own. A task without
-    ``views`` has the one ``input_schema`` it declares.
+    A task without ``views`` has the one ``input_schema`` it declares.
+
+    **Your own version of a view.** Samples, labels and split are fixed by
+    the task; how a view processes them is yours to change:
+
+    - change settings of a view with ``view_overrides``, field by field::
+
+          MyTask(view="dense", view_overrides={"dynamic": {"normalize": False}})
+
+      The given settings replace those of the field's processor (a nested
+      setting is replaced whole); a processor spec (a name, class or
+      ``(name, settings)`` pair) replaces the field's processor.
+    - pass a whole input schema as ``view``; such a view is named
+      ``"custom"`` and any model may be built on it.
+    - subclass the task and add to ``views`` to give a view a name::
+
+          class MyTaskPlus(MyTask):
+              views = {**MyTask.views, "mine": {...}}
+
+    Each version is cached separately; all of them read the task's one
+    cache of samples (a subclass, being another task, has its own).
 
     ``feature_roles`` optionally says what each input field means clinically
     (e.g. ``{"conditions": "diagnoses"}``), whatever its key is called.
@@ -90,6 +110,7 @@ class BaseTask(ABC):
         code_mapping: Optional[Dict[str, Tuple[str, str]]] = None,
         view: Union[str, Dict[str, Any], None] = None,
         model: Any = None,
+        view_overrides: Optional[Mapping[str, Any]] = None,
     ):
         """Initialize a task, choosing its view and optional code mapping.
 
@@ -100,6 +121,9 @@ class BaseTask(ABC):
             model: a model class (or instance) to choose the view for: the
                 first of its ``accepted_views`` that the task offers. Give
                 ``view`` or ``model``, not both.
+            view_overrides: changes to the selected view, by input key: a
+                dict of processor settings to replace, or a processor spec
+                to use instead.
             code_mapping: optional dict mapping feature keys to
                 ``(source_vocab, target_vocab)`` tuples.  For example::
 
@@ -120,6 +144,8 @@ class BaseTask(ABC):
                 of the task's views.
         """
         self._select_view(view, model)
+        if view_overrides:
+            self._override_view(view_overrides)
         if code_mapping is not None:
             schema = dict(self.input_schema)
             for field, mapping in code_mapping.items():
@@ -177,6 +203,25 @@ class BaseTask(ABC):
             raise ValueError(
                 f"{name}: view must be a view name or an input schema, got {view!r}."
             )
+
+    def _override_view(self, overrides: Mapping[str, Any]) -> None:
+        """Applies ``view_overrides`` to a copy of the selected input schema."""
+        name = type(self).__name__
+        schema = copy.deepcopy(dict(self.input_schema))
+        unknown = sorted(set(overrides) - set(schema))
+        if unknown:
+            raise ValueError(
+                f"{name}: view_overrides names {unknown}, which are not inputs "
+                f"of the view {self.view!r}; its inputs are {sorted(schema)}."
+            )
+        for key, change in overrides.items():
+            if not isinstance(change, Mapping):
+                schema[key] = change  # another processor for this field
+                continue
+            spec = schema[key]
+            processor, settings = spec if isinstance(spec, tuple) else (spec, {})
+            schema[key] = (processor, {**settings, **copy.deepcopy(dict(change))})
+        self.input_schema = schema
 
     def cache_key(self) -> Dict[str, Any]:
         """What identifies the samples ``__call__`` produces, for caching.

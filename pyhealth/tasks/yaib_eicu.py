@@ -24,7 +24,6 @@ import polars as pl
 from ..data import Patient
 from ..processors import Records
 from .base_task import BaseTask
-from .views import numeric_series_views
 
 
 class _Item(NamedTuple):
@@ -338,14 +337,78 @@ class _YAIBEICUTask(BaseTask):
     ``intakeoutput``, ``respiratorycharting`` and ``nursecharting`` tables.
     """
 
-    # YAIB's preprocessing (forward fill, training mean, standardize, missing
-    # indicators) lives in the shared recipe, so every view applies it alike.
-    views: ClassVar[dict[str, dict[str, Any]]] = numeric_series_views(
-        dynamic=len(_DYNAMIC_FEATURES),
-        static=len(_STATIC_FEATURES),
-        dynamic_names=list(_DYNAMIC_FEATURES),
-        age_index=_STATIC_FEATURES.index("age"),
-    )
+    # The views of the task: each is one input schema over the same samples.
+    # Every view applies YAIB's preprocessing where it imputes or scales:
+    # forward fill, then the training mean (0 once standardized) before the
+    # first measurement, then 0 for a feature never seen in training;
+    # standardization; and missing-value indicators. To change a setting for
+    # one run, pass ``view_overrides`` when creating the task.
+    views: ClassVar[dict[str, dict[str, Any]]] = {
+        # Record structures, read by RNN_V2 (also for the per-hour labels).
+        "jagged": {
+            "dynamic": (
+                "jagged",
+                {
+                    "levels": [
+                        {
+                            "ordering": "series",
+                            "values": [len(_DYNAMIC_FEATURES)],
+                            "impute": [
+                                {"method": "forward_fill"},
+                                {"method": "mean", "by_dims": ()},  # per feature
+                                {"method": "zero"},
+                            ],
+                            "normalize": {"method": "zscore"},
+                            "missing_indicator": True,
+                        }
+                    ]
+                },
+            ),
+            "static": (
+                "jagged",
+                {
+                    "levels": [
+                        {
+                            "ordering": "single",
+                            "values": [len(_STATIC_FEATURES)],
+                            "impute": [
+                                {"method": "mean", "by_dims": ()},  # per feature
+                                {"method": "zero"},
+                            ],
+                            "normalize": {"method": "zscore"},
+                            "missing_indicator": True,
+                        }
+                    ]
+                },
+            ),
+        },
+        # Padded tensors with an explicit step mask, read by the sequence
+        # models built on EmbeddingModel (RNN, Transformer, RETAIN, ...). The
+        # values equal those of "jagged".
+        "dense": {
+            "dynamic": (
+                "dense_series",
+                {"forward_fill": True, "normalize": True, "missing_indicator": True},
+            ),
+            "static": (
+                "dense_static",
+                {"normalize": True, "missing_indicator": True},
+            ),
+        },
+        # One coded event per measured value, nothing imputed or scaled, read
+        # by the EHR foundation models. Codes default to "YAIB/<feature>";
+        # set "codes" to the ones a pretrained vocabulary uses.
+        "events": {
+            "dynamic": (
+                "event_stream",
+                {"names": list(_DYNAMIC_FEATURES), "codes": {}, "units": {}},
+            ),
+            "static": (
+                "event_birth",
+                {"age_index": _STATIC_FEATURES.index("age")},
+            ),
+        },
+    }
     default_view: ClassVar[str] = "jagged"
     feature_roles: ClassVar[dict[str, str]] = {
         "dynamic": "vitals_labs",
