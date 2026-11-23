@@ -1,4 +1,7 @@
 from .base_task import BaseTask
+from .cdc_covid_mortality import (
+    CDCCOVIDMortalityPrediction as CDCCOVIDMortalityPrediction,
+)
 from .task_card import (
     DIRECTIONS as DIRECTIONS,
     FeatureInfo as FeatureInfo,
