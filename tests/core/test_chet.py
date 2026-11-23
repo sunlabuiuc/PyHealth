@@ -66,6 +66,93 @@ class TestCHET(unittest.TestCase):
             )
         )
 
+    def test_compute_cooccurrence_adj_values(self):
+        """Verifies exact numerical adjacency values on a toy dataset."""
+        toy_samples = [
+            {
+                "patient_id": "p0",
+                "visit_id": "v0",
+                "conditions": [["c1", "c2"]],
+                "label": 1,
+            },
+            {
+                "patient_id": "p1",
+                "visit_id": "v1",
+                "conditions": [["c1", "c2"]],
+                "label": 0,
+            },
+        ]
+        toy_ds = create_sample_dataset(
+            samples=toy_samples,
+            input_schema={"conditions": "nested_sequence"},
+            output_schema={"label": "binary"},
+        )
+        vocab = toy_ds.input_processors["conditions"].code_vocab
+        idx_c1 = vocab["c1"]
+        idx_c2 = vocab["c2"]
+
+        # With self-loop: degree of each code is 2 (self + co-occurrence)
+        adj_loop = compute_cooccurrence_adj(toy_ds, "conditions", self_loop=True)
+        self.assertEqual(adj_loop[0].sum().item(), 0.0)
+        self.assertEqual(adj_loop[:, 0].sum().item(), 0.0)
+        self.assertAlmostEqual(adj_loop[idx_c1, idx_c1].item(), 0.5)
+        self.assertAlmostEqual(adj_loop[idx_c1, idx_c2].item(), 0.5)
+        self.assertAlmostEqual(adj_loop[idx_c2, idx_c1].item(), 0.5)
+        self.assertAlmostEqual(adj_loop[idx_c2, idx_c2].item(), 0.5)
+
+        # Without self-loop: degree is 1 (only co-occurrence)
+        adj_no_loop = compute_cooccurrence_adj(toy_ds, "conditions", self_loop=False)
+        self.assertAlmostEqual(adj_no_loop[idx_c1, idx_c1].item(), 0.0)
+        self.assertAlmostEqual(adj_no_loop[idx_c1, idx_c2].item(), 1.0)
+        self.assertAlmostEqual(adj_no_loop[idx_c2, idx_c1].item(), 1.0)
+        self.assertAlmostEqual(adj_no_loop[idx_c2, idx_c2].item(), 0.0)
+
+    def test_compute_cooccurrence_adj_tuple_inputs(self):
+        """Verifies compute_cooccurrence_adj handles (time, codes) and (None, codes)."""
+        dataset = create_sample_dataset(
+            samples=self.samples,
+            input_schema=self.input_schema,
+            output_schema={"label": "binary"},
+        )
+        adj_expected = compute_cooccurrence_adj(dataset, "conditions")
+
+        class TupleDataset:
+            def __init__(self, base_ds, mode):
+                self.base_ds = base_ds
+                self.input_processors = base_ds.input_processors
+                self.output_processors = base_ds.output_processors
+                self.mode = mode
+
+            def __len__(self):
+                return len(self.base_ds)
+
+            def __iter__(self):
+                for s in self.base_ds:
+                    item = dict(s)
+                    val = item["conditions"]
+                    if self.mode == "time_first":
+                        item["conditions"] = (torch.tensor([0.5, 1.2]), val)
+                    elif self.mode == "none_first":
+                        item["conditions"] = (None, val)
+                    elif self.mode == "mask_second":
+                        item["conditions"] = (val, torch.ones_like(val))
+                    yield item
+
+        adj_time = compute_cooccurrence_adj(
+            TupleDataset(dataset, "time_first"), "conditions"
+        )
+        self.assertTrue(torch.allclose(adj_expected, adj_time))
+
+        adj_none = compute_cooccurrence_adj(
+            TupleDataset(dataset, "none_first"), "conditions"
+        )
+        self.assertTrue(torch.allclose(adj_expected, adj_none))
+
+        adj_mask = compute_cooccurrence_adj(
+            TupleDataset(dataset, "mask_second"), "conditions"
+        )
+        self.assertTrue(torch.allclose(adj_expected, adj_mask))
+
     def test_multiple_feature_keys_warning(self):
         dataset = create_sample_dataset(
             samples=self.samples,
@@ -283,11 +370,87 @@ class TestCHET(unittest.TestCase):
         loader = get_dataloader(dataset, batch_size=2)
         batch = next(iter(loader))
         cond = batch["conditions"]
+
+        # 1. (codes, mask)
         mask = cond != 0
         batch["conditions"] = (cond, mask)
         out = model(**batch)
         self.assertIn("logit", out)
         self.assertTrue(torch.isfinite(out["logit"]).all())
+
+        # 2. (time, codes)
+        times = torch.rand(cond.shape[:2], dtype=torch.float32)
+        batch["conditions"] = (times, cond)
+        out2 = model(**batch)
+        self.assertIn("logit", out2)
+        self.assertTrue(torch.isfinite(out2["logit"]).all())
+
+        # 3. (None, codes)
+        batch["conditions"] = (None, cond)
+        out3 = model(**batch)
+        self.assertIn("logit", out3)
+        self.assertTrue(torch.isfinite(out3["logit"]).all())
+
+    def test_transition_branches_m1_m2_m3(self):
+        """Verifies M1 (recurrent), M2 (neighbor), and M3 (novel) transition logic."""
+        samples_trans = [
+            {
+                "patient_id": "p0",
+                "visit_id": "v0",
+                "conditions": [["c1"], ["c1", "c2", "c3"]],
+                "label": 1,
+            },
+            {
+                "patient_id": "p1",
+                "visit_id": "v1",
+                "conditions": [["c1"], ["c2"]],  # only M2 at visit 1
+                "label": 0,
+            },
+            {
+                "patient_id": "p2",
+                "visit_id": "v2",
+                "conditions": [["c1"], ["c3"]],  # only M3 at visit 1
+                "label": 1,
+            },
+            {
+                "patient_id": "p3",
+                "visit_id": "v3",
+                "conditions": [["c1"], ["c1"]],  # only M1 at visit 1
+                "label": 0,
+            },
+        ]
+        dataset = create_sample_dataset(
+            samples=samples_trans,
+            input_schema={"conditions": "nested_sequence"},
+            output_schema={"label": "binary"},
+        )
+        vocab = dataset.input_processors["conditions"].code_vocab
+        num_codes = len(vocab)
+        idx_c1 = vocab["c1"]
+        idx_c2 = vocab["c2"]
+
+        # Construct adjacency where c1 and c2 are neighbors, c3 has no edges
+        adj = torch.zeros((num_codes, num_codes), dtype=torch.float32)
+        adj[idx_c1, idx_c1] = 0.5
+        adj[idx_c1, idx_c2] = 0.5
+        adj[idx_c2, idx_c1] = 0.5
+        adj[idx_c2, idx_c2] = 0.5
+
+        model = CHET(
+            dataset=dataset,
+            code_size=16,
+            graph_size=16,
+            hidden_dim=32,
+            adj=adj,
+        )
+        loader = get_dataloader(dataset, batch_size=4, shuffle=False)
+        batch = next(iter(loader))
+        out = model(**batch)
+
+        self.assertEqual(out["logit"].shape, (4, 1))
+        self.assertTrue(torch.isfinite(out["logit"]).all())
+        self.assertTrue(torch.isfinite(out["embed"]).all())
+        self.assertTrue(torch.isfinite(out["loss"]))
 
     def test_custom_adjacency_matrix(self):
         dataset = create_sample_dataset(

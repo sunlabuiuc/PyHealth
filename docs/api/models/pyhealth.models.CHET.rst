@@ -15,9 +15,12 @@ Dynamic Disease Graphs:
 - Co-occurrence adjacency can be precomputed from the training dataset via
   ``compute_cooccurrence_adj(dataset, feature_key)`` or automatically
   computed from the dataset during initialization when ``adj=None``.
-  Only training data should be used to avoid data leakage.
-- Note that per-visit dense N x N adjacency multiplications scale
-  quadratically with vocabulary size N.
+  Only training data should be used to avoid data leakage. When user-supplied,
+  ``adj`` is expected to be row-normalized with the padding row and column
+  (index 0) zeroed.
+- Note that per-visit dense N x N adjacency multiplications and the
+  patient-by-visit Python loop scale with vocabulary size and sequence length,
+  which can impact training speed for large clinical vocabularies.
 - Dual graph convolutions propagate structural information across center
   and neighbor embeddings.
 - Transition dynamics decompose diseases into persistent conditions (GRU),

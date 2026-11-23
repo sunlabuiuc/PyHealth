@@ -21,6 +21,33 @@ from pyhealth.datasets import SampleDataset
 from pyhealth.models.base_model import BaseModel
 
 
+def _extract_codes(val: Any) -> torch.Tensor:
+    """Extracts code indices tensor safely from a tensor, array, or tuple.
+
+    For tuple inputs such as ``(codes, mask)`` or ``(time, codes)``, extracts the first
+    non-floating-point tensor or array, skipping ``None`` and floating-point elements
+    (e.g., timestamps).
+    """
+    if isinstance(val, tuple):
+        for elem in val:
+            if elem is None:
+                continue
+            if isinstance(elem, torch.Tensor):
+                if not elem.is_floating_point():
+                    return elem
+            elif isinstance(elem, (list, np.ndarray)):
+                t = torch.as_tensor(elem)
+                if not t.is_floating_point():
+                    return t
+        for elem in val:
+            if elem is not None:
+                return torch.as_tensor(elem)
+        raise ValueError("Cannot extract code tensor: all tuple elements are None.")
+    if not isinstance(val, torch.Tensor):
+        val = torch.as_tensor(val)
+    return val
+
+
 def compute_cooccurrence_adj(
     dataset: SampleDataset,
     feature_key: str,
@@ -70,9 +97,7 @@ def compute_cooccurrence_adj(
     adj = torch.zeros((num_codes, num_codes), dtype=torch.float32)
 
     for sample in dataset:
-        feat = sample[feature_key]
-        if isinstance(feat, tuple):
-            feat = feat[0]
+        feat = _extract_codes(sample[feature_key])
         if not isinstance(feat, torch.Tensor):
             feat = torch.as_tensor(feat)
 
@@ -237,7 +262,9 @@ class CHET(BaseModel):
             Default is 32.
         adj: Optional precomputed adjacency matrix of shape ``(num_codes, num_codes)``.
             If None, computed automatically from dataset co-occurrences. Only the
-            training split should be used to construct this matrix.
+            training split should be used to construct this matrix. When user-supplied,
+            `adj` is expected to be row-normalized with the padding row and column
+            (index 0) zeroed.
         dropout: Dropout rate applied to patient representations.
             Default is 0.1.
 
@@ -375,12 +402,7 @@ class CHET(BaseModel):
 
     def _extract_codes(self, val: Any) -> torch.Tensor:
         """Extracts code indices tensor safely from tensor or tuple."""
-        if isinstance(val, tuple):
-            for elem in val:
-                if isinstance(elem, torch.Tensor) and not elem.is_floating_point():
-                    return elem
-            return val[0]
-        return val
+        return _extract_codes(val)
 
     def forward(self, **kwargs: Any) -> dict[str, torch.Tensor]:
         """Forward pass for CHET.
