@@ -3,15 +3,19 @@ Maintain the bounty board issue from bounty.yaml.
 
 Each run rebuilds the board from scratch:
 
-    1. Load bounty.yaml and drop entries whose `complete` field is set.
+    1. Load every bounty from bounty.yaml.
     2. Link every open or merged PR whose title carries `[BTY-<id>]` or
        `[Bounty-<id>]` (case-insensitive) to that bounty. PRs closed without
        merging are ignored.
-    3. Render the board: Unclaimed, then Claimed; within each, one subsection
-       per category (alphabetical, only if non-empty); within each, id order.
-    4. Find the board issue (created by the bot, hidden marker in the body),
+    3. A bounty is complete once a linked PR merges, or when its `complete`
+       field is set. Its credit is the `complete` text, or else the authors of
+       its merged PRs; those are reported so the credit is recorded in
+       bounty.yaml, which also feeds the completed-bounties list on pyhealth.dev.
+    4. Render the board: Unclaimed, Claimed, then Completed (with credit);
+       within each, one subsection per category, in id order.
+    5. Find the board issue (created by the bot, hidden marker in the body),
        creating it if missing; keep it open, locked and pinned.
-    5. Write the board into the issue body and, when it is longer than one
+    6. Write the board into the issue body and, when it is longer than one
        body allows, into follow-up bot comments. A bounty entry is never split
        across two pages. Only pages whose text changed are edited.
 
@@ -46,9 +50,12 @@ CONTINUED_FOOTER = "\n\n---\n_Continued in the comments below._"
 GITHUB_MAX_CHARS = 65536
 PAGE_BUDGET = 60000
 
+# Never publish an email address from `complete`, even if one is added there.
+EMAIL_RE = re.compile(r"\s*\(?[\w.%+-]+@[\w-]+(?:\.[\w-]+)+\)?")
+
 TITLE_TAG_RE = re.compile(r"\[\s*(?:bounty|bty)\s*-\s*(\d+)\s*\]", re.IGNORECASE)
 
-SECTIONS = ("Unclaimed", "Claimed")
+SECTIONS = ("Unclaimed", "Claimed", "Completed")
 
 # Subsection order; a category outside this list is rejected.
 CATEGORIES = (
@@ -67,7 +74,10 @@ PRIORITY_NAMES = {1: "highest", 2: "high", 3: "medium", 4: "low", 5: "lowest"}
 # bounty.yaml
 # --------------------------------------------------------------------------- #
 def load_bounties(path):
-    """Return the open (not complete) bounties from `path`, keyed by id."""
+    """Return every bounty from `path`, keyed by id.
+
+    `complete` is the credit text when the field is set, else None.
+    """
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     entries = data.get("bounty") or []
     errors = []
@@ -102,14 +112,18 @@ def load_bounties(path):
             errors.append(
                 f"{where}: `priority` must be an integer from 1 (highest) to 5"
             )
-        if entry.get("complete") is not None:
-            continue
+        complete = entry.get("complete")
+        if complete is not None and (not isinstance(complete, str)
+                                     or not complete.strip()):
+            errors.append(f"{where}: `complete` must be a non-empty string or ~")
+            complete = None
         bounties[bid] = {
             "id": bid,
             "priority": priority,
             "title": str(entry.get("title", "")).strip(),
             "category": category,
             "description": str(entry.get("description", "")).strip(),
+            "complete": EMAIL_RE.sub("", complete).strip() if complete else None,
         }
     if errors:
         raise SystemExit("bounty.yaml is invalid:\n  " + "\n  ".join(errors))
@@ -215,7 +229,7 @@ def fetch_prs(gh):
 # Linking and rendering
 # --------------------------------------------------------------------------- #
 def link_prs(bounties, prs):
-    """Map bounty id -> linked PRs, plus PRs that name an unknown/complete id."""
+    """Map bounty id -> linked PRs, plus PRs that name an unknown id."""
     claims = defaultdict(list)
     unmatched = []
     for pr in prs:
@@ -230,6 +244,38 @@ def link_prs(bounties, prs):
     for bid in claims:
         claims[bid].sort(key=lambda p: p["number"])
     return claims, unmatched
+
+
+def merged_credit(claim_prs):
+    """`@author (#1, #2), @other (#3)` for the merged PRs, or None."""
+    by_author = defaultdict(list)  # insertion order = first PR number
+    for p in claim_prs:
+        if p["state"] == "MERGED":
+            by_author[p["author"]].append(f"#{p['number']}")
+    if not by_author:
+        return None
+    return ", ".join(f"@{a} ({', '.join(prs)})" for a, prs in by_author.items())
+
+
+def status(bounty, claim_prs):
+    """`(section, credit)`: credit is set for completed bounties only."""
+    credit = bounty["complete"] or merged_credit(claim_prs)
+    if credit:
+        return "Completed", credit
+    return ("Claimed" if claim_prs else "Unclaimed"), None
+
+
+def uncredited(bounties, claims):
+    """Bounties completed by a merged PR whose credit isn't in bounty.yaml."""
+    return {
+        bid: merged_credit(claims.get(bid, []))
+        for bid, b in sorted(bounties.items())
+        if b["complete"] is None and merged_credit(claims.get(bid, []))
+    }
+
+
+def render_completed(bounty, credit):
+    return f"- **BTY-{bounty['id']}** · {bounty['title']} · {credit}"
 
 
 def render_entry(bounty, claim_prs):
@@ -254,10 +300,19 @@ def build_sections(bounties, claims):
     grouped = {s: defaultdict(list) for s in SECTIONS}
     for bounty in sorted(bounties.values(), key=lambda b: (b["priority"], b["id"])):
         bid = bounty["id"]
-        section = "Claimed" if claims.get(bid) else "Unclaimed"
+        section, credit = status(bounty, claims.get(bid, []))
+        if section == "Completed":
+            continue
         grouped[section][bounty["category"]].append(
             render_entry(bounty, claims.get(bid, []))
         )
+    # Completed: one line each, newest bounty first, credit included.
+    for bounty in sorted(bounties.values(), key=lambda b: -b["id"]):
+        section, credit = status(bounty, claims.get(bounty["id"], []))
+        if section == "Completed":
+            grouped[section][bounty["category"]].append(
+                render_completed(bounty, credit)
+            )
     return [
         (
             section,
@@ -293,8 +348,9 @@ tools we'd love help adding. Anyone can take one on.
 - Claim a bounty by opening a pull request (a draft is fine) with its ID in the \
 title, like `[BTY-<id>] <short description>`. `[Bounty-<id>]` works too. This \
 board usually updates within a few minutes.
-- Your claim holds while the PR is open and after it merges. Closing it without \
-merging releases the bounty.
+- Your claim holds while the PR is open. When it merges, the bounty moves to \
+*Completed* with your name, here and on [pyhealth.dev](https://pyhealth.dev). \
+Closing it without merging releases the bounty.
 - Build from the paper's official code, use datasets PyHealth already loads \
 where possible, and aim to reproduce the paper's results.
 - Every bounty needs an implementation that follows the \
@@ -309,10 +365,11 @@ partners.
 *This board is generated from [`bounty.yaml`]({yaml_url}) and updated when a tagged PR changes. \
 Edits made here are overwritten.*
 
-Open bounties: {total} ({claimed} claimed, {unclaimed} unclaimed)."""
+Open bounties: {total} ({claimed} claimed, {unclaimed} unclaimed). \
+Completed: {completed}. Thank you to everyone who built them!"""
 
 
-def render_header(repo, n_claimed, n_unclaimed):
+def render_header(repo, n_claimed, n_unclaimed, n_completed=0):
     legend = ", ".join(
         f"{PRIORITY_ICONS[p]} {PRIORITY_NAMES[p]}" for p in PRIORITY_ICONS
     )
@@ -325,6 +382,7 @@ def render_header(repo, n_claimed, n_unclaimed):
         total=n_claimed + n_unclaimed,
         claimed=n_claimed,
         unclaimed=n_unclaimed,
+        completed=n_completed,
     )
 
 
@@ -522,15 +580,24 @@ def main():
 
     claims, unmatched = link_prs(bounties, prs)
     sections = build_sections(bounties, claims)
-    n_claimed = sum(1 for bid in bounties if claims.get(bid))
-    header = render_header(args.repo, n_claimed, len(bounties) - n_claimed)
+    counts = defaultdict(int)
+    for bid, bounty in bounties.items():
+        counts[status(bounty, claims.get(bid, []))[0]] += 1
+    n_claimed, n_open = counts["Claimed"], counts["Claimed"] + counts["Unclaimed"]
+    header = render_header(args.repo, n_claimed, counts["Unclaimed"],
+                           counts["Completed"])
     body, comments = finalize_pages(paginate(header, sections, args.page_budget))
+    to_record = uncredited(bounties, claims)
 
-    print(f"{len(bounties)} open bounties ({n_claimed} claimed), "
+    print(f"{n_open} open bounties ({n_claimed} claimed), "
+          f"{counts['Completed']} completed, "
           f"{len(prs)} PRs scanned, {1 + len(comments)} page(s).")
     for bid, pr in unmatched:
         print(f"::notice::PR #{pr['number']} names BTY-{bid}, "
-              "which is not an open bounty.")
+              "which is not in bounty.yaml.")
+    for bid, credit in to_record.items():
+        print(f"::notice::BTY-{bid} is complete; record "
+              f'`complete: "{credit}"` in bounty.yaml.')
 
     if args.dry_run:
         for i, text in enumerate([body, *comments], 1):
@@ -543,11 +610,15 @@ def main():
     summary = [
         "## Bounty board",
         f"Issue: {issue['html_url']}",
-        f"- Open bounties: {len(bounties)} ({n_claimed} claimed)",
+        f"- Open bounties: {n_open} ({n_claimed} claimed)",
+        f"- Completed bounties: {counts['Completed']}",
         f"- Pages: {1 + len(comments)}",
     ]
+    if to_record:
+        summary.append("- Complete, credit not yet in bounty.yaml: " + ", ".join(
+            f"BTY-{bid} ({credit})" for bid, credit in to_record.items()))
     if unmatched:
-        summary.append("- PRs naming a bounty that is not open: " + ", ".join(
+        summary.append("- PRs naming a bounty not in bounty.yaml: " + ", ".join(
             f"#{pr['number']} (BTY-{bid})" for bid, pr in unmatched))
     write_summary(summary)
 
