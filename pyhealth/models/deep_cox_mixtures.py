@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Sequence
-from typing import Any, Optional, Union
+from typing import Any
 
 import numpy as np
 import torch
@@ -32,7 +32,7 @@ from .base_model import BaseModel
 
 __all__ = ["DeepCoxMixtures"]
 
-ArrayLike = Union[np.ndarray, torch.Tensor, Sequence[float]]
+ArrayLike = np.ndarray | torch.Tensor | Sequence[float]
 _STATE_VERSION = 1
 
 
@@ -197,15 +197,15 @@ class DeepCoxMixtures(BaseModel):
 
     def __init__(
         self,
-        dataset: Optional[SampleDataset] = None,
+        dataset: SampleDataset | None = None,
         feature_key: str = "features",
         time_key: str = "time",
         event_key: str = "event",
-        input_dim: Optional[int] = None,
+        input_dim: int | None = None,
         k: int = 3,
         width: int = 50,
         seed: int = 0,
-        horizons: Optional[ArrayLike] = None,
+        horizons: ArrayLike | None = None,
     ) -> None:
         super().__init__(dataset)
         self.feature_key, self.time_key, self.event_key = (
@@ -232,9 +232,9 @@ class DeepCoxMixtures(BaseModel):
             self.network = DeepCoxMixturesNetwork(
                 self.input_dim, k=k, layers=[width], gamma=10
             )
-        self.baselines: Optional[dict[int, UnivariateSpline]] = None
+        self.baselines: dict[int, UnivariateSpline] | None = None
         self.horizons = None if horizons is None else _check_horizons(horizons)
-        self.fit_audit: Optional[dict[str, Any]] = None
+        self.fit_audit: dict[str, Any] | None = None
 
     def fit_survival(
         self,
@@ -242,8 +242,8 @@ class DeepCoxMixtures(BaseModel):
         time: np.ndarray,
         event: np.ndarray,
         *,
-        validation: Optional[tuple[np.ndarray, np.ndarray, np.ndarray]] = None,
-        horizons: Optional[ArrayLike] = None,
+        validation: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
+        horizons: ArrayLike | None = None,
         epochs: int = 100,
         refit: bool = False,
         capture_output: bool = False,
@@ -321,8 +321,8 @@ class DeepCoxMixtures(BaseModel):
     def fit(
         self,
         train_dataloader: Iterable[dict[str, Any]],
-        val_dataloader: Optional[Iterable[dict[str, Any]]] = None,
-        horizons: Optional[ArrayLike] = None,
+        val_dataloader: Iterable[dict[str, Any]] | None = None,
+        horizons: ArrayLike | None = None,
         epochs: int = 100,
         capture_output: bool = False,
     ) -> DeepCoxMixtures:
@@ -504,7 +504,7 @@ class DeepCoxMixtures(BaseModel):
         return output
 
     def predict_survival(
-        self, features: ArrayLike, horizons: Optional[ArrayLike] = None
+        self, features: ArrayLike, horizons: ArrayLike | None = None
     ) -> np.ndarray:
         """Predict survival probabilities at increasing horizons.
 

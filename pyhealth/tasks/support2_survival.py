@@ -4,7 +4,7 @@
 """SUPPORT2 task that keeps censored follow-up time and the death indicator."""
 
 import math
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar
 
 from pyhealth.data import Patient
 
@@ -129,7 +129,7 @@ class Support2SurvivalTask(BaseTask):
             raise ValueError(f"SUPPORT2 d.time must be positive and finite: {time}")
         if death not in (0.0, 1.0):
             raise ValueError(f"SUPPORT2 death must be 0 or 1: {death}")
-        covariates: dict[str, Optional[Any]] = {
+        covariates: dict[str, Any | None] = {
             key: getattr(row, key, None) for key in SUPPORT2_DCM_FEATURES
         }
         return [

@@ -20,7 +20,7 @@ import io
 import time
 import warnings
 from collections.abc import Iterator, Mapping, Sequence
-from typing import Any, Optional, Union
+from typing import Any
 
 import numpy as np
 import torch
@@ -44,7 +44,7 @@ INSTALL_HINT = (
     "torch<2 and numpy<2, which it does not need for this model.)"
 )
 
-Horizons = Union[np.ndarray, Sequence[float]]
+Horizons = np.ndarray | Sequence[float]
 
 
 def _import_train_dcm() -> Any:
@@ -100,7 +100,7 @@ class DeepCoxMixturesNetwork(nn.Module):
         self,
         input_dim: int,
         k: int = 3,
-        layers: Optional[Sequence[int]] = None,
+        layers: Sequence[int] | None = None,
         gamma: float = 10,
     ) -> None:
         super().__init__()
@@ -176,8 +176,8 @@ def predict_mixture_survival(
 
 
 def baselines_to_state(
-    baselines: Optional[Mapping[int, UnivariateSpline]],
-) -> Optional[list[dict[str, Any]]]:
+    baselines: Mapping[int, UnivariateSpline] | None,
+) -> list[dict[str, Any]] | None:
     """Encode fitted baseline splines as tensors for ``weights_only`` loading.
 
     Args:
@@ -211,8 +211,8 @@ def baselines_to_state(
 
 
 def baselines_from_state(
-    state: Optional[list[dict[str, Any]]],
-) -> Optional[dict[int, UnivariateSpline]]:
+    state: list[dict[str, Any]] | None,
+) -> dict[int, UnivariateSpline] | None:
     """Rebuild baseline splines saved by :func:`baselines_to_state`.
 
     Args:
@@ -244,7 +244,7 @@ def baselines_from_state(
 
 
 @contextlib.contextmanager
-def _isolated_rng(seed: int, num_threads: Optional[int]) -> Iterator[None]:
+def _isolated_rng(seed: int, num_threads: int | None) -> Iterator[None]:
     """Seed NumPy and torch for one fit, then restore the caller's state.
 
     The authors' routine draws from the global NumPy and torch generators, so
@@ -300,20 +300,20 @@ class DCMReference:
 
     def __init__(self, k: int = 3, width: int = 50, seed: int = 0) -> None:
         self.k, self.width, self.seed = k, width, seed
-        self.net: Optional[nn.Module] = None
-        self.baselines: Optional[dict[int, UnivariateSpline]] = None
-        self.audit: Optional[dict[str, Any]] = None
-        self.last_prediction_audit: Optional[dict[str, Any]] = None
+        self.net: nn.Module | None = None
+        self.baselines: dict[int, UnivariateSpline] | None = None
+        self.audit: dict[str, Any] | None = None
+        self.last_prediction_audit: dict[str, Any] | None = None
 
     def fit(
         self,
         x: np.ndarray,
         y: np.ndarray,
-        validation: Optional[tuple[np.ndarray, np.ndarray]] = None,
+        validation: tuple[np.ndarray, np.ndarray] | None = None,
         epochs: int = 100,
         refit: bool = False,
         capture_output: bool = False,
-        num_threads: Optional[int] = 1,
+        num_threads: int | None = 1,
     ) -> DCMReference:
         """Run the authors' EM routine with the study's fixed settings.
 
