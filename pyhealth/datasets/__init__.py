@@ -112,6 +112,7 @@ from .vsac import VSACDataset as VSACDataset
 from .splitter import (
     PatientSplit as PatientSplit,
     Split as Split,
+    SplitPlan as SplitPlan,
     SubjectSplit as SubjectSplit,
     sample_balanced,
     split_by_patient,

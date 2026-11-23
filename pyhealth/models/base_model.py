@@ -45,6 +45,16 @@ class BaseModel(ABC, nn.Module):
         reconstruction) overrides :attr:`label_processors`. :attr:`mode` is
         the single label processor's kind, e.g. ``"binary"``, or ``None``.
 
+    Views
+    --------
+        A task may offer several views of its samples (see
+        :class:`~pyhealth.tasks.BaseTask`). A model class lists the view
+        names it reads in :attr:`accepted_views`, most preferred first;
+        ``MyTask(model=MyModel)`` then selects a fitting view, and building
+        the model on a dataset of another view raises an error that says
+        which view to use. An empty tuple means the model does not say, and
+        nothing is checked.
+
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset
         >>> from pyhealth.models import RNN
@@ -62,6 +72,9 @@ class BaseModel(ABC, nn.Module):
         'multilabel'
     """
 
+    #: View names this model reads, most preferred first; see "Views" above.
+    accepted_views: tuple[str, ...] = ()
+
     def __init__(self, dataset: SampleDataset):
         """
         Initializes the BaseModel.
@@ -70,6 +83,16 @@ class BaseModel(ABC, nn.Module):
             dataset (SampleDataset): The dataset to train the model.
         """
         super(BaseModel, self).__init__()
+        view = getattr(dataset, "view", None)
+        accepted = type(self).accepted_views
+        if view is not None and view != "custom" and accepted and view not in accepted:
+            name = type(self).__name__
+            task = getattr(dataset, "task_name", None) or "the task"
+            raise ValueError(
+                f"{name} reads the views {', '.join(repr(v) for v in accepted)}; "
+                f"this dataset was built with the view {view!r}. Create the "
+                f"task with a view {name} reads, e.g. {task}(model={name})."
+            )
         self.dataset = dataset
         self.feature_keys = []
         self.label_keys = []

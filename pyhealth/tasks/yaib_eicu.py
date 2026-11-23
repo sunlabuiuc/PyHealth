@@ -24,6 +24,7 @@ import polars as pl
 from ..data import Patient
 from ..processors import Records
 from .base_task import BaseTask
+from .views import numeric_series_views
 
 
 class _Item(NamedTuple):
@@ -301,10 +302,10 @@ class _YAIBEICUTask(BaseTask):
     need no attribution to stays. Samples are keyed by ``stay_id``, the eICU
     ``patientunitstayid``.
 
-    Each sample holds ``dynamic``, a ``sequence_v2`` series of the hourly
+    Each sample holds ``dynamic``, a ``jagged`` series of the hourly
     bins (``{"time": [0, 1, ..., T], "values": [T + 1, 48]}``, time in hours
     since ICU admission, ``NaN`` for bins without measurement), and
-    ``static``, a ``sequence_v2`` field with a ``single`` level, the stay's
+    ``static``, a ``jagged`` field with a ``single`` level, the stay's
     one record (``{"values": [[age, sex, height, weight]]}``, sex
     encoded as 1 for male and 0 for female, ``NaN`` when
     unavailable). Per-hour labels are ``timeseries_*`` labels on the same
@@ -322,7 +323,7 @@ class _YAIBEICUTask(BaseTask):
     only. Unlike YAIB, which label-encodes sex as a category, sex is
     standardized like the other static features.
 
-    Training needs a model that reads the ``sequence_v2`` input and the
+    Training needs a model that reads the ``jagged`` input and the
     per-hour label records, such as :class:`~pyhealth.models.RNN_V2`;
     :class:`~pyhealth.models.RNN` and :class:`~pyhealth.models.MultimodalRNN`
     do not.
@@ -337,49 +338,15 @@ class _YAIBEICUTask(BaseTask):
     ``intakeoutput``, ``respiratorycharting`` and ``nursecharting`` tables.
     """
 
-    input_schema: ClassVar[dict[str, Any]] = {
-        # Forward fill, then the training mean (0 once standardized) before
-        # the first measurement, then 0 for a feature never seen in training
-        # (normalization leaves it as is): YAIB's preprocessing, with the
-        # missing-value indicators as the mask.
-        "dynamic": (
-            "sequence_v2",
-            {
-                "levels": [
-                    {
-                        "ordering": "series",
-                        "values": [len(_DYNAMIC_FEATURES)],
-                        "impute": [
-                            {"method": "forward_fill"},
-                            {"method": "mean", "by_dims": ()},  # per feature
-                            {"method": "zero"},
-                        ],
-                        "normalize": {"method": "zscore"},
-                        "missing_indicator": True,
-                    }
-                ]
-            },
-        ),
-        # The training mean (0 once standardized), then 0 for a feature never
-        # seen in training: YAIB's standardize-then-zero-fill, with the
-        # missing-value indicators as the mask.
-        "static": (
-            "sequence_v2",
-            {
-                "levels": [
-                    {
-                        "ordering": "single",
-                        "values": [len(_STATIC_FEATURES)],
-                        "impute": [
-                            {"method": "mean", "by_dims": ()},  # per feature
-                            {"method": "zero"},
-                        ],
-                        "normalize": {"method": "zscore"},
-                        "missing_indicator": True,
-                    }
-                ]
-            },
-        ),
+    # YAIB's preprocessing (forward fill, training mean, standardize, missing
+    # indicators) lives in the shared recipe, so every view applies it alike.
+    views: ClassVar[dict[str, dict[str, Any]]] = numeric_series_views(
+        dynamic=len(_DYNAMIC_FEATURES), static=len(_STATIC_FEATURES)
+    )
+    default_view: ClassVar[str] = "jagged"
+    feature_roles: ClassVar[dict[str, str]] = {
+        "dynamic": "vitals_labs",
+        "static": "demographics",
     }
 
     DYNAMIC_FEATURES: ClassVar[list[str]] = list(_DYNAMIC_FEATURES)

@@ -1,5 +1,7 @@
+import hashlib
+import inspect
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Tuple, Union, Type
+from typing import Any, ClassVar, Dict, List, Mapping, Optional, Tuple, Union, Type
 from typing import TYPE_CHECKING
 
 import polars as pl
@@ -14,6 +16,23 @@ class BaseTask(ABC):
     Subclasses set ``task_name``, ``input_schema`` and ``output_schema`` and
     implement ``__call__``. They may also describe themselves with
     :meth:`task_card`.
+
+    **Views.** A task may offer several *views*: named alternatives for
+    ``input_schema`` over the same samples. ``__call__`` runs once and its
+    samples, labels and split are shared by every view; a view only decides
+    which processor, with which settings, turns each field into model input.
+    Set ``views`` (view name to input schema) and ``default_view`` instead of
+    ``input_schema``, and choose a view when creating the task::
+
+        task = MyTask(view="dense")   # by name
+        task = MyTask(model=RETAIN)   # the first view RETAIN accepts
+        task = MyTask()               # the default view
+
+    ``view`` may also be an input schema of your own. A task without
+    ``views`` has the one ``input_schema`` it declares.
+
+    ``feature_roles`` optionally says what each input field means clinically
+    (e.g. ``{"conditions": "diagnoses"}``), whatever its key is called.
 
     Examples:
         >>> class Mortality(BaseTask):
@@ -30,13 +49,57 @@ class BaseTask(ABC):
     input_schema: Dict[str, Union[str, Type]]
     output_schema: Dict[str, Union[str, Type]]
 
+    #: View name to input schema. Empty for a task with a single input schema.
+    views: ClassVar[Mapping[str, Dict[str, Any]]] = {}
+    #: The view used when neither ``view`` nor ``model`` is given.
+    default_view: ClassVar[Optional[str]] = None
+    #: Input key to clinical role, e.g. ``{"conditions": "diagnoses"}``.
+    feature_roles: ClassVar[Mapping[str, str]] = {}
+    #: The name of the selected view (``"custom"`` for a schema passed as
+    #: ``view``), or None for a task without views.
+    view: Optional[str] = None
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        own = cls.__dict__
+        if "views" in own:
+            views = own["views"]
+            if not views:
+                return
+            default = cls.default_view
+            if default is None:
+                default = next(iter(views))
+                cls.default_view = default
+            if default not in views:
+                raise TypeError(
+                    f"{cls.__name__}.default_view is {default!r}, which is not "
+                    f"one of its views: {sorted(views)}."
+                )
+            # Class-level access (``MyTask.input_schema``) gives the default view.
+            cls.input_schema = views[default]
+            cls.view = default
+        elif "input_schema" in own and cls.views:
+            # A subclass that declares its own input schema does not inherit
+            # the views of its base, which describe other fields.
+            cls.views = {}
+            cls.default_view = None
+            cls.view = None
+
     def __init__(
         self,
         code_mapping: Optional[Dict[str, Tuple[str, str]]] = None,
+        view: Union[str, Dict[str, Any], None] = None,
+        model: Any = None,
     ):
-        """Initialize a task with optional code mapping.
+        """Initialize a task, choosing its view and optional code mapping.
 
         Args:
+            view: the name of one of the task's ``views``, or an input schema
+                of your own for the task's fields. Defaults to
+                ``default_view``.
+            model: a model class (or instance) to choose the view for: the
+                first of its ``accepted_views`` that the task offers. Give
+                ``view`` or ``model``, not both.
             code_mapping: optional dict mapping feature keys to
                 ``(source_vocab, target_vocab)`` tuples.  For example::
 
@@ -50,7 +113,13 @@ class BaseTask(ABC):
                 are upgraded from ``"sequence"`` to
                 ``("sequence", {"code_mapping": (src, tgt)})`` so that the
                 ``SequenceProcessor`` maps raw codes at fit/process time.
+
+        Raises:
+            ValueError: if ``view`` and ``model`` are both given, the task
+                has no views, the view is unknown, or the model accepts none
+                of the task's views.
         """
+        self._select_view(view, model)
         if code_mapping is not None:
             schema = dict(self.input_schema)
             for field, mapping in code_mapping.items():
@@ -64,6 +133,102 @@ class BaseTask(ABC):
                     kwargs["code_mapping"] = mapping
                     schema[field] = (base, kwargs)
             self.input_schema = schema
+
+    def _select_view(self, view: Union[str, Dict[str, Any], None], model: Any) -> None:
+        """Sets ``input_schema`` and ``view`` from the ``view``/``model`` arguments."""
+        name = type(self).__name__
+        if view is not None and model is not None:
+            raise ValueError(f"{name}: give view or model, not both.")
+        if view is None and model is None:
+            return  # the class-level default, set by __init_subclass__
+        if not self.views:
+            raise ValueError(
+                f"{name} has a single input schema and no views, so view= and "
+                "model= do not apply."
+            )
+        offered = ", ".join(repr(v) for v in self.views)
+        if model is not None:
+            model_name = getattr(model, "__name__", type(model).__name__)
+            accepted = tuple(getattr(model, "accepted_views", ()) or ())
+            if not accepted:
+                raise ValueError(
+                    f"{model_name} does not declare accepted_views, so {name} "
+                    f"cannot choose a view for it. Pass view= instead; {name} "
+                    f"offers {offered}."
+                )
+            view = next((v for v in accepted if v in self.views), None)
+            if view is None:
+                raise ValueError(
+                    f"{model_name} reads the views "
+                    f"{', '.join(repr(v) for v in accepted)}; {name} offers "
+                    f"{offered}. No view fits both."
+                )
+        if isinstance(view, str):
+            if view not in self.views:
+                raise ValueError(
+                    f"{name} has no view {view!r}. It offers {offered}."
+                )
+            self.input_schema = self.views[view]
+            self.view = view
+        elif isinstance(view, Mapping) and view:
+            self.input_schema = dict(view)
+            self.view = "custom"
+        else:
+            raise ValueError(
+                f"{name}: view must be a view name or an input schema, got {view!r}."
+            )
+
+    def cache_key(self) -> Dict[str, Any]:
+        """What identifies the samples ``__call__`` produces, for caching.
+
+        A task without views is identified as before, by its instance
+        attributes and both schemas. A task with views is identified by what
+        defines its samples and not by the selected view, so every view reads
+        the same cached samples: its public instance attributes, its output
+        schema, its public class constants and the source of its classes.
+        Editing the task's code therefore gives it a new cache.
+
+        Returns:
+            A dictionary; ``json.dumps(..., default=str)`` of it is hashed.
+
+        Examples:
+            >>> class Mortality(BaseTask):
+            ...     task_name = "mortality"
+            ...     input_schema = {"labs": "tensor"}
+            ...     output_schema = {"death": "binary"}
+            ...     def __call__(self, patient):
+            ...         return []
+            >>> sorted(Mortality().cache_key())
+            ['input_schema', 'output_schema']
+        """
+        if not self.views:
+            return {
+                **vars(self),
+                "input_schema": self.input_schema,
+                "output_schema": self.output_schema,
+            }
+        skip = {"input_schema", "view"}
+        key: Dict[str, Any] = {
+            k: v for k, v in vars(self).items() if k not in skip and not k.startswith("_")
+        }
+        constants: Dict[str, Any] = {}
+        sources = hashlib.sha256()
+        for cls in reversed(type(self).__mro__):
+            if cls in (object, ABC, BaseTask):
+                continue
+            for attr, value in vars(cls).items():
+                if attr.startswith("_") or attr in ("views", "input_schema", "view"):
+                    continue
+                if isinstance(value, (bool, int, float, str, tuple, list, dict)):
+                    constants[attr] = value
+            try:
+                sources.update(inspect.getsource(cls).encode())
+            except (OSError, TypeError):  # defined interactively
+                sources.update(cls.__qualname__.encode())
+        key["output_schema"] = self.output_schema
+        key["class_constants"] = constants
+        key["source"] = sources.hexdigest()
+        return key
 
     def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
         return df

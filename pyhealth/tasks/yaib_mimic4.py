@@ -20,6 +20,7 @@ import polars as pl
 
 from ..processors import Records
 from .base_task import BaseTask
+from .views import numeric_series_views
 
 
 class _Item(NamedTuple):
@@ -272,49 +273,15 @@ class _YAIBMIMIC4Task(BaseTask):
     Requires the ``labevents``, ``chartevents`` and ``outputevents`` tables.
     """
 
-    input_schema: ClassVar[dict[str, Any]] = {
-        # Forward fill, then the training mean (0 once standardized) before
-        # the first measurement, then 0 for a feature never seen in training
-        # (normalization leaves it as is): YAIB's preprocessing, with the
-        # missing-value indicators as the mask.
-        "dynamic": (
-            "jagged",
-            {
-                "levels": [
-                    {
-                        "ordering": "series",
-                        "values": [len(_DYNAMIC_FEATURES)],
-                        "impute": [
-                            {"method": "forward_fill"},
-                            {"method": "mean", "by_dims": ()},  # per feature
-                            {"method": "zero"},
-                        ],
-                        "normalize": {"method": "zscore"},
-                        "missing_indicator": True,
-                    }
-                ]
-            },
-        ),
-        # The training mean (0 once standardized), then 0 for a feature never
-        # seen in training: YAIB's standardize-then-zero-fill, with the
-        # missing-value indicators as the mask.
-        "static": (
-            "jagged",
-            {
-                "levels": [
-                    {
-                        "ordering": "single",
-                        "values": [len(_STATIC_FEATURES)],
-                        "impute": [
-                            {"method": "mean", "by_dims": ()},  # per feature
-                            {"method": "zero"},
-                        ],
-                        "normalize": {"method": "zscore"},
-                        "missing_indicator": True,
-                    }
-                ]
-            },
-        ),
+    # YAIB's preprocessing (forward fill, training mean, standardize, missing
+    # indicators) lives in the shared recipe, so every view applies it alike.
+    views: ClassVar[dict[str, dict[str, Any]]] = numeric_series_views(
+        dynamic=len(_DYNAMIC_FEATURES), static=len(_STATIC_FEATURES)
+    )
+    default_view: ClassVar[str] = "jagged"
+    feature_roles: ClassVar[dict[str, str]] = {
+        "dynamic": "vitals_labs",
+        "static": "demographics",
     }
 
     DYNAMIC_FEATURES: ClassVar[list[str]] = list(_DYNAMIC_FEATURES)
@@ -726,8 +693,10 @@ class YAIBMortalityMIMIC4(_YAIBMIMIC4Task):
     # ICU death needs the last ward before hospital discharge.
     _EXTRA_TABLES: ClassVar[tuple[str, ...]] = ("transfers",)
 
-    def __init__(self, icu_wards: Sequence[str] | None = None) -> None:
-        super().__init__()
+    def __init__(
+        self, icu_wards: Sequence[str] | None = None, **kwargs: Any
+    ) -> None:
+        super().__init__(**kwargs)
         self.icu_wards = list(self.ICU_WARDS if icu_wards is None else icu_wards)
 
     def __call__(self, patient: Any) -> list[dict[str, Any]]:
@@ -1180,8 +1149,10 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
         "transfers",
     )
 
-    def __init__(self, icu_wards: Sequence[str] | None = None) -> None:
-        super().__init__()
+    def __init__(
+        self, icu_wards: Sequence[str] | None = None, **kwargs: Any
+    ) -> None:
+        super().__init__(**kwargs)
         self.icu_wards = list(self.ICU_WARDS if icu_wards is None else icu_wards)
 
     # Event times ------------------------------------------------------------

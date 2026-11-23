@@ -121,6 +121,65 @@ time. Timestamps are accessed through ``event.timestamp`` rather than the
 original column name like ``charttime``, since PyHealth normalises them into
 a single property.
 
+Task Views
+----------
+
+A task defines who is in the cohort, when the prediction is made, what the
+label is and which measurements a model may use. How those measurements are
+turned into tensors is a separate choice, and different models need
+different ones. A task can therefore offer several *views*: named input
+schemas over the same samples.
+
+.. code-block:: python
+
+    from pyhealth.datasets import PatientSplit, SplitPlan
+    from pyhealth.models import RNN_V2
+    from pyhealth.tasks import YAIBMortalityMIMIC4
+
+    task = YAIBMortalityMIMIC4()               # the default view
+    task = YAIBMortalityMIMIC4(view="jagged")  # a view by name
+    task = YAIBMortalityMIMIC4(model=RNN_V2)   # the view RNN_V2 reads
+
+    plan = SplitPlan.load_or_draw(dataset, "seed0", PatientSplit((0.8, 0.1, 0.1), seed=0))
+    train, val, test = dataset.set_task(task, split=plan)
+    model = RNN_V2(train, ...)
+
+What stays the same across the views of a task, and what may differ:
+
+- **Same:** the samples ``__call__`` returns (computed once and cached once),
+  the labels, and the split. A :class:`~pyhealth.datasets.SplitPlan` is a
+  saved assignment of patients to parts, so every view, and every task on the
+  same dataset, puts a patient in the same part.
+- **May differ:** imputation, scaling, encoding and tensor layout. Anything a
+  view learns from data is learned on the training part, which is why
+  ``set_task`` requires ``split=`` for such a view.
+
+A model class lists the views it reads in ``accepted_views``. ``model=``
+selects the first of them the task offers, and building a model on a dataset
+of another view raises an error naming the view to use. ``view=`` also takes
+an input schema of your own.
+
+To give your own task views, set ``views`` and ``default_view`` instead of
+``input_schema``. Tasks whose samples share a layout take their views from a
+recipe in :mod:`pyhealth.tasks.views`, so a view name means the same thing in
+every task:
+
+.. code-block:: python
+
+    from pyhealth.tasks.views import numeric_series_views
+
+    class MyICUTask(BaseTask):
+        task_name = "MyICUTask"
+        views = numeric_series_views(dynamic=48, static=4)
+        default_view = "jagged"
+        output_schema = {"mortality": "binary"}
+
+        def __call__(self, patient):
+            ...  # emit "dynamic" and "static" with NaN where not measured
+
+.. automodule:: pyhealth.tasks.views
+    :members: numeric_series_views, Preprocessing, YAIB_PREPROCESSING, VIEW_NAMES
+
 Processor String Keys
 ----------------------
 

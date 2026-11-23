@@ -883,6 +883,8 @@ class RNN_V2(BaseModel):
         torch.Size([4, 1])
     """
 
+    accepted_views = ("jagged",)
+
     def __init__(
         self,
         dataset: SampleDataset,
