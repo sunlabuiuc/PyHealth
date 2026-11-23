@@ -285,7 +285,7 @@ class CHET(BaseModel):
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
-        >>> from pyhealth.models import CHET
+        >>> from pyhealth.models import CHET, compute_cooccurrence_adj
         >>> samples = [
         ...     {"patient_id": "p0", "visit_id": "v0",
         ...      "conditions": [["c1", "c2"], ["c3"]], "label": 1},
@@ -297,11 +297,14 @@ class CHET(BaseModel):
         ...     input_schema={"conditions": "nested_sequence"},
         ...     output_schema={"label": "binary"},
         ... )
+        >>> # To avoid leakage, precompute adjacency on the training split:
+        >>> train_adj = compute_cooccurrence_adj(dataset, "conditions")
         >>> model = CHET(
         ...     dataset=dataset,
         ...     code_size=16,
         ...     graph_size=16,
         ...     hidden_dim=32,
+        ...     adj=train_adj,
         ... )
         >>> loader = get_dataloader(dataset, batch_size=2)
         >>> batch = next(iter(loader))
@@ -336,20 +339,23 @@ class CHET(BaseModel):
 
         if feature_keys is not None:
             self.feature_keys = feature_keys
+            if len(self.feature_keys) > 1:
+                warnings.warn(
+                    f"CHET operates on a single disease code feature key. "
+                    f"Multiple feature keys were provided ({self.feature_keys}); "
+                    f"only the primary key '{self.feature_keys[0]}' will be used.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+        else:
+            self.feature_keys = [self.feature_keys[0]]
+
         if label_key is not None:
             self.label_key = label_key
         else:
             self.label_key = self.label_keys[0]
 
         self.primary_feature_key = self.feature_keys[0]
-        if len(self.feature_keys) > 1:
-            warnings.warn(
-                f"CHET operates on a single disease code feature key. "
-                f"Multiple feature keys were provided ({self.feature_keys}); "
-                f"only the primary key '{self.primary_feature_key}' will be used.",
-                UserWarning,
-                stacklevel=2,
-            )
         proc = self.dataset.input_processors[self.primary_feature_key]
         vocab = getattr(proc, "code_vocab", None)
         if vocab is None:

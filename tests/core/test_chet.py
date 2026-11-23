@@ -1,6 +1,7 @@
 """Unit tests for CHET model."""
 
 import unittest
+import warnings
 
 import numpy as np
 import torch
@@ -171,6 +172,17 @@ class TestCHET(unittest.TestCase):
                 graph_size=16,
                 hidden_dim=32,
             )
+
+        with warnings.catch_warnings(record=True) as recorded:
+            warnings.simplefilter("always")
+            CHET(
+                dataset=dataset,
+                code_size=16,
+                graph_size=16,
+                hidden_dim=32,
+            )
+            user_warnings = [w for w in recorded if issubclass(w.category, UserWarning)]
+            self.assertEqual(len(user_warnings), 0)
 
     def test_invalid_args(self):
         dataset = create_sample_dataset(
