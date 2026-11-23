@@ -238,6 +238,12 @@ class _FieldEmbedding(nn.Module):
         return levels
 
 
+def _check_size(size: Any, where: str) -> None:
+    """Raises unless ``size`` is a positive int (``bool`` is not)."""
+    if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
+        raise ValueError(f"{where} must be a positive int, got {size!r}.")
+
+
 def level_embeddings(
     processor: JaggedFeatureProcessor, size: int
 ) -> list[LevelEmbedding]:
@@ -267,8 +273,7 @@ def level_embeddings(
         >>> level_embeddings(dataset.input_processors["visits"], 16)
         [{'tokens': (16,)}, {}]
     """
-    if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
-        raise ValueError(f"embedding_dim must be a positive int, got {size!r}.")
+    _check_size(size, "embedding_dim")
     vocab_size, value_dim = processor.vocab_size(), processor.value_dim()
     levels: list[LevelEmbedding] = []
     for depth in range(processor.depth + 1):
@@ -357,6 +362,7 @@ class SequenceEmbeddingModel(BaseModel):
         }
         flatten_spatial = dict(flatten_spatial or {})
         if isinstance(embedding_dim, int):
+            _check_size(embedding_dim, "embedding_dim")
             embedding_dim = dict.fromkeys(processors, embedding_dim)
         elif not isinstance(embedding_dim, Mapping):
             raise TypeError(
@@ -377,6 +383,7 @@ class SequenceEmbeddingModel(BaseModel):
         for field, processor in processors.items():
             size = embedding_dim.get(field, 128)
             if isinstance(size, int):
+                _check_size(size, f"embedding_dim['{field}']")
                 levels[field] = level_embeddings(processor, size)
             elif isinstance(size, (list, tuple)):
                 levels[field] = size
