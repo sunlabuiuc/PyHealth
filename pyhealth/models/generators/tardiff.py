@@ -263,8 +263,20 @@ class TarDiff(BaseModel):
         class_dim: Class embedding size. Default 32.
         dropout: Dropout in the residual blocks. Default 0.
         n_steps: Diffusion steps T. Default 1000.
-        beta_start: First beta of the linear schedule. Default 1e-4.
-        beta_end: Last beta of the linear schedule. Default 0.02.
+        beta_start: First beta of the schedule. Default 1e-4.
+        beta_end: Last beta of the schedule. Default 0.02.
+        beta_schedule: ``"linear"`` spaces the betas evenly (DDPM).
+            ``"scaled_linear"`` spaces their square roots evenly, as Latent
+            Diffusion, which TarDiff's official code builds on, does. That
+            keeps more of the signal at mid and late steps; the official
+            code pairs it with ``n_steps=200``, ``beta_start=5e-4`` and
+            ``beta_end=0.1``. Default ``"linear"``.
+        prediction: What the network predicts. ``"eps"`` is the noise
+            (DDPM, the paper, and the official code). ``"v"`` is
+            ``sqrt(abar) * noise - sqrt(1 - abar) * x0`` (Salimans and Ho,
+            2022), which stays accurate at the noisiest steps, where
+            ``"eps"`` errors are amplified by ``1 / sqrt(abar)`` in the
+            clean-series estimate. Default ``"eps"``.
 
     Examples:
         >>> import torch
@@ -300,6 +312,8 @@ class TarDiff(BaseModel):
         n_steps: int = 1000,
         beta_start: float = 1e-4,
         beta_end: float = 0.02,
+        beta_schedule: str = "linear",
+        prediction: str = "eps",
     ):
         super().__init__(dataset)
         if len(self.feature_keys) != 1 or len(self.label_keys) != 1:
@@ -329,6 +343,8 @@ class TarDiff(BaseModel):
             "n_steps": n_steps,
             "beta_start": beta_start,
             "beta_end": beta_end,
+            "beta_schedule": beta_schedule,
+            "prediction": prediction,
         }
         self.net = UNet1D(
             self.n_channels,
@@ -346,8 +362,24 @@ class TarDiff(BaseModel):
                 f"Series length {self.length} must be divisible by "
                 f"{self.net.downsample_factor} for mults={tuple(mults)}."
             )
+        if prediction not in ("eps", "v"):
+            raise ValueError(f"prediction must be 'eps' or 'v', got {prediction!r}.")
+        self.prediction = prediction
         self.n_steps = n_steps
-        betas = torch.linspace(beta_start, beta_end, n_steps, dtype=torch.float64)
+        if beta_schedule == "linear":
+            betas = torch.linspace(beta_start, beta_end, n_steps, dtype=torch.float64)
+        elif beta_schedule == "scaled_linear":
+            betas = (
+                torch.linspace(
+                    beta_start**0.5, beta_end**0.5, n_steps, dtype=torch.float64
+                )
+                ** 2
+            )
+        else:
+            raise ValueError(
+                f"beta_schedule must be 'linear' or 'scaled_linear', "
+                f"got {beta_schedule!r}."
+            )
         self.register_buffer("alphas_cumprod", torch.cumprod(1 - betas, 0).float())
 
     def _classes(self, y: torch.Tensor) -> torch.Tensor:
@@ -364,6 +396,18 @@ class TarDiff(BaseModel):
         a = self.alphas_cumprod[t].view(-1, 1, 1)
         return a.sqrt() * x0 + (1 - a).sqrt() * noise
 
+    def _eps_and_x0(
+        self, x: torch.Tensor, t: int, y: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """The network's noise and clean-series estimates at step ``t``."""
+        a = self.alphas_cumprod[t]
+        out = self.net(x, torch.full_like(y, t), y)
+        if self.prediction == "v":
+            eps = (1 - a).sqrt() * x + a.sqrt() * out
+            x0 = a.sqrt() * x - (1 - a).sqrt() * out
+            return eps, x0
+        return out, (x - (1 - a).sqrt() * out) / a.sqrt()
+
     def forward(self, **kwargs: Any) -> dict[str, torch.Tensor]:
         """Denoising loss of a batch.
 
@@ -371,13 +415,18 @@ class TarDiff(BaseModel):
             **kwargs: A batch with the signal and the label.
 
         Returns:
-            ``{"loss": mean squared error of the predicted noise}``.
+            ``{"loss": mean squared error of the prediction}`` (the noise,
+            or ``v``; see ``prediction``).
         """
         x0 = kwargs[self.feature_key].to(self.device).float()
         y = self._classes(kwargs[self.label_key])
         t = torch.randint(0, self.n_steps, (x0.shape[0],), device=self.device)
         noise = torch.randn_like(x0)
-        return {"loss": F.mse_loss(self.net(self.q_sample(x0, t, noise), t, y), noise)}
+        target = noise
+        if self.prediction == "v":
+            a = self.alphas_cumprod[t].view(-1, 1, 1)
+            target = a.sqrt() * noise - (1 - a).sqrt() * x0
+        return {"loss": F.mse_loss(self.net(self.q_sample(x0, t, noise), t, y), target)}
 
     def train_model(
         self,
@@ -459,8 +508,13 @@ class TarDiff(BaseModel):
         G: list[torch.Tensor],
         x: torch.Tensor,
         y: torch.Tensor,
+        cosine: bool = False,
     ) -> torch.Tensor:
-        """``grad_x (G . grad_phi loss(x, y))``, summed over the batch."""
+        """``grad_x (G . grad_phi loss(x, y))``, summed over the batch.
+
+        With ``cosine``, the dot product is divided by both gradients' norms,
+        as TarDiff's official code does: one cosine for the whole batch.
+        """
         params = [p for p in guide.parameters() if p.requires_grad]
         with torch.enable_grad():
             x = x.detach().requires_grad_(True)
@@ -473,7 +527,12 @@ class TarDiff(BaseModel):
             grads = torch.autograd.grad(
                 loss, params, create_graph=True, allow_unused=True
             )
-            dot = sum((g * Gi).sum() for g, Gi in zip(grads, G) if g is not None)
+            pairs = [(g, Gi) for g, Gi in zip(grads, G) if g is not None]
+            dot = sum((g * Gi).sum() for g, Gi in pairs)
+            if cosine:
+                norm = sum((g**2).sum() for g, _ in pairs).sqrt()
+                norm_G = sum((Gi**2).sum() for _, Gi in pairs).sqrt()
+                dot = dot / (norm * norm_G + 1e-12)
             (grad_x,) = torch.autograd.grad(dot, x)
         return grad_x
 
@@ -504,6 +563,8 @@ class TarDiff(BaseModel):
         guidance_scale: float = 100.0,
         batch_size: int = 256,
         generator: torch.Generator | None = None,
+        guide_on_x0: bool = False,
+        cosine: bool = False,
     ) -> dict[str, torch.Tensor]:
         """Samples one synthetic series per label with DDIM.
 
@@ -511,6 +572,14 @@ class TarDiff(BaseModel):
         ``guide`` and its ``guidance`` (from :meth:`guidance_gradient`), every
         step's mean is moved by ``guidance_scale * grad_x (G . grad_phi
         loss(x_t, y))``.
+
+        ``guide_on_x0`` and ``cosine`` switch to what TarDiff's official code
+        does instead of the paper's equation: the guide scores the step's
+        clean-series estimate ``x0`` (the kind of input it was trained on)
+        rather than the noisy ``x_t``, and the dot product becomes a cosine
+        over the batch, so it can't grow just by making the samples harder
+        to classify. The official code also shrinks the step by
+        ``1 - guidance_scale``, which this leaves out.
 
         Args:
             labels: Class indices to generate, ``(n,)``: the label
@@ -524,6 +593,8 @@ class TarDiff(BaseModel):
             batch_size: Series generated at once.
             generator: Random generator for reproducible samples (on the
                 model's device).
+            guide_on_x0: Score ``x0`` instead of ``x_t``. Default False.
+            cosine: Use the cosine instead of the dot product. Default False.
 
         Returns:
             ``{"signal": (n, channels, length), "label": (n,)}`` on the CPU,
@@ -555,8 +626,7 @@ class TarDiff(BaseModel):
                     if i + 1 < len(times)
                     else a_t.new_tensor(1.0)
                 )
-                eps = self.net(x, torch.full_like(y, t), y)
-                x0 = (x - (1 - a_t).sqrt() * eps) / a_t.sqrt()
+                eps, x0 = self._eps_and_x0(x, t, y)
                 sigma = (
                     eta
                     * ((1 - a_prev) / (1 - a_t) * (1 - a_t / a_prev))
@@ -569,7 +639,7 @@ class TarDiff(BaseModel):
                 )
                 if guide is not None:
                     mean = mean + guidance_scale * self._influence_grad(
-                        guide, guidance, x, y
+                        guide, guidance, x0 if guide_on_x0 else x, y, cosine
                     )
                 noise = torch.randn(x.shape, device=self.device, generator=generator)
                 x = mean + sigma * noise
@@ -615,6 +685,9 @@ class TarDiff(BaseModel):
             ValueError: If the saved configuration differs from this model's.
         """
         saved = torch.load(path, map_location=self.device, weights_only=True)
+        # Checkpoints from before these options existed used the defaults.
+        saved["config"].setdefault("beta_schedule", "linear")
+        saved["config"].setdefault("prediction", "eps")
         if saved["config"] != self.config:
             raise ValueError(
                 f"Saved config {saved['config']} differs from {self.config}."

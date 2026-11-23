@@ -10,17 +10,25 @@ Steps, for each seed:
 
 1. Train a classifier on the real training folds (1-8) and test it on fold 10
    ("real": train real, test real).
-2. Train TarDiff on the real training folds. The diffusion model is trained
-   once and saved to ``--diffusion-checkpoint``; later seeds and runs reuse it.
+2. Train TarDiff on the real training folds, with the noise schedule of
+   TarDiff's official code (Latent Diffusion's scaled-linear betas from 5e-4
+   to 0.1 over 200 steps). The diffusion model is trained once and saved to
+   ``--diffusion-checkpoint``, by default a file named after the data and the
+   training settings; later seeds and runs with the same settings reuse it.
 3. Compute the guidance gradient ``G`` of the step-1 classifier over the
    validation fold (9), the paper's guidance set.
 4. Generate as many synthetic heartbeats as there are real training beats,
    with the real class balance: unguided, and TarDiff-guided at each
-   ``--guidance-scales``.
+   ``--guidance-scales``. ``--guidance official`` (the default) guides as
+   TarDiff's official code does, scoring the clean-series estimate with a
+   cosine; ``paper`` uses the paper's equation (see ``TarDiff.generate``).
 5. TSTR: train a fresh classifier on each synthetic set alone. TSRTR: train
    on the real set plus synthetic beats at each ``--ratios`` of its size.
    Every classifier picks its best epoch on the real validation fold and is
    scored on the real test fold (AUROC, AUPRC).
+6. With several guidance scales, ``tardiff_selected`` reports, for each
+   setting and seed, the scale whose classifier did best on the validation
+   fold (AUROC), so the scale isn't picked on the test fold.
 
 The paper's downstream model is TimesNet, which PyHealth doesn't have; this
 uses SparcNet for the classifier and the guide. Results go to
@@ -36,7 +44,7 @@ Usage:
         --diffusion-batch-size 128 --steps 25 --ratios 1.0 --epochs 5
 
     # A few-minute check on generated toy beats, no download:
-    python examples/ecg/ptbxl/tardiff_ptbxl_tstr.py --synthetic
+    python examples/ecg/ptbxl/tardiff_ptbxl_tstr.py --synthetic --tiny
 """
 
 import argparse
@@ -91,7 +99,10 @@ def parse_args():
     p.add_argument(
         "--cache-dir", default=str(Path.home() / ".cache/pyhealth/tardiff_ptbxl")
     )
-    p.add_argument("--diffusion-checkpoint", help="Default: <output>/tardiff.pt.")
+    p.add_argument(
+        "--diffusion-checkpoint",
+        help="Default: a file in <output> named after the data and settings.",
+    )
     p.add_argument(
         "--max-beats-per-record",
         type=int,
@@ -103,12 +114,30 @@ def parse_args():
     p.add_argument("--diffusion-batch-size", type=int, default=256, help="Paper: 256.")
     p.add_argument("--steps", type=int, default=50, help="DDIM sampling steps.")
     p.add_argument(
+        "--beta-schedule",
+        choices=["scaled_linear", "linear"],
+        default="scaled_linear",
+        help="Official code: scaled_linear (Latent Diffusion's 'linear').",
+    )
+    p.add_argument("--n-steps", type=int, default=200, help="Official code: 200.")
+    p.add_argument("--beta-start", type=float, default=5e-4, help="Official: 5e-4.")
+    p.add_argument("--beta-end", type=float, default=0.1, help="Official: 0.1.")
+    p.add_argument(
+        "--prediction",
+        choices=["v", "eps"],
+        default="v",
+        help="Network target. The official code predicts eps; v is accurate "
+        "at the noisiest steps (see TarDiff).",
+    )
+    p.add_argument(
         "--guidance-scales",
         type=float,
         nargs="+",
-        default=[100.0],
-        help="Paper: 100 (Appendix D); its sweep peaks near 1000.",
+        default=[300.0, 1000.0, 3000.0],
+        help="For --guidance official; samples drift off scale above ~1e4. "
+        "(The paper's 100, from its Appendix D, is for its own equation.)",
     )
+    p.add_argument("--guidance", choices=["official", "paper"], default="official")
     p.add_argument("--ratios", type=float, nargs="+", default=[0.2, 0.5, 1.0])
     p.add_argument("--epochs", type=int, default=10, help="Classifier epochs.")
     p.add_argument("--batch-size", type=int, default=256, help="Classifier batch.")
@@ -191,7 +220,7 @@ def as_dataset(samples, like):
 
 
 def fit_and_test(train, val_loader, test_loader, args, seed):
-    """Trains SparcNet on ``train`` and scores it on the real test fold."""
+    """Trains SparcNet on ``train``; scores it on the real val and test folds."""
     torch.manual_seed(seed)
     model = SparcNet(train)
     trainer = Trainer(
@@ -204,12 +233,35 @@ def fit_and_test(train, val_loader, test_loader, args, seed):
         monitor="roc_auc",
     )
     scores = trainer.evaluate(test_loader)
-    return model, {"roc_auc": scores["roc_auc"], "pr_auc": scores["pr_auc"]}
+    return model, {
+        "roc_auc": scores["roc_auc"],
+        "pr_auc": scores["pr_auc"],
+        "val_roc_auc": trainer.evaluate(val_loader)["roc_auc"],
+    }
+
+
+def checkpoint_name(args):
+    """Names the diffusion checkpoint after everything that changes it."""
+    data = "toy" if args.synthetic else f"ptbxl-b{args.max_beats_per_record}"
+    return (
+        f"tardiff-{data}-{args.unet}-{args.prediction}-{args.beta_schedule}"
+        f"-T{args.n_steps}"
+        f"-{args.beta_start:g}-{args.beta_end:g}"
+        f"-it{args.iterations}-bs{args.diffusion_batch_size}.pt"
+    )
 
 
 def diffusion_model(train, args):
-    model = TarDiff(train, **UNETS[args.unet]).to(args.device)
-    path = Path(args.diffusion_checkpoint or Path(args.output) / "tardiff.pt")
+    model = TarDiff(
+        train,
+        **UNETS[args.unet],
+        n_steps=args.n_steps,
+        beta_start=args.beta_start,
+        beta_end=args.beta_end,
+        beta_schedule=args.beta_schedule,
+        prediction=args.prediction,
+    ).to(args.device)
+    path = Path(args.diffusion_checkpoint or Path(args.output) / checkpoint_name(args))
     if path.exists():
         model.load_model(str(path))
         print(f"Loaded the diffusion model from {path}")
@@ -243,6 +295,19 @@ def generate(diffusion, labels, args, seed, name, kwargs, batch_size=256):
         for i in tqdm(range(0, len(labels), batch_size), desc=f"Generating {name}")
     ]
     return {key: torch.cat([c[key] for c in chunks]) for key in ("signal", "label")}
+
+
+def add_selected(scores, scales):
+    """Adds ``tardiff_selected/*``: each setting at its best-validation scale."""
+    settings = {k.split("/", 1)[1] for k in scores if k.startswith("tardiff_w")}
+    for setting in settings:
+        best = max(
+            scales, key=lambda w: scores[f"tardiff_w{w:g}/{setting}"]["val_roc_auc"]
+        )
+        scores[f"tardiff_selected/{setting}"] = {
+            **scores[f"tardiff_w{best:g}/{setting}"],
+            "guidance_scale": best,
+        }
 
 
 def summarize(results):
@@ -283,6 +348,8 @@ def main():
                 "guide": guide,
                 "guidance": G,
                 "guidance_scale": w,
+                "guide_on_x0": args.guidance == "official",
+                "cosine": args.guidance == "official",
             }
         for name, kwargs in methods.items():
             generated = generate(diffusion, labels, args, seed, name, kwargs)
@@ -295,6 +362,7 @@ def main():
                 _, scores[f"{name}/tsrtr_{r:g}"] = fit_and_test(
                     as_dataset(mixed, train), val_loader, test_loader, args, seed
                 )
+        add_selected(scores, args.guidance_scales)
         results.append({"seed": seed, "scores": scores})
         (out / "results.json").write_text(
             json.dumps({"args": vars(args), "results": results}, indent=2)

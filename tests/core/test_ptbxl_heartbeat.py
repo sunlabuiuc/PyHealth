@@ -60,6 +60,13 @@ class TestHelpers(unittest.TestCase):
         # The first beat is cut at sample 0, so 150 samples are padded to 288.
         np.testing.assert_array_equal(beats[0, 0, 69:219], np.arange(0, 150))
 
+    def test_skip_partial_drops_beats_cut_by_the_edges(self):
+        signal = np.arange(1000, dtype=np.float32)[None]
+        peaks = np.array([50, 250, 450, 650, 900, 950])  # median R-R 200: half 100
+        beats = segment_heartbeats(signal, peaks, length=288, skip_partial=True)
+        # 50 starts before 0 and 950 ends after 1000; 900 ends exactly at it.
+        np.testing.assert_array_equal(beats[:, 0, 144], [250, 450, 650, 900])
+
     def test_long_rr_is_cropped_to_the_length(self):
         beats = segment_heartbeats(np.ones((1, 3000)), np.array([500, 1500]), 288)
         self.assertEqual(beats[0, 0].sum(), 288)
