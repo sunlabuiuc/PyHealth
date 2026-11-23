@@ -869,7 +869,7 @@ class YAIBMortalityEICU(_YAIBEICUTask):
     respiratorycharting and nursecharting tables.
 
     Examples:
-        >>> from pyhealth.datasets import eICUDataset
+        >>> from pyhealth.datasets import eICUDataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBMortalityEICU
         >>> dataset = eICUDataset(
         ...     root="/path/to/eicu-crd/2.0",
@@ -877,7 +877,10 @@ class YAIBMortalityEICU(_YAIBEICUTask):
         ...             "intakeoutput", "respiratorycharting",
         ...             "nursecharting"],
         ... )
-        >>> samples = dataset.set_task(YAIBMortalityEICU())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBMortalityEICU(), split=split)
     """
 
     task_name: str = "YAIBMortalityEICU"
@@ -936,7 +939,7 @@ class YAIBKidneyFunctionEICU(_YAIBEICUTask):
     respiratorycharting and nursecharting tables.
 
     Examples:
-        >>> from pyhealth.datasets import eICUDataset
+        >>> from pyhealth.datasets import eICUDataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBKidneyFunctionEICU
         >>> dataset = eICUDataset(
         ...     root="/path/to/eicu-crd/2.0",
@@ -944,7 +947,10 @@ class YAIBKidneyFunctionEICU(_YAIBEICUTask):
         ...             "intakeoutput", "respiratorycharting",
         ...             "nursecharting"],
         ... )
-        >>> samples = dataset.set_task(YAIBKidneyFunctionEICU())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBKidneyFunctionEICU(), split=split)
     """
 
     task_name: str = "YAIBKidneyFunctionEICU"
@@ -1011,7 +1017,7 @@ class YAIBLengthOfStayEICU(_YAIBEICUTask):
     respiratorycharting and nursecharting tables.
 
     Examples:
-        >>> from pyhealth.datasets import eICUDataset
+        >>> from pyhealth.datasets import eICUDataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBLengthOfStayEICU
         >>> dataset = eICUDataset(
         ...     root="/path/to/eicu-crd/2.0",
@@ -1019,7 +1025,10 @@ class YAIBLengthOfStayEICU(_YAIBEICUTask):
         ...             "intakeoutput", "respiratorycharting",
         ...             "nursecharting"],
         ... )
-        >>> samples = dataset.set_task(YAIBLengthOfStayEICU())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBLengthOfStayEICU(), split=split)
     """
 
     task_name: str = "YAIBLengthOfStayEICU"
@@ -1095,7 +1104,7 @@ class YAIBAKIEICU(_YAIBEICUTask):
     ``intakeoutput``, ``respiratorycharting`` and ``nursecharting`` tables.
 
     Examples:
-        >>> from pyhealth.datasets import eICUDataset
+        >>> from pyhealth.datasets import eICUDataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBAKIEICU
         >>> dataset = eICUDataset(
         ...     root="/path/to/eicu-crd/2.0",
@@ -1103,7 +1112,10 @@ class YAIBAKIEICU(_YAIBEICUTask):
         ...             "intakeoutput", "respiratorycharting",
         ...             "nursecharting"],
         ... )
-        >>> samples = dataset.set_task(YAIBAKIEICU())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBAKIEICU(), split=split)
     """
 
     task_name: str = "YAIBAKIEICU"
@@ -1383,7 +1395,7 @@ class YAIBSepsisEICU(_YAIBEICUTask):
     ``infusiondrug``, ``medication`` and ``respiratorycare`` tables.
 
     Examples:
-        >>> from pyhealth.datasets import eICUDataset
+        >>> from pyhealth.datasets import eICUDataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBSepsisEICU
         >>> dataset = eICUDataset(
         ...     root="/path/to/eicu-crd/2.0",
@@ -1392,7 +1404,10 @@ class YAIBSepsisEICU(_YAIBEICUTask):
         ...             "nursecharting", "infusiondrug", "medication",
         ...             "respiratorycare"],
         ... )
-        >>> samples = dataset.set_task(YAIBSepsisEICU())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBSepsisEICU(), split=split)
     """
 
     task_name: str = "YAIBSepsisEICU"

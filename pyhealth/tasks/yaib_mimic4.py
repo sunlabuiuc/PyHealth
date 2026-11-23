@@ -738,13 +738,16 @@ class YAIBMortalityMIMIC4(_YAIBMIMIC4Task):
             that set for MIMIC-IV 2.2, which YAIB was built on.
 
     Examples:
-        >>> from pyhealth.datasets import MIMIC4EHRDataset
+        >>> from pyhealth.datasets import MIMIC4EHRDataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBMortalityMIMIC4
         >>> dataset = MIMIC4EHRDataset(
         ...     root="/path/to/mimic-iv/2.2",
         ...     tables=["labevents", "chartevents", "outputevents", "transfers"],
         ... )
-        >>> samples = dataset.set_task(YAIBMortalityMIMIC4())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBMortalityMIMIC4(), split=split)
     """
 
     task_name: str = "YAIBMortalityMIMIC4"
@@ -814,13 +817,16 @@ class YAIBKidneyFunctionMIMIC4(_YAIBMIMIC4Task):
     Requires the ``labevents``, ``chartevents`` and ``outputevents`` tables.
 
     Examples:
-        >>> from pyhealth.datasets import MIMIC4EHRDataset
+        >>> from pyhealth.datasets import MIMIC4EHRDataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBKidneyFunctionMIMIC4
         >>> dataset = MIMIC4EHRDataset(
         ...     root="/path/to/mimic-iv/2.2",
         ...     tables=["labevents", "chartevents", "outputevents"],
         ... )
-        >>> samples = dataset.set_task(YAIBKidneyFunctionMIMIC4())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBKidneyFunctionMIMIC4(), split=split)
     """
 
     task_name: str = "YAIBKidneyFunctionMIMIC4"
@@ -889,13 +895,16 @@ class YAIBLengthOfStayMIMIC4(_YAIBMIMIC4Task):
     Requires the ``labevents``, ``chartevents`` and ``outputevents`` tables.
 
     Examples:
-        >>> from pyhealth.datasets import MIMIC4EHRDataset
+        >>> from pyhealth.datasets import MIMIC4EHRDataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBLengthOfStayMIMIC4
         >>> dataset = MIMIC4EHRDataset(
         ...     root="/path/to/mimic-iv/2.2",
         ...     tables=["labevents", "chartevents", "outputevents"],
         ... )
-        >>> samples = dataset.set_task(YAIBLengthOfStayMIMIC4())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBLengthOfStayMIMIC4(), split=split)
     """
 
     task_name: str = "YAIBLengthOfStayMIMIC4"
@@ -969,13 +978,16 @@ class YAIBAKIMIMIC4(_YAIBMIMIC4Task):
     Requires the ``labevents``, ``chartevents`` and ``outputevents`` tables.
 
     Examples:
-        >>> from pyhealth.datasets import MIMIC4EHRDataset
+        >>> from pyhealth.datasets import MIMIC4EHRDataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBAKIMIMIC4
         >>> dataset = MIMIC4EHRDataset(
         ...     root="/path/to/mimic-iv/2.2",
         ...     tables=["labevents", "chartevents", "outputevents"],
         ... )
-        >>> samples = dataset.set_task(YAIBAKIMIMIC4())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBAKIMIMIC4(), split=split)
     """
 
     task_name: str = "YAIBAKIMIMIC4"
@@ -1133,14 +1145,17 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
             the antibiotic window; see :class:`YAIBMortalityMIMIC4`.
 
     Examples:
-        >>> from pyhealth.datasets import MIMIC4EHRDataset
+        >>> from pyhealth.datasets import MIMIC4EHRDataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBSepsisMIMIC4
         >>> dataset = MIMIC4EHRDataset(
         ...     root="/path/to/mimic-iv/2.2",
         ...     tables=["labevents", "chartevents", "outputevents", "inputevents",
         ...             "procedureevents", "microbiologyevents", "transfers"],
         ... )
-        >>> samples = dataset.set_task(YAIBSepsisMIMIC4())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBSepsisMIMIC4(), split=split)
     """
 
     task_name: str = "YAIBSepsisMIMIC4"

@@ -104,6 +104,12 @@ class TestSubjectSplit(unittest.TestCase):
         self.assertEqual(loaded, split)
         self.assertEqual(loaded.to_dict(), split.to_dict())
 
+    def test_load_or_draw_rejects_a_name_that_is_a_path(self):
+        dataset = type("Dataset", (), {"cache_dir": "/tmp/unused", "unique_patient_ids": ["a", "b"]})()
+        for name in ("../escape", "a/b", "..", ""):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "plain file name"):
+                SubjectSplit.load_or_draw(dataset, name, PatientSplit((0.5, 0.5)))
+
     def test_missing_subject_warns_and_is_skipped(self):
         split = SubjectSplit((["chb01"], ["chb02", "chb99"]))
         with self.assertLogs("pyhealth.datasets.splitter", level="WARNING") as logs:

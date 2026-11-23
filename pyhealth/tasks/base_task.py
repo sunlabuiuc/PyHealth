@@ -136,7 +136,7 @@ class BaseTask(ABC):
                 has no views, the view is unknown, or the model accepts none
                 of the task's views.
         """
-        self._select_view(view, model)
+        self._select_view(view, model, view_overrides)
         if view_overrides:
             self._override_view(view_overrides)
         if code_mapping is not None:
@@ -153,18 +153,24 @@ class BaseTask(ABC):
                     schema[field] = (base, kwargs)
             self.input_schema = schema
 
-    def _select_view(self, view: str | dict[str, Any] | None, model: Any) -> None:
-        """Sets ``input_schema`` and ``view`` from the ``view``/``model`` arguments."""
+    def _select_view(
+        self, view: str | dict[str, Any] | None, model: Any, overrides: Any = None
+    ) -> None:
+        """Sets ``input_schema`` and ``view`` from the ``view``/``model`` arguments.
+
+        ``overrides`` is only checked here: like ``view`` and ``model``, it
+        needs a task with views.
+        """
         name = type(self).__name__
         if view is not None and model is not None:
             raise ValueError(f"{name}: give view or model, not both.")
+        if not self.views and (view, model, overrides) != (None, None, None):
+            raise ValueError(
+                f"{name} has a single input schema and no views, so view=, "
+                "model= and view_overrides= do not apply."
+            )
         if view is None and model is None:
             return  # the class-level default, set by __init_subclass__
-        if not self.views:
-            raise ValueError(
-                f"{name} has a single input schema and no views, so view= and "
-                "model= do not apply."
-            )
         offered = ", ".join(repr(v) for v in self.views)
         if model is not None:
             model_name = getattr(model, "__name__", type(model).__name__)

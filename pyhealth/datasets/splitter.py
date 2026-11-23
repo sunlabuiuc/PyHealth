@@ -270,7 +270,12 @@ class SubjectSplit(Split):
 
         Returns:
             The saved split.
+
+        Raises:
+            ValueError: If ``name`` is not a plain file name.
         """
+        if not name or Path(name).name != name or name in (".", ".."):
+            raise ValueError(f"Split name must be a plain file name, got {name!r}.")
         path = Path(dataset.cache_dir) / "splits" / f"{name}.json"
         if path.exists():
             return cls.load(path)

@@ -782,13 +782,16 @@ class YAIBMortalityMIMIC3(_YAIBMIMIC3Task):
             that set for MIMIC-III 1.4.
 
     Examples:
-        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.datasets import MIMIC3Dataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBMortalityMIMIC3
         >>> dataset = MIMIC3Dataset(
         ...     root="/path/to/mimic-iii/1.4",
         ...     tables=["labevents", "chartevents", "outputevents", "transfers"],
         ... )
-        >>> samples = dataset.set_task(YAIBMortalityMIMIC3())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBMortalityMIMIC3(), split=split)
     """
 
     task_name: str = "YAIBMortalityMIMIC3"
@@ -858,13 +861,16 @@ class YAIBKidneyFunctionMIMIC3(_YAIBMIMIC3Task):
     Requires the ``labevents``, ``chartevents`` and ``outputevents`` tables.
 
     Examples:
-        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.datasets import MIMIC3Dataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBKidneyFunctionMIMIC3
         >>> dataset = MIMIC3Dataset(
         ...     root="/path/to/mimic-iii/1.4",
         ...     tables=["labevents", "chartevents", "outputevents"],
         ... )
-        >>> samples = dataset.set_task(YAIBKidneyFunctionMIMIC3())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBKidneyFunctionMIMIC3(), split=split)
     """
 
     task_name: str = "YAIBKidneyFunctionMIMIC3"
@@ -933,13 +939,16 @@ class YAIBLengthOfStayMIMIC3(_YAIBMIMIC3Task):
     Requires the ``labevents``, ``chartevents`` and ``outputevents`` tables.
 
     Examples:
-        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.datasets import MIMIC3Dataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBLengthOfStayMIMIC3
         >>> dataset = MIMIC3Dataset(
         ...     root="/path/to/mimic-iii/1.4",
         ...     tables=["labevents", "chartevents", "outputevents"],
         ... )
-        >>> samples = dataset.set_task(YAIBLengthOfStayMIMIC3())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBLengthOfStayMIMIC3(), split=split)
     """
 
     task_name: str = "YAIBLengthOfStayMIMIC3"
@@ -1013,13 +1022,16 @@ class YAIBAKIMIMIC3(_YAIBMIMIC3Task):
     Requires the ``labevents``, ``chartevents`` and ``outputevents`` tables.
 
     Examples:
-        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.datasets import MIMIC3Dataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBAKIMIMIC3
         >>> dataset = MIMIC3Dataset(
         ...     root="/path/to/mimic-iii/1.4",
         ...     tables=["labevents", "chartevents", "outputevents"],
         ... )
-        >>> samples = dataset.set_task(YAIBAKIMIMIC3())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBAKIMIMIC3(), split=split)
     """
 
     task_name: str = "YAIBAKIMIMIC3"
@@ -1206,7 +1218,7 @@ class YAIBSepsisMIMIC3(_YAIBMIMIC3Task):
             the antibiotic window; see :class:`YAIBMortalityMIMIC3`.
 
     Examples:
-        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.datasets import MIMIC3Dataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBSepsisMIMIC3
         >>> dataset = MIMIC3Dataset(
         ...     root="/path/to/mimic-iii/1.4",
@@ -1214,7 +1226,10 @@ class YAIBSepsisMIMIC3(_YAIBMIMIC3Task):
         ...             "inputevents_cv", "inputevents_mv", "procedureevents_mv",
         ...             "microbiologyevents", "transfers"],
         ... )
-        >>> samples = dataset.set_task(YAIBSepsisMIMIC3())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBSepsisMIMIC3(), split=split)
     """
 
     task_name: str = "YAIBSepsisMIMIC3"

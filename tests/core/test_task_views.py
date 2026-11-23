@@ -142,6 +142,8 @@ class TestViewSelection(unittest.TestCase):
         self.assertIsNone(Plain().view)
         with self.assertRaisesRegex(ValueError, "no views"):
             Plain(view="dense")
+        with self.assertRaisesRegex(ValueError, "no views"):
+            Plain(view_overrides={"x": "tensor"})
 
     def test_unknown_default_view_is_rejected(self):
         with self.assertRaisesRegex(TypeError, "default_view"):
@@ -428,13 +430,17 @@ class TestDenseView(unittest.TestCase):
 
     def test_padding_does_not_change_a_prediction(self):
         """The explicit mask, not zeros in the data, marks padded steps."""
-        model = RNN(self.dense).eval()
         alone = next(iter(get_dataloader(self.dense.subset([0]), batch_size=1)))
         batch = next(iter(get_dataloader(self.dense, batch_size=len(self.samples))))
         self.assertLess(alone["dynamic"][0].shape[1], batch["dynamic"][0].shape[1])
-        with torch.no_grad():
-            difference = model(**alone)["logit"][0] - model(**batch)["logit"][0]
-        self.assertLess(float(difference.abs().max()), 1e-5)
+        # RNN pools by the last unmasked step, Transformer by attention.
+        for name in ("RNN", "Transformer"):
+            with self.subTest(model=name):
+                torch.manual_seed(0)
+                model = getattr(models, name)(self.dense).eval()
+                with torch.no_grad():
+                    difference = model(**alone)["logit"][0] - model(**batch)["logit"][0]
+                self.assertLess(float(difference.abs().max()), 1e-5)
 
     def test_models_that_accept_dense_train_on_it(self):
         batch = next(iter(get_dataloader(self.dense, batch_size=8)))
