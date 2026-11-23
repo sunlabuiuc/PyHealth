@@ -96,10 +96,20 @@ def _smoothing_kernel(size: int = 51) -> torch.Tensor:
 
 
 def _temporal_warp(x: torch.Tensor, magnitude: torch.Tensor) -> torch.Tensor:
-    """Warps time with a smooth random flow of ``100 * magnitude**2`` samples.
+    """Locally stretches and compresses time without changing signal length.
 
-    The noise is integrated by scaling and squaring at a quarter of the
-    resolution, upsampled and smoothed.
+    Each signal gets a random displacement field shared by all its leads,
+    keeping their time alignment. Its initial Gaussian noise is scaled by
+    ``100 * magnitude**2``; this is not a bound on the final displacement.
+    The field is integrated with seven scaling-and-squaring steps at quarter
+    resolution, upsampled, and smoothed with a 51-sample Gaussian kernel.
+    Linear interpolation reads the signal at the resulting time positions;
+    values beyond either end are zero.
+
+    Reference: ``functional.rand_temporal_warp`` and ``warp_ops.RandWarpAug``
+    in the authors' repository:
+    https://github.com/aniruddhraghu/ecg_aug/blob/main/functional.py and
+    https://github.com/aniruddhraghu/ecg_aug/blob/main/warp_ops.py.
     """
     batch, _, length = x.shape
     small = length // 4
@@ -121,10 +131,17 @@ def _uniform(x: torch.Tensor) -> torch.Tensor:
 
 
 def _baseline_wander(x: torch.Tensor, magnitude: torch.Tensor) -> torch.Tensor:
-    """Adds one slow sinusoid, ``0.25 * sigmoid(magnitude) * U(0, 1)`` high.
+    """Adds a slow baseline drift to each signal.
 
-    The same for all leads. As in the reference code, it spans under one
-    cycle per signal.
+    A random sinusoid is shared across the signal's leads. Its amplitude is
+    ``0.25 * sigmoid(magnitude) * U(0, 1)`` in input-signal units. Phase and
+    frequency are sampled independently per signal. The sine argument uses
+    normalized time from 0 to 1 and a coefficient in [5/3, 5), so it spans
+    less than one cycle regardless of sampling rate. This follows the code's
+    convention rather than specifying a physical frequency in Hz.
+
+    Reference: ``functional.baseline_wander`` in the authors' repository:
+    https://github.com/aniruddhraghu/ecg_aug/blob/main/functional.py.
     """
     amplitude = 0.25 * torch.sigmoid(magnitude) * _uniform(x)
     frequency = (_uniform(x) * 20 + 10) * 10 / 60
@@ -134,13 +151,35 @@ def _baseline_wander(x: torch.Tensor, magnitude: torch.Tensor) -> torch.Tensor:
 
 
 def _gaussian_noise(x: torch.Tensor, magnitude: torch.Tensor) -> torch.Tensor:
-    """Adds noise of ``0.25 * sigmoid(magnitude)`` times each lead's std."""
+    """Adds independent Gaussian noise at every lead and time point.
+
+    Noise has zero mean and standard deviation
+    ``0.25 * sigmoid(magnitude) * std(x)``. The signal standard deviation is
+    measured separately for each lead over time and detached from autograd;
+    the learned magnitude remains differentiable. Thus noisier or larger
+    leads receive proportionally larger perturbations.
+
+    Reference: ``functional.gaussian_noise`` in the authors' repository:
+    https://github.com/aniruddhraghu/ecg_aug/blob/main/functional.py.
+    """
     std = x.std(dim=2, keepdim=True).detach()
     return x + 0.25 * std * torch.sigmoid(magnitude) * torch.randn_like(x)
 
 
 def _time_mask(x: torch.Tensor, width: float) -> torch.Tensor:
-    """Zeroes one random window, ``width`` of the signal, for the whole batch."""
+    """Removes a contiguous time window by replacing it with zeros.
+
+    The window contains ``int(width * length)`` samples. One start position
+    is drawn per call and shared across every signal and lead in the batch.
+    Signal length is preserved: this masks samples rather than cropping
+    the output. Width is fixed, not a learned magnitude.
+
+    Reference: ``functional.rand_crop`` and ``operations.RandCrop`` in the
+    authors' repository (despite their names, they also zero a window):
+    https://github.com/aniruddhraghu/ecg_aug/blob/main/functional.py and
+    https://github.com/aniruddhraghu/ecg_aug/blob/main/operations.py.
+    PyHealth defaults to width 0.1; the reference class defaults to 0.05.
+    """
     length = x.shape[-1]
     span = int(width * length)
     start = int(torch.randint(0, length - span, (1,)))
@@ -150,12 +189,34 @@ def _time_mask(x: torch.Tensor, width: float) -> torch.Tensor:
 
 
 def _displace(x: torch.Tensor, magnitude: torch.Tensor) -> torch.Tensor:
-    """Shifts each signal in time by up to ``100 * magnitude**2`` samples."""
+    """Translates each signal in time while preserving its length.
+
+    A constant offset is sampled uniformly between
+    ``-100 * magnitude**2`` and ``100 * magnitude**2`` samples per signal,
+    shared across its leads. Unlike temporal warp, the offset does not vary
+    over time. Fractional offsets use linear interpolation, with zeros
+    outside the signal. A positive offset reads later input samples, so
+    waveform features move toward the beginning of the output.
+
+    Reference: ``functional.rand_displacement`` and ``warp_ops.DispAug`` in
+    the authors' repository:
+    https://github.com/aniruddhraghu/ecg_aug/blob/main/functional.py and
+    https://github.com/aniruddhraghu/ecg_aug/blob/main/warp_ops.py.
+    """
     return _resample(x, 100 * magnitude**2 * (1 - 2 * _uniform(x)))
 
 
 def _magnitude_scale(x: torch.Tensor, magnitude: torch.Tensor) -> torch.Tensor:
-    """Scales each signal by ``sigmoid(magnitude) * Uniform(0.75, 1.25)``."""
+    """Multiplies each signal by a random amplitude factor.
+
+    The factor ``sigmoid(magnitude) * Uniform(0.75, 1.25)`` is sampled per
+    signal and shared across all leads and time points, preserving relative
+    lead amplitudes and timing. Magnitude zero is not the identity: its
+    sigmoid is 0.5, giving factors between 0.375 and 0.625.
+
+    Reference: ``functional.magnitude_scale`` in the authors' repository:
+    https://github.com/aniruddhraghu/ecg_aug/blob/main/functional.py.
+    """
     return x * torch.sigmoid(magnitude) * (1.25 - 0.5 * _uniform(x))
 
 
@@ -250,6 +311,7 @@ class TaskAugPolicy(nn.Module):
             name = self.operations[index]
             if name in self.magnitudes:
                 magnitude = self.magnitudes[name][stage][y].view(-1, 1, 1)
+                # Perform the chosen operation (name) on the input x and scale by magnitude
                 x = _LEARNED_OPERATIONS[name](x, magnitude)
             elif name == "mask":
                 x = _time_mask(x, self.mask_width)
@@ -259,11 +321,24 @@ class TaskAugPolicy(nn.Module):
 
 
 class _ResidualBlock(nn.Module):
-    """Two convolutions with batch norm and a skip connection."""
+    """A 1D residual block computing ``ReLU(F(x) + shortcut(x))``.
+
+    ``F`` uses two convolutions with batch normalization and an intermediate
+    ReLU. The shortcut passes the input through, or projects it with a 1x1
+    convolution and batch normalization when channels or stride change.
+    """
 
     def __init__(
         self, in_channels: int, out_channels: int, kernel_size: int, stride: int
     ) -> None:
+        """Builds the convolution and shortcut paths.
+
+        Args:
+            in_channels: Number of input feature channels.
+            out_channels: Number of output feature channels.
+            kernel_size: Odd temporal kernel size for both convolutions.
+            stride: Temporal stride of the first convolution and shortcut.
+        """
         super().__init__()
         padding = kernel_size // 2
         self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size, stride, padding)
@@ -279,6 +354,14 @@ class _ResidualBlock(nn.Module):
             )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Adds the learned features to the shortcut and applies ReLU.
+
+        Args:
+            x: Input features, ``(batch, in_channels, length)``.
+
+        Returns:
+            Features with ``out_channels`` and time downsampled by ``stride``.
+        """
         out = self.relu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
         return self.relu(out + self.shortcut(x))
@@ -585,8 +668,8 @@ def train_taskaug(
         >>> len(history["val_loss"])
         2
     """
-    weights = [p for p in model.backbone.parameters() if p.requires_grad]
-    optimizer = torch.optim.Adam(weights, lr=lr)
+    backbone_params = [p for p in model.backbone.parameters() if p.requires_grad]
+    backbone_optimizer = torch.optim.Adam(backbone_params, lr=lr)
     policy_params = [p for p in model.policy.parameters() if p.requires_grad]
     policy_optimizer = (
         torch.optim.RMSprop(policy_params, lr=policy_lr) if policy_params else None
@@ -597,7 +680,7 @@ def train_taskaug(
     if checkpoint_path is not None and os.path.exists(checkpoint_path):
         state = torch.load(checkpoint_path, map_location=model.device)
         model.load_state_dict(state["model"])
-        optimizer.load_state_dict(state["optimizer"])
+        backbone_optimizer.load_state_dict(state["optimizer"])
         if policy_optimizer is not None:
             policy_optimizer.load_state_dict(state["policy_optimizer"])
         history, best_state, step = state["history"], state["best_state"], state["step"]
@@ -610,20 +693,25 @@ def train_taskaug(
         val_batches = list(val_loader)
         train_losses = []
         for batch in train_loader:
+            # Update the classifier on augmented training signals.
             model.train()
             loss = model(**batch)["loss"]
-            optimizer.zero_grad()
-            loss.backward(inputs=weights)
-            optimizer.step()
+            backbone_optimizer.zero_grad()
+            loss.backward(inputs=backbone_params)
+            backbone_optimizer.step()
             train_losses.append(loss.item())
-            if (
+
+            # Update the policy using clean validation performance.
+            should_update_policy = (
                 policy_optimizer is not None
                 and epoch >= warmup_epochs
                 and step % policy_every == 0
-            ):
+            )
+            if should_update_policy:
                 val_batch = val_batches[step % len(val_batches)]
                 hyper_step(model, batch, val_batch, lr, neumann_terms)
                 policy_optimizer.step()
+
             step += 1
 
         model.eval()
@@ -642,7 +730,7 @@ def train_taskaug(
         if checkpoint_path is not None:
             state = {
                 "model": model.state_dict(),
-                "optimizer": optimizer.state_dict(),
+                "optimizer": backbone_optimizer.state_dict(),
                 "policy_optimizer": policy_optimizer and policy_optimizer.state_dict(),
                 "history": history,
                 "best_state": best_state,
