@@ -30,6 +30,7 @@ from .unet import (
 )
 from .transformer_deid import TransformerDeID
 from .biot import BIOT
+from .bottleneck_transformer import BottleneckTransformer as BottleneckTransformer
 from .cnn import CNN, CNNLayer
 from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D

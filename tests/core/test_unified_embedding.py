@@ -16,13 +16,26 @@ class TestSinusoidalTimeEmbedding(unittest.TestCase):
         self.assertTrue(torch.isfinite(result).all())
 
     def test_standard_dimension_values_are_unchanged(self):
+        # Wavelengths run 1h..24h here; the old t/720 formulation wrapped
+        # every frequency every 30 days, aliasing later stays onto earlier ones.
         embedding = SinusoidalTimeEmbedding(dim=6, max_hours=24.0)
         time = torch.tensor([6.0])
-        frequencies = torch.tensor([1.0, 0.01, 0.0001])
-        arguments = time.unsqueeze(-1) / 24.0 * 2 * math.pi * frequencies
+        periods = torch.exp(torch.linspace(math.log(1.0), math.log(24.0), 3))
+        arguments = time.unsqueeze(-1) * (2 * math.pi / periods)
         expected = torch.cat([arguments.sin(), arguments.cos()], dim=-1)
 
         self.assertTrue(torch.allclose(embedding(time), expected))
+
+    def test_long_span_stays_monotonic_in_phase(self):
+        embedding = SinusoidalTimeEmbedding(dim=6)
+        early = embedding(torch.tensor([6.0]))
+        late = embedding(torch.tensor([9606.0]))
+
+        self.assertFalse(torch.allclose(early, late))
+
+    def test_invalid_span_raises(self):
+        with self.assertRaises(ValueError):
+            SinusoidalTimeEmbedding(dim=6, max_hours=1.0, min_hours=24.0)
 
 
 if __name__ == "__main__":

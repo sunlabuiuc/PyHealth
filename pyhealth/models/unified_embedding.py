@@ -22,23 +22,38 @@ Quickstart::
 """
 from __future__ import annotations
 
+import logging
 import math
+import warnings
+from contextlib import nullcontext
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 import torch.nn as nn
 
 from pyhealth.processors.base_processor import ModalityType, TemporalFeatureProcessor
+from pyhealth.models.vision_embedding import PatchEmbedding
+
+logger = logging.getLogger(__name__)
+
+# Frozen [CLS] is 768-d float32 on CPU. Python tensor objects add overhead;
+# treat 8 KB/entry as a conservative host-RAM estimate when logging.
+_CLS_BYTES = 768 * 4
+_CACHE_LOG_SIZES = {1, 10_000, 50_000, 100_000, 200_000, 500_000, 1_000_000, 2_000_000}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
 class SinusoidalTimeEmbedding(nn.Module):
-    """Continuous sinusoidal embedding for scalar time values (in hours).
+    """Multi-scale sinusoidal embedding for times in hours.
 
-    Identical in spirit to the positional encoding in "Attention is All You
-    Need" but operating on real-valued timestamps rather than integer positions.
+    Wavelengths are spaced geometrically from ``min_hours`` (within-stay
+    resolution) to ``max_hours`` (longitudinal span). The previous encoding
+    mapped ``t / 720 * 2π``, so every frequency wrapped every 30 days: a later
+    stay at +9606h produced the same embedding as +6h even after the task
+    stopped resetting the clock.
 
     Examples:
         >>> embedding = SinusoidalTimeEmbedding(dim=2, max_hours=24.0)
@@ -50,55 +65,52 @@ class SinusoidalTimeEmbedding(nn.Module):
 
     Args:
         dim: Output embedding dimension (must be even).
-        max_hours: Maximum expected time value in hours.  Values are normalised
-            to ``[0, 2π]`` before the sin/cos projection.  Default 720 (30 days).
+        max_hours: Longest wavelength in hours. Default 87600 (10 years).
+        min_hours: Shortest wavelength in hours. Default 1.0.
 
     Shape:
         Input:  ``(*, )``  float tensor of times in hours
         Output: ``(*, dim)``
     """
 
-    def __init__(self, dim: int, max_hours: float = 720.0):
+    def __init__(
+        self,
+        dim: int,
+        max_hours: float = 87600.0,
+        min_hours: float = 1.0,
+    ):
         super().__init__()
         assert dim % 2 == 0, f"dim must be even, got {dim}"
+        if min_hours <= 0 or max_hours <= min_hours:
+            raise ValueError(
+                f"need 0 < min_hours < max_hours, got min={min_hours}, max={max_hours}"
+            )
         self.dim = dim
-        self.max_hours = max_hours
+        self.max_hours = float(max_hours)
+        self.min_hours = float(min_hours)
         half = dim // 2
-        freqs = torch.exp(
-            -math.log(10000.0) * torch.arange(half, dtype=torch.float32) / max(half - 1, 1)
+        periods = torch.exp(
+            torch.linspace(
+                math.log(self.min_hours),
+                math.log(self.max_hours),
+                half,
+                dtype=torch.float32,
+            )
         )
-        self.register_buffer("freqs", freqs)  # (dim//2,)
+        self.register_buffer("freqs", 2 * math.pi / periods)
 
     def forward(self, t: torch.Tensor) -> torch.Tensor:
         """:param t: ``(...,)`` float, times in hours."""
-        t_norm = t / self.max_hours * 2 * math.pi           # (...,)
-        args = t_norm.unsqueeze(-1) * self.freqs             # (..., dim//2)
-        return torch.cat([args.sin(), args.cos()], dim=-1)   # (..., dim)
+        args = t.unsqueeze(-1).to(dtype=self.freqs.dtype) * self.freqs
+        return torch.cat([args.sin(), args.cos()], dim=-1)
 
 
-def _build_image_encoder(embedding_dim: int) -> nn.Module:
-    """Lightweight 5-layer CNN encoder: C × H × W → embedding_dim.
+class _MeanPool(nn.Module):
+    """Pool a sequence of patch embeddings to a single vector via global mean."""
 
-    Uses ``torchvision.models.resnet18`` pre-trained backbone, strips the
-    final FC layer, and adds a projection to ``embedding_dim``.  Falls back to
-    a toy Conv-pool-flatten network if torchvision is not installed.
-    """
-    try:
-        import torchvision.models as tv
-
-        backbone = tv.resnet18(weights=None)
-        in_features = backbone.fc.in_features
-        backbone.fc = nn.Linear(in_features, embedding_dim)
-        return backbone
-    except ImportError:
-        # Minimal fallback: single conv → global avg pool → linear
-        return nn.Sequential(
-            nn.Conv2d(3, 32, 3, padding=1),
-            nn.ReLU(),
-            nn.AdaptiveAvgPool2d(1),
-            nn.Flatten(),
-            nn.Linear(32, embedding_dim),
-        )
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # (B, num_patches, E) -> (B, E)
+        return x.mean(dim=1)
 
 
 # ── Main model ───────────────────────────────────────────────────────────────
@@ -130,14 +142,60 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
     6. Add ``SinusoidalTimeEmbedding(time)`` + ``type_embedding(modality_idx)``.
     7. Return ``{"sequence", "time", "mask", "type_ids"}``.
 
+    Unimodal model reuse via ``field_embeddings``::
+
+        vision_model = VisionEmbeddingModel(dataset, embedding_dim=128)
+        unified = UnifiedMultimodalEmbeddingModel(
+            processors=dataset.input_processors,
+            embedding_dim=128,
+            field_embeddings={"chest_xray": vision_model},
+        )
+
     Args:
         processors: ``dict[field_name, TemporalFeatureProcessor]`` — the
             processors for each temporal field in the dataset.  Pass
             ``dataset.input_processors`` directly.
         embedding_dim: Shared embedding dimension ``E'``.
         time_embedding: ``"sinusoidal"`` (default) or ``"learned"``.
-        max_time_hours: Normalisation constant for the time embedding.
-            Defaults to 720 h (30 days).
+        max_time_hours: Longest wavelength of the time embedding, in hours.
+            Defaults to 87600 (10 years). Shortest wavelength is 1 hour.
+        image_size: Image size (H=W) assumed for IMAGE fields when using
+            PatchEmbedding. Defaults to 224.
+        image_channels: Number of input channels for IMAGE fields. Defaults to 3.
+        patch_size: Patch size for IMAGE PatchEmbedding encoder. Defaults to 16.
+        image_pool: Pooling strategy applied to IMAGE patch tokens to produce
+            one vector per image event. Only ``"mean"`` (global mean pooling)
+            is currently implemented. Defaults to ``"mean"``.
+        field_embeddings: Optional mapping of field names to pre-built unimodal
+            embedding models (``EmbeddingModel``, ``VisionEmbeddingModel``, or
+            ``TextEmbedding``). The core encoder module is extracted from each
+            pre-built model; fields not present here use internally-built
+            encoders. Defaults to None.
+        freeze_text_encoder: If True, freeze TEXT encoder weights
+            (``requires_grad=False``) so notes encode deterministically.
+            Defaults to False.
+        normalize_content: If True, apply parameter-free layer norm to the
+            content term so one modality's raw magnitude cannot drown out the
+            time/type terms. Defaults to True. This CHANGES outputs versus the
+            previous unnormalized sum (content + time + type): the content
+            term is rescaled to unit variance per event before the time and
+            type terms are added. The default is True because raw feature
+            magnitude is an accident of feature scaling, not a modelling
+            decision.
+        cache_frozen_text: If True, reuse frozen ``[CLS]`` vectors across
+            forwards instead of re-running the text encoder. Defaults to True.
+        max_frozen_text_cache: Maximum cached ``[CLS]`` vectors
+            (``None`` or ``<= 0`` means no cap). Rows past the cap are
+            re-encoded each forward; notes are never dropped. The cap is a
+            RAM fuse, not a speedup knob: speedup needs cap >= unique notes.
+            Defaults to 1000000.
+        numeric_standardizers: Optional mapping of NUMERIC/SIGNAL field names
+            to modules called as ``standardizer(value, observed)`` BEFORE the
+            projection, where ``observed`` comes from the sibling
+            ``{field}_mask`` field. Defaults to None. A ``{field}_mask`` input
+            is skipped as a modality ONLY when ``field`` has a registered
+            entry here; a field merely named ``x_mask`` with no standardizer
+            stays a normal modality.
 
     Example::
 
@@ -149,6 +207,23 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         out = model(inputs)
         seq = out["sequence"]   # (B, S_total, 128)
         mask = out["mask"]      # (B, S_total)  float, 1=valid 0=pad
+
+    Minimal example:
+
+        >>> import torch
+        >>> from pyhealth.processors import StageNetProcessor
+        >>> from pyhealth.models.unified_embedding import (
+        ...     UnifiedMultimodalEmbeddingModel,
+        ... )
+        >>> proc = StageNetProcessor()
+        >>> proc.fit([{"codes": ([0.0], ["A"])}], "codes")
+        >>> model = UnifiedMultimodalEmbeddingModel({"codes": proc}, embedding_dim=8)
+        >>> out = model({"codes": {
+        ...     "value": torch.zeros(1, 1, dtype=torch.long),
+        ...     "time": torch.zeros(1, 1),
+        ... }})
+        >>> out["sequence"].shape
+        torch.Size([1, 1, 8])
     """
 
     def __init__(
@@ -156,10 +231,37 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         processors: dict[str, Any],
         embedding_dim: int = 128,
         time_embedding: str = "sinusoidal",
-        max_time_hours: float = 720.0,
+        max_time_hours: float = 87600.0,
+        image_size: int = 224,
+        image_channels: int = 3,
+        patch_size: int = 16,
+        image_pool: str = "mean",
+        field_embeddings: dict[str, Any] | None = None,
+        freeze_text_encoder: bool = False,
+        normalize_content: bool = True,
+        cache_frozen_text: bool = True,
+        max_frozen_text_cache: int | None = 1_000_000,
+        numeric_standardizers: dict[str, Any] | None = None,
     ):
         super().__init__()
-        self.embedding_dim = embedding_dim
+        if image_pool != "mean":
+            raise NotImplementedError(
+                f"Only image_pool='mean' is implemented, got {image_pool!r}."
+            )
+        self._embedding_dim = embedding_dim
+        self._freeze_text_encoder = freeze_text_encoder
+        self._frozen_text_fields: set[str] = set()
+        self.cache_frozen_text = cache_frozen_text
+        self.max_frozen_text_cache = max_frozen_text_cache
+        self._frozen_text_cache: dict[str, dict[tuple[int, int], torch.Tensor]] = {}
+        self._frozen_text_cache_hits = 0
+        self._frozen_text_cache_misses = 0
+        self.image_pool = image_pool
+        self.normalize_content = normalize_content
+        # Statistics live in buffers, so they travel in state_dict. A checkpoint
+        # therefore applies at inference the same transform it trained under.
+        self.numeric_standardizers = nn.ModuleDict(numeric_standardizers or {})
+        _field_embeddings = field_embeddings or {}
 
         self.encoders: nn.ModuleDict = nn.ModuleDict()
         self.projections: nn.ModuleDict = nn.ModuleDict()
@@ -176,35 +278,35 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
 
             m = processor.modality()
             self.modality_types[field_name] = m
+            pre_built = _field_embeddings.get(field_name)
 
             if m == ModalityType.CODE:
-                vocab_size = processor.value_dim()
-                self.encoders[field_name] = nn.Embedding(
-                    vocab_size, embedding_dim, padding_idx=0
+                self.encoders[field_name] = self._build_code_encoder(
+                    field_name, processor, pre_built, embedding_dim
                 )
 
             elif m == ModalityType.TEXT:
-                if processor.is_token():
-                    from transformers import AutoModel
-
-                    bert = AutoModel.from_pretrained(processor.tokenizer_model)
-                    self.encoders[field_name] = bert
-                    hidden = bert.config.hidden_size
-                    if hidden != embedding_dim:
-                        self.projections[field_name] = nn.Linear(hidden, embedding_dim)
-                else:
-                    raise ValueError(
-                        f"TEXT processor '{field_name}' must use a tokenizer "
-                        f"(set tokenizer_model=...) to be used with "
-                        f"UnifiedMultimodalEmbeddingModel."
-                    )
+                self._build_text_encoder(
+                    field_name, processor, pre_built, embedding_dim,
+                    freeze=freeze_text_encoder,
+                )
 
             elif m == ModalityType.IMAGE:
-                self.encoders[field_name] = _build_image_encoder(embedding_dim)
+                self.encoders[field_name] = self._build_image_encoder(
+                    field_name,
+                    processor,
+                    pre_built,
+                    embedding_dim,
+                    image_size,
+                    image_channels,
+                    patch_size,
+                    image_pool,
+                )
 
             elif m in (ModalityType.NUMERIC, ModalityType.SIGNAL):
-                in_features = processor.value_dim()
-                self.encoders[field_name] = nn.Linear(in_features, embedding_dim)
+                self.encoders[field_name] = self._build_numeric_encoder(
+                    field_name, processor, pre_built, embedding_dim
+                )
 
             else:
                 raise NotImplementedError(
@@ -217,12 +319,317 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
             mod: i for i, mod in enumerate(unique_modalities)
         }
         self.type_embedding = nn.Embedding(len(unique_modalities), embedding_dim)
+        self._warned_nested_code_flatten = False
 
         # Time embedding
         if time_embedding == "sinusoidal":
             self.time_embed = SinusoidalTimeEmbedding(embedding_dim, max_time_hours)
         else:
             raise NotImplementedError("Only 'sinusoidal' time embedding is implemented.")
+
+    # ── Encoder builders ──────────────────────────────────────────────────────
+
+    def _build_code_encoder(
+        self,
+        field_name: str,
+        processor: TemporalFeatureProcessor,
+        pre_built: Any,
+        embedding_dim: int,
+    ) -> nn.Module:
+        """Build CODE encoder: nn.Embedding, optionally from a pre-built EmbeddingModel."""
+        if (
+            pre_built is not None
+            and hasattr(pre_built, "embedding_layers")
+            and field_name in pre_built.embedding_layers
+        ):
+            layer = pre_built.embedding_layers[field_name]
+            pre_dim = getattr(pre_built, "embedding_dim", embedding_dim)
+            if pre_dim != embedding_dim:
+                return nn.Sequential(layer, nn.Linear(pre_dim, embedding_dim))
+            return layer
+
+        vocab_size = processor.value_dim()
+        return nn.Embedding(vocab_size, embedding_dim, padding_idx=0)
+
+    def _build_text_encoder(
+        self,
+        field_name: str,
+        processor: TemporalFeatureProcessor,
+        pre_built: Any,
+        embedding_dim: int,
+        freeze: bool = False,
+    ) -> None:
+        """Build TEXT encoder: BERT + projection, optionally from TextEmbedding."""
+
+        def _set_projection(
+            pre_dim: int, proj_source: nn.Module | None = None
+        ) -> None:
+            if pre_dim != embedding_dim:
+                if proj_source is not None:
+                    self.projections[field_name] = nn.Sequential(
+                        proj_source,
+                        nn.Linear(pre_dim, embedding_dim),
+                    )
+                else:
+                    self.projections[field_name] = nn.Linear(pre_dim, embedding_dim)
+            elif proj_source is not None:
+                self.projections[field_name] = proj_source
+
+        if (
+            pre_built is not None
+            and hasattr(pre_built, "transformer")
+            and hasattr(pre_built, "fc")
+        ):
+            self.encoders[field_name] = pre_built.transformer
+            if freeze:
+                for p in pre_built.transformer.parameters():
+                    p.requires_grad = False
+                self._frozen_text_fields.add(field_name)
+            pre_dim = getattr(pre_built, "embedding_dim", embedding_dim)
+            _set_projection(pre_dim, pre_built.fc)
+            return
+
+        if processor.is_token():
+            from transformers import AutoModel
+
+            bert = AutoModel.from_pretrained(processor.tokenizer_model)
+            if freeze:
+                for p in bert.parameters():
+                    p.requires_grad = False
+                self._frozen_text_fields.add(field_name)
+            self.encoders[field_name] = bert
+            hidden = bert.config.hidden_size
+            if hidden != embedding_dim:
+                self.projections[field_name] = nn.Linear(hidden, embedding_dim)
+        else:
+            raise ValueError(
+                f"TEXT processor '{field_name}' must either supply a pre-built "
+                f"TextEmbedding via field_embeddings or use a tokenizer "
+                f"(set tokenizer_model=...) to be used with "
+                f"UnifiedMultimodalEmbeddingModel."
+            )
+
+    def _build_image_encoder(
+        self,
+        field_name: str,
+        processor: TemporalFeatureProcessor,
+        pre_built: Any,
+        embedding_dim: int,
+        image_size: int,
+        image_channels: int,
+        patch_size: int,
+        image_pool: str,
+    ) -> nn.Module:
+        """Build IMAGE encoder: backbone + pool, optionally from VisionEmbeddingModel."""
+        pool_layers: dict[str, nn.Module] = {"mean": _MeanPool()}
+        pool_layer = pool_layers[image_pool]
+
+        if (
+            pre_built is not None
+            and hasattr(pre_built, "embedding_layers")
+            and field_name in pre_built.embedding_layers
+        ):
+            backbone = pre_built.embedding_layers[field_name]
+            pre_dim = getattr(pre_built, "embedding_dim", embedding_dim)
+            if pre_dim != embedding_dim:
+                return nn.Sequential(
+                    backbone, pool_layer, nn.Linear(pre_dim, embedding_dim)
+                )
+            return nn.Sequential(backbone, pool_layer)
+
+        _image_size = getattr(processor, "image_size", image_size)
+        _in_channels = getattr(processor, "in_channels", image_channels)
+        return nn.Sequential(
+            PatchEmbedding(_image_size, patch_size, _in_channels, embedding_dim),
+            pool_layer,
+        )
+
+    def _build_numeric_encoder(
+        self,
+        field_name: str,
+        processor: TemporalFeatureProcessor,
+        pre_built: Any,
+        embedding_dim: int,
+    ) -> nn.Module:
+        """Build NUMERIC/SIGNAL encoder: nn.Linear, optionally from EmbeddingModel."""
+        if (
+            pre_built is not None
+            and hasattr(pre_built, "embedding_layers")
+            and field_name in pre_built.embedding_layers
+        ):
+            layer = pre_built.embedding_layers[field_name]
+            pre_dim = getattr(pre_built, "embedding_dim", embedding_dim)
+            if pre_dim != embedding_dim:
+                return nn.Sequential(layer, nn.Linear(pre_dim, embedding_dim))
+            return layer
+
+        in_features = processor.value_dim()
+        return nn.Linear(in_features, embedding_dim)
+
+    @property
+    def embedding_dim(self) -> int:
+        return self._embedding_dim
+
+    @property
+    def frozen_text_cache_size(self) -> int:
+        """Number of cached frozen ``[CLS]`` vectors across fields.
+
+        Example:
+            >>> model.frozen_text_cache_size
+            0
+        """
+        return sum(len(c) for c in self._frozen_text_cache.values())
+
+    @property
+    def frozen_text_cache_stats(self) -> dict[str, int]:
+        """Cache ``hits``, ``misses``, and ``size`` for the A/B timing run.
+
+        Misses count rows not cached before this forward (including
+        duplicates and overflow rows served from the current forward);
+        hits count rows served from the cache.
+
+        Example:
+            >>> sorted(model.frozen_text_cache_stats)
+            ['hits', 'misses', 'size']
+        """
+        return {
+            "hits": self._frozen_text_cache_hits,
+            "misses": self._frozen_text_cache_misses,
+            "size": self.frozen_text_cache_size,
+        }
+
+    def reset_frozen_text_cache_stats(self) -> None:
+        """Zero the ``hits``/``misses`` counters (cache entries are kept)."""
+        self._frozen_text_cache_hits = 0
+        self._frozen_text_cache_misses = 0
+
+    def _encode_text_cls(
+        self,
+        field_name: str,
+        encoder: nn.Module,
+        flat_ids: torch.Tensor,
+        flat_mask: torch.Tensor | None,
+    ) -> torch.Tensor:
+        """Return the ``[CLS]`` vector for each row, from a cache when possible.
+
+        A frozen encoder gives the same output for the same tokens, so a run of
+        50 epochs would otherwise repeat the identical 110M-parameter forward
+        pass 50 times.
+
+        The cache has three conditions. It is used only for a field in
+        ``_frozen_text_fields``, so a trainable encoder can never read it. The
+        key is ``(hash, real-token length)`` over the token identifiers under
+        the attention mask, so a change of tokenizer or truncation budget
+        gives a different key; the length is a cheap guard so a hash
+        collision alone cannot silently return the wrong embedding. ``None`` or
+        ``<= 0`` means no size cap. Default is 1_000_000 (~3 GB of fp32
+        ``[CLS]`` vectors): a RAM fuse, not a speedup knob. A smaller cap
+        than the unique-note count makes overflow notes re-run BERT every
+        epoch. Notes are never dropped from the sequence.
+
+        Key on the REAL tokens only. The collator pads each row to the widest
+        note in its batch, and batch composition changes every epoch because
+        the loader shuffles, so a key over the padded row gives the same note
+        a different key each epoch and the cache never hits. Measured on the
+        full-scale notes run: epoch time did not fall after epoch 1
+        (3458s, 3936s, 4048s, 3835s) because every lookup missed.
+        """
+        if flat_ids.shape[0] == 0:
+            hidden = encoder.config.hidden_size
+            first_param = next(encoder.parameters(), None)
+            dtype = (
+                first_param.dtype if first_param is not None
+                else torch.get_default_dtype()
+            )
+            return flat_ids.new_zeros((0, hidden), dtype=dtype)
+
+        if not (self.cache_frozen_text and field_name in self._frozen_text_fields):
+            ctx = torch.no_grad() if field_name in self._frozen_text_fields else nullcontext()
+            with ctx:
+                out = encoder(input_ids=flat_ids, attention_mask=flat_mask)
+            return out.last_hidden_state[:, 0, :]
+
+        cache = self._frozen_text_cache.setdefault(field_name, {})
+        pre_cached = set(cache)
+        ids_cpu = flat_ids.detach().cpu()
+        mask_cpu = (
+            flat_mask.detach().cpu().to(torch.int8)
+            if flat_mask is not None
+            else torch.ones_like(ids_cpu, dtype=torch.int8)
+        )
+        # Key on (hash, real-token length): hash() alone could silently
+        # return a wrong [CLS] on collision. Storing the length is a cheap
+        # guard — a collision then needs the same hash AND the same length.
+        keys: list[tuple[int, int]] = []
+        for i, m in zip(ids_cpu, mask_cpu):
+            n_real = int(m.sum())
+            if m.any():
+                h = hash(tuple(i[m.bool()].tolist()))
+            else:
+                h = hash(tuple(i.tolist()))
+            keys.append((h, n_real))
+
+        first_row_of_key: dict[tuple[int, int], int] = {}
+        for k, key in enumerate(keys):
+            if key not in cache and key not in first_row_of_key:
+                first_row_of_key[key] = k
+        missing = list(first_row_of_key.values())
+        # Rows encoded in this forward, kept even when the cache is full so a
+        # miss is never encoded twice in one call.
+        fresh_rows: dict[tuple[int, int], torch.Tensor] = {}
+        if missing:
+            index = torch.tensor(missing, device=flat_ids.device)
+            with torch.no_grad():
+                out = encoder(
+                    input_ids=flat_ids.index_select(0, index),
+                    attention_mask=(
+                        flat_mask.index_select(0, index)
+                        if flat_mask is not None
+                        else None
+                    ),
+                )
+                fresh = out.last_hidden_state[:, 0, :].detach()
+            for slot, row in zip(missing, fresh):
+                fresh_rows[keys[slot]] = row
+                cap = self.max_frozen_text_cache
+                if cap is None or cap <= 0 or len(cache) < cap:
+                    cache[keys[slot]] = row.cpu()
+                    n = len(cache)
+                    if n in _CACHE_LOG_SIZES or (n > 0 and n % 250_000 == 0):
+                        logger.info(
+                            "frozen text cache field=%s size=%d "
+                            "(~%.2f GB fp32 [CLS] tensors, ~%.2f GB with "
+                            "Python overhead). Overflow is re-encoded next "
+                            "forward; notes are never dropped.",
+                            field_name,
+                            n,
+                            n * _CLS_BYTES / 1e9,
+                            n * 8e3 / 1e9,
+                        )
+
+        rows = []
+        for key in keys:
+            hit = cache.get(key)
+            if key in pre_cached and hit is not None:
+                self._frozen_text_cache_hits += 1
+                rows.append(hit.to(flat_ids.device))
+            else:
+                self._frozen_text_cache_misses += 1
+                rows.append(fresh_rows[key])
+        return torch.stack(rows).to(dtype=self.type_embedding.weight.dtype)
+
+    def train(self, mode: bool = True) -> UnifiedMultimodalEmbeddingModel:
+        """Keep a frozen text encoder in eval mode.
+
+        ``nn.Module.train()`` would enable dropout inside the encoder. Its
+        output would then change between passes even though every weight has
+        ``requires_grad=False``. That makes cached embeddings incorrect, and
+        it also makes a frozen encoder give a different answer to the same input.
+        """
+        super().train(mode)
+        for field_name in self._frozen_text_fields:
+            self.encoders[field_name].eval()
+        return self
 
     # ── Forward ───────────────────────────────────────────────────────────────
 
@@ -245,6 +652,8 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
             * ``"time"``     — ``(B, S_total)``       timestamps (hours)
             * ``"mask"``     — ``(B, S_total)``       1=real event, 0=padding
             * ``"type_ids"`` — ``(B, S_total)``       modality index per event
+            * ``"token_emb"`` — ``(B, S_total, E')`` content-only event embedding
+              (before time/type are added); the target for masked modeling.
         """
         all_embeddings: list[torch.Tensor] = []
         all_times:      list[torch.Tensor] = []
@@ -252,9 +661,24 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         all_types:      list[torch.Tensor] = []
 
         for field_name, feat_dict in inputs.items():
-            value = feat_dict["value"]   # (B, N_i, ...) or (B, S, F)
-            time  = feat_dict["time"]    # (B, N_i)
-            mask  = feat_dict.get("mask")
+            if field_name.endswith("_mask") and field_name[: -len("_mask")] in self.numeric_standardizers:
+                # Observation-flag sibling consumed by the standardiser; not a
+                # modality of its own. Encoding it would duplicate every lab
+                # timestamp with a 0/1 vector. Skipped ONLY when the base
+                # field registered a standardiser: a field merely named
+                # ``x_mask`` with no standardiser stays a normal modality.
+                continue
+            value = feat_dict["value"]  # (B, N_i, ...) or (B, S, F)
+            time = feat_dict["time"]  # (B, N_i)
+            # Three different masks meet here and must not be conflated.
+            #   mask      token level, from the processor schema; this is the
+            #             attention mask a text encoder needs.
+            #   pad_mask  event level, from the collator; which slots are real
+            #             events rather than batch padding.
+            #   {field}_mask  a separate FIELD meaning "was this value
+            #             observed", consumed by the standardiser below.
+            mask = feat_dict.get("mask")
+            pad_mask = feat_dict.get("pad_mask")
 
             if time is None:
                 # Fallback: treat every event as occurring at t=0
@@ -265,29 +689,160 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
 
             # ── Encode ────────────────────────────────────────────────────
             if modality == ModalityType.CODE:
-                emb = encoder(value)                           # (B, S, E')
+                # CODE values may be either:
+                # - flat indices: (B, S)
+                # - nested indices: (B, S, C) where C is codes-per-event
+                # For nested indices, flatten to (B, S*C, E') so code-level
+                # detail is preserved, and expand time/mask to match.
+                if value.dim() == 2:
+                    emb = encoder(value)  # (B, S, E')
+                elif value.dim() == 3:
+                    bsz, seq_len, per_event_codes = value.shape
+                    token_emb = encoder(value.long())  # (B, S, C, E')
+                    emb = token_emb.reshape(bsz, seq_len * per_event_codes, -1)
+
+                    if not self._warned_nested_code_flatten:
+                        warnings.warn(
+                            (
+                                "UnifiedMultimodalEmbeddingModel detected "
+                                f"nested CODE input for '{field_name}' with "
+                                f"shape={tuple(value.shape)}. Flattening to "
+                                f"(B, S*C, E) and repeating time along C."
+                            ),
+                            stacklevel=2,
+                        )
+                        self._warned_nested_code_flatten = True
+
+                    if time is not None:
+                        time = (
+                            time.unsqueeze(-1)
+                            .expand(-1, -1, per_event_codes)
+                            .reshape(bsz, seq_len * per_event_codes)
+                        )
+
+                    if mask is not None:
+                        if mask.dim() == 2:
+                            mask = (
+                                mask.unsqueeze(-1)
+                                .expand(-1, -1, per_event_codes)
+                                .reshape(bsz, seq_len * per_event_codes)
+                            )
+                        elif mask.dim() == 3:
+                            mask = mask.reshape(bsz, seq_len * per_event_codes)
+                else:
+                    raise ValueError(
+                        f"Unsupported CODE value rank for '{field_name}': "
+                        f"shape={tuple(value.shape)}"
+                    )
 
             elif modality == ModalityType.TEXT:
+                # Collate pads note slots to the longest sample in the batch.
+                # Running BERT on those empty rows is what OOM'd batch-32
+                # notes_labs on a 48 GB GPU (~B*N=full pad width, L=512).
                 b, n, l = value.shape
-                flat_ids  = value.view(b * n, l)
-                flat_mask = mask.view(b * n, l) if mask is not None else None
-                out       = encoder(input_ids=flat_ids, attention_mask=flat_mask)
-                cls_emb   = out.last_hidden_state[:, 0, :]    # (B*N, H)
+                flat_ids = value.reshape(b * n, l)
+                flat_attn = mask.reshape(b * n, l) if mask is not None else None
+                if pad_mask is not None:
+                    valid = pad_mask.reshape(b * n).bool()
+                elif flat_attn is not None:
+                    valid = flat_attn.any(dim=-1)
+                else:
+                    valid = torch.ones(
+                        b * n, dtype=torch.bool, device=value.device
+                    )
+                hidden = encoder.config.hidden_size
+                first_param = next(encoder.parameters(), None)
+                param_dtype = (
+                    first_param.dtype if first_param is not None
+                    else torch.get_default_dtype()
+                )
+                cls_emb = value.new_zeros((b * n, hidden), dtype=param_dtype)
+                if valid.any():
+                    h = self._encode_text_cls(
+                        field_name,
+                        encoder,
+                        flat_ids[valid],
+                        flat_attn[valid] if flat_attn is not None else None,
+                    )
+                    cls_emb = cls_emb.to(dtype=h.dtype)
+                    cls_emb[valid] = h
                 if field_name in self.projections:
                     cls_emb = self.projections[field_name](cls_emb)
-                emb = cls_emb.view(b, n, -1)                  # (B, N, E')
+                # cls_emb.shape[-1] instead of -1: when b*n == 0 (no note
+                # slots in this batch), the -1 is ambiguous for a 0-element
+                # tensor and torch raises.
+                emb = cls_emb.view(b, n, cls_emb.shape[-1])  # (B, N, E')
 
             elif modality == ModalityType.IMAGE:
+                # encoder = Sequential(PatchEmbedding, _MeanPool) -> (B*N, E')
                 b, n, c, h, w = value.shape
-                flat_imgs = value.view(b * n, c, h, w)
-                img_emb   = encoder(flat_imgs)                 # (B*N, E')
-                emb       = img_emb.view(b, n, -1)
+                flat_imgs = value.reshape(b * n, c, h, w)
+                if b * n == 0:
+                    # No image slots in this batch. reshape(0, -1) is
+                    # ambiguous since -1 can be any value for 0 elements.
+                    valid = torch.zeros(b * n, dtype=torch.bool, device=value.device)
+                elif pad_mask is not None:
+                    valid = pad_mask.reshape(b * n).bool()
+                else:
+                    valid = flat_imgs.reshape(b * n, -1).abs().sum(dim=-1) > 0
+                if valid.any():
+                    img_valid = encoder(flat_imgs[valid])
+                    emb_dim = img_valid.shape[-1]
+                    img_emb = img_valid.new_zeros((b * n, emb_dim))
+                    img_emb[valid] = img_valid
+                else:
+                    emb_dim = self._embedding_dim
+                    img_emb = value.new_zeros((b * n, emb_dim))
+                # Explicit dim instead of -1: same 0-element ambiguity.
+                emb = img_emb.view(b, n, emb_dim)  # (B, N, E')
 
             else:  # NUMERIC / SIGNAL
-                emb = encoder(value)                           # (B, T, E')
+                # Standardise BEFORE the projection. The projection mixes the
+                # features, so a transform after it cannot correct a feature
+                # whose physical unit gives it 300 times the magnitude of
+                # another.
+                # nn.ModuleDict has no .get(), so the ternary stays.
+                standardizer = (
+                    self.numeric_standardizers[field_name]  # noqa: SIM401
+                    if field_name in self.numeric_standardizers
+                    else None
+                )
+                if standardizer is not None:
+                    # Observation flags live in the sibling ``{field}_mask``
+                    # FIELD, not in this field's dict. Reading the padding mask
+                    # here would tell the standardiser that every real event
+                    # was measured, which is exactly the distinction the
+                    # standardiser exists to preserve.
+                    sibling = inputs.get(f"{field_name}_mask")
+                    obs = sibling["value"] if isinstance(sibling, dict) else None
+                    if obs is None:
+                        raise ValueError(
+                            f"The standardiser for {field_name!r} needs a paired "
+                            f"{field_name}_mask field in the batch."
+                        )
+                    if obs.shape != value.shape:
+                        raise ValueError(
+                            f"{field_name}_mask has shape {tuple(obs.shape)}, "
+                            f"which does not match {field_name} "
+                            f"{tuple(value.shape)}."
+                        )
+                    value = standardizer(value, obs.bool())
+                emb = encoder(value)  # (B, T, E')
 
             # ── Build event-level validity mask ───────────────────────────
-            if mask is None:
+            if pad_mask is not None:
+                # The collator is authoritative about batch padding.
+                event_mask = pad_mask.to(emb.device).float()
+                if event_mask.shape[1] != emb.shape[1]:
+                    # A nested CODE field was flattened to (B, S*C); repeat the
+                    # event flags along the same axis.
+                    repeat = emb.shape[1] // event_mask.shape[1]
+                    event_mask = (
+                        event_mask.unsqueeze(-1)
+                        .expand(-1, -1, repeat)
+                        .reshape(emb.shape[0], -1)
+                    )
+            elif mask is None:
                 event_mask = torch.ones(emb.shape[:2], device=emb.device)
             else:
                 if mask.dim() > time.dim():
@@ -314,22 +869,45 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         cat_types = torch.cat(all_types,      dim=1)   # (B, S_total)
 
         # ── Sort by time ──────────────────────────────────────────────────
-        sort_idx   = cat_time.argsort(dim=1)
-        cat_emb    = cat_emb.gather(
-            1, sort_idx.unsqueeze(-1).expand_as(cat_emb)
-        )
-        cat_time   = cat_time.gather(1, sort_idx)
-        cat_mask   = cat_mask.gather(1, sort_idx)
-        cat_types  = cat_types.gather(1, sort_idx)
+        # Padding carries time 0.0, so a plain ascending sort places it BEFORE
+        # every real event. Push invalid slots past every real one to keep the
+        # sequence left-aligned, which is what all consumers assume.
+        #
+        # Stable, because the key is heavily tied: all padding shares time 0.0
+        # and events from one admission share offsets. An unstable sort makes
+        # event order differ between torch builds and between CPU and CUDA,
+        # silently changing RNN and Mamba outputs.
+        sort_key = cat_time.masked_fill(~cat_mask.bool(), float("inf"))
+        sort_idx = sort_key.argsort(dim=1, stable=True)
+        cat_emb = cat_emb.gather(1, sort_idx.unsqueeze(-1).expand_as(cat_emb))
+        cat_time = cat_time.gather(1, sort_idx)
+        cat_mask = cat_mask.gather(1, sort_idx)
+        cat_types = cat_types.gather(1, sort_idx)
 
         # ── Add time + type embeddings ────────────────────────────────────
-        time_emb = self.time_embed(cat_time)             # (B, S_total, E')
-        type_emb = self.type_embedding(cat_types)        # (B, S_total, E')
-        final    = cat_emb + time_emb + type_emb         # (B, S_total, E')
+        time_emb = self.time_embed(cat_time)  # (B, S_total, E')
+        type_emb = self.type_embedding(cat_types)  # (B, S_total, E')
+        if self.normalize_content:
+            # Put the content term on the scale of the additive terms. Without
+            # this the sum is decided by whichever modality has the larger
+            # magnitude, which is an accident of feature scaling and not a
+            # modelling decision. F.layer_norm without weight or bias adds NO
+            # parameters, so an existing checkpoint still loads.
+            cat_emb = F.layer_norm(cat_emb, (cat_emb.shape[-1],))
+        final = cat_emb + time_emb + type_emb
+        # Zero the padded slots so a consumer that ignores the mask, such as a
+        # mean pool, still cannot pick them up.
+        final = final * cat_mask.unsqueeze(-1).to(final.dtype)  # (B, S_total, E')
 
         return {
             "sequence": final,      # (B, S_total, E')
             "time":     cat_time,   # (B, S_total)
             "mask":     cat_mask,   # (B, S_total)
             "type_ids": cat_types,  # (B, S_total)
+            # Per-event content embedding BEFORE time/type are added (same sort
+            # order as ``sequence``).  Masked-modeling pretrainers should
+            # reconstruct THIS rather than ``sequence``: the time/type
+            # components are largely recoverable from event position, so
+            # including them in the target dilutes the content signal.
+            "token_emb": cat_emb,   # (B, S_total, E')
         }
