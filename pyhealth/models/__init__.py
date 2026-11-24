@@ -162,3 +162,10 @@ from .dearllm import (
     DearLLM as DearLLM,
     DearLLMGraphEncoder as DearLLMGraphEncoder,
 )
+from .taskaug import (
+    ResNet1D as ResNet1D,
+    TaskAug as TaskAug,
+    TaskAugPolicy as TaskAugPolicy,
+    hyper_step as hyper_step,
+    train_taskaug as train_taskaug,
+)
