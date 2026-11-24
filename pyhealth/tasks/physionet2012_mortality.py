@@ -19,6 +19,7 @@ import polars as pl
 import torch
 
 from .base_task import BaseTask
+
 # Intentionally shared with the forecasting task (and physionet2012_normalization)
 # so both bin hourly means identically; one implementation avoids drift.
 from .physionet2012_forecasting import _hourly_means
