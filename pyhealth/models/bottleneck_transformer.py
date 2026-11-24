@@ -176,7 +176,7 @@ class BottleneckTransformer(BaseModel):
 
     Unified mode (``unified_embedding`` supplied): all temporal fields are
     jointly embedded and time-sorted by
-    :class:`~pyhealth.models.embedding.unified.UnifiedMultimodalEmbeddingModel`
+    :class:`~pyhealth.models.unified_embedding.UnifiedMultimodalEmbeddingModel`
     into a single interleaved sequence.  A single ``[CLS]`` token is prepended
     and the encoder runs with ``n_modality=1``, so the bottleneck tokens attend
     over the full cross-modal timeline.
@@ -251,7 +251,6 @@ class BottleneckTransformer(BaseModel):
             len(self.label_keys) == 1
         ), "Only one label key is supported if BottleneckTransformer is initialized"
         self.label_key = self.label_keys[0]
-        self.mode = self.dataset.output_schema[self.label_key]
 
         assert 0 <= fusion_startidx <= num_layers, (
             f"fusion_startidx must be in [0, num_layers], got {fusion_startidx}"
