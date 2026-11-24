@@ -111,7 +111,7 @@ def load_game_embeddings(
 
         ext = os.path.splitext(source)[1].lower()
         if ext in (".pt", ".pth"):
-            loaded = torch.load(source, map_location="cpu", weights_only=False)
+            loaded = torch.load(source, map_location="cpu", weights_only=True)
             return load_game_embeddings(loaded, embedding_dim=embedding_dim)
 
         if ext == ".npy":
@@ -379,6 +379,8 @@ class GAME(BaseModel):
         hidden_dim: Hidden dimension of temporal model. Default is 128.
         temporal_model: Type of temporal sequence backbone (``"GRU"``, ``"LSTM"``,
             or ``"Transformer"``). Default is ``"GRU"``.
+        nhead: Number of attention heads for Transformer backbone. If None,
+            automatically picked to divide the input dimension. Default is None.
         pooling_mode: Strategy to aggregate visit representations across time
             (``"attention"``, ``"mean"``, ``"max"``, or ``"last"``).
             Default is ``"attention"``.
@@ -425,6 +427,7 @@ class GAME(BaseModel):
         normalize_embeddings: bool = False,
         hidden_dim: int = 128,
         temporal_model: str = "GRU",
+        nhead: int | None = None,
         pooling_mode: str = "attention",
         dropout: float = 0.1,
     ) -> None:
@@ -504,9 +507,23 @@ class GAME(BaseModel):
             )
             self.temporal_dim = hidden_dim
         else:
+            if nhead is not None:
+                if nhead <= 0 or total_input_dim % nhead != 0:
+                    raise ValueError(
+                        f"nhead ({nhead}) must be positive and divide total_input_dim "
+                        f"({total_input_dim})."
+                    )
+                chosen_nhead = nhead
+            else:
+                chosen_nhead = 1
+                for candidate in (8, 4, 2):
+                    if total_input_dim % candidate == 0:
+                        chosen_nhead = candidate
+                        break
+
             encoder_layer = nn.TransformerEncoderLayer(
                 d_model=total_input_dim,
-                nhead=max(1, total_input_dim // 64) if total_input_dim % 2 == 0 else 1,
+                nhead=chosen_nhead,
                 dim_feedforward=hidden_dim * 2,
                 dropout=dropout,
                 batch_first=True,
@@ -529,16 +546,19 @@ class GAME(BaseModel):
     def _extract_feature(self, batch_data: Any) -> torch.Tensor:
         """Extracts token indices from raw batch feature tensors."""
         if isinstance(batch_data, tuple):
+            for elem in batch_data:
+                if elem is None:
+                    continue
+                if isinstance(elem, torch.Tensor):
+                    if not elem.is_floating_point():
+                        return elem
+                elif isinstance(elem, (list, np.ndarray)):
+                    t = torch.as_tensor(elem)
+                    if not t.is_floating_point():
+                        return t
             val = batch_data[0]
             if not isinstance(val, torch.Tensor):
                 val = torch.as_tensor(val)
-            if val.dtype in (torch.float32, torch.float64) and len(batch_data) > 1:
-                sec = batch_data[1]
-                if isinstance(sec, torch.Tensor) and sec.dtype in (
-                    torch.int32,
-                    torch.int64,
-                ):
-                    return sec
             return val
         if not isinstance(batch_data, torch.Tensor):
             return torch.as_tensor(batch_data)
@@ -640,11 +660,23 @@ class GAME(BaseModel):
         if self.temporal_model_type in ("GRU", "LSTM"):
             temporal_out, _ = self.temporal_model(combined_seq)
         else:
-            # TransformerEncoder
-            padding_mask = ~patient_mask  # True where padded
+            # TransformerEncoder: MultiheadAttention produces NaNs if all positions
+            # are masked. For completely padded patients, un-mask the first position
+            # during attention, then zero out representations afterwards.
+            all_padded = ~patient_mask.any(dim=-1)
+            safe_patient_mask = patient_mask.clone()
+            if all_padded.any():
+                safe_patient_mask[all_padded, 0] = True
+            padding_mask = ~safe_patient_mask
             temporal_out = self.temporal_model(
                 combined_seq, src_key_padding_mask=padding_mask
             )
+            if all_padded.any():
+                temporal_out = torch.where(
+                    all_padded.unsqueeze(-1).unsqueeze(-1),
+                    torch.zeros_like(temporal_out),
+                    temporal_out,
+                )
 
         # Pool visits across longitudinal history
         patient_emb = self._pool_visits(temporal_out, patient_mask)

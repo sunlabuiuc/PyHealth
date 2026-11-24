@@ -308,10 +308,96 @@ class TestGAME(unittest.TestCase):
         loader = get_dataloader(dataset, batch_size=2)
         batch = next(iter(loader))
         cond = batch["conditions"]
+
+        # 1. (value, mask)
         mask = cond != 0
         batch["conditions"] = (cond, mask)
         out = model(**batch)
         self.assertEqual(out["logit"].shape, (2, 1))
+
+        # 2. (time, value)
+        times = torch.rand(cond.shape[:2], dtype=torch.float32)
+        batch["conditions"] = (times, cond)
+        out2 = model(**batch)
+        self.assertEqual(out2["logit"].shape, (2, 1))
+        self.assertTrue(torch.isfinite(out2["logit"]).all())
+
+    def test_transformer_empty_patient_and_nhead_divisibility(self):
+        """Verifies Transformer with d_model=200 and empty patient produces no NaNs."""
+        dataset = create_sample_dataset(
+            samples=self.samples[:2],
+            input_schema={
+                "conditions": "nested_sequence",
+                "procedures": "nested_sequence",
+            },
+            output_schema={"label": "binary"},
+        )
+        # embedding_dim=100 with 2 features gives total_input_dim=200 (divisible by 8)
+        model = GAME(
+            dataset=dataset,
+            embedding_dim=100,
+            hidden_dim=64,
+            temporal_model="Transformer",
+            pooling_mode="attention",
+        )
+        num_heads = model.temporal_model.layers[0].self_attn.num_heads
+        self.assertEqual(200 % num_heads, 0)
+
+        loader = get_dataloader(dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+        # Zero out patient 1 completely
+        batch["conditions"][1].zero_()
+        batch["procedures"][1].zero_()
+
+        out = model(**batch)
+        self.assertFalse(torch.isnan(out["logit"]).any())
+        self.assertFalse(torch.isnan(out["embed"]).any())
+        self.assertTrue(torch.isfinite(out["loss"]))
+        self.assertTrue((out["embed"][1] == 0.0).all())
+
+        # Test explicit invalid nhead raises ValueError
+        with self.assertRaises(ValueError):
+            GAME(
+                dataset=dataset,
+                embedding_dim=100,
+                temporal_model="Transformer",
+                nhead=3,  # 200 is not divisible by 3
+            )
+
+    def test_code_mapping(self):
+        """Verifies custom code_mapping translates dataset tokens to GAME codes."""
+        dataset = create_sample_dataset(
+            samples=self.samples,
+            input_schema={"conditions": "nested_sequence"},
+            output_schema={"label": "binary"},
+        )
+        code_mapping = {"c1": "ICD10CM:E11", "c2": "ICD10CM:I10"}
+        game_embs = {"e11": [1.0] * 16, "i10": [2.0] * 16}
+        model = GAME(
+            dataset=dataset,
+            embedding_dim=16,
+            hidden_dim=32,
+            game_embeddings=game_embs,
+            code_mapping=code_mapping,
+        )
+        emb_layer = model.game_embeddings["conditions"].embedding
+        vocab = dataset.input_processors["conditions"].code_vocab
+        idx_c1 = vocab["c1"]
+        self.assertTrue(torch.allclose(emb_layer.weight[idx_c1], torch.ones(16)))
+
+    def test_pt_file_loading_weights_only(self):
+        """Verifies loading GAME embeddings from .pt file with weights_only=True."""
+        embs_dict = {"e11": torch.randn(16), "i10": torch.randn(16)}
+        with tempfile.NamedTemporaryFile(suffix=".pt", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            torch.save(embs_dict, tmp_path)
+            loaded = load_game_embeddings(tmp_path, embedding_dim=16)
+            self.assertIn("e11", loaded)
+            self.assertEqual(loaded["e11"].shape, (16,))
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
 
     def test_invalid_args(self):
         dataset = create_sample_dataset(
