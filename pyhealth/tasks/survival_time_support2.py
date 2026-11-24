@@ -6,7 +6,7 @@ Paper link: https://arxiv.org/abs/2602.07884v2.
 """
 
 import math
-from typing import Any
+from typing import Any, ClassVar
 
 from .base_task import BaseTask
 
@@ -37,8 +37,8 @@ class SurvivalTimeSupport2(BaseTask):
     """
 
     task_name = "SurvivalTimeSupport2"
-    input_schema = {"features": "tensor"}
-    output_schema = {"duration": "tensor", "event": "tensor"}
+    input_schema: ClassVar[dict[str, str]] = {"features": "tensor"}
+    output_schema: ClassVar[dict[str, str]] = {"duration": "tensor", "event": "tensor"}
     numeric = (
         "age",
         "num.co",
@@ -52,7 +52,7 @@ class SurvivalTimeSupport2(BaseTask):
         "sod",
         "crea",
     )
-    categories = {
+    categories: ClassVar[dict[str, tuple[str, ...]]] = {
         "sex": ("female", "male"),
         "race": ("asian", "black", "hispanic", "other", "white", "<missing>"),
         "ca": ("metastatic", "no", "yes"),
@@ -73,7 +73,7 @@ class SurvivalTimeSupport2(BaseTask):
         "wblc",
         "crea",
     )
-    benchmark_codes = {
+    benchmark_codes: ClassVar[dict[str, dict[str, int]]] = {
         "sex": {"male": 0, "female": 1},
         "race": {
             "other": 0,

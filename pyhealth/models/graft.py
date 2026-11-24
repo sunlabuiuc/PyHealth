@@ -35,14 +35,14 @@ Paper: GRAFT: Decoupling Ranking and Calibration for Survival Analysis.
 Paper link: https://arxiv.org/abs/2602.07884v2.
 """
 
-from collections.abc import Mapping, Sequence
-from copy import deepcopy
 import hashlib
 import math
-from pathlib import Path
 import time
-from typing import Any
 import warnings
+from collections.abc import Mapping, Sequence
+from copy import deepcopy
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
@@ -828,8 +828,8 @@ class GRAFT(BaseModel):
             RuntimeError: Before ranking fitting and checkpoint restoration.
             ValueError: If the supplied cohort differs from the training data.
         """
-        from lifelines import CoxPHFitter
         import pandas as pd
+        from lifelines import CoxPHFitter
         from sksurv.nonparametric import CensoringDistributionEstimator
         from sksurv.util import Surv
 
