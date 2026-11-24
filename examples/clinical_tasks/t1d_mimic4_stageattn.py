@@ -1,12 +1,19 @@
-"""
-Example of using StageNet for mortality prediction on MIMIC-IV.
+"""StageAttentionNet for DKA prediction for type 1 diabetes patients on MIMIC-IV.
 
-This example demonstrates:
-1. Loading MIMIC-IV data
-2. Applying the MortalityPredictionStageNetMIMIC4 task
-3. Creating a SampleDataset with StageNet processors
-4. Training a StageNet model
-5. Testing with synthetic hold-out set (unseen codes, varying lengths)
+Builds ``T1DDKAPredictionMIMIC4`` samples (T1DM patients only; label 1 if DKA
+occurs within 90 days of the T1DM diagnosis) from diagnoses, procedures and lab
+events, trains a StageAttentionNet model, evaluates it on a patient-level test
+split, and saves the fitted processors so later runs reuse the same encoding.
+
+Data: MIMIC-IV v2.2 hosp tables (credentialed PhysioNet access:
+https://physionet.org/content/mimiciv/2.2/).
+Run: set ``ehr_root``, ``processor_dir`` and ``output_path`` below, then
+    python examples/clinical_tasks/t1d_mimic4_stageattn.py
+Full MIMIC-IV with 30 epochs needs a GPU and a few hours. To try it without
+credentials, set ``ehr_root`` to ``test-resources/core/mimic4demo``, but the
+demo has only 2 T1DM patients, so the 80/10/10 split leaves validation empty
+and training stops there; train and evaluate on all samples to check the
+pipeline.
 """
 
 import os
@@ -24,7 +31,7 @@ import torch
 if __name__ == "__main__":
     # STEP 1: Load MIMIC-IV base dataset
     base_dataset = MIMIC4Dataset(
-        ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
+        ehr_root="/path/to/mimiciv/2.2/",
         ehr_tables=[
             "patients",
             "admissions",
@@ -42,7 +49,7 @@ if __name__ == "__main__":
     # - On subsequent runs, pre-fitted processors are loaded from disk
     # - This ensures consistent encoding and saves computation time
     # - Processors include vocabulary mappings and sequence length statistics
-    processor_dir = "/home/yongdaf2/t1d_sa/processors"
+    processor_dir = "/path/to/t1d_sa/processors"
 
     if os.path.exists(os.path.join(processor_dir, "input_processors.pkl")):
         print("\n=== Loading Pre-fitted Processors ===")
@@ -102,9 +109,9 @@ if __name__ == "__main__":
     # STEP 5: Train the model
     trainer = Trainer(
         model=model,
-        device="cuda:3",  # or "cpu"
+        device="cuda" if torch.cuda.is_available() else "cpu",
         metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
-        output_path="/home/yongdaf2/t1d_sa/output"
+        output_path="/path/to/t1d_sa/output"
     )
 
     trainer.train(

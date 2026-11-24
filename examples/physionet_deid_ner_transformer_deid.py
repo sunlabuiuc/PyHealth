@@ -6,7 +6,7 @@ PHI detection, and report binary (PHI vs non-PHI) precision/recall/F1.
 Paper: Johnson et al. "Deidentification of free-text medical records
     using pre-trained bidirectional transformers." CHIL, 2020.
 
-Script structure follows examples/cardiology_detection_isAR_SparcNet.py.
+Script structure follows the archived examples/old/cardiology_detection_isAR_SparcNet.py.
 
 Hyperparameters follow the paper (Section 3.4):
     - Learning rate: 5e-5
@@ -40,6 +40,16 @@ Usage:
     # With RoBERTa:
     python examples/physionet_deid_ner_transformer_deid.py \
         --data_root path/to/data --model_name roberta-base
+
+Data: PhysioNet "Deidentified Medical Text" v1.0
+(https://physionet.org/content/deidentifiedmedicaltext/1.0/, credentialed
+access); pass the folder holding ``id.text`` and ``id.res`` as --data_root.
+To try it without credentials, use the small sample bundled in this repo
+(the scores are meaningless): ``--data_root test-resources/core/physionet_deid
+--epochs 1 --model_name google/bert_uncased_L-4_H-256_A-4``.
+
+Hardware: the Hugging Face model is downloaded on first use. BERT-base for
+3 epochs on the full corpus wants a GPU; a laptop CPU is fine for the sample.
 
 Author:
     Matt McKenna (mtm16@illinois.edu)

@@ -1,0 +1,63 @@
+name: Bounty Board
+
+# Rebuilds the pinned, locked "Bounty board" issue from bounty.yaml and the
+# PRs tagged [BTY-<id>] / [Bounty-<id>]. Every run recomputes the full board,
+# so any trigger produces the same result.
+on:
+  push:
+    branches: [master]
+    paths:
+      - bounty.yaml
+      - tools/update_bounty_board.py
+      - .github/workflows/bounty_board.yml
+  # PR events reach this workflow through Bounty Claim Trigger rather than
+  # directly: pull_request_target is blocked by default in public repos from
+  # 2026-12-02, and pull_request from forks gets a read-only token. workflow_run
+  # runs this file from the default branch with the write token below.
+  workflow_run:
+    workflows: [Bounty Claim Trigger]
+    types: [completed]
+  # Fallback for anything the trigger misses (fork PRs awaiting workflow
+  # approval, unusual tag spellings). GitHub runs schedules best-effort, so
+  # this can be delayed or skipped.
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+# One run at a time; a newer trigger waits and then recomputes everything.
+concurrency:
+  group: bounty-board
+  cancel-in-progress: false
+
+jobs:
+  update-board:
+    # From the trigger, rebuild only when its job ran and succeeded, i.e. the
+    # PR title passed the bounty-tag precheck.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install PyYAML
+        run: pip install 'pyyaml~=6.0'
+
+      - name: Update bounty board
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python tools/update_bounty_board.py

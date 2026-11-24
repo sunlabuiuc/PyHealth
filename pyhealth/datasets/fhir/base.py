@@ -93,6 +93,17 @@ class FHIRDataset(BaseDataset):
     ``DEFAULT_CONFIG_PATH`` to bundle a default (see
     :class:`~pyhealth.datasets.fhir.mimic4.MIMIC4FHIR`).
 
+    Getting the data:
+        FHIR is a format, not a dataset; point ``root`` at any NDJSON export.
+        For data to try it on:
+
+        - MIMIC-IV on FHIR (credentialed; see :class:`MIMIC4FHIR`):
+          https://physionet.org/content/mimic-iv-fhir/2.1/
+        - MIMIC-IV on FHIR demo (open):
+          https://physionet.org/content/mimic-iv-fhir-demo/2.1.0/
+        - Synthea can export synthetic FHIR bundles:
+          https://github.com/synthetichealth/synthea
+
     Args:
         root: Path to the NDJSON/NDJSON.GZ export directory.
         config_path: Path to the FHIR ingest YAML. Defaults to the class

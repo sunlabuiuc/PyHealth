@@ -1,3 +1,18 @@
+"""Readmission prediction on an OMOP CDM dataset with an RNN.
+
+Loads person, visit, condition, procedure and drug tables from an OMOP CDM
+export, applies ``ReadmissionPredictionOMOP`` (binary readmission label per
+visit), and trains/evaluates an ``RNN`` for one epoch.
+
+Data: by default ``root`` points at the MIMIC-IV demo in OMOP format on
+PhysioNet (https://physionet.org/content/mimic-iv-demo-omop/, open access,
+downloaded on the fly). Any OMOP CDM v5.3 CSV export works; set ``root`` to
+its folder.
+
+Run: ``python examples/readmission/readmission_omop_rnn.py`` (CPU). The tiny
+``test-resources/omop`` sample (12 patients, ``dev=False``) loads and trains
+but is too small to fill the validation/test splits.
+"""
 import tempfile
 
 from pyhealth.datasets import OMOPDataset, get_dataloader, split_by_patient
