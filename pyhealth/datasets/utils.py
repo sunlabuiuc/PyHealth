@@ -289,12 +289,12 @@ def collate_fn_dict_with_padding(
 
         if collators is not None and key in collators:
             collated[key] = collators[key](values)
-        # Check if this is a temporal feature tuple: (time, values) from
-        # numeric/code processors, or (value, mask, ..., time, tag) from
-        # tuple text processors. Positions collate independently so ragged
-        # text batches stack exactly like (time, values) pairs do.
+        # Check if this is a temporal feature pair such as (time, values).
+        # Its two positions collate independently. Tuples of any other
+        # length stay a list of per-sample tuples, unless their processor
+        # defines collate() (TupleTimeTextProcessor does, to stack text).
         elif isinstance(values[0], tuple) and all(
-            isinstance(v, tuple) and len(v) == len(values[0]) for v in values
+            isinstance(v, tuple) and len(v) == 2 for v in values
         ):
             arity = len(values[0])
             stacked = []

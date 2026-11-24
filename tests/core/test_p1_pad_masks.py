@@ -27,25 +27,47 @@ class TestP1TextTupleCollate(unittest.TestCase):
             "note",
         )
 
-    def test_ragged_text_tuples_stack_with_pad_mask(self):
-        from pyhealth.datasets.utils import PAD_MASK_SUFFIX, collate_fn_dict_with_padding
+    @staticmethod
+    def _text_processor(tokenized=True):
+        from pyhealth.processors import TupleTimeTextProcessor
+
+        # collate() only reads whether a tokenizer is set, so skip the download.
+        processor = TupleTimeTextProcessor.__new__(TupleTimeTextProcessor)
+        processor.tokenizer = object() if tokenized else None
+        return processor
+
+    def test_ragged_text_tuples_stack_through_the_processor_collate(self):
+        from pyhealth.datasets.utils import collate_fn_dict_with_padding
 
         batch = [
             {"notes": self._note(2, 4, 0.0)},
             {"notes": self._note(1, 4, 5.0)},
             {"notes": self._note(0, 1, 0.0)},
         ]
-        collated = collate_fn_dict_with_padding(batch)
+        collated = collate_fn_dict_with_padding(
+            batch, collators={"notes": self._text_processor().collate}
+        )
         value, mask, type_ids, time, tag = collated["notes"]
         self.assertEqual(tuple(value.shape), (3, 2, 4))
         self.assertEqual(tuple(mask.shape), (3, 2, 4))
         self.assertEqual(tuple(type_ids.shape), (3, 2, 4))
         self.assertEqual(tuple(time.shape), (3, 2))
         self.assertEqual(tag, ["note", "note", "note"])
+        # A padded note slot has an all-zero attention mask.
         self.assertEqual(
-            collated[f"notes{PAD_MASK_SUFFIX}"].tolist(),
+            mask.any(dim=-1).tolist(),
             [[True, True], [True, False], [False, False]],
         )
+
+    def test_text_tuples_stay_a_list_without_the_processor_collate(self):
+        from pyhealth.datasets.utils import collate_fn_dict_with_padding
+
+        batch = [{"notes": self._note(2, 4, 0.0)}, {"notes": self._note(1, 4, 5.0)}]
+        # The shared collator stacks pairs only; longer tuples stay a list.
+        self.assertIsInstance(collate_fn_dict_with_padding(batch)["notes"], list)
+        untokenized = self._text_processor(tokenized=False).collate
+        collated = collate_fn_dict_with_padding(batch, collators={"notes": untokenized})
+        self.assertIsInstance(collated["notes"], list)
 
     def test_two_tuple_contract_unchanged(self):
         from pyhealth.datasets.utils import PAD_MASK_SUFFIX, collate_fn_dict_with_padding

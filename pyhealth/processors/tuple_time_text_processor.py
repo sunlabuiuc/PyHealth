@@ -163,6 +163,38 @@ class TupleTimeTextProcessor(TemporalFeatureProcessor):
         """Returns True if the processor outputs discrete tokens (when tokenizer is used)."""
         return self.tokenizer is not None
 
+    def collate(self, values: list[tuple]) -> Any:
+        """Batches tokenized samples by stacking each tuple position.
+
+        Samples differ in both the number of notes and the note length, so
+        every tensor position is right-padded with zeros to the largest shape
+        in the batch and stacked. A padded note has an all-zero attention
+        mask, which is how a model tells it from a real note. The type tags
+        stay a list. Without a tokenizer the batch stays a list of
+        per-sample tuples.
+
+        Args:
+            values: One processed tuple per sample.
+
+        Returns:
+            With a tokenizer, a tuple in :meth:`schema` order whose tensors
+            have a leading batch dimension. Otherwise ``values`` as a list.
+        """
+        if self.tokenizer is None:
+            return list(values)
+        from pyhealth.datasets.collate import _pad_stack
+
+        stacked: list[Any] = []
+        for elems in zip(*values):
+            if all(isinstance(e, torch.Tensor) for e in elems):
+                if elems[0].dim() == 0:
+                    stacked.append(torch.stack(elems))
+                else:
+                    stacked.append(_pad_stack(list(elems)))
+            else:
+                stacked.append(list(elems))
+        return tuple(stacked)
+
     def schema(self) -> tuple[str, ...]:
         """Returns the schema of the processed feature."""
         if self.tokenizer is not None:
