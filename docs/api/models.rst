@@ -57,6 +57,9 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.XGBoostModel`
      - Features are tabular (engineered labs, demographics) or bags of codes; you want the standard strong baseline
      - Gradient-boosted trees; fit with ``model.fit`` (not ``Trainer.train``); exact TreeSHAP; needs ``pip install "pyhealth[xgboost]"``
+   * - :doc:`models/pyhealth.models.td_cnn_lstm`
+     - You want real-time ICU mortality risk for each measurement-time state of irregular event streams
+     - Temporal-difference training needs paired ``next_*`` successor states and a custom loop that calls ``model.update_target()`` after each optimizer step
 
 How BaseModel Works
 --------------------
@@ -288,6 +291,7 @@ API Reference
     :maxdepth: 3
 
     models/pyhealth.models.BaseModel
+    models/pyhealth.models.NeuralFineGray
     models/pyhealth.models.LogisticRegression
     models/pyhealth.models.MLP
     models/pyhealth.models.CNN
@@ -295,8 +299,12 @@ API Reference
     models/pyhealth.models.RNN
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
+    models/pyhealth.models.BEHRT
+    models/pyhealth.models.BiteNet
     models/pyhealth.models.TransformersModel
     models/pyhealth.models.LLMEHREncoder
+    models/pyhealth.models.HFEHRFoundationModel
+    models/pyhealth.models.CLMBR
     models/pyhealth.models.MEME
     models/pyhealth.models.TransformerDeID
     models/pyhealth.models.RETAIN
@@ -311,8 +319,12 @@ API Reference
     models/pyhealth.models.EHRMamba
     models/pyhealth.models.EHRMambaCEHR
     models/pyhealth.models.ETHOS
+    models/pyhealth.models.Delphi
     models/pyhealth.models.JambaEHR
     models/pyhealth.models.ContraWR
+    models/pyhealth.models.EEGNet
+    models/pyhealth.models.DeepSleepNet
+    models/pyhealth.models.SleepKD
     models/pyhealth.models.SparcNet
     models/pyhealth.models.StageNet
     models/pyhealth.models.StageAttentionNet
@@ -323,6 +335,8 @@ API Reference
     models/pyhealth.models.MedFuse
     models/pyhealth.models.EHRCXREarlyFusion
     models/pyhealth.models.ConVIRT
+    models/pyhealth.models.MAESTRO
+    models/pyhealth.models.DAFT
     models/pyhealth.models.DiPro
     models/pyhealth.models.MedLink
     models/pyhealth.models.TCN
@@ -334,6 +348,7 @@ API Reference
     models/pyhealth.models.PromptEHR
     models/pyhealth.models.MedGAN
     models/pyhealth.models.CorGAN
+    models/pyhealth.models.TarDiff
     models/pyhealth.models.Synthea
     models/pyhealth.models.SDOH
     models/pyhealth.models.SequenceEmbeddingModel
@@ -352,6 +367,12 @@ API Reference
     models/pyhealth.models.ProtoECGNet
     models/pyhealth.models.HeartLang
     models/pyhealth.models.APN
+    models/pyhealth.models.td_cnn_lstm
     models/pyhealth.models.TRACE
     models/pyhealth.models.MIRA
+    models/pyhealth.models.UDC
+    models/pyhealth.models.DescEmb
+    models/pyhealth.models.bulk_rna_bert
+    models/pyhealth.models.DearLLM
+    models/pyhealth.models.GAME
 

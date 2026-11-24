@@ -7,6 +7,18 @@ from .apn import (
     masked_mse as masked_mse,
 )
 from .base_model import BaseModel
+from .behrt import (
+    BEHRT as BEHRT,
+    BEHRTEmbedding as BEHRTEmbedding,
+    BEHRTLayer as BEHRTLayer,
+)
+from .bitenet import (
+    AttentionPooling as AttentionPooling,
+    BiteNet as BiteNet,
+    BiteNetEncoder as BiteNetEncoder,
+    BiteNetTemporalEncoding as BiteNetTemporalEncoding,
+)
+from .neural_fine_gray import NeuralFineGray as NeuralFineGray
 from .unet import (
     DiceLoss as DiceLoss,
     SegmentationLoss as SegmentationLoss,
@@ -21,7 +33,10 @@ from .biot import BIOT
 from .cnn import CNN, CNNLayer
 from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D
+from .deepsleepnet import DeepSleepNet as DeepSleepNet
 from .deepr import Deepr, DeeprLayer
+from .delphi import Delphi as Delphi
+from .eegnet import EEGNet as EEGNet
 from .embedding import EmbeddingModel
 from .sequence_embedding import (
     LevelEmbedding as LevelEmbedding,
@@ -38,6 +53,8 @@ from .graph_torchvision_model import Graph_TorchvisionModel
 from .graphcare import GraphCare
 from .grasp import GRASP, GRASPLayer
 from .dipro import DiPro as DiPro
+from .daft import DAFT as DAFT, DAFTBlock as DAFTBlock, DAFTLayer as DAFTLayer
+from .maestro import MAESTRO as MAESTRO
 from .medfuse import MedFuse, MedFuseLayer
 from .ehr_cxr_early_fusion import EHRCXREarlyFusion as EHRCXREarlyFusion
 from .convirt import ConVIRT as ConVIRT, ConVIRTLinearProbe as ConVIRTLinearProbe
@@ -50,6 +67,7 @@ from .rnn import MultimodalRNN, RNN, RNNLayer
 from .rnn import RNN_V2 as RNN_V2
 from .safedrug import SafeDrug, SafeDrugLayer
 from .shy import SHy as SHy
+from .sleepkd import SleepKD as SleepKD
 from .sparcnet import DenseBlock, DenseLayer, SparcNet, TransitionLayer
 from .stagenet import StageNet, StageNetLayer
 from .stagenet_mha import StageAttentionNet, StageNetAttentionLayer
@@ -66,6 +84,17 @@ from .torchvision_model import TorchvisionModel
 from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
 from .llm_ehr_encoder import LLMEHREncoder as LLMEHREncoder
+from .ehr_fm import (
+    EHRFoundationModelBase as EHRFoundationModelBase,
+    HFEHRFoundationModel as HFEHRFoundationModel,
+    HFEHRTokenizer as HFEHRTokenizer,
+)
+from .clmbr import (
+    CLMBR as CLMBR,
+    CLMBRConfig as CLMBRConfig,
+    CLMBRTokenizer as CLMBRTokenizer,
+    CLMBRTransformer as CLMBRTransformer,
+)
 from .ehrmamba import EHRMamba, MambaBlock
 from .ehrmamba_cehr import EHRMambaCEHR
 from .vae import VAE
@@ -85,12 +114,14 @@ from .protoecgnet import (
     ResNet1dBackbone as ResNet1dBackbone,
     ResNet2dBackbone as ResNet2dBackbone,
 )
+from .td_cnn_lstm import TDCNNLSTM as TDCNNLSTM
 from .generators.halo import HALO
 from .generators.gpt2 import GPT2
 from .generators.promptehr import PromptEHR
 from .generators.medgan import MedGAN
 from .generators.synthea import Synthea as Synthea
 from .generators.corgan import CorGAN as CorGAN
+from .generators.tardiff import TarDiff as TarDiff
 from .survival_mdn import SurvivalMDN as SurvivalMDN
 from .personalized_survival_moe import PersonalizedSurvivalMoE as PersonalizedSurvivalMoE
 from .cet import CET as CET
@@ -117,4 +148,27 @@ from .mira import (
     MIRABackbone as MIRABackbone,
     MIRAConfig as MIRAConfig,
     load_mira_checkpoint as load_mira_checkpoint,
+)
+from .udc import (
+    UDC as UDC,
+    DiscreteClueEncoder as DiscreteClueEncoder,
+    ResidualVectorQuantizer as ResidualVectorQuantizer,
+)
+from .descemb import (
+    DescEmb as DescEmb,
+    DescEmbCodeEncoder as DescEmbCodeEncoder,
+    simple_subword_tokenize as simple_subword_tokenize,
+    simple_word_tokenize as simple_word_tokenize,
+)
+from .bulk_rna_bert import BulkRNABert as BulkRNABert
+from .dearllm import (
+    DearLLM as DearLLM,
+    DearLLMGraphEncoder as DearLLMGraphEncoder,
+)
+from .game import (
+    GAME as GAME,
+    GAMEEmbedding as GAMEEmbedding,
+    init_embedding_with_game as init_embedding_with_game,
+    load_game_embeddings as load_game_embeddings,
+    normalize_game_code as normalize_game_code,
 )

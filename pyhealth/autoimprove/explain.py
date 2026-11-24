@@ -11,12 +11,15 @@ moved the model's prediction (on the log-odds scale):
 - torch models: integrated gradients from the mean input, for numeric
   fields (tensors and time series). For a logistic regression this is the
   exact contribution of each input, its coefficient times its deviation
-  from the mean.
+  from the mean. Code fields (sequences and nested sequences of codes
+  embedded by the model's ``embedding_model``) are integrated from a zero
+  embedding at the same time; each occurrence of a code gets the
+  contribution of its embedding, and those are summed per code, so every
+  code seen in the explained samples is one column whose value is its
+  count in the sample.
 
-Code fields (sequences of codes) are not attributed per column for torch
-models; they stay fixed along the integration path. Only the first output
-column is explained, so for a multiclass or multilabel task that is class
-or label 0.
+Only the first output column is explained, so for a multiclass or
+multilabel task that is class or label 0.
 
 :func:`summarize` turns the attributions into aggregates a clinician can
 check: importance by clinical factor group, the top features with their
@@ -48,8 +51,9 @@ def attributions(
     max_samples: int = 2000,
     steps: int = 20,
     batch_size: int = 256,
+    min_cell: int = MIN_CELL,
 ) -> dict[str, Any]:
-    """Per-sample contributions of each numeric input column to the logit.
+    """Per-sample contributions of each input column (numeric or code) to the logit.
 
     Args:
         model: A trained PyHealth model.
@@ -57,12 +61,17 @@ def attributions(
         max_samples: Most samples used, evenly spaced through the dataset.
         steps: Integrated-gradient steps (torch models).
         batch_size: Samples per forward pass.
+        min_cell: Codes seen in fewer distinct patients are merged into one
+            ``"other codes"`` column, so no rare code is named.
 
     Returns:
         ``{"method", "fields": {field: {"values": (n, p), "contributions":
         (n, p)}}, "skipped": {field: reason}, "patient_ids": [...]}``. Time
         series of shape ``(time, features)`` are reduced to one column per
-        feature: contributions summed over time, values averaged.
+        feature: contributions summed over time, values averaged. Code
+        fields have one column per code, named in ``"names"``: the code's
+        count in the sample and its summed contribution. Codes are counted
+        once per occurrence; the baseline of a code field is a zero embedding.
 
     Examples:
         >>> out = attributions(model, train_ds)  # doctest: +SKIP
@@ -85,14 +94,28 @@ def attributions(
     fields: dict[str, dict[str, list]] = {}
     skipped: dict[str, str] = {}
     model.eval()
+    codes: dict[str, list[dict[int, list[float]]]] = {}
     if not trees:
         means = _numeric_means(loader, model.feature_keys)
+        layers = _code_layers(model)
     for batch in loader:
         if trees:
             _tree_columns(model, batch, fields)
             continue
-        contrib = _integrated_gradients(model, batch, means, steps)
+        code_keys = [k for k in model.feature_keys
+                     if k in layers and _codes(batch[k]) is not None]
+        contrib = _integrated_gradients(model, batch, means, steps, layers,
+                                        code_keys)
         for key in model.feature_keys:
+            if key in code_keys:
+                code_ids = _codes(batch[key])
+                if key in contrib and np.size(contrib[key]) == code_ids.size:
+                    # e.g. a logistic regression flattens nested codes first
+                    _add_codes(codes.setdefault(key, []), code_ids,
+                               np.reshape(contrib[key], code_ids.shape))
+                else:
+                    skipped[key] = "codes: the embedding was not used per code"
+                continue
             value = _numeric(batch[key])
             if value is None or key not in contrib:
                 skipped[key] = "codes: not attributed per column"
@@ -116,12 +139,17 @@ def attributions(
             entry = fields.setdefault(key, {"values": [], "contributions": []})
             entry["values"].append(v)
             entry["contributions"].append(c)
+    for key, rows in codes.items():
+        if key not in skipped:
+            fields[key] = _code_columns(rows, _code_names(model, dataset, key),
+                                        patient_ids, min_cell)
     return {
         "method": "TreeSHAP (exact)" if trees else
                   f"integrated gradients from the mean input ({steps} steps)",
         "fields": {
             k: {"values": np.concatenate(v["values"]),
-                "contributions": np.concatenate(v["contributions"])}
+                "contributions": np.concatenate(v["contributions"]),
+                **({"names": v["names"]} if "names" in v else {})}
             for k, v in fields.items() if k not in skipped
         },
         "skipped": skipped,
@@ -170,10 +198,13 @@ def summarize(
         [('lactate', '+'), ('sbp', '-')]
     """
     names, values, contribs, fields = [], [], [], []
+    coded: set[str] = set()  # code fields: a code's group is its field
     for key, entry in attrib["fields"].items():
         width = entry["values"].shape[1]
-        cols = None
-        if card is not None and len(card.columns.get(key, [])) == width:
+        cols = entry.get("names")
+        if cols is not None:
+            coded.add(key)
+        elif card is not None and len(card.columns.get(key, [])) == width:
             cols = card.columns[key]
         elif feature_names and len(feature_names.get(key, [])) == width:
             cols = feature_names[key]
@@ -195,10 +226,15 @@ def summarize(
         entry = card.feature(name) if card is not None else None
         return entry if entry is not None else (extra or {}).get(name)
 
-    groups: dict[str, float] = {}
-    for name, imp in zip(names, importance):
+    def group_of(name, field):
         entry = info(name)
-        group = entry.group if entry is not None and entry.group else "not in the task card"
+        if entry is not None and entry.group:
+            return entry.group
+        return field if field in coded else "not in the task card"
+
+    groups: dict[str, float] = {}
+    for name, field, imp in zip(names, fields, importance):
+        group = group_of(name, field)
         groups[group] = groups.get(group, 0.0) + float(imp / total)
     features = []
     for j in np.argsort(-importance)[:top_k]:
@@ -210,7 +246,8 @@ def summarize(
         features.append({
             "name": name, "field": fields[j],
             "meaning": entry.meaning if entry is not None else "",
-            "group": entry.group if entry is not None else "",
+            "group": (entry.group if entry is not None
+                      else fields[j] if fields[j] in coded else ""),
             "in_card": entry is not None,
             "engineered": name in (extra or {}),
             "rationale": entry.rationale if entry is not None else "",
@@ -281,24 +318,148 @@ def _numeric_means(loader, keys) -> dict[str, torch.Tensor]:
     return {k: v / max(count, 1) for k, v in sums.items()}
 
 
-def _integrated_gradients(model, batch, means, steps) -> dict[str, np.ndarray]:
+def _integrated_gradients(model, batch, means, steps, layers=None,
+                          code_keys=()) -> dict[str, np.ndarray]:
+    """Integrated gradients for numeric fields and, through their embedding
+    layers, code fields (one value per code occurrence).
+
+    Assumes the model calls each code field's embedding once per forward.
+    """
     device = next(model.parameters()).device
     keys = [k for k in model.feature_keys if k in means and _numeric(batch[k]) is not None]
-    if not keys:
+    code_keys = list(code_keys)
+    if not keys and not code_keys:
         return {}
     x = {k: batch[k].float().to(device) for k in keys}
     base = {k: means[k].float().to(device).expand_as(x[k]) for k in keys}
     total = {k: torch.zeros_like(x[k]) for k in keys}
-    for alpha in (np.arange(steps) + 0.5) / steps:
-        inputs = dict(batch)
-        for k in keys:
-            inputs[k] = (base[k] + float(alpha) * (x[k] - base[k])).detach()
-            inputs[k].requires_grad_(True)
-        logit = model(**inputs)["logit"]
-        grads = torch.autograd.grad(logit[:, 0].sum(), [inputs[k] for k in keys])
-        for k, g in zip(keys, grads):
-            total[k] += g.detach()
-    return {k: ((x[k] - base[k]) * total[k] / steps).cpu().numpy() for k in keys}
+    code_total: dict[str, torch.Tensor] = {}
+    embedded: dict[str, torch.Tensor] = {}
+    scaled: dict[str, torch.Tensor] = {}
+    state = {"alpha": 1.0}
+
+    def scale(key):
+        def hook(_module, _inputs, output):
+            embedded[key] = output.detach()
+            # A fresh leaf, so frozen embeddings (no grad) work too.
+            scaled[key] = (output.detach() * state["alpha"]).requires_grad_()
+            return scaled[key]
+        return hook
+
+    handles = [layers[k].register_forward_hook(scale(k)) for k in code_keys]
+    try:
+        for alpha in (np.arange(steps) + 0.5) / steps:
+            state["alpha"] = float(alpha)
+            inputs = dict(batch)
+            for k in keys:
+                inputs[k] = (base[k] + float(alpha) * (x[k] - base[k])).detach()
+                inputs[k].requires_grad_(True)
+            scaled.clear()
+            with torch.enable_grad():
+                logit = model(**inputs)["logit"]
+                wrt = [inputs[k] for k in keys] + [scaled[k] for k in code_keys
+                                                   if k in scaled]
+                grads = torch.autograd.grad(logit[:, 0].sum(), wrt,
+                                            allow_unused=True)
+            for k, g in zip(keys, grads):
+                if g is None:  # as before code fields: an unused input fails
+                    raise RuntimeError(f"the model does not use the input {k!r}")
+                total[k] += g.detach()
+            for k, g in zip([k for k in code_keys if k in scaled], grads[len(keys):]):
+                if g is not None:
+                    code_total[k] = code_total.get(k, 0) + g.detach()
+    finally:
+        for handle in handles:
+            handle.remove()
+    out = {k: ((x[k] - base[k]) * total[k] / steps).cpu().numpy() for k in keys}
+    for k, g in code_total.items():
+        # Each occurrence: its embedding times the mean gradient, summed over
+        # the embedding dimension (the baseline is a zero embedding).
+        out[k] = (embedded[k] * g / steps).sum(dim=-1).cpu().numpy()
+    return out
+
+
+def _code_layers(model) -> dict[str, torch.nn.Embedding]:
+    """The model's embedding lookup for each code field, if it has one."""
+    layers = getattr(getattr(model, "embedding_model", None), "embedding_layers", {})
+    return {k: layer for k, layer in dict(layers).items()
+            if isinstance(layer, torch.nn.Embedding)}
+
+
+def _codes(value: Any) -> np.ndarray | None:
+    """Code indices of a code field (integer tensor), else None."""
+    if isinstance(value, torch.Tensor) and not value.is_floating_point() \
+            and value.dtype != torch.bool:
+        return value.detach().cpu().numpy()
+    return None
+
+
+def _add_codes(rows, index, contrib) -> None:
+    """Appends, per sample, ``{code index: [count, summed contribution]}``.
+
+    Padding (index 0) is skipped.
+    """
+    contrib = np.asarray(contrib, dtype=float)
+    for sample_index, sample_contrib in zip(index, contrib):
+        row: dict[int, list[float]] = {}
+        for code, c in zip(sample_index.ravel(), sample_contrib.ravel()):
+            if code == 0:
+                continue
+            entry = row.setdefault(int(code), [0.0, 0.0])
+            entry[0] += 1
+            entry[1] += float(c)
+        rows.append(row)
+
+
+OTHER_CODES = "other codes"
+
+
+def _code_columns(rows, vocab: dict[int, str], patient_ids=None,
+                  min_cell: int = 1) -> dict[str, Any]:
+    """One column per code seen in ``rows``: counts and contributions.
+
+    Codes seen in fewer than ``min_cell`` distinct patients share one
+    ``"other codes"`` column, so they are never named.
+
+    Examples:
+        >>> out = _code_columns([{2: [1, 0.5]}, {2: [2, 0.2], 3: [1, -0.1]}],
+        ...                     {2: "I10", 3: "E11"})
+        >>> out["names"], out["values"][0].tolist(), out["contributions"][0].tolist()
+        (['I10', 'E11'], [[1.0, 0.0], [2.0, 1.0]], [[0.5, 0.0], [0.2, -0.1]])
+        >>> _code_columns([{2: [1, 0.5]}, {2: [2, 0.2], 3: [1, -0.1]}],
+        ...               {2: "I10", 3: "E11"}, ["p1", "p2"], 2)["names"]
+        ['I10', 'other codes']
+    """
+    if patient_ids is None:
+        patient_ids = range(len(rows))
+    patients: dict[int, set] = {}
+    for pid, row in zip(patient_ids, rows):
+        for code in row:
+            patients.setdefault(code, set()).add(pid)
+    named = sorted(c for c, p in patients.items() if len(p) >= min_cell)
+    rare = len(named) < len(patients)
+    column = {code: j for j, code in enumerate(named)}
+    width = len(named) + rare
+    values = np.zeros((len(rows), width))
+    contribs = np.zeros((len(rows), width))
+    for i, row in enumerate(rows):
+        for code, (count, c) in row.items():
+            j = column.get(code, len(named))
+            values[i, j] += count
+            contribs[i, j] += c
+    names = [vocab.get(code, f"code {code}") for code in named]
+    return {"values": [values], "contributions": [contribs],
+            "names": names + [OTHER_CODES] * rare}
+
+
+def _code_names(model, dataset, key) -> dict[int, str]:
+    """Index to code name, from the field's fitted processor."""
+    for source in (getattr(model, "dataset", None), dataset):
+        processor = getattr(source, "input_processors", {}).get(key)
+        vocab = getattr(processor, "code_vocab", None)
+        if vocab:
+            return {int(i): str(code) for code, i in vocab.items()}
+    return {}
 
 
 def _effect_bins(value, contrib, pids, min_cell, n_bins) -> list[dict[str, Any]]:
@@ -341,6 +502,8 @@ def _effect_bins(value, contrib, pids, min_cell, n_bins) -> list[dict[str, Any]]
         hi = None if i == len(merged) - 1 else _edge(value, idx, merged[i + 1])
         if len(np.unique(value[idx])) == 1:
             label = f"= {_fmt(value[idx][0])}"
+        elif lo is None and hi is None:  # one bin holds every value
+            label = "all values"
         elif lo is None:
             label = f"< {_fmt(hi)}"
         elif hi is None:
