@@ -19,6 +19,8 @@ import polars as pl
 import torch
 
 from .base_task import BaseTask
+# Intentionally shared with the forecasting task (and physionet2012_normalization)
+# so both bin hourly means identically; one implementation avoids drift.
 from .physionet2012_forecasting import _hourly_means
 
 if TYPE_CHECKING:
@@ -39,8 +41,10 @@ includes ``Weight``."""
 VITAL_VARIABLES = (
     "DiasABP", "Glucose", "HR", "MAP", "RespRate", "SysABP", "Temp",
 )
-"""Regularly sampled measurements. Reconstructed from the authors' released
-preprocessing code, whose ``feature_meta.json`` is not public."""
+"""Regularly sampled measurements. The authors' ``feature_meta.json`` (read by
+their ``data/dataset.py``) is not public, so this list is taken from the
+commented-out ``p_vitals`` line in their ``preprocess/preprocess_event.py``;
+every other variable is treated as a lab."""
 
 LAB_VARIABLES = tuple(v for v in MORTALITY_VARIABLES if v not in VITAL_VARIABLES)
 """Irregularly sampled measurements, whose observation times form the event

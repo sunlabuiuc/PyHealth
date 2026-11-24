@@ -1,17 +1,23 @@
-﻿# PhysioNet 2012 in-hospital mortality: task-variation ablation
+# PhysioNet 2012 in-hospital mortality: task-variation ablation
 
 Results of `physionet2012_mortality_logreg.py`. It uses the existing
 `PhysioNet2012Dataset` and the new `PhysioNet2012InHospitalMortality` task (input layout of
 [TransEHR](https://proceedings.mlr.press/v225/xu23a.html), Xu et al., 2023), and varies
-only the task options. The model is a class-weighted logistic regression on per-stay
-summaries (per-variable mean, last value, observed fraction, static features), so
-differences come from the task, not from model capacity.
+only the task options. The model is PyHealth's `LogisticRegression` with no class weights. It
+takes the hourly grid directly: the `measurements`, `observed` and `static` inputs are
+each embedded (`--embedding-dim`, default 32) and the pooled embeddings feed one linear layer. It is
+a small linear-on-embeddings model, so differences come mostly from the task, not from
+model capacity.
 
 ## Setup
 
 - One seeded (0), outcome-stratified, patient-level split, 64 / 16 / 20 %; the 20 % test
-  part is scored (2,398 samples; 357 for the ICU-type-1 cohort). Trained with the PyHealth `Trainer` (Adam, lr 1e-3, batch 128, 20 epochs, seed 0); the\n  epoch is selected on validation AUROC.
+  part is scored (2,398 samples; 357 for the ICU-type-1 cohort). Trained with the PyHealth `Trainer` (Adam, lr 1e-3, batch 128, 20 epochs, seed 0, plain binary
+  cross-entropy); the epoch is selected on validation AUROC.
 - Normalization `(x - median) / (p95 - p5)`, fitted on training patients only.
+- `Weight` is a patient descriptor recorded at 00:00. In set-a (4,000 stays) 92 % of
+  stays have it at hour 0, and 53 % of the 48-hour grid cells of the column are observed
+  (HR: 90 %), so the column is sparser than the vitals but not mostly empty.
 - Single run, single split: no spread is available, so small differences are not evidence.
 
 ## Results (test)

@@ -1,4 +1,4 @@
-﻿"""PhysioNet 2012 in-hospital mortality: task-variation ablation.
+"""PhysioNet 2012 in-hospital mortality: task-variation ablation.
 
 Authors: Sadegh Nassiri, Kaushal Seelam (Georgia Tech, CSE 6250 project).
 
