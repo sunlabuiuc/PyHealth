@@ -1,12 +1,34 @@
 import importlib.util
 import unittest
+from unittest import mock
 
 import numpy as np
 import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import KeyClass
-from pyhealth.weak_supervision import KeywordLabeler, aggregate_votes, vote_diagnostics
+from pyhealth.weak_supervision import (
+    KeywordLabeler,
+    aggregate_votes,
+    clean_note,
+    confident_balanced_mask,
+    nltk_english_stopwords,
+    snorkel_memory_gb,
+    vote_diagnostics,
+)
+
+# Small stand-in for the NLTK corpus so unit tests need no download.
+STOPWORDS = ("and", "at", "by", "no", "not", "the")
+
+
+def corpus_available():
+    try:
+        from nltk.corpus import stopwords
+
+        stopwords.words("english")
+    except (ImportError, LookupError):
+        return False
+    return True
 
 
 class MockEncoder:
@@ -17,6 +39,14 @@ class MockEncoder:
 
 
 class TestKeyClass(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch(
+            "pyhealth.weak_supervision.keyclass.nltk_english_stopwords",
+            return_value=STOPWORDS,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_mining_and_boundaries(self):
         labeler = KeywordLabeler(MockEncoder(), top_k=4, min_df=1).fit(
             ["heart failure", "lung disease", "heart lung"],
@@ -74,6 +104,114 @@ class TestKeyClass(unittest.TestCase):
         self.assertNotIn("loss", model(embedding=batch["embedding"]))
         with self.assertRaises(ValueError):
             model(embedding=batch["embedding"], weak_labels=[[2.0, 0.0], [0.0, 1.0]])
+
+    def test_clean_note_and_stopwords(self):
+        text = (
+            "Seen by [**First Name4 (NamePattern1) **] at [**Hospital1 18**].\nASA 81"
+        )
+        self.assertEqual(clean_note(text), "seen by at . asa")
+        labeler = KeywordLabeler(MockEncoder(), ngram_range=(1, 2), min_df=1)
+        labeler.fit(["no heart failure", "lung not clear"], {"c": "heart", "r": "lung"})
+        # Stopwords are removed before n-grams are formed, as in the authors' code.
+        self.assertIn("heart failure", labeler.vectorizer_.vocabulary_)
+        self.assertNotIn("no", labeler.vectorizer_.vocabulary_)
+        self.assertIn("lung clear", labeler.vectorizer_.vocabulary_)
+
+    def test_missing_nltk_corpus_message(self):
+        nltk_english_stopwords.cache_clear()
+        self.addCleanup(nltk_english_stopwords.cache_clear)
+        corpus = mock.Mock()
+        corpus.words.side_effect = LookupError
+        with mock.patch.dict(
+            "sys.modules", {"nltk.corpus": mock.Mock(stopwords=corpus)}
+        ):
+            with self.assertRaisesRegex(LookupError, "nltk.downloader stopwords"):
+                nltk_english_stopwords()
+
+    @unittest.skipUnless(corpus_available(), "NLTK stopwords corpus not installed")
+    def test_real_nltk_stopwords(self):
+        nltk_english_stopwords.cache_clear()
+        self.addCleanup(nltk_english_stopwords.cache_clear)
+        words = nltk_english_stopwords()
+        self.assertIn("not", words)
+        self.assertNotIn("don't", words)  # cannot match a CountVectorizer token
+        self.assertTrue(all(len(w) > 1 for w in words))
+
+    def test_strict_min_df_and_candidate_cap(self):
+        texts = ["heart failure"] * 2 + ["lung disease"] * 3
+        labeler = KeywordLabeler(MockEncoder(), ngram_range=(1, 1), min_df=0.4)
+        labeler.fit(texts, {"cardiac": "heart", "resp": "lung"})
+        self.assertEqual(labeler.min_count_, 3)  # more than 40% of 5 notes
+        self.assertEqual(set(labeler.vectorizer_.vocabulary_), {"lung", "disease"})
+        with self.assertRaises(ValueError):
+            KeywordLabeler(MockEncoder(), min_df=1, max_candidates=1).fit(
+                texts, {"cardiac": "heart", "resp": "lung"}
+            )
+
+    def test_top_k_budget_and_vectorized_votes(self):
+        texts = ["heart failure acute", "heart murmur", "lung disease", "heart lung"]
+        descriptions = {"cardiac": "heart", "resp": "lung"}
+        uncapped = KeywordLabeler(MockEncoder(), top_k=50, min_df=1).fit(
+            texts, descriptions
+        )
+        pools = np.bincount([lf.category_index for lf in uncapped.lfs_], minlength=2)
+        self.assertGreater(pools.max(), pools.min())
+        capped = KeywordLabeler(
+            MockEncoder(), top_k=50, min_df=1, equalize_top_k=True
+        ).fit(texts, descriptions)
+        self.assertEqual(capped.effective_top_k_, pools.min())
+        votes = uncapped.transform(texts)
+        counts = uncapped.vectorizer_.transform(texts)
+        for j, lf in enumerate(uncapped.lfs_):
+            column = uncapped.vectorizer_.vocabulary_[lf.phrase]
+            expected = counts[:, column].toarray().ravel() > 0
+            np.testing.assert_array_equal(votes[:, j] == lf.category_index, expected)
+
+    def test_confident_mask_and_snorkel_guard(self):
+        p = np.array([[0.9, 0.1], [0.8, 0.2], [0.4, 0.6], [0.5, 0.5], [0.1, 0.9]])
+        covered = np.array([True, True, True, False, True])
+        mask = confident_balanced_mask(p, covered, 2)
+        np.testing.assert_array_equal(mask, [True, False, False, False, True])
+        self.assertGreater(snorkel_memory_gb(945, 5700, 19), 140)
+        with self.assertRaises(MemoryError):
+            aggregate_votes(
+                np.array([[0, 1, -1], [1, 1, 0]]), 2, "snorkel", max_memory_gb=1e-9
+            )
+
+    def test_standardization_and_sample_weights(self):
+        samples = [
+            {
+                "patient_id": str(i),
+                "embedding": [1.0, 10.0 * i],
+                "weak_labels": [0.2, 0.8],
+            }
+            for i in range(3)
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"embedding": "tensor"},
+            output_schema={"weak_labels": "tensor"},
+        )
+        model = KeyClass(dataset, 2, ["cardiac", "resp"], hidden_dims=(4, 4, 4)).eval()
+        x = torch.tensor([[1.0, 0.0], [1.0, 10.0], [1.0, 20.0]])
+        y = torch.tensor([[0.2, 0.8], [1.0, 0.0], [0.5, 0.5]])
+        torch.testing.assert_close(model(embedding=x)["logit"], model.network(x))
+        model.fit_input_standardization(x)
+        self.assertEqual(float(model.input_scale[0]), 1.0)  # constant dimension
+        scaled = (x - x.mean(0)) / torch.tensor([1.0, x[:, 1].std(unbiased=False)])
+        torch.testing.assert_close(model(embedding=x)["logit"], model.network(scaled))
+        plain = model(embedding=x, weak_labels=y)["loss"]
+        ones = model(embedding=x, weak_labels=y, sample_weight=torch.ones(3))["loss"]
+        torch.testing.assert_close(plain, ones)
+        zeros = model(embedding=x, weak_labels=y, sample_weight=torch.zeros(3))
+        self.assertEqual(zeros["loss"].item(), 0.0)
+        with self.assertRaises(ValueError):
+            model(embedding=x, weak_labels=y, sample_weight=torch.ones(2))
+        restored = KeyClass(dataset, 2, ["cardiac", "resp"], hidden_dims=(4, 4, 4))
+        restored.load_state_dict(model.state_dict())
+        torch.testing.assert_close(
+            restored.eval()(embedding=x)["logit"], model(embedding=x)["logit"]
+        )
 
     @unittest.skipUnless(
         importlib.util.find_spec("snorkel"), "optional Snorkel not installed"
