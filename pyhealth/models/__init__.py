@@ -163,3 +163,10 @@ from .dearllm import (
     DearLLM as DearLLM,
     DearLLMGraphEncoder as DearLLMGraphEncoder,
 )
+from .game import (
+    GAME as GAME,
+    GAMEEmbedding as GAMEEmbedding,
+    init_embedding_with_game as init_embedding_with_game,
+    load_game_embeddings as load_game_embeddings,
+    normalize_game_code as normalize_game_code,
+)
