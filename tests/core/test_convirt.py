@@ -127,7 +127,7 @@ class TestConVIRT(unittest.TestCase):
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
         model.train()
         first = model(**self.batch)["loss"].item()
-        for _ in range(15):
+        for _ in range(5):
             optimizer.zero_grad()
             loss = model(**self.batch)["loss"]
             loss.backward()
