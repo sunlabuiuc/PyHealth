@@ -87,6 +87,7 @@ class Discretizer:
 
     @property
     def channels(self) -> list[str]:
+        """The 17 variable names, in the discretizer's column order."""
         return list(self._id_to_channel)
 
     @property
@@ -206,7 +207,7 @@ class _NumpyOnlyUnpickler(pickle.Unpickler):
         ("numpy._core.multiarray", "scalar"),
     })
 
-    def find_class(self, module: str, name: str):
+    def find_class(self, module: str, name: str) -> type:
         if (module, name) not in self._ALLOWED:
             raise pickle.UnpicklingError(f"global {module}.{name} is not allowed")
         if module.startswith("numpy.core") and int(np.__version__.split(".")[0]) >= 2:
@@ -271,6 +272,17 @@ class Normalizer:
         return self
 
     def load_params(self, path: str | Path = PH_NORMALIZER) -> Normalizer:
+        """Loads the means and standard deviations from a MedMod normalizer.
+
+        Only numpy arrays are unpickled. Any other object is refused.
+
+        Args:
+            path: A MedMod ``.normalizer`` file. The default is the
+                phenotyping file that MedMod's code loads.
+
+        Returns:
+            This normalizer, ready to ``transform``.
+        """
         # line 220: pickle.load(..., encoding='latin1')
         with open(path, "rb") as f, warnings.catch_warnings():
             # numpy >= 2.4 warns about the py2-era `align=0` in the pickled dtype.
@@ -285,15 +297,25 @@ class Normalizer:
 
     @property
     def means(self) -> np.ndarray:
+        """Per-column means (after ``load_params`` or fitting)."""
         assert self._means is not None
         return self._means
 
     @property
     def stds(self) -> np.ndarray:
+        """Per-column standard deviations, at least 1e-7."""
         assert self._stds is not None
         return self._stds
 
     def transform(self, X: np.ndarray) -> np.ndarray:
+        """Standardizes the normalizer's columns of ``X``.
+
+        Args:
+            X: Binned EHR, shape (time steps, 76).
+
+        Returns:
+            A copy with the listed (continuous) columns z-scored.
+        """
         # lines 224-232: only the listed columns are z-scored.
         fields = range(X.shape[1]) if self._fields is None else self._fields
         ret = 1.0 * X

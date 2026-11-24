@@ -32,5 +32,25 @@ ResNet-34 image features with those of a frozen ``google/medsiglip-448``
 image encoder. Each image is embedded once and saved to one ``.npz`` file,
 where the embeddings are looked up by image file name.
 
+MedSigLIP (`google/medsiglip-448 <https://huggingface.co/google/medsiglip-448>`__)
+is introduced in Sellergren et al., "MedGemma Technical Report", Nature
+Medicine 32, 3695-3704 (2026), https://doi.org/10.1038/s41591-026-04626-w
+(preprint arXiv:2507.05201). Its weights are downloaded from the Hugging Face Hub
+under the `Health AI Developer Foundations terms of use
+<https://developers.google.com/health-ai-developer-foundations/terms>`__.
+
 .. automodule:: pyhealth.datasets.medmod.medsiglip
+    :members:
+
+ConVIRT pretraining samples
+---------------------------
+
+ConVIRT is pretrained on MedMod's phenotyping train and validation stays, each
+with its whole ICU stay of EHR and its latest AP chest X-ray.
+:mod:`pyhealth.datasets.medmod.pretraining` builds these samples from the
+output of MedMod's extraction scripts and the MIMIC-CXR-JPG metadata
+(``load_pretraining_samples``) and turns them into a PyHealth dataset
+(``create_pretraining_dataset``).
+
+.. automodule:: pyhealth.datasets.medmod.pretraining
     :members:

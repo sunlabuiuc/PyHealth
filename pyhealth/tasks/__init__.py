@@ -60,9 +60,6 @@ from .ehr_cxr_mimic4 import (
     EHRCXRMortalityMIMIC4 as EHRCXRMortalityMIMIC4,
     EHRCXRPhenotypingMIMIC4 as EHRCXRPhenotypingMIMIC4,
 )
-from .medmod_mortality_mimic4 import (
-    MedModInHospitalMortality as MedModInHospitalMortality,
-)
 from .ehr_text_serialization import (
     CodeDescriber as CodeDescriber,
     EHRTextSerializationTask as EHRTextSerializationTask,
@@ -203,6 +200,12 @@ from .yaib_eicu import (
     YAIBLengthOfStayEICU as YAIBLengthOfStayEICU,
     YAIBMortalityEICU as YAIBMortalityEICU,
     YAIBSepsisEICU as YAIBSepsisEICU,
+)
+
+# Imported last: this task imports pyhealth.datasets, which imports the tasks
+# above, so they must already be defined.
+from .medmod_mortality_mimic4 import (
+    MedModInHospitalMortality as MedModInHospitalMortality,
 )
 
 

@@ -40,6 +40,7 @@ from typing import Any, ClassVar
 import pandas as pd
 import polars as pl
 
+from ..data import Patient
 from ..datasets.medmod.discretizer import PH_NORMALIZER
 from ..datasets.medmod.extraction import (
     DEFAULT_TIMESTEP,
@@ -54,7 +55,7 @@ from ..processors.medmod_ehr_processor import MedModEHRProcessor
 from .base_task import BaseTask
 
 
-def _table(patient, event_type: str, ts_name: str) -> pd.DataFrame:
+def _table(patient: Patient, event_type: str, ts_name: str) -> pd.DataFrame:
     """One event type as pandas, with the ``<event_type>/`` prefix removed
     (attribute naming from base_dataset.py:1029-1033) and ``timestamp``
     renamed to ``ts_name``."""
@@ -170,7 +171,17 @@ class MedModInHospitalMortality(BaseTask):
                 expr = expr & ((pl.col("event_type") != et) | pl.col(col).is_in(ids))
         return df.filter(expr)
 
-    def subject_tables(self, patient) -> SubjectTables:
+    def subject_tables(self, patient: Patient) -> SubjectTables:
+        """Collects one patient's PyHealth events into MedMod's tables.
+
+        Args:
+            patient: A PyHealth patient of ``MedModMIMIC4Dataset``.
+
+        Returns:
+            The patient's admissions, ICU stays, chart and lab events,
+            diagnoses and chest X-ray metadata, in the form MedMod's
+            extraction (``process_subject``) reads.
+        """
         ce = _table(patient, "chartevents", "charttime")
         le = _table(patient, "labevents", "charttime")
         events = pd.concat([ce, le], ignore_index=True, sort=False)
@@ -200,8 +211,16 @@ class MedModInHospitalMortality(BaseTask):
             ),
         )
 
-    def process_patient(self, patient) -> list[StayResult]:
-        """Every ICU stay of the patient with the last stage it survived."""
+    def process_patient(self, patient: Patient) -> list[StayResult]:
+        """Runs MedMod's extraction on every ICU stay of a patient.
+
+        Args:
+            patient: A PyHealth patient of ``MedModMIMIC4Dataset``.
+
+        Returns:
+            One result per ICU stay, with the last cohort stage it passed
+            and, for stays in the cohort, its sample.
+        """
         return process_subject(
             self.subject_tables(patient),
             self.resources,
@@ -210,5 +229,17 @@ class MedModInHospitalMortality(BaseTask):
             self.timestep,
         )
 
-    def __call__(self, patient) -> list[dict]:
+    def __call__(self, patient: Patient) -> list[dict]:
+        """Returns the patient's in-hospital mortality samples.
+
+        Args:
+            patient: A PyHealth patient of ``MedModMIMIC4Dataset``.
+
+        Returns:
+            One sample per ICU stay in MedMod's cohort, with keys
+            ``patient_id``, ``visit_id``, ``ehr`` (the binned first 48 hours),
+            ``image_path`` (the latest AP chest X-ray), ``label`` (1 if the
+            patient died in hospital) and ``split`` (MedMod's fixed split).
+            Empty if no stay qualifies.
+        """
         return [r.sample() for r in self.process_patient(patient) if r.kept]

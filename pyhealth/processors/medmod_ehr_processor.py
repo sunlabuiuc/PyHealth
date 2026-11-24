@@ -51,9 +51,9 @@ class MedModEHRProcessor(FeatureProcessor):
     stores_tensor = True
 
     def __init__(self, normalizer: str | Path | None = None):
-        # Imported here: pyhealth.datasets imports the tasks, which import this
-        # module, so a module-level import is circular when this module is
-        # imported first.
+        # Imported here, not at the top. The discretizer is in pyhealth.datasets,
+        # which imports the tasks, and the MedMod task imports this module. A
+        # top-level import would fail when this module is imported first.
         from ..datasets.medmod.discretizer import Discretizer, Normalizer
 
         self.normalizer_file = None if normalizer is None else str(normalizer)
@@ -66,24 +66,42 @@ class MedModEHRProcessor(FeatureProcessor):
             self.normalizer.load_params(normalizer)
 
     def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
+        """Fits the normalizer on the samples, unless a file was given.
+
+        Args:
+            samples: The task's samples.
+            field: The EHR key of each sample.
+        """
         if self.normalizer_file is not None:
             return
         self.normalizer.fit(np.asarray(s[field], dtype=float) for s in samples)
 
     def process(self, value: Any) -> torch.Tensor:
+        """Standardizes one stay's binned EHR.
+
+        Args:
+            value: The stay's EHR, shape (time steps, 76).
+
+        Returns:
+            A float32 tensor of the same shape, continuous columns z-scored.
+        """
         x = self.normalizer.transform(np.asarray(value, dtype=float))
         return torch.from_numpy(x.astype(np.float32))
 
     def is_token(self) -> bool:
+        """False: the EHR is continuous values, not token ids."""
         return False
 
     def schema(self) -> tuple[str, ...]:
+        """The processed output: one tensor, ``value``."""
         return ("value",)
 
     def dim(self) -> tuple[int, ...]:
+        """The tensor has 2 dimensions per sample: time steps x 76."""
         return (2,)
 
     def spatial(self) -> tuple[bool, ...]:
+        """Which dimensions are ordered: time steps yes, features no."""
         return (True, False)  # time bins, then features
 
 
@@ -111,9 +129,18 @@ class MedModEHRSequenceProcessor(MedModEHRProcessor):
     """
 
     def collate(self, values: list[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
+        """Zero-pads a batch of stays to the longest one.
+
+        Args:
+            values: Processed stays, each (time steps, 76).
+
+        Returns:
+            The padded batch (batch, longest, 76) and each stay's length.
+        """
         lengths = torch.tensor([v.shape[0] for v in values], dtype=torch.long)
         ehr = torch.nn.utils.rnn.pad_sequence(values, batch_first=True, padding_value=0)
         return ehr, lengths
 
     def schema(self) -> tuple[str, ...]:
+        """The processed output: the padded ``value`` and its ``lengths``."""
         return ("value", "lengths")

@@ -14,6 +14,7 @@ images whose study has a CheXpert row (``get_final_meta``, 342-365), stays on
 the split's listfile. Stays whose resized image is missing are dropped.
 
 EHR, as MedMod's loader (src/data/datasets.py):
+
 * rows with 0 < Hours < full_stay_time, strict on both sides
   (``_read_timeseries``, 137-160), where full_stay_time =
   round((outtime - intime) in hours, 3) (utils.py:194-195); MedMod's two dummy
@@ -36,6 +37,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from ...processors.medmod_ehr_processor import MedModEHRSequenceProcessor
+from ..sample_dataset import SampleDataset, create_sample_dataset
 from .discretizer import PH_NORMALIZER, Discretizer
 from .extraction import MEDMOD_DUMMY_ROWS
 
@@ -243,7 +246,7 @@ def load_pretraining_samples(
 
 def create_pretraining_dataset(
     samples: list[dict], normalizer: str | Path | None = PH_NORMALIZER
-):
+) -> SampleDataset:
     """A PyHealth ``SampleDataset``: ``ehr`` (varying length, standardized by
     ``MedModEHRSequenceProcessor``), ``image_path`` and ``split``.
 
@@ -265,9 +268,6 @@ def create_pretraining_dataset(
         >>> len(create_pretraining_dataset(raw))  # doctest: +SKIP
         4
     """
-    from pyhealth.datasets import create_sample_dataset
-    from pyhealth.processors.medmod_ehr_processor import MedModEHRSequenceProcessor
-
     return create_sample_dataset(
         samples,
         input_schema={

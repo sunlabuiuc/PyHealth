@@ -1,8 +1,13 @@
 """Resize MIMIC-CXR-JPG images the way MedFuse's resize.py does.
 
-    python -m medmod_tools.resize_cxr --cxr-root /data/mimic-cxr-jpg/2.0.0 \
-        [--out /data/mimic-cxr-jpg/2.0.0/resized]
-        [--paths-file cohort_paths.txt | --glob]
+    from pyhealth.datasets.medmod.resize_cxr import paths_from_metadata, resize_cxr
+
+    root = "/data/mimic-cxr-jpg/2.0.0"
+    report = resize_cxr(paths_from_metadata(root), f"{root}/resized")
+    print(report)  # counts: resized, skipped, missing, failed
+
+``paths_from_metadata`` lists every image in the MIMIC-CXR metadata CSV. Any
+list of original ``.jpg`` paths works too, for example only the cohort's.
 
 Settings, with sources (MedFuse = github.com/nyuad-cai/MedFuse, resize.py;
 Pillow = github.com/python-pillow/Pillow at tag 8.0.0, the version MedFuse
@@ -56,7 +61,12 @@ except AttributeError:  # pragma: no cover
 BASEWIDTH = 512  # MedFuse resize.py:28
 
 
-def original_path(cxr_root: str | Path, subject_id, study_id, dicom_id) -> Path:
+def original_path(
+    cxr_root: str | Path,
+    subject_id: str | int,
+    study_id: str | int,
+    dicom_id: str,
+) -> Path:
     """files/p<first 2 digits>/p<subject_id>/s<study_id>/<dicom_id>.jpg
     (same layout PyHealth builds, pyhealth/datasets/mimic4.py:208-216).
 

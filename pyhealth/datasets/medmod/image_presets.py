@@ -124,7 +124,15 @@ class RandomCrop:
         True
     """
 
-    def __call__(self, img):
+    def __call__(self, img: Image.Image) -> Image.Image:
+        """Crops a random square from ``img``.
+
+        Args:
+            img: A PIL image (256 x 256 in MedMod's preset).
+
+        Returns:
+            The crop, its side drawn from U(153.6, 256).
+        """
         resize = 256
         size = int(np.random.uniform(0.6 * resize, resize, 1)[0])
         return transforms.RandomCrop(size)(img)
@@ -140,7 +148,16 @@ class RandomColorDistortion:
         (224, 224)
     """
 
-    def __call__(self, img):
+    def __call__(self, img: Image.Image) -> Image.Image:
+        """Randomly jitters the colours of ``img``, then may make it grey.
+
+        Args:
+            img: A PIL image.
+
+        Returns:
+            The image after colour jitter (probability 0.8) and greyscale
+            (probability 0.2).
+        """
         strength = 1.0
         if np.random.uniform(0, 1, 1)[0] < 0.8:
             img = transforms.ColorJitter(

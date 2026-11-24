@@ -27,6 +27,16 @@ image input for a model built with ``cxr_backbone=nn.Identity()`` and
 
 Runs with transformers 4.x and 5.x, and also as a standalone script
 (``python medsiglip.py ...``; needs numpy, Pillow, torch, transformers).
+
+MedSigLIP (``google/medsiglip-448``, https://huggingface.co/google/medsiglip-448)
+is introduced in Sellergren, A., et al. MedGemma Technical Report. Nature
+Medicine 32, 3695-3704 (2026). https://doi.org/10.1038/s41591-026-04626-w
+(preprint arXiv:2507.05201).
+
+The model weights are not part of PyHealth. They are downloaded from the
+Hugging Face Hub, which asks you to accept the Health AI Developer Foundations
+terms of use first:
+https://developers.google.com/health-ai-developer-foundations/terms
 """
 
 from __future__ import annotations
@@ -42,7 +52,9 @@ from typing import Any
 
 import numpy as np
 import torch
+import transformers
 from PIL import Image
+from transformers import AutoImageProcessor, SiglipVisionModel
 
 MODEL_ID = "google/medsiglip-448"
 # ``main`` of google/medsiglip-448 on the Hugging Face Hub on 2026-11-19.
@@ -118,9 +130,6 @@ def load_medsiglip(
         >>> from pyhealth.datasets.medmod.medsiglip import load_medsiglip
         >>> processor, model = load_medsiglip()  # doctest: +SKIP
     """
-    import transformers
-    from transformers import AutoImageProcessor, SiglipVisionModel
-
     if Path(model_id).is_dir():
         revision = None
     # transformers 5 renamed ``torch_dtype`` to ``dtype``.
