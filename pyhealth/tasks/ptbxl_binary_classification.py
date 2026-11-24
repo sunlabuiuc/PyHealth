@@ -82,6 +82,7 @@ class PTBXLBinaryClassification(BaseTask):
     ) -> None:
         from pyhealth.tasks.ptbxl import PTBXL_DIAGNOSTIC_SUPERCLASSES
 
+        # target must be a supported classification type
         if target not in PTBXL_DIAGNOSTIC_SUPERCLASSES:
             raise ValueError(
                 f"target must be one of {PTBXL_DIAGNOSTIC_SUPERCLASSES}, got {target!r}"
