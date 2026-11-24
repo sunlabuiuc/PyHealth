@@ -76,9 +76,9 @@ class EEGEventsTUEV(BaseTask):
     warning, as in the BIOT preprocessing this task follows.
 
     Each returned sample contains:
-      - "signal": torch.FloatTensor, shape (16, 5 * resample_rate), with
-        ``resample_rate`` a whole number of Hz. ``BuildEvents`` sizes the windows with ``int(resample_rate)``, so
-        ``resample_rate`` has to be a whole number of Hz.
+      - "signal": torch.FloatTensor, shape (16, 5 * resample_rate) for an
+        integer rate. Otherwise the window holds round(5 * resample_rate)
+        samples, starting round(2 * resample_rate) samples before the event.
       - "offending_channel": int, the channel number from the .rec file.
         It indexes the 22-channel TCP montage (0-21), not a row of
         ``signal``.
@@ -131,7 +131,12 @@ class EEGEventsTUEV(BaseTask):
         fs = resample_rate
         numChan, _ = signals.shape
 
-        features = np.zeros([numEvents, numChan, int(fs) * 5])
+        # A fixed number of samples per window: 2 s before the event onset,
+        # 5 s in all (TUEV events last 1 s). Rounding keeps the slice and the
+        # buffer the same length when resample_rate is not a whole number.
+        pre = round(2 * fs)
+        window = round(5 * fs)
+        features = np.zeros([numEvents, numChan, window])
         offending_channel = np.zeros([numEvents, 1])
         labels = np.zeros([numEvents, 1])
 
@@ -141,11 +146,9 @@ class EEGEventsTUEV(BaseTask):
         for i in range(numEvents):
             chan = int(EventData[i, 0])
             start = np.where((times) >= EventData[i, 1])[0][0]
-            end = np.where((times) >= EventData[i, 2])[0][0]
+            first = offset + start - pre
 
-            features[i, :] = signals[
-                :, offset + start - 2 * int(fs) : offset + end + 2 * int(fs)
-            ]
+            features[i, :] = signals[:, first : first + window]
             offending_channel[i, :] = int(chan)
             labels[i, :] = int(EventData[i, 3])
 
