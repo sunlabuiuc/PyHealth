@@ -188,6 +188,25 @@ class TestReaders(NSRRTestCase):
         self.assertEqual(_read_stage_codes(path).tolist(), STAGES)
 
 
+class TestSetTaskAndModel(NSRRTestCase):
+    """Checks that the task output works with ``set_task`` and ``MLP``."""
+
+    def test_set_task_and_mlp_forward(self):
+        import torch
+
+        from pyhealth.datasets import get_dataloader
+        from pyhealth.models import MLP
+
+        samples = self.shhs_ds.set_task(SleepStagingCardioRespiratory())
+        self.assertEqual(len(samples), 3 * (N_EPOCHS - 1))  # three nights
+        model = MLP(dataset=samples, embedding_dim=8, hidden_dim=8)
+        batch = next(iter(get_dataloader(samples, batch_size=4, shuffle=False)))
+        output = model(**batch)
+        self.assertEqual(output["y_prob"].shape[0], 4)
+        self.assertTrue(torch.isfinite(output["loss"]))
+        output["loss"].backward()
+
+
 class TestSleepStagingCardioRespiratory(NSRRTestCase):
     def test_samples_shapes_and_labels(self):
         samples = SleepStagingCardioRespiratory()(self.shhs_patient)
