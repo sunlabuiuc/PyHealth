@@ -41,15 +41,22 @@ real 14.9%.
 from __future__ import annotations
 
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 
+from ...processors.medmod_ehr_processor import (
+    MedModEHRProcessor,
+    MedModEHRSequenceProcessor,
+)
+from ...tasks.medmod_mortality_mimic4 import MedModInHospitalMortality
+from ..sample_dataset import SampleDataset, create_sample_dataset
 from .discretizer import PH_NORMALIZER, Discretizer
 from .extraction import DEFAULT_TIMESTEP, N_HOURS, loader_rows
+from .medsiglip import image_key, save_embeddings
 
 SPLIT_FRACTIONS = {"train": 4485 / 6214, "val": 488 / 6214, "test": 1241 / 6214}
 DEATH_RATE = 924 / 6214
@@ -215,6 +222,49 @@ def write_dummy_jpg(path: Path, rng: np.random.Generator) -> None:
     Image.fromarray(img, "L").save(path, format="JPEG")
 
 
+def write_synthetic_embeddings(
+    image_paths: Iterable[str | Path],
+    out: str | Path,
+    dim: int = 1152,
+    seed: int = 0,
+) -> Path:
+    """Random stand-ins for MedSigLIP embeddings of synthetic images.
+
+    Writes the same ``.npz`` format as ``python -m
+    pyhealth.datasets.medmod.medsiglip``, one random vector per image file
+    name, so the MedSigLIP extension (``--embeddings``) runs end to end
+    without the gated model or real images. The vectors carry no information
+    about the images.
+
+    Args:
+        image_paths: Paths of the synthetic images, e.g. the samples'
+            ``image_path`` values. A file name that repeats gets one vector.
+        out: The ``.npz`` to write.
+        dim: Vector size. MedSigLIP-448's vectors have 1152 values.
+        seed: Seed of the random vectors.
+
+    Returns:
+        The path of the written file.
+
+    Examples:
+        >>> import os, tempfile
+        >>> from pyhealth.datasets.medmod.medsiglip import load_embeddings
+        >>> from pyhealth.datasets.medmod.synthetic import (
+        ...     write_synthetic_embeddings,
+        ... )
+        >>> out = os.path.join(tempfile.mkdtemp(), "emb.npz")
+        >>> _ = write_synthetic_embeddings(["/x/a.jpg", "/y/b.jpg"], out, dim=4)
+        >>> index, emb, meta = load_embeddings(out)
+        >>> index, emb.shape, meta["model"]
+        ({'a': 0, 'b': 1}, (2, 4), 'synthetic (random vectors)')
+    """
+    keys = list(dict.fromkeys(image_key(p) for p in image_paths))
+    rng = np.random.default_rng(seed)
+    embeddings = rng.normal(size=(len(keys), dim)).astype(np.float32)
+    meta = {"model": "synthetic (random vectors)", "dim": dim, "seed": seed}
+    return save_embeddings(out, keys, embeddings, meta)
+
+
 def make_synthetic_samples(
     hours_zero: str,
     out_dir: str | Path,
@@ -266,7 +316,7 @@ def create_synthetic_samples(
     extreme_rate: float = 0.001,
     timestep: float = DEFAULT_TIMESTEP,
     normalizer: str | Path | None = PH_NORMALIZER,
-):
+) -> SampleDataset:
     """A PyHealth ``SampleDataset`` of synthetic stays, built with the task's own
     schema and processor, so ``samples[i]`` has the same keys, types and shapes
     as the real set. Split it with ``split_by_medmod(samples)``.
@@ -278,8 +328,13 @@ def create_synthetic_samples(
         out_dir: where the dummy JPGs go (``out_dir/resized``); a temp folder
             if not given.
         extreme_rate: share of values replaced by an absurd one (no clipping).
-        timestep, normalizer: as in ``MedModInHospitalMortality``; by default the
-            released code's (1-hour bins, phenotyping normalizer file).
+        timestep: Bin width in hours, as in ``MedModInHospitalMortality``.
+            The default is 1 hour, as in the released code.
+        normalizer: As in ``MedModInHospitalMortality``. The default is the
+            phenotyping normalizer file that the released code uses.
+
+    Returns:
+        The synthetic samples, with a ``split`` field for ``split_by_medmod``.
 
     Examples:
         >>> from pyhealth.datasets import split_by_medmod
@@ -287,11 +342,6 @@ def create_synthetic_samples(
         >>> samples = create_synthetic_samples("keep", n_stays=50)  # doctest: +SKIP
         >>> train, val, test = split_by_medmod(samples)  # doctest: +SKIP
     """
-    from pyhealth.datasets import create_sample_dataset
-
-    from ...processors.medmod_ehr_processor import MedModEHRProcessor
-    from ...tasks.medmod_mortality_mimic4 import MedModInHospitalMortality
-
     task = MedModInHospitalMortality(
         hours_zero=hours_zero, timestep=timestep, normalizer=normalizer
     )
@@ -386,7 +436,7 @@ def create_synthetic_pretraining_samples(
     seed: int = 0,
     out_dir: str | Path | None = None,
     extreme_rate: float = 0.001,
-):
+) -> SampleDataset:
     """A PyHealth ``SampleDataset`` of synthetic ConVIRT pretraining stays with
     the real pretraining set's contract: ``ehr`` of varying length,
     standardized with MedMod's phenotyping normalizer; a batch's ``ehr`` is
@@ -399,10 +449,6 @@ def create_synthetic_pretraining_samples(
         ... )
         >>> samples = create_synthetic_pretraining_samples(50)  # doctest: +SKIP
     """
-    from pyhealth.datasets import create_sample_dataset
-
-    from ...processors.medmod_ehr_processor import MedModEHRSequenceProcessor
-
     out_dir = (
         Path(out_dir) if out_dir else Path(tempfile.mkdtemp(prefix="medmod_pretrain_"))
     )

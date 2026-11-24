@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 import torch
 from PIL import Image
+from transformers import SiglipConfig, SiglipImageProcessor, SiglipModel
 
 from pyhealth.datasets.medmod.medsiglip import (
     compute_embeddings,
@@ -18,13 +19,9 @@ from pyhealth.datasets.medmod.medsiglip import (
     pooled,
 )
 
-transformers = pytest.importorskip("transformers")
-
 
 @pytest.fixture(scope="module")
 def checkpoint(tmp_path_factory):
-    from transformers import SiglipConfig, SiglipImageProcessor, SiglipModel
-
     torch.manual_seed(0)
     small = {"hidden_size": 16, "intermediate_size": 24, "num_hidden_layers": 2,
              "num_attention_heads": 2}
@@ -51,8 +48,6 @@ def images(tmp_path_factory):
 
 
 def test_embedding_matches_full_model_and_batching(checkpoint, images):
-    from transformers import SiglipModel
-
     processor, model = load_medsiglip(str(checkpoint), device="cpu")
     assert not model.training
     assert not any(p.requires_grad for p in model.parameters())

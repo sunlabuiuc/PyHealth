@@ -1,45 +1,46 @@
-"""MedMod in-hospital mortality: chest X-ray presets (in a child process: some
-conda envs abort on importing torchvision) and MedFuse's 512-px resize."""
+"""MedMod in-hospital mortality: chest X-ray presets and MedFuse's 512-px resize."""
 
 from __future__ import annotations
 
-import subprocess
-import sys
-import textwrap
 from pathlib import Path
 
 import numpy as np
 import pytest
+import torch
 from PIL import Image
+from torchvision.transforms import (
+    CenterCrop,
+    InterpolationMode,
+    Normalize,
+    RandomAffine,
+    RandomHorizontalFlip,
+    Resize,
+    ToTensor,
+)
 
-from tests.core.medmod_test_utils import SID
+from pyhealth.datasets.medmod.image_presets import (
+    IMAGENET_MEAN,
+    IMAGENET_STD,
+    RandomColorDistortion,
+    RandomCrop,
+    get_preset,
+)
 from pyhealth.datasets.medmod.resize_cxr import (
     BASEWIDTH,
+    FAILED_FILE,
+    ResizeReport,
     medfuse_resize,
     original_path,
     resize_cxr,
 )
+from tests.core.medmod_test_utils import SID
 
 
-ROOT = Path(__file__).resolve().parents[2]  # the repository root
-
-
-CHILD = textwrap.dedent(
-    """
-    import sys; sys.path.insert(0, {root!r})
-    import torch
-    from PIL import Image
-    from torchvision.transforms import CenterCrop, InterpolationMode, Normalize
-    from torchvision.transforms import Resize, ToTensor
-    from pyhealth.datasets.medmod.image_presets import (
-        get_preset, IMAGENET_MEAN, IMAGENET_STD,
-    )
-
+def test_eval_presets():
+    """MedFuse's Early Fusion and MedMod's ConVIRT evaluation presets."""
     a, b = get_preset("early_fusion"), get_preset("convirt")
-    ta = [type(t) for t in a.transforms]
-    tb = [type(t) for t in b.transforms]
-    assert ta == [Resize, CenterCrop, ToTensor, Normalize], ta
-    assert tb == [Resize, CenterCrop, Resize, ToTensor], tb
+    assert [type(t) for t in a.transforms] == [Resize, CenterCrop, ToTensor, Normalize]
+    assert [type(t) for t in b.transforms] == [Resize, CenterCrop, Resize, ToTensor]
     assert a.transforms[0].size == 256 and list(a.transforms[1].size) == [224, 224]
     assert list(a.transforms[3].mean) == IMAGENET_MEAN
     assert list(a.transforms[3].std) == IMAGENET_STD
@@ -48,24 +49,19 @@ CHILD = textwrap.dedent(
     assert list(b.transforms[2].size) == [224, 224]
     assert b.transforms[2].interpolation == InterpolationMode.BICUBIC
 
-    img = Image.new("RGB", (2544, 3056), (128, 128, 128))   # portrait CXR-sized
+    img = Image.new("RGB", (2544, 3056), (128, 128, 128))  # portrait CXR-sized
     xa, xb = a(img), b(img)
     assert tuple(xa.shape) == (3, 224, 224) and tuple(xb.shape) == (3, 224, 224)
-    # (b): no normalization
-    assert 0.0 <= float(xb.min()) and float(xb.max()) <= 1.0
+    assert 0.0 <= float(xb.min()) and float(xb.max()) <= 1.0  # (b): no Normalize
     exp = (128 / 255 - IMAGENET_MEAN[0]) / IMAGENET_STD[0]
-    # (a): ImageNet normalized
-    assert abs(float(xa[0].mean()) - exp) < 1e-3, float(xa[0].mean())
+    assert abs(float(xa[0].mean()) - exp) < 1e-3  # (a): ImageNet normalized
 
-    # training presets: MedFuse cxr_dataset.py:65-71, MedMod utils.py:80-101
-    from torchvision.transforms import RandomAffine, RandomHorizontalFlip
-    from pyhealth.datasets.medmod.image_presets import RandomColorDistortion, RandomCrop
+
+def test_train_presets():
+    """Training presets: MedFuse cxr_dataset.py:65-71, MedMod utils.py:80-101."""
     at, bt = get_preset("early_fusion", train=True), get_preset("convirt", train=True)
-    try:
+    with pytest.raises(ValueError, match="early_fusion"):
         get_preset("a")
-        raise AssertionError("unknown preset name accepted")
-    except ValueError as e:
-        assert "early_fusion" in str(e)
     assert [type(t) for t in at.transforms] == [
         Resize, RandomHorizontalFlip, RandomAffine, CenterCrop, ToTensor, Normalize
     ]
@@ -80,35 +76,17 @@ CHILD = textwrap.dedent(
     assert aff.scale == (0.7, 1.5) and aff.translate == (0.1, 0.1)
     assert list(aff.shear) == [-25.0, 25.0]
     assert bt.transforms[3].interpolation == InterpolationMode.BICUBIC
-    import numpy as np
-    np.random.seed(0); torch.manual_seed(0)
+
+    np.random.seed(0)
+    torch.manual_seed(0)
     pixels = np.random.randint(0, 255, (600, 512), np.uint8)
     noisy = Image.fromarray(pixels).convert("RGB")
     xat, xbt1, xbt2 = at(noisy), bt(noisy), bt(noisy)
     assert tuple(xat.shape) == (3, 224, 224) and tuple(xbt1.shape) == (3, 224, 224)
     assert 0.0 <= float(xbt1.min()) and float(xbt1.max()) <= 1.0  # no Normalize
     assert not torch.equal(xbt1, xbt2)  # random augmentation
-    sizes = set()
-    for _ in range(200):
-        sizes.add(RandomCrop()(Image.new("RGB", (256, 256))).size[0])
+    sizes = {RandomCrop()(Image.new("RGB", (256, 256))).size[0] for _ in range(200)}
     assert min(sizes) >= 153 and max(sizes) <= 255  # int(U(153.6, 256))
-    print("OK")
-"""
-)
-
-
-def test_image_presets_child_process():
-    proc = subprocess.run(
-        [sys.executable, "-c", CHILD.format(root=str(ROOT))],
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode != 0 and "OMP: Error #15" in proc.stderr:
-        pytest.skip(
-            "torchvision cannot be imported in this environment (duplicate libomp)"
-        )
-    assert proc.returncode == 0, proc.stderr[-2000:]
-    assert proc.stdout.strip().endswith("OK")
 
 
 def _jpg(path: Path, size=(1000, 800), mode="L") -> Path:
@@ -125,8 +103,8 @@ def _jpg(path: Path, size=(1000, 800), mode="L") -> Path:
 
 
 def test_original_path_layout(tmp_path):
-    p = original_path(tmp_path, "10000032", "50414267", "02aa804e")
-    assert p == tmp_path / "files/p10/p10000032/s50414267/02aa804e.jpg"
+    p = original_path(tmp_path, "10000001", "50000001", "d1")  # made-up ids
+    assert p == tmp_path / "files/p10/p10000001/s50000001/d1.jpg"
 
 
 @pytest.mark.parametrize(
@@ -190,8 +168,6 @@ def test_resize_counts_unreadable_file_as_failed(tmp_path):
 
 
 def test_failed_paths_go_to_a_file_not_the_terminal(tmp_path, capsys):
-    from pyhealth.datasets.medmod.resize_cxr import FAILED_FILE, ResizeReport
-
     assert ResizeReport().write_failed(tmp_path) is None
     report = ResizeReport(failed=1, failed_paths=["files/p1/s2/d3.jpg: bad"])
     path = report.write_failed(tmp_path)
