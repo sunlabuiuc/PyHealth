@@ -13,11 +13,16 @@ Real data, two steps:
         --extracted-root /data/medmod_extracted \\
         --cxr-root /data/mimic-cxr-jpg/2.0.0 \\
         --image-dir /data/mimic-cxr-jpg/2.0.0/resized --out runs/convirt
-    # 2. linear probe on in-hospital mortality, from pretraining epoch 65
+    # 2. linear probe on in-hospital mortality, from pretraining epoch NNN
     python examples/mimic4_medmod_convirt.py probe \\
         --ehr-root /data/mimiciv/1.0 --cxr-root /data/mimic-cxr-jpg/2.0.0 \\
         --image-dir /data/mimic-cxr-jpg/2.0.0/resized \\
-        --cache-dir /data/pyhealth_cache --checkpoint runs/convirt/epoch_065.pt
+        --cache-dir /data/pyhealth_cache --checkpoint runs/convirt/epoch_NNN.pt
+
+As the paper describes, NNN is the pretraining epoch with the highest
+validation AUROC. ``mimic4_medmod_ihm_colab_runs.ipynb`` chooses NNN among
+every 10th epoch, with quick probes of
+``medmod_runners/convirt_probe.py --no-augment``.
 
 ``--extracted-root`` is the output of MedMod's extraction scripts (MIMIC-IV
 benchmark + ``create_phenotyping``); ``--image-dir`` holds the images resized
@@ -35,19 +40,43 @@ models/finetune.py) with the encoders frozen, as in the paper's Table 4:
 AdamW lr 0.001, batch 256, at most 200 epochs, early stopping on val AUROC
 (patience 30), train augmentation; MedMod reports the final epoch.
 
-MedSigLIP extension: ``--embeddings FILE`` (written by
-``python -m pyhealth.datasets.medmod.medsiglip``) replaces the ResNet-34 with
-the stored embeddings of a frozen MedSigLIP image encoder, in both steps:
+MedSigLIP extension. The option ``--embeddings FILE`` replaces the ResNet-34
+with stored embeddings from a frozen MedSigLIP image encoder, in both steps.
+The file is written by ``python -m pyhealth.datasets.medmod.medsiglip``.
 ConVIRT is built with ``cxr_backbone=nn.Identity()`` and
-``cxr_feature_dim=1152``, and each batch's image input is looked up by image
-file name. The stored vectors are fixed, so there is no image augmentation;
-pass the same file to both steps.
+``cxr_feature_dim=1152``, and each batch's image input is looked up in the
+file by image file name. The stored vectors are fixed, so there is no image
+augmentation. Pass the same file to both steps:
 
     python examples/mimic4_medmod_convirt.py pretrain ... \\
         --embeddings /data/medsiglip_448.npz --out runs/convirt_medsiglip
     python examples/mimic4_medmod_convirt.py probe ... \\
         --embeddings /data/medsiglip_448.npz \\
-        --checkpoint runs/convirt_medsiglip/epoch_065.pt
+        --checkpoint runs/convirt_medsiglip/epoch_NNN.pt
+
+On synthetic data, ``--embeddings synthetic`` writes a random stand-in vector
+of 1152 values for each image. The MedSigLIP code then runs as on real data,
+without the gated MedSigLIP model:
+
+    python examples/mimic4_medmod_convirt.py --synthetic --embeddings synthetic
+
+Results on the test set. Each value is the mean +- standard deviation over
+MedMod's five seeds 1002, 2918, 5793, 7261 and 84305, each with its own
+pretraining run and probe. Each probe uses the chosen pretraining epoch, and
+the score is taken at the last probe epoch. The runs used
+``medmod_runners/convirt_pretrain.py`` and ``medmod_runners/convirt_probe.py``,
+which train these models with these settings. The Colab notebook
+``mimic4_medmod_ihm_colab_runs.ipynb`` prints them in the cell "Summary of the
+runner reports". With seed 84305 and the same pretraining epoch, this script
+gives the same scores as the runner with the ResNet-34, AUROC 0.8207 and AUPRC
+0.4685. With MedSigLIP, it gives AUROC 0.8159 and AUPRC 0.4640, and the runner
+gives 0.8148 and 0.4589, because the runner shuffles the training batches in a
+different order (cell "Result line of every job").
+
+    ResNet-34:  AUROC 0.8206 +- 0.0049, AUPRC 0.4588 +- 0.0114
+    MedSigLIP:  AUROC 0.8200 +- 0.0037, AUPRC 0.4686 +- 0.0077
+    Paper, Table 4 (linear probing):    AUROC 0.847 +- 0.002, AUPRC 0.482 +- 0.016
+    Paper, Table 8 (linear evaluation): AUROC 0.813 +- 0.010
 """
 
 from __future__ import annotations
@@ -65,10 +94,25 @@ from sklearn.metrics import average_precision_score, roc_auc_score
 from torch import nn
 from torch.optim.optimizer import Optimizer, required
 
-from pyhealth.datasets import get_dataloader, split_by_medmod
+from pyhealth.datasets import (
+    MedModMIMIC4Dataset,
+    MedModSplit,
+    get_dataloader,
+    split_by_medmod,
+)
 from pyhealth.datasets.medmod.image_presets import get_preset, load_cxr
 from pyhealth.datasets.medmod.medsiglip import load_embeddings, lookup_embeddings
+from pyhealth.datasets.medmod.pretraining import (
+    create_pretraining_dataset,
+    load_pretraining_samples,
+)
+from pyhealth.datasets.medmod.synthetic import (
+    create_synthetic_pretraining_samples,
+    create_synthetic_samples,
+    write_synthetic_embeddings,
+)
 from pyhealth.models import ConVIRT, ConVIRTLinearProbe
+from pyhealth.tasks import MedModInHospitalMortality
 
 
 class LARS(Optimizer):
@@ -273,37 +317,37 @@ def main() -> None:
     ap.add_argument("--temperature", type=float, default=0.01)
     ap.add_argument("--backbone", default="resnet34")
     ap.add_argument("--embeddings",
-                    help="MedSigLIP .npz: use stored image embeddings, not a ResNet")
+                    help="MedSigLIP .npz file to use instead of a ResNet. "
+                    "With --synthetic, 'synthetic' uses random stand-in vectors.")
     ap.add_argument("--seed", type=int, default=84305)
     ap.add_argument("--device", default=default_device())
     args = ap.parse_args()
-    args.table = load_embeddings(args.embeddings)[:2] if args.embeddings else None
+    synthetic_embeddings = args.embeddings == "synthetic"
+    if synthetic_embeddings and not args.synthetic:
+        ap.error("--embeddings synthetic needs --synthetic")
+    args.table = None
+    if args.embeddings and not synthetic_embeddings:
+        args.table = load_embeddings(args.embeddings)[:2]
 
     if args.synthetic:
-        from pyhealth.datasets.medmod.synthetic import (
-            create_synthetic_pretraining_samples,
-            create_synthetic_samples,
-        )
-
         args.epochs, args.probe_epochs, args.batch_size = 2, 2, 32
         out = Path(tempfile.mkdtemp(prefix="convirt_synthetic_"))
-        pretrain(create_synthetic_pretraining_samples(n_stays=96), out, args)
+        pretraining = create_synthetic_pretraining_samples(n_stays=96)
         train, val, test = split_by_medmod(create_synthetic_samples("drop", 200))
+        if synthetic_embeddings:
+            # Random stand-ins for MedSigLIP vectors of the synthetic images.
+            paths = [part[i]["image_path"] for part in (pretraining, train, val, test)
+                     for i in range(len(part))]
+            emb = write_synthetic_embeddings(paths, out / "emb.npz", seed=args.seed)
+            args.table = load_embeddings(emb)[:2]
+        pretrain(pretraining, out, args)
         probe(train, val, test, out / "epoch_001.pt", args)
     elif args.step == "pretrain":
-        from pyhealth.datasets.medmod.pretraining import (
-            create_pretraining_dataset,
-            load_pretraining_samples,
-        )
-
         samples, funnel = load_pretraining_samples(
             args.extracted_root, args.cxr_root, args.image_dir)
         print("funnel:", json.dumps(funnel), flush=True)
         pretrain(create_pretraining_dataset(samples), Path(args.out), args)
     elif args.step == "probe":
-        from pyhealth.datasets import MedModMIMIC4Dataset, MedModSplit
-        from pyhealth.tasks import MedModInHospitalMortality
-
         dataset = MedModMIMIC4Dataset(ehr_root=args.ehr_root, cxr_root=args.cxr_root,
                                       cache_dir=args.cache_dir)
         task = MedModInHospitalMortality(hours_zero="drop", image_dir=args.image_dir)

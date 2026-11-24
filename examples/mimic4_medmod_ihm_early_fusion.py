@@ -30,21 +30,40 @@ checkpoints from https://github.com/nyuad-cai/MedFuse, Git LFS):
         --ehr-weights checkpoints/mortality/uni_ehr_all/best_checkpoint.pth.tar \\
         --cxr-weights checkpoints/cxr_rad_full/best_checkpoint.pth.tar
 
-Ablation: ``--train-encoders`` also trains both encoders (the paper's Joint
-Fusion) instead of freezing them.
+MedSigLIP extension. The option ``--embeddings FILE`` replaces the CXR
+ResNet-34 with stored embeddings from a frozen MedSigLIP image encoder. The
+file is written by ``python -m pyhealth.datasets.medmod.medsiglip``. The model
+is built with ``cxr_backbone=nn.Identity()`` and ``cxr_feature_dim=1152``, and
+each batch's image input is looked up in the file by image file name.
+``--cxr-weights`` is not used. The stored vectors are fixed, so there is no
+image augmentation.
 
-MedSigLIP extension: ``--embeddings FILE`` (written by
-``python -m pyhealth.datasets.medmod.medsiglip``) replaces the CXR ResNet-34
-with the stored embeddings of a frozen MedSigLIP image encoder: the model is
-built with ``cxr_backbone=nn.Identity()`` and ``cxr_feature_dim=1152``, each
-batch's image input is looked up by image file name, and ``--cxr-weights`` is
-not used. The stored vectors are fixed, so there is no image augmentation.
+On synthetic data, ``--embeddings synthetic`` writes a random stand-in vector
+of 1152 values for each image. The MedSigLIP code then runs as on real data,
+without the gated MedSigLIP model:
 
-Results (test set): pending a real-data run of this script.
-Paper: AUROC 0.842 +- 0.004, AUPRC 0.515 +- 0.020.
+    python examples/mimic4_medmod_ihm_early_fusion.py --synthetic 300 \\
+        --epochs 2 --embeddings synthetic
 
-Deviation: frozen encoders stay in eval mode during training; MedFuse sets the
-whole model, frozen encoders included, to train mode.
+Results on the test set. Each value is the mean +- standard deviation over
+MedMod's five seeds 1002, 2918, 5793, 7261 and 84305. The five runs used
+``medmod_runners/early_fusion_run.py``, which trains this model with these
+settings. The Colab notebook ``mimic4_medmod_ihm_colab_runs.ipynb`` prints
+them in the cell "Summary of the runner reports". With seed 0, this script and
+the runner give the same scores, AUROC 0.8408 and AUPRC 0.5137 (cell "Result
+line of every job").
+
+    ResNet-34:  AUROC 0.8407 +- 0.0004, AUPRC 0.5140 +- 0.0007
+    MedSigLIP:  AUROC 0.8461 +- 0.0010, AUPRC 0.5367 +- 0.0035
+    Paper:      AUROC 0.842 +- 0.004,   AUPRC 0.515 +- 0.020
+
+Deviations. Our frozen encoders stay exactly as released during training, the
+usual practice for frozen layers in PyTorch (evaluation mode). MedMod's and
+MedFuse's code leave them in training mode, so their BatchNorm statistics and
+dropout still change the features. Our project proposal described both
+encoders as trained from scratch. The paper's Early Fusion uses pretrained
+encoders, so we follow the paper. ``mimic4_medmod_ihm_results.md`` lists all
+deviations.
 """
 
 from __future__ import annotations
@@ -53,17 +72,29 @@ import argparse
 import codecs
 import hashlib
 import json
+import tempfile
 from pathlib import Path
 
 import numpy as np
 import torch
+from numpy._core.multiarray import scalar
 from sklearn.metrics import average_precision_score, roc_auc_score
 from torch import nn
 
-from pyhealth.datasets import get_dataloader
+from pyhealth.datasets import (
+    MedModMIMIC4Dataset,
+    MedModSplit,
+    get_dataloader,
+    split_by_medmod,
+)
 from pyhealth.datasets.medmod.image_presets import get_preset, load_cxr
 from pyhealth.datasets.medmod.medsiglip import load_embeddings, lookup_embeddings
+from pyhealth.datasets.medmod.synthetic import (
+    create_synthetic_samples,
+    write_synthetic_embeddings,
+)
 from pyhealth.models import EHRCXREarlyFusion
+from pyhealth.tasks import MedModInHospitalMortality
 
 # sha256 of MedFuse's Git LFS checkpoint files.
 EHR_SHA256 = "c545d8d536882948f25b4dd8a136c43da49fd10d4519e8b24b821109ad22f552"
@@ -79,8 +110,6 @@ def load_checkpoint(path: str, sha256: str) -> dict:
     digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
     if digest != sha256:
         raise ValueError(f"{path}: not MedFuse's released checkpoint (sha256)")
-    from numpy._core.multiarray import scalar
-
     allowed = [
         (scalar, "numpy.core.multiarray.scalar"),
         np.dtype,
@@ -114,16 +143,10 @@ def cxr_state_dict(state: dict) -> dict:
 def load_data(args: argparse.Namespace):
     """Returns the train, validation and test samples of the fixed MedMod split."""
     if args.synthetic:
-        from pyhealth.datasets import split_by_medmod
-        from pyhealth.datasets.medmod.synthetic import create_synthetic_samples
-
         samples = create_synthetic_samples(
             hours_zero="keep", n_stays=args.synthetic, seed=args.seed
         )
         return split_by_medmod(samples)
-    from pyhealth.datasets import MedModMIMIC4Dataset, MedModSplit
-    from pyhealth.tasks import MedModInHospitalMortality
-
     dataset = MedModMIMIC4Dataset(
         ehr_root=args.ehr_root, cxr_root=args.cxr_root, cache_dir=args.cache_dir
     )
@@ -166,8 +189,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cache-dir", help="PyHealth cache directory")
     parser.add_argument("--ehr-weights", help="MedFuse uni_ehr_all checkpoint")
     parser.add_argument("--cxr-weights", help="MedFuse cxr_rad_full checkpoint")
-    parser.add_argument("--train-encoders", action="store_true")
-    parser.add_argument("--embeddings", help="MedSigLIP .npz instead of a ResNet")
+    parser.add_argument(
+        "--embeddings",
+        help="MedSigLIP .npz file to use instead of a ResNet. With --synthetic, "
+        "'synthetic' uses random stand-in vectors.",
+    )
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--lr", type=float, default=9.515e-05)
@@ -186,6 +212,8 @@ def parse_args() -> argparse.Namespace:
         )
     if args.embeddings and args.cxr_weights:
         parser.error("--cxr-weights is for the ResNet, not --embeddings")
+    if args.embeddings == "synthetic" and not args.synthetic:
+        parser.error("--embeddings synthetic needs --synthetic N")
     return args
 
 
@@ -204,6 +232,12 @@ def main() -> None:
     if args.cxr_weights:
         state = load_checkpoint(args.cxr_weights, CXR_SHA256)
         weights["cxr_state_dict"] = cxr_state_dict(state)
+    if args.embeddings == "synthetic":
+        # Random stand-ins for MedSigLIP vectors of the synthetic images.
+        paths = [part[i]["image_path"] for part in (train, val, test)
+                 for i in range(len(part))]
+        out = Path(tempfile.mkdtemp(prefix="medsiglip_synthetic_")) / "emb.npz"
+        args.embeddings = str(write_synthetic_embeddings(paths, out, seed=args.seed))
     table, image_encoder = None, {}
     if args.embeddings:
         table = load_embeddings(args.embeddings)[:2]
@@ -214,7 +248,7 @@ def main() -> None:
     if len(weights) + bool(table) < 2:
         print("Encoders without MedFuse weights are random: smoke test only.")
     model = EHRCXREarlyFusion(
-        train, freeze_encoders=not args.train_encoders, **weights, **image_encoder
+        train, freeze_encoders=True, **weights, **image_encoder
     ).to(args.device)
 
     trainable = [p for p in model.parameters() if p.requires_grad]
