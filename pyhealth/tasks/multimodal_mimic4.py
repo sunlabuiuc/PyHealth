@@ -11,6 +11,9 @@ logger = logging.getLogger(__name__)
 class BaseMultimodalMIMIC4Task(BaseTask):
     """Base class for multimodal MIMIC-IV tasks.
 
+    Subclasses run on the composite
+    :class:`~pyhealth.datasets.MIMIC4Dataset`.
+
     Provides shared constants and utility methods used across all multimodal
     task variants (notes, ICD codes, lab values). CXR task classes build on
     this base in a follow-up commit: they add a ``cxr_image_times`` field
@@ -397,6 +400,10 @@ class BaseMultimodalMIMIC4Task(BaseTask):
 class NotesLabsMIMIC4(BaseMultimodalMIMIC4Task):
     """Mortality prediction from admission-context notes and lab values.
 
+    Runs on the composite :class:`~pyhealth.datasets.MIMIC4Dataset`, loaded
+    with the EHR ``labevents`` table and the ``discharge`` and ``radiology``
+    note tables.
+
     Follows the approach of Lee et al. (2023): use text that is clinically
     available *at admission* rather than discharge notes. ICD codes are
     excluded by default but can be re-enabled for ablation experiments.
@@ -576,6 +583,9 @@ class NotesLabsMIMIC4(BaseMultimodalMIMIC4Task):
 
 class LabsMIMIC4(BaseMultimodalMIMIC4Task):
     """EHR-only mortality prediction using lab values — no notes, no ICD codes.
+
+    Runs on :class:`~pyhealth.datasets.MIMIC4Dataset` loaded with the EHR
+    ``labevents`` table.
 
     Serves as the structured-EHR reference baseline for multimodal ablations.
     Collecting only ``labevents`` keeps the dataset loader fast and avoids any

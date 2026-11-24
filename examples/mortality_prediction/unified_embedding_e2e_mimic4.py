@@ -515,9 +515,13 @@ def run(args: argparse.Namespace, sample_dataset: Any = None) -> Path:
         "persistent_workers": args.persistent_workers,
         "prefetch_factor": (args.prefetch_factor if args.num_workers > 0 else None),
     }
+    # get_dataloader refuses persistent workers on a shuffled loader: they
+    # keep the first epoch's dataset copy, so reshuffling would not reach
+    # them. Only the unshuffled validation and test loaders keep theirs.
+    train_loader_kwargs = {**loader_kwargs, "persistent_workers": False}
     timed_train_loader = _EpochTimedLoader(
         get_dataloader(
-            train_ds, batch_size=args.batch_size, shuffle=True, **loader_kwargs
+            train_ds, batch_size=args.batch_size, shuffle=True, **train_loader_kwargs
         )
     )
     val_loader = (
@@ -782,7 +786,11 @@ def parse_args(argv: Optional[list] = None) -> argparse.Namespace:
     parser.add_argument(
         "--persistent-workers",
         action="store_true",
-        help="Keep loader workers alive between epochs (needs --num-workers > 0).",
+        help=(
+            "Keep validation and test loader workers alive between epochs "
+            "(needs --num-workers > 0). The shuffled training loader always "
+            "restarts its workers."
+        ),
     )
     parser.add_argument(
         "--prefetch-factor",
