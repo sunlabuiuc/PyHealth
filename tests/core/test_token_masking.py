@@ -151,8 +151,11 @@ class TestTokenMasking(unittest.TestCase):
             )
         distill = (probs - torch.sigmoid(teacher)).abs().sum() / 2
         masked_term = (probs - masked).abs().sum() / 2
+        # On Linux CPU, SDPA attention picks a different kernel with and without
+        # autograd, so the no_grad recompute can differ by ~1e-4. A wrong
+        # lambda_1 would move the loss by masked_term (~4e-2), far above 1e-3.
         self.assertTrue(
-            torch.allclose(out["loss"], distill + 2.0 * masked_term, atol=1e-5)
+            torch.allclose(out["loss"], distill + 2.0 * masked_term, atol=1e-3)
         )
         out["loss"].backward()
         grads = [p.grad for p in model.parameters() if p.requires_grad]
