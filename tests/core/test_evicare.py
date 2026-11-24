@@ -1,4 +1,4 @@
-"""Tests for EviCare: the diagnosis prediction tasks (and, later, the model).
+"""Tests for EviCare: the diagnosis prediction tasks and the model.
 
 Contributor: Kavish Shah (GitHub: thekavishshah)
 Paper: Zhang et al., "EviCare: Enhancing Diagnosis Prediction with Deep
@@ -6,7 +6,7 @@ Paper: Zhang et al., "EviCare: Enhancing Diagnosis Prediction with Deep
     https://arxiv.org/abs/2604.10455
 
 All tests use tiny synthetic patients and a 13-row CCS fixture: no MIMIC
-data, downloads or LLM calls.
+data, downloads or network calls (LLMs are plain Python functions).
 """
 
 import os
@@ -18,9 +18,27 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import numpy as np
 import polars as pl
+import torch
 
 from pyhealth.data import Patient
+from pyhealth.datasets import create_sample_dataset, get_dataloader
+from pyhealth.models import RNN, CooccurrenceGraph, EviCare, EviCarePrediction
+from pyhealth.models.evicare import (
+    SYSTEM_PROMPT,
+    accuracy_at_k_code,
+    build_prompt,
+    eligible_codes,
+    format_time_gap,
+    merge_ranking,
+    parse_answer,
+    precision_at_k_visit,
+    prioritize_history,
+    rank_codes,
+    relational_evidence,
+    select_candidates,
+)
 from pyhealth.tasks import (
     CCSMapping,
     EviCareDiagnosisPredictionMIMIC3,
@@ -231,6 +249,7 @@ class TestEviCareTaskMIMIC3(unittest.TestCase):
         )
 
     def task(self, **kwargs):
+        kwargs.setdefault("sample_mode", "last")
         return EviCareDiagnosisPredictionMIMIC3(ccs_mapping=MAPPING_CSV, **kwargs)
 
     def test_schema(self):
@@ -378,20 +397,20 @@ class TestEviCareTaskMIMIC3(unittest.TestCase):
             self.task(setting="rare")
         with self.assertRaises(ValueError):
             self.task(min_visits=1)
+        with self.assertRaises(ValueError):
+            self.task(sample_mode="every")
         with self.assertRaises(TypeError):
             EviCareDiagnosisPredictionMIMIC3(ccs_mapping=42)
 
     def test_accepts_mapping_instance(self):
         mapping = CCSMapping(icd9_to_ccs={"4019": "98", "4280": "108"})
-        task = EviCareDiagnosisPredictionMIMIC3(ccs_mapping=mapping)
+        task = EviCareDiagnosisPredictionMIMIC3(ccs_mapping=mapping, sample_mode="last")
         self.assertIs(task.ccs_mapping, mapping)
         sample = task(self.patient)[0]
         self.assertEqual(sample["conditions"], [["98"], ["98"]])
         self.assertEqual(sample["history_icd_names"], [["4019"], ["4019"]])
 
     def test_evidence_fields_survive_sample_dataset(self):
-        from pyhealth.datasets import create_sample_dataset, get_dataloader
-
         task = self.task()
         other = make_patient("p8", [("x", T1, ["4168"]), ("y", T2, ["4269"])])
         samples = task(self.patient) + task(other)
@@ -415,6 +434,60 @@ class TestEviCareTaskMIMIC3(unittest.TestCase):
         self.assertNotEqual(first, novel)
 
 
+class TestEviCareSampleModes(unittest.TestCase):
+    def setUp(self):
+        t4 = datetime(2100, 2, 1, tzinfo=UTC)
+        self.patient = make_patient(
+            "p1",
+            [
+                ("h1", T1, ["4019"]),
+                ("h2", T2, ["4019", "42731"]),
+                ("h3", T3, ["4280", "42731"]),
+                ("h4", t4, ["4019", "4280"]),
+            ],
+        )
+
+    def task(self, **kwargs):
+        return EviCareDiagnosisPredictionMIMIC3(ccs_mapping=MAPPING_CSV, **kwargs)
+
+    def test_default_is_all_prefixes(self):
+        self.assertEqual(self.task().sample_mode, "all_prefixes")
+
+    def test_all_prefixes_overall(self):
+        samples = self.task()(self.patient)
+        self.assertEqual([s["visit_id"] for s in samples], ["h2", "h3", "h4"])
+        self.assertEqual(samples[0]["conditions"], [["98"]])
+        self.assertEqual(samples[1]["conditions"], [["98"], ["98", "106"]])
+        self.assertEqual(len(samples[2]["conditions"]), 3)
+        self.assertEqual(samples[1]["ccs_targets"], ["108", "106"])
+        # Time gaps are measured to each sample's own target.
+        self.assertEqual(samples[0]["days_ago"], [10.0])
+        self.assertEqual(samples[1]["days_ago"], [18.0, 8.0])
+        self.assertEqual(samples[2]["days_ago"], [31.0, 21.0, 13.0])
+
+    def test_all_prefixes_novel_skips_targets_without_new_codes(self):
+        samples = self.task(setting="novel")(self.patient)
+        # h2 adds AF (106), h3 adds CHF (108), h4 adds nothing new.
+        self.assertEqual([s["visit_id"] for s in samples], ["h2", "h3"])
+        self.assertEqual(samples[0]["ccs_targets"], ["106"])
+        self.assertEqual(samples[1]["ccs_targets"], ["108"])
+
+    def test_last_matches_last_prefix(self):
+        last = self.task(sample_mode="last")(self.patient)
+        prefixes = self.task()(self.patient)
+        self.assertEqual(len(last), 1)
+        self.assertEqual(last[0], prefixes[-1])
+
+    def test_min_visits_applies_to_patient(self):
+        self.assertEqual(self.task(min_visits=5)(self.patient), [])
+        self.assertEqual(len(self.task(min_visits=4)(self.patient)), 3)
+
+    def test_sample_mode_changes_cache_key(self):
+        last = {k: str(v) for k, v in vars(self.task(sample_mode="last")).items()}
+        every = {k: str(v) for k, v in vars(self.task()).items()}
+        self.assertNotEqual(last, every)
+
+
 class TestEviCareTaskMIMIC4(unittest.TestCase):
     def test_mixed_icd_versions(self):
         patient = make_patient(
@@ -427,7 +500,7 @@ class TestEviCareTaskMIMIC4(unittest.TestCase):
             mimic4=True,
         )
         task = EviCareDiagnosisPredictionMIMIC4(ccs_mapping=MAPPING_CSV)
-        sample = task(patient)[0]
+        sample = task(patient)[-1]
         self.assertEqual(sample["conditions"], [["98", "49"], ["108"]])
         self.assertEqual(sample["history_icd"][1], ["I509", "4280"])
         self.assertEqual(
@@ -447,6 +520,559 @@ class TestEviCareTaskMIMIC4(unittest.TestCase):
             setting="novel", ccs_mapping=MAPPING_CSV
         )
         self.assertEqual(task(patient)[0]["ccs_targets"], ["103"])
+
+
+# ---------------------------------------------------------------------------
+# Model: helpers
+# ---------------------------------------------------------------------------
+
+NAMES = {
+    "98": "Essential hypertension",
+    "99": "Hypertension with complications and secondary hypertension",
+    "103": "Pulmonary heart disease",
+    "105": "Conduction disorders",
+    "106": "Cardiac dysrhythmias",
+    "108": "Congestive heart failure; nonhypertensive",
+    "157": "Acute and unspecified renal failure",
+}
+
+
+class TestHelpers(unittest.TestCase):
+    def test_format_time_gap(self):
+        self.assertEqual(format_time_gap(0), "today")
+        self.assertEqual(format_time_gap(1), "1 day ago")
+        self.assertEqual(format_time_gap(31), "1 month 1 day ago")
+        self.assertEqual(format_time_gap(60), "2 months ago")
+        self.assertEqual(format_time_gap(365 * 2 + 3), "2 years 3 days ago")
+
+    def test_rank_codes(self):
+        codes = ["a", "b", "c", "d"]
+        self.assertEqual(rank_codes([0.1, 2.0, -1.0, 2.0], codes), ["b", "d", "a", "c"])
+        tensor = torch.tensor([[3.0, 1.0, 2.0, 0.0]], requires_grad=True)
+        self.assertEqual(rank_codes(tensor, codes), ["a", "c", "b", "d"])
+        with self.assertRaises(ValueError):
+            rank_codes([1.0], codes)
+
+    def test_candidates_overall_keep_recurring_codes(self):
+        ranking = ["98", "108", "106", "157", "105"]
+        self.assertEqual(select_candidates(ranking, ["98", "106"], k=3), ranking[:3])
+
+    def test_candidates_novel_filter_before_top_k(self):
+        ranking = ["98", "108", "106", "157", "105"]
+        self.assertEqual(
+            select_candidates(ranking, ["98", "106"], k=3, setting="novel"),
+            ["108", "157", "105"],
+        )
+        # Fewer eligible codes than k: all of them.
+        self.assertEqual(
+            select_candidates(ranking, ranking[:4], k=3, setting="novel"), ["105"]
+        )
+        with self.assertRaises(ValueError):
+            eligible_codes(ranking, [], setting="rare")
+
+    def test_prioritize_history(self):
+        groups = prioritize_history(
+            ["AF", "HTN", "AF", "Flutter", "Unknown thing"],
+            ["106", "98", "106", "106", "999"],
+            ranking=["98", "108", "106"],
+        )
+        # By guide rank; the code missing from the ranking goes last; the
+        # repeated ICD name is listed once.
+        self.assertEqual(
+            groups,
+            [("98", ["HTN"]), ("106", ["AF", "Flutter"]), ("999", ["Unknown thing"])],
+        )
+        with self.assertRaises(ValueError):
+            prioritize_history(["a"], [], ranking=[])
+
+    def test_merge_ranking(self):
+        self.assertEqual(merge_ranking([], ["a", "b"]), ["a", "b"])
+        self.assertEqual(merge_ranking(["b", "b"], ["a", "b", "c"]), ["b", "a", "c"])
+
+
+class TestCooccurrenceGraph(unittest.TestCase):
+    def setUp(self):
+        self.patients = [["98", "108", "98"], ["98", "106"], ["106", "105"], ["98"]]
+        self.graph = CooccurrenceGraph.fit(self.patients)
+
+    def test_matches_a_transpose_a(self):
+        codes = self.graph.codes
+        a = np.array(
+            [[int(code in set(p)) for code in codes] for p in self.patients]
+        )
+        np.testing.assert_array_equal(self.graph.counts, a.T @ a)
+
+    def test_hand_counts(self):
+        self.assertEqual(self.graph.count("98", "98"), 3)
+        self.assertEqual(self.graph.count("98", "108"), 1)
+        self.assertEqual(self.graph.count("108", "98"), 1)
+        self.assertEqual(self.graph.count("98", "105"), 0)
+        self.assertEqual(self.graph.count("98", "unknown"), 0)
+
+    def test_best_partner(self):
+        # 106 co-occurs with 98 (1 patient) and 105 (1 patient): tie goes to
+        # the first code of the history.
+        self.assertEqual(self.graph.best_partner("106", ["105", "98"]), "105")
+        self.assertEqual(self.graph.best_partner("106", ["98", "105"]), "98")
+        self.assertIsNone(self.graph.best_partner("105", ["98", "108"]))
+        self.assertIsNone(self.graph.best_partner("98", ["98"]))
+
+    def test_from_samples_unions_a_patients_samples(self):
+        samples = [
+            {"patient_id": "p1", "history_ccs": [["98"]], "ccs_targets": ["108"]},
+            {
+                "patient_id": "p1",
+                "history_ccs": [["98"], ["108"]],
+                "ccs_targets": ["106"],
+            },
+            {"patient_id": "p2", "history_ccs": [["106"]], "ccs_targets": ["108"]},
+        ]
+        graph = CooccurrenceGraph.from_samples(samples)
+        # One patient row per patient, not per sample.
+        self.assertEqual(graph.count("98", "98"), 1)
+        self.assertEqual(graph.count("108", "108"), 2)
+        self.assertEqual(graph.count("98", "106"), 1)
+        self.assertEqual(graph.count("106", "108"), 2)
+
+    def test_empty_and_bad_shape(self):
+        empty = CooccurrenceGraph.fit([])
+        self.assertEqual(empty.codes, [])
+        self.assertEqual(empty.count("a", "a"), 0)
+        with self.assertRaises(ValueError):
+            CooccurrenceGraph(["a", "b"], np.zeros((1, 1)))
+
+    def test_relational_evidence(self):
+        links = relational_evidence(
+            ["98", "108", "105", "157"], history=["98", "106"], graph=self.graph
+        )
+        # 98 is historical (skipped), 157 never co-occurs (skipped).
+        self.assertEqual(links, [("98", "108"), ("106", "105")])
+
+
+class TestBuildPrompt(unittest.TestCase):
+    def setUp(self):
+        self.kwargs = {
+            "history_icd_names": [
+                ["Unspecified essential hypertension"],
+                ["Atrial fibrillation", "Hypertension NOS", "Flutter"],
+            ],
+            "history_ccs": [["98"], ["106", "98", "106"]],
+            "days_ago": [400.0, 8.0],
+            "candidates": ["108", "105", "98"],
+            "ranking": ["108", "98", "105", "106"],
+            "ccs_names": NAMES,
+        }
+
+    def test_novel_shows_only_last_visit(self):
+        prompt = build_prompt(setting="novel", **self.kwargs)
+        self.assertIn("Last Diagnostic Visit (8 days ago):", prompt)
+        self.assertNotIn("Unspecified essential hypertension", prompt)
+        self.assertNotIn("Visit 1", prompt)
+        self.assertIn("Candidate CCS Codes (Novel Only):", prompt)
+        self.assertIn("NEW", prompt)
+
+    def test_prioritized_groups(self):
+        prompt = build_prompt(setting="novel", **self.kwargs)
+        htn = '- {"Hypertension NOS"} BELONG TO "Essential hypertension"'
+        af = '- {"Atrial fibrillation", "Flutter"} BELONG TO "Cardiac dysrhythmias"'
+        self.assertIn(htn, prompt)
+        self.assertIn(af, prompt)
+        # 98 ranks above 106 in the guide ranking.
+        self.assertLess(prompt.index(htn), prompt.index(af))
+
+    def test_overall_shows_all_visits(self):
+        prompt = build_prompt(setting="overall", **self.kwargs)
+        self.assertIn("Visit 1 (1 year 1 month 5 days ago):", prompt)
+        self.assertIn("Unspecified essential hypertension", prompt)
+        self.assertIn("Last Diagnostic Visit (8 days ago):", prompt)
+        self.assertIn("Candidate CCS Codes:\n", prompt)
+        self.assertIn("may repeat earlier diagnoses", prompt)
+        limited = build_prompt(setting="overall", max_visits=1, **self.kwargs)
+        self.assertNotIn("Visit 1 (", limited)
+
+    def test_candidates_relations_and_instruction(self):
+        prompt = build_prompt(
+            setting="novel", relations=[("106", "105")], **self.kwargs
+        )
+        self.assertIn('"Cardiac dysrhythmias" => "Conduction disorders"', prompt)
+        self.assertIn(
+            '"Congestive heart failure; nonhypertensive", '
+            '"Conduction disorders", "Essential hypertension"',
+            prompt,
+        )
+        self.assertTrue(
+            prompt.endswith("- Output format: Answer: <CCS 1>, <CCS 2>, ...")
+        )
+        no_relations = build_prompt(setting="novel", **self.kwargs)
+        self.assertNotIn("Relational Evidence", no_relations)
+
+    def test_missing_names_and_quotes(self):
+        kwargs = dict(self.kwargs, ccs_names=None)
+        kwargs["history_icd_names"] = [["x"], ['Say "hi"', "y", "z"]]
+        prompt = build_prompt(setting="novel", **kwargs)
+        self.assertIn('BELONG TO "106"', prompt)
+        self.assertIn("\"Say 'hi'\"", prompt)
+
+    def test_invalid_input(self):
+        with self.assertRaises(ValueError):
+            build_prompt(setting="rare", **self.kwargs)
+        with self.assertRaises(ValueError):
+            build_prompt(**dict(self.kwargs, days_ago=[1.0]))
+
+    def test_system_prompt_asks_for_answer_line(self):
+        self.assertIn("Answer: <CCS 1>, <CCS 2>, ...", SYSTEM_PROMPT)
+
+
+class TestParseAnswer(unittest.TestCase):
+    candidates = ("108", "157", "105", "98")
+
+    def parse(self, reply, names=NAMES):
+        return parse_answer(reply, self.candidates, names)
+
+    def test_names_in_order(self):
+        reply = (
+            "Answer: Conduction disorders, Congestive heart failure; "
+            "nonhypertensive, Essential hypertension"
+        )
+        self.assertEqual(self.parse(reply), ["105", "108", "98"])
+
+    def test_junk_gives_nothing(self):
+        self.assertEqual(self.parse(None), [])
+        self.assertEqual(self.parse(""), [])
+        self.assertEqual(self.parse("Sorry, I cannot help with that."), [])
+        self.assertEqual(self.parse("Answer:"), [])
+
+    def test_hallucinated_codes_are_dropped(self):
+        reply = "Answer: Sepsis, Essential hypertension, Pneumonia, 999, 157"
+        self.assertEqual(self.parse(reply), ["98", "157"])
+        # A real CCS code that is not a candidate is dropped too.
+        self.assertEqual(self.parse("Answer: Cardiac dysrhythmias, 98"), ["98"])
+
+    def test_duplicates_keep_first_position(self):
+        reply = "Answer: 157, essential hypertension, 157, ESSENTIAL HYPERTENSION."
+        self.assertEqual(self.parse(reply), ["157", "98"])
+
+    def test_formatting_noise(self):
+        reply = (
+            "Answer:\n1. “Conduction disorders”\n"
+            "2) [Essential hypertension]\n- 108: Congestive heart failure\n"
+            "* Acute and unspecified renal failure (157)."
+        )
+        self.assertEqual(self.parse(reply), ["105", "98", "108", "157"])
+
+    def test_uses_last_answer_and_skips_thinking(self):
+        reply = (
+            "<think>Answer: 98, 108</think>The first guess was "
+            "Answer: 157\nOn reflection, answer: 105, 157"
+        )
+        self.assertEqual(self.parse(reply), ["105", "157"])
+        unterminated = "<think>Answer: 98 and then the model ran out of tokens"
+        self.assertEqual(self.parse(unterminated), [])
+
+    def test_without_answer_marker_parses_whole_reply(self):
+        self.assertEqual(self.parse("Essential hypertension, 157"), ["98", "157"])
+
+    def test_names_with_commas(self):
+        names = {"A1": "Fracture, hip", "A2": "Sepsis"}
+        self.assertEqual(
+            parse_answer("Answer: Sepsis, Fracture, hip", ["A1", "A2"], names),
+            ["A2", "A1"],
+        )
+
+    def test_codes_only_without_names(self):
+        self.assertEqual(self.parse("Answer: 98, 105", names=None), ["98", "105"])
+
+
+class TestMetrics(unittest.TestCase):
+    predictions = (("a", "b", "c", "d"), ("e", "f", "g", "h"), ("i", "j"))
+    targets = (("a", "c", "x"), ("f",), ())
+
+    def test_precision_hand_computed(self):
+        # Visit 1: top-2 {a, b} hits 1, min(2, 3) = 2 -> 0.5.
+        # Visit 2: top-2 {e, f} hits 1, min(2, 1) = 1 -> 1.0.
+        # Visit 3: empty truth, skipped.
+        self.assertAlmostEqual(
+            precision_at_k_visit(self.predictions, self.targets, k=2), 0.75
+        )
+        # k=4: (2/3 + 1/1) / 2
+        self.assertAlmostEqual(
+            precision_at_k_visit(self.predictions, self.targets, k=4), 5 / 6
+        )
+
+    def test_accuracy_hand_computed(self):
+        # Hits (1 + 1 + 0) over truth sizes (3 + 1 + 0).
+        self.assertAlmostEqual(
+            accuracy_at_k_code(self.predictions, self.targets, k=2), 0.5
+        )
+        self.assertAlmostEqual(
+            accuracy_at_k_code(self.predictions, self.targets, k=4), 0.75
+        )
+
+    def test_novel_variants(self):
+        histories = (("a",), ("f",), ())
+        # Visit 1: truth {c, x}, top-2 {a, b} -> 0/2. Visit 2: truth empty.
+        self.assertAlmostEqual(
+            precision_at_k_visit(self.predictions, self.targets, 2, histories), 0.0
+        )
+        # Visit 1 at k=4: {c} of {c, x} -> 1 / min(4, 2).
+        self.assertAlmostEqual(
+            precision_at_k_visit(self.predictions, self.targets, 4, histories), 0.5
+        )
+        self.assertAlmostEqual(
+            accuracy_at_k_code(self.predictions, self.targets, 4, histories), 0.5
+        )
+
+    def test_duplicate_predictions_count_once(self):
+        self.assertAlmostEqual(
+            precision_at_k_visit([["a", "a", "b"]], [["a", "b"]], k=2), 1.0
+        )
+
+    def test_edge_cases(self):
+        self.assertEqual(precision_at_k_visit([], [], k=5), 0.0)
+        self.assertEqual(accuracy_at_k_code([[]], [[]], k=5), 0.0)
+        with self.assertRaises(ValueError):
+            precision_at_k_visit([["a"]], [], k=1)
+        with self.assertRaises(ValueError):
+            accuracy_at_k_code([["a"]], [], k=1)
+        with self.assertRaises(ValueError):
+            accuracy_at_k_code([["a"]], [["a"]], k=1, histories=[])
+
+
+# ---------------------------------------------------------------------------
+# Model: EviCare
+# ---------------------------------------------------------------------------
+
+
+def evicare_samples():
+    """Task samples from four synthetic patients (overall setting)."""
+    task = EviCareDiagnosisPredictionMIMIC3(ccs_mapping=MAPPING_CSV)
+    t4 = datetime(2100, 2, 1, tzinfo=UTC)
+    patients = [
+        make_patient(
+            "p1",
+            [
+                ("a1", T1, ["4019", "25000"]),
+                ("a2", T2, ["42731", "4019"]),
+                ("a3", T3, ["4280", "42731", "5849"]),
+            ],
+        ),
+        make_patient("p2", [("b1", T1, ["4019"]), ("b2", T3, ["4280", "4168"])]),
+        make_patient("p3", [("c1", T2, ["42731"]), ("c2", t4, ["4269", "42731"])]),
+        make_patient("p4", [("d1", T1, ["41401"]), ("d2", T2, ["40291", "4019"])]),
+    ]
+    return [s for p in patients for s in task(p)]
+
+
+def make_dataset(samples):
+    return create_sample_dataset(
+        samples=samples,
+        input_schema={"conditions": "nested_sequence"},
+        output_schema={"ccs_targets": "multilabel"},
+        dataset_name="evicare_model_test",
+    )
+
+
+class _ConstantGuide(torch.nn.Module):
+    """A guide whose logits rank the label vocabulary in a fixed order."""
+
+    def __init__(self, scores):
+        super().__init__()
+        self.scores = torch.tensor(scores, dtype=torch.float)
+
+    def forward(self, **kwargs):
+        batch = len(kwargs["patient_id"])
+        return {"logit": self.scores.repeat(batch, 1)}
+
+
+class TestEviCareModel(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.samples = evicare_samples()
+        cls.dataset = make_dataset(cls.samples)
+
+    def setUp(self):
+        torch.manual_seed(0)
+
+    def fixed_model(self, **kwargs):
+        """EviCare whose guide ranks labels in vocabulary order."""
+        model = EviCare(self.dataset, ccs_names=NAMES, **kwargs)
+        n = len(model.label_codes)
+        model.guide = _ConstantGuide([float(n - i) for i in range(n)])
+        return model
+
+    def test_default_guide_is_retain_dim_16(self):
+        from pyhealth.models import RETAIN
+
+        model = EviCare(self.dataset)
+        self.assertIsInstance(model.guide, RETAIN)
+        self.assertEqual(model.guide.embedding_dim, 16)
+        self.assertEqual(model.k, 50)
+
+    def test_guide_class_and_instance(self):
+        model = EviCare(self.dataset, guide_model=RNN, embedding_dim=8, hidden_dim=8)
+        self.assertIsInstance(model.guide, RNN)
+        guide = RNN(self.dataset, embedding_dim=4, hidden_dim=4)
+        self.assertIs(EviCare(self.dataset, guide_model=guide).guide, guide)
+        with self.assertRaises(TypeError):
+            EviCare(self.dataset, guide_model="retain")
+
+    def test_invalid_arguments(self):
+        with self.assertRaises(ValueError):
+            EviCare(self.dataset, setting="rare")
+        with self.assertRaises(ValueError):
+            EviCare(self.dataset, k=0)
+        binary = create_sample_dataset(
+            samples=[
+                {"patient_id": "x", "conditions": [["98"]], "label": 0},
+                {"patient_id": "y", "conditions": [["108"]], "label": 1},
+            ],
+            input_schema={"conditions": "nested_sequence"},
+            output_schema={"label": "binary"},
+            dataset_name="evicare_binary",
+        )
+        with self.assertRaises(ValueError):
+            EviCare(binary)
+
+    def test_forward_trains_the_guide(self):
+        model = EviCare(self.dataset)
+        batch = next(iter(get_dataloader(self.dataset, batch_size=4)))
+        out = model(**batch)
+        self.assertEqual(
+            tuple(out["logit"].shape), (4, len(model.label_codes))
+        )
+        out["loss"].backward()
+        grads = [p.grad for p in model.guide.parameters() if p.grad is not None]
+        self.assertTrue(grads)
+
+    def test_fit_cooccurrence_from_dataset_matches_raw_samples(self):
+        model = EviCare(self.dataset)
+        model.fit_cooccurrence(self.dataset)
+        raw = CooccurrenceGraph.from_samples(self.samples)
+        self.assertEqual(model.cooccurrence.codes, raw.codes)
+        np.testing.assert_array_equal(model.cooccurrence.counts, raw.counts)
+        model.fit_cooccurrence(self.samples)  # a list of raw samples works too
+        np.testing.assert_array_equal(model.cooccurrence.counts, raw.counts)
+
+    def test_predict_without_llm_is_the_guide(self):
+        model = self.fixed_model(k=3)
+        predictions = model.predict(self.dataset, batch_size=2)
+        self.assertEqual(len(predictions), len(self.samples))
+        first = predictions[0]
+        self.assertIsInstance(first, EviCarePrediction)
+        self.assertEqual(first.ranking, model.label_codes)
+        self.assertEqual(first.candidates, model.label_codes[:3])
+        self.assertIsNone(first.prompt)
+        self.assertEqual(
+            [p.visit_id for p in predictions], [s["visit_id"] for s in self.samples]
+        )
+        self.assertEqual(
+            sorted(first.targets), sorted(self.samples[0]["ccs_targets"])
+        )
+
+    def test_predict_with_llm_reranks(self):
+        model = self.fixed_model(k=4)
+        model.fit_cooccurrence(self.dataset)
+        calls = []
+
+        def llm(system, prompt):
+            calls.append((system, prompt))
+            return "Answer: Acute and unspecified renal failure, Not a code"
+
+        predictions = model.predict(self.dataset, llm=llm)
+        self.assertEqual(len(calls), len(self.samples))
+        self.assertEqual(calls[0][0], SYSTEM_PROMPT)
+        for prediction in predictions:
+            self.assertEqual(calls[predictions.index(prediction)][1], prediction.prompt)
+            if "157" in prediction.candidates:
+                self.assertEqual(prediction.ranking[0], "157")
+                self.assertEqual(prediction.n_parsed, 1)
+            else:
+                self.assertEqual(prediction.ranking, prediction.guide_ranking)
+            self.assertEqual(sorted(prediction.ranking), sorted(model.label_codes))
+
+    def test_novel_setting_filters_history(self):
+        task = EviCareDiagnosisPredictionMIMIC3(
+            ccs_mapping=MAPPING_CSV, setting="novel"
+        )
+        # Hypertension (98) is history for p1/p3 but a new label for p2/p4,
+        # so it is in the label vocabulary and must be filtered per patient.
+        histories = {"p1": "4019", "p2": "42731", "p3": "4019", "p4": "42731"}
+        samples = []
+        for pid, past in histories.items():
+            patient = make_patient(
+                pid, [("x", T1, [past]), ("y", T2, ["4280", "4019", "42731"])]
+            )
+            samples += task(patient)
+        dataset = make_dataset(samples)
+        model = EviCare(dataset, setting="novel", use_relations=False)
+        self.assertIn("98", model.label_codes)
+        prompts = []
+        predictions = model.predict(
+            dataset, llm=lambda s, p: prompts.append(p) or "Answer: 98, 106"
+        )
+        for prediction in predictions:
+            self.assertTrue(prediction.history)
+            self.assertFalse(set(prediction.ranking) & set(prediction.history))
+            self.assertFalse(set(prediction.candidates) & set(prediction.history))
+            # The answer's historical code is dropped; the other is kept.
+            self.assertEqual(prediction.n_parsed, 1)
+        self.assertIn("(Novel Only)", prompts[0])
+
+    def test_llm_failure_falls_back_to_guide(self):
+        model = self.fixed_model(k=3)
+        model.fit_cooccurrence(self.dataset)
+
+        def broken(system, prompt):
+            raise TimeoutError("endpoint down")
+
+        with self.assertLogs("pyhealth.models.evicare", level="WARNING"):
+            predictions = model.predict(self.dataset, llm=broken)
+        for prediction in predictions:
+            self.assertEqual(prediction.ranking, prediction.guide_ranking)
+            self.assertEqual(prediction.error, "TimeoutError: endpoint down")
+            self.assertIsNone(prediction.reply)
+
+    def test_junk_reply_falls_back_to_guide(self):
+        model = self.fixed_model(k=3)
+        model.fit_cooccurrence(self.dataset)
+        predictions = model.predict(self.dataset, llm=lambda s, p: "no idea")
+        for prediction in predictions:
+            self.assertEqual(prediction.ranking, prediction.guide_ranking)
+            self.assertEqual(prediction.n_parsed, 0)
+            self.assertIsNone(prediction.error)
+
+    def test_relational_evidence_in_prompt(self):
+        n_labels = len(self.dataset.output_processors["ccs_targets"].label_vocab)
+        model = self.fixed_model(k=n_labels)
+        model.fit_cooccurrence(self.dataset)
+        prompts = []
+        model.predict(self.dataset, llm=lambda s, p: prompts.append(p) or "")
+        self.assertTrue(any("Relational Evidence" in p for p in prompts))
+        self.assertTrue(any(" => " in p for p in prompts))
+
+    def test_requires_cooccurrence_when_relations_are_on(self):
+        model = self.fixed_model()
+        with self.assertRaises(ValueError):
+            model.predict(self.dataset, llm=lambda s, p: "")
+        model.use_relations = False
+        self.assertEqual(
+            len(model.predict(self.dataset, llm=lambda s, p: "")), len(self.samples)
+        )
+
+    def test_logit_size_mismatch(self):
+        model = EviCare(self.dataset, guide_model=_ConstantGuide([1.0, 0.0]))
+        with self.assertRaises(ValueError):
+            model.predict(self.dataset)
+
+    def test_evaluate(self):
+        predictions = [
+            EviCarePrediction("p", "v", ["a", "b", "c"], [], [], targets=["a", "c"]),
+            EviCarePrediction("p", "w", ["d", "e"], [], [], targets=["e"]),
+        ]
+        scores = EviCare.evaluate(predictions, ks=(1, 2))
+        self.assertAlmostEqual(scores["P@1"], 0.5)  # (1/1 + 0/1) / 2
+        self.assertAlmostEqual(scores["P@2"], 0.75)  # (1/2 + 1/1) / 2
+        self.assertAlmostEqual(scores["Acc@2"], 2 / 3)
 
 
 if __name__ == "__main__":

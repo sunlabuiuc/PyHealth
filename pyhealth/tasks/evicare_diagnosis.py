@@ -5,7 +5,7 @@ Contributor: Kavish Shah (GitHub: thekavishshah)
 Paper: Hengyu Zhang, Xuyun Zhang, Pengxiang Zhan, Linhao Luo, Hang Lv,
 Yanchao Tan, Shirui Pan, Carl Yang. EviCare: Enhancing Diagnosis Prediction
 with Deep Model-Guided Evidence for In-Context Reasoning. KDD 2026.
-https://arxiv.org/abs/2604.10455 (https://doi.org/10.1145/3770854.3780257)
+https://arxiv.org/abs/2604.10455, https://doi.org/10.1145/3770854.3780257
 
 Official code: https://github.com/zhyccc/EviCare (no license file; this is an
 independent re-implementation written from the paper).
@@ -22,8 +22,15 @@ Description:
 
     - ``"overall"``: the label is every CCS code of the next admission.
     - ``"novel"``: the label keeps only CCS codes that appear in none of the
-      patient's earlier admissions. Patients whose next admission has no
-      novel code give no sample.
+      patient's earlier admissions. A target admission without a novel code
+      gives no sample.
+
+    By default every admission after the first is a target, predicted from
+    all earlier admissions (``sample_mode="all_prefixes"``). This is the
+    sampling of the TRANS preprocessing that EviCare's data pipeline builds
+    on, and it matches the paper's visit-level P@k, averaged over all test
+    visits. ``sample_mode="last"`` keeps only the last admission of each
+    patient.
 """
 
 import csv
@@ -38,6 +45,10 @@ from .base_task import BaseTask
 
 Setting = Literal["overall", "novel"]
 SETTINGS: tuple[str, ...] = ("overall", "novel")
+SampleMode = Literal["all_prefixes", "last"]
+SAMPLE_MODES: tuple[str, ...] = ("all_prefixes", "last")
+
+_Visit = tuple[str, datetime, list[tuple[str, int, str]]]
 
 
 def normalize_icd(code: Any) -> str | None:
@@ -353,6 +364,8 @@ class _EviCareDiagnosisPrediction(BaseTask):
             :class:`CCSMapping`.
         min_visits: Minimum number of admissions with at least one mapped
             diagnosis. At least 2 (one history visit and the target visit).
+        sample_mode: ``"all_prefixes"`` (one sample per admission after the
+            first) or ``"last"`` (one sample per patient).
     """
 
     _icd_versions: tuple[int, ...] = (9,)
@@ -362,13 +375,19 @@ class _EviCareDiagnosisPrediction(BaseTask):
         setting: Setting = "overall",
         ccs_mapping: "CCSMapping | str | Path | None" = None,
         min_visits: int = 2,
+        sample_mode: SampleMode = "all_prefixes",
     ) -> None:
         if setting not in SETTINGS:
             raise ValueError(f"setting must be one of {SETTINGS}, got {setting!r}.")
         if min_visits < 2:
             raise ValueError(f"min_visits must be at least 2, got {min_visits}.")
+        if sample_mode not in SAMPLE_MODES:
+            raise ValueError(
+                f"sample_mode must be one of {SAMPLE_MODES}, got {sample_mode!r}."
+            )
         self.setting = setting
         self.min_visits = min_visits
+        self.sample_mode = sample_mode
         self.ccs_mapping = _resolve_mapping(ccs_mapping, self._icd_versions)
         self.input_schema = {"conditions": "nested_sequence"}
         self.output_schema = {"ccs_targets": "multilabel"}
@@ -378,9 +397,7 @@ class _EviCareDiagnosisPrediction(BaseTask):
         """Returns ``(icd_code, icd_version)`` of a diagnosis event, or None."""
         raise NotImplementedError
 
-    def _visits(
-        self, patient: Any
-    ) -> list[tuple[str, datetime, list[tuple[str, int, str]]]]:
+    def _visits(self, patient: Any) -> list[_Visit]:
         """Builds the patient's visits, oldest first.
 
         Each visit is ``(hadm_id, admittime, [(icd, version, ccs), ...])``.
@@ -417,18 +434,64 @@ class _EviCareDiagnosisPrediction(BaseTask):
         visits.sort(key=lambda visit: visit[1])
         return visits
 
-    def __call__(self, patient: Any) -> list[dict[str, Any]]:
-        """Generates the sample of one patient.
+    def _make_sample(
+        self, patient_id: str, history: list[_Visit], target: _Visit
+    ) -> dict[str, Any] | None:
+        """Builds the sample predicting ``target`` from ``history``.
 
-        The last admission is the target and all earlier ones are the
-        history (one sample per patient, as in the paper).
+        Args:
+            patient_id: The patient identifier.
+            history: The earlier visits, oldest first (at least one).
+            target: The visit to predict.
+
+        Returns:
+            The sample, or None in the ``"novel"`` setting if the target has
+            no CCS code absent from the history.
+        """
+        target_id, target_time, target_codes = target
+        seen: set[str] = set()
+        conditions = []
+        for _, _, codes in history:
+            visit_ccs = list(dict.fromkeys(ccs for _, _, ccs in codes))
+            conditions.append(visit_ccs)
+            seen.update(visit_ccs)
+
+        targets = list(dict.fromkeys(ccs for _, _, ccs in target_codes))
+        if self.setting == "novel":
+            targets = [ccs for ccs in targets if ccs not in seen]
+            if not targets:
+                return None
+
+        return {
+            "patient_id": patient_id,
+            "visit_id": target_id,
+            "conditions": conditions,
+            "ccs_targets": targets,
+            "history_icd": [[icd for icd, _, _ in codes] for _, _, codes in history],
+            "history_icd_names": [
+                [self.ccs_mapping.icd_name(icd, ver) for icd, ver, _ in codes]
+                for _, _, codes in history
+            ],
+            "history_ccs": [[ccs for _, _, ccs in codes] for _, _, codes in history],
+            "days_ago": [
+                max((target_time - time).total_seconds(), 0.0) / 86400.0
+                for _, time, _ in history
+            ],
+        }
+
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
+        """Generates the samples of one patient.
+
+        With ``sample_mode="all_prefixes"`` every admission after the first
+        is a target, predicted from all earlier admissions; with ``"last"``
+        only the last admission is.
 
         Args:
             patient: A :class:`~pyhealth.data.Patient` with ``admissions`` and
                 ``diagnoses_icd`` events.
 
         Returns:
-            A list with at most one sample, with these fields:
+            The samples, oldest target first, each with these fields:
 
             - ``patient_id`` and ``visit_id`` (the target admission).
             - ``conditions``: CCS codes per history visit (the guide model's
@@ -444,45 +507,22 @@ class _EviCareDiagnosisPrediction(BaseTask):
             The last four fields are outside the schema and are passed
             through unchanged; :class:`~pyhealth.models.EviCare` reads them.
             The list is empty if the patient has fewer than ``min_visits``
-            usable admissions, or, in the ``"novel"`` setting, if the target
-            has no CCS code absent from the history.
+            usable admissions. In the ``"novel"`` setting, targets without a
+            CCS code absent from their history give no sample.
         """
         visits = self._visits(patient)
         if len(visits) < self.min_visits:
             return []
-        history, (target_id, target_time, target_codes) = visits[:-1], visits[-1]
-
-        seen: set[str] = set()
-        conditions = []
-        for _, _, codes in history:
-            visit_ccs = list(dict.fromkeys(ccs for _, _, ccs in codes))
-            conditions.append(visit_ccs)
-            seen.update(visit_ccs)
-
-        targets = list(dict.fromkeys(ccs for _, _, ccs in target_codes))
-        if self.setting == "novel":
-            targets = [ccs for ccs in targets if ccs not in seen]
-            if not targets:
-                return []
-
-        return [
-            {
-                "patient_id": patient.patient_id,
-                "visit_id": target_id,
-                "conditions": conditions,
-                "ccs_targets": targets,
-                "history_icd": [[icd for icd, _, _ in codes] for _, _, codes in history],
-                "history_icd_names": [
-                    [self.ccs_mapping.icd_name(icd, ver) for icd, ver, _ in codes]
-                    for _, _, codes in history
-                ],
-                "history_ccs": [[ccs for _, _, ccs in codes] for _, _, codes in history],
-                "days_ago": [
-                    max((target_time - time).total_seconds(), 0.0) / 86400.0
-                    for _, time, _ in history
-                ],
-            }
-        ]
+        if self.sample_mode == "last":
+            targets = [len(visits) - 1]
+        else:
+            targets = list(range(1, len(visits)))
+        samples = []
+        for t in targets:
+            sample = self._make_sample(patient.patient_id, visits[:t], visits[t])
+            if sample is not None:
+                samples.append(sample)
+        return samples
 
 
 class EviCareDiagnosisPredictionMIMIC3(_EviCareDiagnosisPrediction):
@@ -500,6 +540,8 @@ class EviCareDiagnosisPredictionMIMIC3(_EviCareDiagnosisPrediction):
             :class:`CCSMapping`.
         min_visits: Minimum number of admissions with mapped diagnoses.
             Default 2, as in the paper.
+        sample_mode: ``"all_prefixes"`` (default: every admission after the
+            first is a target, as in the paper's pipeline) or ``"last"``.
 
     Examples:
         >>> from pyhealth.datasets import MIMIC3Dataset
@@ -541,6 +583,7 @@ class EviCareDiagnosisPredictionMIMIC4(_EviCareDiagnosisPrediction):
             :class:`CCSMapping`.
         min_visits: Minimum number of admissions with mapped diagnoses.
             Default 2.
+        sample_mode: ``"all_prefixes"`` (default) or ``"last"``.
 
     Examples:
         >>> from pyhealth.datasets import MIMIC4EHRDataset
