@@ -40,18 +40,11 @@ def _clean_cell(value: str) -> str:
     The cells end with a newline and some hold several lines (one diagnosis
     per line), so this strips each line and joins them with "; ".
 
-    Notes:
-        How to write it:
+    Args:
+        value: The raw cell, e.g. ``"Sinus rhythm\\n"``.
 
-        1. Turn the value into a string and split it into lines
-           (``str.splitlines``).
-        2. Strip each line and drop the empty ones.
-        3. Join what's left with ``"; "``.
-
-        Real cells look like ``"F\\n"`` or ``"Left atrial hypertrophy\\nLeft
-        ventricular hypertrophy\\n"``, so ``"F\\n"`` becomes ``"F"`` and the
-        second becomes ``"Left atrial hypertrophy; Left ventricular
-        hypertrophy"``.
+    Returns:
+        The cleaned text, e.g. ``"Sinus rhythm"``.
     """
     lines = [line.strip() for line in str(value).splitlines()]
     return "; ".join(line for line in lines if line)
@@ -101,27 +94,7 @@ class LUDBDataset(BaseDataset):
         config_path: str | None = None,
         **kwargs: Any,
     ) -> None:
-        """Write the metadata CSV if needed, then load it as a BaseDataset.
-
-        Notes:
-            How to write it (copy the shape of ``HelsinkiNeonatalDataset``
-            in helsinki_neonatal.py):
-
-            1. If no ``config_path`` was given, use ``configs/ludb.yaml``
-               next to this file (``Path(__file__).parent``).
-            2. Save ``root`` on ``self`` and call ``self.prepare_metadata()``.
-               This has to happen before step 3, because BaseDataset reads
-               ludb-pyhealth.csv straight away.
-            3. Call ``super().__init__`` with
-               ``root=resolve_metadata_root(root, "ludb", CSV_NAME)`` (this
-               points at the PyHealth cache if the CSV had to be written
-               there), ``tables=["records"]`` (the table name in the YAML),
-               the dataset name and the config path, and pass ``**kwargs``
-               through.
-
-            BaseDataset turns empty CSV cells into None, so later on events
-            a missing electric axis is ``None``, not ``""``.
-        """
+        """Write the metadata CSV if needed, then load it as a BaseDataset."""
         if config_path is None:
             config_path = str(Path(__file__).parent / "configs" / "ludb.yaml")
         self.root = root
@@ -143,30 +116,6 @@ class LUDBDataset(BaseDataset):
 
         Raises:
             FileNotFoundError: If ``root`` is not a folder or has no records.
-
-        Notes:
-            How to write it:
-
-            1. If ``metadata_csv_exists(root, "ludb", CSV_NAME)`` is true,
-               return. (So an old CSV is never rewritten; delete it by hand
-               if you change the columns.)
-            2. If ``root`` is not a folder, raise FileNotFoundError.
-            3. The records are in ``root / "data"`` if that folder exists,
-               otherwise in ``root`` itself (the user may pass ``data/``).
-            4. Loop over ``record_dir.glob("*.hea")`` and keep the file
-               names that are numbers (``header.stem.isdigit()``). If there
-               are none, raise FileNotFoundError with the download link.
-            5. Read the metadata with ``_read_ludb_csv``.
-            6. For each record id, sorted as numbers (so 2 comes before 10),
-               build a dict with ``patient_id``, ``signal_file`` and the four
-               metadata fields (use ``""`` if the record isn't in ludb.csv).
-               ``signal_file`` is the record path *without* ".hea", because
-               that's what wfdb.rdsamp expects.
-            7. Save the rows with ``write_metadata_csv(pd.DataFrame(rows),
-               root, "ludb", CSV_NAME)``; it falls back to the cache folder
-               if ``root`` is read only.
-
-            The column names must match the ``attributes`` in ludb.yaml.
         """
         root = Path(self.root)
         if metadata_csv_exists(root, "ludb", CSV_NAME):
@@ -206,33 +155,19 @@ class LUDBDataset(BaseDataset):
     def _read_ludb_csv(root: Path, record_dir: Path) -> dict[str, dict[str, str]]:
         """Read sex, age, rhythm and electric axis from ludb.csv.
 
-        Returns a dict from record id to its values, or an empty dict (with
-        a warning) if ludb.csv is missing. Ages over 89 stay as ">89".
+        Ages over 89 stay as ">89".
+
+        Args:
+            root: The LUDB folder given by the user.
+            record_dir: The folder holding the records.
+
+        Returns:
+            A dict from record id to its ``sex``, ``age``, ``rhythm`` and
+            ``electric_axis``, or an empty dict (with a warning) if ludb.csv
+            is missing.
 
         Raises:
             ValueError: If ludb.csv has no ID column.
-
-        Notes:
-            How to write it:
-
-            1. Look for ``ludb.csv`` in ``root``, then in the folder above
-               ``record_dir``. If it's in neither, log a warning and return
-               ``{}`` so the dataset still loads without metadata.
-            2. Read it with ``pd.read_csv(path, dtype=str,
-               keep_default_na=False)``. ``dtype=str`` keeps ids like "1" as
-               text; ``keep_default_na=False`` makes empty cells ``""``
-               instead of NaN.
-            3. If there is no "ID" column, raise ValueError.
-            4. For each row (``table.iterrows()``), clean these columns with
-               ``_clean_cell``: "Sex", "Age", "Rhythms" and "Electric axis
-               of the heart". Use ``row.get(column, "")`` so a missing
-               column doesn't crash.
-            5. The axis cells read "Electric axis of the heart: normal", so
-               remove that prefix to keep just "normal".
-            6. Store the four values under the cleaned ID.
-
-            Things you'll see in the real file: 10 paced records have an
-            empty axis, one age is ">89", and some rhythms have two lines.
         """
         path = root / "ludb.csv"
         if not path.is_file():
@@ -260,12 +195,5 @@ class LUDBDataset(BaseDataset):
 
     @property
     def default_task(self) -> ECGDelineationLUDB:
-        """Return the default task: delineation on all 12 leads, filtered.
-
-        Notes:
-            How to write it: return ``ECGDelineationLUDB()``. Import the task
-            at the top of this file. The task file must never import from
-            pyhealth.datasets, or the two imports go in a circle; that's why
-            LUDB_LEADS lives in the task file.
-        """
+        """Return the default task: delineation on all 12 leads, filtered."""
         return ECGDelineationLUDB()

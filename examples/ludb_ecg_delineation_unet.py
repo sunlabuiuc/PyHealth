@@ -39,8 +39,47 @@ Usage:
         --seeds 0 1 2 --output ludb_results.json
 
 Results:
-    To be filled in from the LUDB run. The --synthetic run only checks that
-    the pipeline works; its numbers say nothing about real ECGs.
+    Real LUDB 1.0.1, default settings (up to 40 epochs, Adam lr 1e-3, base
+    32 channels, depth 5, early stopping patience 10), seeds 0, 1 and 2, on
+    a Colab T4 GPU. Mean (std) over seeds on the 20 test records.
+
+    Clean test set:
+
+        model              P              QRS            T              mIoU
+        UNet 3+ (paper)    0.814          0.881          0.868          0.854
+        UNet2D filtered    0.779 (0.032)  0.883 (0.019)  0.804 (0.020)  0.822 (0.017)
+        UNet2D unfiltered  0.792 (0.003)  0.879 (0.010)  0.809 (0.022)  0.826 (0.010)
+
+    mIoU with Gaussian noise added to the test signals (before filtering):
+
+        model              clean  20 dB  10 dB  5 dB   0 dB
+        UNet2D filtered    0.822  0.787  0.676  0.520  0.283
+        UNet2D unfiltered  0.826  0.786  0.646  0.453  0.191
+        gain from filter   -0.004 +0.001 +0.030 +0.067 +0.092
+
+    Per wave at 0 dB (P / QRS / T): filtered 0.244 / 0.576 / 0.029,
+    unfiltered 0.191 / 0.372 / 0.011.
+
+Findings:
+    - Reproduction: a plain UNet reaches 0.82-0.83 mIoU, about 0.03 below
+      the paper's UNet 3+ (0.854) despite a much smaller training budget
+      (the paper used up to 500 epochs and a hyperparameter search). QRS
+      matches the paper; T waves show the largest gap (0.80-0.81 vs 0.868).
+    - On clean ECGs the band-pass filter makes no real difference (0.822 vs
+      0.826, within one standard deviation).
+    - With noise, the filter matters more as the noise gets stronger: no
+      gain at 20 dB, +0.03 at 10 dB, +0.07 at 5 dB and +0.09 at 0 dB. A
+      likely reason is that the 150 Hz low-pass removes the part of the
+      white noise above 150 Hz before the model sees it.
+    - The average hides which wave fails. At 0 dB the filter's gain comes
+      mostly from QRS (0.576 vs 0.372); T waves collapse with or without it
+      (0.029 vs 0.011), since they are small and smooth and get buried first.
+    - Caveats: the filtered model varies a lot between seeds at 0 dB (std
+      0.093), the noise is simulated white Gaussian noise, and everything is
+      on one dataset.
+
+    The --synthetic run only checks that the pipeline works; its numbers say
+    nothing about real ECGs.
 """
 
 import argparse
@@ -122,32 +161,9 @@ def make_synthetic_ludb(root: Path, n_records: int = 20) -> None:
     are left unannotated like in LUDB. Baseline drift and noise are added so
     the filter has something to remove.
 
-    Notes:
-        How to write it:
-
-        1. Make ``root / "data"``. Use a time axis ``t`` of 5000 points
-           (10 s at 500 Hz) and a seeded ``np.random.default_rng`` so every
-           run makes the same data.
-        2. For each record, pick a beat length (0.7-1.1 s) and the start
-           time of each beat. For each beat add three Gaussian bumps (P,
-           QRS, T) at fixed offsets from the start. For every beat except
-           the first and last, add "(", peak, ")" symbols and their sample
-           indices (center - width, center, center + width) to the
-           annotation lists.
-        3. Copy the beat signal to 12 leads with a random gain per lead,
-           then add a slow sine (baseline drift) and a bit of noise.
-        4. Save with ``wfdb.wrsamp(name, fs=..., units=["mV"] * 12,
-           sig_name=list(LUDB_LEADS), p_signal=signal, fmt=["16"] * 12,
-           write_dir=...)``.
-        5. Save the annotations once per lead with ``wfdb.wrann``. It
-           refuses extensions with digits (v1 to v6), so write each one as
-           ".tmp" and rename it to ".<lead>".
-        6. Write a small ludb.csv with the same column names as the real
-           one.
-
-        This is only a smoke test; the bumps look nothing like real ECGs, so
-        the scores it gives mean nothing. The P bumps are small, so a P IoU
-        of 0 after short training is expected.
+    Args:
+        root: Folder to write ``ludb.csv`` and ``data/`` into.
+        n_records: Number of fake records.
     """
     import wfdb
 
@@ -215,24 +231,13 @@ def split_by_record(
     Real LUDB uses the paper's split. Synthetic data uses a random 80/10/10
     split by record.
 
-    Notes:
-        How to write it:
+    Args:
+        samples: The output of ``dataset.set_task``.
+        synthetic: Whether the samples come from ``make_synthetic_ludb``.
+        seed: Seed for the random split (synthetic data only).
 
-        1. Synthetic data: return ``split_by_patient(samples, [0.8, 0.1,
-           0.1], seed=seed)``. One patient is one record, so this already
-           keeps all 12 leads of a record together.
-        2. Real LUDB: ``samples.patient_to_index`` maps each record id (a
-           string) to the indices of its samples. Put each record's
-           indices into the test, validation or train list depending on
-           whether ``int(patient_id)`` is in ``TEST_IDS``, ``VALID_IDS`` or
-           neither.
-        3. Return ``samples.subset(...)`` for each of the three lists.
-
-        Split by record, never by sample: otherwise leads of the same
-        heartbeat end up in both train and test. The ids come from the paper
-        authors' published split, which makes our numbers comparable to
-        theirs. The noisy test sets go through this same function, so they
-        hold the same records as the clean test set.
+    Returns:
+        The train, validation and test samples.
     """
     if synthetic:
         return split_by_patient(samples, [0.8, 0.1, 0.1], seed=seed)
@@ -261,26 +266,13 @@ def wave_iou(
     Intersections and unions are summed over all leads before dividing.
     Points with mask value 255 (not annotated) are skipped.
 
-    Notes:
-        How to write it:
+    Args:
+        model: A trained UNet2D.
+        samples: The samples to score.
+        batch_size: Batch size for inference.
 
-        1. Put the model in eval mode and keep two arrays of 3 zeros:
-           intersection and union (one slot each for P, QRS, T).
-        2. Loop over ``get_dataloader(samples, batch_size)``. Call
-           ``model(signal=batch["signal"])["logit"]``; leaving out "mask"
-           skips the loss. The logits are (batch, 4, 1, length), so
-           ``argmax(dim=1)`` gives the predicted class of each point.
-        3. Make an "annotated" mask: ``batch["mask"] != IGNORE_INDEX``.
-        4. For each label 1, 2, 3: predicted = (prediction == label) and
-           annotated; actual = (truth == label). Add the count of
-           ``predicted & actual`` to intersection and of
-           ``predicted | actual`` to union.
-        5. IoU = intersection / union (guard against dividing by 0); mIoU
-           is their mean. Return a dict with "P", "QRS", "T" and "mIoU".
-
-        This sums over all leads before dividing, which is our reading of
-        Section 3.3 of the paper. The Trainer's own "iou" averages per lead
-        instead, so the two numbers differ; don't compare them.
+    Returns:
+        The IoU of ``P``, ``QRS`` and ``T``, and their mean ``mIoU``.
     """
     model.eval()
     intersection = np.zeros(3)
@@ -305,25 +297,14 @@ def train_unet(
 ) -> UNet2D:
     """Train UNet2D and keep the weights from the best validation epoch.
 
-    Notes:
-        How to write it (see how other examples, e.g. the Helsinki one, use
-        the Trainer):
+    Args:
+        train: Training samples.
+        valid: Validation samples, used for early stopping on IoU.
+        args: Command-line arguments (epochs, lr, model size, ...).
+        seed: Seed for the weights and the batch order.
 
-        1. Call ``torch.manual_seed(seed)`` so runs repeat.
-        2. Build ``UNet2D(train, in_channels=1, num_classes=4, ...)`` with
-           ``norm="batch"`` and ``ignore_index=IGNORE_INDEX``. 4 classes =
-           background, P, QRS, T.
-        3. Make a ``Trainer(model=model, metrics=["iou"], ...)``.
-        4. Call ``trainer.train`` with a shuffled train dataloader, a
-           validation dataloader, the epochs and learning rate,
-           ``monitor="iou"`` and ``patience``. The Trainer then reloads the
-           best validation epoch at the end.
-        5. Return the model.
-
-        lr 1e-3 was checked on real LUDB: test mIoU 0.54 after 3 epochs and
-        still rising. lr 1e-2 jumped around and ended at 0.42. With depth 5,
-        UNet2D pads the one-row input to 16 rows, so each epoch is slow
-        (~2 min on a laptop GPU).
+    Returns:
+        The trained model.
     """
     torch.manual_seed(seed)
     model = UNet2D(
@@ -356,26 +337,14 @@ def run_experiment(
 ) -> dict:
     """Train with or without the filter, then score on clean and noisy test sets.
 
-    Returns {test condition: [scores for each seed]}.
+    Args:
+        dataset: The LUDB dataset.
+        apply_filter: Whether the task applies the band-pass filter.
+        args: Command-line arguments.
 
-    Notes:
-        How to write it:
-
-        1. Build the clean samples with
-           ``dataset.set_task(ECGDelineationLUDB(apply_filter=...))``.
-        2. Build one noisy sample set per level in ``NOISE_LEVELS_DB`` the
-           same way, adding ``noise_snr_db=snr``. Do this once, before the
-           seed loop; each set_task on real LUDB takes ~15 s.
-        3. Make a results dict with an empty list for "clean" and for each
-           noise level (e.g. "10 dB").
-        4. For each seed: split the clean samples with ``split_by_record``,
-           train with ``train_unet``, then append ``wave_iou`` on the clean
-           test set and on the test part of each noisy set.
-        5. Return the dict.
-
-        The model is only ever trained on clean data; just the test set is
-        noisy. The noise seed is fixed, so every training seed is tested on
-        the exact same noisy signals.
+    Returns:
+        A dict from test condition ("clean", "20 dB", ...) to a list with
+        the scores of each seed.
     """
     clean_samples = dataset.set_task(ECGDelineationLUDB(apply_filter=apply_filter))
     noisy_samples = {}
@@ -402,17 +371,9 @@ def run_experiment(
 def print_table(all_results: dict) -> None:
     """Print mean (std) IoU over seeds for every experiment and test set.
 
-    Notes:
-        How to write it:
-
-        1. Print a header row, then a row with the paper's UNet 3+ numbers
-           (``PAPER_UNET3PLUS``) for reference.
-        2. For each experiment ("filtered", "unfiltered") and each test set
-           ("clean", "20 dB", ...), collect that score from every seed's run
-           and print ``np.mean`` and ``np.std`` for P, QRS, T and mIoU.
-
-        Use f-string padding (e.g. ``f"{text:<12}"``) to line the columns
-        up. With one seed the std is always 0.000.
+    Args:
+        all_results: A dict from experiment name to ``run_experiment``'s
+            output.
     """
     print(
         f"\n{'model':<12}{'test set':<10}"
@@ -432,31 +393,7 @@ def print_table(all_results: dict) -> None:
 
 
 def main() -> None:
-    """Parse arguments, run both experiments and print the results.
-
-    Notes:
-        How to write it:
-
-        1. Use ``argparse`` for: --root, --synthetic, --epochs, --patience,
-           --batch-size, --lr, --base-channels, --depth, --seeds (a list,
-           ``nargs="+"``), --device and --output. Error out if neither
-           --root nor --synthetic is given.
-        2. Open a ``tempfile.TemporaryDirectory()``. If --synthetic, call
-           ``make_synthetic_ludb`` inside it, point --root there and switch
-           to small settings (15 epochs, 8 channels, depth 3, lr 1e-2) so it
-           runs on a CPU in a few minutes.
-        3. Load ``LUDBDataset(root=..., cache_dir=<temp folder>)``. A temp
-           cache means every run rebuilds the samples (~2.5 min on real
-           LUDB) but never picks up a stale cache.
-        4. Call ``run_experiment`` with ``apply_filter=True`` and then
-           ``False``, keep both results, and ``print_table`` them.
-        5. If --output was given, save the results with ``json.dump``
-           (``default=float`` turns the numpy numbers into plain floats).
-
-        One seed trains two models, so budget for both on Colab. On macOS,
-        if the repo is in an iCloud-synced folder and you get "No module
-        named pyhealth", set PYTHONPATH to the repo folder.
-    """
+    """Parse arguments, run both experiments and print the results."""
     parser = argparse.ArgumentParser(description="ECG delineation on LUDB with UNet2D.")
     parser.add_argument("--root", help="LUDB 1.0.1 folder (holds ludb.csv and data/).")
     parser.add_argument(

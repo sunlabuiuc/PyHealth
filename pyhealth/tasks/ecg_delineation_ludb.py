@@ -64,29 +64,6 @@ def annotations_to_mask(
     Raises:
         ValueError: If symbols and samples have different lengths.
 
-    Notes:
-        How to write it:
-
-        1. Check the two lists are the same length (else ValueError).
-        2. Start with ``mask = np.full(n_samples, IGNORE_INDEX)`` (int64).
-        3. Find the positions in ``symbols`` that are peaks (keys of
-           ``WAVE_LABELS``). If there are none, return the mask as is.
-        4. For each peak, search backwards for the nearest "(" and forwards
-           for the nearest ")". Stop each search at the previous / next
-           peak, so a wave never borrows its neighbour's boundary. If
-           nothing is found, use the peak's own sample. Keep
-           ``(label, onset, offset)``.
-        5. Set everything from the first onset to the last offset to 0
-           (background), then paint each wave's label from onset to offset.
-           Both ends are included, so slice to ``offset + 1``.
-
-        Why not just read three symbols at a time? About 300 of LUDB's
-        175,000 marks break the "(" peak ")" pattern, mostly QRS complexes
-        written as "N )" with no onset. With the rule above the masks match
-        the paper authors' published annotations on all but 1,168 of about
-        8.8 million labelled points. The ``>>>`` example below is a good
-        first check for your version.
-
     Examples:
         >>> from pyhealth.tasks.ecg_delineation_ludb import annotations_to_mask
         >>> symbols = ["(", "p", ")", "(", "N", ")", "(", "t", ")"]
@@ -190,21 +167,14 @@ class ECGDelineationLUDB(BaseTask):
     ) -> None:
         """Check the lead names and store the task settings.
 
-        Notes:
-            How to write it:
+        Args:
+            leads: Leads to use. Defaults to all 12.
+            apply_filter: Whether to apply the band-pass filter.
+            noise_snr_db: SNR of the added noise in dB, or None for no noise.
+            noise_seed: Seed for the noise.
 
-            1. Call ``super().__init__()``.
-            2. If ``leads`` is None, use all of ``LUDB_LEADS``. Lower-case
-               every name, because the annotation files use lower-case leads
-               (``1.avr``, not ``1.aVR``).
-            3. Raise ValueError if the list is empty, has duplicates
-               (compare ``len(set(...))`` with ``len(...)``) or has a name
-               that isn't in ``LUDB_LEADS``.
-            4. Store the other three arguments on ``self``.
-
-            set_task caches its samples using these settings. If you change
-            only the code of ``__call__``, run
-            ``dataset.clear_task_cache(task)`` or you'll get the old samples.
+        Raises:
+            ValueError: If ``leads`` is empty, has duplicates or unknown names.
         """
         super().__init__()
         if leads is None:
@@ -228,27 +198,15 @@ class ECGDelineationLUDB(BaseTask):
 
         The noise power is the signal power divided by 10^(snr/10). The random
         generator is seeded with the noise seed, record and lead, so the same
-        lead always gets the same noise. Returns the signal unchanged if
-        noise_snr_db is None.
+        lead always gets the same noise.
 
-        Notes:
-            How to write it:
+        Args:
+            signal: One lead, shape ``(n_samples,)``.
+            record_id: The record number, used to seed the noise.
+            lead: The lead name, used to seed the noise.
 
-            1. If ``noise_snr_db`` is None, return the signal unchanged.
-            2. Make a generator with ``np.random.default_rng([noise_seed,
-               int(record_id), lead_index])``, where ``lead_index`` is
-               ``LUDB_LEADS.index(lead)``. Seeding per record and lead keeps
-               the noise identical no matter what order PyHealth processes
-               patients in.
-            3. Signal power = mean of ``signal ** 2``. Noise power = signal
-               power / ``10 ** (snr / 10)``.
-            4. Return ``signal + rng.normal(0, sqrt(noise power),
-               size=len(signal))``.
-
-            To check it: measure the SNR of what you added; it should come
-            out at the requested dB (within a few tenths). This is called
-            before filtering on purpose, to mimic noise picked up while
-            recording.
+        Returns:
+            The noisy signal, or ``signal`` unchanged if noise_snr_db is None.
         """
         if self.noise_snr_db is None:
             return signal
@@ -267,29 +225,16 @@ class ECGDelineationLUDB(BaseTask):
         filtering: the 0.05 Hz high-pass reacts very slowly, and scipy's
         default short padding left a slow drift near the edges.
 
+        Args:
+            signal: One lead, shape ``(n_samples,)``.
+            sampling_rate: Sampling rate of the record in Hz.
+
+        Returns:
+            The filtered signal, or ``signal`` unchanged if apply_filter is
+            False.
+
         Raises:
             ValueError: If the sampling rate is too low for the 150 Hz cut-off.
-
-        Notes:
-            How to write it (scipy.signal):
-
-            1. If ``apply_filter`` is False, return the signal unchanged.
-            2. A low-pass at 150 Hz only works if the sampling rate is above
-               300 Hz (twice the cut-off), so raise ValueError otherwise.
-               LUDB is 500 Hz.
-            3. Design the filter with ``butter(2, [0.05, 150],
-               btype="bandpass", fs=sampling_rate, output="sos")``.
-            4. Apply it with ``sosfiltfilt(sos, signal, padtype="even",
-               padlen=len(signal) - 1)``. ``sosfiltfilt`` runs forwards then
-               backwards, so the waves don't shift in time.
-
-            The padding in step 4 is the non-obvious part. With scipy's
-            default padding, a 10 Hz test wave came out 1.39x too big
-            because of a slow drift from the record edges. Mirroring the
-            whole record fixes most of it. To check your version, filter a
-            pure 10 Hz wave (should stay about the same size), a constant
-            (should go to ~0) and a 200 Hz wave (should mostly disappear).
-            The paper doesn't give the filter order; 2 is our choice.
         """
         if not self.apply_filter:
             return signal
@@ -308,34 +253,15 @@ class ECGDelineationLUDB(BaseTask):
         Leads with no annotation file or no annotated wave are skipped with a
         warning, and so are records whose signal cannot be read.
 
-        Notes:
-            How to write it (the wfdb package reads PhysioNet files):
+        Args:
+            patient: A patient from :class:`~pyhealth.datasets.LUDBDataset`.
 
-            1. Import wfdb inside this method, not at the top of the file,
-               because it's optional and ``import pyhealth.tasks`` must work
-               without it. Raise a helpful ImportError if it's missing.
-            2. Loop over ``patient.get_events("records")`` (one per record).
-            3. Read the signal with ``signal, fields =
-               wfdb.rdsamp(event.signal_file)``. ``signal`` is (n_samples,
-               12), so one lead is a column; ``fields["sig_name"]`` gives
-               the lead names and ``fields["fs"]`` the sampling rate. If the
-               file can't be read, log a warning and skip the record.
-            4. For each lead in ``self.leads``:
+        Returns:
+            One dict per lead with ``patient_id``, ``lead``, ``signal`` and
+            ``mask``.
 
-               a. The annotation file is ``signal_file + "." + lead``. If it
-                  doesn't exist, warn and skip the lead.
-               b. Read it with ``wfdb.rdann(event.signal_file, lead)`` and
-                  pass ``.symbol`` and ``.sample`` to
-                  ``annotations_to_mask``. If the mask is all 255, warn and
-                  skip.
-               c. Take the lead's column, call ``add_noise`` then
-                  ``filter_signal`` (noise first, then filter).
-               d. Append a dict with ``patient_id``, ``lead``, ``signal``
-                  reshaped to (1, 1, n) as float32, and ``mask`` reshaped to
-                  (1, n).
-
-            The (1, 1, n) shape only exists so UNet2D sees a one-row image.
-            On real LUDB this makes all 2,400 samples in about 15 s.
+        Raises:
+            ImportError: If the wfdb package is not installed.
         """
         try:
             import wfdb
