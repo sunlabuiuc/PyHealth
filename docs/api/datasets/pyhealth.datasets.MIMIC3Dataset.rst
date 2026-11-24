@@ -1,7 +1,7 @@
 ﻿pyhealth.datasets.MIMIC3Dataset
 ===================================
 
-The open Medical Information Mart for Intensive Care (MIMIC-III) database, refer to `doc <https://mimic.mit.edu/>`_ for more information. We process this database into well-structured dataset object and give user the **best flexibility and convenience** for supporting modeling and analysis.
+The Medical Information Mart for Intensive Care (MIMIC-III) database, a credentialed-access dataset on `PhysioNet <https://physionet.org/content/mimiciii/1.4/>`_ (see `the MIMIC docs <https://mimic.mit.edu/>`_). The open `MIMIC-III demo <https://physionet.org/content/mimiciii-demo/1.4/>`_ (100 patients) works with the same class. The class docstring below explains how to get access and where ``root`` should point.
 
 .. autoclass:: pyhealth.datasets.MIMIC3Dataset
     :members:

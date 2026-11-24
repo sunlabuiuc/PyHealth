@@ -1,7 +1,7 @@
 """Standalone verification of the MEDS in-hospital mortality cohort.
 
 Applies ``InHospitalMortalityMEDS`` via ``set_task`` on a MEDS dataset and
-prints basic cohort counts (expected ~12/238 positives on the public
+prints basic cohort counts (15 deaths in 275 stays of 100 patients on the public
 MIMIC-IV demo). Prefer this path over a per-patient ``task(get_patient)``
 loop: ``set_task`` uses the library's lazy loading and parallel processing.
 

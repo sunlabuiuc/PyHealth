@@ -8,26 +8,30 @@ import torch.nn.utils.rnn as rnn_utils
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.processors import (
+    BridgeDataset,
     DeepNestedFloatsProcessor,
     DeepNestedSequenceProcessor,
+    JaggedFeatureProcessor,
     MultiHotProcessor,
     NestedFloatsProcessor,
     NestedSequenceProcessor,
     SequenceProcessor,
-    SequenceProcessorV2,
     StageNetProcessor,
     StageNetTensorProcessor,
     TimeseriesLabelProcessor,
     TimeseriesProcessor,
+    transform_batch,
 )
 
 from .embedding import EmbeddingModel
+from .utils import mask_lengths
 from .sequence_embedding import (
     LevelEmbedding,
     MaskMode,
     PretrainedEmbedding,
     SequenceEmbeddingModel,
 )
+
 
 class RNNLayer(nn.Module):
     """Recurrent neural network layer.
@@ -117,7 +121,7 @@ class RNNLayer(nn.Module):
                 size=(batch_size,), fill_value=x.size(1), dtype=torch.int64
             )
         else:
-            lengths = torch.sum(mask.int(), dim=-1).cpu()
+            lengths = mask_lengths(mask).cpu()
         # Clamp lengths to at least 1 to handle empty sequences,
         # matching TCNLayer (tcn.py:186).
         lengths = torch.clamp(lengths, min=1)
@@ -236,7 +240,7 @@ class RNN(BaseModel):
         if per_step:
             raise ValueError(
                 "RNN does not support per-step (timeseries_*) labels; use "
-                "RNN_V2 with sequence_v2 inputs."
+                "RNN_V2 with jagged inputs."
             )
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
@@ -295,12 +299,17 @@ class RNN(BaseModel):
             x = embedded[feature_key]
 
             x_dim_orig = x.dim()
-            if x_dim_orig == 4:
-                # nested_sequence: (B, num_visits, num_codes, D)
+            if x_dim_orig >= 4:
+                # nested_sequence: (B, num_visits, num_codes, D), or deeper for
+                # deep_nested_sequence: (B, num_groups, num_visits, num_codes, D).
                 # @TODO: sum-pooling across codes is a simple baseline. May need to investigate better embeddings for nested codes.
-                x = x.sum(dim=2)  # (B, num_visits, D)
+                while x.dim() > 3:
+                    x = x.sum(dim=2)  # (B, num_outer, D)
                 if feature_key in masks:
-                    mask = (masks[feature_key].to(self.device).sum(dim=-1) > 0).int()  # (B, V)
+                    mask = masks[feature_key].to(self.device)
+                    while mask.dim() > 2:
+                        mask = mask.sum(dim=-1)
+                    mask = (mask > 0).int()  # (B, num_outer)
                 else:
                     mask = (torch.abs(x).sum(dim=-1) != 0).int()
             elif x_dim_orig == 2:
@@ -322,10 +331,13 @@ class RNN(BaseModel):
         # (patient, label_size)
         logits = self.fc(patient_emb)
         # obtain y_true, loss, y_prob
-        y_true = kwargs[self.label_key].to(self.device)
-        loss = self.label_processor.loss(logits, y_true)
         y_prob = self.label_processor.activation(logits)
-        results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
+        results = {"y_prob": y_prob, "logit": logits}
+        # The label is optional, so the model can predict without it.
+        if self.label_key in kwargs:
+            y_true = kwargs[self.label_key].to(self.device)
+            results["loss"] = self.label_processor.loss(logits, y_true)
+            results["y_true"] = y_true
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results
@@ -437,7 +449,7 @@ class MultimodalRNN(BaseModel):
         if per_step:
             raise ValueError(
                 "MultimodalRNN does not support per-step (timeseries_*) labels; "
-                "use RNN_V2 with sequence_v2 inputs."
+                "use RNN_V2 with jagged inputs."
             )
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
@@ -538,13 +550,19 @@ class MultimodalRNN(BaseModel):
             m = mask[feature_key]
 
             x_dim_orig = x.dim()
-            if x_dim_orig == 4:
-                # nested_sequence: (B, num_visits, num_codes, D)
-                # Pool codes within each visit, then run RNN over visits.
-                # Flattening visits*codes would produce length=0 when inner lists are empty.
-                x = x.sum(dim=2)  # (B, num_visits, D)
+            if x_dim_orig >= 4:
+                # nested_sequence: (B, num_visits, num_codes, D), or deeper for
+                # deep_nested_sequence: (B, num_groups, num_visits, num_codes, D).
+                # Pool everything inside each outer step, then run the RNN over
+                # the outer steps. Flattening would produce length=0 when inner
+                # lists are empty.
+                while x.dim() > 3:
+                    x = x.sum(dim=2)  # (B, num_outer, D)
                 if feature_key in masks:
-                    m = (masks[feature_key].to(self.device).sum(dim=-1) > 0).int()  # (B, V)
+                    m = masks[feature_key].to(self.device)
+                    while m.dim() > 2:
+                        m = m.sum(dim=-1)
+                    m = (m > 0).int()  # (B, num_outer)
                 else:
                     m = (torch.abs(x).sum(dim=-1) != 0).int()
             elif x_dim_orig == 2:
@@ -574,23 +592,20 @@ class MultimodalRNN(BaseModel):
         logits = self.fc(patient_emb)
 
         # Calculate loss and predictions
-        y_true = kwargs[self.label_key].to(self.device)
-        loss = self.label_processor.loss(logits, y_true)
         y_prob = self.label_processor.activation(logits)
-
-        results = {
-            "loss": loss,
-            "y_prob": y_prob,
-            "y_true": y_true,
-            "logit": logits
-        }
+        results = {"y_prob": y_prob, "logit": logits}
+        # The label is optional, so the model can predict without it.
+        if self.label_key in kwargs:
+            y_true = kwargs[self.label_key].to(self.device)
+            results["loss"] = self.label_processor.loss(logits, y_true)
+            results["y_true"] = y_true
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results
 
 
 # ----------------------------------------------------------------------------
-# RNN_V2: RNNs over the packed records of SequenceProcessorV2 fields
+# RNN_V2: RNNs over the packed records of JaggedFeatureProcessor fields
 # ----------------------------------------------------------------------------
 
 RNNType = Literal["RNN", "LSTM", "GRU"]
@@ -683,7 +698,7 @@ class _FieldRNN(nn.Module):
     def __init__(
         self,
         field: str,
-        processor: SequenceProcessorV2,
+        processor: JaggedFeatureProcessor,
         level_dims: Sequence[int],
         hidden_dim: int,
         rnn_type: RNNType,
@@ -695,8 +710,11 @@ class _FieldRNN(nn.Module):
         super().__init__()
         self.depth = processor.depth
         orderings = processor.ordering()
-        # A level runs an RNN unless it is a set.
-        self.is_rnn = [orderings[level] != "set" for level in range(self.depth + 1)]
+        # Ordered levels run an RNN; a set, or a single record per sample, is pooled.
+        self.is_rnn = [
+            orderings[level] in ("sequence", "series")
+            for level in range(self.depth + 1)
+        ]
         timed = {level for level, role in processor.schema() if role == "time"}
         self.gap_levels = sorted(timed) if time_feature else []
 
@@ -770,23 +788,27 @@ class _FieldRNN(nn.Module):
 
 
 class RNN_V2(BaseModel):
-    """RNN model over :class:`~pyhealth.processors.SequenceProcessorV2` fields.
+    """RNN model over :class:`~pyhealth.processors.JaggedFeatureProcessor` fields.
 
     Each V2 field is embedded by :class:`SequenceEmbeddingModel` and encoded
     into one summary per sample, independently of the other fields. The
     summaries are concatenated and a linear layer predicts the label. Every
-    input field must be ``"sequence_v2"``: sequences, sets and tokens are
-    expressed with it, and so are static values, as a ``series`` with one
-    record at ``t = 0`` (known before the first event), which goes through its
-    own RNN like any other field.
+    input field must be ``"jagged"``: sequences, sets and tokens are
+    expressed with it, and so are static values, as a ``single`` level with
+    one record per sample. A legacy field (``"sequence"``,
+    ``"tensor"``, ...) is read as the levels of its
+    :class:`~pyhealth.processors.UnifiedBridge`: the model wraps its dataset
+    in a :class:`~pyhealth.processors.BridgeDataset` and converts each
+    batch, and data loaders are built from the dataset as usual.
 
     Each V2 field is encoded bottom-up, level by level, from level 0 up.
     A level's input is its records' embeddings concatenated with the summary
-    of each record's children. A ``set`` level mean-pools each group; a
-    ``sequence`` / ``series`` level runs its RNN over each group and keeps
+    of each record's children. A ``set`` level mean-pools each group, and a
+    ``single`` level, whose groups hold one record each, passes that record
+    on; a ``sequence`` / ``series`` level runs its RNN over each group and keeps
     the last output, giving one summary per parent record, up to one per sample.
     So a record and everything below it are encoded as one unit. Following
-    :class:`~pyhealth.processors.SequenceProcessorV2`, each level's time has
+    :class:`~pyhealth.processors.JaggedFeatureProcessor`, each level's time has
     its own unit and origin, and only orders the records of a group.
 
     A group without records (e.g. a stay without labs) is skipped by the RNN
@@ -796,18 +818,21 @@ class RNN_V2(BaseModel):
 
     Per-step labels (``"timeseries_binary"`` / ``"timeseries_regression"``,
     a :class:`~pyhealth.processors.TimeseriesLabelProcessor`): the model
-    predicts once per label record. The label's times are in the unit of the
-    fields' top level, with the same origin, and a label at time ``t`` uses
-    each field's top-level state after its last top-level record with time
-    ``<= t`` (zeros before the first), so it never sees a later top-level
-    record. That state covers everything the record contains:
-    lower levels' times are not on the label's timeline and are not compared
-    to it, so data that must be cut at label times belongs at the top level.
-    Every V2 field must have a ``series`` top level, resampled or not (a
+    predicts once per label record. The label processor's ``timeline`` names
+    the fields on the label's timeline, which must all be input fields. Such
+    a field's top-level times are in the label's unit, with the same origin,
+    and a label at time ``t`` uses its top-level state after its last
+    top-level record with time ``<= t`` (zeros before the first), so it
+    never sees a later top-level record. That state covers everything the
+    record contains: lower levels' times are not compared to the label's, so
+    data that must be cut at label times belongs at the top level. So a
+    timeline field needs a ``series`` top level, resampled or not (a
     resampled one with ``align: "right"``, the default, keeps this causal:
-    a step holds no record later than its time). Wrap a ``set`` or
-    ``sequence`` top level in a ``series`` with ``t = 0``. Logits are ``[label records,
-    1]``, packed like the label.
+    a step holds no record later than its time), and a causal RNN; a field
+    without time belongs off the timeline. Every other field holds for the
+    whole sample: it is encoded whole, whatever its levels (e.g. static
+    values as a ``single`` level), and every label record of the sample uses
+    its summary. Logits are ``[label records, 1]``, packed like the label.
 
     Every per-field argument takes one value for all V2 fields, or a
     ``{field: value}`` dict (unlisted fields get the default).
@@ -820,7 +845,8 @@ class RNN_V2(BaseModel):
         rnn_type: ``"RNN"``, ``"LSTM"`` or ``"GRU"`` (default), per field.
         num_layers: The layers of each level's RNN, per field.
         dropout: Dropout before each RNN, per field.
-        bidirectional: Bidirectional RNNs, per field. Not with per-step labels.
+        bidirectional: Bidirectional RNNs, per field. Not on the fields of a
+            per-step label's timeline.
         time_feature: Whether timed levels get the time since the previous
             record, per field.
         mask: How :class:`SequenceEmbeddingModel` uses missing-value masks:
@@ -828,22 +854,22 @@ class RNN_V2(BaseModel):
         pretrain: :class:`~pyhealth.models.PretrainedEmbedding` entries.
 
     Examples:
-        A static age is a series with one record at ``t = 0``:
+        A static age is a ``single`` level, one record per sample:
 
         >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
         >>> samples = [
-        ...     {"patient_id": f"p{i}", "age": {"time": [0.0], "values": [[50.0 + i]]},
+        ...     {"patient_id": f"p{i}", "age": {"values": [[50.0 + i]]},
         ...      "visits": {"time": [0.0, 1.0], "children": [{"tokens": ["A", "B"]}, {"tokens": ["C"] * i}]},
         ...      "label": i % 2}
         ...     for i in range(4)
         ... ]
-        >>> age = [{"ordering": "series", "values": [1]}]
+        >>> age = [{"ordering": "single", "values": [1]}]
         >>> visits = [{"ordering": "set", "tokens": 1}, {"ordering": "series"}]
         >>> dataset = create_sample_dataset(
         ...     samples,
         ...     {
-        ...         "age": ("sequence_v2", {"levels": age}),
-        ...         "visits": ("sequence_v2", {"levels": visits}),
+        ...         "age": ("jagged", {"levels": age}),
+        ...         "visits": ("jagged", {"levels": visits}),
         ...     },
         ...     {"label": "binary"},
         ... )
@@ -870,20 +896,19 @@ class RNN_V2(BaseModel):
         mask: MaskMode = "ignore",
         pretrain: Sequence[PretrainedEmbedding] | None = None,
     ):
-        super().__init__(dataset)
+        super().__init__(BridgeDataset(dataset))
         if len(self.label_keys) != 1:
             raise ValueError("RNN_V2 supports exactly one label.")
         self.label_key = self.label_keys[0]
         self.per_step = isinstance(self.label_processor, TimeseriesLabelProcessor)
 
         for field in self.feature_keys:
-            processor = dataset.input_processors[field]
-            if not isinstance(processor, SequenceProcessorV2):
+            processor = self.dataset.input_processors[field]
+            if not isinstance(processor, JaggedFeatureProcessor):
                 raise TypeError(
                     f"Field '{field}': {type(processor).__name__} is not supported. "
-                    "RNN_V2 takes only 'sequence_v2' fields: express sequences, "
-                    "sets and tokens with it, and static values as a 'series' "
-                    "with one record at t = 0."
+                    "RNN_V2 takes 'jagged' fields and legacy fields with a "
+                    "unified bridge (see BridgeDataset)."
                 )
         self.sequence_fields: list[str] = list(self.feature_keys)
 
@@ -915,28 +940,41 @@ class RNN_V2(BaseModel):
             "time_feature", time_feature, fields, False, lambda v: isinstance(v, bool)
         )
 
-        for field in fields:
-            if bidirectionals[field] and self.per_step:
-                raise ValueError(
-                    "A per-step label needs a causal model; bidirectional=True "
-                    "would use future time steps."
-                )
         self.processors = {
-            field: cast(SequenceProcessorV2, dataset.input_processors[field])
+            field: cast(JaggedFeatureProcessor, self.dataset.input_processors[field])
             for field in fields
         }
+        # The fields on a per-step label's timeline; the others hold for the
+        # whole sample.
+        self.timeline: tuple[str, ...] = ()
         if self.per_step:
-            for field, processor in self.processors.items():
-                top = processor.levels[processor.depth]
-                if top.get("ordering", "sequence") != "series":
-                    raise ValueError(
-                        f"'{field}': per-step labels need a 'series' top level, so each "
-                        "step can use the records before it. Wrap a 'set' or "
-                        "'sequence' top level in a 'series' with t = 0."
-                    )
+            label_processor = cast(TimeseriesLabelProcessor, self.label_processor)
+            unknown = [f for f in label_processor.timeline if f not in fields]
+            if unknown:
+                raise ValueError(
+                    f"The label's timeline names {unknown}, which are not input "
+                    f"fields of the model ({fields})."
+                )
+            self.timeline = tuple(f for f in fields if f in label_processor.timeline)
+        for field in self.timeline:
+            processor = self.processors[field]
+            top = processor.ordering()[processor.depth]
+            if top != "series":
+                raise ValueError(
+                    f"'{field}' is on the label's timeline, so it needs a 'series' "
+                    "top level: each label uses its records at or before the "
+                    f"label's time. Got a {top!r} top level, which has no time: "
+                    "take the field off the timeline, so every label sees all "
+                    "of it."
+                )
+            if bidirectionals[field]:
+                raise ValueError(
+                    f"'{field}' is on the label's timeline, so it needs a causal "
+                    "RNN; bidirectional=True would use later time steps."
+                )
 
         self.embedding = SequenceEmbeddingModel(
-            dataset,
+            self.dataset,
             embedding_dim=embedding_dim,
             pretrain=pretrain,
             mask=mask,
@@ -998,6 +1036,7 @@ class RNN_V2(BaseModel):
             ``loss``, ``y_prob``, ``y_true`` and ``logit``; also ``embed``, the
             concatenated summaries, if the batch has ``embed=True``.
         """
+        batch = transform_batch(self.dataset.input_processors, batch)
         embedded = self.embedding(
             {field: batch[field] for field in self.sequence_fields}
         )
@@ -1014,6 +1053,11 @@ class RNN_V2(BaseModel):
             summary, states, time = encoder(embedded[field])
             if not self.per_step:
                 parts.append(summary)
+                continue
+            if field not in self.timeline:
+                # Off the timeline, the field holds for the whole sample: each
+                # label record gets its sample's summary.
+                parts.append(summary[label_sample])
                 continue
             # __init__ requires a series top level, which has states and time.
             assert states is not None and time is not None

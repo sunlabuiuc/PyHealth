@@ -43,6 +43,15 @@ class OMOPDataset(BaseDataset):
     The person_id field is used as the patient identifier across all tables.
     All clinical events are linked to visits via visit_occurrence_id.
 
+    Getting the data:
+        OMOP is a format, not a dataset; point ``root`` at any OMOP CDM CSV
+        export. For data to try it on:
+
+        - MIMIC-IV demo in OMOP (open, 100 patients):
+          https://physionet.org/content/mimic-iv-demo-omop/0.9/
+        - Synthea data converted with ETL-Synthea:
+          https://github.com/OHDSI/ETL-Synthea
+
     Args:
         root (str): The root directory where the OMOP dataset CSV files
             are stored.
@@ -175,3 +184,52 @@ class OMOPDataset(BaseDataset):
             ]
         )
         return df
+
+    def _fill_datetimes_from_dates(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        """
+        Fills empty ``*_datetime`` columns from their ``*_date`` columns.
+
+        In the OMOP CDM (v5.3 and v5.4), event dates such as
+        ``visit_start_date`` are required but the matching datetimes such
+        as ``visit_start_datetime`` are optional, and many ETLs leave them
+        empty. Where a datetime is null, this uses the date at 00:00:00,
+        so that event timestamps and task code that reads the datetime
+        columns still get a value. Datetimes that are present are kept.
+
+        Called by ``BaseDataset.load_table()`` through the
+        ``preprocess_<table>`` hooks assigned below.
+
+        See: https://ohdsi.github.io/CommonDataModel/cdm54.html
+
+        Args:
+            df (pl.LazyFrame): The input dataframe for one OMOP event table.
+
+        Returns:
+            pl.LazyFrame: The dataframe with null datetimes filled.
+        """
+        pairs = [
+            (col, col[: -len("time")])
+            for col in df.columns
+            if col.endswith("_datetime") and col[: -len("time")] in df.columns
+        ]
+        if not pairs:
+            return df
+        return df.with_columns(
+            [
+                pl.when(pl.col(dt_col).is_null())
+                .then(pl.col(date_col) + pl.lit(" 00:00:00"))
+                .otherwise(pl.col(dt_col))
+                .alias(dt_col)
+                for dt_col, date_col in pairs
+            ]
+        )
+
+    preprocess_visit_occurrence = _fill_datetimes_from_dates
+    preprocess_visit_detail = _fill_datetimes_from_dates
+    preprocess_death = _fill_datetimes_from_dates
+    preprocess_condition_occurrence = _fill_datetimes_from_dates
+    preprocess_procedure_occurrence = _fill_datetimes_from_dates
+    preprocess_drug_exposure = _fill_datetimes_from_dates
+    preprocess_measurement = _fill_datetimes_from_dates
+    preprocess_observation = _fill_datetimes_from_dates
+    preprocess_device_exposure = _fill_datetimes_from_dates

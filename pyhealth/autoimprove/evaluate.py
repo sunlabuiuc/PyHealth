@@ -8,14 +8,14 @@ import logging
 import os
 import time
 import traceback
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from typing import Any
 
 import numpy as np
 import torch
 
 from pyhealth.datasets import SampleDataset, get_dataloader
-from pyhealth.trainer import Trainer, get_metrics_fn
+from pyhealth.trainer import Trainer, get_metrics_fn, model_metrics_kwargs
 
 from .space import PipelineConfig, SearchSpace
 
@@ -126,7 +126,11 @@ def score(
         {'pr_auc': 0.41, 'roc_auc': 0.78}
     """
     y_true, y_prob, _ = predict(model, dataset)
-    values = get_metrics_fn(model.mode)(y_true, y_prob, metrics=list(metrics))
+    metrics_fn = get_metrics_fn(model.mode)
+    values = metrics_fn(
+        y_true, y_prob, metrics=list(metrics),
+        **model_metrics_kwargs(model, metrics_fn),
+    )
     return {k: float(v) for k, v in values.items()}
 
 
@@ -207,6 +211,56 @@ def patient_folds(
     return [np.array(sorted(f), dtype=np.int64) for f in folds]
 
 
+def chance_fold_scores(
+    labels: Sequence[float], folds: Sequence[np.ndarray], metric: str
+) -> list[float] | None:
+    """The expected score of a ranking that ignores the inputs, per fold.
+
+    A model that learned nothing scores 0.5 ROC-AUC. Its expected PR-AUC
+    (average precision) is the share of positives only for large folds; with
+    few positives it is noticeably higher (0.104 rather than 0.083 for 19
+    positives among 228 samples), so the exact expectation for a random
+    ranking of ``n`` samples with ``r`` positives is used:
+    ``((r - 1) / (n - 1) * (n - H_n) + H_n) / n``, where ``H_n`` is the
+    ``n``-th harmonic number. Gains over a baseline mean little if the
+    baseline itself is not above this level.
+
+    Args:
+        labels: The 0/1 label of each training sample.
+        folds: The sample indices of each fold (:func:`patient_folds`).
+        metric: The search metric.
+
+    Returns:
+        One chance score per fold, or ``None`` for metrics without a
+        known chance level (only ``roc_auc`` and ``pr_auc`` have one here).
+
+    Examples:
+        >>> folds = [np.array([0, 1, 2, 3]), np.array([4, 5, 6, 7])]
+        >>> labels = [1, 0, 0, 0, 1, 1, 0, 0]
+        >>> [round(x, 3) for x in chance_fold_scores(labels, folds, "pr_auc")]
+        [0.521, 0.681]
+        >>> chance_fold_scores(labels, folds, "roc_auc")
+        [0.5, 0.5]
+        >>> chance_fold_scores(labels, folds, "f1") is None
+        True
+    """
+    labels = np.asarray(labels, dtype=float)
+    if metric == "roc_auc":
+        return [0.5] * len(folds)
+    if metric != "pr_auc":
+        return None
+    out = []
+    for fold in folds:
+        y = labels[np.asarray(fold, dtype=np.int64)]
+        n, r = len(y), float(y.sum())
+        if n < 2 or r == 0:
+            out.append(float(r / n) if n else 0.0)
+            continue
+        h = float(np.sum(1.0 / np.arange(1, n + 1)))
+        out.append(((r - 1) / (n - 1) * (n - h) + h) / n)
+    return out
+
+
 def _positive_patients(dataset: SampleDataset) -> set[str] | None:
     """Patients with a positive sample, or ``None`` if the label is not 0/1
     or the dataset is too large to read every label."""
@@ -241,6 +295,7 @@ def run_config_cv(
     report_metrics: Sequence[str] = (),
     seed: int = 0,
     device: str | None = None,
+    stop_if: Callable[[list[float]], bool] | None = None,
 ) -> dict[str, Any]:
     """Scores a config by patient-grouped cross-validation on the training set.
 
@@ -253,11 +308,17 @@ def run_config_cv(
 
     Scoring on every training patient gives a much less noisy estimate than
     one small validation split, at the cost of training ``len(folds)``
-    models per trial. Processors are not refitted per fold.
+    models per trial. The processors ``set_task`` fitted are reused;
+    engineered feature columns are imputed and scaled per fold
+    (:func:`fold_parts`).
+
+    ``stop_if(fold_scores)`` is called after each fold; when it returns
+    True the remaining folds are skipped (early pruning of a trial that is
+    clearly worse) and ``stopped_early`` is set.
 
     Returns:
         ``{"metrics": {...}, "fold_scores": [...], "seconds": float,
-        "n_params": int}``.
+        "n_params": int, "stopped_early": bool}``.
 
     Examples:
         >>> folds = patient_folds(train_ds, 5)  # doctest: +SKIP
@@ -270,12 +331,17 @@ def run_config_cv(
     per_fold: list[dict[str, float]] = []
     n_params = 0
     for held_out in folds:
-        fit_part = train_dataset.subset(np.setdiff1d(all_indices, held_out).tolist())
-        model = train_pipeline(
-            config, space, fit_part, val_dataset, metric, seed, device
+        fit_idx = np.setdiff1d(all_indices, held_out).tolist()
+        fit_part, held_part, val_part = fold_parts(
+            train_dataset, val_dataset, fit_idx, held_out.tolist()
         )
-        per_fold.append(score(model, train_dataset.subset(held_out.tolist()), names))
+        model = train_pipeline(config, space, fit_part, val_part, metric, seed, device)
+        per_fold.append(score(model, held_part, names))
         n_params = sum(p.numel() for p in model.parameters())
+        if stop_if is not None and len(per_fold) < len(folds) and stop_if(
+            [float(m[metric]) for m in per_fold]
+        ):
+            break
     metrics = {}
     for name in names:
         values = np.array([m[name] for m in per_fold], dtype=float)
@@ -286,7 +352,36 @@ def run_config_cv(
         "fold_scores": [float(m[metric]) for m in per_fold],
         "seconds": time.perf_counter() - start,
         "n_params": n_params,
+        "stopped_early": len(per_fold) < len(folds),
     }
+
+
+def fold_parts(
+    train_dataset: SampleDataset,
+    val_dataset: SampleDataset,
+    fit_idx: Sequence[int],
+    held_idx: Sequence[int],
+) -> tuple[SampleDataset, SampleDataset, SampleDataset]:
+    """The training part, held-out fold and validation set for one CV fold.
+
+    Engineered feature columns
+    (:class:`~pyhealth.autoimprove.features.EngineeredDataset`) are imputed
+    and scaled with statistics from the fold's training part only, so a
+    held-out fold never informs its own medians and scales. Other fields
+    keep the processors ``set_task`` fitted.
+
+    Examples:
+        >>> fit, held, val = fold_parts(train_ds, val_ds, [0, 1, 2], [3])  # doctest: +SKIP
+    """
+    from .features import EngineeredDataset
+
+    if isinstance(train_dataset, EngineeredDataset):
+        stats = train_dataset.fit_stats(fit_idx)
+        train_dataset = train_dataset.with_stats(stats)
+        if isinstance(val_dataset, EngineeredDataset):
+            val_dataset = val_dataset.with_stats(stats)
+    return (train_dataset.subset(list(fit_idx)), train_dataset.subset(list(held_idx)),
+            val_dataset)
 
 
 def check_models(

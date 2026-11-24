@@ -33,6 +33,15 @@ class EEGBCIDataset(BaseDataset):
     Open Data Commons Attribution License v1.0. Cite Schalk (2009),
     https://doi.org/10.13026/C28G6P.
 
+    Getting the data:
+        - Source: https://physionet.org/content/eegmmidb/1.0.0/
+        - Access: open, no account needed.
+        - Download: pass ``download=True`` and MNE fetches only the requested
+          subjects and runs into ``root``. To get everything up front, use
+          ``wget -r -N -c -np https://physionet.org/files/eegmmidb/1.0.0/``.
+        - ``root``: any writable folder. With ``download=False`` it must
+          already hold the ``SxxxRyy.edf`` files (any subfolder layout).
+
     Args:
         root: Directory containing or receiving EEGBCI EDF files and metadata.
         dataset_name: Optional dataset name prefix. Defaults to ``"eegbci"``.

@@ -32,6 +32,8 @@ PTBXL_100HZ_STD = 0.235129
 class PTBXLHeartLangClassification(PTBXLMultilabelClassification):
     """PTB-XL multi-label classification with ECGs as HeartLang sentences.
 
+    Works with :class:`~pyhealth.datasets.PTBXLDataset`.
+
     Builds the inputs of :class:`~pyhealth.models.HeartLang`: each ECG is
     standardized, split into heartbeat "words" around the QRS complexes of
     the first selected lead, lead I by default

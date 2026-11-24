@@ -5,7 +5,7 @@ import numpy as np
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor
+from .base_processor import LegacyFeatureProcessor
 from .utils import (
     NORMALIZATIONS,
     Normalization,
@@ -15,7 +15,7 @@ from .utils import (
 
 
 @register_processor("timeseries")
-class TimeseriesProcessor(FeatureProcessor):
+class TimeseriesProcessor(LegacyFeatureProcessor):
     """
     Feature processor for irregular time series with missing values.
 
