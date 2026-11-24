@@ -37,26 +37,26 @@ Setup of the reported experiment:
     Cohen's kappa, reported as mean +/- std over seeds.
 
 Results:
-        group                config        accuracy        macro_f1          rem_f1           kappa
-     baseline              baseline 0.708 +/- 0.007 0.486 +/- 0.006 0.000 +/- 0.000 0.441 +/- 0.018
-preprocessing      fill=interpolate 0.667 +/- 0.027 0.460 +/- 0.016 0.000 +/- 0.000 0.375 +/- 0.043
-preprocessing           fill=median 0.686 +/- 0.005 0.470 +/- 0.002 0.000 +/- 0.000 0.398 +/- 0.009
-preprocessing         source=e4_ibi 0.618 +/- 0.067 0.375 +/- 0.103 0.000 +/- 0.000 0.233 +/- 0.166
-preprocessing            norm=night 0.729 +/- 0.008 0.503 +/- 0.005 0.000 +/- 0.000 0.484 +/- 0.014
-preprocessing            norm=epoch 0.533 +/- 0.103 0.295 +/- 0.119 0.000 +/- 0.000 0.124 +/- 0.175
-preprocessing          mask_channel 0.659 +/- 0.018 0.455 +/- 0.013 0.000 +/- 0.000 0.361 +/- 0.032
-       causal                causal 0.648 +/- 0.088 0.402 +/- 0.122 0.000 +/- 0.000 0.298 +/- 0.211
-         loss           weighted_ce 0.420 +/- 0.036 0.372 +/- 0.030 0.189 +/- 0.019 0.194 +/- 0.019
-         loss            focal(g=2) 0.691 +/- 0.013 0.476 +/- 0.009 0.000 +/- 0.000 0.415 +/- 0.029
-      context             window=25 0.654 +/- 0.020 0.449 +/- 0.012 0.000 +/- 0.000 0.342 +/- 0.033
-      context             window=50 0.631 +/- 0.082 0.390 +/- 0.115 0.000 +/- 0.000 0.266 +/- 0.189
-      context            window=200 0.710 +/- 0.011 0.486 +/- 0.006 0.000 +/- 0.000 0.444 +/- 0.016
-       labels                4class 0.654 +/- 0.001 0.341 +/- 0.004 0.000 +/- 0.000 0.356 +/- 0.008
-       labels                5class 0.538 +/- 0.102 0.217 +/- 0.073 0.000 +/- 0.000 0.227 +/- 0.161
-      hparams  dropout=0.0,lr=0.001 0.636 +/- 0.082 0.392 +/- 0.116 0.000 +/- 0.000 0.275 +/- 0.199
-      hparams dropout=0.0,lr=0.0003 0.676 +/- 0.018 0.466 +/- 0.012 0.000 +/- 0.000 0.390 +/- 0.029
-      hparams  dropout=0.4,lr=0.001 0.644 +/- 0.086 0.398 +/- 0.120 0.000 +/- 0.000 0.289 +/- 0.205
-      hparams dropout=0.4,lr=0.0003 0.709 +/- 0.012 0.489 +/- 0.006 0.000 +/- 0.000 0.448 +/- 0.019
+        group                config        accuracy        macro_f1           kappa
+     baseline              baseline 0.708 +/- 0.007 0.486 +/- 0.006 0.441 +/- 0.018
+preprocessing      fill=interpolate 0.667 +/- 0.027 0.460 +/- 0.016 0.375 +/- 0.043
+preprocessing           fill=median 0.686 +/- 0.005 0.470 +/- 0.002 0.398 +/- 0.009
+preprocessing         source=e4_ibi 0.618 +/- 0.067 0.375 +/- 0.103 0.233 +/- 0.166
+preprocessing            norm=night 0.729 +/- 0.008 0.503 +/- 0.005 0.484 +/- 0.014
+preprocessing            norm=epoch 0.533 +/- 0.103 0.295 +/- 0.119 0.124 +/- 0.175
+preprocessing          mask_channel 0.659 +/- 0.018 0.455 +/- 0.013 0.361 +/- 0.032
+       causal                causal 0.648 +/- 0.088 0.402 +/- 0.122 0.298 +/- 0.211
+         loss           weighted_ce 0.420 +/- 0.036 0.372 +/- 0.030 0.194 +/- 0.019
+         loss            focal(g=2) 0.691 +/- 0.013 0.476 +/- 0.009 0.415 +/- 0.029
+      context             window=25 0.654 +/- 0.020 0.449 +/- 0.012 0.342 +/- 0.033
+      context             window=50 0.631 +/- 0.082 0.390 +/- 0.115 0.266 +/- 0.189
+      context            window=200 0.710 +/- 0.011 0.486 +/- 0.006 0.444 +/- 0.016
+       labels                4class 0.654 +/- 0.001 0.341 +/- 0.004 0.356 +/- 0.008
+       labels                5class 0.538 +/- 0.102 0.217 +/- 0.073 0.227 +/- 0.161
+      hparams  dropout=0.0,lr=0.001 0.636 +/- 0.082 0.392 +/- 0.116 0.275 +/- 0.199
+      hparams dropout=0.0,lr=0.0003 0.676 +/- 0.018 0.466 +/- 0.012 0.390 +/- 0.029
+      hparams  dropout=0.4,lr=0.001 0.644 +/- 0.086 0.398 +/- 0.120 0.289 +/- 0.205
+      hparams dropout=0.4,lr=0.0003 0.709 +/- 0.012 0.489 +/- 0.006 0.448 +/- 0.019
 
     The baseline model parameters from the paper outperformed most alternate 
     configurations in terms of accuracy and Cohen's Kappa. The main changes  
