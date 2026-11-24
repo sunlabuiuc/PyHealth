@@ -313,15 +313,18 @@ class TestTarDiff(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self._model(base_channels=16).load_model(path)
 
-    def test_loads_checkpoints_saved_before_beta_schedule(self):
+    def test_loads_checkpoints_saved_before_the_options(self):
         model = self._model()
+        new_keys = ("beta_schedule", "prediction")
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "tardiff.pt")
-            config = {k: v for k, v in model.config.items() if k != "beta_schedule"}
+            config = {k: v for k, v in model.config.items() if k not in new_keys}
             torch.save({"config": config, "state_dict": model.state_dict()}, path)
             self._model().load_model(path)
             with self.assertRaises(ValueError):
                 self._model(beta_schedule="scaled_linear").load_model(path)
+            with self.assertRaises(ValueError):
+                self._model(prediction="v").load_model(path)
 
     def test_beta_schedules(self):
         def betas(model):

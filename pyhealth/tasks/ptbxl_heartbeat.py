@@ -131,24 +131,23 @@ class PTBXLHeartbeatMI(BaseTask):
     include ``MI`` and healthy (label 0) when ``NORM`` is its only
     superclass; other records are skipped. Each record is resampled to
     ``target_fs``, z-scored per lead, and cut into heartbeats with
-    :func:`detect_r_peaks` and :func:`segment_heartbeats`; beats cut by the
-    start or end of the record are dropped.
+    :func:`detect_r_peaks` and :func:`segment_heartbeats`.
 
     This follows Medformer's PTB preprocessing, which TarDiff uses, with
     these differences: PTB-XL has 12 leads (PTB has 15) and 10 s records;
     resampling is polyphase (anti-aliased) instead of linear interpolation;
     R-peaks come from ``wfdb``'s XQRS instead of NeuroKit2; records whose
     median R-R interval exceeds ``length`` are kept with the window cropped
-    to ``length``, where Medformer drops them; and beats cut by the record's
-    edges are dropped, where Medformer pads them (with 10 s records and
-    ``max_beats_per_record``, they would otherwise be a large share of the
-    samples). The default ``length`` of 288
-    is TarDiff's (300 cropped to a multiple of 8 for its U-Net).
+    to ``length``, where Medformer drops them. Beats cut by the record's
+    edges are padded, as in Medformer, unless ``skip_partial_beats`` drops
+    them (with 10 s records and ``max_beats_per_record``, they are a large
+    share of the samples). The default ``length`` of 288 is TarDiff's (300
+    cropped to a multiple of 8 for its U-Net).
 
-    Each sample has ``patient_id``, ``record_id``, ``beat`` (index among
-    the record's whole beats), ``signal`` ``(12, length)``, ``label`` and ``strat_fold``, so
-    :func:`~pyhealth.datasets.split_by_strat_fold` gives patient-disjoint
-    splits.
+    Each sample has ``patient_id``, ``record_id``, ``beat`` (index among the
+    record's kept beats), ``signal`` ``(12, length)``, ``label`` and
+    ``strat_fold``, so :func:`~pyhealth.datasets.split_by_strat_fold` gives
+    patient-disjoint splits.
 
     Args:
         scp_statements_path: PTB-XL's ``scp_statements.csv``
@@ -156,8 +155,10 @@ class PTBXLHeartbeatMI(BaseTask):
         length: Heartbeat window in samples at ``target_fs``. Default 288.
         target_fs: Sampling rate after resampling. Default 250 (Medformer).
         max_beats_per_record: Keep at most this many beats per record (the
-            first whole ones), to bound the dataset size. Default None keeps
+            first ones kept), to bound the dataset size. Default None keeps
             all.
+        skip_partial_beats: Drop beats cut by the start or end of the
+            record instead of zero-padding them. Default False.
 
     Examples:
         >>> from pyhealth.datasets import PTBXLDataset
@@ -179,6 +180,7 @@ class PTBXLHeartbeatMI(BaseTask):
         length: int = 288,
         target_fs: int = 250,
         max_beats_per_record: int | None = None,
+        skip_partial_beats: bool = False,
     ) -> None:
         if length < 2 or target_fs < 1:
             raise ValueError("length must be at least 2 and target_fs positive.")
@@ -188,6 +190,7 @@ class PTBXLHeartbeatMI(BaseTask):
         self.length = int(length)
         self.target_fs = int(target_fs)
         self.max_beats_per_record = max_beats_per_record
+        self.skip_partial_beats = bool(skip_partial_beats)
         super().__init__()
 
     @staticmethod
@@ -212,7 +215,10 @@ class PTBXLHeartbeatMI(BaseTask):
         std = x.std(axis=1, keepdims=True)
         x = (x - x.mean(axis=1, keepdims=True)) / np.where(std > 0, std, 1.0)
         beats = segment_heartbeats(
-            x, detect_r_peaks(x, self.target_fs), self.length, skip_partial=True
+            x,
+            detect_r_peaks(x, self.target_fs),
+            self.length,
+            skip_partial=self.skip_partial_beats,
         )
         return beats[: self.max_beats_per_record]
 

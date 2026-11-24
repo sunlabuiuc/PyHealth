@@ -133,9 +133,10 @@ def parse_args():
         "--guidance-scales",
         type=float,
         nargs="+",
-        default=[300.0, 1000.0, 3000.0],
-        help="For --guidance official; samples drift off scale above ~1e4. "
-        "(The paper's 100, from its Appendix D, is for its own equation.)",
+        default=None,
+        help="Default 300 1000 3000 for --guidance official (samples drift "
+        "off scale above ~1e4) and the paper's 100 (Appendix D) for "
+        "--guidance paper.",
     )
     p.add_argument("--guidance", choices=["official", "paper"], default="official")
     p.add_argument("--ratios", type=float, nargs="+", default=[0.2, 0.5, 1.0])
@@ -152,6 +153,9 @@ def parse_args():
     args = p.parse_args()
     if not args.synthetic and not args.root:
         p.error("pass --root or --synthetic")
+    if args.guidance_scales is None:
+        official = args.guidance == "official"
+        args.guidance_scales = [300.0, 1000.0, 3000.0] if official else [100.0]
     if args.tiny:
         args.unet = "tiny"
         args.iterations = min(args.iterations, 300)
@@ -193,7 +197,9 @@ def load_samples(args):
         return toy_beats()
     dataset = PTBXLDataset(root=args.root, sampling_rate=500, cache_dir=args.cache_dir)
     task = PTBXLHeartbeatMI(
-        dataset.scp_statements_path, max_beats_per_record=args.max_beats_per_record
+        dataset.scp_statements_path,
+        max_beats_per_record=args.max_beats_per_record,
+        skip_partial_beats=True,
     )
     return dataset.set_task(task, num_workers=os.cpu_count() or 1)
 
@@ -265,6 +271,11 @@ def diffusion_model(train, args):
     if path.exists():
         model.load_model(str(path))
         print(f"Loaded the diffusion model from {path}")
+        if args.diffusion_checkpoint:
+            print(
+                "Warning: --diffusion-checkpoint was given, so only the model "
+                "settings were checked, not the data it was trained on."
+            )
         return model
     torch.manual_seed(0)
     loader = get_dataloader(train, args.diffusion_batch_size, shuffle=True, seed=0)

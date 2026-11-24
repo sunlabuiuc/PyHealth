@@ -9,8 +9,8 @@ copied.
 TarDiff has two parts:
 
 * a **class-conditional diffusion model** on raw multivariate series
-  ``(channels, length)``: a 1D U-Net that predicts the noise, trained with
-  the usual denoising loss (Ho et al., 2020) and sampled with DDIM (Song et
+  ``(channels, length)``: a 1D U-Net that predicts the noise (or ``v``,
+  Salimans and Ho, 2022), trained with the usual denoising loss (Ho et al., 2020) and sampled with DDIM (Song et
   al., 2021); and
 * **influence guidance**: during sampling, each step is pushed towards
   series that would most reduce a trained downstream model's loss on a
@@ -110,7 +110,10 @@ class _Attention(nn.Module):
 
 
 class UNet1D(nn.Module):
-    """1D U-Net that predicts the noise of a class-conditional diffusion model.
+    """1D U-Net denoiser of a class-conditional diffusion model.
+
+    It predicts the noise or ``v``, depending on :class:`TarDiff`'s
+    ``prediction``.
 
     The defaults are the paper's: 64 base channels, multipliers ``(1, 2, 4,
     4)``, 3 residual blocks per level, 8-head attention at the first three
@@ -213,8 +216,8 @@ class UNet1D(nn.Module):
     def forward(
         self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor
     ) -> torch.Tensor:
-        """Predicts the noise of ``x`` ``(batch, channels, length)`` at steps ``t``
-        for classes ``y``."""
+        """Predicts the noise (or ``v``) of ``x`` ``(batch, channels, length)``
+        at steps ``t`` for classes ``y``."""
         if x.shape[-1] % self.downsample_factor:
             raise ValueError(
                 f"Length {x.shape[-1]} must be divisible by {self.downsample_factor}."
@@ -595,6 +598,9 @@ class TarDiff(BaseModel):
                 model's device).
             guide_on_x0: Score ``x0`` instead of ``x_t``. Default False.
             cosine: Use the cosine instead of the dot product. Default False.
+                The cosine is taken over the whole batch, so the push on each
+                series shrinks as ``batch_size`` grows; re-tune
+                ``guidance_scale`` when changing it.
 
         Returns:
             ``{"signal": (n, channels, length), "label": (n,)}`` on the CPU,

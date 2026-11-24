@@ -101,6 +101,21 @@ class TestTask(unittest.TestCase):
         )
         self.assertEqual(len(capped.heartbeats(record, fs=500)), 4)
 
+    def test_skip_partial_beats_drops_the_edge_beats(self):
+        # Spikes at 0.1 s, 0.9 s, ..., 9.7 s: the last is cut by the end.
+        record = _beats(500, offset=0.1)[None].repeat(12, 0)
+        padded = self.task.heartbeats(record, fs=500)
+        skipping = PTBXLHeartbeatMI(
+            FIXTURE_ROOT / "scp_statements.csv", skip_partial_beats=True
+        )
+        whole = skipping.heartbeats(record, fs=500)
+        self.assertEqual(len(padded), len(whole) + 1)
+        np.testing.assert_array_equal(whole, padded[:-1])
+        # At 250 Hz the last spike is at 2425 of 2450 samples, so only 125
+        # samples of its 200-sample window exist: 81 zeros, then the window.
+        nonzero = np.flatnonzero(padded[-1, 0])
+        self.assertEqual((nonzero[0], nonzero[-1]), (81, 205))
+
     def test_rejects_bad_arguments(self):
         path = FIXTURE_ROOT / "scp_statements.csv"
         with self.assertRaises(ValueError):
