@@ -5,54 +5,51 @@ Paper: Zhang et al. (2024), "Daily Physical Activity Monitoring: Adaptive
     Learning from Multi-source Motion Sensor Data", CHIL 2024.
     https://proceedings.mlr.press/v248/zhang24a.html
 Description: Runs the full pipeline (DSADataset -> DSAActivityClassification
-    -> SensorLSTM -> transfer learning) and compares four arms with the same
+    -> SensorLSTM -> transfer learning) and compares five arms with the same
     classifier, subject split, preprocessing and target sensor:
 
-    * ``no_transfer``: train on the target sensor only (baseline).
-    * ``no_transfer_matched``: target sensor only, but with as many epochs
-      as the transfer arms use in total (source + target), so any gain of
-      transfer is not just from training longer.
-    * ``ipd``: sources pretrained as in the paper. Each source starts from
-      the same learning rate, multiplied by ``1 - alpha`` after every epoch,
-      where ``alpha`` is the source's share of the total IPD. Closer sources
-      keep a larger learning rate for longer and the farthest source is
-      trained first.
+    * ``no_transfer``: train on the target sensor only.
+    * ``no_transfer_matched``: target only, with as many epochs as the transfer
+      arms use in total (source + target).
+    * ``ipd``: the paper's pretraining. Each source's learning rate is
+      multiplied by ``1 - alpha`` every epoch, where ``alpha`` is its share of
+      the total IPD, and the farthest source is trained first.
     * ``equal``: every source gets the same ``alpha``.
-    * ``inverse``: the direction reversed (``alpha`` proportional to one over
-      the IPD), so closer sources decay faster. The source order is unchanged.
-
-    Comparing ``ipd`` with ``equal`` and ``inverse`` shows whether the gain
-    comes from the IPD weighting itself or only from pretraining on sources.
+    * ``inverse``: ``alpha`` proportional to one over the IPD (reversed).
 
 Usage:
-    Synthetic demo data (default, no download needed)::
+    Synthetic demo data (default; small settings, no download needed)::
 
         python examples/dsa_activity_classification_sensor_lstm.py
 
-    Real DSA data (15 repetitions as in the paper; slow on a CPU)::
+    The command line that produced the Results below. Run it once per seed S
+    (0, 1 and 2), about 100 minutes each on a CPU, then print the table::
 
         python examples/dsa_activity_classification_sensor_lstm.py \\
-            --real --root /path/to/dsa --seeds 15 --finetune-epochs 10
+            --real --root /path/to/dsa --seeds 1 --seed-start S \\
+            --hidden-dim 64 --lr 3e-3 --source-lr 3e-3 \\
+            --source-epochs 8 --finetune-epochs 40 \\
+            --results-json final_results.json
+        python examples/dsa_activity_classification_sensor_lstm.py \\
+            --summarize final_results.json
+
+    The argparse defaults are small so the synthetic demo is quick; they are
+    not the settings of the Results.
 
 Notes:
-    * The synthetic data only checks that the pipeline runs end to end; its
-      numbers say nothing about the paper's claims.
-    * Min-max ranges are computed over all segments (as a global rescaling
-      to [-1, 1]), which includes the validation subjects.
-    * Each repetition draws a new random subject split: 6 training subjects
-      and 2 held-out subjects. ``split_by_patient`` returns train / val / test,
-      so the held-out subjects are one "val" and one "test" subject and the
-      reported RCC is the average of the two (equal to the pooled RCC when
-      subjects have the same number of segments).
-    * Every arm starts from the same random initialization.
+    * Synthetic numbers only check that the pipeline runs end to end.
+    * Min-max ranges use all segments of all eight subjects, including the
+      held-out ones, so the held-out subjects also shape the scaling.
+      Computing them from the training subjects only would avoid this.
+    * Each repetition draws a new split of 6 training and 2 held-out subjects
+      (one "val", one "test" subject of ``split_by_patient``) and the RCC is
+      their average. All arms share the split and the random initialization.
 
 Results:
-    Real DSA data, target sensor right arm, 3 repetitions (seeds 0-2), each with
-    a new random split of 6 training / 2 held-out subjects. Settings: SensorLSTM
-    with hidden size 64, Adam with gradient clipping at 1.0, batch size 32,
-    learning rate 3e-3 for sources and target, 8 epochs per source, 40 target
-    epochs (72 for ``no_transfer_matched``), min-max scaling to [-1, 1]. RCC is
-    the mean over the two held-out subjects::
+    Real DSA data, right arm as target, 3 repetitions (seeds 0-2), produced by
+    the command above (SensorLSTM hidden size 64, Adam with gradient clipping
+    at 1.0, batch size 32, learning rate 3e-3 for sources and target, 8 epochs
+    per source, 40 target epochs, 72 for ``no_transfer_matched``)::
 
         | arm | mean RCC | std | vs no_transfer | vs matched |
         |---|---|---|---|---|
@@ -62,26 +59,20 @@ Results:
         | equal | 0.5538 | 0.0539 | +0.0355 | -0.0507 |
         | inverse | 0.4515 | 0.0417 | -0.0668 | -0.1531 |
 
-    Findings in this reduced setting (the paper trains far longer and repeats
-    15 times):
+    Findings at this reduced scale (the paper trains far longer, 15 repeats):
 
     * Transfer did not beat the matched baseline: ``ipd`` was better than it in
       1 of 3 seeds, ``equal`` in 1 of 3 and ``inverse`` in 0 of 3.
-    * ``ipd`` was not better than ``equal``; it was better than ``inverse`` on
-      average (+0.052, 2 of 3 seeds). With 3 seeds and paired standard errors of
-      0.03-0.09 none of these differences is reliable.
-    * The IPD ordering was stable and sensible: the left arm and torso were
-      closest to the right arm, the legs farthest. Pretraining gave a lower loss
-      after the first target epoch, but the baselines caught up.
-    * Accuracy is far below the paper's (about 0.85 for LSTM without transfer),
-      most likely because of the much shorter training; the target loss was still
-      falling at the end of training.
+    * ``ipd`` was not better than ``equal``; it beat ``inverse`` on average
+      (+0.052, 2 of 3 seeds). With 3 seeds none of the differences is reliable.
+    * The IPD ordering was stable and sensible (left arm and torso closest,
+      legs farthest). Accuracy is far below the paper's (about 0.85 without
+      transfer), most likely because of the much shorter training.
 
     Deviations from the paper: far fewer epochs and repetitions, one shared
-    learning rate for sources and target, a fixed fine-tuning rate and number of
-    epochs (the paper's validation-loss rule gives a negative rate when the loss
-    is above one), Adam with gradient clipping, and a train / val / test split in
-    which the two held-out subjects are one "val" and one "test" subject.
+    learning rate, a fixed fine-tuning rate and epoch count (the paper's
+    validation-loss rule gives a negative rate above a loss of one), and Adam
+    with gradient clipping.
 """
 
 import argparse
