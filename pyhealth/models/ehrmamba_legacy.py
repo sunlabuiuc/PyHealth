@@ -19,7 +19,16 @@ from pyhealth.processors.base_processor import FeatureProcessor
 
 
 class RMSNorm(nn.Module):
-    """Root mean square layer normalization (paper ref 62)."""
+    """
+    Root mean square layer normalization (paper ref 62).
+    
+    Examples:
+        >>> import torch
+        >>> norm = RMSNorm(dim=8)
+        >>> norm(torch.randn(2, 3, 8)).shape
+        torch.Size([2, 3, 8])
+    
+    """
 
     def __init__(self, dim: int, eps: float = 1e-6):
         super().__init__()
@@ -35,6 +44,12 @@ class MambaBlock(nn.Module):
     """Single Mamba (SSM) block: RMSNorm -> expand -> conv -> SiLU -> SSM, gate -> residual.
 
     Paper Appendix C.1: input normalized, two branches (SSM path and gate), residual.
+    
+    Examples:
+        >>> import torch
+        >>> block = MambaBlock(d_model=8, state_size=4)
+        >>> block(torch.randn(2, 3, 8)).shape
+        torch.Size([2, 3, 8])
     """
 
     def __init__(
