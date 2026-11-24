@@ -249,7 +249,7 @@ class WatchSleepNet(BaseModel):
         feats, _ = self.lstm(feats)
         if self.attention is not None:
             mask = None
-            if not self.bidirectional:  # keep the causal model causal
+            if not self.bidirectional:
                 mask = torch.triu(
                     torch.ones(steps, steps, dtype=torch.bool, device=x.device), 1
                 )
