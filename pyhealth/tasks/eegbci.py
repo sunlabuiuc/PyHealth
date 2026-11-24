@@ -440,6 +440,8 @@ def iter_annotation_windows(
 class EEGMotorImageryEEGBCI(BaseTask):
     """Build fixed-duration EEGBCI motor-task samples.
 
+    Works with :class:`~pyhealth.datasets.EEGBCIDataset`.
+
     Args:
         window_size: Window duration in seconds.
         resample_rate: Target sampling rate, or ``None`` to retain the source rate.
@@ -558,6 +560,8 @@ class EEGMotorImageryEEGBCI(BaseTask):
 
 class EEGBCIPatternDiscovery(EEGMotorImageryEEGBCI):
     """Extend EEGBCI motor-task samples with exploratory band metadata.
+
+    Works with :class:`~pyhealth.datasets.EEGBCIDataset`.
 
     Each emitted sample contains the supervised-task fields from
     :class:`EEGMotorImageryEEGBCI` plus ``bandpower``,

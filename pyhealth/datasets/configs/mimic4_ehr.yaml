@@ -106,6 +106,8 @@ tables:
       - "value"
       - "valuenum"
       - "valueuom"
+      - "ref_range_lower"
+      - "ref_range_upper"
       - "flag"
       - "storetime"
 

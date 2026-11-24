@@ -1,6 +1,7 @@
 import os
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -132,6 +133,34 @@ class TestBaseDataset(unittest.TestCase):
                 "cached global_event_df parquet must be sorted by patient_id",
             )
 
+    def test_dev_mode_keeps_1000_patients_across_partitions(self):
+        # The patients are spread over many partitions. Dev mode must keep
+        # 1000 of them, not only those in the first partition.
+        data = dd.from_pandas(
+            pd.DataFrame(
+                {
+                    "patient_id": [str(i) for i in range(1500)],
+                    "event_type": ["test"] * 1500,
+                    "timestamp": [None] * 1500,
+                    "test/value": list(range(1500)),
+                }
+            ),
+            npartitions=10,
+        )
+        with tempfile.TemporaryDirectory() as cache_root, patch(
+            "pyhealth.datasets.base_dataset.platformdirs.user_cache_dir",
+            return_value=cache_root,
+        ):
+            dataset = MockDataset(
+                data=data,
+                root="/data/root_dev",
+                tables=["table_a"],
+                dataset_name="DevDataset",
+                dev=True,
+            )
+            patients = dataset.global_event_df.select("patient_id").collect()
+            self.assertEqual(patients["patient_id"].n_unique(), 1000)
+
     @unittest.skipIf(os.name == "nt", "open file descriptor counts are POSIX-only")
     def test_event_df_build_does_not_leak_file_descriptors(self):
         # Each build starts and closes a dask LocalCluster. A leak here exhausts the
@@ -160,6 +189,126 @@ class TestBaseDataset(unittest.TestCase):
         self.assertLess(
             leaked, 4, f"{leaked} file descriptors leaked across 4 dataset builds"
         )
+
+    def test_interrupted_event_df_build_is_not_reused(self):
+        # A build interrupted (Ctrl-C) after writing part of the table must not
+        # leave that part at the cache path, where the next run would reuse it.
+        data = dd.from_pandas(
+            pd.DataFrame(
+                {
+                    "patient_id": ["1", "2", "3"],
+                    "event_type": ["test"] * 3,
+                    "timestamp": [None] * 3,
+                    "test/value": [1, 2, 3],
+                }
+            ),
+            npartitions=1,
+        )
+
+        with tempfile.TemporaryDirectory() as cache_root, patch(
+            "pyhealth.datasets.base_dataset.platformdirs.user_cache_dir",
+            return_value=cache_root,
+        ):
+            def dataset():
+                return MockDataset(
+                    data=data,
+                    root="/data/root_interrupt",
+                    tables=["table_a"],
+                    dataset_name="InterruptDataset",
+                    dev=False,
+                )
+
+            first = dataset()
+            cache_path = first.cache_dir / "global_event_df.parquet"
+
+            def interrupted(output_dir):
+                # one part file is on disk when Ctrl-C arrives
+                output_dir.mkdir(parents=True)
+                data.head(1).to_parquet(output_dir / "part.0.parquet", index=False)
+                self.assertFalse(cache_path.exists())  # nothing published yet
+                raise KeyboardInterrupt
+
+            with patch.object(first, "_event_transform", interrupted), \
+                    self.assertRaises(KeyboardInterrupt):
+                _ = first.global_event_df
+            self.assertFalse(cache_path.exists())
+            self.assertEqual(list(first.cache_dir.glob("*.building")), [])
+
+            second = dataset()
+            patients = second.global_event_df.collect()["patient_id"].to_list()
+            self.assertEqual(sorted(patients), ["1", "2", "3"])
+            self.assertEqual(list(second.cache_dir.glob("*.building")), [])
+
+    def test_concurrent_event_df_builds_run_once(self):
+        # Two datasets on the same cache: while the first builds (holding the
+        # lock), the second waits, then finds the published table and does not
+        # build it again.
+        data = dd.from_pandas(
+            pd.DataFrame(
+                {
+                    "patient_id": ["1", "2", "3"],
+                    "event_type": ["test"] * 3,
+                    "timestamp": [None] * 3,
+                    "test/value": [1, 2, 3],
+                }
+            ),
+            npartitions=1,
+        )
+
+        with tempfile.TemporaryDirectory() as cache_root, patch(
+            "pyhealth.datasets.base_dataset.platformdirs.user_cache_dir",
+            return_value=cache_root,
+        ):
+            def dataset():
+                return MockDataset(
+                    data=data,
+                    root="/data/root_concurrent",
+                    tables=["table_a"],
+                    dataset_name="ConcurrentDataset",
+                    dev=False,
+                )
+
+            first, second = dataset(), dataset()
+            self.assertEqual(first.cache_dir, second.cache_dir)
+            building, release = threading.Event(), threading.Event()
+            builds, errors = [], []
+
+            def transform(name):
+                def build(output_dir):
+                    builds.append(name)
+                    building.set()
+                    self.assertTrue(release.wait(30))
+                    output_dir.mkdir(parents=True)
+                    data.compute().to_parquet(
+                        output_dir / "part.0.parquet", index=False
+                    )
+
+                return build
+
+            def read(ds):
+                try:
+                    _ = ds.global_event_df
+                except BaseException as e:  # surfaced by the main thread
+                    errors.append(e)
+
+            with patch.object(first, "_event_transform", transform("first")), \
+                    patch.object(second, "_event_transform", transform("second")):
+                a = threading.Thread(target=read, args=(first,))
+                a.start()
+                self.assertTrue(building.wait(30))
+                b = threading.Thread(target=read, args=(second,))
+                b.start()
+                b.join(1.0)
+                self.assertTrue(b.is_alive())  # waiting for the lock
+                release.set()
+                a.join(30)
+                b.join(30)
+
+            self.assertEqual(errors, [])
+            self.assertEqual(builds, ["first"])
+            patients = second.global_event_df.collect()["patient_id"].to_list()
+            self.assertEqual(sorted(patients), ["1", "2", "3"])
+            self.assertEqual(list(second.cache_dir.glob("*.building")), [])
 
     def test_event_df_builds_in_notebook_without_ipywidgets(self):
         # In a Jupyter kernel dask's progress() draws an ipywidgets bar, but

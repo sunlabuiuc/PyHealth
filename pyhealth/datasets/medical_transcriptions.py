@@ -11,8 +11,12 @@ logger = logging.getLogger(__name__)
 class MedicalTranscriptionsDataset(BaseDataset):
     """Medical transcription data scraped from mtsamples.com.
 
-    Dataset is available at:
-    https://www.kaggle.com/datasets/tboyle10/medicaltranscriptions
+    Getting the data:
+        - Source: https://www.kaggle.com/datasets/tboyle10/medicaltranscriptions
+        - Access: open; needs a free Kaggle account.
+        - Download: ``kaggle datasets download -d tboyle10/medicaltranscriptions``,
+          then unzip.
+        - ``root``: the folder holding ``mtsamples.csv``.
 
     Args:
         root: Root directory of the raw data.

@@ -7,6 +7,7 @@ now stored as one opaque value per sample; these tests assert exact equality of
 what is read back, on every write and read path.
 """
 
+import os
 import pickle
 import tempfile
 import unittest
@@ -96,18 +97,18 @@ class NotATensor(FeatureProcessor):
 
 
 class TupleProcessor(FeatureProcessor):
-    """Declares tensor output and returns a tuple, as `value` says."""
+    """Declares tensor output and returns `outputs` in turn, one per sample."""
 
     stores_tensor = True
 
-    def __init__(self, value):
-        self.value = value
+    def __init__(self, *outputs):
+        self.outputs = outputs
+        self.calls = 0
 
     def process(self, value):
-        return self.value
-
-    def schema(self):
-        return ("value", "mask")
+        output = self.outputs[self.calls % len(self.outputs)]
+        self.calls += 1
+        return output
 
 
 def _samples(values):
@@ -181,19 +182,29 @@ class TestCreateSampleDatasetRoundTrip(unittest.TestCase):
                 in_memory=False,
             )
 
-    def test_tensor_tuples_must_match_the_schema(self):
+    def test_tensor_tuples_keep_one_structure(self):
+        with self.assertRaisesRegex(ValueError, "'codes'.*stores_tensor=True"):
+            create_sample_dataset(  # not all tensors
+                _samples(CASES["scalar str"]),
+                {"raw_field": "raw", "codes": TupleProcessor((torch.zeros(1), "mask"))},
+                OUTPUT,
+                in_memory=False,
+            )
+        pair = (torch.zeros(1), torch.zeros(1))
         cases = {
-            "'codes'.*stores_tensor=True": (torch.zeros(1), "mask"),  # not all tensors
-            r"'codes'.*1 tensors.*schema\(\) has 2": (torch.zeros(1),),
+            "fewer tensors": [pair, (torch.zeros(1),)],
+            "more tensors": [pair, (*pair, torch.zeros(1))],
+            "a tensor after a tuple": [pair, torch.zeros(1)],
         }
-        for message, value in cases.items():
-            with self.subTest(message), self.assertRaisesRegex(ValueError, message):
+        for name, outputs in cases.items():
+            with self.subTest(name), self.assertRaisesRegex(ValueError, "same structure") as caught:
                 create_sample_dataset(
                     _samples(CASES["scalar str"]),
-                    {"raw_field": "raw", "codes": TupleProcessor(value)},
+                    {"raw_field": "raw", "codes": TupleProcessor(*outputs)},
                     OUTPUT,
                     in_memory=False,
                 )
+            self.assertIsInstance(caught.exception.__cause__, TypeError)  # litdata's
 
     def test_disk_write_starts_no_processes(self):
         # litdata.optimize left helper processes running when the transform
@@ -250,6 +261,65 @@ class EventTask(BaseTask):
         return samples
 
 
+class PairProcessor(FeatureProcessor):
+    """Returns as many tensors as the raw value says."""
+
+    stores_tensor = True
+
+    def process(self, value):
+        return tuple(torch.full((2,), float(n)) for n in range(value))
+
+
+class PairTask(BaseTask):
+    """A two-tensor field for every patient."""
+
+    task_name = "raw_storage_pairs"
+    input_schema = {"pair": PairProcessor}
+    output_schema = {"label": "binary"}
+
+    def tensors(self, patient):
+        return 2
+
+    def __call__(self, patient):
+        return [
+            {
+                "patient_id": patient.patient_id,
+                "visit_id": f"{patient.patient_id}-{i}",
+                "pair": self.tensors(patient),
+                "label": i % 2,
+            }
+            for i, _ in enumerate(patient.get_events("events"))
+        ]
+
+
+class MismatchedPairTask(PairTask):
+    """Two tensors for the first patient, one for everyone else.
+
+    The first patient's samples are always in the first worker, so the
+    other workers only ever see one tensor.
+    """
+
+    task_name = "raw_storage_mismatched_pairs"
+
+    def tensors(self, patient):
+        return 2 if patient.patient_id == "p0" else 1
+
+
+class RankPairProcessor(PairProcessor):
+    """Two tensors in the first worker, one in the others."""
+
+    def process(self, value):
+        rank = os.environ.get("DATA_OPTIMIZER_GLOBAL_RANK", "0")
+        return super().process(2 if rank == "0" else 1)
+
+
+class RankPairTask(PairTask):
+    """Each worker is consistent; only their merged indexes conflict."""
+
+    task_name = "raw_storage_rank_pairs"
+    input_schema = {"pair": RankPairProcessor}
+
+
 class TestSetTaskRoundTrip(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -295,6 +365,33 @@ class TestSetTaskRoundTrip(unittest.TestCase):
                     self.assertEqual(s["raw_field"], raw)
                     self.assertEqual(s["times"], times)
                     self.assertIsInstance(s["codes"], torch.Tensor)
+
+    def test_multi_tensor_field_round_trip(self):
+        for workers in (1, 2):
+            with self.subTest(num_workers=workers):
+                samples = self._dataset(workers).set_task(PairTask(), num_workers=workers)
+                self.assertGreater(len(samples), 0)
+                for i in range(len(samples)):
+                    pair = samples[i]["pair"]
+                    self.assertEqual(len(pair), 2)
+                    torch.testing.assert_close(pair[1], torch.ones(2))
+
+    def test_multi_tensor_field_must_keep_one_structure_in_a_worker(self):
+        # The worker with the first patient fails writing its second structure.
+        for workers in (1, 2):
+            with (
+                self.subTest(num_workers=workers),
+                self.assertRaisesRegex(ValueError, "same structure"),
+            ):
+                self._dataset(workers).set_task(MismatchedPairTask(), num_workers=workers)
+
+    def test_multi_tensor_field_must_keep_one_structure_across_workers(self):
+        # Each worker writes one structure; the merge of their indexes fails.
+        with self.assertRaisesRegex(ValueError, "same structure") as caught:
+            self._dataset(2).set_task(RankPairTask(), num_workers=2)
+        self.assertIn("isn't consistent between chunks", str(caught.exception.__cause__))
+        samples = self._dataset(1).set_task(RankPairTask(), num_workers=1)
+        self.assertEqual(len(samples[0]["pair"]), 2)  # one worker: consistent
 
     def test_split_parts_round_trip(self):
         parts = self._dataset(1).set_task(EventTask(), split=PatientSplit((0.6, 0.2, 0.2), seed=1))

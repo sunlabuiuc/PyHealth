@@ -1,0 +1,13 @@
+version: "1.0.9"
+tables:
+  recordings:
+    file_path: "ahepa_dementia-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "signal_file"
+    - "raw_signal_file"
+    - "group"
+    - "gender"
+    - "age"
+    - "mmse"

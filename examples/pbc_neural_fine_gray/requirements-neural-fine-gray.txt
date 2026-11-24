@@ -1,0 +1,4 @@
+# Optional packages for the PBC comparators and historical metric lane.
+# Install PyHealth separately with: pip install -e .
+lifelines>=0.30,<0.31
+scikit-survival>=0.26,<0.27

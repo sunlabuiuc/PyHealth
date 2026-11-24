@@ -213,8 +213,8 @@ All datasets must follow these guidelines:
 - **Inherit from BaseDataset**: All datasets must inherit from the appropriate BaseDataset class
 - **Follow established patterns**: 
   
-  - For EHR datasets: See the `MIMIC4 dataset example <https://github.com/sunlabuiuc/PyHealth/blob/main/pyhealth/datasets/mimic4.py>`_
-  - For image datasets: See the `CovidCXR dataset example <https://github.com/sunlabuiuc/PyHealth/blob/main/pyhealth/datasets/covidcxr.py>`_ where each folder represents a sample
+  - For EHR datasets: See the `MIMIC4 dataset example <https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/datasets/mimic4.py>`_
+  - For image datasets: See the `COVID-19 CXR dataset example <https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/datasets/covid19_cxr.py>`_ where each folder represents a sample
 
 - **Include a test task**: Datasets should ideally have an associated task for testing purposes
 
@@ -232,8 +232,8 @@ Tasks must follow the established task class structure:
 - **Inherit from base task class**: Follow the pattern defined in existing tasks
 - **Examples to reference**:
   
-  - `Mortality prediction task <https://github.com/sunlabuiuc/PyHealth/blob/main/pyhealth/tasks/mortality_prediction.py>`_
-  - `X-ray classification task <https://github.com/sunlabuiuc/PyHealth/blob/main/pyhealth/tasks/chest_xray_classification.py>`_
+  - `Mortality prediction task <https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/tasks/mortality_prediction.py>`_
+  - `COVID-19 X-ray classification task <https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/tasks/covid19_cxr_classification.py>`_
 
 - **Flexibility**: Tasks can include various implementation details but must have clear inputs/outputs
 - **Test cases**: Include example test cases with defined inputs and expected outputs
@@ -244,7 +244,7 @@ Contributing a Model
 Models must follow the model base class structure:
 
 - **Inherit from BaseModel**: All models must inherit from the appropriate base model class
-- **Reference implementation**: See the `RNN model example <https://github.com/sunlabuiuc/PyHealth/blob/main/pyhealth/models/rnn.py>`_
+- **Reference implementation**: See the `RNN model example <https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/rnn.py>`_
 - **Test cases**: Include example test cases with dummy inputs and expected outputs
 
 **Key Requirements:**
@@ -270,6 +270,9 @@ When adding a new dataset (e.g., ``NewDataset``), you should create and update t
 - Inherits from appropriate BaseDataset class
 - Implements all required data loading and parsing methods
 - Includes comprehensive docstrings following Google style
+- Cites the dataset: the class docstring links to the dataset's source site
+  (for example its PhysioNet, Kaggle or project page) or to the paper that
+  introduced it. The AI review asks for this link on every new dataset.
 - Contains proper type hints for all methods
 
 **2. Documentation File**
@@ -286,7 +289,11 @@ Create a new reStructuredText file documenting your dataset:
    Overview
    --------
 
-   Brief description of the dataset, its source, and key characteristics.
+   Brief description of the dataset and its key characteristics: what the
+   data is, how to get access to it, and what folder and files ``root``
+   should contain. Keep it short.
+
+   Source: `Dataset name <https://link-to-the-dataset-or-paper>`_
 
    API Reference
    -------------
@@ -613,7 +620,9 @@ A pull request switches to ``status: manual``:
   - changes the core of the library: base classes such as ``BaseModel`` or
     ``BaseDataset``, the Trainer, or other shared code. Changing the API of your
     own model, dataset or task is not a core change, but state any breaking
-    change clearly in the description and docs, or
+    change clearly in the description and docs. Neither is adding your new
+    component's import to a package ``__init__.py``, such as
+    ``pyhealth/models/__init__.py``, or
   - has a high-severity problem on a change that would otherwise be approved.
 
   The first time, the review asks for changes and warns you. If a later

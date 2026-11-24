@@ -4,7 +4,6 @@ import os
 
 import torch
 import torch.nn as nn
-import numpy as np
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import (
@@ -16,6 +15,7 @@ from pyhealth.models.utils import (
 )
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
 from pyhealth.models.embedding import EmbeddingModel
+from pyhealth.models.utils import save_ddi_adj
 
 class GCNLayer(nn.Module):
     """GCN layer.
@@ -165,7 +165,9 @@ class GAMENetLayer(nn.Module):
         num_labels = ehr_adj.shape[0]
         self.ehr_gcn = GCN(adj=ehr_adj, hidden_size=hidden_size, dropout=dropout)
         self.ddi_gcn = GCN(adj=ddi_adj, hidden_size=hidden_size, dropout=dropout)
-        self.beta = nn.Parameter(torch.FloatTensor(1))
+        # sigmoid(0) = 0.5: start with equal weighting of the DDI memory, where
+        # the gate's gradient is largest.
+        self.beta = nn.Parameter(torch.zeros(1))
         self.fc = nn.Linear(3 * hidden_size, num_labels)
 
         self.bce_loss_fn = nn.BCEWithLogitsLoss()
@@ -429,7 +431,9 @@ class GAMENet(BaseModel):
         )
         
         # save ddi adj
-        np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj.numpy())
+        self.ddi_adj_matrix = save_ddi_adj(
+            ddi_adj, os.path.join(CACHE_PATH, "ddi_adj.npy")
+        )
 
     def generate_ehr_adj(self) -> torch.tensor:
         """Generates the EHR graph adjacency matrix."""

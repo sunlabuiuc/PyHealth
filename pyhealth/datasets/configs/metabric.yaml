@@ -1,0 +1,18 @@
+version: "1.0"
+tables:
+  metabric:
+    file_path: "metabric.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "mki67"
+      - "egfr"
+      - "pgr"
+      - "erbb2"
+      - "age_at_diagnosis"
+      - "hormone_treatment"
+      - "radiotherapy"
+      - "chemotherapy"
+      - "er_positive"
+      - "duration_months"
+      - "event"

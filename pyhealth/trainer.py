@@ -13,7 +13,12 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from tqdm.autonotebook import trange
 
-from pyhealth.processors import PROCESSOR_REGISTRY, LabelProcessor
+from pyhealth.metrics.multilabel import multilabel_metrics_fn
+from pyhealth.processors import (
+    PROCESSOR_REGISTRY,
+    LabelProcessor,
+    MultiLabelProcessor,
+)
 from pyhealth.utils import create_directory
 
 logger = logging.getLogger(__name__)
@@ -85,6 +90,41 @@ def _label_processor(model: nn.Module) -> LabelProcessor | None:
     if not (inspect.isclass(cls) and issubclass(cls, LabelProcessor)):
         raise ValueError(f"Mode {mode} is not supported")
     return cls()
+
+
+def model_metrics_kwargs(model: nn.Module, metrics_fn: Callable) -> dict:
+    """Extra keyword arguments that ``metrics_fn`` should get for ``model``.
+
+    Drug recommendation models (ARMR, GAMENet, MICRON, MoleRec, SafeDrug) keep their
+    drug-drug interaction matrix in ``ddi_adj_matrix``. The ``"ddi"`` metric is
+    scored against it rather than the shared ``ddi_adj.npy`` cache file, which
+    another model or process may have overwritten. Other models and metrics
+    functions get no extra arguments.
+
+    Args:
+        model: The model being evaluated.
+        metrics_fn: The metrics function, e.g. from :func:`get_metrics_fn` or a
+            label processor's ``metrics_fn``.
+
+    Returns:
+        Keyword arguments to pass to ``metrics_fn``, possibly empty.
+
+    Examples:
+        >>> import numpy as np
+        >>> import torch
+        >>> from pyhealth.trainer import get_metrics_fn, model_metrics_kwargs
+        >>> model = torch.nn.Linear(2, 2)
+        >>> model.ddi_adj_matrix = np.eye(2)
+        >>> list(model_metrics_kwargs(model, get_metrics_fn("multilabel")))
+        ['ddi_adj']
+        >>> model_metrics_kwargs(model, get_metrics_fn("binary"))
+        {}
+    """
+    ddi_adj = getattr(model, "ddi_adj_matrix", None)
+    multilabel = (multilabel_metrics_fn, MultiLabelProcessor.metrics_fn)
+    if ddi_adj is not None and metrics_fn in multilabel:
+        return {"ddi_adj": ddi_adj}
+    return {}
 
 
 class Trainer:
@@ -418,7 +458,12 @@ class Trainer:
         label = _label_processor(self.model)
         if label is not None:
             y_true_all, y_prob_all, loss_mean = self.inference(dataloader)
-            scores = label.metrics_fn(y_true_all, y_prob_all, metrics=self.metrics)
+            scores = label.metrics_fn(
+                y_true_all,
+                y_prob_all,
+                metrics=self.metrics,
+                **model_metrics_kwargs(self.model, label.metrics_fn),
+            )
             scores["loss"] = loss_mean
         else:
             loss_all = []

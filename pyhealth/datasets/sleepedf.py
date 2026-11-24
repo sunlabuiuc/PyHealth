@@ -8,13 +8,47 @@ import pandas as pd
 from pyhealth.datasets import BaseDataset
 from pyhealth.tasks.sleep_staging_v2 import SleepStagingSleepEDF
 
+from .metadata_csv import (
+    metadata_csv_exists,
+    resolve_metadata_root,
+    write_metadata_csv,
+)
+
 logger = logging.getLogger(__name__)
+
+
+def _drop_rows_without_files(df: pd.DataFrame, subset: str) -> pd.DataFrame:
+    """Leave out subject-sheet rows that have no PSG or hypnogram file.
+
+    The subject sheets list every night of the release. When only part of the
+    release was downloaded, the other rows have no file, and the task would
+    fail on them. They are left out with a warning, so the count is visible.
+
+    Args:
+        df: Metadata rows with ``signal_file`` and ``label_file`` columns
+            (missing columns are treated as all missing).
+        subset: ``"cassette"`` or ``"telemetry"``, used in the warning.
+
+    Returns:
+        The rows that have both files, with a fresh index.
+    """
+    for column in ("signal_file", "label_file"):
+        if column not in df.columns:
+            df[column] = None
+    missing = df["signal_file"].isna() | df["label_file"].isna()
+    if missing.any():
+        logger.warning(
+            "%d of %d %s nights listed in the subject sheet have no PSG or "
+            "hypnogram file under root; they are left out.",
+            int(missing.sum()),
+            len(df),
+            subset,
+        )
+    return df.loc[~missing].reset_index(drop=True)
 
 
 class SleepEDFDataset(BaseDataset):
     """Base EEG dataset for SleepEDF
-
-    Dataset is available at https://www.physionet.org/content/sleep-edfx/1.0.0/
 
     For the Sleep Cassette Study portion:
         - The 153 SC* files (SC = Sleep Cassette) were obtained in a 1987-1991 study of age effects on sleep in healthy Caucasians aged 25-101, without any sleep-related medication [2]. Two PSGs of about 20 hours each were recorded during two subsequent day-night periods at the subjects homes. Subjects continued their normal activities but wore a modified Walkman-like cassette-tape recorder described in chapter VI.4 (page 92) of Bob's 1987 thesis.
@@ -26,8 +60,23 @@ class SleepEDFDataset(BaseDataset):
         - The 44 ST* files (ST = Sleep Telemetry) were obtained in a 1994 study of temazepam effects on sleep in 22 Caucasian males and females without other medication. Subjects had mild difficulty falling asleep but were otherwise healthy. The PSGs of about 9 hours were recorded in the hospital during two nights, one of which was after temazepam intake, and the other of which was after placebo intake. Subjects wore a miniature telemetry system with very good signal quality.
         - Files are named in the form ST7ssNJ0-PSG.edf where ss is the subject number, and N is the night.
         - EOG, EMG and EEG signals were sampled at 100 Hz, and the event marker at 1 Hz. The physical marker dimension ID+M-E relates to the fact that pressing the marker (M) button generated two-second deflections from a baseline value that either identifies the telemetry unit (ID = 1 or 2 if positive) or marks an error (E) in the telemetry link if negative. Subjects and recordings are further described in the file headers, the descriptive spreadsheet ST-subjects.xls.
+
+    Getting the data:
+        - Source: https://physionet.org/content/sleep-edfx/1.0.0/
+        - Access: open, no account needed.
+        - Download: ``wget -r -N -c -np https://physionet.org/files/sleep-edfx/1.0.0/``
+        - ``root``: the version folder holding ``SC-subjects.xls``,
+          ``sleep-cassette/`` and ``sleep-telemetry/``; ``subset`` picks which
+          half to load.
+        - Requirement: reading ``SC-subjects.xls`` / ``ST-subjects.xls`` needs
+          ``xlrd`` (``pip install xlrd``), which PyHealth does not install.
+        - The first call writes ``sleepedf-<subset>-pyhealth.csv`` into
+          ``root``, or into ``~/.cache/pyhealth/sleepedf/<hash of root>/``
+          when ``root`` is not writable.
+
     Args:
-        root: str, root directory of the raw data. *You can choose to use the path to Cassette portion or the Telemetry portion.*
+        root: str, the version folder holding ``SC-subjects.xls``,
+            ``sleep-cassette/`` and ``sleep-telemetry/``.
         dataset_name: Optional[str], name of the dataset. Default is None.
         config_path: Optional[str], path to the config file. Default is None.
         subset: Optional[str], subset of the SleepEDF dataset, either "cassette" or "telemetry". Default is "cassette".
@@ -71,19 +120,19 @@ class SleepEDFDataset(BaseDataset):
             )
 
         metadata_filename = f"sleepedf-{subset}-pyhealth.csv"
-        metadata_path = os.path.join(root, metadata_filename)
 
-        if subset == "cassette":
-            if not os.path.exists(metadata_path):
+        # The CSV goes next to the raw files, or under
+        # ~/.cache/pyhealth/sleepedf/<hash of root>/ when root is not writable.
+        if not metadata_csv_exists(root, "sleepedf", metadata_filename):
+            if subset == "cassette":
                 self.prepare_metadata_cassette(root)
-        else:
-            if not os.path.exists(metadata_path):
+            else:
                 self.prepare_metadata_telemetry(root)
 
         self.subset = subset
         default_tables = [subset]
         super().__init__(
-            root=root,
+            root=resolve_metadata_root(root, "sleepedf", metadata_filename),
             tables=default_tables,
             dataset_name=dataset_name or "sleepedf",
             config_path=config_path,
@@ -123,8 +172,9 @@ class SleepEDFDataset(BaseDataset):
                         "label_file",
                     ] = os.path.join(root, "sleep-cassette", files)
 
-        sleep_edf_cassette.to_csv(
-            os.path.join(root, "sleepedf-cassette-pyhealth.csv"), index=False
+        sleep_edf_cassette = _drop_rows_without_files(sleep_edf_cassette, "cassette")
+        write_metadata_csv(
+            sleep_edf_cassette, root, "sleepedf", "sleepedf-cassette-pyhealth.csv"
         )
 
     def prepare_metadata_telemetry(self, root: str) -> None:
@@ -138,7 +188,7 @@ class SleepEDFDataset(BaseDataset):
         telemetry_path = os.path.join(root, "ST-subjects.xls")
         telemetry_raw = pd.read_excel(telemetry_path, header=[0, 1])
         telemetry_raw.columns = self._flatten_multilevel_columns(telemetry_raw.columns)
-        print(telemetry_raw.columns)
+        logger.debug("ST-subjects.xls columns: %s", list(telemetry_raw.columns))
         telemetry = telemetry_raw.rename(
             columns={
                 "subject_age_sex_nr": "subject",
@@ -204,8 +254,9 @@ class SleepEDFDataset(BaseDataset):
 
         telemetry_records.sort_values(["subject", "night", "condition"], inplace=True)
         telemetry_records.reset_index(drop=True, inplace=True)
-        telemetry_records.to_csv(
-            os.path.join(root, "sleepedf-telemetry-pyhealth.csv"), index=False
+        telemetry_records = _drop_rows_without_files(telemetry_records, "telemetry")
+        write_metadata_csv(
+            telemetry_records, root, "sleepedf", "sleepedf-telemetry-pyhealth.csv"
         )
 
     @staticmethod

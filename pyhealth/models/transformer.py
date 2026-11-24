@@ -420,7 +420,7 @@ class Transformer(BaseModel, CheferInterpretable):
             obtain per-event representations.
         """
 
-        if x.dim() == 4:
+        while x.dim() > 3:
             x = x.sum(dim=2)
         if x.dim() == 2:
             x = x.unsqueeze(1)
@@ -509,7 +509,7 @@ class Transformer(BaseModel, CheferInterpretable):
 
             if mask is not None:
                 mask = mask.to(self.device).bool()
-                if mask.dim() == value.dim():
+                while mask.dim() > 2:
                     mask = mask.any(dim=-1)
             else:
                 mask = self._mask_from_embeddings(value).to(self.device)
