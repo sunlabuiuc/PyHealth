@@ -43,6 +43,7 @@ The paper's appendix with its learning rates is not public, so ``--lr`` and
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import time
 import urllib.request
@@ -65,6 +66,15 @@ RAINDROP = (
     "https://raw.githubusercontent.com/mims-harvard/Raindrop/"
     "892eb5734e84aa8d18476c6a8975b55b2f30e1d1/P12data/"
 )
+# SHA-256 of Raindrop's files at that commit, checked before loading them.
+RAINDROP_SHA256 = {
+    "processed_data/arr_outcomes.npy": "eb9b35208d3b0189b301b0f93ddbab60241a7e72a6a75825388968297393d886",
+    "splits/phy12_split1.npy": "61cf02844ff685aa5469a31f606482279d434079b6b29c7691b66e34ad98cc89",
+    "splits/phy12_split2.npy": "0415c7010a24573a29540e59f89543089ec67d81b598239c922fff90d73e2cbe",
+    "splits/phy12_split3.npy": "8f13eeb58365f8637c8af56d8b2f4b25c65bd535b52f2504dbf33a828b1289fa",
+    "splits/phy12_split4.npy": "ea90042db1036593713311556ede7971cbc349b847463aaefa9277321b0d35da",
+    "splits/phy12_split5.npy": "b00ac2fcfcf508c0cc15ee69142ce9ec9a3918b0c91f517260a32d008e7be3f6",
+}
 TINY_SWIN = {"embed_dim": 16, "depths": [1, 1], "num_heads": [1, 2], "window_size": 4}
 
 
@@ -80,10 +90,12 @@ def raindrop_split(split: int, cache: Path) -> tuple[list[str], list[str], list[
         dest = cache / name.replace("/", "_")
         if not dest.exists():
             urllib.request.urlretrieve(RAINDROP + name, dest)
+        if hashlib.sha256(dest.read_bytes()).hexdigest() != RAINDROP_SHA256[name]:
+            raise ValueError(f"{dest} does not match Raindrop's file; delete it and rerun.")
         files[name] = dest
     record_ids = np.load(files["processed_data/arr_outcomes.npy"])[:, 0].astype(int)
-    # The split file is a pickled tuple of three index arrays, fetched from
-    # Raindrop's repository at the commit above.
+    # The split file is a pickled tuple of three index arrays; its checksum
+    # was verified above, so unpickling it is safe.
     parts = np.load(files[f"splits/phy12_split{split}.npy"], allow_pickle=True)
     return tuple([str(record_ids[i]) for i in part] for part in parts)
 

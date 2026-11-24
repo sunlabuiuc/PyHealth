@@ -384,23 +384,51 @@ class TestJointSeqImage(unittest.TestCase):
             )
             self.assertTrue(changed, prefix)
 
+    def _optimizers(self):
+        optimizer = torch.optim.Adam(
+            [p for n, p in self.model.named_parameters() if not n.startswith("discriminator.")],
+            lr=1e-3,
+        )
+        return optimizer, torch.optim.Adam(self.model.discriminator.parameters(), lr=1e-3)
+
     def test_clusters(self):
         out = self.model(**self.batch)
         self.assertEqual(self.model.cluster_loss(out["embed"]).item(), 0.0)
+        self.model.train_step(self.batch, *self._optimizers())
+        features = torch.cat(self.model._epoch_features)
         self.model.update_clusters()
         self.assertEqual(self.model.cluster_centers.shape, (2, 16))
+        self.assertEqual(self.model._epoch_features, [])
         # Each centre is one of the features (a medoid-like centre, Eq. 12).
-        features = out["embed"].detach()
         for center in self.model.cluster_centers:
             self.assertTrue(any(torch.allclose(center, f) for f in features))
-        loss = self.model.cluster_loss(out["embed"])
+        loss = self.model.cluster_loss(self.model(**self.batch)["embed"])
         self.assertGreater(loss.item(), 0.0)
         loss.backward()
         self.model.update_clusters()  # nothing stored since: centres kept
         self.assertEqual(self.model.cluster_centers.shape, (2, 16))
-        self.model(**self.batch)
+        self.model.train_step(self.batch, *self._optimizers())
         self.model.update_clusters()  # restarts from the current centres
         self.assertEqual(self.model.cluster_centers.shape, (2, 16))
+
+    def test_forward_stores_no_features(self):
+        # The Trainer path never calls update_clusters, so nothing may pile up.
+        self.model.train()
+        self.model(**self.batch)["loss"].backward()
+        self.assertEqual(self.model._epoch_features, [])
+
+    def test_checkpoint_loads_into_a_new_model(self):
+        self.model.train_step(self.batch, *self._optimizers())
+        self.model.update_clusters()
+        fresh = _model(self.dataset)
+        fresh.load_state_dict(self.model.state_dict())
+        torch.testing.assert_close(fresh.cluster_centers, self.model.cluster_centers)
+        self.model.eval()
+        fresh.eval()
+        with torch.no_grad():
+            torch.testing.assert_close(
+                fresh(**self.batch)["y_prob"], self.model(**self.batch)["y_prob"]
+            )
 
     def test_multiclass_and_image_types(self):
         dataset = create_sample_dataset(
@@ -433,6 +461,12 @@ class TestJointSeqImage(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             _model(regression)
+        longer = {
+            "x": torch.full((2, 13, 4), 0.5),
+            "x_time": torch.arange(13.0).repeat(2, 1),
+        }
+        with self.assertRaises(ValueError):
+            self.model(**longer)
 
 
 if __name__ == "__main__":

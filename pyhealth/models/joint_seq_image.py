@@ -211,8 +211,9 @@ def margin_contrastive(
 
     For sample ``i``, ``(v_i, s_i)`` is the positive pair. Pairs with a
     sample of another class get ``margin`` added to their similarity, so
-    they must be pushed further apart. Both directions (image to sequence
-    and sequence to image) are averaged. Similarities are cosines.
+    they must be pushed further apart. The losses of both directions
+    (image to sequence and sequence to image) are summed. Similarities are
+    cosines.
 
     Args:
         s: Sequence features ``[B, D]``.
@@ -291,13 +292,15 @@ class JointSeqImage(BaseModel):
     Training alternates three steps per batch, as in the paper
     (:meth:`train_step`): update the discriminator on the imputations;
     update the generator with ``L_adv + alpha * L_rec``; then update the
-    whole model with ``L_clf + beta1 * L_cont + beta2 * L_cluster`` (focal
-    loss for binary labels, cross-entropy otherwise). Call
+    whole model with ``L_clf + beta1 * L_cont + beta2 * L_cluster``, where
+    ``L_clf`` is the focal loss for binary and multiclass labels alike
+    (``focal_gamma=0`` gives cross-entropy). Call
     :meth:`update_clusters` at the end of each epoch to recompute the
-    centres from the features seen in it. :meth:`forward` computes the
-    third objective, so the model also trains with
+    centres from the features :meth:`train_step` saw in it. :meth:`forward`
+    computes the third objective, so the model also trains with
     :class:`~pyhealth.trainer.Trainer`, but then without the adversarial
-    imputation steps and without cluster updates.
+    imputation steps and without cluster updates (nothing is stored for
+    them).
 
     The model reads ``x`` (values ``[B, L, V]``, NaN where not observed,
     ideally z-scored) and ``x_time`` (``[B, L]`` in hours, NaN for padding),
@@ -316,7 +319,9 @@ class JointSeqImage(BaseModel):
         image_type: One of
             :data:`~pyhealth.models.time_series_images.IMAGE_TYPES`.
         image_size: Side of the rendered image in pixels (384 in the paper
-            for PhysioNet 2012 and 2019); split evenly into the grid cells.
+            for PhysioNet 2012 and 2019), split evenly into the grid cells;
+            the image is ``image_size // max(rows, cols)`` times the grid,
+            so with 36 variables (6 x 6) 224 gives 222 x 222.
         image_model: Hugging Face name of the pretrained Swin, or ``None``
             to build one from ``swin_config`` with random weights.
         swin_config: Arguments of ``transformers.SwinConfig`` when
@@ -444,6 +449,14 @@ class JointSeqImage(BaseModel):
         self.register_buffer("cluster_centers", torch.empty(0, 2 * joint_dim))
         self._epoch_features: list[torch.Tensor] = []
 
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs) -> None:
+        # The centres are empty until the first update_clusters(); take the
+        # saved shape, so a checkpoint loads into a freshly built model.
+        centers = state_dict.get(prefix + "cluster_centers")
+        if centers is not None:
+            self.cluster_centers = self.cluster_centers.new_empty(centers.shape)
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
+
     def generator_parameters(self) -> list[nn.Parameter]:
         """Parameters of the imputing generator (both directions)."""
         return [*self.forward_imputer.parameters(), *self.backward_imputer.parameters()]
@@ -566,6 +579,12 @@ class JointSeqImage(BaseModel):
         mask: torch.Tensor,
         imputed: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        if imputed.shape[1] > self.sequence_length:
+            raise ValueError(
+                f"series of {imputed.shape[1]} steps is longer than the "
+                f"{self.sequence_length} the model was built for; pad every sample "
+                "to the same length (as PhysioNet2012Mortality does)"
+            )
         # Pad back to the full length, so the feature sees the whole grid.
         imputed = F.pad(imputed, (0, 0, 0, self.sequence_length - imputed.shape[1]))
         s = self.sequence_feature(self.sequence_norm(imputed.flatten(1)))
@@ -589,7 +608,7 @@ class JointSeqImage(BaseModel):
     def update_clusters(self, max_iter: int = 100, tol: float = 1e-4) -> None:
         """Recomputes the cluster centres from this epoch's joint features.
 
-        k-means on the features stored by the training forward passes since
+        k-means on the joint features of the :meth:`train_step` calls since
         the last call, starting from the current centres (or from ``k``
         random features the first time). Each centre is the member feature
         nearest the members' mean, the minimiser of Eq. 12. Stops when the
@@ -598,7 +617,7 @@ class JointSeqImage(BaseModel):
         """
         if not self._epoch_features:
             return
-        features = torch.cat(self._epoch_features)
+        features = torch.cat(self._epoch_features).to(self.cluster_centers.device)
         self._epoch_features = []
         k = min(self.num_clusters, len(features))
         if len(self.cluster_centers) == k:
@@ -650,8 +669,6 @@ class JointSeqImage(BaseModel):
             loss = focal_loss(logit, y_true, self.focal_gamma, binary)
             loss = loss + self.beta1 * margin_contrastive(s, v, labels, self.temperature, self.margin)
             loss = loss + self.beta2 * self.cluster_loss(u)
-            if self.training:
-                self._epoch_features.append(u.detach())
             out["loss"] = loss
             out["y_true"] = y_true
         return out
@@ -684,7 +701,8 @@ class JointSeqImage(BaseModel):
                 ``None`` for the single-pass variant.
 
         Returns:
-            The discriminator, generator and joint losses as floats.
+            The discriminator, generator and joint losses as floats. The
+            batch's joint features are stored for :meth:`update_clusters`.
         """
         self.train()
         if generator_optimizer is not None:
@@ -699,7 +717,8 @@ class JointSeqImage(BaseModel):
             generator_optimizer.step()
 
             optimizer.zero_grad()
-            loss = self(**batch)["loss"]
+            out = self(**batch)
+            loss = out["loss"]
             loss.backward()
             optimizer.step()
         else:
@@ -712,9 +731,12 @@ class JointSeqImage(BaseModel):
 
             optimizer.zero_grad()
             g_loss = self._generator_loss(values, mask, valid, imputed, forward_hat, backward_hat)
-            loss = self._classify(batch, values, times, mask, imputed)["loss"]
+            out = self._classify(batch, values, times, mask, imputed)
+            loss = out["loss"]
             (loss + g_loss).backward()
             optimizer.step()
+        # Kept on the CPU for update_clusters (about 8 KB per sample).
+        self._epoch_features.append(out["embed"].detach().cpu())
         return {
             "discriminator": d_loss.item(), "generator": g_loss.item(), "joint": loss.item()
         }
