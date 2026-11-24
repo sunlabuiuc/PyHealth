@@ -222,6 +222,7 @@ Available Tasks
     ICU Admission (MEDS) <tasks/pyhealth.tasks.ICUAdmissionMEDS>
     Hospital Readmission (MEDS) <tasks/pyhealth.tasks.HospitalReadmissionMEDS>
     Prolonged Length of Stay (MEDS) <tasks/pyhealth.tasks.ProlongedLengthOfStayMEDS>
+    EviCare Diagnosis Prediction (MIMIC-III/IV) <tasks/pyhealth.tasks.evicare_diagnosis>
     ETHOS Timelines (MEDS) <tasks/pyhealth.tasks.EthosTimelineMEDS>
     ETHOS Zero-Shot Outcomes (MEDS) <tasks/pyhealth.tasks.EthosOutcomeMEDS>
     Delphi Trajectory (MEDS) <tasks/pyhealth.tasks.DelphiTrajectoryMEDS>
