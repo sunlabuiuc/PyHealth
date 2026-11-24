@@ -25,16 +25,16 @@ commit in ``files/MEDMOD_COMMIT``):
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
 
-from .discretizer import MEDMOD_FILES, Discretizer
-from .split_lists import MEDMOD_COMMIT, split_list_path
+from .discretizer import Discretizer
+from .downloads import MEDMOD_COMMIT, medmod_file_path
 
 EPS = 1e-6  # create_ihm.py:12
 N_HOURS = 48  # create_ihm.py:12
@@ -95,18 +95,21 @@ STAGES = (
 # --------------------------------------------------------------------------
 
 
-def read_itemid_to_variable_map(
-    path: str | Path = MEDMOD_FILES / "itemid_to_variable_map.csv",
-) -> pd.DataFrame:
+def read_itemid_to_variable_map(path: str | Path | None = None) -> pd.DataFrame:
     """bench_prep.py:141-156: keep rows with LEVEL2 != '', COUNT > 0,
     STATUS == 'ready'. Returns columns ``variable, itemid (int), mimic_label``.
 
+    Without ``path``, MedMod's file is downloaded on first use
+    (``downloads.medmod_file_path``).
+
     Examples:
         >>> from pyhealth.datasets.medmod.extraction import read_itemid_to_variable_map
-        >>> var_map = read_itemid_to_variable_map()
-        >>> list(var_map.columns), var_map["variable"].nunique()
+        >>> var_map = read_itemid_to_variable_map()  # doctest: +SKIP
+        >>> list(var_map.columns), var_map["variable"].nunique()  # doctest: +SKIP
         (['variable', 'itemid', 'mimic_label'], 17)
     """
+    if path is None:
+        path = medmod_file_path("itemid_to_variable_map.csv")
     var_map = pd.read_csv(path).fillna("").astype(str)
     var_map["COUNT"] = var_map["COUNT"].astype(int)
     var_map = var_map[(var_map["LEVEL2"] != "") & (var_map["COUNT"] > 0)]
@@ -159,17 +162,13 @@ def read_split_file(path: str | Path) -> set[str]:
 
 
 def _source_name(path: str | Path) -> str:
-    """Bundled files by name (independent of where the project lives), others
-    by absolute path."""
-    p = Path(path).resolve()
-    if p.parent == MEDMOD_FILES.resolve():
-        return f"bundled:{p.name}"
-    return str(p)
+    """A file given by the user, by its absolute path."""
+    return str(Path(path).resolve())
 
 
 @dataclass
 class MedModResources:
-    """MedMod's files, loaded once: item map, split lists, discretizer config.
+    """MedMod's files: item map, split lists, discretizer config.
 
     The discretizer is MedMod's (previous-value imputation, masks, start at
     intime; preprocessing.py:247-252); ``process_subject`` sets the bin width.
@@ -177,9 +176,10 @@ class MedModResources:
     (medmod_ehr_processor.py): a MedMod normalizer file, or fitted on the
     train split.
 
-    The split lists are read on first use (``test_subjects``, ``val_subjects``);
-    by default they are MedMod's, downloaded from MedMod's GitHub on first use
-    (``split_lists.split_list_path``), so building a task, its schema or
+    The item map and the split lists are read on first use (``var_map``,
+    ``test_subjects``, ``val_subjects``); by default they are MedMod's,
+    downloaded from MedMod's GitHub on first use
+    (``downloads.medmod_file_path``), so building a task, its schema or
     synthetic samples needs no network.
 
     ``repr`` shows only the source paths (``sources``), so it is short and the
@@ -188,31 +188,36 @@ class MedModResources:
 
     Examples:
         >>> from pyhealth.datasets.medmod.extraction import MedModResources
-        >>> res = MedModResources.load()  # no download until a split list is used
+        >>> res = MedModResources.load()  # no download until a file is used
         >>> res.sources["itemid_map"], len(res.discretizer.channels)
-        ('bundled:itemid_to_variable_map.csv', 17)
+        ('medmod@7a47c0b:itemid_to_variable_map.csv', 17)
     """
 
     sources: dict[str, str]
-    var_map: pd.DataFrame = field(repr=False)
     discretizer: Discretizer = field(repr=False)
+    itemid_map: Path | None = field(default=None, repr=False)
     testset: Path | None = field(default=None, repr=False)
     valset: Path | None = field(default=None, repr=False)
     _test_subjects: set[str] | None = field(default=None, repr=False)
     _val_subjects: set[str] | None = field(default=None, repr=False)
+    _var_map: pd.DataFrame | None = field(default=None, repr=False)
 
     @classmethod
     def load(
         cls,
-        itemid_map: str | Path = MEDMOD_FILES / "itemid_to_variable_map.csv",
+        itemid_map: str | Path | None = None,
         testset: str | Path | None = None,
         valset: str | Path | None = None,
     ) -> MedModResources:
-        """Defaults: MedMod's item map bundled in
-        ``pyhealth/datasets/medmod/files``, and MedMod's split lists (downloaded
-        on first use). Pass ``testset`` / ``valset`` to use other lists."""
+        """Defaults: MedMod's item map and split lists (downloaded on first
+        use). Pass ``itemid_map`` / ``testset`` / ``valset`` to use other
+        files."""
         sources = {
-            "itemid_map": _source_name(itemid_map),
+            "itemid_map": (
+                f"medmod@{MEDMOD_COMMIT[:7]}:itemid_to_variable_map.csv"
+                if itemid_map is None
+                else _source_name(itemid_map)
+            ),
             "testset": (
                 f"medmod@{MEDMOD_COMMIT[:7]}:testset_iv.csv"
                 if testset is None
@@ -226,8 +231,8 @@ class MedModResources:
         }
         return cls(
             sources=sources,
-            var_map=read_itemid_to_variable_map(itemid_map),
             discretizer=Discretizer(),
+            itemid_map=None if itemid_map is None else Path(itemid_map),
             testset=None if testset is None else Path(testset),
             valset=None if valset is None else Path(valset),
         )
@@ -236,7 +241,7 @@ class MedModResources:
     def test_subjects(self) -> set[str]:
         """Subjects on MedMod's test list (read, or downloaded, on first use)."""
         if self._test_subjects is None:
-            path = self.testset or split_list_path("testset_iv.csv")
+            path = self.testset or medmod_file_path("testset_iv.csv")
             self._test_subjects = read_split_file(path)
         return self._test_subjects
 
@@ -248,7 +253,7 @@ class MedModResources:
     def val_subjects(self) -> set[str]:
         """Subjects on MedMod's validation list (read, or downloaded, on first use)."""
         if self._val_subjects is None:
-            path = self.valset or split_list_path("valset_iv.csv")
+            path = self.valset or medmod_file_path("valset_iv.csv")
             self._val_subjects = read_split_file(path)
         return self._val_subjects
 
@@ -257,7 +262,15 @@ class MedModResources:
         self._val_subjects = set(subjects)
 
     @property
+    def var_map(self) -> pd.DataFrame:
+        """MedMod's item map, ready rows only (read, or downloaded, on first use)."""
+        if self._var_map is None:
+            self._var_map = read_itemid_to_variable_map(self.itemid_map)
+        return self._var_map
+
+    @property
     def itemids(self) -> set[int]:
+        """The MIMIC-IV item ids mapped to MedMod's 17 variables."""
         return {int(i) for i in self.var_map["itemid"]}
 
 
@@ -554,9 +567,16 @@ class StayResult:
 
     @property
     def kept(self) -> bool:
+        """Whether the stay passed every cohort stage (is in the cohort)."""
         return self.passed == len(STAGES) - 1
 
     def sample(self) -> dict:
+        """Returns the stay as a PyHealth sample.
+
+        Returns:
+            A dict with ``patient_id``, ``visit_id``, ``ehr``, ``image_path``,
+            ``label`` and ``split``. Use it only for a stay in the cohort.
+        """
         return {
             "patient_id": self.subject_id,
             "visit_id": self.stay_id,
@@ -576,7 +596,7 @@ def _to_num(s: pd.Series) -> pd.Series:
     return pd.to_numeric(s.where(~s.astype(str).isin(PANDAS_115_NA)), errors="coerce")
 
 
-def _id_str(x) -> str:
+def _id_str(x: Any) -> str:
     return str(int(x))
 
 
@@ -593,7 +613,12 @@ def _pandas_like_values(values: pd.Series) -> pd.Series:
         return values.astype(str).astype(object)
 
 
-def in_hospital_mortality(admittime, dischtime, deathtime, dod) -> int:
+def in_hospital_mortality(
+    admittime: pd.Timestamp,
+    dischtime: pd.Timestamp,
+    deathtime: pd.Timestamp | None,
+    dod: pd.Timestamp | None,
+) -> int:
     """mimic3csv.py:101-108. dod or deathtime within [admittime, dischtime].
 
     Examples:
@@ -605,7 +630,7 @@ def in_hospital_mortality(admittime, dischtime, deathtime, dod) -> int:
         1
     """
 
-    def within(t):
+    def within(t: pd.Timestamp | None) -> bool:
         return pd.notnull(t) and admittime <= t <= dischtime
 
     return int(within(dod) or within(deathtime))
@@ -670,11 +695,10 @@ def subject_timeseries(events: pd.DataFrame, var_map: pd.DataFrame) -> pd.DataFr
     )
     wide = picked.unstack("variable")
     stays_at = ev.groupby("charttime")["stay_id"].agg(lambda s: {int(x) for x in s})
-    ts = wide.join(stays_at.rename("stay_ids")).sort_index().reset_index()
-    return ts
+    return wide.join(stays_at.rename("stay_ids")).sort_index().reset_index()
 
 
-def _fmt(v) -> str:
+def _fmt(v: Any) -> str:
     """Value as it would appear in MedMod's episode CSV ('' = missing)."""
     if v is None or (isinstance(v, float) and np.isnan(v)):
         return ""
@@ -682,7 +706,11 @@ def _fmt(v) -> str:
 
 
 def stay_rows(
-    ts: pd.DataFrame, stay_id: int, intime, outtime, channels: Sequence[str]
+    ts: pd.DataFrame,
+    stay_id: int,
+    intime: pd.Timestamp,
+    outtime: pd.Timestamp,
+    channels: Sequence[str],
 ) -> list[list]:
     """Rows of one stay, ``[hours(float), v_1(str), ..., v_17(str)]``, sorted.
 
@@ -906,31 +934,6 @@ def validated_events(
     return ev[["charttime", "stay_id", "itemid", "value", "valuenum"]]
 
 
-def all_stays_of(st: SubjectTables, results: Sequence[StayResult]) -> pd.DataFrame:
-    """The subject's rows of MedMod's all_stays.csv (stays that passed age_ge_18).
-
-    Examples:
-        >>> import pandas as pd
-        >>> from pyhealth.datasets.medmod.extraction import (
-        ...     STAGES, StayResult, SubjectTables, all_stays_of,
-        ... )
-        >>> e = pd.DataFrame()
-        >>> stays = pd.DataFrame({"stay_id": ["201"], "hadm_id": ["301"]})
-        >>> st = SubjectTables("101", e, e, stays, e, e, e)
-        >>> r = StayResult("101", "201", "301", passed=STAGES.index("age_ge_18"))
-        >>> all_stays_of(st, [r])[["stay_int", "hadm_int"]].values.tolist()
-        [[201, 301]]
-    """
-    k = STAGES.index("age_ge_18")
-    keep = {r.stay_id for r in results if r.passed >= k}
-    a = st.icustays[
-        st.icustays["stay_id"].astype(str).map(lambda x: _id_str(float(x))).isin(keep)
-    ].copy()
-    a["stay_int"] = _to_num(a["stay_id"]).astype(int)
-    a["hadm_int"] = _to_num(a["hadm_id"]).astype(int)
-    return a
-
-
 def process_subject(
     st: SubjectTables,
     res: MedModResources,
@@ -963,7 +966,7 @@ def process_subject(
             sid, _id_str(s["stay_id"]), _id_str(s["hadm_id"]), passed=0
         )
 
-    def bump(stay_ids, stage: str):
+    def bump(stay_ids: Iterable[Any], stage: str) -> None:
         k = STAGES.index(stage)
         for x in stay_ids:
             results[int(x)].passed = k

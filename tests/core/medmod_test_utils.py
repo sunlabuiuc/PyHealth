@@ -19,9 +19,19 @@ from pyhealth.datasets.medmod.extraction import (
     SubjectTables,
     process_subject,
 )
+from pyhealth.datasets.medmod_mimic4 import MedModMIMIC4Dataset
 
 INTIME = pd.Timestamp("2150-03-01 22:00:00")
 SID, HADM, STAY = "10000001", "20000001", "30000001"
+
+# MedMod's item map, only the rows of the item ids these tests use (so the
+# tests need no download); copied unchanged from itemid_to_variable_map.csv
+TEST_ITEMID_MAP = (
+    Path(__file__).resolve().parents[2]
+    / "test-resources"
+    / "medmod"
+    / "itemid_to_variable_map.csv"
+)
 
 # itemids from MedMod's itemid_to_variable_map.csv (STATUS == ready)
 HR, GCS_EYE, CRR, TEMP_F, FIO2, HEIGHT_IN, SPO2, GLUCOSE_LAB, PH_LAB = (
@@ -38,8 +48,8 @@ HR, GCS_EYE, CRR, TEMP_F, FIO2, HEIGHT_IN, SPO2, GLUCOSE_LAB, PH_LAB = (
 
 
 def load_test_resources() -> MedModResources:
-    """MedMod's bundled files, with its subject lists replaced by synthetic ones."""
-    r = MedModResources.load()
+    """MedMod's files: the test item map and synthetic subject lists."""
+    r = MedModResources.load(itemid_map=TEST_ITEMID_MAP)
     r.test_subjects = {"10000002"}
     r.val_subjects = {"10000003"}
     return r
@@ -139,7 +149,7 @@ def run(st, res, hours_zero="keep", image_dir=None, timestep=1.0):
     }
 
 
-def raw(ehr: np.ndarray, res: MedModResources) -> np.ndarray:
+def raw(ehr: np.ndarray) -> np.ndarray:
     """``ehr`` as values. The extraction returns it unnormalized (the processor
     standardizes later), so this is just a float copy."""
     return np.asarray(ehr, dtype=float).copy()
@@ -365,9 +375,11 @@ def write_fake_mimic(tmp_path: Path):
 
 
 def make_dataset(roots):
-    from pyhealth.datasets.medmod_mimic4 import MedModMIMIC4Dataset
-
     ehr, cxr, cache = roots
     return MedModMIMIC4Dataset(
-        ehr_root=ehr, cxr_root=cxr, cache_dir=cache, num_workers=1
+        ehr_root=ehr,
+        cxr_root=cxr,
+        cache_dir=cache,
+        num_workers=1,
+        itemid_map=TEST_ITEMID_MAP,
     )

@@ -3,26 +3,38 @@ MIMIC-CXR folders -> MedModMIMIC4Dataset -> set_task(split=MedModSplit())."""
 
 from __future__ import annotations
 
+import numpy as np
+import polars as pl
 import pytest
+import torch
 
-from pyhealth.datasets.medmod.extraction import STAGES
+from pyhealth.datasets import MedModSplit, PatientSplit
+from pyhealth.datasets.medmod.discretizer import PH_NORMALIZER, medmod_ehr_funcs
+from pyhealth.datasets.medmod.extraction import STAGES, MedModResources
 from pyhealth.tasks import MedModInHospitalMortality
-
 from tests.core.medmod_test_utils import (
+    TEST_ITEMID_MAP,
     load_test_resources,
-    write_fake_mimic,
     make_dataset,
+    write_fake_mimic,
 )
 
 
-@pytest.fixture()
-def roots(tmp_path):
-    return write_fake_mimic(tmp_path)
+@pytest.fixture(scope="module")
+def roots(tmp_path_factory):
+    """One fake MIMIC folder and PyHealth cache for the whole module.
+
+    Building the event table starts PyHealth's Dask worker processes. That
+    takes about 3 s, whatever the data size, so the table is built once here.
+    Each test then makes its own dataset object and task on this cache, which
+    takes milliseconds.
+    """
+    roots = write_fake_mimic(tmp_path_factory.mktemp("fake_mimic"))
+    make_dataset(roots).global_event_df.collect()
+    return roots
 
 
 def test_rows_filtered_before_cache(roots):
-    import polars as pl
-
     df = make_dataset(roots).global_event_df.collect()
     items = (
         df.filter(pl.col("event_type") == "chartevents")["chartevents/itemid"]
@@ -49,16 +61,13 @@ def _lists(tmp_path, test=(), val=()):
 
 @pytest.mark.parametrize("hours_zero", ["keep", "drop"])
 def test_set_task_end_to_end_2h_fitted_normalizer(roots, tmp_path, hours_zero):
-    import numpy as np
-
-    from pyhealth.datasets import MedModSplit
-    from pyhealth.datasets.medmod.extraction import MedModResources
-
     # Both stays in train: PyHealth fits the binary label processor on the
     # training part too, which needs both labels. Train-only fitting with a
     # held-out part is tested in test_medmod_mimic4_processor.py.
     testset, valset = _lists(tmp_path)
-    res = MedModResources.load(testset=testset, valset=valset)
+    res = MedModResources.load(
+        itemid_map=TEST_ITEMID_MAP, testset=testset, valset=valset
+    )
     task = MedModInHospitalMortality(
         hours_zero=hours_zero, timestep=2.0, normalizer=None, resources=res
     )
@@ -71,7 +80,7 @@ def test_set_task_end_to_end_2h_fitted_normalizer(roots, tmp_path, hours_zero):
     assert set(got) == {"30000001", "30000002"}  # 30000003 is a transfer
     for stay, label in [("30000001", 0), ("30000002", 1)]:
         s = got[stay]
-        assert tuple(s["ehr"].shape) == (24, 76) and s["ehr"].dtype == torch_float32()
+        assert tuple(s["ehr"].shape) == (24, 76) and s["ehr"].dtype == torch.float32
         assert float(s["label"].reshape(-1)[0]) == label and s["split"] == "train"
         assert s["image_path"].endswith(".jpg") and "/files/p10/" in s["image_path"]
 
@@ -92,12 +101,6 @@ def test_set_task_end_to_end_2h_fitted_normalizer(roots, tmp_path, hours_zero):
 
 
 def test_set_task_default_is_released_code_settings(roots, tmp_path):
-    import numpy as np
-
-    from pyhealth.datasets import MedModSplit
-    from pyhealth.datasets.medmod.discretizer import PH_NORMALIZER
-    from pyhealth.datasets.medmod.discretizer import medmod_ehr_funcs
-
     testset, valset = _lists(tmp_path)
     task = MedModInHospitalMortality(hours_zero="keep", resources=load_test_resources())
     ds = make_dataset(roots)
@@ -122,12 +125,6 @@ def test_set_task_default_is_released_code_settings(roots, tmp_path):
         )
 
 
-def torch_float32():
-    import torch
-
-    return torch.float32
-
-
 def test_image_dir_end_to_end(roots, tmp_path):
     img_dir = tmp_path / "resized"
     img_dir.mkdir()
@@ -137,7 +134,7 @@ def test_image_dir_end_to_end(roots, tmp_path):
         MedModInHospitalMortality(
             hours_zero="keep", image_dir=img_dir, resources=load_test_resources()
         ),
-        split=PATIENT_SPLIT_ALL_TRAIN(),
+        split=PatientSplit(ratios=(1.0, 0.0)),  # every stay in train
         num_workers=1,
     )
     paths = sorted(p[i]["image_path"] for p in parts for i in range(len(p)))
@@ -159,12 +156,6 @@ def test_image_dir_end_to_end(roots, tmp_path):
     chexpert = STAGES.index("cxr_has_chexpert")
     assert sum(r.passed >= chexpert for r in results) == 2
     assert sum(r.kept for r in results) == 1  # the stay whose image is gone drops
-
-
-def PATIENT_SPLIT_ALL_TRAIN():
-    from pyhealth.datasets import PatientSplit
-
-    return PatientSplit(ratios=(1.0, 0.0))
 
 
 def test_task_validates_its_arguments(tmp_path):

@@ -3,19 +3,26 @@ MedModEHRProcessor (MedMod's normalizer file, or one fitted on the train split).
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
 import numpy as np
 import pytest
+import torch
 
+from pyhealth.datasets.medmod import downloads as sl
 from pyhealth.datasets.medmod.discretizer import (
     PH_NORMALIZER,
     Normalizer,
     medmod_ehr_funcs,
 )
 from pyhealth.datasets.medmod_mimic4 import MedModSplit
-from pyhealth.processors.medmod_ehr_processor import MedModEHRProcessor
-
+from pyhealth.datasets.sample_dataset import SampleBuilder
+from pyhealth.processors.medmod_ehr_processor import (
+    MedModEHRProcessor,
+    MedModEHRSequenceProcessor,
+)
 
 DISC, PH = medmod_ehr_funcs()
 CONT = DISC.continuous_columns()
@@ -65,10 +72,6 @@ class _Response:
 
 
 def test_split_list_download_checksum_cache_and_fallback(tmp_path, monkeypatch):
-    import hashlib
-
-    from pyhealth.datasets.medmod import split_lists as sl
-
     good = b"111,1\n222,0\n"
     monkeypatch.setitem(sl.SHA256, "testset_iv.csv", hashlib.sha256(good).hexdigest())
     calls = []
@@ -80,10 +83,10 @@ def test_split_list_download_checksum_cache_and_fallback(tmp_path, monkeypatch):
         return _Response(good)
 
     monkeypatch.setattr(sl.urllib.request, "urlopen", fake_urlopen)
-    path = sl.split_list_path("testset_iv.csv", cache_dir=tmp_path)
+    path = sl.medmod_file_path("testset_iv.csv", cache_dir=tmp_path)
     assert path.read_bytes() == good and len(calls) == 2
     assert all(sl.MEDMOD_COMMIT in u or sl.MEDFUSE_COMMIT in u for u in calls)
-    sl.split_list_path("testset_iv.csv", cache_dir=tmp_path)  # cached
+    sl.medmod_file_path("testset_iv.csv", cache_dir=tmp_path)  # cached
     assert len(calls) == 2
 
     path.write_bytes(b"tampered")  # a bad cache is fetched again, and checked
@@ -91,13 +94,11 @@ def test_split_list_download_checksum_cache_and_fallback(tmp_path, monkeypatch):
         sl.urllib.request, "urlopen", lambda url, timeout: _Response(b"wrong")
     )
     with pytest.raises(OSError, match="SHA-256"):
-        sl.split_list_path("testset_iv.csv", cache_dir=tmp_path)
+        sl.medmod_file_path("testset_iv.csv", cache_dir=tmp_path)
     assert not list(tmp_path.glob("*.partial"))
 
 
 def test_default_medmod_split_cache_key_needs_no_download(monkeypatch):
-    from pyhealth.datasets.medmod import split_lists as sl
-
     def no_network(*args, **kwargs):
         raise AssertionError("downloaded")
 
@@ -109,8 +110,6 @@ def test_default_medmod_split_cache_key_needs_no_download(monkeypatch):
 
 def test_processor_is_fitted_on_the_train_split_only(tmp_path):
     """PyHealth's SampleBuilder with MedModSplit, as set_task does it."""
-    from pyhealth.datasets.sample_dataset import SampleBuilder
-
     rng = np.random.default_rng(0)
     testset, valset = lists(tmp_path, test=["t1", "t2"], val=["v1"])
     samples, train_arrays = [], []
@@ -139,7 +138,7 @@ def test_processor_is_fitted_on_the_train_split_only(tmp_path):
 
 def test_processor_output_matches_medmods_arithmetic():
     """float64 z-score, then float32 (MedMod's .float()): what the released-code
-    samples always were, so compare_medmod's bit-identity still holds."""
+    samples always were, so they still match MedMod's own extraction."""
     rng = np.random.default_rng(1)
     x = raw_ehr(rng, bins=48)
     proc = MedModEHRProcessor(PH_NORMALIZER)
@@ -154,8 +153,6 @@ def test_processor_output_matches_medmods_arithmetic():
 def test_processor_cache_key_is_stable():
     """With pre-fitted processors PyHealth keys its cache on
     json.dumps(vars(processor), default=str) (base_dataset.py:1207-1230)."""
-    import json
-
     def key(p):
         return json.dumps(vars(p), default=str, sort_keys=True)
 
@@ -169,10 +166,6 @@ def test_processor_cache_key_is_stable():
 
 
 def test_sequence_processor_pads_at_the_end_and_returns_lengths():
-    import torch
-
-    from pyhealth.processors.medmod_ehr_processor import MedModEHRSequenceProcessor
-
     rng = np.random.default_rng(3)
     seq = MedModEHRSequenceProcessor(PH_NORMALIZER)
     raw = [rng.normal(size=(n, 76)) for n in (4, 9, 1)]

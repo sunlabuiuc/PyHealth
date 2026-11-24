@@ -48,14 +48,14 @@ from pathlib import Path
 import narwhals as nw
 import numpy as np
 
-from .medmod.discretizer import MEDMOD_FILES
+from .medmod.downloads import SHA256, medmod_file_path
 from .medmod.extraction import (
     read_itemid_to_variable_map,
     read_split_file,
     split_of,
 )
-from .medmod.split_lists import SHA256, split_list_path
 from .mimic4 import MIMIC4Dataset, MIMIC4EHRDataset
+from .sample_dataset import SampleDataset
 from .splitter import Split
 
 EHR_V10_CONFIG = Path(__file__).resolve().parent / "configs" / "mimic4_ehr_v1.0.yaml"
@@ -63,9 +63,7 @@ EHR_TABLES = ("chartevents", "labevents", "diagnoses_icd")
 CXR_TABLES = ("metadata", "chexpert")
 
 
-def _ready_itemids(
-    itemid_map: str | Path = MEDMOD_FILES / "itemid_to_variable_map.csv",
-) -> list[str]:
+def _ready_itemids(itemid_map: str | Path | None = None) -> list[str]:
     return sorted(str(i) for i in read_itemid_to_variable_map(itemid_map)["itemid"])
 
 
@@ -82,17 +80,34 @@ class MedModEHRDataset(MIMIC4EHRDataset):
 
     Examples:
         >>> from pyhealth.datasets.medmod_mimic4 import MedModEHRDataset
-        >>> MedModEHRDataset.itemid_map.endswith("itemid_to_variable_map.csv")
+        >>> MedModEHRDataset.itemid_map is None  # MedMod's map, downloaded
         True
         >>> # Built for you by MedModMIMIC4Dataset (sub_datasets["ehr"]).
     """
 
-    itemid_map: str = str(MEDMOD_FILES / "itemid_to_variable_map.csv")
+    #: MedMod's item map; None downloads it on first use.
+    itemid_map: str | None = None
 
     def preprocess_chartevents(self, frame: nw.LazyFrame) -> nw.LazyFrame:
+        """Keeps only chartevents rows of MedMod's mapped item ids.
+
+        Args:
+            frame: The raw chartevents table.
+
+        Returns:
+            The rows whose ``itemid`` maps to one of the 17 variables.
+        """
         return _keep_medmod_rows(frame, _ready_itemids(self.itemid_map))
 
     def preprocess_labevents(self, frame: nw.LazyFrame) -> nw.LazyFrame:
+        """Keeps only labevents rows of MedMod's mapped item ids.
+
+        Args:
+            frame: The raw labevents table.
+
+        Returns:
+            The rows whose ``itemid`` maps to one of the 17 variables.
+        """
         return _keep_medmod_rows(frame, _ready_itemids(self.itemid_map))
 
 
@@ -108,6 +123,8 @@ class MedModMIMIC4Dataset(MIMIC4Dataset):
         cxr_root: folder holding the MIMIC-CXR-JPG CSVs.
         cache_dir: where PyHealth writes its processed copy of the data. Put it
             next to the data; without it PyHealth uses ~/Library/Caches/pyhealth.
+        itemid_map: MedMod's ``itemid_to_variable_map.csv``. Without it, the
+            file is downloaded from MedMod's GitHub on first use.
 
     Examples:
         >>> from pyhealth.datasets import MedModMIMIC4Dataset
@@ -126,6 +143,7 @@ class MedModMIMIC4Dataset(MIMIC4Dataset):
         dev: bool = False,
         num_workers: int = 1,
         ehr_config_path: str | Path = EHR_V10_CONFIG,
+        itemid_map: str | Path | None = None,
     ):
         ehr_root, cxr_root = os.fspath(ehr_root), os.fspath(cxr_root)
         cfg = os.fspath(ehr_config_path)
@@ -150,6 +168,8 @@ class MedModMIMIC4Dataset(MIMIC4Dataset):
             dev=dev,
             num_workers=num_workers,
         )
+        if itemid_map is not None:
+            self.sub_datasets["ehr"].itemid_map = os.fspath(itemid_map)
 
 
 SPLITS = ("train", "val", "test")
@@ -182,8 +202,16 @@ class MedModSplit(Split):
     def split_indices(
         self, patient_to_index: Mapping[str, Sequence[int]]
     ) -> list[np.ndarray]:
-        test = read_split_file(self.testset or split_list_path("testset_iv.csv"))
-        val = read_split_file(self.valset or split_list_path("valset_iv.csv"))
+        """Assigns samples to MedMod's fixed train, validation and test split.
+
+        Args:
+            patient_to_index: Sample positions of each patient.
+
+        Returns:
+            The sorted sample positions of train, val and test.
+        """
+        test = read_split_file(self.testset or medmod_file_path("testset_iv.csv"))
+        val = read_split_file(self.valset or medmod_file_path("valset_iv.csv"))
         parts: dict[str, list[int]] = {name: [] for name in SPLITS}
         for pid, indices in patient_to_index.items():
             parts[split_of(str(pid), test, val)].extend(indices)
@@ -193,7 +221,12 @@ class MedModSplit(Split):
         return [np.array(sorted(parts[name]), dtype=np.int64) for name in SPLITS]
 
     def to_dict(self) -> dict:
-        # Part of PyHealth's cache key: changes whenever a list's content does.
+        """Describes the split for PyHealth's cache key.
+
+        Returns:
+            The split kind and the digests of the test and val lists, so the
+            cache changes whenever a list's content does.
+        """
         return {
             "kind": "medmod",
             "testset_sha256": (
@@ -221,7 +254,9 @@ def split_positions(splits: Iterable[str]) -> dict[str, list[int]]:
     return out
 
 
-def split_by_medmod(samples):
+def split_by_medmod(
+    samples: SampleDataset,
+) -> tuple[SampleDataset, SampleDataset, SampleDataset]:
     """Split a MedMod ``SampleDataset`` by its ``split`` field.
 
     Args:

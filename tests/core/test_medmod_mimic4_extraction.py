@@ -7,33 +7,40 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from pyhealth.datasets.medmod import downloads
+from pyhealth.datasets.medmod.discretizer import PH_NORMALIZER, Normalizer
 from pyhealth.datasets.medmod.extraction import (
     MEDMOD_DUMMY_ROWS,
     STAGES,
+    MedModResources,
     loader_rows,
     process_subject,
+    read_split_file,
 )
+from pyhealth.datasets.medmod_mimic4 import split_by_medmod, split_positions
+from pyhealth.processors.medmod_ehr_processor import MedModEHRProcessor
 from tests.core.medmod_test_utils import (
-    load_test_resources,
-    HR,
-    GCS_EYE,
     CRR,
-    TEMP_F,
     FIO2,
-    HEIGHT_IN,
-    SPO2,
+    GCS_EYE,
     GLUCOSE_LAB,
-    PH_LAB,
-    INTIME,
-    SID,
     HADM,
+    HEIGHT_IN,
+    HR,
+    INTIME,
+    PH_LAB,
+    SID,
+    SPO2,
     STAY,
-    stay_row,
-    make_subject,
-    cxr_row,
-    run,
-    raw,
+    TEMP_F,
+    TEST_ITEMID_MAP,
     col,
+    cxr_row,
+    load_test_resources,
+    make_subject,
+    raw,
+    run,
+    stay_row,
 )
 
 
@@ -42,7 +49,6 @@ def res():
     return load_test_resources()
 
 
-KEPT = len(STAGES) - 1
 
 
 NORMAL_HR = 86.0  # discretizer_config.json normal_values["Heart Rate"]
@@ -55,7 +61,7 @@ def kept(st, res, hours_zero="keep"):
 
 
 def hr_raw(r, res):
-    return raw(r.ehr, res)[:, col(res, "Heart Rate")]
+    return raw(r.ehr)[:, col(res, "Heart Rate")]
 
 
 def hr_mask(r, res):
@@ -284,10 +290,6 @@ def test_unknown_categorical_value_raises_like_medmod(res):
 
 
 def test_ehr_is_unnormalized_the_processor_zscores(res):
-    pytest.importorskip("pyhealth")
-    from pyhealth.datasets.medmod.discretizer import PH_NORMALIZER
-    from pyhealth.processors.medmod_ehr_processor import MedModEHRProcessor
-
     r = kept(make_subject(events=[(2.5, HR, "90")]), res)
     c = col(res, "Heart Rate")
     assert r.ehr[2, c] == 90.0  # raw value in the task output
@@ -310,7 +312,7 @@ def test_value_cleaning_quirks(res):
         (2.5, PH_LAB, "7.31", "labevents"),
     ]
     r = kept(make_subject(events=ev), res)
-    x = raw(r.ehr, res)
+    x = raw(r.ehr)
     assert x[2, col(res, "Temperature")] == pytest.approx(37.0, abs=1e-3)
     assert x[3, col(res, "Temperature")] == pytest.approx(78.0, abs=1e-3)
     assert x[2, col(res, "Fraction inspired oxygen")] == pytest.approx(0.5, abs=1e-4)
@@ -366,14 +368,17 @@ def test_one_stay_per_admission_counted_after_transfer_filter(res):
 
 def test_labels(res):
     ev = [(5.0, HR, "90")]
-    adm = lambda death: [
-        {
-            "hadm_id": HADM,
-            "admittime": INTIME - pd.Timedelta(hours=2),
-            "dischtime": str(INTIME + pd.Timedelta(days=8)),
-            "deathtime": death,
-        }
-    ]
+
+    def adm(death):
+        return [
+            {
+                "hadm_id": HADM,
+                "admittime": INTIME - pd.Timedelta(hours=2),
+                "dischtime": str(INTIME + pd.Timedelta(days=8)),
+                "deathtime": death,
+            }
+        ]
+
     assert (
         kept(
             make_subject(events=ev, admissions=adm(str(INTIME + pd.Timedelta(days=8)))),
@@ -401,23 +406,21 @@ def test_split_assignment(res):
 
 
 def test_split_file_parsing(tmp_path):
-    from pyhealth.datasets.medmod.extraction import read_split_file
-
     p = tmp_path / "t.csv"
     p.write_text("111,0\n222,1\n333,1\n")
     assert read_split_file(p) == {"222", "333"}
 
 
-def test_resources_read_split_lists_lazily(tmp_path, monkeypatch):
-    from pyhealth.datasets.medmod import split_lists
-    from pyhealth.datasets.medmod.extraction import MedModResources
-
+def test_resources_read_files_lazily(tmp_path, monkeypatch):
     def no_network(*args, **kwargs):
         raise AssertionError("downloaded")
 
-    monkeypatch.setattr(split_lists.urllib.request, "urlopen", no_network)
-    r = MedModResources.load()  # no split list needed yet: no download
+    monkeypatch.setattr(downloads.urllib.request, "urlopen", no_network)
+    r = MedModResources.load()  # no file needed yet: no download
     assert r.sources["testset"].startswith("medmod@")
+    assert r.sources["itemid_map"].startswith("medmod@")
+    r = MedModResources.load(itemid_map=TEST_ITEMID_MAP)
+    assert len(r.itemids) == 10 and int(HR) in r.itemids  # the test copy's rows
     (tmp_path / "t.csv").write_text("111,1\n222,0\n")
     (tmp_path / "v.csv").write_text("333,1\n")
     r = MedModResources.load(testset=tmp_path / "t.csv", valset=tmp_path / "v.csv")
@@ -425,8 +428,6 @@ def test_resources_read_split_lists_lazily(tmp_path, monkeypatch):
 
 
 def test_normalizer_fit_matches_medmod_formula():
-    from pyhealth.datasets.medmod.discretizer import Normalizer
-
     rng = np.random.default_rng(0)
     arrays = [rng.normal(3, 2, size=(int(rng.integers(1, 9)), 5)) for _ in range(30)]
     arrays[0][:, 4] = 7.0
@@ -440,8 +441,6 @@ def test_normalizer_fit_matches_medmod_formula():
 
 
 def test_normalizer_fit_constant_column_gets_the_floor_not_nan():
-    from pyhealth.datasets.medmod.discretizer import Normalizer
-
     x = np.full((7, 2), 0.1)  # 0.1 is inexact in binary: var rounds below 0
     x[:, 1] = 97.3
     norm = Normalizer().fit([x[:3], x[3:]])
@@ -504,8 +503,6 @@ def test_without_image_dir_new_stage_is_passed_automatically(res):
 
 
 def test_split_positions_keep_sample_order_and_reject_unknown_splits():
-    from pyhealth.datasets.medmod_mimic4 import split_positions
-
     out = split_positions(["train", "test", "train", "val", "test"])
     assert out == {"train": [0, 2], "val": [3], "test": [1, 4]}
     assert split_positions([]) == {"train": [], "val": [], "test": []}
@@ -514,8 +511,6 @@ def test_split_positions_keep_sample_order_and_reject_unknown_splits():
 
 
 def test_split_by_medmod_returns_subset_views_like_pyhealth():
-    from pyhealth.datasets.medmod_mimic4 import split_by_medmod
-
     class FakeSamples:  # the two methods split_by_medmod uses
         def __init__(self, splits):
             self.splits = splits
@@ -537,8 +532,6 @@ def test_split_by_medmod_returns_subset_views_like_pyhealth():
 
 
 def test_resources_repr_is_short_and_stable():
-    from pyhealth.datasets.medmod.extraction import MedModResources
-
     a, b = repr(MedModResources.load()), repr(MedModResources.load())
-    assert a == b and "bundled:itemid_to_variable_map.csv" in a
+    assert a == b and "medmod@7a47c0b:itemid_to_variable_map.csv" in a
     assert "DataFrame" not in a and " at 0x" not in a and len(a) < 600
