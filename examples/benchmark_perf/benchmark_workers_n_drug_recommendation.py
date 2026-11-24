@@ -54,6 +54,7 @@ class RunResult:
     base_cache_bytes: int
     task_cache_bytes: int
     peak_rss_bytes: int
+    peak_pss_bytes: int | None  # None where PSS is unavailable
 
 
 def format_size(size_bytes: int) -> str:
@@ -108,6 +109,7 @@ class PeakMemoryTracker:
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._peak = 0
+        self._peak_pss = None  # no valid PSS sample yet
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     def start(self) -> None:
@@ -116,13 +118,43 @@ class PeakMemoryTracker:
     def reset(self) -> None:
         with self._lock:
             self._peak = 0
+            self._peak_pss = None
 
     def stop(self) -> None:
         self._stop.set()
 
+    def peak_pss_bytes(self) -> int | None:
+        with self._lock:
+            return self._peak_pss
+
     def peak_bytes(self) -> int:
         with self._lock:
             return self._peak
+
+    def _total_pss_bytes(self) -> int | None:
+        """Proportional set size across the process tree.
+
+        Summing RSS over forked workers counts every shared page once per
+        process; PSS divides it among the mappers, so the total is additive.
+        Returns None where PSS is unavailable for any process in the tree
+        (non-Linux, or no perms): that sample is not a PSS total, so the
+        peak column is left empty for the run rather than holding RSS.
+        """
+        total = 0
+        try:
+            procs = [self._proc] + self._proc.children(recursive=True)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return None
+        for p in procs:
+            try:
+                total += p.memory_full_info().pss
+            except AttributeError:
+                return None
+            except psutil.NoSuchProcess:
+                pass
+            except psutil.AccessDenied:
+                return None
+        return total
 
     def _total_rss_bytes(self) -> int:
         total = 0
@@ -140,9 +172,14 @@ class PeakMemoryTracker:
     def _run(self) -> None:
         while not self._stop.is_set():
             rss = self._total_rss_bytes()
+            pss = self._total_pss_bytes()
             with self._lock:
                 if rss > self._peak:
                     self._peak = rss
+                if pss is not None and (
+                    self._peak_pss is None or pss > self._peak_pss
+                ):
+                    self._peak_pss = pss
             time.sleep(self._poll_interval_s)
 
 
@@ -331,6 +368,7 @@ def main() -> None:
                     base_cache_bytes=base_cache_bytes,
                     task_cache_bytes=task_cache_bytes,
                     peak_rss_bytes=peak_rss_bytes,
+                    peak_pss_bytes=tracker.peak_pss_bytes(),
                 )
             )
 
