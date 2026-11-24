@@ -20,7 +20,7 @@ follow the authors' evaluation code:
 :func:`best_plausibility_threshold`.
 """
 
-from typing import Sequence
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -126,6 +126,12 @@ def best_plausibility_threshold(
 
     Returns:
         The best threshold; the smallest one on ties.
+
+    Example:
+        >>> import numpy as np
+        >>> scores = [np.array([0.05, 0.6, 0.3, 0.05])]
+        >>> best_plausibility_threshold(scores, evidence=[[1, 2]])
+        0.05
     """
     f1s = [plausibility_metrics(attributions, evidence, t)["f1"] for t in grid]
     return float(grid[int(np.argmax(f1s))])

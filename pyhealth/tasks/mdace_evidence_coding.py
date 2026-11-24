@@ -5,7 +5,7 @@ Contributors:
     Juri Moon (jmoon326)
 """
 import json
-from typing import Any, Dict, List
+from typing import Any, ClassVar
 
 from ..data import Patient
 from .base_task import BaseTask
@@ -32,14 +32,14 @@ class MDACEEvidenceCoding(BaseTask):
     """
 
     task_name: str = "MDACEEvidenceCoding"
-    input_schema: Dict[str, str] = {"text": "text"}
-    output_schema: Dict[str, str] = {"icd_codes": "multilabel"}
+    input_schema: ClassVar[dict[str, str]] = {"text": "text"}
+    output_schema: ClassVar[dict[str, str]] = {"icd_codes": "multilabel"}
 
     def __init__(self, discharge_summaries_only: bool = True) -> None:
         super().__init__()
         self.discharge_summaries_only = discharge_summaries_only
 
-    def __call__(self, patient: Patient) -> List[Dict[str, Any]]:
+    def __call__(self, patient: Patient) -> list[dict[str, Any]]:
         """Builds one sample per annotated note of the patient.
 
         Args:

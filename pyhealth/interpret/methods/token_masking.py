@@ -68,6 +68,14 @@ def optimize_token_mask(
     Returns:
         ``(mask, iterations)``: the soft mask ``sigmoid(m)`` of shape
         ``[batch, N]`` (detached) and the number of updates done.
+
+    Example:
+        >>> ids, mask = model.tokenize(["Sepsis with fever."])
+        >>> embed = model.get_input_embeddings()
+        >>> baseline = embed(torch.full_like(ids, model.tokenizer.mask_token_id))
+        >>> soft_mask, steps = optimize_token_mask(model, ids, mask, baseline)
+        >>> soft_mask.shape == ids.shape
+        True
     """
     was_training = model.training
     model.eval()
@@ -145,6 +153,14 @@ def token_masking_loss(
         A dict with ``loss`` (scalar), ``logit`` ``[batch, J]`` (unmasked
         student), ``mask`` ``[batch, N]`` (1 = token kept) and
         ``iterations`` (mask updates used).
+
+    Example:
+        >>> ids, mask = model.tokenize(["Sepsis with fever."])
+        >>> with torch.no_grad():
+        ...     embeds = frozen_model.get_input_embeddings()(ids)
+        ...     teacher = frozen_model.forward_from_embedding(embeds, mask)["logit"]
+        >>> out = token_masking_loss(model, ids, mask, teacher)
+        >>> out["loss"].backward()
     """
     tokenizer = model.tokenizer
     if baseline_token_id is None:

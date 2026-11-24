@@ -23,7 +23,7 @@ only pairs whose code is predicted (``p`` above the decision boundary).
 
 import math
 import re
-from typing import Optional, Sequence
+from collections.abc import Sequence
 
 import numpy as np
 import torch
@@ -35,6 +35,10 @@ def roberta_word_map(tokens: Sequence[str]) -> torch.Tensor:
     Port of ``get_word_map_roberta`` (include_space=True): a token starting
     with ``Ġ`` opens a new word, whitespace/punctuation-only tokens join the
     preceding word and ``<...>`` tokens are their own word.
+
+    Example:
+        >>> roberta_word_map(["<s>", "ĠSe", "psis", "Ġfever", "</s>"]).tolist()
+        [0, 2, 2, 3, 4]
     """
     word_map = []
     idx = 0
@@ -66,6 +70,10 @@ def word_feature_map(tokens: Sequence[str]) -> torch.Tensor:
     ``tokens`` are the note's tokens without ``<s>``, ``</s>`` and padding.
     The map is built with ``<s>``/``</s>`` around them and then stripped and
     shifted by one, exactly like ``PermuteDataset``.
+
+    Example:
+        >>> word_feature_map(["ĠSe", "psis", "Ġfever"]).tolist()
+        [1, 1, 2]
     """
     return roberta_word_map(["<s>", *tokens, "</s>"])[1:-1] - 1
 
@@ -89,11 +97,11 @@ def perturbation_curve(
     attributions,
     class_idx: int,
     baseline_token_id: int,
-    positions: Optional[torch.Tensor] = None,
-    feature_map: Optional[torch.Tensor] = None,
+    positions: torch.Tensor | None = None,
+    feature_map: torch.Tensor | None = None,
     descending: bool = True,
     step_size: int = 2,
-    max_features: Optional[int] = 100,
+    max_features: int | None = 100,
     batch_size: int = 16,
 ) -> tuple[float, np.ndarray]:
     """Probability drop for one class at each removal step.
@@ -121,6 +129,16 @@ def perturbation_curve(
     Returns:
         ``(p, deltas)``: the unperturbed probability and ``p - p_i`` for each
         of the ``ceil(max_features / step_size)`` steps.
+
+    Example:
+        >>> note = "Sepsis with fever."
+        >>> ids, mask = model.tokenize([note])
+        >>> explainer = AttInGrad(model)
+        >>> scores = explainer.attribute(text=[note], target_class_idx=0)["text"][0]
+        >>> p, deltas = perturbation_curve(
+        ...     model, ids[0], mask[0], scores[1:-1], class_idx=0,
+        ...     baseline_token_id=model.tokenizer.mask_token_id,
+        ... )
     """
     input_ids = input_ids.reshape(-1).cpu()
     attention_mask = attention_mask.reshape(1, -1).cpu()
@@ -160,10 +178,10 @@ def faithfulness(
     attributions,
     class_idx: int,
     baseline_token_id: int,
-    positions: Optional[torch.Tensor] = None,
-    feature_map: Optional[torch.Tensor] = None,
+    positions: torch.Tensor | None = None,
+    feature_map: torch.Tensor | None = None,
     step_size: int = 2,
-    max_features: Optional[int] = 100,
+    max_features: int | None = 100,
     batch_size: int = 16,
 ) -> dict[str, float]:
     """Comprehensiveness and sufficiency of one (note, code) explanation.
@@ -184,13 +202,13 @@ def faithfulness(
     args = (
         model, input_ids, attention_mask, attributions, class_idx, baseline_token_id
     )
-    kwargs = dict(
-        positions=positions,
-        feature_map=feature_map,
-        step_size=step_size,
-        max_features=max_features,
-        batch_size=batch_size,
-    )
+    kwargs = {
+        "positions": positions,
+        "feature_map": feature_map,
+        "step_size": step_size,
+        "max_features": max_features,
+        "batch_size": batch_size,
+    }
     p, comp = perturbation_curve(*args, descending=True, **kwargs)
     _, suff = perturbation_curve(*args, descending=False, **kwargs)
     return {

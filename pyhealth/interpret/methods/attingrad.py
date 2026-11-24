@@ -37,7 +37,6 @@ Description:
     the scores of one note sum to 1.
 """
 
-from typing import Dict, Optional
 
 import torch
 
@@ -86,7 +85,7 @@ class AttInGrad(BaseInterpreter):
             raise ValueError(f"method must be one of {METHODS}, got {method!r}.")
         for name in ("tokenize", "get_input_embeddings", "forward_from_embedding"):
             if not callable(getattr(model, name, None)):
-                raise ValueError(
+                raise TypeError(
                     f"AttInGrad needs model.{name}(); {type(model).__name__} "
                     "does not have it."
                 )
@@ -97,8 +96,8 @@ class AttInGrad(BaseInterpreter):
         self.steps = steps
 
     def attribute(
-        self, target_class_idx: Optional[int] = None, **data
-    ) -> Dict[str, torch.Tensor]:
+        self, target_class_idx: int | None = None, **data
+    ) -> dict[str, torch.Tensor]:
         """Scores every token of each note for one code.
 
         Args:

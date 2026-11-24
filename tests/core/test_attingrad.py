@@ -232,7 +232,7 @@ class TestAttInGrad(unittest.TestCase):
     def test_rejects_bad_method_and_model(self):
         with self.assertRaises(ValueError):
             AttInGrad(self.model, method="saliency")
-        with self.assertRaises(ValueError):
+        with self.assertRaises(TypeError):
             AttInGrad(torch.nn.Linear(2, 2))
 
 
