@@ -284,6 +284,42 @@ class TestCHET(unittest.TestCase):
         self.assertEqual(out["y_prob"].shape, (2, 3))
         self.assertTrue(torch.isfinite(out["loss"]))
 
+    def test_multi_output_dataset_with_label_key(self):
+        """Verifies CHET supports datasets with multiple output label keys."""
+        samples_multi = [
+            dict(s, mortality=i % 2, readmission=(i + 1) % 2)
+            for i, s in enumerate(self.samples)
+        ]
+        dataset = create_sample_dataset(
+            samples=samples_multi,
+            input_schema=self.input_schema,
+            output_schema={"mortality": "binary", "readmission": "binary"},
+        )
+        model = CHET(
+            dataset=dataset,
+            label_key="readmission",
+            code_size=16,
+            graph_size=16,
+            hidden_dim=32,
+        )
+        self.assertEqual(model.label_key, "readmission")
+        self.assertEqual(
+            model.label_processor, dataset.output_processors["readmission"]
+        )
+
+        loader = get_dataloader(dataset, batch_size=2)
+        batch = next(iter(loader))
+        out = model(**batch)
+
+        self.assertIn("loss", out)
+        self.assertIn("y_prob", out)
+        self.assertIn("y_true", out)
+        self.assertTrue(torch.isfinite(out["loss"]))
+        self.assertEqual(out["logit"].shape, (2, 1))
+
+        with self.assertRaises(KeyError):
+            CHET(dataset=dataset, label_key="non_existent_label")
+
     def test_inference_without_labels(self):
         dataset = create_sample_dataset(
             samples=self.samples,

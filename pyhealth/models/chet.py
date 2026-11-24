@@ -204,6 +204,11 @@ class SingleHeadAttentionLayer(nn.Module):
 class DotProductAttention(nn.Module):
     """Dot-product attention over patient visit representations.
 
+    Args:
+        value_size: Input feature dimension of visit representation vectors.
+        attention_size: Dimension of intermediate attention projection space.
+            Default is 32.
+
     Examples:
         >>> import torch
         >>> from pyhealth.models import DotProductAttention
@@ -355,6 +360,11 @@ class CHET(BaseModel):
         else:
             self.label_key = self.label_keys[0]
 
+        if self.label_key not in self.dataset.output_processors:
+            raise KeyError(
+                f"label_key '{self.label_key}' not found in dataset output processors."
+            )
+
         self.primary_feature_key = self.feature_keys[0]
         proc = self.dataset.input_processors[self.primary_feature_key]
         vocab = getattr(proc, "code_vocab", None)
@@ -421,6 +431,15 @@ class CHET(BaseModel):
         # Output prediction head
         output_size = self.label_processor.output_size()
         self.fc = nn.Linear(hidden_dim, output_size)
+
+    @property
+    def label_processor(self) -> Any:
+        """The label processor for the target label_key."""
+        if hasattr(self, "label_key") and hasattr(self, "dataset"):
+            proc = self.dataset.output_processors.get(self.label_key)
+            if proc is not None:
+                return proc
+        return super().label_processor
 
     def _extract_codes(self, val: Any) -> torch.Tensor:
         """Extracts code indices tensor safely from tensor or tuple."""
