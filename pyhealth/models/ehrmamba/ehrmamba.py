@@ -39,6 +39,24 @@ class EHRMamba(BaseModel):
 
     Raises:
         ValueError: If the dataset has unsupported features or labels.
+        
+        
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
+        >>> samples = [
+        ...     {"patient_id": "p0", "codes": ["A", "B"], "label": 1},
+        ...     {"patient_id": "p1", "codes": ["C"], "label": 0},
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={"codes": "sequence"},
+        ...     output_schema={"label": "binary"},
+        ...     dataset_name="ehrmamba_example",
+        ... )
+        >>> model = EHRMamba(dataset, embedding_dim=8, num_layers=1, state_dim=4)
+        >>> batch = next(iter(get_dataloader(dataset, batch_size=2)))
+        >>> model(**batch)["y_prob"].shape
+        torch.Size([2, 1])
     """
 
     def __init__(

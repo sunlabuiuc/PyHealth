@@ -21,6 +21,13 @@ class CEHREmbeddings(nn.Module):
         max_segments: Number of visit-segment IDs.
         dropout: Embedding dropout probability.
         padding_idx: Padding code ID.
+        
+    Examples:
+    >>> import torch
+    >>> embeddings = CEHREmbeddings(vocab_size=10, hidden_dim=8)
+    >>> codes = torch.tensor([[1, 2, 0], [3, 4, 5]])
+    >>> embeddings(codes).shape
+        torch.Size([2, 3, 8])
     """
 
     def __init__(

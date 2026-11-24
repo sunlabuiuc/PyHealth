@@ -12,7 +12,15 @@ from torch import nn
 
 
 class RMSNorm(nn.Module):
-    """Root-mean-square normalization with learned per-channel scaling."""
+    """Root mean square layer normalization.
+
+    Examples:
+        >>> import torch
+        >>> norm = RMSNorm(8)
+        >>> output = norm(torch.randn(2, 4, 8))
+        >>> output.shape
+        torch.Size([2, 4, 8])
+    """
 
     def __init__(self, dim: int, eps: float = 1e-6) -> None:
         super().__init__()
@@ -38,6 +46,13 @@ class SelectiveSSMBlock(nn.Module):
         conv_kernel: Causal convolution width.
         dt_rank: Rank of the input-dependent time-step projection.
         dropout: Residual-branch dropout.
+        
+    Examples:
+        >>> import torch
+        >>> block = SelectiveSSMBlock(hidden_dim=8, state_dim=4)
+        >>> x = torch.randn(2, 3, 8)
+        >>> block(x).shape
+        torch.Size([2, 3, 8])
     """
 
     def __init__(

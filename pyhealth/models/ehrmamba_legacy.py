@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple, Type, Union
+from typing import Any
 
 import torch
 from torch import nn
@@ -42,7 +42,7 @@ class MambaBlock(nn.Module):
         d_model: int,
         state_size: int = 16,
         conv_kernel: int = 4,
-        d_inner: Optional[int] = None,
+        d_inner: int | None = None,
     ):
         super().__init__()
         self.d_model = d_model
@@ -63,8 +63,7 @@ class MambaBlock(nn.Module):
 
     def _ssm_step(self, x: torch.Tensor) -> torch.Tensor:
         """Compute SSM output via causal convolution with learned kernel (parallel scan)."""
-        B, L, D = x.shape
-        N = self.state_size
+        _, L, D = x.shape
         device = x.device
 
         A = -torch.exp(self.A_log.float())
@@ -87,7 +86,7 @@ class MambaBlock(nn.Module):
         return out
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        B, L, _ = x.shape
+        _, L, _ = x.shape
         residual = x
         x = self.norm(x)
         xz = self.in_proj(x)
@@ -174,7 +173,7 @@ class EHRMamba(BaseModel):
         self.fc = nn.Linear(len(self.feature_keys) * embedding_dim, output_size)
 
     @staticmethod
-    def _split_temporal(feature: Any) -> Tuple[Optional[torch.Tensor], Any]:
+    def _split_temporal(feature: Any) -> tuple[torch.Tensor | None, Any]:
         if isinstance(feature, tuple) and len(feature) == 2:
             return feature
         return None, feature
@@ -221,10 +220,10 @@ class EHRMamba(BaseModel):
             x = x.unsqueeze(1)
         return x
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
         patient_emb = []
-        embedding_inputs: Dict[str, torch.Tensor] = {}
-        masks: Dict[str, torch.Tensor] = {}
+        embedding_inputs: dict[str, torch.Tensor] = {}
+        masks: dict[str, torch.Tensor] = {}
 
         for feature_key in self.feature_keys:
             _, value = self._split_temporal(kwargs[feature_key])
@@ -264,11 +263,11 @@ if __name__ == "__main__":
         {"patient_id": "p0", "visit_id": "v0", "diagnoses": ["A", "B"], "procedures": ["X"], "label": 1},
         {"patient_id": "p1", "visit_id": "v0", "diagnoses": ["C"], "procedures": ["Y", "Z"], "label": 0},
     ]
-    input_schema: Dict[str, Union[str, Type[FeatureProcessor]]] = {
+    input_schema: dict[str, str | type[FeatureProcessor]] = {
         "diagnoses": "sequence",
         "procedures": "sequence",
     }
-    output_schema: Dict[str, Union[str, Type[FeatureProcessor]]] = {"label": "binary"}
+    output_schema: dict[str, str | type[FeatureProcessor]] = {"label": "binary"}
     dataset = create_sample_dataset(samples=samples, input_schema=input_schema, output_schema=output_schema, dataset_name="test")
     model = EHRMamba(dataset=dataset, embedding_dim=64, num_layers=2)
     loader = get_dataloader(dataset, batch_size=2, shuffle=True)
