@@ -1,0 +1,10 @@
+version: "1.0.0"
+tables:
+  dsa:
+    file_path: "dsa-pyhealth.csv"
+    patient_id: "subject"
+    timestamp: null
+    attributes:
+    - "activity"
+    - "segment"
+    - "signal_file"
