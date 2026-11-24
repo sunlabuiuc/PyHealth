@@ -18,6 +18,40 @@ _TUAB_ELECTRODES = tuple(
 )  # fmt: skip
 
 
+# get_stft_torch and TFM-Tokenizer assume 200 Hz: a 200-sample window with a
+# 100-sample hop and the first 100 frequency bins (1 s windows, 1 Hz bins).
+_STFT_RATE = 200
+
+
+def _check_stft_rate(resample_rate: float, compute_stft: bool) -> None:
+    """Reject a ``stft`` request at a rate other than 200 Hz.
+
+    The ``stft`` field is computed with ``get_stft_torch``, whose window,
+    hop and number of bins are fixed for 200 Hz signals and match the
+    raw-signal branch of TFM-Tokenizer. At any other rate the window length
+    and bin width would change without notice.
+
+    Args:
+        resample_rate: Rate of the signals in Hz.
+        compute_stft: Whether the task computes the ``stft`` field.
+
+    Raises:
+        ValueError: If ``compute_stft`` is True and ``resample_rate`` is not
+            200 Hz.
+
+    Examples:
+        >>> _check_stft_rate(200, compute_stft=True)
+        >>> _check_stft_rate(256, compute_stft=False)
+    """
+    if compute_stft and resample_rate != _STFT_RATE:
+        raise ValueError(
+            f"compute_stft=True requires resample_rate={_STFT_RATE} Hz, got "
+            f"{resample_rate}. The stft field uses a fixed 200-sample window "
+            f"and 100 frequency bins, built for 200 Hz signals. Pass "
+            f"compute_stft=False to use another rate."
+        )
+
+
 def read_edf_uv(
     file_name: str,
     bandpass_filter: tuple[float, float] | None = None,
@@ -83,6 +117,10 @@ class EEGEventsTUEV(BaseTask):
         It indexes the 22-channel TCP montage (0-21), not a row of
         ``signal``.
       - "label": int
+      - "stft": the STFT of "signal", when ``compute_stft`` is True. It is
+        built for 200 Hz signals (1 s windows, 1 Hz bins, first 100 bins),
+        as TFM-Tokenizer expects, so ``compute_stft=True`` requires
+        ``resample_rate=200``; any other rate raises a ``ValueError``.
 
     Examples:
         >>> from pyhealth.datasets import TUEVDataset
@@ -109,6 +147,7 @@ class EEGEventsTUEV(BaseTask):
                  compute_stft: bool = True,
                  ) -> None:
         super().__init__()
+        _check_stft_rate(resample_rate, compute_stft)
 
         self.resample_rate = resample_rate
         self.bandpass_filter = bandpass_filter
@@ -294,6 +333,10 @@ class EEGAbnormalTUAB(BaseTask):
         integer rate. Otherwise the window holds round(10 * resample_rate)
         samples, close to but not exactly 10 s.
       - "label": int (0 = normal, 1 = abnormal)
+      - "stft": the STFT of "signal", when ``compute_stft`` is True. It is
+        built for 200 Hz signals (1 s windows, 1 Hz bins, first 100 bins),
+        as TFM-Tokenizer expects, so ``compute_stft=True`` requires
+        ``resample_rate=200``; any other rate raises a ``ValueError``.
 
     Examples:
         >>> from pyhealth.datasets import TUABDataset
@@ -328,6 +371,7 @@ class EEGAbnormalTUAB(BaseTask):
                  compute_stft: bool = True,
                  ) -> None:
         super().__init__()
+        _check_stft_rate(resample_rate, compute_stft)
         self.resample_rate = resample_rate
         self.bandpass_filter = bandpass_filter
         self.notch_filter = notch_filter

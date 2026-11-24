@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List
 import pandas as pd
 import numpy as np
+import torch
 from unittest.mock import patch
 
 
@@ -721,3 +722,31 @@ class TestTUABMetadataCachePerRoot(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestEEGAbnormalTUABStftRate(unittest.TestCase):
+    """The stft field is built for 200 Hz signals (#1521)."""
+
+    def test_stft_at_200_hz_is_allowed(self):
+        for rate in (200, 200.0):
+            with self.subTest(rate=rate):
+                task = EEGAbnormalTUAB(resample_rate=rate, compute_stft=True)
+                self.assertIn("stft", task.input_schema)
+
+    def test_stft_at_another_rate_raises(self):
+        for rate in (100, 256, 200.5):
+            with self.subTest(rate=rate):
+                with self.assertRaisesRegex(ValueError, "compute_stft=False"):
+                    EEGAbnormalTUAB(resample_rate=rate, compute_stft=True)
+
+    def test_another_rate_without_stft_is_allowed(self):
+        task = EEGAbnormalTUAB(resample_rate=256, compute_stft=False)
+        self.assertEqual(task.input_schema, {"signal": "tensor"})
+
+    def test_stft_shape_at_200_hz(self):
+        # 1 s windows with a 0.5 s hop and 100 one-hertz bins.
+        from pyhealth.models.tfm_tokenizer import get_stft_torch
+
+        signal = torch.randn(1, 16, 200 * 5)
+        stft = get_stft_torch(signal).squeeze(0)
+        self.assertEqual(tuple(stft.shape), (16, 100, 9))
