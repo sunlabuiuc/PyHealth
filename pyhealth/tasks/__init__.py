@@ -282,6 +282,10 @@ from .value_set_completion import (
     ValueSetCompletion as ValueSetCompletion,
     build_retrieval_index as build_retrieval_index,
 )
+from .value_set_pair_classification import (
+    ValueSetPairClassification as ValueSetPairClassification,
+    build_hybrid_retrieval_index as build_hybrid_retrieval_index,
+)
 from .yaib_mimic3 import (
     YAIBAKIMIMIC3 as YAIBAKIMIMIC3,
     YAIBKidneyFunctionMIMIC3 as YAIBKidneyFunctionMIMIC3,
