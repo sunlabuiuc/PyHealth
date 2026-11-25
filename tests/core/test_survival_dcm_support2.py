@@ -1,4 +1,4 @@
-# Authors: Murphy Crosby and Chidozie Opara.
+# Authors: Murphy Crosby
 # Deep Cox Mixtures for Survival Regression, Nagpal et al., MLHC 2021.
 # https://proceedings.mlr.press/v149/nagpal21a.html
 """SUPPORT2 time-to-event task in the Deep Cox Mixtures representation."""

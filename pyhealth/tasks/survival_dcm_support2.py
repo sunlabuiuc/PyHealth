@@ -1,4 +1,4 @@
-"""Authors: Murphy Crosby and Chidozie Opara.
+"""Authors: Murphy Crosby
 
 Time-to-event task for SUPPORT2 in the representation used by Deep Cox Mixtures.
 Paper: Deep Cox Mixtures for Survival Regression, Nagpal et al., MLHC 2021.
