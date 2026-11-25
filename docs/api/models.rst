@@ -302,6 +302,7 @@ API Reference
     models/pyhealth.models.BEHRT
     models/pyhealth.models.BiteNet
     models/pyhealth.models.TransformersModel
+    models/pyhealth.models.RASCCrossEncoder
     models/pyhealth.models.LLMEHREncoder
     models/pyhealth.models.HFEHRFoundationModel
     models/pyhealth.models.CLMBR
