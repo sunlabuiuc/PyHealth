@@ -1,196 +1,457 @@
-"""MotionAge 학습/평가 실행 스크립트 (CS 598 DLH, MotionAge reproduction).
+"""Train and evaluate MotionAge on NHANES mortality prediction.
 
-Contributors: Inoh Pak (inohpak2), Yejin Kim (yejink6)
-Paper: Song et al., MotionAge: A Deep Learning Framework for Biological Age
-Prediction from Wearable Activity, MLHC 2026 (PMLR 340).
-https://github.com/jackie-jiaqi-yin/MotionAge
+Reference:
+    Song et al., MotionAge: A Deep Learning Framework for Biological
+    Age Prediction from Wearable Activity, MLHC 2026.
+    https://openreview.net/pdf?id=xGw1o9acWa
+    https://github.com/jackie-jiaqi-yin/MotionAge
 
-모델(``pyhealth.models.MotionAge``)과 데이터(Task가 만든 SampleDataset)를
-연결해서 학습하고, 창(window) 단위와 참가자(SEQN) 단위 성능을 출력한다.
+Contributors:
+    Inoh Pak (inohpak2), Yejin Kim (yejink6).
 
-사용법:
-    # 1) 합성 데이터로 연결 확인 (NHANES 없이 1~2분)
-    python examples/nhanes_mortality_motionage.py --synthetic
+Usage:
+    # Synthetic smoke test without downloading NHANES.
+    python examples/nhanes_mortality_motionage.py --synthetic --epochs 1
 
-    # 2) 실제 데이터: 아래 build_real_dataset()의 TODO를 채운 뒤
-    python examples/nhanes_mortality_motionage.py --static full --pooling masked
-    python examples/nhanes_mortality_motionage.py --static none --pooling mean   # 비교 실험
+    # Compare binary and continuous wear pooling.
+    python examples/nhanes_mortality_motionage.py --synthetic --ablation
 
-Task가 내보내야 하는 샘플 형식 (한 창 = 샘플 하나):
-    patient_id : SEQN (문자열)
-    intensity  : 길이 1008 float 리스트, 5분 epoch 평균 활동량
-    hour       : 길이 1008 int 리스트, 0-23
-    day        : 길이 1008 int 리스트, 0-6
-    wear_mask  : 길이 1008 0/1 리스트, 1 = 착용
-    static     : [나이, 성별, 소득, BMI, 허리둘레, 수축기, 이완기] (결측 NaN)
-    mortality  : 0/1 (5년 내 사망)
-스키마는 아래 INPUT_SCHEMA / OUTPUT_SCHEMA와 같아야 한다.
+    # Real NHANES experiment.
+    python examples/nhanes_mortality_motionage.py --root /path/to/nhanes
+
+    # Reproduce the experimental configuration.
+    python examples/nhanes_mortality_motionage.py --root /path/to/nhanes \
+        --ablation --sample-fraction 0.25 --seed 42
+
+Experimental results:
+    NHANES 2003-2006, 25% stratified participant subset (2,129 participants).
+    Train/validation/test: 1,490/319/320 participants.
+    Test set: 592 windows, including 21 positive participants.
+    Wearable-only GRU, hidden dimension 32, one recurrent layer,
+    10 epochs, batch size 64, AdamW, learning rate 0.001,
+    weight decay 0.01, and seed 42.
+
+    Window-level results:
+        Binary:   AUROC 0.858731, AUPRC 0.318581
+        Fraction: AUROC 0.864716, AUPRC 0.337056
+
+    Participant-level results:
+        Binary:   AUROC 0.856187, AUPRC 0.333264, F1 0.377778
+        Fraction: AUROC 0.866699, AUPRC 0.360472, F1 0.418605
+
+    Paired bootstrap confidence intervals for fraction minus binary:
+        AUROC: 0.010511 [-0.000163, 0.023571]
+        AUPRC: 0.027209 [-0.009142, 0.077841]
+
+    Continuous wear weighting improved the observed metrics, but the
+    confidence intervals included zero.
+
+Limitations:
+    This experiment reproduces the mortality prediction component,
+    not the biological age calibration or full cross-validation protocol.
+    Temporal day indices represent relative monitoring days.
+    Results are based on one participant split and one random seed.
+    Synthetic results are for pipeline validation, not clinical evidence.
 """
 
 import argparse
 import random
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 import torch
-from sklearn.metrics import average_precision_score, roc_auc_score
+from sklearn.metrics import (
+    accuracy_score,
+    average_precision_score,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
+from sklearn.model_selection import train_test_split
 
 from pyhealth.datasets import (
-    SampleDataset,
+    NHANESDataset,
     create_sample_dataset,
     get_dataloader,
-    split_by_patient,
 )
 from pyhealth.models import MotionAge
+from pyhealth.tasks import NHANESMortalityPrediction
 from pyhealth.trainer import Trainer
 
-INPUT_SCHEMA: Dict[str, Any] = {
-    "intensity": "tensor",
-    "hour": "tensor",
-    "day": "tensor",
-    "wear_mask": "tensor",
-    "static": (
-        "tensor",
-        {
-            "normalization": "zscore",
-            "missing_indicators": True,
-            "impute_strategy": "zero",
-        },
-    ),
-}
-# 사망자가 약 6%라 양성 샘플에 가중치를 준다 (제안서의 class-weighted BCE).
-OUTPUT_SCHEMA: Dict[str, Any] = {"mortality": ("binary", {"pos_weight": "balanced"})}
+
+def set_seed(seed: int) -> None:
+    """Reset random generators for controlled experiments."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
 
 def synthetic_samples(
-    num_patients: int = 80, windows_per_patient: int = 2, seq_len: int = 96
-) -> List[Dict[str, Any]]:
-    """NHANES와 같은 형식의 가짜 샘플을 만든다 (연결 확인용).
-
-    사망자는 활동량이 조금 낮게 만들어서 모델이 배울 신호가 있게 한다.
-    """
-    rng = random.Random(0)
+    num_patients: int = 80,
+    windows_per_patient: int = 2,
+    seq_len: int = 96,
+    seed: int = 42,
+) -> list[dict[str, Any]]:
+    """Generate synthetic activity windows for pipeline validation."""
+    rng = np.random.default_rng(seed)
     samples = []
+
     for p in range(num_patients):
-        died = int(p % 5 == 0)
-        level = 0.4 if died else 0.7
-        static = [
-            rng.gauss(65 if died else 55, 10),
-            float(p % 2),
-            rng.choice([1.0, 2.0, 3.0]),
-            rng.gauss(28, 4),
-            float("nan") if p % 7 == 0 else rng.gauss(95, 12),
-            rng.gauss(125, 15),
-            rng.gauss(75, 10),
-        ]
+        label = int(p % 5 == 0)
+        level = 0.4 if label else 0.7
+
+        static = np.array(
+            [
+                rng.normal(65 if label else 55, 10),
+                float(p % 2),
+                rng.normal(28, 4),
+                np.nan if p % 7 == 0 else rng.normal(125, 15),
+                rng.normal(75, 10),
+            ],
+            dtype=np.float32,
+        )
+
         for w in range(windows_per_patient):
-            mask = [1.0 if rng.random() > 0.25 else 0.0 for _ in range(seq_len)]
+            wear_minutes = rng.choice(
+                [0, 1, 2, 3, 4, 5],
+                size=seq_len,
+                p=[0.25, 0.01, 0.01, 0.01, 0.02, 0.70],
+            )
+
+            wear_fraction = wear_minutes.astype(np.float32) / 5
+            intensity = (level + 0.3 * rng.random(seq_len)) * (wear_minutes > 0)
+
+            epochs = np.arange(seq_len) + w * seq_len
+
             samples.append(
                 {
                     "patient_id": f"seqn{p}",
-                    "intensity": [(level + 0.3 * rng.random()) * m for m in mask],
-                    "hour": [(t // 12) % 24 for t in range(seq_len)],
-                    "day": [(w * 3 + t // 288) % 7 for t in range(seq_len)],
-                    "wear_mask": mask,
-                    "static": static,
-                    "mortality": died,
+                    "window_id": w + 1,
+                    "intensity": intensity.astype(np.float32),
+                    "hour": ((epochs // 12) % 24).astype(np.float32),
+                    "day": ((epochs // 288) % 7).astype(np.float32),
+                    "wear_mask": wear_fraction,
+                    "static": static.copy(),
+                    "label": label,
                 }
             )
+
     return samples
 
 
-def build_real_dataset() -> SampleDataset:
-    """실제 NHANES SampleDataset을 만든다.
+def build_real_dataset(
+    root: str,
+    include_static: bool,
+) -> list[dict[str, Any]]:
+    """Extract MotionAge windows from NHANES participant records."""
+    dataset = NHANESDataset(root=root)
 
-    TODO(예진): 직접 만든 Dataset/Task로 바꿔 주세요. 예시:
+    task = NHANESMortalityPrediction(
+        root=root,
+        feature_format="motionage",
+        wear_representation="fraction",
+        include_static=include_static,
+    )
 
-        from pyhealth.datasets import NHANESActivityDataset
-        from pyhealth.tasks import NHANESMortalityPrediction
-        base = NHANESActivityDataset(root="/path/to/nhanes")
-        return base.set_task(NHANESMortalityPrediction())
+    samples = []
 
-    Task 클래스의 input_schema / output_schema를 이 파일의 INPUT_SCHEMA /
-    OUTPUT_SCHEMA와 같게 맞춰 주세요 (특히 pos_weight).
-    """
-    raise NotImplementedError("build_real_dataset()의 TODO를 채워 주세요.")
+    for patient_id in sorted(dataset.unique_patient_ids):
+        patient = dataset.get_patient(patient_id)
+        samples.extend(task(patient))
+
+    return samples
+
+
+def split_samples(
+    samples: list[dict[str, Any]],
+    sample_fraction: float,
+    seed: int,
+) -> tuple[list, list, list]:
+    """Create stratified participant-level train/validation/test splits."""
+    labels = {}
+
+    for sample in samples:
+        pid = str(sample["patient_id"])
+        label = int(sample["label"])
+
+        if pid in labels and labels[pid] != label:
+            raise ValueError(f"Inconsistent labels for participant {pid}")
+
+        labels[pid] = label
+
+    patient_ids = sorted(labels)
+
+    if sample_fraction < 1.0:
+        patient_ids, _ = train_test_split(
+            patient_ids,
+            train_size=sample_fraction,
+            stratify=[labels[p] for p in patient_ids],
+            random_state=seed,
+        )
+
+    train_ids, remaining_ids = train_test_split(
+        patient_ids,
+        test_size=0.30,
+        stratify=[labels[p] for p in patient_ids],
+        random_state=seed,
+    )
+
+    val_ids, test_ids = train_test_split(
+        remaining_ids,
+        test_size=0.50,
+        stratify=[labels[p] for p in remaining_ids],
+        random_state=seed,
+    )
+
+    splits = []
+
+    for ids in (train_ids, val_ids, test_ids):
+        selected = set(ids)
+        splits.append(
+            [sample for sample in samples if str(sample["patient_id"]) in selected]
+        )
+
+    return tuple(splits)
 
 
 def participant_metrics(
-    y_true: np.ndarray, y_prob: np.ndarray, patient_ids: List[str]
-) -> Dict[str, float]:
-    """창 단위 예측을 참가자별로 평균낸 뒤 AUROC/AUPRC를 계산한다."""
-    risk = MotionAge.aggregate_participant_risk(
-        torch.as_tensor(y_prob), patient_ids
-    )
-    label = {str(pid): float(y) for pid, y in zip(patient_ids, y_true.reshape(-1))}
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    patient_ids: list[str],
+) -> dict[str, float]:
+    """Evaluate mean window predictions at participant level."""
+    risk = MotionAge.aggregate_participant_risk(torch.as_tensor(y_prob), patient_ids)
+
+    labels = {str(pid): int(y) for pid, y in zip(patient_ids, y_true.reshape(-1))}
+
     pids = sorted(risk)
-    truth = [label[p] for p in pids]
-    probs = [risk[p] for p in pids]
+    truth = np.array([labels[p] for p in pids])
+    probs = np.array([risk[p] for p in pids])
+    pred = (probs >= 0.5).astype(int)
+
     return {
         "participants": len(pids),
+        "positive_patients": int(truth.sum()),
         "roc_auc": roc_auc_score(truth, probs),
         "pr_auc": average_precision_score(truth, probs),
+        "f1": f1_score(truth, pred, zero_division=0),
+        "accuracy": accuracy_score(truth, pred),
+        "precision": precision_score(truth, pred, zero_division=0),
+        "recall": recall_score(truth, pred, zero_division=0),
     }
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--synthetic", action="store_true")
-    parser.add_argument("--static", choices=["none", "full"], default="full")
-    parser.add_argument("--pooling", choices=["masked", "mean", "last"],
-                        default="masked")
-    parser.add_argument("--hidden-dim", type=int, default=64)
-    parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--seed", type=int, default=0)
-    args = parser.parse_args()
+def prepare_samples(
+    samples: list[dict[str, Any]],
+    representation: str,
+    include_static: bool,
+) -> list[dict[str, Any]]:
+    """Change only pooling weights between ablation conditions."""
+    prepared = []
 
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
+    for sample in samples:
+        item = dict(sample)
 
-    if args.synthetic:
-        dataset = create_sample_dataset(
-            samples=synthetic_samples(),
-            input_schema=INPUT_SCHEMA,
-            output_schema=OUTPUT_SCHEMA,
-            dataset_name="nhanes_synthetic",
+        if representation == "binary":
+            item["wear_mask"] = (np.asarray(sample["wear_mask"]) > 0).astype(np.float32)
+
+        if not include_static:
+            item.pop("static", None)
+
+        prepared.append(item)
+
+    return prepared
+
+
+def run_experiment(
+    splits: tuple[list, list, list],
+    representation: str,
+    args: argparse.Namespace,
+) -> dict[str, float]:
+    """Train one MotionAge configuration and evaluate the test set."""
+    set_seed(args.seed)
+    include_static = args.static == "full"
+
+    train, val, test = [
+        prepare_samples(part, representation, include_static) for part in splits
+    ]
+
+    positives = sum(int(s["label"]) for s in train)
+    negatives = len(train) - positives
+
+    if positives == 0 or negatives == 0:
+        raise ValueError("Training data must contain both classes.")
+
+    pos_weight = negatives / positives
+
+    input_schema = {
+        "intensity": "tensor",
+        "hour": "tensor",
+        "day": "tensor",
+        "wear_mask": "tensor",
+    }
+
+    if include_static:
+        input_schema["static"] = (
+            "tensor",
+            {
+                "normalization": "zscore",
+                "missing_indicators": True,
+                "impute_strategy": "zero",
+            },
         )
-    else:
-        dataset = build_real_dataset()
 
-    # 같은 참가자의 창이 train/test에 나뉘지 않도록 참가자 단위로 나눈다.
-    train_ds, val_ds, test_ds = split_by_patient(
-        dataset, [0.7, 0.15, 0.15], seed=args.seed
+    output_schema = {"label": ("binary", {"pos_weight": pos_weight})}
+
+    # Fit processors using training samples only.
+    train_ds = create_sample_dataset(
+        samples=train,
+        input_schema=input_schema,
+        output_schema=output_schema,
+        dataset_name="nhanes_train",
     )
-    train_loader = get_dataloader(train_ds, args.batch_size, shuffle=True)
-    val_loader = get_dataloader(val_ds, args.batch_size, shuffle=False)
-    test_loader = get_dataloader(test_ds, args.batch_size, shuffle=False)
+
+    # Reuse fitted processors for validation and test samples.
+    def transform(samples: list[dict[str, Any]]):
+        return create_sample_dataset(
+            samples=samples,
+            input_schema=input_schema,
+            output_schema=output_schema,
+            input_processors=train_ds.input_processors,
+            output_processors=train_ds.output_processors,
+            dataset_name="nhanes_eval",
+        )
+
+    val_ds = transform(val)
+    test_ds = transform(test)
+
+    train_loader = get_dataloader(
+        train_ds,
+        args.batch_size,
+        shuffle=True,
+        seed=args.seed,
+        num_workers=0,
+    )
+
+    val_loader = get_dataloader(val_ds, args.batch_size, shuffle=False, num_workers=0)
+
+    test_loader = get_dataloader(test_ds, args.batch_size, shuffle=False, num_workers=0)
 
     model = MotionAge(
-        dataset,
-        static_key="static" if args.static == "full" else None,
+        train_ds,
+        static_key="static" if include_static else None,
         hidden_dim=args.hidden_dim,
+        num_layers=args.num_layers,
+        dropout=0.1,
         pooling=args.pooling,
     )
-    trainer = Trainer(model=model, metrics=["roc_auc", "pr_auc"],
-                      enable_logging=False)
+
+    trainer = Trainer(
+        model=model,
+        metrics=["roc_auc", "pr_auc", "f1", "accuracy"],
+        device=args.device,
+        enable_logging=False,
+    )
+
+    print(f"\nExperiment: {representation}")
+    print(f"Positive class weight: {pos_weight:.4f}")
+
     trainer.train(
         train_dataloader=train_loader,
         val_dataloader=val_loader,
         epochs=args.epochs,
         optimizer_class=torch.optim.AdamW,
         optimizer_params={"lr": args.lr},
-        monitor="pr_auc",  # 제안서: validation AUPRC로 best 모델 선택
+        weight_decay=0.01,
+        monitor="pr_auc",
+        monitor_criterion="max",
+        load_best_model_at_last=True,
     )
 
-    print("\n[window-level test]", trainer.evaluate(test_loader))
-    y_true, y_prob, _, pids = trainer.inference(test_loader,
-                                                return_patient_ids=True)
-    print("[participant-level test]",
-          participant_metrics(np.asarray(y_true), np.asarray(y_prob), pids))
-    print("config:", vars(args))
+    print("[window-level test]", trainer.evaluate(test_loader))
+
+    y_true, y_prob, _, pids = trainer.inference(test_loader, return_patient_ids=True)
+
+    result = participant_metrics(np.asarray(y_true), np.asarray(y_prob), pids)
+
+    print("[participant-level test]", result)
+    return result
+
+
+def main() -> None:
+    """Run synthetic or real-data MotionAge experiments."""
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+
+    parser.add_argument("--synthetic", action="store_true")
+    parser.add_argument("--root", type=str)
+    parser.add_argument("--ablation", action="store_true")
+    parser.add_argument(
+        "--wear-representation",
+        choices=["binary", "fraction"],
+        default="binary",
+    )
+    parser.add_argument("--static", choices=["none", "full"], default="none")
+    parser.add_argument(
+        "--pooling",
+        choices=["masked", "mean", "last"],
+        default="masked",
+    )
+    parser.add_argument("--hidden-dim", type=int, default=32)
+    parser.add_argument("--num-layers", type=int, default=1)
+    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--sample-fraction", type=float, default=1.0)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--device", default="cpu")
+
+    args = parser.parse_args()
+
+    if not args.synthetic and not args.root:
+        parser.error("--root is required for real NHANES data.")
+
+    if not 0 < args.sample_fraction <= 1:
+        parser.error("--sample-fraction must be in (0, 1].")
+
+    if args.ablation and args.pooling != "masked":
+        parser.error("Wear-weight ablation requires masked pooling.")
+
+    set_seed(args.seed)
+
+    if args.synthetic:
+        samples = synthetic_samples(seed=args.seed)
+    else:
+        samples = build_real_dataset(args.root, include_static=args.static == "full")
+
+    splits = split_samples(samples, args.sample_fraction, args.seed)
+
+    for name, part in zip(("Train", "Validation", "Test"), splits):
+        print(
+            name,
+            "participants:",
+            len({s["patient_id"] for s in part}),
+            "windows:",
+            len(part),
+        )
+
+    representations = (
+        ["binary", "fraction"] if args.ablation else [args.wear_representation]
+    )
+
+    results = {}
+
+    for representation in representations:
+        results[representation] = run_experiment(splits, representation, args)
+
+    if args.ablation:
+        print("\nParticipant-level ablation (fraction - binary):")
+
+        for metric in ("roc_auc", "pr_auc", "f1", "accuracy"):
+            difference = results["fraction"][metric] - results["binary"][metric]
+            print(f"{metric}: {difference:+.6f}")
+
+    print("Configuration:", vars(args))
 
 
 if __name__ == "__main__":

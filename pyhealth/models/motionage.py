@@ -16,10 +16,10 @@ https://github.com/jackie-jiaqi-yin/MotionAge
 """
 
 import logging
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
@@ -141,7 +141,7 @@ class MotionAgeLayer(nn.Module):
         intensity: torch.Tensor,
         hour: torch.Tensor,
         day: torch.Tensor,
-        mask: Optional[torch.Tensor] = None,
+        mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Encodes a batch of activity sequences.
 
@@ -293,8 +293,8 @@ class MotionAge(BaseModel):
         intensity_key: str = "intensity",
         hour_key: str = "hour",
         day_key: str = "day",
-        mask_key: Optional[str] = "wear_mask",
-        static_key: Optional[str] = None,
+        mask_key: str | None = "wear_mask",
+        static_key: str | None = None,
         hidden_dim: int = 64,
         num_layers: int = 2,
         dropout: float = 0.117,
@@ -351,7 +351,7 @@ class MotionAge(BaseModel):
         )
         output_size = self.label_processor.output_size()
 
-        self.covariate_encoder: Optional[nn.Module] = None
+        self.covariate_encoder: nn.Module | None = None
         if static_key is None:
             self.fc = nn.Linear(hidden_dim, output_size)
         else:
@@ -374,7 +374,7 @@ class MotionAge(BaseModel):
                 fusion_dropout,
             )
 
-    def _get(self, kwargs: Dict[str, Any], key: str) -> torch.Tensor:
+    def _get(self, kwargs: dict[str, Any], key: str) -> torch.Tensor:
         """Returns the input tensor for ``key`` on the model device.
 
         Args:
@@ -389,7 +389,7 @@ class MotionAge(BaseModel):
             value = value[0]
         return torch.as_tensor(value).to(self.device)
 
-    def forward(self, **kwargs: Any) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs: Any) -> dict[str, torch.Tensor]:
         """Runs the model on a batch.
 
         Args:
@@ -427,7 +427,7 @@ class MotionAge(BaseModel):
             results["embed"] = emb
         return results
 
-    def forward_from_embedding(self, **kwargs: Any) -> Dict[str, torch.Tensor]:
+    def forward_from_embedding(self, **kwargs: Any) -> dict[str, torch.Tensor]:
         """Runs ``forward``; MotionAge already consumes dense inputs.
 
         Args:
@@ -440,8 +440,8 @@ class MotionAge(BaseModel):
 
     @staticmethod
     def aggregate_participant_risk(
-        y_prob: torch.Tensor, patient_ids: List[str]
-    ) -> Dict[str, float]:
+        y_prob: torch.Tensor, patient_ids: list[str]
+    ) -> dict[str, float]:
         """Averages window-level probabilities per participant.
 
         The paper scores each participant by the mean predicted risk over
@@ -463,7 +463,7 @@ class MotionAge(BaseModel):
             raise ValueError(
                 f"Got {len(probs)} probabilities for {len(patient_ids)} ids."
             )
-        totals: Dict[str, List[float]] = {}
+        totals: dict[str, list[float]] = {}
         for pid, prob in zip(patient_ids, probs):
             totals.setdefault(str(pid), []).append(prob)
         return {pid: sum(vals) / len(vals) for pid, vals in totals.items()}

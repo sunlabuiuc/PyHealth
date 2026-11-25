@@ -3,7 +3,7 @@
 import os
 import tempfile
 import unittest
-from typing import Any, Dict, List
+from typing import Any
 
 import torch
 
@@ -13,7 +13,7 @@ from pyhealth.models import MotionAge, MotionAgeLayer
 SEQ_LEN = 12
 
 
-def _make_samples(num: int = 4) -> List[Dict[str, Any]]:
+def _make_samples(num: int = 4) -> list[dict[str, Any]]:
     """Builds synthetic windows: 12 epochs, last 3 not worn."""
     samples = []
     for i in range(num):
