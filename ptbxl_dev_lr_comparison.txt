@@ -1,0 +1,23 @@
+PTB-XL ResNet-18 learning-rate comparison — preliminary dev-mode run
+
+Dataset: PTB-XL 1.0.3, 500 Hz
+Scope: PyHealth dev mode, 1,000 patients; 1,341 samples total
+Official-fold split: 1,074 train / 127 validation / 140 test
+Normalization: Per-lead mean and standard deviation computed from training data
+Model: ResNet-18
+Training: 5 epochs, batch size 16, Adam, learning rate 0.001
+
+Constant learning rate:
+  Best validation macro-AUROC: 0.8580 (epoch 5)
+  Test loss: 0.4422
+  Test macro-AUROC: 0.8485
+  Training time: 11.4 minutes
+
+Cosine learning-rate schedule:
+  Best validation macro-AUROC: 0.8677 (epoch 5)
+  Test loss: 0.4088
+  Test macro-AUROC: 0.8552
+  Training time: 13.8 minutes
+
+The test metrics use the checkpoint selected by validation macro-AUROC.
+This is a limited-data preliminary run, not a full PTB-XL reproduction.

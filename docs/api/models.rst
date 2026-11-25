@@ -363,6 +363,7 @@ API Reference
     models/pyhealth.models.KnowRare
     models/pyhealth.models.APRICOTM
     models/pyhealth.models.ProtoECGNet
+    models/pyhealth.models.PTBXLResNet18
     models/pyhealth.models.HeartLang
     models/pyhealth.models.APN
     models/pyhealth.models.td_cnn_lstm
