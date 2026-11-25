@@ -377,10 +377,15 @@ class TPC(BaseModel):
     Args:
         dataset: A :class:`~pyhealth.datasets.SampleDataset` with a single
             ``"regression"`` label (remaining LoS in days).
-        value_key: Input key holding forward-filled time series of shape
-            ``(time, F)``.
-        decay_key: Input key holding decay indicators ``(time, F)``. If None,
-            zeros are used (the paper's "no decay" ablation).
+        value_key: Input key holding time series of shape ``(time, F)``.
+            Without ``observed_key``, supply finite, already forward-filled
+            values. With ``observed_key``, supply raw values; unobserved entries
+            may contain NaNs, but observed entries must be finite. The model
+            fills missing values internally according to ``forward_fill_labs``.
+        decay_key: Input key holding decay indicators ``(time, F)`` when
+            ``observed_key`` is not set. If both keys are None, zeros are used
+            (the paper's "no decay" ablation). With ``observed_key``, decay is
+            recomputed internally instead of using this input.
         static_key: Optional input key with static features ``(S,)``.
         diag_key: Optional input key with multi-hot diagnoses ``(D,)``.
         time_key: Optional input key with per-hour time features

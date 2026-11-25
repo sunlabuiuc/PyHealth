@@ -4,8 +4,7 @@
 three-seed sweep have RUN locally. Full-dataset eICU/MIMIC-IV experiments
 remain PENDING.** These demo measurements do not reproduce the paper's
 clinical benchmark scores. No dataset, patient-level output, or trained
-checkpoint is included in the contribution. No push has been made for this
-results update.
+checkpoint is included in the contribution.
 
 Paper: Rocheteau et al., CHIL 2021,
 [Temporal Pointwise Convolutional Networks for Length of Stay Prediction in the
@@ -26,6 +25,13 @@ Intensive Care Unit](https://arxiv.org/abs/2007.09483).
 The MIMIC-IV demo path has now run end to end on actual local source files.
 The eICU path and full MIMIC-IV population remain unverified. Tests still use
 only synthetic fixtures, never the demo dataset.
+
+The clinical runner intentionally imports `BASE`, `METRICS`, `ablation_configs`,
+and `los_metrics` from `examples/synthetic_icu_los_tpc.py` to keep baseline
+settings, one-factor ablations, and metric definitions identical across runners.
+It excludes the synthetic dataset-size experiments. Importing these helpers
+does not generate synthetic data or run experiments; clinical and synthetic
+datasets and results remain separate.
 
 ## Measured MIMIC-IV demo setup
 

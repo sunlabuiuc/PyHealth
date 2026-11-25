@@ -14,6 +14,11 @@ PENDING table; no dataset is instantiated and no training is performed.
 MIMIC-IV is also supported with --dataset mimic4. The MIMIC-IV demo has run
 end to end; eICU and full MIMIC-IV execution remain unverified. Unit tests use
 only synthetic fixtures, not clinical or demo records.
+
+BASE, METRICS, ablation_configs, and los_metrics are intentionally reused from
+the synthetic example to keep baseline settings, one-factor ablations, and metric
+definitions identical across runners. Clinical runs exclude synthetic dataset-size
+experiments; importing these helpers does not generate data or run experiments.
 """
 
 import argparse
