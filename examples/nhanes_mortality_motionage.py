@@ -16,6 +16,9 @@ Usage:
     # Compare binary and continuous wear pooling.
     python examples/nhanes_mortality_motionage.py --synthetic --ablation
 
+    # Model ablation: pooling and hidden size, one change at a time.
+    python examples/nhanes_mortality_motionage.py --synthetic --model-ablation
+
     # Real NHANES experiment.
     python examples/nhanes_mortality_motionage.py --root /path/to/nhanes
 
@@ -78,6 +81,26 @@ from pyhealth.datasets import (
 from pyhealth.models import MotionAge
 from pyhealth.tasks import NHANESMortalityPrediction
 from pyhealth.trainer import Trainer
+
+# Model ablation: each condition changes one MotionAge hyperparameter from the
+# baseline (masked pooling, --hidden-dim). "mean" averages every epoch,
+# including non-wear, and "last" keeps only the final hidden state, which is
+# how PyHealth's built-in RNN summarizes a sequence. The data split, wear
+# representation, seed, and training settings stay fixed.
+MODEL_ABLATION_METRICS = ("roc_auc", "pr_auc", "f1", "accuracy")
+
+
+def model_ablation_conditions(
+    args: argparse.Namespace,
+) -> list[tuple[str, dict[str, Any]]]:
+    """List the model ablation conditions relative to the baseline."""
+    return [
+        ("baseline", {}),
+        ("pooling=mean", {"pooling": "mean"}),
+        ("pooling=last", {"pooling": "last"}),
+        (f"hidden_dim={args.hidden_dim // 2}", {"hidden_dim": args.hidden_dim // 2}),
+        (f"hidden_dim={args.hidden_dim * 2}", {"hidden_dim": args.hidden_dim * 2}),
+    ]
 
 
 def set_seed(seed: int) -> None:
@@ -268,6 +291,7 @@ def run_experiment(
     splits: tuple[list, list, list],
     representation: str,
     args: argparse.Namespace,
+    label: str | None = None,
 ) -> dict[str, float]:
     """Train one MotionAge configuration and evaluate the test set."""
     set_seed(args.seed)
@@ -354,7 +378,9 @@ def run_experiment(
         enable_logging=False,
     )
 
-    print(f"\nExperiment: {representation}")
+    num_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"\nExperiment: {label or representation}")
+    print(f"Trainable parameters: {num_parameters}")
     print(f"Positive class weight: {pos_weight:.4f}")
 
     trainer.train(
@@ -374,9 +400,47 @@ def run_experiment(
     y_true, y_prob, _, pids = trainer.inference(test_loader, return_patient_ids=True)
 
     result = participant_metrics(np.asarray(y_true), np.asarray(y_prob), pids)
+    result["parameters"] = num_parameters
 
     print("[participant-level test]", result)
     return result
+
+
+def run_model_ablation(
+    splits: tuple[list, list, list],
+    args: argparse.Namespace,
+) -> dict[str, dict[str, float]]:
+    """Train each model ablation condition and print a comparison table."""
+    results = {}
+
+    for name, overrides in model_ablation_conditions(args):
+        condition_args = argparse.Namespace(**{**vars(args), **overrides})
+        results[name] = run_experiment(
+            splits,
+            args.wear_representation,
+            condition_args,
+            label=f"model ablation, {name}",
+        )
+
+    baseline = results["baseline"]
+    print(
+        "\nParticipant-level model ablation "
+        f"(wear representation: {args.wear_representation}; "
+        "values with difference from baseline):"
+    )
+    header = f"{'condition':<16}{'params':>8}" + "".join(
+        f"{metric:>21}" for metric in MODEL_ABLATION_METRICS
+    )
+    print(header)
+
+    for name, result in results.items():
+        cells = "".join(
+            f"{result[metric]:>11.4f} ({result[metric] - baseline[metric]:+.4f})"
+            for metric in MODEL_ABLATION_METRICS
+        )
+        print(f"{name:<16}{result['parameters']:>8}{cells}")
+
+    return results
 
 
 def main() -> None:
@@ -386,6 +450,7 @@ def main() -> None:
     parser.add_argument("--synthetic", action="store_true")
     parser.add_argument("--root", type=str)
     parser.add_argument("--ablation", action="store_true")
+    parser.add_argument("--model-ablation", action="store_true")
     parser.add_argument(
         "--wear-representation",
         choices=["binary", "fraction"],
@@ -417,6 +482,15 @@ def main() -> None:
     if args.ablation and args.pooling != "masked":
         parser.error("Wear-weight ablation requires masked pooling.")
 
+    if args.model_ablation and args.ablation:
+        parser.error("Run --ablation and --model-ablation separately.")
+
+    if args.model_ablation and args.pooling != "masked":
+        parser.error("Model ablation uses masked pooling as its baseline.")
+
+    if args.model_ablation and args.hidden_dim < 2:
+        parser.error("Model ablation needs --hidden-dim of at least 2.")
+
     set_seed(args.seed)
 
     if args.synthetic:
@@ -434,6 +508,11 @@ def main() -> None:
             "windows:",
             len(part),
         )
+
+    if args.model_ablation:
+        run_model_ablation(splits, args)
+        print("Configuration:", vars(args))
+        return
 
     representations = (
         ["binary", "fraction"] if args.ablation else [args.wear_representation]
