@@ -32,6 +32,7 @@ tables:
       - "discharge_location"
       - "dischtime"
       - "hospital_expire_flag"
+      - "has_chartevents_data"
 
   icustays:
     file_path: "ICUSTAYS.csv.gz"
@@ -227,10 +228,17 @@ tables:
     file_path: "OUTPUTEVENTS.csv.gz"
     patient_id: "subject_id"
     timestamp: "charttime"
+    join:
+      - file_path: "D_ITEMS.csv.gz"
+        "on": "itemid"
+        how: "inner"
+        columns:
+          - "label"
     attributes:
       - "hadm_id"
       - "icustay_id"
       - "itemid"
+      - "label"
       - "value"
       - "valueuom"
 
@@ -253,10 +261,17 @@ tables:
     file_path: "INPUTEVENTS_MV.csv.gz"
     patient_id: "subject_id"
     timestamp: "starttime"
+    join:
+      - file_path: "D_ITEMS.csv.gz"
+        "on": "itemid"
+        how: "inner"
+        columns:
+          - "label"
     attributes:
       - "hadm_id"
       - "icustay_id"
       - "itemid"
+      - "label"
       - "endtime"
       - "amount"
       - "amountuom"
