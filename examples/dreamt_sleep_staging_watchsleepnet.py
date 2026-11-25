@@ -62,9 +62,9 @@ preprocessing          mask_channel 0.659 +/- 0.018 0.455 +/- 0.013 0.361 +/- 0.
     configurations in terms of accuracy and Cohen's Kappa. The main changes  
     that led to better performance than the baseline were preprocessing 
     parameter adjustments. For example, normalizing IBI values per night lead 
-    to a higher accuracy score of 0.720, compared to the baseline accuracy 
-    0.695. Additionally, increasing the number of epochs passed into the model 
-    at a time also increased the accuracy score to 0.706. 
+    to a higher accuracy score of 0.729, compared to the baseline accuracy 
+    0.708. Additionally, increasing the number of epochs passed into the model 
+    at a time also increased the accuracy score to 0.710. 
 """
 
 import argparse
