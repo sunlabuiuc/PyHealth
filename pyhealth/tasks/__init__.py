@@ -51,6 +51,11 @@ from .physionet2012_forecasting import (
     physionet2012_benchmark_split as physionet2012_benchmark_split,
     physionet2012_statistics as physionet2012_statistics,
 )
+from .mimic3_forecasting import (
+    MIMIC3_FORECASTING_VARIABLES as MIMIC3_FORECASTING_VARIABLES,
+    MIMIC3Forecasting as MIMIC3Forecasting,
+    mimic3_forecasting_statistics as mimic3_forecasting_statistics,
+)
 from .deid_ner import DeIDNERTask
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
 # New exports must use the redundant `X as X` form: this module has no
