@@ -260,6 +260,7 @@ Available Tasks
     Sleep Staging Sequences (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSequenceSleepEDF>
     Sleep Staging (ISRUC) <tasks/pyhealth.tasks.SleepStagingISRUC>
     Sleep Staging Sequences (ISRUC) <tasks/pyhealth.tasks.SleepStagingSequenceISRUC>
+    Sleep Staging (HMC) <tasks/pyhealth.tasks.SleepStagingHMC>
     Seizure Onset Zone Localization (HUP iEEG) <tasks/pyhealth.tasks.SOZLocalizationHUP>
     Temple University EEG Tasks <tasks/pyhealth.tasks.temple_university_EEG_tasks>
     CHB-MIT Seizure Detection <tasks/pyhealth.tasks.SeizureDetectionCHBMIT>
@@ -314,5 +315,6 @@ Available Tasks
     YAIB Tasks (MIMIC-III) <tasks/pyhealth.tasks.yaib_mimic3>
     YAIB Tasks (eICU) <tasks/pyhealth.tasks.yaib_eicu>
     Value Set Completion (VSAC) <tasks/pyhealth.tasks.ValueSetCompletion>
+    Value Set Pair Classification (VSAC) <tasks/pyhealth.tasks.ValueSetPairClassification>
     Time-to-event survival (GBSG and SUPPORT) <tasks/pyhealth.tasks.survival_time_to_event>
     TCGA RNA-seq Survival Prediction <tasks/pyhealth.tasks.TCGASurvivalPrediction>

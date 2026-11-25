@@ -465,6 +465,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `PhysioNet <https://physionet.org/content/eegmmidb/1.0.0/>`__
      - Yes
      - —
+   * - :doc:`HMC Sleep Staging <datasets/pyhealth.datasets.HMCDataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/hmc-sleep-staging/1.1/>`__
+     - No
+     - —
    * - :doc:`BCI Competition IV 2a <datasets/pyhealth.datasets.BCICompetitionIV2aDataset>`
      - Open (CC BY-ND)
      - `BNCI Horizon <https://bnci-horizon-2020.eu/database/data-sets>`__
@@ -636,6 +641,7 @@ Available Datasets
     datasets/pyhealth.datasets.ChapmanShaoxingDataset
     datasets/pyhealth.datasets.eICUDataset
     datasets/pyhealth.datasets.ISRUCDataset
+    datasets/pyhealth.datasets.HMCDataset
     datasets/pyhealth.datasets.HUPiEEGDataset
     datasets/pyhealth.datasets.MIMICExtractDataset
     datasets/pyhealth.datasets.OMOPDataset
