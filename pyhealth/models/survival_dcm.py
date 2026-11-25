@@ -5,8 +5,11 @@ Paper: Deep Cox Mixtures for Survival Regression, Nagpal et al., MLHC 2021.
 https://proceedings.mlr.press/v149/nagpal21a.html
 """
 
+import numpy as np
 import torch
+from scipy.interpolate import UnivariateSpline
 from torch import Tensor, nn
+from torch.utils.data import DataLoader
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.processors import LabelProcessor
@@ -92,6 +95,60 @@ def breslow_baseline_survival(
     return event_times, torch.stack(survival)
 
 
+def smooth_baseline_survival(
+    event_times: Tensor, survival: Tensor, grid: Tensor, smoothing: float = 1e-4
+) -> tuple[Tensor, Tensor]:
+    """Smooth a Breslow step curve and tabulate it on a time grid.
+
+    The Breslow estimate is a staircase, so it has no usable slope. A cubic
+    smoothing spline through its points gives a curve whose slope tells how
+    fast survival is falling at any time, which the E-step needs.
+
+    Args:
+        event_times: Distinct event times in increasing order, shape ``[m]``.
+        survival: Baseline survival after each event time, shape ``[m]``.
+        grid: Increasing times at which to tabulate the curve, shape ``[g]``.
+        smoothing: Smoothing factor of the spline. 0 passes through every
+            point; larger values give a smoother curve.
+
+    Returns:
+        The smoothed survival and its slope (change in survival per unit
+        time, never positive) at each grid time. Both have shape ``[g]``. A
+        group with no events gets a flat curve at 1 with slope 0.
+    """
+    if len(event_times) == 0:
+        return torch.ones_like(grid), torch.zeros_like(grid)
+
+    times = event_times.cpu().numpy().astype(float)
+    values = survival.cpu().numpy().astype(float)
+    grid_times = grid.cpu().numpy().astype(float)
+
+    # Everyone is alive at time 0, so the curve starts at 1.
+    if times[0] > 0:
+        times = np.concatenate([[0.0], times])
+        values = np.concatenate([[1.0], values])
+
+    # A cubic spline needs at least four points; use a lower degree if not.
+    degree = min(3, len(times) - 1)
+    if degree == 0:
+        smooth = np.full_like(grid_times, values[0])
+    else:
+        spline = UnivariateSpline(times, values, k=degree, s=smoothing)
+        # Past the last event the data says nothing more, so hold the curve
+        # at its last value instead of letting the spline extrapolate.
+        smooth = spline(np.minimum(grid_times, times[-1]))
+
+    # Keep it a valid survival curve: between 0 and 1, and never rising.
+    smooth = np.clip(smooth, 1e-6, 1.0)
+    smooth = np.minimum.accumulate(smooth)
+
+    slope = np.gradient(smooth, grid_times)
+    return (
+        torch.as_tensor(smooth, dtype=grid.dtype, device=grid.device),
+        torch.as_tensor(slope, dtype=grid.dtype, device=grid.device),
+    )
+
+
 class SurvivalDCM(BaseModel):
     """Deep Cox Mixtures for right-censored survival data.
 
@@ -113,6 +170,8 @@ class SurvivalDCM(BaseModel):
         num_hidden_layers: Number of hidden layers in the encoder.
         num_components: Number of latent subgroups, K. With 1, the model is
             a single deep Cox model.
+        num_grid_points: Number of evenly spaced times at which each
+            subgroup's baseline survival curve is stored.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset
@@ -149,6 +208,7 @@ class SurvivalDCM(BaseModel):
         hidden_dim: int = 100,
         num_hidden_layers: int = 2,
         num_components: int = 3,
+        num_grid_points: int = 2049,
     ) -> None:
         super().__init__(dataset)
         if feature_key not in dataset.input_schema:
@@ -156,6 +216,8 @@ class SurvivalDCM(BaseModel):
         for key in (duration_key, event_key):
             if key not in dataset.output_schema:
                 raise ValueError(f"{key!r} is not an output field")
+        if num_grid_points < 2:
+            raise ValueError("num_grid_points must be at least 2")
         if hidden_dim < 1 or num_hidden_layers < 1 or num_components < 1:
             raise ValueError(
                 "hidden_dim, num_hidden_layers and num_components must be positive"
@@ -176,22 +238,199 @@ class SurvivalDCM(BaseModel):
         self.expert = nn.Linear(hidden_dim, num_components)
         self.log_softmax = nn.LogSoftmax(dim=1)
 
+        # Each subgroup's baseline survival curve is stored as a table: its
+        # value and slope at evenly spaced times. Buffers are saved with the
+        # model but are not trained by the optimizer. Until the curves are
+        # fitted, the grid runs from 0 to 1 and every curve is flat at 1.
+        self.register_buffer("baseline_grid", torch.linspace(0.0, 1.0, num_grid_points))
+        self.register_buffer(
+            "baseline_survival", torch.ones(num_components, num_grid_points)
+        )
+        self.register_buffer(
+            "baseline_slope", torch.zeros(num_components, num_grid_points)
+        )
+        # Turns True the first time fit_baselines() runs.
+        self.register_buffer("baselines_fitted", torch.tensor(False))
+
     @property
     def label_processors(self) -> dict[str, LabelProcessor]:
         """Empty: duration and event are scored by the model's own loss."""
         return {}
 
+    def baseline_at(self, time: Tensor) -> tuple[Tensor, Tensor]:
+        """Look up every subgroup's baseline curve at the given times.
+
+        The curves are stored on a grid, so a time between two grid points is
+        read off by linear interpolation. Times beyond the grid use its last
+        point.
+
+        Args:
+            time: Times, shape ``[n]``.
+
+        Returns:
+            The baseline survival and its slope for each time and subgroup.
+            Both have shape ``[n, num_components]``.
+        """
+        last = len(self.baseline_grid) - 1
+        step = self.baseline_grid[1] - self.baseline_grid[0]
+
+        # Where each time falls on the grid, as a number of steps from 0.
+        position = (time / step).clamp(min=0, max=last)
+        left = position.floor().long().clamp(max=last - 1)
+        fraction = position - left  # 0 at the left grid point, 1 at the right
+
+        survival = self.baseline_survival[:, left] + fraction * (
+            self.baseline_survival[:, left + 1] - self.baseline_survival[:, left]
+        )
+        slope = self.baseline_slope[:, left] + fraction * (
+            self.baseline_slope[:, left + 1] - self.baseline_slope[:, left]
+        )
+        # Stored as [num_components, n]; return as [n, num_components].
+        return survival.T, slope.T
+
+    @torch.no_grad()
+    def subgroup_posterior(
+        self,
+        log_gate: Tensor,
+        log_hazard_ratio: Tensor,
+        duration: Tensor,
+        event: Tensor,
+    ) -> Tensor:
+        """E-step: how likely each subgroup is, given what happened to a patient.
+
+        For every subgroup this asks how well it explains the patient's
+        outcome: dying at the observed time if the event was seen, or
+        surviving past it if the patient was censored. That is combined with
+        the gate's belief from the features alone and normalized so the
+        probabilities of the subgroups sum to 1.
+
+        Args:
+            log_gate: Log-probability of each subgroup from the gate, shape
+                ``[n, num_components]``.
+            log_hazard_ratio: Log hazard ratio under each subgroup, same shape.
+            duration: Follow-up times, shape ``[n]``.
+            event: 1 for an observed event and 0 for censoring, shape ``[n]``.
+
+        Returns:
+            Posterior probability of each subgroup, shape
+            ``[n, num_components]``. Each row sums to 1.
+        """
+        baseline_survival, baseline_slope = self.baseline_at(duration)
+
+        # Surviving past the observed time in a subgroup: the baseline
+        # survival raised to the power of the patient's hazard ratio.
+        log_survival = torch.exp(log_hazard_ratio) * torch.log(baseline_survival)
+
+        # Hazard at the observed time: how fast the baseline curve is falling
+        # relative to its height, scaled by the patient's hazard ratio. The
+        # small floor keeps the log finite where a curve is flat.
+        baseline_hazard = (-baseline_slope / baseline_survival).clamp(min=1e-8)
+        log_hazard = torch.log(baseline_hazard) + log_hazard_ratio
+
+        # A censored patient only tells us they survived this long. A patient
+        # with an event also tells us the event happened right then.
+        log_likelihood = log_survival + event.unsqueeze(1) * log_hazard
+
+        return torch.softmax(log_gate + log_likelihood, dim=1)
+
+    @torch.no_grad()
+    def sample_subgroup(self, posterior: Tensor) -> Tensor:
+        """Draw one subgroup per patient at random from the posterior.
+
+        Args:
+            posterior: Posterior probabilities, shape ``[n, num_components]``.
+
+        Returns:
+            The index of the sampled subgroup for each patient, shape ``[n]``.
+        """
+        return torch.multinomial(posterior, num_samples=1).squeeze(1)
+
+    @torch.no_grad()
+    def fit_baselines(self, dataloader: DataLoader, smoothing: float = 1e-4) -> None:
+        """Refit every subgroup's baseline survival curve from training data.
+
+        Call this once before training and again after every epoch. Each
+        patient is assigned to a subgroup, then each subgroup's curve is
+        estimated from its own patients with the Breslow estimator and
+        smoothed with a cubic spline. No gradients are involved.
+
+        The first call has no curves to compute posteriors with, so it
+        assigns patients to subgroups uniformly at random. Later calls sample
+        each patient's subgroup from the posterior of the E-step.
+
+        Args:
+            dataloader: Training data. Shuffling does not matter.
+            smoothing: Smoothing factor of the splines.
+        """
+        was_training = self.training
+        self.eval()
+
+        # Run the whole training set through the network.
+        log_gates, log_hazard_ratios, durations, events = [], [], [], []
+        for batch in dataloader:
+            output = self(**{self.feature_key: batch[self.feature_key]})
+            log_gates.append(output["log_gate"])
+            log_hazard_ratios.append(output["log_hazard_ratio"])
+            duration = batch[self.duration_key].to(self.device).float()
+            event = batch[self.event_key].to(self.device).float()
+            durations.append(duration.reshape(-1))
+            events.append(event.reshape(-1))
+        log_gate = torch.cat(log_gates)
+        log_hazard_ratio = torch.cat(log_hazard_ratios)
+        duration = torch.cat(durations)
+        event = torch.cat(events)
+
+        # Assign every patient to one subgroup.
+        if self.baselines_fitted:
+            posterior = self.subgroup_posterior(
+                log_gate, log_hazard_ratio, duration, event
+            )
+            assigned = self.sample_subgroup(posterior)
+        else:
+            assigned = torch.randint(
+                self.num_components, duration.shape, device=self.device
+            )
+
+        # The curves are stored from time 0 to the longest follow-up seen.
+        grid = torch.linspace(
+            0.0, float(duration.max()), len(self.baseline_grid), device=self.device
+        )
+
+        for k in range(self.num_components):
+            members = assigned == k
+            event_times, survival = breslow_baseline_survival(
+                log_hazard_ratio[members, k], duration[members], event[members]
+            )
+            smooth, slope = smooth_baseline_survival(
+                event_times, survival, grid, smoothing
+            )
+            self.baseline_survival[k] = smooth
+            self.baseline_slope[k] = slope
+
+        self.baseline_grid.copy_(grid)
+        self.baselines_fitted.fill_(True)
+        self.train(was_training)
+
     def forward(self, **kwargs: Tensor | tuple[Tensor, ...]) -> dict[str, Tensor]:
-        """Encode a batch and score each patient under every subgroup.
+        """Score a batch under every subgroup and compute the training loss.
+
+        The loss is one step of the approximate EM procedure of the paper.
+        The E-step gives each patient a posterior over subgroups, and one
+        subgroup is drawn from it. The loss then has two parts: the gate is
+        trained to predict the posterior from the features alone, and each
+        subgroup's hazard ratios are trained with the Cox partial likelihood
+        of the patients assigned to it.
 
         Args:
             **kwargs: Batch fields from the PyHealth dataloader. Must include
-                ``feature_key``.
+                ``feature_key``. The loss is computed when ``duration_key``
+                and ``event_key`` are also present.
 
         Returns:
             ``log_gate``: log-probability of each subgroup, shape
             ``[batch, num_components]``. ``log_hazard_ratio``: log hazard
-            ratio under each subgroup, same shape.
+            ratio under each subgroup, same shape. ``loss``: the training
+            loss averaged over the batch, when the labels are present.
 
         Raises:
             ValueError: If the features have the wrong shape or are not finite.
@@ -211,7 +450,40 @@ class SurvivalDCM(BaseModel):
                 "values are imputed before training"
             )
         hidden = self.encoder(features)
-        return {
-            "log_gate": self.log_softmax(self.gate(hidden)),
-            "log_hazard_ratio": self.expert(hidden),
-        }
+        log_gate = self.log_softmax(self.gate(hidden))
+        log_hazard_ratio = self.expert(hidden)
+        output = {"log_gate": log_gate, "log_hazard_ratio": log_hazard_ratio}
+
+        if self.duration_key not in kwargs or self.event_key not in kwargs:
+            return output
+
+        # The dataloader gives the labels as [batch, 1]; flatten to [batch].
+        duration = kwargs[self.duration_key].to(self.device).float().reshape(-1)
+        event = kwargs[self.event_key].to(self.device).float().reshape(-1)
+
+        # E-step: posterior over subgroups, then one subgroup per patient.
+        # While training the subgroup is sampled, as in the paper. When
+        # evaluating, the most likely subgroup is used so the loss is not
+        # random.
+        posterior = self.subgroup_posterior(log_gate, log_hazard_ratio, duration, event)
+        if self.training:
+            assigned = self.sample_subgroup(posterior)
+        else:
+            assigned = posterior.argmax(dim=1)
+
+        # First part: the gate should predict the posterior.
+        gate_term = (posterior * log_gate).sum()
+
+        # Second part: one Cox partial likelihood per subgroup, each over the
+        # patients assigned to that subgroup.
+        cox_term = log_gate.new_zeros(())
+        for k in range(self.num_components):
+            members = assigned == k
+            cox_term = cox_term + cox_partial_log_likelihood(
+                log_hazard_ratio[members, k], duration[members], event[members]
+            )
+
+        # Both parts are log-likelihoods to maximize, so the loss is their
+        # negative, averaged over the batch.
+        output["loss"] = -(gate_term + cox_term) / len(duration)
+        return output
