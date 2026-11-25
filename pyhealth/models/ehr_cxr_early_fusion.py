@@ -78,8 +78,7 @@ class EHRCXREarlyFusion(BaseModel):
     baseline of MedMod (Elsharief et al., 2025), which builds on the fusion
     code of MedFuse (Hayat et al., 2022). With ``freeze_encoders=True`` the
     two encoders are not trained: only the projection and the classifier are.
-    With ``freeze_encoders=False`` all parts are trained, which is the Joint
-    Fusion baseline of the paper.
+    With ``freeze_encoders=False`` all parts are trained.
 
     Frozen encoders stay in eval mode during training, so the ResNet's
     BatchNorm statistics do not change and the LSTM applies no dropout.
