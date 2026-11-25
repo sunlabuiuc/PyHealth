@@ -33,7 +33,9 @@ DEFAULT_CONFIG = MEDMOD_FILES / "discretizer_config.json"
 # ehr_funcs tests `args.task is 'mortality'` (preprocessing.py:259), an identity
 # check on an argparse string that is False in practice, so it falls through to
 # the `else` branch at line 265-266 (ph_ts{timestep}...normalizer).
-PH_NORMALIZER = MEDMOD_FILES / "ph_ts1.0.input_str:previous.start_time:zero.normalizer"
+# MedMod's ph_ts1.0.input_str:previous.start_time:zero.normalizer, renamed
+# because Windows does not allow colons in file names.
+PH_NORMALIZER = MEDMOD_FILES / "ph_ts1.0.normalizer"
 
 EPS = 1e-6  # preprocessing.py:38
 

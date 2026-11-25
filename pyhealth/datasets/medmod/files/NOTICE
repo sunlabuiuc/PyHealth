@@ -6,8 +6,10 @@ derived from the following projects.
 MedMod (Elsharief et al., 2025), https://github.com/nyuad-cai/MedMod
   Licensed under the Apache License, Version 2.0 (files/MEDMOD_LICENSE).
   Pinned commit: files/MEDMOD_COMMIT.
-  - Bundled unmodified: files/discretizer_config.json,
-    files/ph_ts1.0.input_str:previous.start_time:zero.normalizer.
+  - Bundled unmodified: files/discretizer_config.json and
+    files/ph_ts1.0.normalizer. The latter is MedMod's
+    ph_ts1.0.input_str:previous.start_time:zero.normalizer, renamed because
+    Windows does not allow colons in file names; its content is unchanged.
   - Not bundled: the split lists testset_iv.csv and valset_iv.csv and the item
     map itemid_to_variable_map.csv are downloaded from this repository (or
     MedFuse's byte-identical copy) at a pinned commit on first use, checked by
