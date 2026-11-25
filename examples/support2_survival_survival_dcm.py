@@ -59,7 +59,44 @@ Differences from the paper
 
 Results
 -------
-Fill this in after running on the real data.
+Full run on the real SUPPORT2 file (9,105 patients, 31.89% censored, 21.02%
+non-White; horizons 14, 58 and 252 days), with default settings. Each cell is
+the 25th / 50th / 75th percentile horizon.
+
+All patients
+model            C_td                   Brier                  ECE
+CPH              0.689 / 0.673 / 0.670  0.134 / 0.200 / 0.213  0.020 / 0.024 / 0.020
+Deep Cox (K=1)   0.696 / 0.680 / 0.676  0.133 / 0.197 / 0.211  0.022 / 0.023 / 0.016
+DCM (K=3)        0.753 / 0.713 / 0.679  0.124 / 0.189 / 0.211  0.018 / 0.022 / 0.029
+DCM (K=4)        0.725 / 0.695 / 0.668  0.128 / 0.194 / 0.214  0.017 / 0.017 / 0.021
+DCM (K=6)        0.742 / 0.702 / 0.673  0.125 / 0.192 / 0.213  0.015 / 0.021 / 0.027
+
+Non-White patients
+model            C_td                   Brier                  ECE
+CPH              0.716 / 0.700 / 0.692  0.133 / 0.193 / 0.205  0.031 / 0.038 / 0.038
+Deep Cox (K=1)   0.719 / 0.704 / 0.697  0.132 / 0.192 / 0.203  0.021 / 0.028 / 0.028
+DCM (K=3)        0.763 / 0.729 / 0.700  0.124 / 0.187 / 0.205  0.033 / 0.049 / 0.056
+DCM (K=4)        0.740 / 0.714 / 0.687  0.129 / 0.190 / 0.206  0.029 / 0.040 / 0.034
+DCM (K=6)        0.755 / 0.718 / 0.691  0.126 / 0.190 / 0.206  0.020 / 0.038 / 0.043
+
+Bootstrap standard errors are about 0.004 to 0.007 for C_td, 0.002 for the
+Brier score and 0.003 to 0.005 for ECE over all patients, and roughly twice
+that for non-White patients. They reflect which patients are in the test
+data, not the variation from retraining a model.
+
+Findings. On C_td and the Brier score the baselines reproduce the paper's
+Table 8 to within about 0.003. DCM discriminates better than both baselines
+at the 25th and 50th percentile horizons (paper, K tuned: 0.743 / 0.706 /
+0.675), and the three are close at the 75th. DCM is at least as well
+calibrated as the baselines at the first two horizons but not at the 75th,
+and for non-White patients it does not have the lowest calibration error, so
+that claim of the paper is not reproduced.
+
+Ablation. Every mixture (K=3, 4, 6) beats the single deep Cox model (K=1) on
+C_td at the first two horizons: by 0.03 to 0.06 at the 25th percentile and by
+0.015 to 0.033 at the 50th. So the gain comes from the mixture and not from
+the encoder. The order among K=3, 4 and 6 changed between two training runs,
+so there is no evidence that more than three subgroups helps.
 """
 
 import argparse
