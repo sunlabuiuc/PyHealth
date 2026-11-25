@@ -229,7 +229,7 @@ class MDACEDataset(BaseDataset):
         splits = read_splits(splits_dir) if splits_dir else {}
 
         found: dict[str, dict] = {}
-        # ponytail: full NOTEEVENTS scan per build (~minutes); cache the
+        # Note: full NOTEEVENTS scan per build (~minutes); cache the
         # Parquet outside the temp dir if rebuilds become frequent.
         for chunk in pd.read_csv(
             notes_path,

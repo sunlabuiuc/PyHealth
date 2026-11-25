@@ -73,14 +73,16 @@ class TestMDACE(unittest.TestCase):
         )
 
     def test_no_splits_dir(self):
-        with tempfile.TemporaryDirectory() as cache:
-            ds = MDACEDataset(
-                root=str(ROOT / "MDace"),
-                mimic3_root=str(ROOT / "mimic3"),
-                cache_dir=cache,
+        # Indexing step only: building a second full dataset takes over a second.
+        with tempfile.TemporaryDirectory() as out:
+            df = MDACEDataset._index_data(
+                ROOT / "MDace" / "Inpatient" / "ICD-9" / "1.0",
+                ROOT / "mimic3" / "NOTEEVENTS.csv.gz",
+                None,
+                out,
             )
-            events = ds.get_patient("502").get_events(event_type="mdace")
-            self.assertIsNone(events[0].split)
+        self.assertEqual(len(df), 4)
+        self.assertTrue(df["split"].isna().all())
 
     def test_discharge_filter(self):
         self.assertEqual(len(self.all_samples), 4)
