@@ -21,8 +21,10 @@ Dataverse ``HAM10000_metadata.csv`` next to the ISIC 2018 folders):
 MEDFAIR reports with sex as the attribute (appendix Table A9 of
 arXiv:2210.01725v2, in-distribution, minimax Pareto, mean of 3 seeds): ERM
 85.20 overall / 83.12 worst-group AUC / 3.31 gap, resampling 86.94 / 85.04 /
-3.09. Its age results use a 4-group binning that is not published, so they
-are not directly comparable to ``--attribute age_group``.
+3.09; Table A8 has ERM under the other two rules. Its age results use four
+groups taken from the five bins of its Table A2 (0-20 to 80+) in a way the
+paper does not state, so they are not directly comparable to
+``--attribute age_group``.
 """
 
 from __future__ import annotations

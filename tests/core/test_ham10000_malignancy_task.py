@@ -131,11 +131,12 @@ class TestHAM10000DemographicsFile(unittest.TestCase):
         frame.to_csv(path, index=False)
         self.assertEqual(self._sex(metadata_dir), "F")
 
-    def test_tab_separated_file_raises(self):
+    def test_tab_separated_file_with_groupings_leaves_sex_empty(self):
         path = self.root / "HAM10000_metadata.csv"
         pd.read_csv(path).to_csv(path, sep="\t", index=False)
-        with self.assertRaises(ValueError):
-            HAM10000Dataset(root=str(self.root), cache_dir=str(self.tmp / "cache"))
+        with self.assertLogs("pyhealth.datasets.ham10000", "WARNING") as logs:
+            self.assertIsNone(self._sex(self.tmp / "meta"))
+        self.assertIn("format=original", "".join(logs.output))
 
     def test_tab_separated_file_raises_without_groupings(self):
         path = self.root / "HAM10000_metadata.csv"

@@ -139,9 +139,10 @@ def get_group_balanced_dataloader(
     Use it instead of :func:`~pyhealth.datasets.get_dataloader` for the
     training split. The order comes from the weighted sampler, so there is
     no ``shuffle`` argument, and the epoch is advanced by the sampler rather
-    than the dataset's own seeding. Give the groups either as a sample field (``group_key``,
-    read from every sample once, which decodes its inputs too) or directly
-    (``groups``, in dataset order); likewise for the optional labels.
+    than the dataset's own seeding. Give the groups either as a sample field
+    (``group_key``, read from every sample once, which decodes its inputs
+    too) or directly (``groups``, in dataset order); likewise for the
+    optional labels.
 
     Args:
         dataset: A :class:`~pyhealth.datasets.SampleDataset`.

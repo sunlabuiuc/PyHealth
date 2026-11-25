@@ -102,6 +102,9 @@ class HAM10000Dataset(BaseDataset):
           HAM10000_metadata.csv
           "https://dataverse.harvard.edu/api/access/datafile/4338392?format=original"``).
           It also replaces the lesion groupings CSV if that is missing.
+          A tab-separated copy (the default download) is rejected when it
+          stands in for the groupings CSV; otherwise it is ignored with a
+          warning.
         - ``root`` layout (validation and test folders only when
           ``splits`` asks for them)::
 
@@ -286,7 +289,11 @@ class HAM10000Dataset(BaseDataset):
 
     def _demographics(self) -> pd.DataFrame | None:
         """Return ``image``, ``age``, ``sex``, ``localization``, or None."""
-        meta = self._dataverse_metadata()
+        try:
+            meta = self._dataverse_metadata()
+        except ValueError as err:
+            logger.warning("%s Age and sex stay empty.", err)
+            return None
         if meta is None:
             logger.info("No %s; age and sex are empty.", _DATAVERSE_METADATA)
             return None
