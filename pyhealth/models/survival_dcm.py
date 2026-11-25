@@ -183,7 +183,8 @@ class SurvivalDCM(BaseModel):
         event_key: Output field holding 1 for an observed event and 0 for
             right censoring.
         hidden_dim: Width of each hidden layer of the encoder.
-        num_hidden_layers: Number of hidden layers in the encoder.
+        num_hidden_layers: Number of hidden layers in the encoder. With 0
+            the hazard ratios are a linear function of the features.
         num_components: Number of latent subgroups, K. With 1, the model is
             a single deep Cox model.
         num_grid_points: Number of evenly spaced times at which each
@@ -240,9 +241,10 @@ class SurvivalDCM(BaseModel):
             raise ValueError("max_log_hazard_ratio must be positive")
         if num_grid_points < 2:
             raise ValueError("num_grid_points must be at least 2")
-        if hidden_dim < 1 or num_hidden_layers < 1 or num_components < 1:
+        if hidden_dim < 1 or num_hidden_layers < 0 or num_components < 1:
             raise ValueError(
-                "hidden_dim, num_hidden_layers and num_components must be positive"
+                "hidden_dim and num_components must be positive, and "
+                "num_hidden_layers must not be negative"
             )
         self.feature_key = feature_key
         self.duration_key = duration_key
@@ -257,8 +259,9 @@ class SurvivalDCM(BaseModel):
             layers += [nn.Linear(width, hidden_dim), nn.ReLU()]
             width = hidden_dim
         self.encoder = nn.Sequential(*layers)
-        self.gate = nn.Linear(hidden_dim, num_components)
-        self.expert = nn.Linear(hidden_dim, num_components, bias=False)
+        # With no hidden layers the heads read the features directly.
+        self.gate = nn.Linear(width, num_components)
+        self.expert = nn.Linear(width, num_components, bias=False)
         self.tanh = nn.Tanh()
         self.log_softmax = nn.LogSoftmax(dim=1)
 

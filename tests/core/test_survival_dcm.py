@@ -210,7 +210,7 @@ class TestSurvivalDCM(unittest.TestCase):
             "unknown duration key": {"duration_key": "missing"},
             "unknown event key": {"event_key": "missing"},
             "no hidden units": {"hidden_dim": 0},
-            "no hidden layers": {"num_hidden_layers": 0},
+            "negative hidden layers": {"num_hidden_layers": -1},
             "no components": {"num_components": 0},
             "one grid point": {"num_grid_points": 1},
             "zero hazard bound": {"max_log_hazard_ratio": 0.0},
@@ -218,6 +218,15 @@ class TestSurvivalDCM(unittest.TestCase):
         for label, kwargs in bad_arguments.items():
             with self.subTest(label), self.assertRaises(ValueError):
                 SurvivalDCM(self.dataset, **kwargs)
+
+    def test_no_hidden_layers_gives_a_linear_model(self):
+        model = SurvivalDCM(self.dataset, num_components=1, num_hidden_layers=0)
+        self.assertEqual(len(model.encoder), 0)
+        self.assertEqual(model.expert.in_features, NUM_FEATURES)
+        self.assertEqual(model.gate.in_features, NUM_FEATURES)
+        model.eval()
+        output = model(**self.batch)
+        self.assertEqual(output["log_hazard_ratio"].shape, (NUM_PATIENTS, 1))
 
     def test_forward_output_shapes(self):
         self.model.eval()
