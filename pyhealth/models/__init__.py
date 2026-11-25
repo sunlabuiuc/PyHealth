@@ -122,6 +122,7 @@ from .generators.synthea import Synthea as Synthea
 from .generators.corgan import CorGAN as CorGAN
 from .generators.tardiff import TarDiff as TarDiff
 from .survival_mdn import SurvivalMDN as SurvivalMDN
+from .survival_dcm import SurvivalDCM as SurvivalDCM
 from .personalized_survival_moe import PersonalizedSurvivalMoE as PersonalizedSurvivalMoE
 from .cet import CET as CET
 from .trajsurv import TrajSurv as TrajSurv
