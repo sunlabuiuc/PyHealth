@@ -6,6 +6,9 @@ Clinical Text", NAACL 2018.
 All tests use two synthetic notes and a tiny BERT written to a temporary
 directory (the same as test_plm_ca), so nothing is downloaded and the suite
 runs in a few seconds.
+
+Contributors: Juri Moon (jmoon326)
+Paper link: https://arxiv.org/abs/1802.05695
 """
 
 import shutil

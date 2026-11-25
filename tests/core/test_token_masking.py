@@ -4,6 +4,9 @@ Paper: Edin et al., "An Unsupervised Approach to Achieve Supervised-Level
 Explainability in Healthcare Records", EMNLP 2024.
 
 Uses the tiny tokenizer and BERT from test_plm_ca, so nothing is downloaded.
+
+Contributors: Juri Moon (jmoon326)
+Paper link: https://arxiv.org/abs/2406.08958
 """
 
 import shutil

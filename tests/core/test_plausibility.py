@@ -1,4 +1,10 @@
-"""Unit tests for plausibility metrics (Edin et al., EMNLP 2024)."""
+"""Unit tests for plausibility metrics (Edin et al., EMNLP 2024).
+
+Contributors: Juri Moon (jmoon326)
+Paper: Edin et al., "An Unsupervised Approach to Achieve Supervised-Level
+    Explainability in Healthcare Records", EMNLP 2024.
+Paper link: https://arxiv.org/abs/2406.08958
+"""
 
 import unittest
 

@@ -3,6 +3,10 @@ Unit tests for MDACEDataset and MDACEEvidenceCoding on a synthetic fixture.
 
 Contributors:
     Juri Moon (jmoon326)
+
+Paper: Edin et al., "An Unsupervised Approach to Achieve Supervised-Level
+    Explainability in Healthcare Records", EMNLP 2024.
+Paper link: https://arxiv.org/abs/2406.08958
 """
 import tempfile
 import unittest

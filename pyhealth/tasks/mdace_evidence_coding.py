@@ -3,6 +3,10 @@ Evidence-grounded ICD coding task for the MDACE dataset.
 
 Contributors:
     Juri Moon (jmoon326)
+
+Paper: Edin et al., "An Unsupervised Approach to Achieve Supervised-Level
+    Explainability in Healthcare Records", EMNLP 2024.
+Paper link: https://arxiv.org/abs/2406.08958
 """
 import json
 from typing import Any, ClassVar

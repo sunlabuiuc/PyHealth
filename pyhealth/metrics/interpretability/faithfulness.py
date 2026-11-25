@@ -19,6 +19,11 @@ For one (note, code) pair with predicted probability ``p = sigmoid(logit)``:
 
 The score of a method is the mean over all evaluated pairs. The authors keep
 only pairs whose code is predicted (``p`` above the decision boundary).
+
+Contributors: Juri Moon (jmoon326)
+Paper: Edin et al., "An Unsupervised Approach to Achieve Supervised-Level
+    Explainability in Healthcare Records", EMNLP 2024.
+Paper link: https://arxiv.org/abs/2406.08958
 """
 
 import math

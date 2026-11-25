@@ -5,6 +5,9 @@ Explainability in Healthcare Records", EMNLP 2024.
 
 All tests use two synthetic notes and a tiny BERT written to a temporary
 directory, so nothing is downloaded and the suite runs in about a second.
+
+Contributors: Anvay Patel (apatel3269), Juri Moon (jmoon326)
+Paper link: https://arxiv.org/abs/2406.08958
 """
 
 import shutil

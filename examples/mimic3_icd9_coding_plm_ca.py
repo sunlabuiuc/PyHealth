@@ -1,6 +1,6 @@
 """PLM-CA for ICD-9 coding on MIMIC-III, with an input-length ablation.
 
-Contributors: <Full Name> (<gt_username>), <Full Name> (<gt_username>)
+Contributors: Anvay Patel (apatel3269), Juri Moon (jmoon326)
 Paper: Edin et al., "An Unsupervised Approach to Achieve Supervised-Level
     Explainability in Healthcare Records", EMNLP 2024.
 Paper link: https://arxiv.org/abs/2406.08958

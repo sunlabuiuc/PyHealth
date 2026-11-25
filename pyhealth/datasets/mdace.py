@@ -17,6 +17,8 @@ in https://github.com/JoakimEdin/explainable-medical-coding):
 
 Contributors:
     Juri Moon (jmoon326)
+
+Paper link: https://arxiv.org/abs/2406.08958
 """
 import json
 import logging

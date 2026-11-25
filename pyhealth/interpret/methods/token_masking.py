@@ -17,6 +17,8 @@ The model needs ``tokenizer``, ``get_input_embeddings()`` and
 ``forward_from_embedding(inputs_embeds, attention_mask)`` returning a dict
 with ``logit``; :class:`~pyhealth.models.PLMCA` and
 :class:`~pyhealth.models.CAML` have all three.
+
+Contributors: Juri Moon (jmoon326)
 """
 
 import torch
