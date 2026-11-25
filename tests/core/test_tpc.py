@@ -256,6 +256,7 @@ class TestTPC(unittest.TestCase):
             {"huber_delta": 0},
             {"underprediction_weight": 0.5},
             {"forward_fill_labs": False},
+            {"num_layers": 2, "kernel_size": 1},
         ):
             with self.subTest(config=config), self.assertRaises(ValueError):
                 _small_model(self.dataset, **config)

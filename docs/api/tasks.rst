@@ -1,11 +1,6 @@
 Tasks
 ===============
 
-.. toctree::
-    :maxdepth: 1
-
-    tasks/pyhealth.tasks.tpc_day_one
-
 We support various real-world healthcare predictive tasks defined by **function calls**. The following example tasks are collected from top AI/Medical venues, such as:
 
 (i) Drug Recommendation [Yang et al. IJCAI 2021a, Yang et al. IJCAI 2021b, Shang et al. AAAI 2020]
@@ -318,6 +313,7 @@ Available Tasks
     YAIB Tasks (MIMIC-IV) <tasks/pyhealth.tasks.yaib_mimic4>
     YAIB Tasks (MIMIC-III) <tasks/pyhealth.tasks.yaib_mimic3>
     YAIB Tasks (eICU) <tasks/pyhealth.tasks.yaib_eicu>
+    TPC Day-One Length of Stay (eICU/MIMIC-IV) <tasks/pyhealth.tasks.tpc_day_one>
     Value Set Completion (VSAC) <tasks/pyhealth.tasks.ValueSetCompletion>
     Time-to-event survival (GBSG and SUPPORT) <tasks/pyhealth.tasks.survival_time_to_event>
     TCGA RNA-seq Survival Prediction <tasks/pyhealth.tasks.TCGASurvivalPrediction>

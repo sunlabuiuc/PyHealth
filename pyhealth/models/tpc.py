@@ -402,7 +402,8 @@ class TPC(BaseModel):
         loss: ``"msle"`` (paper default), ``"mse"``, ``"asymmetric_msle"``,
             or ``"huber_log"``.
         dilation_schedule: ``"official"`` uses the released code's schedule
-            (``d = 1`` for layer 1, then ``d = (n - 1) * (k - 1)``).
+            (``d = 1`` for layer 1, then ``d = (n - 1) * (k - 1)``); with
+            more than one layer it requires ``kernel_size >= 2``.
             ``"paper"`` and ``"linear"`` use ``d = n``; ``"constant"`` uses
             ``d = 1``; ``"exponential"`` uses ``d = 2 ** (n - 1)``.
             Linear is an alias of paper, not a distinct architectural novelty.
@@ -501,6 +502,11 @@ class TPC(BaseModel):
             raise ValueError("Unknown dilation_schedule.")
         if min(num_layers, kernel_size, temporal_channels, pointwise_channels) < 1:
             raise ValueError("Layer count, kernel size, and channels must be positive.")
+        if dilation_schedule == "official" and num_layers > 1 and kernel_size < 2:
+            raise ValueError(
+                "The official dilation schedule requires kernel_size >= 2 "
+                "when num_layers > 1."
+            )
         if not math.isfinite(underprediction_weight) or underprediction_weight < 1:
             raise ValueError("underprediction_weight must be finite and at least 1.")
         if not math.isfinite(huber_delta) or huber_delta <= 0:
