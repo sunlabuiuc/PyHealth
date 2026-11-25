@@ -358,6 +358,7 @@ API Reference
     models/pyhealth.models.califorest
     models/pyhealth.models.XGBoostModel
     models/pyhealth.models.survival_mdn
+    models/pyhealth.models.survival_dcm
     models/pyhealth.models.personalized_survival_moe
     models/pyhealth.models.cet
     models/pyhealth.models.TrajSurv
@@ -374,4 +375,3 @@ API Reference
     models/pyhealth.models.bulk_rna_bert
     models/pyhealth.models.DearLLM
     models/pyhealth.models.GAME
-

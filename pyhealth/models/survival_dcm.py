@@ -159,6 +159,22 @@ class SurvivalDCM(BaseModel):
     subgroup. Each subgroup is a Cox model with its own baseline survival
     function, so proportional hazards only has to hold within a subgroup.
 
+    Training follows the approximate EM procedure of the paper. Call
+    :meth:`fit_baselines` once before training and again after every epoch,
+    from your own training loop. PyHealth's ``Trainer.train`` does not refit
+    the baseline curves between epochs, so on its own it would train against
+    curves that never change. ``Trainer.inference`` and ``Trainer.evaluate``
+    work on a fitted model.
+
+    Note:
+        This implementation differs from the authors' in a few ways. The
+        baseline curves are refitted once per epoch, not every few batches.
+        They are smoothed with a cubic spline, as the paper describes, where
+        the authors' released PyTorch code uses a linear one. The optional
+        variational auto-encoder term of the paper is not included. The log
+        hazard ratio is bounded with a scaled tanh, and the default bound of
+        1 matches the authors' default.
+
     Args:
         dataset: Fitted PyHealth ``SampleDataset`` with one dense feature
             vector and two tensor outputs, duration and event.
@@ -172,6 +188,9 @@ class SurvivalDCM(BaseModel):
             a single deep Cox model.
         num_grid_points: Number of evenly spaced times at which each
             subgroup's baseline survival curve is stored.
+        max_log_hazard_ratio: Largest absolute log hazard ratio the expert
+            can output. A patient's hazard within a subgroup is then between
+            ``exp(-max)`` and ``exp(max)`` times the baseline.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset
@@ -209,6 +228,7 @@ class SurvivalDCM(BaseModel):
         num_hidden_layers: int = 2,
         num_components: int = 3,
         num_grid_points: int = 2049,
+        max_log_hazard_ratio: float = 1.0,
     ) -> None:
         super().__init__(dataset)
         if feature_key not in dataset.input_schema:
@@ -216,6 +236,8 @@ class SurvivalDCM(BaseModel):
         for key in (duration_key, event_key):
             if key not in dataset.output_schema:
                 raise ValueError(f"{key!r} is not an output field")
+        if max_log_hazard_ratio <= 0:
+            raise ValueError("max_log_hazard_ratio must be positive")
         if num_grid_points < 2:
             raise ValueError("num_grid_points must be at least 2")
         if hidden_dim < 1 or num_hidden_layers < 1 or num_components < 1:
@@ -226,6 +248,7 @@ class SurvivalDCM(BaseModel):
         self.duration_key = duration_key
         self.event_key = event_key
         self.num_components = num_components
+        self.max_log_hazard_ratio = max_log_hazard_ratio
         self.input_dim = dataset.input_processors[feature_key].size()
 
         layers: list[nn.Module] = []
@@ -235,7 +258,8 @@ class SurvivalDCM(BaseModel):
             width = hidden_dim
         self.encoder = nn.Sequential(*layers)
         self.gate = nn.Linear(hidden_dim, num_components)
-        self.expert = nn.Linear(hidden_dim, num_components)
+        self.expert = nn.Linear(hidden_dim, num_components, bias=False)
+        self.tanh = nn.Tanh()
         self.log_softmax = nn.LogSoftmax(dim=1)
 
         # Each subgroup's baseline survival curve is stored as a table: its
@@ -411,6 +435,58 @@ class SurvivalDCM(BaseModel):
         self.baselines_fitted.fill_(True)
         self.train(was_training)
 
+    @torch.no_grad()
+    def _mixture_survival(
+        self, log_gate: Tensor, log_hazard_ratio: Tensor, times: Tensor
+    ) -> Tensor:
+        """Survival probability of each patient at each time.
+
+        Within a subgroup, a patient's survival is the baseline survival
+        raised to the power of their hazard ratio. The subgroup is unknown at
+        prediction time, so the subgroups are averaged with the gate's
+        probabilities as weights.
+
+        Args:
+            log_gate: Log-probability of each subgroup, shape
+                ``[n, num_components]``.
+            log_hazard_ratio: Log hazard ratio under each subgroup, same shape.
+            times: Times at which to predict, shape ``[num_times]``.
+
+        Returns:
+            Survival probabilities, shape ``[n, num_times]``.
+        """
+        baseline, _ = self.baseline_at(times)  # [num_times, num_components]
+        hazard_ratio = torch.exp(log_hazard_ratio)  # [n, num_components]
+
+        # Survival within each subgroup: [n, num_times, num_components].
+        within_subgroup = baseline.unsqueeze(0) ** hazard_ratio.unsqueeze(1)
+
+        # Weighted average over the subgroups: [n, num_times].
+        gate = torch.exp(log_gate).unsqueeze(1)
+        return (gate * within_subgroup).sum(dim=2)
+
+    def predict_survival(self, features: Tensor, times: Tensor) -> Tensor:
+        """Predict each patient's survival probability at the given times.
+
+        Args:
+            features: Feature vectors, shape ``[n, input_dim]``.
+            times: Times at which to predict, shape ``[num_times]``.
+
+        Returns:
+            Survival probabilities, shape ``[n, num_times]``. Entry ``[i, j]``
+            is the probability that patient ``i`` survives past ``times[j]``.
+
+        Raises:
+            RuntimeError: If the baseline curves have not been fitted.
+        """
+        if not self.baselines_fitted:
+            raise RuntimeError("Call fit_baselines() before predicting survival")
+        output = self(**{self.feature_key: features})
+        times = times.to(device=self.device, dtype=torch.float32)
+        return self._mixture_survival(
+            output["log_gate"], output["log_hazard_ratio"], times
+        )
+
     def forward(self, **kwargs: Tensor | tuple[Tensor, ...]) -> dict[str, Tensor]:
         """Score a batch under every subgroup and compute the training loss.
 
@@ -432,8 +508,19 @@ class SurvivalDCM(BaseModel):
             ratio under each subgroup, same shape. ``loss``: the training
             loss averaged over the batch, when the labels are present.
 
+            In evaluation mode with labels, also ``y_true``: duration and
+            event side by side, shape ``[batch, 2]``, and ``y_prob``: the
+            predicted survival curve at every time in ``baseline_grid``,
+            shape ``[batch, num_grid_points]``. Column ``j`` of ``y_prob``
+            is the survival at ``baseline_grid[j]``. ``fit_baselines`` resets
+            that grid, so read it from the same fitted model that produced
+            ``y_prob``. To predict at chosen times, use
+            :meth:`predict_survival`.
+
         Raises:
             ValueError: If the features have the wrong shape or are not finite.
+            RuntimeError: If called in training mode before the baseline
+                curves have been fitted.
         """
         features = kwargs[self.feature_key]
         if isinstance(features, tuple):
@@ -449,9 +536,13 @@ class SurvivalDCM(BaseModel):
                 "features must be finite; standardize them so that missing "
                 "values are imputed before training"
             )
+        if self.training and not self.baselines_fitted:
+            raise RuntimeError("Call fit_baselines() before training")
         hidden = self.encoder(features)
         log_gate = self.log_softmax(self.gate(hidden))
-        log_hazard_ratio = self.expert(hidden)
+        # Keep every log hazard ratio between -max and +max. Tanh squashes
+        # any number into (-1, 1), and the multiplier sets the range.
+        log_hazard_ratio = self.max_log_hazard_ratio * self.tanh(self.expert(hidden))
         output = {"log_gate": log_gate, "log_hazard_ratio": log_hazard_ratio}
 
         if self.duration_key not in kwargs or self.event_key not in kwargs:
@@ -486,4 +577,12 @@ class SurvivalDCM(BaseModel):
         # Both parts are log-likelihoods to maximize, so the loss is their
         # negative, averaged over the batch.
         output["loss"] = -(gate_term + cox_term) / len(duration)
+
+        # When evaluating, also return what PyHealth's Trainer collects: the
+        # labels, and each patient's survival curve at the stored grid times.
+        if not self.training:
+            output["y_true"] = torch.stack([duration, event], dim=1)
+            output["y_prob"] = self._mixture_survival(
+                log_gate, log_hazard_ratio, self.baseline_grid
+            )
         return output
