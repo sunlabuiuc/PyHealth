@@ -35,6 +35,15 @@ def cox_partial_log_likelihood(
     Returns:
         The partial log-likelihood summed over observed events, a scalar. It
         is 0 when the group has no observed events.
+
+    Examples:
+        >>> import torch
+        >>> log_hazard_ratio = torch.log(torch.tensor([1.0, 2.0, 3.0]))
+        >>> duration = torch.tensor([3.0, 2.0, 1.0])
+        >>> event = torch.ones(3)
+        >>> value = cox_partial_log_likelihood(log_hazard_ratio, duration, event)
+        >>> round(value.item(), 4)
+        -1.0986
     """
     total = log_hazard_ratio.new_zeros(())
     for i in range(len(duration)):
@@ -75,6 +84,18 @@ def breslow_baseline_survival(
         survival probability just after each of them. Both have shape
         ``[m]``, where ``m`` is the number of distinct event times. Both are
         empty if the group has no observed events.
+
+    Examples:
+        >>> import torch
+        >>> times, survival = breslow_baseline_survival(
+        ...     torch.zeros(4),
+        ...     torch.tensor([1.0, 2.0, 3.0, 4.0]),
+        ...     torch.tensor([1.0, 1.0, 0.0, 1.0]),
+        ... )
+        >>> times.tolist()
+        [1.0, 2.0, 4.0]
+        >>> [round(value, 3) for value in survival.tolist()]
+        [0.779, 0.558, 0.205]
     """
     hazard_ratio = torch.exp(log_hazard_ratio)
     event_times = torch.unique(duration[event == 1])  # sorted, no repeats
@@ -115,6 +136,17 @@ def smooth_baseline_survival(
         The smoothed survival and its slope (change in survival per unit
         time, never positive) at each grid time. Both have shape ``[g]``. A
         group with no events gets a flat curve at 1 with slope 0.
+
+    Examples:
+        >>> import torch
+        >>> event_times = torch.tensor([10.0, 20.0, 30.0, 40.0])
+        >>> survival = torch.tensor([0.9, 0.7, 0.5, 0.4])
+        >>> grid = torch.linspace(0.0, 40.0, 5)
+        >>> smooth, slope = smooth_baseline_survival(event_times, survival, grid)
+        >>> smooth.shape, slope.shape
+        (torch.Size([5]), torch.Size([5]))
+        >>> bool((slope <= 0).all())
+        True
     """
     if len(event_times) == 0:
         return torch.ones_like(grid), torch.zeros_like(grid)
