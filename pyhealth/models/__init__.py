@@ -35,6 +35,8 @@ from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D
 from .deepsleepnet import DeepSleepNet as DeepSleepNet
 from .deepr import Deepr, DeeprLayer
+from .delphi import Delphi as Delphi
+from .eegnet import EEGNet as EEGNet
 from .embedding import EmbeddingModel
 from .sequence_embedding import (
     LevelEmbedding as LevelEmbedding,
@@ -161,4 +163,11 @@ from .bulk_rna_bert import BulkRNABert as BulkRNABert
 from .dearllm import (
     DearLLM as DearLLM,
     DearLLMGraphEncoder as DearLLMGraphEncoder,
+)
+from .game import (
+    GAME as GAME,
+    GAMEEmbedding as GAMEEmbedding,
+    init_embedding_with_game as init_embedding_with_game,
+    load_game_embeddings as load_game_embeddings,
+    normalize_game_code as normalize_game_code,
 )

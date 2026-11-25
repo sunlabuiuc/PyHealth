@@ -229,6 +229,9 @@ Available Tasks
     Prolonged Length of Stay (MEDS) <tasks/pyhealth.tasks.ProlongedLengthOfStayMEDS>
     ETHOS Timelines (MEDS) <tasks/pyhealth.tasks.EthosTimelineMEDS>
     ETHOS Zero-Shot Outcomes (MEDS) <tasks/pyhealth.tasks.EthosOutcomeMEDS>
+    Delphi Trajectory (MEDS) <tasks/pyhealth.tasks.DelphiTrajectoryMEDS>
+    Delphi Trajectory (MIMIC-IV) <tasks/pyhealth.tasks.DelphiTrajectoryMIMIC4>
+    Delphi Trajectory (UK Biobank) <tasks/pyhealth.tasks.DelphiTrajectoryUKB>
     MIMIC-III ICD-9 Coding <tasks/pyhealth.tasks.MIMIC3ICD9Coding>
     BMD-HS Disease Classification <tasks/pyhealth.tasks.bmd_hs_disease_classification>
     Cardiology Detection <tasks/pyhealth.tasks.cardiology_detect>
@@ -236,6 +239,7 @@ Available Tasks
     COVID-19 CXR Image Generation <tasks/pyhealth.tasks.COVID19CXRImageGeneration>
     PTB-XL Multilabel Classification <tasks/pyhealth.tasks.PTBXLMultilabelClassification>
     PTB-XL HeartLang Classification <tasks/pyhealth.tasks.PTBXLHeartLangClassification>
+    PTB-XL Heartbeat MI <tasks/pyhealth.tasks.PTBXLHeartbeatMI>
     Chapman-Shaoxing ECG Classification <tasks/pyhealth.tasks.ChapmanShaoxingSuperclassClassification>
     PhysioNet 2012 Forecasting <tasks/pyhealth.tasks.PhysioNet2012Forecasting>
     Disease Progression (MIMIC-IV + Chest ImaGenome) <tasks/pyhealth.tasks.DiseaseProgressionMIMIC4>
@@ -257,6 +261,7 @@ Available Tasks
     Readmission Prediction <tasks/pyhealth.tasks.readmission_prediction>
     Sleep Staging <tasks/pyhealth.tasks.sleep_staging>
     Sleep Staging (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSleepEDF>
+    Sleep Staging (Cardio-Respiratory, NSRR) <tasks/pyhealth.tasks.SleepStagingCardioRespiratory>
     Sleep Staging Sequences (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSequenceSleepEDF>
     Sleep Staging (ISRUC) <tasks/pyhealth.tasks.SleepStagingISRUC>
     Sleep Staging Sequences (ISRUC) <tasks/pyhealth.tasks.SleepStagingSequenceISRUC>
@@ -267,6 +272,7 @@ Available Tasks
     Ear-EEG Sleep Staging (EESM23) <tasks/pyhealth.tasks.SleepStagingEarEEG>
     IIIC Seizure Classification <tasks/pyhealth.tasks.iiic_seizure_classification>
     EEGBCI Tasks <tasks/pyhealth.tasks.eegbci>
+    AHEPA Dementia Classification <tasks/pyhealth.tasks.DementiaClassificationAHEPA>
     BCI Competition IV 2a Motor Imagery <tasks/pyhealth.tasks.BCIIV2aMotorImageryClassification>
     BCI Competition IV 2a Left vs Right Hand <tasks/pyhealth.tasks.BCIIV2aLeftRightImagery>
     PTB-XL Tasks <tasks/pyhealth.tasks.ptbxl>

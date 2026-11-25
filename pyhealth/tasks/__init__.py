@@ -41,6 +41,7 @@ from .covid19_cxr_generation import (
 )
 from .ptbxl_multilabel_classification import PTBXLMultilabelClassification as PTBXLMultilabelClassification
 from .ptbxl_heartlang import PTBXLHeartLangClassification as PTBXLHeartLangClassification
+from .ptbxl_heartbeat import PTBXLHeartbeatMI as PTBXLHeartbeatMI
 from .chapman_shaoxing_classification import (
     ChapmanShaoxingSNOMEDClassification as ChapmanShaoxingSNOMEDClassification,
     ChapmanShaoxingSuperclassClassification as ChapmanShaoxingSuperclassClassification,
@@ -56,6 +57,11 @@ from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
 # __all__, and the PR lint gate flags F401 on newly added import lines.
 from .disease_progression_mimic4 import (
     DiseaseProgressionMIMIC4 as DiseaseProgressionMIMIC4,
+)
+from .delphi_trajectory import (
+    DelphiTrajectoryMEDS as DelphiTrajectoryMEDS,
+    DelphiTrajectoryMIMIC4 as DelphiTrajectoryMIMIC4,
+    DelphiTrajectoryUKB as DelphiTrajectoryUKB,
 )
 from .drug_recommendation import (
     DrugRecommendationEICU,
@@ -225,6 +231,7 @@ from .covid_blues_severity import (
     COVIDBLUESSeverityClassification as COVIDBLUESSeverityClassification,
 )
 from .sleep_staging_v2 import SleepStagingSleepEDF
+from .sleep_staging_nsrr import SleepStagingCardioRespiratory  # noqa: F401
 from .sleep_staging_isruc import SleepStagingISRUC as SleepStagingISRUC
 from .sleep_staging_isruc import (
     SleepStagingSequenceISRUC as SleepStagingSequenceISRUC,
@@ -241,6 +248,9 @@ from .seizure_detection_chbmit import (
 )
 from .sleep_staging_ear_eeg import (
     SleepStagingEarEEG as SleepStagingEarEEG,
+)
+from .dementia_classification_ahepa import (
+    DementiaClassificationAHEPA as DementiaClassificationAHEPA,
 )
 from .soz_localization_hup import (
     SOZLocalizationHUP as SOZLocalizationHUP,
