@@ -27,14 +27,17 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
+
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any
 
 import torch
 from torch import nn
 from torch.nn import functional as F
+
 from pyhealth.datasets import SampleDataset
 
 from .base_model import BaseModel
@@ -60,6 +63,13 @@ def masked_log_loss(
     Raises:
         ValueError: If shapes differ, the mask is empty, or kept values are
             zero, negative, NaN, or infinite.
+
+    Examples:
+        >>> predictions = torch.tensor([[2.0, 0.0]])
+        >>> targets = torch.tensor([[2.0, 0.0]])
+        >>> mask = torch.tensor([[True, False]])
+        >>> masked_log_loss(predictions, targets, mask).item()
+        0.0
     """
     if predictions.shape != targets.shape or targets.shape != valid_mask.shape:
         raise ValueError("Prediction, target and validity shapes must match")
@@ -90,6 +100,15 @@ class TPCLayer(nn.Module):
         dilation: Temporal dilation rate.
         main_dropout: Pointwise dropout rate.
         temporal_dropout: Temporal dropout rate.
+
+    Examples:
+        >>> layer = TPCLayer(1, 2, 1, 4, 1, 2, 1, 0.0, 0.0)
+        >>> outputs = layer(
+        ...     torch.ones(1, 2, 3), torch.ones(3, 4), torch.empty(3, 0),
+        ...     torch.ones(1, 1, 3), None, None,
+        ... )
+        >>> outputs[0].shape
+        torch.Size([1, 4, 3])
     """
 
     def __init__(
@@ -128,9 +147,9 @@ class TPCLayer(nn.Module):
         raw: torch.Tensor,
         repeated_static: torch.Tensor,
         point_skip: torch.Tensor,
-        previous_temporal: Optional[torch.Tensor],
-        previous_point: Optional[torch.Tensor],
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        previous_temporal: torch.Tensor | None,
+        previous_point: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Run one layer and keep the inputs needed by the next layer.
 
         Args:
@@ -220,11 +239,30 @@ class TPC(BaseModel):
             outside [0, 1).
 
     Examples:
-        With a prepared dataset and padded batch::
-
-            model = TPC(dataset, features=83, static_dim=64, diagnosis_dim=277)
-            output = model(**batch)
-            output["loss"].backward()
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> sample = {
+        ...     "patient_id": "demo", "record_id": "demo",
+        ...     "x": torch.ones(4, 6),
+        ...     "static": torch.empty(0), "diagnoses": torch.empty(0),
+        ...     "valid_mask": torch.tensor([False] * 5 + [True]),
+        ...     "targets": torch.ones(6),
+        ... }
+        >>> dataset = create_sample_dataset(
+        ...     samples=[sample],
+        ...     input_schema={
+        ...         key: "raw"
+        ...         for key in ("x", "static", "diagnoses", "valid_mask")
+        ...     },
+        ...     output_schema={"targets": "raw"}, in_memory=True,
+        ... )
+        >>> model = TPC(dataset, 1, 0, 0, dilation_rates=(1,)).eval()
+        >>> batch = {
+        ...     key: value.unsqueeze(0) for key, value in sample.items()
+        ...     if isinstance(value, torch.Tensor)
+        ... }
+        >>> output = model(**batch)
+        >>> output["y_prob"].shape
+        torch.Size([1, 1])
 
         See examples/eicu_remaining_los_tpc.py for a complete example.
     """
@@ -338,9 +376,9 @@ class TPC(BaseModel):
         static: torch.Tensor,
         diagnoses: torch.Tensor,
         valid_mask: torch.Tensor,
-        targets: Optional[torch.Tensor] = None,
+        targets: torch.Tensor | None = None,
         **kwargs: Any,
-    ) -> Dict[str, torch.Tensor]:
+    ) -> dict[str, torch.Tensor]:
         """Predict days left at each hour and calculate loss if targets are given.
 
         Args:
