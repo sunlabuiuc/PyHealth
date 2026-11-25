@@ -656,9 +656,19 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
         R: dict[str, torch.Tensor],
         **data: torch.Tensor | tuple[torch.Tensor, ...],
     ) -> dict[str, torch.Tensor]:
-        # StageAttentionNet uses get_last_visit (last valid timestep)
-        # instead of a CLS token.  Derive the mask from **data using
-        # the same logic as forward_from_embedding.
+        """Select the last valid timestep's relevance row per feature.
+
+        StageAttentionNet has no CLS token, so each feature's relevance
+        matrix is reduced with ``get_last_visit`` logic: the mask is taken
+        from ``**data`` the same way as ``forward_from_embedding``.
+
+        Note:
+            Flat continuous ``stagenet_tensor`` values have no processor
+            mask. When one must be inferred, a measured ``0.0`` is treated
+            as padding (``v != 0``), so attribution can land on an earlier
+            step if the last real value is exactly zero. Pass an explicit
+            mask, or use feature vectors (rank > 1), to avoid that.
+        """
         result = {}
         for key in self.feature_keys:
             r = R[key]
