@@ -50,8 +50,9 @@ Differences from the paper
 --------------------------
 * Imputation and scaling statistics are fitted on each training fold only.
   The authors fit them on all patients, which leaks test-fold information.
-* Hyperparameters are fixed instead of tuned, and training runs for a fixed
-  number of epochs with no early stopping.
+* Hyperparameters are fixed instead of tuned. As in the authors' code,
+  training stops early: about one training patient in seven is held out, and
+  training stops when the loss on them has not improved for 3 epochs.
 * The concordance index is truncated at each horizon but not weighted for
   censoring. The Brier score is censoring-weighted. The calibration error
   uses a Kaplan-Meier estimate within each bin of predicted survival.
@@ -62,6 +63,7 @@ Fill this in after running on the real data.
 """
 
 import argparse
+import copy
 import csv
 import tempfile
 from pathlib import Path
@@ -203,25 +205,57 @@ def fit_standardizer(features: torch.Tensor) -> tuple[list[float], list[float]]:
     return mean.tolist(), scale.tolist()
 
 
-def train_model(train_samples, settings: dict, epochs: int, seed: int) -> SurvivalDCM:
-    """Train one model with the EM loop: fit the baselines, then alternate.
+def validation_loss(model: SurvivalDCM, loader) -> float:
+    """Average loss of a model on held-out patients, without training on them."""
+    model.eval()
+    with torch.no_grad():
+        losses = [model(**batch)["loss"].item() for batch in loader]
+    return sum(losses) / len(losses)
+
+
+def train_model(
+    train_samples, settings: dict, max_epochs: int, patience: int, seed: int
+) -> tuple[SurvivalDCM, int]:
+    """Train one model with the EM loop, stopping early on a validation split.
+
+    Some training patients are held out. After every epoch the loss on them
+    is measured, and training stops once it has not improved for ``patience``
+    epochs in a row. The model is then put back to its best epoch. This keeps
+    the model from overfitting without ever looking at the test fold.
 
     Args:
         train_samples: Standardized training samples.
         settings: Keyword arguments for ``SurvivalDCM``.
-        epochs: Number of passes over the training data.
+        max_epochs: Most passes over the training data.
+        patience: Epochs to wait for the validation loss to improve.
         seed: Random seed.
 
     Returns:
-        The trained model, in evaluation mode.
+        The trained model, in evaluation mode, and the epoch it was taken from.
     """
     torch.manual_seed(seed)
-    loader = get_dataloader(train_samples, batch_size=128, shuffle=True, seed=seed)
-    model = SurvivalDCM(train_samples, **settings)
+
+    # Hold out about one training patient in seven for validation.
+    rng = np.random.default_rng(seed)
+    shuffled = rng.permutation(len(train_samples))
+    num_validation = len(train_samples) // 7
+    validation_samples = train_samples.subset(shuffled[:num_validation].tolist())
+    fit_samples = train_samples.subset(shuffled[num_validation:].tolist())
+
+    loader = get_dataloader(fit_samples, batch_size=128, shuffle=True, seed=seed)
+    validation_loader = get_dataloader(
+        validation_samples, batch_size=len(validation_samples), shuffle=False
+    )
+    model = SurvivalDCM(fit_samples, **settings)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
+    best_loss = float("inf")
+    best_state = copy.deepcopy(model.state_dict())
+    best_epoch = 0
+    epochs_without_improvement = 0
+
     model.fit_baselines(loader)  # once, before training
-    for _ in range(epochs):
+    for epoch in range(1, max_epochs + 1):
         model.train()
         for batch in loader:
             optimizer.zero_grad()
@@ -229,8 +263,21 @@ def train_model(train_samples, settings: dict, epochs: int, seed: int) -> Surviv
             loss.backward()
             optimizer.step()
         model.fit_baselines(loader)  # again after every epoch
+
+        current_loss = validation_loss(model, validation_loader)
+        if current_loss < best_loss:
+            best_loss = current_loss
+            best_state = copy.deepcopy(model.state_dict())
+            best_epoch = epoch
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement = epochs_without_improvement + 1
+            if epochs_without_improvement >= patience:
+                break
+
+    model.load_state_dict(best_state)
     model.eval()
-    return model
+    return model, best_epoch
 
 
 def concordance_at(
@@ -350,7 +397,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[1])
     parser.add_argument("--data", type=Path, help="path to the real support2.csv")
     parser.add_argument("--folds", type=int, default=5)
-    parser.add_argument("--epochs", type=int, default=30)
+    parser.add_argument("--epochs", type=int, default=50, help="most epochs")
+    parser.add_argument("--patience", type=int, default=3)
     parser.add_argument("--bootstrap", type=int, default=100)
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
@@ -399,12 +447,17 @@ def main() -> None:
             test_rows = np.array([patient_ids.index(pid) for pid in test["patient_id"]])
 
             for name, settings in MODELS.items():
-                model = train_model(train_samples, settings, args.epochs, args.seed)
+                model, best_epoch = train_model(
+                    train_samples, settings, args.epochs, args.patience, args.seed
+                )
                 survival = model.predict_survival(
                     test["features"], torch.as_tensor(times, dtype=torch.float32)
                 )
                 predictions[name][test_rows] = survival.numpy()
-                print(f"fold {fold + 1}/{args.folds}: trained {name}")
+                print(
+                    f"fold {fold + 1}/{args.folds}: trained {name}, "
+                    f"best epoch {best_epoch}"
+                )
 
         # Pool the test predictions of all folds, then score them.
         for title, rows in (("All patients", slice(None)), ("Non-White", non_white)):
