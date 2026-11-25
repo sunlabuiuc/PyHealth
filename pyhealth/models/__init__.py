@@ -170,3 +170,4 @@ from .game import (
     load_game_embeddings as load_game_embeddings,
     normalize_game_code as normalize_game_code,
 )
+from .query_focused_ehr import QueryFocusedEHRModel as QueryFocusedEHRModel
