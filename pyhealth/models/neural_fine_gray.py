@@ -1,7 +1,8 @@
 """Monotonic Neural Fine-Gray with an exact competing-risk likelihood.
 
 Contributors: Amey Deotale (ameysd2), Anushka Shinde (ashinde4),
-Abid Hossain (ahossa5).
+Abid Hossain (ahossa5). ``cdf_mode`` ablation: Bin Zeng (bzeng48),
+Birkneh Tilahun Tadesse (btadesse7).
 Paper: Neural Fine-Gray: Monotonic neural networks for competing risks.
 https://proceedings.mlr.press/v209/jeanselme23a.html
 Architecture adapted from the official MIT-licensed Paper release.
@@ -37,6 +38,7 @@ from ..processors import LabelProcessor
 from .base_model import BaseModel
 
 MaskMode = Literal["original", "constant", "observed", "augmented"]
+CDFMode = Literal["nfg", "sumonet"]
 
 
 class PositiveLinear(nn.Module):
@@ -127,6 +129,10 @@ class NeuralFineGray(BaseModel):
     inference_mode is unsupported. Density derivatives use the reference
     1e-10 floor for log-domain numerical safety.
 
+    ``cdf_mode="sumonet"`` drops the leading t, giving b_r*(1-exp(-m_r(t,h))).
+    The CIF stays monotonic in t but is no longer zero at t=0; this is the
+    SumoNet-style parameterization the paper compares against.
+
     Args:
         dataset: PyHealth SampleDataset, or None for direct array/tensor use.
         input_dim: Positive clinical width, excluding mask channels.
@@ -139,6 +145,7 @@ class NeuralFineGray(BaseModel):
         augmentation_rate: MCAR training masking probability in [0, 1].
         mask_indices: Eligible clinical indices; None selects every feature.
         dtype: Floating parameter/likelihood precision; float64 matches reference.
+        cdf_mode: "nfg" (paper, t*m_r) or "sumonet" (m_r, no time factor).
 
     Examples:
         >>> model = NeuralFineGray(None, 3, hidden_dims=(4,), survival_dims=(4,))
@@ -160,6 +167,7 @@ class NeuralFineGray(BaseModel):
         augmentation_rate: float = 0.1,
         mask_indices: Sequence[int] | None = None,
         dtype: torch.dtype = torch.float64,
+        cdf_mode: CDFMode = "nfg",
     ) -> None:
         super().__init__(dataset)
         if any(
@@ -173,6 +181,8 @@ class NeuralFineGray(BaseModel):
             raise ValueError("Invalid dropout or augmentation probability")
         if dtype not in (torch.float32, torch.float64):
             raise ValueError("dtype must be float32 or float64")
+        if cdf_mode not in {"nfg", "sumonet"}:
+            raise ValueError("cdf_mode must be 'nfg' or 'sumonet'")
         indices = list(range(input_dim)) if mask_indices is None else list(mask_indices)
         if len(set(indices)) != len(indices) or any(
             not isinstance(index, int) or not 0 <= index < input_dim
@@ -181,6 +191,7 @@ class NeuralFineGray(BaseModel):
             raise ValueError("mask_indices must be unique clinical indices")
         self.input_dim, self.num_risks = input_dim, num_risks
         self.mask_mode, self.augmentation_rate = mask_mode, augmentation_rate
+        self.cdf_mode = cdf_mode
         self.register_buffer("mask_indices", torch.tensor(indices, dtype=torch.long))
         embedding_input = input_dim if mask_mode == "original" else 2 * input_dim
         self.embed = _mlp([embedding_input, *hidden_dims, input_dim], dropout)
@@ -290,9 +301,10 @@ class NeuralFineGray(BaseModel):
                 tau = times.clone()
                 if event is not None:
                     tau.requires_grad_(True)
-                hazard = tau * head(
-                    torch.cat((representation, tau[:, None]), dim=1)
-                ).squeeze(1)
+                inputs = torch.cat((representation, tau[:, None]), dim=1)
+                hazard = head(inputs).squeeze(1)
+                if self.cdf_mode == "nfg":
+                    hazard = tau * hazard
                 hazards.append(hazard)
                 if event is not None:
                     derivative = torch.autograd.grad(

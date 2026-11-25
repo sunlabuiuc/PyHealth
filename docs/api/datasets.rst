@@ -609,6 +609,7 @@ Available Datasets
 
     datasets/pyhealth.datasets.BaseDataset
     datasets/pyhealth.datasets.PBCDataset
+    datasets/pyhealth.datasets.FraminghamDataset
     datasets/pyhealth.datasets.SampleDataset
     datasets/pyhealth.datasets.PatchDataset
     MSD Base Loader <datasets/pyhealth.datasets.MSDSegmentationDataset>
