@@ -35,6 +35,7 @@ from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D
 from .deepsleepnet import DeepSleepNet as DeepSleepNet
 from .deepr import Deepr, DeeprLayer
+from .delphi import Delphi as Delphi
 from .eegnet import EEGNet as EEGNet
 from .embedding import EmbeddingModel
 from .sequence_embedding import (
@@ -80,6 +81,7 @@ from .tfm_tokenizer import (
 from .torchvision_model import TorchvisionModel
 from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
+from .rasc import RASCCrossEncoder as RASCCrossEncoder
 from .llm_ehr_encoder import LLMEHREncoder as LLMEHREncoder
 from .ehr_fm import (
     EHRFoundationModelBase as EHRFoundationModelBase,
@@ -163,3 +165,10 @@ from .dearllm import (
     DearLLMGraphEncoder as DearLLMGraphEncoder,
 )
 from .tpc import TPC as TPC
+from .game import (
+    GAME as GAME,
+    GAMEEmbedding as GAMEEmbedding,
+    init_embedding_with_game as init_embedding_with_game,
+    load_game_embeddings as load_game_embeddings,
+    normalize_game_code as normalize_game_code,
+)

@@ -25,29 +25,53 @@ Ablations (none of them are in the MedMod paper):
 
 By default the script writes a small synthetic MIMIC-IV + MIMIC-CXR tree (random
 values and images, no patient data) and runs the whole pipeline on it in about a
-minute on a CPU. Those numbers say nothing about performance. For the real data
-(credentialed PhysioNet access), pass the roots:
+minute on a CPU, so it runs without credentialed data access. Those numbers say
+nothing about performance. For the real data (credentialed PhysioNet access), pass
+the roots. These are the settings of the results below; run it once per seed
+(``--seed 0``, ``1`` and ``2``) and average the test scores:
 
     python examples/mimic4_decompensation_daft.py \\
         --ehr-root /path/to/mimiciv/3.1 --cxr-root /path/to/mimic-cxr-jpg/2.1.0 \\
-        --task mortality --image-size 224 --epochs 5 --pretrained
+        --task mortality --paired-only --split 0.7 0.1 0.2 --seed 0 \\
+        --image-size 224 --backbone resnet34 --hidden 256 \\
+        --epochs 15 --lr 3e-4 --batch-size 32 --pretrained
 
-Results on the real data (in-hospital mortality, paired cohort, MIMIC-IV 3.1,
-4,689 / 655 / 1,338 train / val / test stays, one seed, 5 epochs, lr 1e-4,
-ResNet-34 from ImageNet weights, best epoch by validation AUROC):
+For the decompensation table, use the same command with ``--task decompensation``
+(the task's defaults: a prediction every 4 h, a 48 h window, a 24 h horizon).
 
-    model                  test AUROC  test AUPRC  MedMod (AUROC / AUPRC)
-    EHR-only LSTM               0.835       0.511  0.829 / 0.502
-    MedFuse                     0.822       0.425  0.819 / 0.482
-    DAFT, cxr_to_ehr            0.794       0.376  0.826 / 0.494
-    DAFT, ehr_to_cxr            0.799       0.438  -
+Results on the real data (MIMIC-IV 3.1, paired stays, 15 epochs, lr 3e-4, batch 32,
+ResNet-34 from ImageNet weights, best epoch by validation AUROC, mean +- std over
+three seeds, each a different 70/10/20 patient split). They were produced with these
+tasks, models and settings and the PyHealth ``Trainer``, by a runner in our project
+repository that also trains :class:`~pyhealth.models.MedFuse`; this script covers
+the EHR-only and DAFT rows, not the MedFuse ones. Small differences from the table are expected across
+hardware (the runs used an Apple GPU).
 
-Findings: the EHR-only baseline and MedFuse match the paper. DAFT is about 0.03
-AUROC below the paper's DAFT in this short, untuned setting (the paper also
-pretrains the image encoder on MIMIC-CXR labels). The original DAFT direction
-(the EHR state conditions the image) gives a clearly better AUPRC than MedMod's
-direction. No fusion model beats EHR-only here, which is in line with the
-paper's own remark that the gain from adding X-rays is small and task dependent.
+In-hospital mortality (``EHRCXRMortalityMIMIC4``, 4,689 / 655 / 1,338 stays for
+seed 0):
+
+    model                  test AUROC      test AUPRC      MedMod (AUROC / AUPRC)
+    EHR-only LSTM          0.822 +- 0.020  0.480 +- 0.048  0.829 / 0.502
+    MedFuse                0.815 +- 0.017  0.478 +- 0.047  0.819 / 0.482
+    DAFT, cxr_to_ehr       0.818 +- 0.022  0.496 +- 0.048  0.826 / 0.494
+    DAFT, ehr_to_cxr       0.821 +- 0.016  0.480 +- 0.040  -
+
+Decompensation (``MedModDecompensationMIMIC4``, every 4 h, about 16,800 test
+samples per split, 2.3 to 3.0% positive):
+
+    model                  test AUROC      test AUPRC
+    EHR-only LSTM          0.919 +- 0.009  0.456 +- 0.063
+    MedFuse                0.916 +- 0.013  0.447 +- 0.049
+    DAFT, cxr_to_ehr       0.922 +- 0.011  0.464 +- 0.052
+    DAFT, ehr_to_cxr       0.923 +- 0.011  0.461 +- 0.065
+
+Findings: with the same training for every model, the X-ray adds little. On
+mortality, EHR-only and DAFT are within the spread of MedMod's numbers. On
+decompensation, no model clearly beats EHR-only once the image must come from
+before the prediction time. MedMod's decompensation numbers are not comparable: it
+samples every hour (Sec. 4.1), and its code (``get_recent_cxr`` in
+``src/data/utils.py``, github.com/nyuad-cai/MedMod) pairs one X-ray per stay with
+every hour, so an early hour can see a later image.
 """
 
 from __future__ import annotations
@@ -297,6 +321,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--split",
+        type=float,
+        nargs=3,
+        default=(0.6, 0.2, 0.2),
+        metavar=("TRAIN", "VAL", "TEST"),
+        help="patient split ratios (the results above use 0.7 0.1 0.2)",
+    )
+    parser.add_argument(
+        "--paired-only",
+        action="store_true",
+        help="keep only samples with an X-ray (the paired cohort of the results)",
+    )
     return parser.parse_args()
 
 
@@ -320,11 +357,15 @@ def main() -> None:
             num_workers=1,
         )
         if args.task == "decompensation":
-            task = MedModDecompensationMIMIC4(image_size=args.image_size)
+            task = MedModDecompensationMIMIC4(
+                image_size=args.image_size, paired_only=args.paired_only
+            )
         else:
-            task = EHRCXRMortalityMIMIC4(image_size=args.image_size)
+            task = EHRCXRMortalityMIMIC4(
+                image_size=args.image_size, paired_only=args.paired_only
+            )
         train, val, test = dataset.set_task(
-            task, split=PatientSplit(ratios=(0.6, 0.2, 0.2), seed=args.seed)
+            task, split=PatientSplit(ratios=tuple(args.split), seed=args.seed)
         )
         label = next(iter(task.output_schema))
         for name, part in (("train", train), ("val", val), ("test", test)):
