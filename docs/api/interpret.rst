@@ -78,6 +78,8 @@ Attribution Methods
     interpret/pyhealth.interpret.methods.basic_gradient
     interpret/pyhealth.interpret.methods.chefer
     interpret/pyhealth.interpret.methods.attention_rollout
+    interpret/pyhealth.interpret.methods.raw_attention
+    interpret/pyhealth.interpret.methods.grad_cam
     interpret/pyhealth.interpret.methods.deeplift
     interpret/pyhealth.interpret.methods.integrated_gradients
     interpret/pyhealth.interpret.methods.shap

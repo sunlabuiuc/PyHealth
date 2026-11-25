@@ -276,6 +276,8 @@ def _next_outcome_time(
 class ICUAdmissionMEDS(BaseTask):
     """ICU admission prediction at hospital admission for MEDS datasets.
 
+    Works with :class:`~pyhealth.datasets.MEDSDataset`.
+
     One sample per completed stay. The input is the patient's history up to
     and including the admission event, and the binary label is whether the
     patient reached the ICU during the stay. By default a death during the
@@ -473,6 +475,8 @@ class HospitalReadmissionMEDS(BaseTask):
 
 class ProlongedLengthOfStayMEDS(BaseTask):
     """Prolonged length of stay prediction at admission for MEDS datasets.
+
+    Works with :class:`~pyhealth.datasets.MEDSDataset`.
 
     One sample per completed stay, including stays that ended in death. The
     input is the patient's history up to and including the admission event,

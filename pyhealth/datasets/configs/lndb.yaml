@@ -1,0 +1,20 @@
+version: "1.0"
+tables:
+  findings:
+    file_path: "lndb-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "record_id"
+      - "image_path"
+      - "finding_id"
+      - "x"
+      - "y"
+      - "z"
+      - "agreement"
+      - "nodule"
+      - "volume"
+      - "eq_diameter"
+      - "finding_class"
+      - "texture"
+      - "fold"

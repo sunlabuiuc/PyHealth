@@ -1,0 +1,4 @@
+# Optional baseline examples only; not PyHealth core dependencies.
+scikit-survival>=0.25,<0.26
+pycox>=0.3,<0.4
+torchtuples>=0.2,<0.3

@@ -17,7 +17,7 @@ batch.
 import copy
 from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 import torch
 
@@ -33,7 +33,7 @@ from .deep_nested_sequence_processor import (
     DeepNestedSequenceProcessor,
 )
 from .image_processor import ImageProcessor
-from .jagged_processor import JaggedFeatureProcessor, LevelConfig
+from .jagged_processor import ImputeMethod, JaggedFeatureProcessor, LevelConfig
 from .multi_hot_processor import MultiHotProcessor
 from .nested_multihot_processor import NestedMultiHotProcessor
 from .nested_sequence_processor import NestedFloatsProcessor, NestedSequenceProcessor
@@ -495,19 +495,20 @@ class StageNetToUnifiedBridge(UnifiedBridge):
         self, value: tuple[torch.Tensor | None, torch.Tensor]
     ) -> tuple[torch.Tensor, ...]:
         time, ids = value
-        if self.legacy._is_nested:
+        nested = cast(StageNetProcessor, self.legacy)._is_nested
+        if nested:
             tokens, offsets, batch = _nested_tokens(ids)
+            head = (tokens, offsets)
         else:
             tokens, batch = _tokens(ids)
+            head = (tokens,)
         width = ids.shape[1]
         top = _prefix(batch.diff(), width)
         if time is None:
             record_time = torch.zeros(int(top.sum()), device=ids.device)
         else:
             record_time = _values(_fit_width(time, width))[top]
-        if self.legacy._is_nested:
-            return tokens, offsets, record_time, batch
-        return tokens, record_time, batch
+        return *head, record_time, batch
 
 
 def _fit_width(x: torch.Tensor, width: int) -> torch.Tensor:
@@ -687,7 +688,7 @@ class TimeseriesToUnifiedBridge(UnifiedBridge):
             )
         level: LevelConfig = {"ordering": "series", "values": [legacy.n_features]}
         if legacy.missing_indicators:
-            level["impute"] = {"method": legacy.impute_strategy}
+            level["impute"] = {"method": cast(ImputeMethod, legacy.impute_strategy)}
             level["missing_indicator"] = True
         super().__init__(legacy, [level])
         self._hours = legacy.sampling_rate.total_seconds() / 3600.0
@@ -700,8 +701,9 @@ class TimeseriesToUnifiedBridge(UnifiedBridge):
         time = (position[_prefix(batch.diff(), value.shape[1])] * self._hours).to(
             torch.float32
         )
-        n = self.legacy.n_features
-        if self.legacy.missing_indicators:
+        legacy = cast(TimeseriesProcessor, self.legacy)
+        n = legacy.n_features
+        if legacy.missing_indicators:
             return _values(rows[:, :n]), rows[:, n:] != 0, time, batch
         return _values(rows), time, batch
 
@@ -826,7 +828,7 @@ class TensorToUnifiedBridge(UnifiedBridge):
 
     ``fit()`` records the shape of every sample's tensor. When its first
     axis has the same length in every sample, each sample is one record of
-    a ``set`` level, holding the whole tensor (``[1]`` for a scalar). When
+    a ``single`` level, holding the whole tensor (``[1]`` for a scalar). When
     the first axis varies in length, each row along it is one record,
     holding the rest of the tensor (``[1]`` for an element of a vector);
     the level is a ``sequence`` when ``spatial_dims`` marks the first axis
@@ -880,12 +882,12 @@ class TensorToUnifiedBridge(UnifiedBridge):
                     "missing_indicators cannot be bridged, as the indicators "
                     "follow the values on the same axis."
                 )
-            record = [int(n) for n in shape[1:]] or [1]
+            record = [int(n) for n in cast(tuple[int, ...], shape[1:])] or [1]
             ordering = "sequence" if spatial and spatial[0] else "set"
             record_spatial = list(spatial[1:]) if spatial and len(shape) > 1 else None
         else:
-            record = [int(n) for n in shape] or [1]
-            ordering = "set"
+            record = [int(n) for n in cast(tuple[int, ...], shape)] or [1]
+            ordering = "single"
             record_spatial = list(spatial) if spatial and shape else None
         level: LevelConfig = {"ordering": ordering, "values": record}
         if record_spatial is not None:
@@ -897,7 +899,7 @@ class TensorToUnifiedBridge(UnifiedBridge):
         self._record = tuple(record)
 
     def transform_batch(self, value: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        indicators = self.legacy.missing_indicators
+        indicators = cast(TensorProcessor, self.legacy).missing_indicators
         n = self._record[-1]
         fitted = (*self._record[:-1], 2 * n) if indicators else self._record
         if self._rows:
@@ -917,7 +919,7 @@ class TensorToUnifiedBridge(UnifiedBridge):
 
 @_bridges(ImageProcessor)
 class ImageToUnifiedBridge(UnifiedBridge):
-    """:class:`~pyhealth.processors.ImageProcessor` as a ``set`` of one image.
+    """:class:`~pyhealth.processors.ImageProcessor` as a ``single`` image per sample.
 
     Each sample is one record with ``[C, H, W]`` values, the height and
     width being spatial. The shape is the widest that ``fit()`` saw: the
@@ -964,7 +966,7 @@ class ImageToUnifiedBridge(UnifiedBridge):
             legacy,
             [
                 {
-                    "ordering": "set",
+                    "ordering": "single",
                     "values": list(shape),
                     "spatial": [False, True, True],
                 }
@@ -983,7 +985,7 @@ class ImageToUnifiedBridge(UnifiedBridge):
 
 @_bridges(AudioProcessor)
 class AudioToUnifiedBridge(UnifiedBridge):
-    """:class:`~pyhealth.processors.AudioProcessor` as a ``set`` of one recording.
+    """:class:`~pyhealth.processors.AudioProcessor` as a ``single`` recording.
 
     Each sample is one record: the ``[1, samples]`` waveform, or the
     ``[1, n_mels, frames]`` mel spectrogram, with the time (and mel) axes
@@ -1019,7 +1021,7 @@ class AudioToUnifiedBridge(UnifiedBridge):
             hop = legacy.hop_length or legacy.n_fft // 2
             shape, spatial = [1, legacy.n_mels, 1 + samples // hop], [False, True, True]
         super().__init__(
-            legacy, [{"ordering": "set", "values": shape, "spatial": spatial}]
+            legacy, [{"ordering": "single", "values": shape, "spatial": spatial}]
         )
 
     def transform_batch(self, value: torch.Tensor) -> tuple[torch.Tensor, ...]:
@@ -1083,7 +1085,8 @@ def transform_processor(
             raise TypeError(
                 f"'{field}': {type(processor).__name__} has no unified bridge yet."
             )
-        bridged[field] = bridge_cls(processor)
+        make = cast(Callable[[LegacyFeatureProcessor], UnifiedBridge], bridge_cls)
+        bridged[field] = make(processor)
     return bridged
 
 
@@ -1122,7 +1125,9 @@ def transform_batch(
         if isinstance(processor, UnifiedBridge) and processor.converts
     }
     return {
-        key: processors[key].transform_batch(value) if key in converting else value
+        key: cast(UnifiedBridge, processors[key]).transform_batch(value)
+        if key in converting
+        else value
         for key, value in batch.items()
     }
 

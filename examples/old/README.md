@@ -9,8 +9,8 @@ or the [examples index](../README.md).
 
 | File | Why it was archived | Use instead |
 |---|---|---|
-| `cardiology_detection_isAR_SparcNet.py` | `CardiologyDataset` hasn't been ported to the 2.x dataset API (no `set_task`); 1.x task function | none yet |
-| `eeg/sleep_staging/sleep_staging_ISRUC_SparcNet.py` | `ISRUCDataset` hasn't been ported to 2.x (no `set_task`) | `eeg/sleep_staging/sleep_staging_sleepEDF_contrawr.py` |
+| `cardiology_detection_isAR_SparcNet.py` | 1.x task function `cardiology_isAR_fn` on the 1.x `CardiologyDataset` | `ecg/cardiology/cardiology_detection_sparcnet.py` |
+| `eeg/sleep_staging/sleep_staging_ISRUC_SparcNet.py` | 1.x task function `sleep_staging_isruc_fn` | `eeg/isruc/isruc_sleep_staging.py` |
 | `eeg/sleep_staging/sleep_staging_shhs_contrawr.py` | `SHHSDataset` hasn't been ported to 2.x (no `set_task`) | `eeg/sleep_staging/contrawr_sleepedf.ipynb` |
 | `conformal_eeg/tuev_eeg_quickstart.ipynb` | duplicate with a stale layer size; fails on 2.x | `eeg/tuh_eeg/tuev_eeg_event_classification.ipynb`, `conformal_eeg/contrawr_tuev_eeg.ipynb` |
 | `conformal_eeg/test_tfm_tuev_inference.py`, `conformal_eeg/test_tfm_tuab_inference.py` | personal checkpoint checks; need unreleased weight files | `conformal_eeg/*_conformal.py --model tfm` |
