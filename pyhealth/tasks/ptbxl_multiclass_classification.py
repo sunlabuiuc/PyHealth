@@ -47,7 +47,8 @@ PTBXL_MULTICLASS_TARGET_DX: dict[str, str] = {
 }
 
 # The four target diagnoses the paper benchmarks on PTB-XL (Table 2 and
-# Figures 4-7). ``--dx`` in examples/ptbxl_ecg_benchmark_resnet1d.py only
+# Figures 4-7). ``--dx`` in
+# examples/ecg/ptbxl/ptbxl_multilabel_classification_resnet1d.py only
 # accepts these.
 PTBXL_PAPER_TARGET_DX: tuple[str, ...] = ("AF", "IAVB", "LBBB", "RBBB")
 

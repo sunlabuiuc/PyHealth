@@ -31,8 +31,9 @@ percentiles, and rejection of resamples that do not define every class (a
 multilabel class without a positive, or a multiclass class without a
 member). That is not how the paper decides whether one setting beats
 another: for that, compare per-split scores from repeated runs with
-:func:`pyhealth.metrics.significance.welch_relative_improvement_test`. See
-``examples/ptbxl_ecg_benchmark_resnet1d.py``.
+:func:`pyhealth.metrics.significance.welch_relative_improvement_test`.
+See
+``examples/ecg/ptbxl/ptbxl_multilabel_classification_resnet1d.py``.
 
 .. currentmodule:: pyhealth.metrics.bootstrap
 

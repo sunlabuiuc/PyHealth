@@ -30,7 +30,8 @@ class TestBenjaminiHochberg(unittest.TestCase):
         q_ordered, rejected_ordered = benjamini_hochberg(ordered, alpha=0.05)
         q_sorted, rejected_sorted = benjamini_hochberg(sorted(ordered), alpha=0.05)
         np.testing.assert_allclose(q_ordered, q_sorted[[3, 0, 4, 2, 1]])
-        self.assertEqual(rejected_ordered.tolist(), rejected_sorted[[3, 0, 4, 2, 1]].tolist())
+        expected_rejected = rejected_sorted[[3, 0, 4, 2, 1]].tolist()
+        self.assertEqual(rejected_ordered.tolist(), expected_rejected)
 
     def test_matches_scipy_reference(self):
         if not hasattr(stats, "false_discovery_control"):
@@ -75,8 +76,12 @@ class TestWelchRelativeImprovementTest(unittest.TestCase):
         self.assertAlmostEqual(row["improvement"], 0.03)
         self.assertAlmostEqual(row["relative_improvement"], 100.0 * 0.03 / 0.91)
 
-        reference = stats.ttest_ind([0.93, 0.94, 0.95], [0.90, 0.91, 0.92], equal_var=False)
-        self.assertAlmostEqual(row["t_statistic"], float(reference.statistic), places=10)
+        reference = stats.ttest_ind(
+            [0.93, 0.94, 0.95], [0.90, 0.91, 0.92], equal_var=False
+        )
+        self.assertAlmostEqual(
+            row["t_statistic"], float(reference.statistic), places=10
+        )
         self.assertAlmostEqual(row["p_value"], float(reference.pvalue), places=10)
         df = getattr(reference, "df", None)
         if df is not None:
@@ -93,10 +98,14 @@ class TestWelchRelativeImprovementTest(unittest.TestCase):
         base = [1.5, 5.5]
         pooled = stats.ttest_ind(arm, base, equal_var=True)
         reference = stats.ttest_ind(arm, base, equal_var=False)
-        (row,) = welch_relative_improvement_test({"f1": {"a": arm, "b": base}}, baseline="b")
+        (row,) = welch_relative_improvement_test(
+            {"f1": {"a": arm, "b": base}}, baseline="b"
+        )
 
         self.assertTrue(row["tested"])
-        self.assertAlmostEqual(row["t_statistic"], float(reference.statistic), places=10)
+        self.assertAlmostEqual(
+            row["t_statistic"], float(reference.statistic), places=10
+        )
         self.assertAlmostEqual(row["p_value"], float(reference.pvalue), places=10)
         self.assertLess(row["degrees_of_freedom"], 3.0)
         self.assertNotAlmostEqual(row["t_statistic"], float(pooled.statistic), places=6)
@@ -132,7 +141,8 @@ class TestWelchRelativeImprovementTest(unittest.TestCase):
             "equal": {18: [0.9, 0.9], 34: [0.95, 0.95]},
             "same": {18: [0.9, 0.9], 50: [0.9, 0.9]},
         }
-        rows = {row["setting"]: row for row in welch_relative_improvement_test(scores, baseline=18)}
+        tested_rows = welch_relative_improvement_test(scores, baseline=18)
+        rows = {row["setting"]: row for row in tested_rows}
         self.assertEqual(rows["equal"]["reason"], "zero variance in both settings")
         self.assertAlmostEqual(rows["equal"]["p_value"], 0.0)
         self.assertTrue(rows["equal"]["significant"])
@@ -141,7 +151,9 @@ class TestWelchRelativeImprovementTest(unittest.TestCase):
 
     def test_short_inputs_are_reported_not_tested(self):
         # the paper's single run per split gives one score per arm
-        (row,) = welch_relative_improvement_test({"f1": {18: [0.8], 34: [0.9]}}, baseline=18)
+        (row,) = welch_relative_improvement_test(
+            {"f1": {18: [0.8], 34: [0.9]}}, baseline=18
+        )
         self.assertFalse(row["tested"])
         self.assertEqual(row["reason"], "fewer than 2 split scores")
         self.assertEqual(row["n"], 1)
@@ -159,7 +171,9 @@ class TestWelchRelativeImprovementTest(unittest.TestCase):
             {"metric": {"base": [0.0, 0.0], "arm": [0.5, 0.6]}}, baseline="base"
         )
         self.assertFalse(row["tested"])
-        self.assertEqual(row["reason"], "baseline mean is zero, relative improvement undefined")
+        self.assertEqual(
+            row["reason"], "baseline mean is zero, relative improvement undefined"
+        )
         self.assertAlmostEqual(row["improvement"], 0.55)
         self.assertIsNone(row["relative_improvement"])
 
@@ -168,7 +182,10 @@ class TestWelchRelativeImprovementTest(unittest.TestCase):
         base = [0.900, 0.910, 0.920, 0.910, 0.920]
         strong = [0.9245, 0.925, 0.9245, 0.925, 0.9245]
         weak = [0.9165, 0.917, 0.916, 0.9165, 0.917]
-        scores = {"a/roc_auc": {18: base, 50: strong}, "b/roc_auc": {18: base, 50: weak}}
+        scores = {
+            "a/roc_auc": {18: base, 50: strong},
+            "b/roc_auc": {18: base, 50: weak},
+        }
         rows = welch_relative_improvement_test(scores, baseline=18)
 
         self.assertEqual([row["setting"] for row in rows], ["a/roc_auc", "b/roc_auc"])
@@ -191,7 +208,10 @@ class TestWelchRelativeImprovementTest(unittest.TestCase):
         base = [0.900, 0.910, 0.920, 0.910, 0.920]
         strong = [0.9245, 0.925, 0.9245, 0.925, 0.9245]
         weak = [0.9165, 0.917, 0.916, 0.9165, 0.917]
-        scores = {"a/roc_auc": {18: base, 50: strong}, "b/roc_auc": {18: base, 50: weak}}
+        scores = {
+            "a/roc_auc": {18: base, 50: strong},
+            "b/roc_auc": {18: base, 50: weak},
+        }
         strict = welch_relative_improvement_test(scores, baseline=18, alpha=0.05)
         loose = welch_relative_improvement_test(scores, baseline=18, alpha=0.50)
         self.assertFalse(any(row["significant"] for row in strict))

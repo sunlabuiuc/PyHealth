@@ -44,18 +44,18 @@ Requires the PTB-XL v1.0.3 corpus (https://physionet.org/content/ptb-xl/)
 and ``pip install 'pyhealth[ptbxl]'``. Examples:
 
     # one split, one architecture (the paper's ResNet-18 row)
-    python examples/ptbxl_ecg_benchmark_resnet1d.py \
+    python examples/ecg/ptbxl/ptbxl_multilabel_classification_resnet1d.py \
         --root ~/.cache/pyhealth/datasets/ptbxl/1.0.3 \
         --split 1 --task multilabel --label-set diagnostic
 
     # the paper's five-split sweep, three depths, tested against ResNet-18
-    python examples/ptbxl_ecg_benchmark_resnet1d.py \
+    python examples/ecg/ptbxl/ptbxl_multilabel_classification_resnet1d.py \
         --root ~/.cache/pyhealth/datasets/ptbxl/1.0.3 \
         --split all --task multilabel --label-set all --depth 18 34 50 \
         --result-json ptbxl_all_resnet1d.json
 
     # multi-class task, one of the paper's four target diagnoses
-    python examples/ptbxl_ecg_benchmark_resnet1d.py \
+    python examples/ecg/ptbxl/ptbxl_multilabel_classification_resnet1d.py \
         --root ~/.cache/pyhealth/datasets/ptbxl/1.0.3 \
         --split all --task multiclass --dx AF --depth 18 50
 

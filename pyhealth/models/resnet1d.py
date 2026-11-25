@@ -467,8 +467,9 @@ class ResNet1D(BaseModel):
             signal = torch.as_tensor(signal)
         signal = signal.to(self.device).float()
 
-        if self.training and self.training_crop_len and signal.shape[-1] > self.training_crop_len:
-            signal = self._random_crop(signal, self.training_crop_len)
+        crop_len = self.training_crop_len
+        if self.training and crop_len and signal.shape[-1] > crop_len:
+            signal = self._random_crop(signal, crop_len)
 
         windowed = (
             not self.training

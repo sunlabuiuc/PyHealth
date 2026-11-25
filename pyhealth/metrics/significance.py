@@ -105,7 +105,9 @@ def _welch_test(
 
     variance_a = float(np.var(scores, ddof=1))
     variance_b = float(np.var(baseline_scores, ddof=1))
-    standard_error_squared = variance_a / scores.size + variance_b / baseline_scores.size
+    standard_error_squared = (
+        variance_a / scores.size + variance_b / baseline_scores.size
+    )
     if standard_error_squared == 0.0:
         # every split gave the same score in both settings: there is no
         # variance to test the observed difference against
@@ -158,11 +160,18 @@ def welch_relative_improvement_test(
     Examples:
         >>> from pyhealth.metrics import welch_relative_improvement_test
         >>> scores = {
-        ...     "all/roc_auc_macro": {18: [0.914, 0.912, 0.915], 50: [0.917, 0.916, 0.918]},
-        ...     "super/roc_auc_macro": {18: [0.931, 0.929, 0.930], 50: [0.929, 0.930, 0.928]},
+        ...     "all/roc_auc_macro": {
+        ...         18: [0.914, 0.912, 0.915],
+        ...         50: [0.917, 0.916, 0.918],
+        ...     },
+        ...     "super/roc_auc_macro": {
+        ...         18: [0.931, 0.929, 0.930],
+        ...         50: [0.929, 0.930, 0.928],
+        ...     },
         ... }
         >>> for row in welch_relative_improvement_test(scores, baseline=18):
-        ...     print(row["setting"], row["arm"], row["significant"], row["reason"] or "-")
+        ...     reason = row["reason"] or "-"
+        ...     print(row["setting"], row["arm"], row["significant"], reason)
         all/roc_auc_macro 50 True -
         super/roc_auc_macro 50 False decreased relative improvement
     """
@@ -173,8 +182,14 @@ def welch_relative_improvement_test(
     for setting in sorted(scores, key=str):
         arms = scores[setting]
         baseline_scores = _as_float_array(arms.get(baseline))
-        baseline_mean = float(np.mean(baseline_scores)) if baseline_scores.size else None
-        baseline_std = float(np.std(baseline_scores, ddof=1)) if baseline_scores.size > 1 else None
+        baseline_mean = (
+            float(np.mean(baseline_scores)) if baseline_scores.size else None
+        )
+        baseline_std = (
+            float(np.std(baseline_scores, ddof=1))
+            if baseline_scores.size > 1
+            else None
+        )
 
         for arm in sorted((key for key in arms if key != baseline), key=str):
             values = _as_float_array(arms[arm])
@@ -224,7 +239,8 @@ def welch_relative_improvement_test(
 
     tested = [row for row in rows if row["tested"]]
     if tested:
-        q_values, rejected = benjamini_hochberg([row["p_value"] for row in tested], alpha=alpha)
+        p_values = [row["p_value"] for row in tested]
+        q_values, rejected = benjamini_hochberg(p_values, alpha=alpha)
         for row, q_value, reject in zip(tested, q_values, rejected, strict=True):
             row["q_value"] = float(q_value)
             row["significant"] = bool(reject)

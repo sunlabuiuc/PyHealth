@@ -28,8 +28,9 @@ single run's test set, use :mod:`pyhealth.metrics.bootstrap` instead.
         print(row["mean"], row["std"], row["relative_improvement"], row["q_value"])
 
 The paper reports no significant improvement over ResNet-18 for any of the
-architectures it tested. See ``examples/ptbxl_ecg_benchmark_resnet1d.py``
-for a sweep that fills this in from real runs.
+architectures it tested. See
+``examples/ecg/ptbxl/ptbxl_multilabel_classification_resnet1d.py`` for a
+sweep that fills this in from real runs.
 
 .. currentmodule:: pyhealth.metrics.significance
 

@@ -6,12 +6,21 @@ Uses small synthetic WFDB fixtures under test-resources/core/ptbxl/ (not real
 PhysioNet records). Waveforms are generated at test time. Covers censored
 age (300), missing age, and empty diagnostic-superclass labels.
 
+Speed: building processed samples through ``set_task`` is the expensive part
+(litdata spawns workers), so the fixture and the dataset objects are built
+once per *variant* and shared by every test that needs them, and each class
+prepares its sample sets in ``setUpClass``. Tests then assert on cached
+objects and run in milliseconds; only the handful of distinct fixture/task
+combinations pay the build cost, once.
+
 Author:
     AxelNoun (GitHub: @AxelNoun) — external contributor, no NetID
 """
 
 from __future__ import annotations
 
+import atexit
+import functools
 import shutil
 import tempfile
 import unittest
@@ -89,6 +98,81 @@ def _materialize_fixture(dest: Path) -> Path:
         for rel in db[col]:
             _write_dummy_wfdb(dest / str(rel), n_samples=n_samples, fs=fs)
     return dest
+
+
+def _materialize_long_fixture(dest: Path) -> Path:
+    """Same as ``_materialize_fixture`` with 10 s records (1000 / 5000 samples)."""
+    dest.mkdir(parents=True, exist_ok=True)
+    shutil.copy(FIXTURE_ROOT / "ptbxl_database.csv", dest / "ptbxl_database.csv")
+    shutil.copy(FIXTURE_ROOT / "scp_statements.csv", dest / "scp_statements.csv")
+    db = pd.read_csv(dest / "ptbxl_database.csv")
+    for col, fs, n_samples in (("filename_lr", 100, 1000), ("filename_hr", 500, 5000)):
+        for rel in db[col]:
+            _write_dummy_wfdb(dest / str(rel), n_samples=n_samples, fs=fs)
+    return dest
+
+
+def _set_scp_codes(root: Path, ecg_id: int, codes: str) -> None:
+    db = pd.read_csv(root / "ptbxl_database.csv")
+    db.loc[db["ecg_id"] == ecg_id, "scp_codes"] = codes
+    db.to_csv(root / "ptbxl_database.csv", index=False)
+
+
+def _apply_variant(root: Path, variant: str) -> None:
+    """Extra edits that make a fixture variant exercise a specific code path."""
+    if variant == "afib":
+        # A target-diagnosis record, and one record that carries NORM *and* the
+        # target, so the 3-way task sees every class plus the precedence rule.
+        _set_scp_codes(root, 4, "{'IMI': 100.0, 'LVH': 80.0, 'AFIB': 60.0}")
+        _set_scp_codes(root, 2, "{'NORM': 100.0, 'AFIB': 60.0}")
+    elif variant == "changed":  # source CSV differs: derived metadata must re-key
+        _set_scp_codes(root, 1, "{'LVH': 100.0}")
+    elif variant == "offset":  # fold 9/10 waveforms shifted, so train fits differ
+        for rec in ("00002_lr", "00003_lr"):
+            _write_dummy_wfdb(
+                root / "records100" / "00000" / rec, n_samples=50, fs=100, offset=400
+            )
+
+
+_FIXTURES: dict[str, Path] = {}
+_SHARED_TMP = Path(tempfile.mkdtemp(prefix="ptbxl-fixture-"))
+atexit.register(shutil.rmtree, _SHARED_TMP, ignore_errors=True)
+
+
+def fixture(variant: str = "base") -> Path:
+    """Materialize a fixture variant once per run and reuse it everywhere."""
+    if variant not in _FIXTURES:
+        dest = _SHARED_TMP / variant
+        if variant == "long":
+            _materialize_long_fixture(dest)
+        else:
+            _materialize_fixture(dest)
+        _apply_variant(dest, variant)
+        _FIXTURES[variant] = dest
+    return _FIXTURES[variant]
+
+
+@functools.lru_cache(maxsize=None)
+def dataset_for(variant: str = "base", sampling_rate: int = 100) -> PTBXLDataset:
+    """One dataset per (variant, rate), so its processed-sample cache is shared."""
+    return PTBXLDataset(
+        root=str(fixture(variant)),
+        metadata_cache_dir=_SHARED_TMP / f"meta-{variant}-{sampling_rate}",
+        sampling_rate=sampling_rate,
+        cache_dir=_SHARED_TMP / f"ds-{variant}-{sampling_rate}",
+    )
+
+
+def class_tmp(name: str) -> Path:
+    """A class's scratch directory, reused across that class's tests."""
+    path = _SHARED_TMP / f"class-{name}"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def multiclass_task(target_dx: str) -> PTBXLMulticlassClassification:
+    """One task spelling, so every class asking for it shares one sample cache."""
+    return PTBXLMulticlassClassification(target_dx=target_dx, standardize=None)
 
 
 class TestPTBXLHelpers(unittest.TestCase):
@@ -177,13 +261,17 @@ class TestPTBXLAggregation(unittest.TestCase):
 
 
 class TestPTBXLDatasetMetadata(unittest.TestCase):
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
-        self.data_root = _materialize_fixture(self.tmp / "data")
-        self.cache_dir = self.tmp / "meta_cache"
+    """Derived-metadata naming and content; no event table is built here."""
 
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
+    @classmethod
+    def setUpClass(cls):
+        cls.data_root = fixture("base")
+        cls.dataset = dataset_for("base")
+        cls.tmp = class_tmp(cls.__name__)
+        cls.cache_dir = cls.tmp / "meta_cache"
+        # Reading the property publishes the dataset's event table (a Dask
+        # cluster spin-up) once for every class that shares this dataset.
+        _ = cls.dataset.global_event_df
 
     def test_prepare_metadata_writes_cache_not_root(self):
         ds = PTBXLDataset(
@@ -252,12 +340,8 @@ class TestPTBXLDatasetMetadata(unittest.TestCase):
 
     def test_end_to_end_reads_event_from_fixture(self):
         """Instantiate PTBXLDataset and read a real event (not just helpers)."""
-        ds = PTBXLDataset(
-            root=str(self.data_root),
-            metadata_cache_dir=self.cache_dir,
-            sampling_rate=100,
-            cache_dir=self.tmp / "pyhealth_cache_e2e",
-        )
+        # The shared base dataset, so the event table is built once per run.
+        ds = self.dataset
         # Config must already point at the derived CSV before any load.
         self.assertEqual(
             ds.config.tables["records"].file_path, ds.metadata_file_name
@@ -288,12 +372,9 @@ class TestPTBXLDatasetMetadata(unittest.TestCase):
     "wfdb optional extra not installed",
 )
 class TestPTBXLSignalIO(unittest.TestCase):
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
-        self.data_root = _materialize_fixture(self.tmp / "data")
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
+    @classmethod
+    def setUpClass(cls):
+        cls.data_root = fixture("base")
 
     def test_load_fixture_shape_channels_time(self):
         record = self.data_root / "records100" / "00000" / "00001_lr"
@@ -311,20 +392,14 @@ class TestPTBXLSignalIO(unittest.TestCase):
         self.assertNotEqual(signal.shape[0], signal.shape[1])
 
 
-class TestPTBXLTaskAndSplit(unittest.TestCase):
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
-        self.data_root = _materialize_fixture(self.tmp / "data")
-        self.cache_dir = self.tmp / "meta_cache"
-        self.dataset = PTBXLDataset(
-            root=str(self.data_root),
-            metadata_cache_dir=self.cache_dir,
-            sampling_rate=100,
-            cache_dir=self.tmp / "pyhealth_cache",
-        )
+class TestPTBXLTaskOnFixture(unittest.TestCase):
+    """Runs the superclass task over fixture patients (waveforms mocked)."""
 
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
+    @classmethod
+    def setUpClass(cls):
+        cls.data_root = fixture("base")
+        cls.dataset = dataset_for("base")
+        cls.scp_path = cls.data_root / "scp_statements.csv"
 
     def test_task_drops_empty_labels_by_default(self):
         fake_signal = np.zeros((12, 50), dtype=np.float32)
@@ -333,7 +408,7 @@ class TestPTBXLTaskAndSplit(unittest.TestCase):
             return fake_signal
 
         task = PTBXLSuperclassClassification(
-            scp_statements_path=self.data_root / "scp_statements.csv",
+            scp_statements_path=self.scp_path,
             drop_empty_labels=True,
         )
         with patch(
@@ -483,25 +558,29 @@ class TestPTBXLTaskAndSplit(unittest.TestCase):
 class TestPTBXLSetTaskE2E(unittest.TestCase):
     """Exercise the real set_task / litdata / SampleDataset path (no mocks)."""
 
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
-        self.data_root = _materialize_fixture(self.tmp / "data")
-        self.cache_dir = self.tmp / "meta_cache"
-        self.dataset = PTBXLDataset(
-            root=str(self.data_root),
-            metadata_cache_dir=self.cache_dir,
-            sampling_rate=100,
-            cache_dir=self.tmp / "pyhealth_cache",
+    @classmethod
+    def setUpClass(cls):
+        """Build each sample set once; the tests below only assert on them."""
+        cls.data_root = fixture("base")
+        cls.dataset = dataset_for("base")
+        cls.task = PTBXLSuperclassClassification(
+            scp_statements_path=cls.data_root / "scp_statements.csv",
         )
-        self.task = PTBXLSuperclassClassification(
-            scp_statements_path=self.data_root / "scp_statements.csv",
-        )
+        cls.samples = cls.dataset.set_task(cls.task, num_workers=1)
 
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        cls.dataset_500 = dataset_for("base", 500)
+        cls.samples_500 = cls.dataset_500.set_task(cls.task, num_workers=1)
+
+        cls.samples_kept = cls.dataset.set_task(
+            PTBXLSuperclassClassification(
+                scp_statements_path=cls.data_root / "scp_statements.csv",
+                drop_empty_labels=False,
+            ),
+            num_workers=1,
+        )
 
     def test_set_task_builds_samples_without_mocks(self):
-        samples = self.dataset.set_task(self.task, num_workers=1)
+        samples = self.samples
         # Keep: ecg 1 NORM, 2 MI, 4 HYP+MI. Drop: 3 PACE-only and 5 empty {}.
         self.assertEqual(len(samples), 3)
 
@@ -515,13 +594,7 @@ class TestPTBXLSetTaskE2E(unittest.TestCase):
         self.assertTrue(torch.is_tensor(sample["labels"]))
 
     def test_set_task_at_500_hz_loads_records500(self):
-        dataset_500 = PTBXLDataset(
-            root=str(self.data_root),
-            metadata_cache_dir=self.cache_dir,
-            sampling_rate=500,
-            cache_dir=self.tmp / "pyhealth_cache_500",
-        )
-        samples = dataset_500.set_task(self.task, num_workers=1)
+        samples = self.samples_500
         self.assertEqual(len(samples), 3)
         # Fixture records are 12 x 250 at 500 Hz but 12 x 50 at 100 Hz, so a
         # signal_file pointing at records100 or a missing transpose fails here.
@@ -529,7 +602,7 @@ class TestPTBXLSetTaskE2E(unittest.TestCase):
             self.assertEqual(tuple(sample["signal"].shape), (12, 250))
 
     def test_multilabel_vocab_order_is_alphabetical_observed(self):
-        samples = self.dataset.set_task(self.task, num_workers=1)
+        samples = self.samples
         vocab = samples.output_processors["labels"].label_vocab
         # Fixture only observes HYP, MI, NORM — not CD/STTC. Processor sorts.
         self.assertEqual(list(vocab.keys()), ["HYP", "MI", "NORM"])
@@ -542,10 +615,9 @@ class TestPTBXLSetTaskE2E(unittest.TestCase):
         self.assertEqual(by_record["4"]["labels"].tolist(), [1.0, 1.0, 0.0])
 
     def test_split_by_strat_fold_on_sample_dataset(self):
-        samples = self.dataset.set_task(self.task, num_workers=1)
         # Kept folds are 1 (ecg 1), 2 (ecg 4), 9 (ecg 2). Fold 10 was dropped.
         train, val, test = split_by_strat_fold(
-            samples,
+            self.samples,
             train_folds=(1,),
             val_folds=(2,),
             test_folds=(9,),
@@ -559,11 +631,10 @@ class TestPTBXLSetTaskE2E(unittest.TestCase):
         self.assertEqual(tuple(train[0]["signal"].shape), (12, 50))
 
     def test_split_by_strat_fold_detects_fixture_patient_leak(self):
-        samples = self.dataset.set_task(self.task, num_workers=1)
         # Fixture: ecg 1 (fold 1) and ecg 2 (fold 9) share patient_id 15709.
         with self.assertRaisesRegex(ValueError, r"15709"):
             split_by_strat_fold(
-                samples,
+                self.samples,
                 train_folds=(1,),
                 val_folds=(2,),
                 test_folds=(9,),
@@ -572,12 +643,7 @@ class TestPTBXLSetTaskE2E(unittest.TestCase):
 
     def test_age_sentinel_through_set_task(self):
         """Missing age must be an int sentinel; censored age is clipped to 90."""
-        task = PTBXLSuperclassClassification(
-            scp_statements_path=self.data_root / "scp_statements.csv",
-            drop_empty_labels=False,
-        )
-        samples = self.dataset.set_task(task, num_workers=1)
-        by_record = {str(s["record_id"]): s for s in samples}
+        by_record = {str(s["record_id"]): s for s in self.samples_kept}
 
         missing = by_record["3"]
         self.assertTrue(missing["age_is_missing"])
@@ -592,18 +658,16 @@ class TestPTBXLSetTaskE2E(unittest.TestCase):
 
 
 class TestPTBXLCacheIsolation(unittest.TestCase):
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
+    """Derived metadata is keyed by data root *and* source-CSV contents."""
 
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = class_tmp(cls.__name__)
 
     def test_distinct_data_roots_get_distinct_cache_dirs(self):
-        root_a = _materialize_fixture(self.tmp / "a")
-        root_b = _materialize_fixture(self.tmp / "b")
-        db_b = pd.read_csv(root_b / "ptbxl_database.csv")
-        db_b.loc[0, "scp_codes"] = "{'LVH': 100.0}"
-        db_b.to_csv(root_b / "ptbxl_database.csv", index=False)
+        # "changed" is the same fixture with one record's scp_codes rewritten.
+        root_a = fixture("base")
+        root_b = fixture("changed")
 
         shared_meta = self.tmp / "meta"
         shared_cache = self.tmp / "pyhealth_cache"
@@ -623,8 +687,10 @@ class TestPTBXLCacheIsolation(unittest.TestCase):
         self.assertNotEqual(ds_a.dataset_name, ds_b.dataset_name)
 
     def test_source_csv_change_invalidates_derived_metadata(self):
+        # Its own copy: this test edits the source CSV in place, which would
+        # otherwise change the shared "base" fixture for other classes.
         data_root = _materialize_fixture(self.tmp / "data")
-        meta = self.tmp / "meta"
+        meta = self.tmp / "meta-change"
         ds1 = PTBXLDataset(
             root=str(data_root),
             metadata_cache_dir=meta,
@@ -656,22 +722,15 @@ class TestPTBXLCacheIsolation(unittest.TestCase):
 
 
 class TestPTBXLTaskStability(unittest.TestCase):
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
-        self.data_root = _materialize_fixture(self.tmp / "data")
-        self.dataset = PTBXLDataset(
-            root=str(self.data_root),
-            metadata_cache_dir=self.tmp / "meta_cache",
-            sampling_rate=100,
-            cache_dir=self.tmp / "pyhealth_cache",
-        )
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
+    @classmethod
+    def setUpClass(cls):
+        cls.data_root = fixture("base")
+        cls.dataset = dataset_for("base")
+        cls.scp_path = cls.data_root / "scp_statements.csv"
 
     def test_vars_task_stable_after_call(self):
         task = PTBXLSuperclassClassification(
-            scp_statements_path=self.data_root / "scp_statements.csv",
+            scp_statements_path=self.scp_path,
         )
         before = dict(vars(task))
         fake_signal = np.zeros((12, 50), dtype=np.float32)
@@ -745,43 +804,33 @@ class TestPTBXLMultilabelClassification(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.tmp = tempfile.mkdtemp()
-        cls.root = Path(cls.tmp) / "ptbxl"
-        cls.root.mkdir()
-        shutil.copy(
-            FIXTURE_ROOT / "ptbxl_database.csv", cls.root / "ptbxl_database.csv"
-        )
-        shutil.copy(
-            FIXTURE_ROOT / "scp_statements.csv", cls.root / "scp_statements.csv"
-        )
-        for row in pd.read_csv(cls.root / "ptbxl_database.csv").itertuples():
-            _write_dummy_wfdb(cls.root / str(row.filename_lr), n_samples=1000)
-            _write_dummy_wfdb(cls.root / str(row.filename_hr), n_samples=5000, fs=500)
-        cls.cache = Path(cls.tmp) / "cache"
-        from pyhealth.datasets.ptbxl import PTBXLDataset
-        cls.dataset = PTBXLDataset(root=str(cls.root), cache_dir=str(cls.cache))
+        cls.root = fixture("long")
+        cls.dataset = dataset_for("long")
         cls.scp_path = cls.dataset.scp_statements_path
 
-    @classmethod
-    def tearDownClass(cls):
-        shutil.rmtree(cls.tmp, ignore_errors=True)
+        def _multi(label_set: str):
+            return PTBXLMultilabelClassification(
+                scp_statements_path=cls.scp_path, label_set=label_set
+            )
+
+        # One litdata build per label set; the tests below only assert.
+        cls.samples_superdiagnostic = cls.dataset.set_task(_multi("superdiagnostic"))
+        cls.samples_rhythm = cls.dataset.set_task(_multi("rhythm"))
+        cls.samples_diagnostic = cls.dataset.set_task(_multi("diagnostic"))
+        cls.samples_superclass = cls.dataset.set_task(
+            PTBXLSuperclassClassification(
+                scp_statements_path=cls.scp_path, drop_empty_labels=True
+            )
+        )
 
     def test_superdiagnostic_samples_shape(self):
-        from pyhealth.tasks import PTBXLMultilabelClassification
-        task = PTBXLMultilabelClassification(
-            scp_statements_path=self.scp_path, label_set="superdiagnostic"
-        )
-        samples = self.dataset.set_task(task)
+        samples = self.samples_superdiagnostic
         self.assertGreater(len(samples), 0)
         item = samples[0]
         self.assertEqual(tuple(item["signal"].shape), (12, 1000))
 
     def test_rhythm_skips_non_rhythm_ecgs(self):
-        from pyhealth.tasks import PTBXLMultilabelClassification
-        task = PTBXLMultilabelClassification(
-            scp_statements_path=self.scp_path, label_set="rhythm"
-        )
-        samples = self.dataset.set_task(task)
+        samples = self.samples_rhythm
         self.assertGreater(len(samples), 0)
         for item in samples:
             self.assertTrue(len(item["labels"]) > 0)
@@ -889,41 +938,21 @@ class TestPTBXLMultilabelClassification(unittest.TestCase):
         Guards the Blocker-1 refactor that delegates the overlapping path to
         aggregate_diagnostic_superclasses.
         """
-        from pyhealth.tasks import (
-            PTBXLMultilabelClassification,
-            PTBXLSuperclassClassification,
-        )
-        multi = PTBXLMultilabelClassification(
-            scp_statements_path=self.scp_path, label_set="superdiagnostic"
-        )
-        superclass = PTBXLSuperclassClassification(
-            scp_statements_path=self.scp_path, drop_empty_labels=True
-        )
         multi_samples = {
             (s["patient_id"], s["strat_fold"]): sorted(s["labels"])
-            for s in self.dataset.set_task(multi)
+            for s in self.samples_superdiagnostic
         }
-        # Build a fresh dataset for the superclass task so the two caches don't collide.
-        from pyhealth.datasets.ptbxl import PTBXLDataset
-        other_dataset = PTBXLDataset(
-            root=str(self.root), cache_dir=str(Path(self.tmp) / "cache_sup")
-        )
         super_samples = {
             (s["patient_id"], s["strat_fold"]): sorted(s["labels"])
-            for s in other_dataset.set_task(superclass)
+            for s in self.samples_superclass
         }
         self.assertEqual(set(multi_samples.keys()), set(super_samples.keys()))
         for key, labels in multi_samples.items():
             self.assertEqual(labels, super_samples[key])
 
     def test_diagnostic_samples_labels_nonempty(self):
-        from pyhealth.tasks import PTBXLMultilabelClassification
-        task = PTBXLMultilabelClassification(
-            scp_statements_path=self.scp_path, label_set="diagnostic"
-        )
-        samples = self.dataset.set_task(task)
-        self.assertGreater(len(samples), 0)
-        for item in samples:
+        self.assertGreater(len(self.samples_diagnostic), 0)
+        for item in self.samples_diagnostic:
             self.assertGreater(len(item["labels"]), 0)
             self.assertIn("strat_fold", item)
 
@@ -999,27 +1028,12 @@ class TestPTBXLTrainLeadStats(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.tmp = tempfile.mkdtemp()
-        cls.root = _materialize_fixture(Path(cls.tmp) / "data")
-        # Offset the fold-9/10 records so train-fold subsets produce
-        # genuinely different statistics (the default dummies are identical).
-        for rec in ("00002_lr", "00003_lr"):
-            _write_dummy_wfdb(
-                cls.root / "records100" / "00000" / rec,
-                n_samples=50,
-                fs=100,
-                offset=400,
-            )
-        cls.dataset = PTBXLDataset(
-            root=str(cls.root),
-            metadata_cache_dir=Path(cls.tmp) / "meta",
-            sampling_rate=100,
-            cache_dir=Path(cls.tmp) / "ds_cache",
-        )
-
-    @classmethod
-    def tearDownClass(cls):
-        shutil.rmtree(cls.tmp, ignore_errors=True)
+        # The "offset" variant shifts the fold-9/10 waveforms, so train-fold
+        # subsets produce genuinely different statistics (the default dummies
+        # are identical).
+        cls.root = fixture("offset")
+        cls.dataset = dataset_for("offset")
+        cls.tmp = class_tmp(cls.__name__)
 
     def _manual_stats(self, folds):
         meta_path = (
@@ -1113,35 +1127,27 @@ class TestPTBXLTrainLeadStats(unittest.TestCase):
     "wfdb not installed; install the 'pyhealth[ptbxl]' extra to run these tests",
 )
 class TestPTBXLMulticlassClassification(unittest.TestCase):
-    """PTBXLMulticlassClassification over a fixture variant with AFIB."""
+    """PTBXLMulticlassClassification over fixture variants with AFIB."""
 
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
-        self.root = _materialize_fixture(self.tmp / "data")
-        # Add AFIB to ecg 4 so the target class exists in the fixture.
-        db = pd.read_csv(self.root / "ptbxl_database.csv")
-        db.loc[db["ecg_id"] == 4, "scp_codes"] = (
-            "{'IMI': 100.0, 'LVH': 80.0, 'AFIB': 60.0}"
+    @classmethod
+    def setUpClass(cls):
+        # The "afib" variant: ecg 4 carries the target diagnosis and ecg 2
+        # carries NORM *and* the target, so one build covers all three classes
+        # plus the precedence rule.
+        cls.root = fixture("afib")
+        cls.dataset = dataset_for("afib")
+        cls.samples_af = cls.dataset.set_task(multiclass_task("AF"), num_workers=1)
+        cls.samples_lbbb = cls.dataset.set_task(
+            multiclass_task("LBBB"), num_workers=1
         )
-        db.to_csv(self.root / "ptbxl_database.csv", index=False)
-        self.dataset = PTBXLDataset(
-            root=str(self.root),
-            metadata_cache_dir=self.tmp / "meta",
-            sampling_rate=100,
-            cache_dir=self.tmp / "ds_cache",
-        )
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_labels_and_empty_drop(self):
-        task = PTBXLMulticlassClassification(target_dx="AF", standardize=None)
-        samples = self.dataset.set_task(task, num_workers=1)
+        samples = self.samples_af
         # ecg 5 (empty scp_codes) is dropped; the other four are kept.
         self.assertEqual(len(samples), 4)
         by_record = {str(s["record_id"]): int(s["label"]) for s in samples}
         self.assertEqual(by_record["1"], 0)  # NORM -> normal
-        self.assertEqual(by_record["2"], 2)  # IMI+SR -> other
+        self.assertEqual(by_record["2"], 1)  # NORM + AFIB -> target
         self.assertEqual(by_record["3"], 2)  # PACE -> other
         self.assertEqual(by_record["4"], 1)  # AFIB -> target
         for s in samples:
@@ -1152,26 +1158,12 @@ class TestPTBXLMulticlassClassification(unittest.TestCase):
         self.assertEqual(vocab, {"normal": 0, "target": 1, "other": 2})
 
     def test_target_takes_precedence_over_normal(self):
-        db = pd.read_csv(self.root / "ptbxl_database.csv")
-        db.loc[db["ecg_id"] == 1, "scp_codes"] = (
-            "{'NORM': 100.0, 'AFIB': 60.0}"
-        )
-        db.to_csv(self.root / "ptbxl_database.csv", index=False)
-        dataset = PTBXLDataset(
-            root=str(self.root),
-            metadata_cache_dir=self.tmp / "meta2",
-            sampling_rate=100,
-            cache_dir=self.tmp / "ds_cache2",
-        )
-        task = PTBXLMulticlassClassification(target_dx="AF", standardize=None)
-        samples = dataset.set_task(task, num_workers=1)
-        by_record = {str(s["record_id"]): int(s["label"]) for s in samples}
-        self.assertEqual(by_record["1"], 1)  # NORM + AFIB -> target
+        # ecg 2 is labelled NORM *and* AFIB: the target class wins.
+        by_record = {str(s["record_id"]): int(s["label"]) for s in self.samples_af}
+        self.assertEqual(by_record["2"], 1)
 
     def test_target_dx_for_other_diagnosis(self):
-        task = PTBXLMulticlassClassification(target_dx="LBBB", standardize=None)
-        samples = self.dataset.set_task(task, num_workers=1)
-        by_record = {str(s["record_id"]): int(s["label"]) for s in samples}
+        by_record = {str(s["record_id"]): int(s["label"]) for s in self.samples_lbbb}
         # No LBBB in the fixture: only normal (1) and other (2).
         self.assertEqual(by_record["1"], 0)
         self.assertEqual(by_record["4"], 2)
@@ -1206,29 +1198,12 @@ class TestComputeMulticlassClassWeights(unittest.TestCase):
         )
 
     def test_processed_index_labels_from_fixture(self):
-        tmp = Path(tempfile.mkdtemp())
-        try:
-            root = _materialize_fixture(tmp / "data")
-            db = pd.read_csv(root / "ptbxl_database.csv")
-            db.loc[db["ecg_id"] == 4, "scp_codes"] = (
-                "{'IMI': 100.0, 'LVH': 80.0, 'AFIB': 60.0}"
-            )
-            db.to_csv(root / "ptbxl_database.csv", index=False)
-            dataset = PTBXLDataset(
-                root=str(root),
-                metadata_cache_dir=tmp / "meta",
-                sampling_rate=100,
-                cache_dir=tmp / "ds_cache",
-            )
-            task = PTBXLMulticlassClassification(
-                target_dx="AF", standardize=None
-            )
-            samples = dataset.set_task(task, num_workers=1)
-            # ecg 1 normal, ecg 4 target, ecgs 2/3 other (ecg 5 dropped).
-            weights = compute_multiclass_class_weights(samples)
-            self.assertEqual(weights, [1.0, 1.0, 2.0])
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
+        # Same dataset and task spelling as TestPTBXLMulticlassClassification,
+        # so this reads that class's cached samples instead of rebuilding.
+        samples = dataset_for("afib").set_task(multiclass_task("AF"), num_workers=1)
+        # ecg 1 normal; ecgs 2 and 4 target; ecg 3 other (ecg 5 dropped).
+        weights = compute_multiclass_class_weights(samples)
+        self.assertEqual(weights, [1.0, 2.0, 1.0])
 
     def test_missing_normal_raises(self):
         samples = [{"label": "target"}, {"label": "other"}]
