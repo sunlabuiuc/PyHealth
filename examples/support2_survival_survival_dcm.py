@@ -12,7 +12,8 @@ with cross-validation, and evaluate discrimination and calibration.
 How to run
 ----------
 With no arguments it generates a small synthetic SUPPORT2-like file, so it
-runs anywhere in about a minute::
+runs anywhere in a few minutes. That run only shows that the pipeline works:
+its numbers come from made-up data and say nothing about the models::
 
     python examples/support2_survival_survival_dcm.py
 
@@ -464,6 +465,7 @@ def main() -> None:
         # Assign every patient to one of the folds at random.
         rng = np.random.default_rng(args.seed)
         fold_of = rng.permutation(len(patient_ids)) % args.folds
+        row_of = {pid: row for row, pid in enumerate(patient_ids)}
         predictions = {
             name: np.zeros((len(patient_ids), len(times))) for name in MODELS
         }
@@ -481,7 +483,7 @@ def main() -> None:
             order = np.array([position[pid] for pid in patient_ids])
             train_samples = samples.subset(order[~is_test].tolist())
             test = load_all(samples.subset(order[is_test].tolist()))
-            test_rows = np.array([patient_ids.index(pid) for pid in test["patient_id"]])
+            test_rows = np.array([row_of[pid] for pid in test["patient_id"]])
 
             for name, settings in MODELS.items():
                 model, best_epoch = train_model(
