@@ -34,6 +34,11 @@ from typing import Any, ClassVar
 import numpy as np
 
 from pyhealth.tasks.base_task import BaseTask
+
+# Shared on purpose: the SNOMED-CT code -> acronym table describes the
+# Chapman-Shaoxing release itself, not one task. HeartLang's labels are those
+# acronyms, so both Chapman tasks read the one table, and a fix to it (a new
+# code in a later release, say) reaches both.
 from pyhealth.tasks.chapman_shaoxing_classification import (
     CHAPMAN_SNOMED_CODES,
     split_dx_codes,
@@ -63,11 +68,19 @@ def heartlang_csn_labels(dx_codes: Any, match: str = "heartlang") -> list[str]:
     :data:`~pyhealth.tasks.chapman_shaoxing_classification.CHAPMAN_SNOMED_CODES`
     (codes outside that table are ignored). With ``match="heartlang"`` a
     label is positive when it is a substring of one of the record's
-    acronyms, which is how HeartLang's label table was built: atrial
-    fibrillation (``AFIB``) is also atrial flutter (``AF``), ``1AVB`` is also
-    ``AVB`` and ``VB``, ``STTC`` is also ``ST``, ``CCR`` is also ``CR`` and
-    low QRS voltage (``LVQRSAL``) is also sinus arrhythmia (``SA``). This
-    rule reproduces all 23,026 rows of HeartLang's released label table from
+    acronyms, which is how HeartLang's label table was built. Every case
+    where an acronym of the release contains another label:
+
+    - ``AF`` (atrial flutter) fires for ``AFIB`` (atrial fibrillation)
+    - ``ST`` (sinus tachycardia) fires for ``STTC``, ``STTU``, ``STE`` and
+      ``STDD`` (ST-T changes, ST elevation and ST depression)
+    - ``AVB`` and ``VB`` fire for ``1AVB``, ``2AVB``, ``3AVB``, ``2AVB1`` and
+      ``2AVB2``; ``VB`` also fires for ``AVB``
+    - ``2AVB`` fires for ``2AVB1`` and ``2AVB2``
+    - ``CR`` fires for ``CCR``
+    - ``SA`` (sinus arrhythmia) fires for ``LVQRSAL`` (low QRS voltage)
+
+    This rule reproduces all 23,026 rows of HeartLang's released label table from
     its ``diagnose`` column. ``match="exact"`` keeps only whole acronyms,
     which is clinically correct but no longer comparable with the paper.
 
