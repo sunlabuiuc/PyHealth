@@ -200,7 +200,7 @@ from .yaib_eicu import (
     YAIBMortalityEICU as YAIBMortalityEICU,
     YAIBSepsisEICU as YAIBSepsisEICU,
 )
-
+from .ptbxl_71_scp import PTBXLAllDiagnosticClassification as PTBXLAllDiagnosticClassification
 
 def __getattr__(name: str):
     if name == "MPFClinicalPredictionTask":
@@ -212,5 +212,3 @@ def __getattr__(name: str):
 
         return PTBXLSuperclassClassification
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-from .ptbxl_71_scp import PTBXLAllDiagnosticClassification as PTBXLAllDiagnosticClassification

@@ -4,6 +4,7 @@ from torch import nn
 
 from pyhealth.models.base_model import BaseModel
 
+
 class BasicBlock1D(nn.Module):
     """1D ResNet Basic Block.
 
