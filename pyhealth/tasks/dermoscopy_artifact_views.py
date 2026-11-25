@@ -16,7 +16,7 @@ All images are ``float32`` arrays of shape ``(H, W, 3)`` with values in
 lesion.
 """
 
-from typing import Callable
+from collections.abc import Callable
 
 import numpy as np
 from PIL import Image, ImageDraw
