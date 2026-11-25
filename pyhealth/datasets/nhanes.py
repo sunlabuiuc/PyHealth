@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from collections.abc import Iterator
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -84,13 +84,9 @@ def iter_participants(
 
             complete = chunk[chunk["SEQN"] != last_id]
 
-            remaining = chunk[
-                chunk["SEQN"] == last_id
-            ].copy()
+            remaining = chunk[chunk["SEQN"] == last_id].copy()
 
-            for _, person in complete.groupby(
-                "SEQN", sort=False
-            ):
+            for _, person in complete.groupby("SEQN", sort=False):
                 yield person
 
     if not remaining.empty:
@@ -138,9 +134,7 @@ def detect_nonwear_choi(
 
     positive = ~zero
 
-    edges = np.diff(
-        np.r_[False, positive, False].astype(int)
-    )
+    edges = np.diff(np.r_[False, positive, False].astype(int))
 
     starts = np.flatnonzero(edges == 1)
     ends = np.flatnonzero(edges == -1)
@@ -158,9 +152,7 @@ def detect_nonwear_choi(
         if zero[left:start].all() and zero[end:right].all():
             allowed[start:end] = True
 
-    edges = np.diff(
-        np.r_[False, allowed, False].astype(int)
-    )
+    edges = np.diff(np.r_[False, allowed, False].astype(int))
 
     starts = np.flatnonzero(edges == 1)
     ends = np.flatnonzero(edges == -1)
@@ -197,9 +189,7 @@ def create_5min_epochs(
     if len(df) != MINUTES_PER_WEEK:
         raise ValueError("Expected 10080 minute records")
 
-    if not np.array_equal(
-        paxn, np.arange(1, MINUTES_PER_WEEK + 1)
-    ):
+    if not np.array_equal(paxn, np.arange(1, MINUTES_PER_WEEK + 1)):
         raise ValueError("PAXN must be consecutive from 1 to 10080")
 
     if df["SEQN"].nunique(dropna=False) != 1:
@@ -207,9 +197,7 @@ def create_5min_epochs(
 
     counts = df["PAXINTEN"].to_numpy(dtype=float)
 
-    counts = np.where(
-        np.abs(counts) < 1e-10, 0, counts
-    )
+    counts = np.where(np.abs(counts) < 1e-10, 0, counts)
 
     wear = ~detect_nonwear_choi(counts)
 
@@ -220,9 +208,7 @@ def create_5min_epochs(
 
     raw_intensity = counts_5min.mean(axis=1)
 
-    wear_counts = np.where(
-        wear_5min, counts_5min, 0
-    )
+    wear_counts = np.where(wear_5min, counts_5min, 0)
 
     intensity = np.divide(
         wear_counts.sum(axis=1),
@@ -234,21 +220,17 @@ def create_5min_epochs(
     epoch_index = np.arange(EPOCHS_PER_WEEK)
     minute_start = epoch_index * EPOCH_MINUTES
 
-    return pd.DataFrame({
-        "epoch": (epoch_index + 1).astype(np.int16),
-        "day": (
-            minute_start // MINUTES_PER_DAY + 1
-        ).astype(np.int8),
-        "hour": (
-            (minute_start % MINUTES_PER_DAY) // 60
-        ).astype(np.int8),
-        "raw_intensity": raw_intensity.astype(np.float32),
-        "intensity": intensity.astype(np.float32),
-        "wear_minutes": wear_minutes.astype(np.int8),
-        "wear_fraction": (
-            wear_minutes / EPOCH_MINUTES
-        ).astype(np.float32),
-    })
+    return pd.DataFrame(
+        {
+            "epoch": (epoch_index + 1).astype(np.int16),
+            "day": (minute_start // MINUTES_PER_DAY + 1).astype(np.int8),
+            "hour": ((minute_start % MINUTES_PER_DAY) // 60).astype(np.int8),
+            "raw_intensity": raw_intensity.astype(np.float32),
+            "intensity": intensity.astype(np.float32),
+            "wear_minutes": wear_minutes.astype(np.int8),
+            "wear_fraction": (wear_minutes / EPOCH_MINUTES).astype(np.float32),
+        }
+    )
 
 
 def prepare_activity(
@@ -314,17 +296,15 @@ def prepare_activity(
                     compression="snappy",
                 )
 
-                metadata.append({
-                    "patient_id": str(seqn),
-                    "cycle": cycle,
-                    "activity_file": output_path.relative_to(
-                        root
-                    ).as_posix(),
-                    "num_epochs": len(epochs),
-                    "total_wear_minutes": int(
-                        epochs["wear_minutes"].sum()
-                    ),
-                })
+                metadata.append(
+                    {
+                        "patient_id": str(seqn),
+                        "cycle": cycle,
+                        "activity_file": output_path.relative_to(root).as_posix(),
+                        "num_epochs": len(epochs),
+                        "total_wear_minutes": int(epochs["wear_minutes"].sum()),
+                    }
+                )
 
             if total % 100 == 0:
                 logger.info(
@@ -333,10 +313,7 @@ def prepare_activity(
                     total,
                 )
 
-            if (
-                max_participants is not None
-                and total >= max_participants
-            ):
+            if max_participants is not None and total >= max_participants:
                 break
     finally:
         reader.close()
@@ -400,36 +377,30 @@ def prepare_clinical(
         format="xport",
     )
 
-    demo = demo[
-        ["SEQN", "RIDAGEYR", "RIAGENDR", "RIDRETH1"]
-    ].rename(columns={
-        "RIDAGEYR": "age",
-        "RIAGENDR": "gender",
-        "RIDRETH1": "race_ethnicity",
-    })
+    demo = demo[["SEQN", "RIDAGEYR", "RIAGENDR", "RIDRETH1"]].rename(
+        columns={
+            "RIDAGEYR": "age",
+            "RIAGENDR": "gender",
+            "RIDRETH1": "race_ethnicity",
+        }
+    )
 
-    bmx = bmx[
-        ["SEQN", "BMXWT", "BMXHT", "BMXBMI"]
-    ].rename(columns={
-        "BMXWT": "weight",
-        "BMXHT": "height",
-        "BMXBMI": "bmi",
-    })
+    bmx = bmx[["SEQN", "BMXWT", "BMXHT", "BMXBMI"]].rename(
+        columns={
+            "BMXWT": "weight",
+            "BMXHT": "height",
+            "BMXBMI": "bmi",
+        }
+    )
 
-    systolic_cols = [
-        f"BPXSY{i}" for i in range(1, 5)
-    ]
+    systolic_cols = [f"BPXSY{i}" for i in range(1, 5)]
 
-    diastolic_cols = [
-        f"BPXDI{i}" for i in range(1, 5)
-    ]
+    diastolic_cols = [f"BPXDI{i}" for i in range(1, 5)]
 
     bpx["systolic_bp"] = bpx[systolic_cols].mean(axis=1)
     bpx["diastolic_bp"] = bpx[diastolic_cols].mean(axis=1)
 
-    bpx = bpx[
-        ["SEQN", "systolic_bp", "diastolic_bp"]
-    ]
+    bpx = bpx[["SEQN", "systolic_bp", "diastolic_bp"]]
 
     clinical = demo.merge(
         bmx,
@@ -445,9 +416,7 @@ def prepare_clinical(
         validate="one_to_one",
     )
 
-    clinical["patient_id"] = (
-        clinical["SEQN"].astype(int).astype(str)
-    )
+    clinical["patient_id"] = clinical["SEQN"].astype(int).astype(str)
 
     clinical["cycle"] = cycle
 
@@ -477,11 +446,7 @@ def prepare_mortality(
     root = Path(root)
     cycle_name = cycle.replace("-", "_")
 
-    path = (
-        root
-        / "mortality"
-        / f"NHANES_{cycle_name}_MORT_2019_PUBLIC.dat"
-    )
+    path = root / "mortality" / f"NHANES_{cycle_name}_MORT_2019_PUBLIC.dat"
 
     mortality = pd.read_fwf(
         path,
@@ -503,9 +468,7 @@ def prepare_mortality(
         na_values=["."],
     )
 
-    mortality["patient_id"] = (
-        mortality["patient_id"].astype(int).astype(str)
-    )
+    mortality["patient_id"] = mortality["patient_id"].astype(int).astype(str)
 
     mortality["cycle"] = cycle
 
@@ -583,10 +546,7 @@ def prepare_nhanes(
         activity = pd.read_parquet(activity_path)
     else:
         activity = pd.concat(
-            [
-                prepare_activity(root, cycle)
-                for cycle in CYCLES
-            ],
+            [prepare_activity(root, cycle) for cycle in CYCLES],
             ignore_index=True,
         )
 
@@ -596,18 +556,12 @@ def prepare_nhanes(
         )
 
     clinical = pd.concat(
-        [
-            prepare_clinical(root, cycle)
-            for cycle in CYCLES
-        ],
+        [prepare_clinical(root, cycle) for cycle in CYCLES],
         ignore_index=True,
     )
 
     mortality = pd.concat(
-        [
-            prepare_mortality(root, cycle)
-            for cycle in CYCLES
-        ],
+        [prepare_mortality(root, cycle) for cycle in CYCLES],
         ignore_index=True,
     )
 
@@ -662,20 +616,14 @@ class NHANESDataset(BaseDataset):
         if not root_path.is_dir():
             raise FileNotFoundError(root_path)
 
-        metadata_path = (
-            root_path / PROCESSED_DIR / METADATA_FILE
-        )
+        metadata_path = root_path / PROCESSED_DIR / METADATA_FILE
 
         if not metadata_path.exists():
             logger.info("Preparing NHANES data")
             prepare_nhanes(root_path)
 
         if config_path is None:
-            config_path = str(
-                Path(__file__).parent
-                / "configs"
-                / "nhanes.yaml"
-            )
+            config_path = str(Path(__file__).parent / "configs" / "nhanes.yaml")
 
         super().__init__(
             root=str(root_path),

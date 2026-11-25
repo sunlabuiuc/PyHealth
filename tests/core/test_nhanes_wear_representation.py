@@ -15,12 +15,14 @@ class TestNHANESWearRepresentation(unittest.TestCase):
     """Tests binary and continuous wear features."""
 
     def setUp(self) -> None:
-        self.epochs = pd.DataFrame({
-            "epoch": np.arange(1, 7),
-            "intensity": [0, 10, 20, 30, 40, 50],
-            "wear_minutes": [0, 1, 2, 3, 4, 5],
-            "wear_fraction": [0, 0.2, 0.4, 0.6, 0.8, 1],
-        })
+        self.epochs = pd.DataFrame(
+            {
+                "epoch": np.arange(1, 7),
+                "intensity": [0, 10, 20, 30, 40, 50],
+                "wear_minutes": [0, 1, 2, 3, 4, 5],
+                "wear_fraction": [0, 0.2, 0.4, 0.6, 0.8, 1],
+            }
+        )
 
     def test_binary_representation(self) -> None:
         """Binary coverage should follow the wear threshold."""

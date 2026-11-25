@@ -30,39 +30,41 @@ class TestNHANESIntegration(unittest.TestCase):
             ]:
                 activity_path = activity_dir / f"{pid}.parquet"
 
-                epochs = pd.DataFrame({
-                    "epoch": np.arange(1, 2017),
-                    "day": np.arange(2016) // 288 + 1,
-                    "hour": np.arange(2016) % 288 // 12,
-                    "raw_intensity": np.full(2016, 100.0),
-                    "intensity": np.full(2016, 100.0),
-                    "wear_minutes": np.full(2016, 5),
-                    "wear_fraction": np.ones(2016),
-                })
+                epochs = pd.DataFrame(
+                    {
+                        "epoch": np.arange(1, 2017),
+                        "day": np.arange(2016) // 288 + 1,
+                        "hour": np.arange(2016) % 288 // 12,
+                        "raw_intensity": np.full(2016, 100.0),
+                        "intensity": np.full(2016, 100.0),
+                        "wear_minutes": np.full(2016, 5),
+                        "wear_fraction": np.ones(2016),
+                    }
+                )
 
                 epochs.to_parquet(activity_path, index=False)
 
-                metadata.append({
-                    "patient_id": pid,
-                    "cycle": "2003-2004",
-                    "activity_file": (
-                        activity_path.relative_to(root).as_posix()
-                    ),
-                    "num_epochs": 2016,
-                    "total_wear_minutes": 10080,
-                    "age": 50.0,
-                    "gender": 1.0,
-                    "race_ethnicity": 3.0,
-                    "weight": 70.0,
-                    "height": 170.0,
-                    "bmi": 24.2,
-                    "systolic_bp": 120.0,
-                    "diastolic_bp": 80.0,
-                    "eligstat": 1,
-                    "mortstat": mortstat,
-                    "permth_int": followup,
-                    "permth_exm": followup,
-                })
+                metadata.append(
+                    {
+                        "patient_id": pid,
+                        "cycle": "2003-2004",
+                        "activity_file": (activity_path.relative_to(root).as_posix()),
+                        "num_epochs": 2016,
+                        "total_wear_minutes": 10080,
+                        "age": 50.0,
+                        "gender": 1.0,
+                        "race_ethnicity": 3.0,
+                        "weight": 70.0,
+                        "height": 170.0,
+                        "bmi": 24.2,
+                        "systolic_bp": 120.0,
+                        "diastolic_bp": 80.0,
+                        "eligstat": 1,
+                        "mortstat": mortstat,
+                        "permth_int": followup,
+                        "permth_exm": followup,
+                    }
+                )
 
             pd.DataFrame(metadata).to_parquet(
                 processed / "nhanes-metadata.parquet",
@@ -79,9 +81,7 @@ class TestNHANESIntegration(unittest.TestCase):
 
             # Validate dataset loading and patient identifiers.
             self.assertEqual(len(dataset.unique_patient_ids), 2)
-            self.assertEqual(
-                set(dataset.unique_patient_ids), {"1", "2"}
-            )
+            self.assertEqual(set(dataset.unique_patient_ids), {"1", "2"})
 
             total_samples = 0
 
@@ -91,9 +91,7 @@ class TestNHANESIntegration(unittest.TestCase):
                     patient = dataset.get_patient(pid)
                     self.assertEqual(str(patient.patient_id), pid)
 
-                    events = patient.get_events(
-                        event_type="participants"
-                    )
+                    events = patient.get_events(event_type="participants")
 
                     self.assertEqual(len(events), 1)
 
@@ -111,9 +109,7 @@ class TestNHANESIntegration(unittest.TestCase):
                     activity = pd.read_parquet(activity_path)
 
                     self.assertEqual(activity.shape, (2016, 7))
-                    self.assertEqual(
-                        activity["wear_minutes"].sum(), 10080
-                    )
+                    self.assertEqual(activity["wear_minutes"].sum(), 10080)
 
                     # Validate task processing with a real Patient.
                     samples = task(patient)
@@ -128,19 +124,11 @@ class TestNHANESIntegration(unittest.TestCase):
                         self.assertEqual(sample["patient_id"], pid)
                         self.assertEqual(sample["label"], expected_label)
                         self.assertEqual(sample["valid_fraction"], 1.0)
-                        self.assertEqual(
-                            sample["activity"].shape, (1008, 2)
-                        )
-                        self.assertEqual(
-                            sample["activity"].dtype, np.float32
-                        )
+                        self.assertEqual(sample["activity"].shape, (1008, 2))
+                        self.assertEqual(sample["activity"].dtype, np.float32)
 
-                        np.testing.assert_allclose(
-                            sample["activity"][:, 0], 100.0
-                        )
-                        np.testing.assert_allclose(
-                            sample["activity"][:, 1], 1.0
-                        )
+                        np.testing.assert_allclose(sample["activity"][:, 0], 100.0)
+                        np.testing.assert_allclose(sample["activity"][:, 1], 1.0)
 
                     total_samples += len(samples)
 

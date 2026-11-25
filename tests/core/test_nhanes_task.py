@@ -21,17 +21,17 @@ class TestNHANESMortalityPrediction(unittest.TestCase):
     """Tests mortality labels and activity windows."""
 
     def setUp(self) -> None:
-        self.epochs = pd.DataFrame({
-            "epoch": np.arange(1, 2017),
-            "intensity": np.full(2016, 100.0),
-            "wear_minutes": np.full(2016, 5),
-            "wear_fraction": np.ones(2016),
-        })
+        self.epochs = pd.DataFrame(
+            {
+                "epoch": np.arange(1, 2017),
+                "intensity": np.full(2016, 100.0),
+                "wear_minutes": np.full(2016, 5),
+                "wear_fraction": np.ones(2016),
+            }
+        )
 
     def test_task_inheritance(self) -> None:
-        self.assertTrue(
-            issubclass(NHANESMortalityPrediction, BaseTask)
-        )
+        self.assertTrue(issubclass(NHANESMortalityPrediction, BaseTask))
 
     def test_mortality_labels(self) -> None:
         cases = [
@@ -49,21 +49,15 @@ class TestNHANESMortalityPrediction(unittest.TestCase):
         ]
 
         for elig, mort, months, expected in cases:
-            with self.subTest(
-                elig=elig, mort=mort, months=months
-            ):
+            with self.subTest(elig=elig, mort=mort, months=months):
                 self.assertEqual(
                     get_mortality_label(elig, mort, months),
                     expected,
                 )
 
     def test_prediction_horizon(self) -> None:
-        self.assertEqual(
-            get_mortality_label(1, 1, 48, 60), 1
-        )
-        self.assertEqual(
-            get_mortality_label(1, 1, 48, 36), 0
-        )
+        self.assertEqual(get_mortality_label(1, 1, 48, 60), 1)
+        self.assertEqual(get_mortality_label(1, 1, 48, 36), 0)
 
     def test_default_windows(self) -> None:
         X, info = build_window_inputs(self.epochs)
@@ -93,8 +87,8 @@ class TestNHANESMortalityPrediction(unittest.TestCase):
                 epochs["wear_minutes"] = 0
                 epochs["wear_fraction"] = 0
 
-                epochs.loc[:valid_count - 1, "wear_minutes"] = 5
-                epochs.loc[:valid_count - 1, "wear_fraction"] = 1
+                epochs.loc[: valid_count - 1, "wear_minutes"] = 5
+                epochs.loc[: valid_count - 1, "wear_fraction"] = 1
 
                 X, _ = build_window_inputs(epochs)
 
@@ -111,9 +105,7 @@ class TestNHANESMortalityPrediction(unittest.TestCase):
         self.assertEqual(info, [])
 
     def test_intensity_only_ablation(self) -> None:
-        baseline, baseline_info = build_window_inputs(
-            self.epochs
-        )
+        baseline, baseline_info = build_window_inputs(self.epochs)
 
         ablation, ablation_info = build_window_inputs(
             self.epochs,
@@ -156,11 +148,8 @@ class TestNHANESMortalityPrediction(unittest.TestCase):
         ]
 
         for kwargs in cases:
-            with self.subTest(kwargs=kwargs):
-                with self.assertRaises(ValueError):
-                    NHANESMortalityPrediction(
-                        root=".", **kwargs
-                    )
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                NHANESMortalityPrediction(root=".", **kwargs)
 
     def test_patient_to_samples(self) -> None:
         with tempfile.TemporaryDirectory() as root:
@@ -186,9 +175,7 @@ class TestNHANESMortalityPrediction(unittest.TestCase):
             for sample in samples:
                 self.assertEqual(sample["patient_id"], "21005")
                 self.assertEqual(sample["label"], 1)
-                self.assertEqual(
-                    sample["activity"].shape, (1008, 2)
-                )
+                self.assertEqual(sample["activity"].shape, (1008, 2))
 
     def test_ineligible_patient(self) -> None:
         patient = Mock()

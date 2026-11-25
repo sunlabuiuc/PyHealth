@@ -5,29 +5,29 @@ import unittest
 import numpy as np
 import pandas as pd
 
+from pyhealth.datasets import BaseDataset
 from pyhealth.datasets.nhanes import (
     NHANESDataset,
     create_5min_epochs,
     detect_nonwear_choi,
     merge_metadata,
 )
-from pyhealth.datasets import BaseDataset
 
 
 class TestNHANESDataset(unittest.TestCase):
     """Tests NHANES dataset preprocessing functions."""
 
     def setUp(self) -> None:
-        self.participant = pd.DataFrame({
-            "SEQN": np.full(10080, 21005),
-            "PAXN": np.arange(1, 10081),
-            "PAXINTEN": np.full(10080, 100.0),
-        })
+        self.participant = pd.DataFrame(
+            {
+                "SEQN": np.full(10080, 21005),
+                "PAXN": np.arange(1, 10081),
+                "PAXINTEN": np.full(10080, 100.0),
+            }
+        )
 
     def test_dataset_inheritance(self) -> None:
-        self.assertTrue(
-            issubclass(NHANESDataset, BaseDataset)
-        )
+        self.assertTrue(issubclass(NHANESDataset, BaseDataset))
 
     def test_nonwear_below_threshold(self) -> None:
         counts = np.zeros(89)
@@ -63,9 +63,8 @@ class TestNHANESDataset(unittest.TestCase):
             np.array([1, -1]),
             np.array([1, np.inf]),
         ]:
-            with self.subTest(counts=counts):
-                with self.assertRaises(ValueError):
-                    detect_nonwear_choi(counts)
+            with self.subTest(counts=counts), self.assertRaises(ValueError):
+                detect_nonwear_choi(counts)
 
     def test_epoch_aggregation(self) -> None:
         epochs = create_5min_epochs(self.participant)
@@ -73,12 +72,8 @@ class TestNHANESDataset(unittest.TestCase):
         self.assertEqual(epochs.shape, (2016, 7))
         self.assertEqual(epochs["wear_minutes"].sum(), 10080)
 
-        np.testing.assert_allclose(
-            epochs["intensity"], 100.0
-        )
-        np.testing.assert_allclose(
-            epochs["wear_fraction"], 1.0
-        )
+        np.testing.assert_allclose(epochs["intensity"], 100.0)
+        np.testing.assert_allclose(epochs["wear_fraction"], 1.0)
 
     def test_epoch_aggregation_nonwear(self) -> None:
         participant = self.participant.copy()
@@ -122,27 +117,31 @@ class TestNHANESDataset(unittest.TestCase):
             create_5min_epochs(participant)
 
     def test_metadata_merge(self) -> None:
-        activity = pd.DataFrame({
-            "patient_id": ["1", "2"],
-            "cycle": ["2003-2004", "2003-2004"],
-            "activity_file": ["a.parquet", "b.parquet"],
-        })
-
-        clinical = pd.DataFrame({
-            "patient_id": ["1"],
-            "cycle": ["2003-2004"],
-            "age": [50],
-        })
-
-        mortality = pd.DataFrame({
-            "patient_id": ["1"],
-            "cycle": ["2003-2004"],
-            "mortstat": [1],
-        })
-
-        result = merge_metadata(
-            activity, clinical, mortality
+        activity = pd.DataFrame(
+            {
+                "patient_id": ["1", "2"],
+                "cycle": ["2003-2004", "2003-2004"],
+                "activity_file": ["a.parquet", "b.parquet"],
+            }
         )
+
+        clinical = pd.DataFrame(
+            {
+                "patient_id": ["1"],
+                "cycle": ["2003-2004"],
+                "age": [50],
+            }
+        )
+
+        mortality = pd.DataFrame(
+            {
+                "patient_id": ["1"],
+                "cycle": ["2003-2004"],
+                "mortstat": [1],
+            }
+        )
+
+        result = merge_metadata(activity, clinical, mortality)
 
         self.assertEqual(len(result), 2)
         self.assertTrue(result["patient_id"].is_unique)

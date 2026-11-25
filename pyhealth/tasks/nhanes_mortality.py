@@ -93,9 +93,7 @@ def build_window_inputs(
         raise ValueError("min_valid_fraction must be between 0 and 1")
 
     if wear_representation not in ("fraction", "binary"):
-        raise ValueError(
-            "wear_representation must be 'fraction' or 'binary'"
-        )
+        raise ValueError("wear_representation must be 'fraction' or 'binary'")
 
     epochs = epochs.sort_values("epoch")
 
@@ -109,24 +107,19 @@ def build_window_inputs(
     window_info = []
 
     for start in range(0, len(epochs), window_size):
-        window = epochs.iloc[start:start + window_size]
+        window = epochs.iloc[start : start + window_size]
 
         if len(window) != window_size:
             continue
 
-        valid = (
-            window["wear_minutes"].to_numpy()
-            >= min_wear_minutes
-        )
+        valid = window["wear_minutes"].to_numpy() >= min_wear_minutes
 
         valid_fraction = float(valid.mean())
 
         if valid_fraction < min_valid_fraction:
             continue
 
-        intensity = window["intensity"].to_numpy(
-            dtype=np.float32
-        )
+        intensity = window["intensity"].to_numpy(dtype=np.float32)
 
         intensity = np.where(valid, intensity, 0)
 
@@ -134,22 +127,20 @@ def build_window_inputs(
             if wear_representation == "binary":
                 wear_feature = valid.astype(np.float32)
             else:
-                wear_feature = window["wear_fraction"].to_numpy(
-                    dtype=np.float32
-                )
+                wear_feature = window["wear_fraction"].to_numpy(dtype=np.float32)
 
-            features = np.column_stack(
-                [intensity, wear_feature]
-            )
+            features = np.column_stack([intensity, wear_feature])
         else:
             features = intensity.reshape(-1, 1)
 
         windows.append(features)
 
-        window_info.append({
-            "window_id": start // window_size + 1,
-            "valid_fraction": valid_fraction,
-        })
+        window_info.append(
+            {
+                "window_id": start // window_size + 1,
+                "valid_fraction": valid_fraction,
+            }
+        )
 
     num_features = 2 if include_wear_fraction else 1
 
@@ -195,6 +186,15 @@ class NHANESMortalityPrediction(BaseTask):
         wear_representation: Wear coverage representation.
             "fraction" uses continuous wear fractions.
             "binary" uses a threshold-based coverage indicator.
+        feature_format: "activity" returns a combined activity tensor.
+            "motionage" returns separate intensity, hour, relative day,
+            and wear mask tensors. Fractional wear can be used as
+            continuous pooling weights.
+        include_static: Includes age, gender, BMI, systolic and diastolic
+            blood pressure when using the MotionAge format.
+        pos_weight: Positive-class weight for binary cross-entropy.
+            Use a fixed training-derived weight, "balanced" with a
+            training-only processor fit, or None for unweighted loss.
 
     Examples:
         >>> from pyhealth.datasets import NHANESDataset
@@ -226,32 +226,25 @@ class NHANESMortalityPrediction(BaseTask):
         min_valid_fraction: float = 0.3,
         include_wear_fraction: bool = True,
         wear_representation: str = "fraction",
+        feature_format: str = "activity",
+        include_static: bool = False,
+        pos_weight: float | str | None = None,
     ) -> None:
         """Initializes the NHANES mortality prediction task."""
         if prediction_months <= 0:
-            raise ValueError(
-                "prediction_months must be positive"
-            )
+            raise ValueError("prediction_months must be positive")
 
         if not 1 <= window_size <= 2016:
-            raise ValueError(
-                "window_size must be between 1 and 2016"
-            )
+            raise ValueError("window_size must be between 1 and 2016")
 
         if not 1 <= min_wear_minutes <= 5:
-            raise ValueError(
-                "min_wear_minutes must be between 1 and 5"
-            )
+            raise ValueError("min_wear_minutes must be between 1 and 5")
 
         if not 0 <= min_valid_fraction <= 1:
-            raise ValueError(
-                "min_valid_fraction must be between 0 and 1"
-            )
+            raise ValueError("min_valid_fraction must be between 0 and 1")
 
         if wear_representation not in ("fraction", "binary"):
-            raise ValueError(
-                "wear_representation must be 'fraction' or 'binary'"
-            )
+            raise ValueError("wear_representation must be 'fraction' or 'binary'")
 
         self.root = str(Path(root).resolve())
         self.prediction_months = prediction_months
@@ -260,6 +253,46 @@ class NHANESMortalityPrediction(BaseTask):
         self.min_valid_fraction = min_valid_fraction
         self.include_wear_fraction = include_wear_fraction
         self.wear_representation = wear_representation
+
+        if feature_format not in ("activity", "motionage"):
+            raise ValueError("feature_format must be 'activity' or 'motionage'")
+
+        if feature_format == "motionage" and not include_wear_fraction:
+            raise ValueError("MotionAge requires wear information")
+
+        if include_static and feature_format != "motionage":
+            raise ValueError("Static features require motionage format")
+
+        self.feature_format = feature_format
+        self.include_static = include_static
+        self.pos_weight = pos_weight
+
+        self.input_schema = {"activity": "tensor"}
+        self.output_schema = {"label": "binary"}
+
+        if feature_format == "motionage":
+            self.input_schema = {
+                "intensity": "tensor",
+                "hour": "tensor",
+                "day": "tensor",
+                "wear_mask": "tensor",
+            }
+
+        if include_static:
+            self.input_schema["static"] = (
+                "tensor",
+                {
+                    "normalization": "zscore",
+                    "missing_indicators": True,
+                    "impute_strategy": "zero",
+                },
+            )
+
+        if pos_weight is not None:
+            self.output_schema["label"] = (
+                "binary",
+                {"pos_weight": pos_weight},
+            )
 
         super().__init__()
 
@@ -281,17 +314,13 @@ class NHANESMortalityPrediction(BaseTask):
             FileNotFoundError: If the activity file is missing.
             ValueError: If participant metadata or activity is invalid.
         """
-        events = patient.get_events(
-            event_type="participants"
-        )
+        events = patient.get_events(event_type="participants")
 
         if len(events) == 0:
             return []
 
         if len(events) != 1:
-            raise ValueError(
-                f"Expected one event for {patient.patient_id}"
-            )
+            raise ValueError(f"Expected one event for {patient.patient_id}")
 
         event = events[0]
 
@@ -305,27 +334,28 @@ class NHANESMortalityPrediction(BaseTask):
         if label is None:
             return []
 
-        activity_path = (
-            Path(self.root) / event.activity_file
-        )
+        activity_path = Path(self.root) / event.activity_file
 
         if not activity_path.is_file():
             raise FileNotFoundError(activity_path)
 
+        columns = [
+            "epoch",
+            "intensity",
+            "wear_minutes",
+            "wear_fraction",
+        ]
+
+        if self.feature_format == "motionage":
+            columns.extend(["hour", "day"])
+
         epochs = pd.read_parquet(
             activity_path,
-            columns=[
-                "epoch",
-                "intensity",
-                "wear_minutes",
-                "wear_fraction",
-            ],
-        )
+            columns=columns,
+        ).sort_values("epoch")
 
         if len(epochs) != 2016:
-            raise ValueError(
-                f"Expected 2016 epochs for {patient.patient_id}"
-            )
+            raise ValueError(f"Expected 2016 epochs for {patient.patient_id}")
 
         activity_windows, window_info = build_window_inputs(
             epochs=epochs,
@@ -339,12 +369,52 @@ class NHANESMortalityPrediction(BaseTask):
         samples = []
 
         for activity, info in zip(activity_windows, window_info):
-            samples.append({
+            sample = {
                 "patient_id": patient.patient_id,
                 "window_id": info["window_id"],
                 "valid_fraction": info["valid_fraction"],
-                "activity": activity,
                 "label": label,
-            })
+            }
+
+            if self.feature_format == "activity":
+                sample["activity"] = activity
+
+            else:
+                start = (info["window_id"] - 1) * self.window_size
+                window = epochs.iloc[start : start + self.window_size]
+
+                valid = window["wear_minutes"].to_numpy() >= self.min_wear_minutes
+
+                sample.update(
+                    {
+                        "intensity": activity[:, 0].copy(),
+                        "hour": window["hour"].to_numpy(dtype=np.float32),
+                        "day": window["day"].to_numpy(dtype=np.float32) - 1,
+                        "wear_mask": np.where(valid, activity[:, 1], 0).astype(
+                            np.float32
+                        ),
+                    }
+                )
+
+                if self.include_static:
+                    fields = (
+                        "age",
+                        "gender",
+                        "bmi",
+                        "systolic_bp",
+                        "diastolic_bp",
+                    )
+
+                    values = [getattr(event, field) for field in fields]
+
+                    sample["static"] = np.array(
+                        [
+                            float(value) if pd.notna(value) else np.nan
+                            for value in values
+                        ],
+                        dtype=np.float32,
+                    )
+
+            samples.append(sample)
 
         return samples
