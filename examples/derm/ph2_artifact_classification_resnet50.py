@@ -1,6 +1,6 @@
-# Contributor: Aayan Verma (TODO: netid)
-# Contributor: Bryson Lee (TODO: netid)
-# Contributor: Xin Zhang (TODO: netid)
+# Contributor: Aayan Verma (aayanv2)
+# Contributor: Bryson Lee (brysonl3)
+# Contributor: Xin Zhang (xinz13)
 # Paper: A Study of Artifacts on Melanoma Classification under Diffusion-Based
 # Perturbations (Jin and Ghassemi, CHIL 2025)
 # https://proceedings.mlr.press/v287/jin25b.html

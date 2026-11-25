@@ -35,7 +35,7 @@ _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
-def _toy():
+def _toy() -> tuple[np.ndarray, np.ndarray]:
     """A 32x32 random image with a 8x8 lesion in the middle."""
     rng = np.random.default_rng(0)
     image = rng.uniform(0.1, 0.9, (32, 32, 3)).astype(np.float32)
