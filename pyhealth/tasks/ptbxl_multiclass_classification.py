@@ -3,10 +3,13 @@ for the PTB-XL dataset.
 
 Task definition follows the multi-class experiment of *In-depth Benchmarking
 of Deep Neural Network Architectures for ECG Diagnosis* (Nonaka & Seita,
-2021), which reproduces the protocol of Rajpurkar et al. (2022): every
-record is assigned to exactly one of three classes — normal, the chosen
-target diagnosis, or "other" — on top of the full SCP-ECG ("all") label
-set.
+2021, https://proceedings.mlr.press/v149/nonaka21a.html). The task follows
+the evaluation criteria of the PhysioNet/Computing in Cardiology Challenge
+2017 (Clifford et al., 2017), which score atrial fibrillation against three
+other classes: every record is assigned to exactly one of three classes —
+normal, the chosen target diagnosis, or "other" — on top of the full
+SCP-ECG ("all") label set. The paper's target diagnoses are
+:data:`PTBXL_PAPER_TARGET_DX`.
 """
 
 from __future__ import annotations
@@ -28,10 +31,11 @@ PTBXL_MULTICLASS_CLASSES: tuple[str, ...] = ("normal", "target", "other")
 # and is deliberately not used here.
 PTBXL_MULTICLASS_NORMAL_CODE = "NORM"
 
-# Target-diagnosis name → PTB-XL SCP-ECG statement code. ``STD`` has no
-# SCP acronym in PTB-XL and is annotated with its SNOMED CT code
-# (ST depression, 429622001). STE is omitted: the benchmark skipped it on
-# PTB-XL (the paired statement is not used there).
+# Target-diagnosis name → PTB-XL SCP-ECG statement code. The paper's four
+# targets are AF, IAVB, LBBB and RBBB (Table 2 and Figures 4-7); PAC, PVC
+# and STD come from the released code's target list and are outside the
+# paper, added here for flexibility. ``STD`` has no SCP acronym in PTB-XL
+# and is annotated with its SNOMED CT code (ST depression, 429622001).
 PTBXL_MULTICLASS_TARGET_DX: dict[str, str] = {
     "AF": "AFIB",
     "IAVB": "IAVB",
@@ -41,6 +45,11 @@ PTBXL_MULTICLASS_TARGET_DX: dict[str, str] = {
     "PVC": "PVC",
     "STD": "429622001",
 }
+
+# The four target diagnoses the paper benchmarks on PTB-XL (Table 2 and
+# Figures 4-7). ``--dx`` in examples/ptbxl_ecg_benchmark_resnet1d.py only
+# accepts these.
+PTBXL_PAPER_TARGET_DX: tuple[str, ...] = ("AF", "IAVB", "LBBB", "RBBB")
 
 # The benchmark's five split settings: split_number -> (val_fold,
 # test_fold). All remaining folds are training. Pass to

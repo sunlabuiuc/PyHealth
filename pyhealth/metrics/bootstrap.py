@@ -208,12 +208,17 @@ def bootstrap_metrics_ci(
 ) -> dict[str, dict]:
     """Percentile bootstrap intervals for multiclass / multilabel metrics.
 
-    Mirrors the evaluation protocol of the ECG benchmarking benchmark
-    (*Nonaka & Seita, 2021*, *In-depth Benchmarking of Deep Neural Network
-    Architectures for ECG Diagnosis*): resample the test set with
-    replacement, **discard resamples that do not define every class** (a
-    multilabel class with no positive, or a multiclass class with no
-    member), and report the metric's bootstrap mean and percentile bounds.
+    Mirrors the bootstrap protocol of the benchmark's **released code**
+    (``seitalab/dnn_ecg_comparison``), which is not the significance
+    protocol of the paper itself (*Nonaka & Seita, 2021*, *In-depth
+    Benchmarking of Deep Neural Network Architectures for ECG Diagnosis*,
+    Section 4.1). Here: resample the test set with replacement, **discard
+    resamples that do not define every class** (a multilabel class with no
+    positive, or a multiclass class with no member), and report the
+    metric's bootstrap mean and percentile bounds. The paper instead
+    compares settings across repeated split trials with Welch's t-test and
+    Benjamini-Hochberg correction; see
+    :func:`~pyhealth.metrics.significance.welch_relative_improvement_test`.
     Label shapes follow the ``metrics_fn`` conventions: multiclass
     ``y_true`` is ``(n,)`` class indices with ``y_prob`` ``(n, K)``;
     multilabel ``y_true`` / ``y_prob`` are both ``(n, C)``.

@@ -1,7 +1,8 @@
 """Reproduce the PTB-XL ECG benchmark of Nonaka & Seita (2021) in PyHealth.
 
 Paper: *In-depth Benchmarking of Deep Neural Network Architectures for ECG
-Diagnosis* (https://arxiv.org/abs/2112.13779); reference code:
+Diagnosis*, PMLR 149:414-439
+(https://proceedings.mlr.press/v149/nonaka21a.html); reference code:
 https://github.com/seitalab/dnn_ecg_comparison.
 
 This driver trains the PyHealth port ``pyhealth.models.ResNet1D`` with the
@@ -19,27 +20,44 @@ benchmark's full protocol:
 - for the 3-way multi-class task, cross-entropy weighted
   ``[1, n_target/n_normal, n_other/n_normal]`` from the train split
   (``compute_multiclass_class_weights``);
-- Adam, model selection on the best validation score
-  (macro ROC-AUC for multi-label, macro F1 for multi-class), early stopping;
-- test-set evaluation of the headline metric (macro one-vs-rest ROC-AUC
-  for multi-label, macro F1 for multi-class) with the benchmark's
-  bootstrap confidence interval: 100 resamples, bounds at the 5% and 95%
-  percentiles, resamples that do not define every class discarded
-  (``pyhealth.metrics.bootstrap_metrics_ci``);
-- with ``--split all``, a closing summary of each metric's mean +/- std
-  across the five splits, as in the paper's tables.
+- Adam with a fixed learning rate, model selection on the best validation
+  score (macro ROC-AUC for multi-label, macro F1 for multi-class), early
+  stopping, and up to ``--epochs`` 250 epochs, as in the paper;
+- with more than one ``--depth``, the comparison the paper actually makes:
+  every arm gets one run per split, the arms report the mean and standard
+  deviation of those per-split scores, and each arm is tested against the
+  baseline arm (ResNet-18 by default) with a two-sided Welch's t-test
+  corrected across settings with Benjamini-Hochberg
+  (``pyhealth.metrics.welch_relative_improvement_test``). Arms with no
+  relative improvement are excluded from testing.
+
+The paper's headline numbers for ResNet-18 on PTB-XL, for comparison with
+``--split all``: macro ROC-AUC 0.914 ± 0.011 (all), 0.928 ± 0.007
+(diagnostic), 0.932 ± 0.013 (sub-diagnostic), 0.933 ± 0.006
+(super-diagnostic), 0.882 ± 0.011 (form), 0.921 ± 0.022 (rhythm), in its
+Table 12; macro F1 0.862 ± 0.013 (AF), 0.620 ± 0.029 (I-AVB), 0.874 ±
+0.023 (LBBB), 0.766 ± 0.039 (RBBB), in Tables 14-17. The ResNet-34 and
+ResNet-50 rows sit in the same tables, and the paper's conclusion was that
+no architecture improved significantly over ResNet-18.
 
 Requires the PTB-XL v1.0.3 corpus (https://physionet.org/content/ptb-xl/)
 and ``pip install 'pyhealth[ptbxl]'``. Examples:
 
+    # one split, one architecture (the paper's ResNet-18 row)
     python examples/ptbxl_ecg_benchmark_resnet1d.py \
         --root ~/.cache/pyhealth/datasets/ptbxl/1.0.3 \
         --split 1 --task multilabel --label-set diagnostic
 
+    # the paper's five-split sweep, three depths, tested against ResNet-18
     python examples/ptbxl_ecg_benchmark_resnet1d.py \
         --root ~/.cache/pyhealth/datasets/ptbxl/1.0.3 \
-        --split all --task multiclass --dx AF \
-        --result-json ptbxl_af_resnet18.json
+        --split all --task multilabel --label-set all --depth 18 34 50 \
+        --result-json ptbxl_all_resnet1d.json
+
+    # multi-class task, one of the paper's four target diagnoses
+    python examples/ptbxl_ecg_benchmark_resnet1d.py \
+        --root ~/.cache/pyhealth/datasets/ptbxl/1.0.3 \
+        --split all --task multiclass --dx AF --depth 18 50
 
 Note (documented deviations from the released benchmark code):
 
@@ -53,13 +71,17 @@ Note (documented deviations from the released benchmark code):
 - Multi-class weights count the 3-way labels (target precedence), while
   the original summed raw NORM/target vectors; a record with both shifts
   the two counts slightly.
-- Bootstrap: the original drew resamples until 100 were usable; here
-  exactly ``--boot-samples`` are drawn and unusable ones are reported as
-  skipped. The original's multi-class bootstrap reused the multi-label
-  positive-class check on integer labels (a latent bug); here every
-  resample must contain all classes. Resampling is per test sample, as
-  in the original; ``pyhealth.metrics.bootstrap_metrics_ci`` also takes
-  ``groups=`` for a patient-level cluster bootstrap.
+- ``--boot-samples`` adds a test-set percentile bootstrap for the headline
+  metric. That interval comes from the released code, not from the paper's
+  evaluation section (the paper compares arms across splits instead), so
+  it is off by default here. When enabled: exactly ``--boot-samples``
+  resamples are drawn and unusable ones are reported as skipped, while the
+  original drew resamples until 100 were usable. The original's
+  multi-class bootstrap reused the multi-label positive-class check on
+  integer labels (a latent bug); here every resample must contain all
+  classes. Resampling is per test sample, as in the original;
+  ``pyhealth.metrics.bootstrap_metrics_ci`` also takes ``groups=`` for a
+  patient-level cluster bootstrap.
 - The original ``Monitor`` defines a test-threshold Fmax (CAFA-style)
   but never calls it in its train/evaluate scripts; it is not reproduced.
 
@@ -83,7 +105,7 @@ from pyhealth.datasets import (
     get_dataloader,
     split_by_strat_fold,
 )
-from pyhealth.metrics import bootstrap_metrics_ci
+from pyhealth.metrics import bootstrap_metrics_ci, welch_relative_improvement_test
 from pyhealth.models import ResNet1D
 from pyhealth.tasks import (
     PTBXLMulticlassClassification,
@@ -92,6 +114,7 @@ from pyhealth.tasks import (
 )
 from pyhealth.tasks.ptbxl_multiclass_classification import (
     PTBXL_PAPER_FOLD_SPLITS,
+    PTBXL_PAPER_TARGET_DX,
 )
 from pyhealth.trainer import Trainer
 
@@ -114,9 +137,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--split",
         choices=[str(k) for k in sorted(PTBXL_PAPER_FOLD_SPLITS)] + ["all"],
-        default="1",
+        default="all",
         help="Benchmark split number ((val, test) folds "
-        f"{PTBXL_PAPER_FOLD_SPLITS}) or 'all' for the five-split sweep",
+        f"{PTBXL_PAPER_FOLD_SPLITS}); 'all' runs the paper's five trials "
+        "(default), which is what the significance test needs",
     )
     parser.add_argument(
         "--task", choices=("multilabel", "multiclass"), default="multilabel"
@@ -130,19 +154,34 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--dx",
-        choices=("AF", "IAVB", "LBBB", "RBBB", "PAC", "PVC", "STD"),
+        choices=PTBXL_PAPER_TARGET_DX,
         default="AF",
-        help="Target diagnosis for the 3-way task (--task multiclass)",
+        help="Target diagnosis for the 3-way task: the four the paper "
+        "benchmarks. PTBXLMulticlassClassification also accepts PAC, PVC "
+        "and STD, which the paper did not run on PTB-XL.",
     )
     parser.add_argument(
-        "--depth", type=int, choices=(18, 34, 50), default=18,
-        help="ResNet1D depth",
+        "--depth",
+        type=int,
+        choices=(18, 34, 50),
+        nargs="+",
+        default=[18],
+        help="ResNet1D depth(s); give several to compare architectures "
+        "the way the paper does",
+    )
+    parser.add_argument(
+        "--baseline-depth",
+        type=int,
+        choices=(18, 34, 50),
+        default=18,
+        help="Arm the Welch tests compare against (the paper uses ResNet-18)",
     )
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument(
-        "--epochs", type=int, default=40,
-        help="Epoch cap; early stopping usually ends earlier",
+        "--epochs", type=int, default=250,
+        help="Epoch cap; the paper trains for at most 250 epochs with "
+        "early stopping, which usually ends earlier",
     )
     parser.add_argument(
         "--patience", type=int, default=25,
@@ -158,9 +197,15 @@ def parse_args() -> argparse.Namespace:
         help="Evaluation window length in seconds (stride is half)",
     )
     parser.add_argument(
-        "--boot-samples", type=int, default=100,
-        help="Bootstrap resamples for the test-set 5%%/95%% interval (the "
-        "original used 100); 0 skips the bootstrap",
+        "--alpha", type=float, default=0.05,
+        help="Significance level for the Welch tests and the "
+        "Benjamini-Hochberg correction across settings",
+    )
+    parser.add_argument(
+        "--boot-samples", type=int, default=0,
+        help="Optional test-set percentile bootstrap of the headline "
+        "metric, a protocol from the released code rather than the paper; "
+        "0 (default) skips it",
     )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
@@ -174,18 +219,19 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--result-json", default=None,
-        help="Write per-split test metrics and bootstrap intervals to "
+        help="Write per-run test metrics, and the Welch/BH comparison, to "
         "this JSON file",
     )
     return parser.parse_args()
 
 
-def run_split(args: argparse.Namespace, split_number: int) -> dict:
-    """Train, select and evaluate one official fold split.
+def run_split(args: argparse.Namespace, split_number: int, depth: int) -> dict:
+    """Train, select and evaluate one arm (depth) on one official split.
 
     Returns:
-        dict with ``split``, the test-fold metrics (``test``) and the
-        bootstrap intervals for the headline metric (``bootstrap``).
+        dict with ``split``, ``depth``, ``label``, the test-fold metrics
+        (``test``) and, when ``--boot-samples`` is set, the bootstrap
+        intervals for the headline metric (``bootstrap``).
     """
     val_fold, test_fold = PTBXL_PAPER_FOLD_SPLITS[split_number]
     train_folds = tuple(
@@ -212,6 +258,7 @@ def run_split(args: argparse.Namespace, split_number: int) -> dict:
         )
         monitor = "roc_auc_macro"
         metrics = ["roc_auc_macro", "f1_macro"]
+        label = args.label_set
     else:
         task = PTBXLMulticlassClassification(
             target_dx=args.dx,
@@ -220,6 +267,7 @@ def run_split(args: argparse.Namespace, split_number: int) -> dict:
         )
         monitor = "f1_macro"
         metrics = ["f1_macro", "roc_auc_macro_ovr"]
+        label = args.dx
 
     samples = dataset.set_task(task)
     train_set, val_set, test_set = split_by_strat_fold(
@@ -242,7 +290,7 @@ def run_split(args: argparse.Namespace, split_number: int) -> dict:
 
     model = ResNet1D(
         dataset=train_set,
-        depth=args.depth,
+        depth=depth,
         training_crop_len=int(args.crop_sec * SAMPLING_RATE),
         eval_window_len=int(args.window_sec * SAMPLING_RATE),
         eval_window_stride=int(args.window_sec * SAMPLING_RATE) // 2,
@@ -255,7 +303,7 @@ def run_split(args: argparse.Namespace, split_number: int) -> dict:
         device=args.device,
         enable_logging=args.output_dir is not None,
         output_path=args.output_dir,
-        exp_name=f"split{split_number}_{args.task}_resnet{args.depth}",
+        exp_name=f"split{split_number}_{args.task}_resnet{depth}",
     )
 
     train_loader = get_dataloader(
@@ -285,16 +333,12 @@ def run_split(args: argparse.Namespace, split_number: int) -> dict:
     # Trainer restores the best-validation checkpoint; evaluate it on the
     # held-out test fold with the same sliding-window inference.
     test_scores = trainer.evaluate(test_loader)
-    label = args.label_set if args.task == "multilabel" else args.dx
-    print(
-        f"\nResNet{args.depth} | split {split_number} | "
-        f"{args.task} ({label})"
-    )
+    print(f"\nResNet{depth} | split {split_number} | {args.task} ({label})")
     for name, value in sorted(test_scores.items()):
         print(f"  {name}: {value:.4f}")
 
-    # Benchmark reporting protocol: bootstrap interval for the headline
-    # metric only, bounds at the 5% and 95% percentiles.
+    # Optional, and from the released code rather than the paper: a
+    # percentile bootstrap of the headline metric on the test fold.
     bootstrap = None
     if args.boot_samples > 0:
         y_true, y_prob, _ = trainer.inference(test_loader)
@@ -314,26 +358,89 @@ def run_split(args: argparse.Namespace, split_number: int) -> dict:
                 f"{ci['n_boot']} usable, {ci['n_skipped']} skipped)"
             )
 
-    return {"split": split_number, "test": test_scores,
-            "bootstrap": bootstrap}
+    return {
+        "split": split_number,
+        "depth": depth,
+        "label": label,
+        "test": test_scores,
+        "bootstrap": bootstrap,
+    }
 
 
-def print_summary(results: list[dict]) -> None:
-    """Print mean +/- std per metric across the splits (paper tables)."""
-    print(f"\n=== Summary across {len(results)} splits ===")
-    for name in results[0]["test"]:
-        values = [r["test"][name] for r in results]
-        print(f"  {name}: {np.mean(values):.4f} +/- {np.std(values):.4f}")
-    bootstrap = results[0]["bootstrap"]
-    if bootstrap:
-        for name, ci in bootstrap.items():
-            means = [r["bootstrap"][name]["mean"] for r in results]
-            lowers = [r["bootstrap"][name]["lower"] for r in results]
-            uppers = [r["bootstrap"][name]["upper"] for r in results]
+def collect_scores(runs: list[dict]) -> dict[str, dict[int, list[float]]]:
+    """Group test metrics into ``{setting: {depth: [score per split]}}``.
+
+    A setting is one label set (or target diagnosis) scored with one
+    metric, e.g. ``diagnostic/roc_auc_macro``, which is how the paper's
+    tables are laid out.
+    """
+    scores: dict[str, dict[int, list[float]]] = {}
+    for run in runs:
+        for metric, value in run["test"].items():
+            setting = f"{run['label']}/{metric}"
+            scores.setdefault(setting, {}).setdefault(run["depth"], []).append(value)
+    return scores
+
+
+def _fmt(value: float | None, spec: str = ".4f", dash: str = "   -  ") -> str:
+    return format(value, spec) if value is not None else dash
+
+
+def print_comparison(runs: list[dict], baseline_depth: int, alpha: float) -> list[dict]:
+    """Print the paper's relative-improvement table with significance tests.
+
+    One row per (setting, depth): the mean and sample standard deviation of
+    the per-split scores, the relative improvement over the baseline arm,
+    and the Welch p-value after Benjamini-Hochberg correction across every
+    setting. Arms whose relative improvement is not positive are shown but
+    excluded from testing.
+    """
+    scores = collect_scores(runs)
+    rows = welch_relative_improvement_test(scores, baseline=baseline_depth, alpha=alpha)
+
+    trials = max((len(v) for arm in scores.values() for v in arm.values()), default=0)
+    print(
+        f"\n=== {trials} trial(s) per arm, relative to ResNet-{baseline_depth} "
+        f"(Welch t-test, Benjamini-Hochberg, alpha={alpha}) ==="
+    )
+    if not rows:
+        print(f"  only ResNet-{baseline_depth} was run; pass more --depth values")
+        return rows
+
+    for setting in sorted({row["setting"] for row in rows}, key=str):
+        print(f"\n  {setting}")
+        print(
+            f"    {'depth':>5}  {'mean':>7}  {'std':>7}  "
+            f"{'rel. imp.%':>10}  {'p':>7}  {'q':>7}  significant"
+        )
+        for row in rows:
+            if row["setting"] != setting:
+                continue
+            verdict = "yes" if row["significant"] else "no"
+            if not row["tested"]:
+                verdict = f"not tested ({row['reason']})"
             print(
-                f"  bootstrap {name}: mean {np.mean(means):.4f}, "
-                f"5%: {np.mean(lowers):.4f}, 95%: {np.mean(uppers):.4f}"
+                f"    {row['arm']:>5}  {_fmt(row['mean']):>7}  {_fmt(row['std']):>7}  "
+                f"{_fmt(row['relative_improvement'], '.3f'):>10}  "
+                f"{_fmt(row['p_value'], '.4f'):>7}  {_fmt(row['q_value'], '.4f'):>7}  "
+                f"{verdict}"
             )
+    if baseline_depth == 18:
+        print(
+            "\n  The paper reported no significant improvement over ResNet-18 "
+            "for any architecture it tested."
+        )
+    return rows
+
+
+def print_mean_summary(runs: list[dict]) -> None:
+    """Print mean +/- sample std per (setting, arm) across the runs."""
+    scores = collect_scores(runs)
+    print(f"\n=== Mean +/- std over {len(runs)} run(s) ===")
+    for setting, arms in sorted(scores.items()):
+        for depth, values in sorted(arms.items()):
+            std = np.std(values, ddof=1) if len(values) > 1 else float("nan")
+            print(f"  ResNet-{depth} {setting}: {np.mean(values):.4f} +/- {std:.4f}")
 
 
 def main() -> None:
@@ -342,20 +449,44 @@ def main() -> None:
         splits = sorted(PTBXL_PAPER_FOLD_SPLITS)
     else:
         splits = [int(args.split)]
+    depths = sorted(set(args.depth))
+    if args.baseline_depth in depths:
+        baseline_depth = args.baseline_depth
+    else:
+        baseline_depth = depths[0]
+        logger.warning(
+            "--baseline-depth %d was not run; comparing against ResNet-%d",
+            args.baseline_depth, baseline_depth,
+        )
 
-    results = []
-    for split_number in splits:
-        torch.manual_seed(args.seed)
-        results.append(run_split(args, split_number))
+    runs = []
+    for depth in depths:
+        for split_number in splits:
+            torch.manual_seed(args.seed)
+            runs.append(run_split(args, split_number, depth))
 
-    if len(results) > 1:
-        print_summary(results)
+    comparison: list[dict] = []
+    if len(depths) > 1:
+        comparison = print_comparison(runs, baseline_depth, args.alpha)
+    elif len(runs) > 1:
+        print_mean_summary(runs)
 
     if args.result_json:
+        label = args.label_set if args.task == "multilabel" else args.dx
+        payload = {
+            "task": args.task,
+            "label": label,
+            "splits": splits,
+            "depths": depths,
+            "baseline_depth": baseline_depth,
+            "alpha": args.alpha,
+            "runs": runs,
+            "comparison": comparison,
+        }
         Path(args.result_json).expanduser().write_text(
-            json.dumps(results, indent=2), encoding="utf-8"
+            json.dumps(payload, indent=2), encoding="utf-8"
         )
-        logger.info("Wrote per-split results to %s", args.result_json)
+        logger.info("Wrote per-split results and comparison to %s", args.result_json)
 
 
 if __name__ == "__main__":

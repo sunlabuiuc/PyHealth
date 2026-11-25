@@ -3,7 +3,7 @@
 Port of the ``ResNet1d`` backbone + ``HeadModule`` prediction head from
 *In-depth Benchmarking of Deep Neural Network Architectures for ECG
 Diagnosis* (Nonaka & Seita, 2021,
-https://arxiv.org/abs/2112.13779), whose reference code adapts
+https://proceedings.mlr.press/v149/nonaka21a.html), whose reference code adapts
 `torchvision's ResNet <https://github.com/pytorch/vision/blob/main/torchvision/models/resnet.py>`_
 by replacing every convolution with a 1-D convolution
 (`seitalab/dnn_ecg_comparison <https://github.com/seitalab/dnn_ecg_comparison>`_,
@@ -467,9 +467,8 @@ class ResNet1D(BaseModel):
             signal = torch.as_tensor(signal)
         signal = signal.to(self.device).float()
 
-        if self.training and self.training_crop_len:
-            if signal.shape[-1] > self.training_crop_len:
-                signal = self._random_crop(signal, self.training_crop_len)
+        if self.training and self.training_crop_len and signal.shape[-1] > self.training_crop_len:
+            signal = self._random_crop(signal, self.training_crop_len)
 
         windowed = (
             not self.training
