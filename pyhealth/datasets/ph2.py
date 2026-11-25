@@ -1,13 +1,14 @@
+# Contributor: Aayan Verma (aayanv2)
+# Contributor: Bryson Lee (brysonl3)
+# Contributor: Xin Zhang (xinz13)
+# Paper: A Study of Artifacts on Melanoma Classification under Diffusion-Based
+# Perturbations (Jin and Ghassemi, CHIL 2025)
+# https://proceedings.mlr.press/v287/jin25b.html
 """PH2 dermoscopy dataset (200 images with lesion masks).
 
-Authors: Aayan Verma, Bryson Lee, Xin Zhang
-NetIDs: aayanv2, brysonl3, xinz13
-Paper: A Study of Artifacts on Melanoma Classification under
-    Diffusion-Based Perturbations (Jin and Ghassemi, CHIL 2025)
-Paper link: https://proceedings.mlr.press/v287/jin25b.html
-Description: Dataset class for PH2, the 200-image dermoscopy set whose lesion
-    masks the paper's lesion-only, background-only and bounding-box views need.
-    Pair it with :class:`~pyhealth.tasks.PH2ArtifactClassification`.
+PH2 is the 200-image dermoscopy set whose lesion masks the paper's lesion-only,
+background-only and bounding-box views need. Pair this dataset with
+:class:`~pyhealth.tasks.PH2ArtifactClassification`.
 """
 
 import logging
@@ -22,8 +23,8 @@ from .imaging.io import _resolve_metadata_dir
 
 logger = logging.getLogger(__name__)
 
+#: Clinical diagnoses, indexed by the PH2 clinical-diagnosis code 0, 1, 2.
 PH2_DIAGNOSES = ("common_nevus", "atypical_nevus", "melanoma")
-"""Clinical diagnoses, indexed by the PH2 clinical-diagnosis code 0, 1, 2."""
 
 _METADATA_FILE = "ph2-metadata-pyhealth.csv"
 _IMAGE_FOLDER_SUFFIX = "_Dermoscopic_Image"

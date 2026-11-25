@@ -1,18 +1,20 @@
+# Contributor: Aayan Verma (aayanv2)
+# Contributor: Bryson Lee (brysonl3)
+# Contributor: Xin Zhang (xinz13)
+# Paper: A Study of Artifacts on Melanoma Classification under Diffusion-Based
+# Perturbations (Jin and Ghassemi, CHIL 2025)
+# https://proceedings.mlr.press/v287/jin25b.html
 """Tests for PH2Dataset using a tiny synthetic PH2 archive.
 
-Authors: Aayan Verma, Bryson Lee, Xin Zhang
-NetIDs: TODO(netid) Aayan Verma, TODO(netid) Bryson Lee, TODO(netid) Xin Zhang
-Paper: A Study of Artifacts on Melanoma Classification under
-    Diffusion-Based Perturbations (Jin and Ghassemi, CHIL 2025)
-Paper link: https://proceedings.mlr.press/v287/jin25b.html
-Description: Fast unit tests for PH2Dataset. They build a 4-image PH2-style
-    archive in a temporary folder; no real data is used.
+Each test builds a 4-image PH2-style archive in a temporary folder, so no real
+data is used and the whole file runs in well under a second.
 """
 
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -53,19 +55,25 @@ def make_ph2_root(root: Path, with_missing_mask: bool = True) -> None:
 
 
 class TestPH2Dataset(unittest.TestCase):
-    def setUp(self):
+    """Tests for PH2Dataset on a synthetic archive."""
+
+    def setUp(self) -> None:
+        """Write a synthetic archive to a temporary folder."""
         self.tmp = Path(tempfile.mkdtemp())
         self.root = self.tmp / "PH2Dataset"
         make_ph2_root(self.root)
         self.cache = self.tmp / "cache"
 
-    def tearDown(self):
+    def tearDown(self) -> None:
+        """Remove the temporary folder."""
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def _dataset(self, **kwargs):
+    def _dataset(self, **kwargs: Any) -> PH2Dataset:
+        """Build a PH2Dataset on the synthetic archive."""
         return PH2Dataset(root=str(self.root), cache_dir=str(self.cache), **kwargs)
 
-    def test_metadata_and_patients(self):
+    def test_metadata_and_patients(self) -> None:
+        """Images without a mask are dropped; patients and diagnoses are parsed."""
         dataset = self._dataset()
         meta = pd.read_csv(dataset.metadata_path)
         self.assertEqual(len(meta), 3)  # IMD004 has no mask
@@ -83,14 +91,16 @@ class TestPH2Dataset(unittest.TestCase):
         # the source folder is only read, never written to
         self.assertFalse((self.root / "ph2-metadata-pyhealth.csv").exists())
 
-    def test_event_attributes(self):
+    def test_event_attributes(self) -> None:
+        """An event carries the diagnosis and existing image and mask paths."""
         dataset = self._dataset()
         (event,) = dataset.get_patient("IMD003").get_events(event_type="ph2")
         self.assertEqual(event.diagnosis, "melanoma")
         self.assertTrue(Path(event.image_path).is_file())
         self.assertTrue(Path(event.mask_path).name.endswith("_lesion.bmp"))
 
-    def test_reads_the_archives_pipe_separated_txt(self):
+    def test_reads_the_archives_pipe_separated_txt(self) -> None:
+        """The archive's ||/| separated txt, with blank cells, is parsed."""
         (self.root / "PH2_dataset.csv").unlink()
         (self.root / "PH2_dataset.txt").write_text(
             "||   Name || Histological Diagnosis || Clinical Diagnosis || Colors ||\n"
@@ -108,31 +118,36 @@ class TestPH2Dataset(unittest.TestCase):
             },
         )
 
-    def test_missing_annotation_file_raises(self):
+    def test_missing_annotation_file_raises(self) -> None:
+        """A missing annotation file raises FileNotFoundError."""
         (self.root / "PH2_dataset.csv").unlink()
         with self.assertRaises(FileNotFoundError):
             self._dataset()
 
-    def test_annotation_without_clinical_column_raises(self):
+    def test_annotation_without_clinical_column_raises(self) -> None:
+        """A file without a Clinical Diagnosis column raises ValueError."""
         pd.DataFrame([["Image Name", "Other"], ["IMD001", 1]]).to_csv(
             self.root / "PH2_dataset.csv", index=False, header=False
         )
         with self.assertRaises(ValueError):
             self._dataset()
 
-    def test_unknown_diagnosis_code_raises(self):
+    def test_unknown_diagnosis_code_raises(self) -> None:
+        """A diagnosis code outside 0, 1, 2 raises ValueError."""
         pd.DataFrame([["Image Name", "Clinical Diagnosis"], ["IMD001", 7]]).to_csv(
             self.root / "PH2_dataset.csv", index=False, header=False
         )
         with self.assertRaises(ValueError):
             self._dataset()
 
-    def test_no_images_raises(self):
+    def test_no_images_raises(self) -> None:
+        """A folder with no images raises FileNotFoundError."""
         shutil.rmtree(self.root / "PH2 Dataset images")
         with self.assertRaises(FileNotFoundError):
             self._dataset()
 
-    def test_rebuilds_metadata_when_root_changes(self):
+    def test_rebuilds_metadata_when_root_changes(self) -> None:
+        """A different source folder rebuilds the metadata, not reuses it."""
         metadata_dir = str(self.tmp / "meta")
         self._dataset(metadata_dir=metadata_dir)
         other = self.tmp / "other"
@@ -142,5 +157,6 @@ class TestPH2Dataset(unittest.TestCase):
         )
         self.assertEqual(len(pd.read_csv(dataset.metadata_path)), 4)
 
-    def test_default_task(self):
+    def test_default_task(self) -> None:
+        """The default task is the whole-image view."""
         self.assertEqual(self._dataset().default_task.view, "whole")
