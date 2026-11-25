@@ -79,11 +79,13 @@ Extension A (hand-drawn artifacts), ``whole`` view, AUROC drop when the artifact
 is added to every test image (paper's Table 4, PH2 column, diffusion artifacts,
 in brackets): ink 0.028 [0.016], dark corner 0.012 [-0.003], ruler 0.009
 [0.009], patches 0.007 [-0.001], gel bubble 0.003 [0.002]. Ink is the largest
-drop in both, but the drops are small, and only ``ink`` (CI +0.002 to +0.043)
-has a bootstrap interval that excludes 0 for the ``whole`` view (Extension B).
-The ink ring is drawn around the lesion, so it is partly more disruptive by
-construction. The ``lesion`` views change by exactly 0.000 under every artifact,
-confirming the lesion is untouched.
+drop in both, but the drops are small. In the ``whole`` view (Extension B) only
+``ink`` (CI +0.002 to +0.043) clearly excludes 0; ``ruler`` barely does (CI
++0.0004 to +0.018), and the other three include 0. Across all views, 8 of the 45
+informative intervals exclude 0, against about 2 expected by chance, so only the
+repeated ink result should be trusted. The ink ring is drawn around the lesion,
+so it is partly more disruptive by construction. The ``lesion`` views change by
+exactly 0.000 under every artifact, confirming the lesion is untouched.
 
 Usage
 -----
