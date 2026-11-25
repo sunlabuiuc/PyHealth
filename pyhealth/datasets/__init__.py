@@ -19,8 +19,8 @@ def _removed_1x_class(name: str, replacement: str) -> type:
         docs = "https://pyhealth.readthedocs.io/en/latest/api/datasets.html"
         cls = type(self).__name__
         if cls != name:
-            # An in-tree or user dataset still built on the 1.x base class
-            # (e.g. SHHSDataset, MIMICExtractDataset). It never worked on 2.x: the stub set no
+            # A user dataset (or a still-unported in-tree one) that builds on
+            # the 1.x base class. It never worked on 2.x: the stub set no
             # attributes and provided no set_task.
             raise NotImplementedError(
                 f"{cls} is built on {name}, which was removed in PyHealth "

@@ -240,21 +240,23 @@ def sleep_staging_shhs_fn(record, epoch_seconds=30):
 
     Note that we define the task as a multi-class classification task.
 
+    .. deprecated::
+        This is the 1.x task function and it cannot be used through
+        :meth:`~pyhealth.datasets.BaseDataset.set_task`, which expects a
+        :class:`~pyhealth.tasks.BaseTask` instance. Use
+        :class:`~pyhealth.tasks.sleep_staging_shhs.SleepStagingSHHS` with
+        :class:`~pyhealth.datasets.SHHSDataset` instead.
+
     Examples:
         >>> from pyhealth.datasets import SHHSDataset
-        >>> shhs = SHHSDataset(
-        ...         root="/srv/local/data/SHHS/polysomnography",
-        ...         dev=True,
-        ...     )
-        >>> from pyhealth.tasks import sleep_staging_shhs_fn
-        >>> shhs_ds = shhs.set_task(sleep_staging_shhs_fn)
-        >>> shhs_ds.samples[0]
-        {
-            'record_id': 'shhs1-200001-0', 
-            'patient_id': 'shhs1-200001', 
-            'epoch_path': '/home/chaoqiy2/.cache/pyhealth/datasets/76c1ce8195a2e1a654e061cb5df4671a/shhs1-200001-0.pkl', 
-            'label': '0'
-        }
+        >>> from pyhealth.tasks import SleepStagingSHHS
+        >>> shhs = SHHSDataset(  # doctest: +SKIP
+        ...     root="/srv/local/data/SHHS/polysomnography",
+        ...     dev=True,
+        ... )
+        >>> shhs_ds = shhs.set_task(SleepStagingSHHS())  # doctest: +SKIP
+        >>> shhs_ds[0]["signal"].shape  # doctest: +SKIP
+        torch.Size([2, 3750])
     """
     SAMPLE_RATE = 125
 
@@ -318,7 +320,8 @@ def sleep_staging_shhs_fn(record, epoch_seconds=30):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SleepEDFDataset, SHHSDataset, ISRUCDataset
+    # All demo blocks below are commented out: they need restricted datasets.
+    # from pyhealth.datasets import SleepEDFDataset, SHHSDataset, ISRUCDataset
 
     """ test sleep edf"""
     # dataset = SleepEDFDataset(
@@ -346,17 +349,18 @@ if __name__ == "__main__":
     # # print(sleep_staging_ds.patient_to_index)
     # # print(sleep_staging_ds.record_to_index)
     # print(sleep_staging_ds.input_info)
-    
-    dataset = SHHSDataset(
-        root="/srv/local/data/SHHS/polysomnography",
-        dev=True,
-        refresh_cache=True,
-    )
-    sleep_staging_ds = dataset.set_task(sleep_staging_shhs_fn)
-    print(sleep_staging_ds.samples[0])
-    # print(sleep_staging_ds.patient_to_index)
-    # print(sleep_staging_ds.record_to_index)
-    print(sleep_staging_ds.input_info)
+
+    # """ test SHHS"""
+    # The 1.x function below predates the 2.0 API: SHHSDataset is now a
+    # BaseDataset, so it takes no refresh_cache and set_task needs a BaseTask.
+    # Use pyhealth.tasks.SleepStagingSHHS instead.
+    # dataset = SHHSDataset(
+    #     root="/srv/local/data/SHHS/polysomnography",
+    #     dev=True,
+    # )
+    # sleep_staging_ds = dataset.set_task(SleepStagingSHHS())
+    # print(sleep_staging_ds[0])
+    # print(sleep_staging_ds.input_info)
     
     
     

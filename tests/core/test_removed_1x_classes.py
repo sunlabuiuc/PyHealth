@@ -41,18 +41,8 @@ class TestRemoved1xClasses(unittest.TestCase):
                     subclass()
 
     def test_in_tree_legacy_datasets_name_themselves(self):
-        from pyhealth.datasets import (
-            MIMICExtractDataset,
-            SHHSDataset,
-        )
+        from pyhealth.datasets import MIMICExtractDataset
 
-        for cls in (SHHSDataset,):
-            with self.subTest(cls=cls.__name__):
-                with self.assertRaises(NotImplementedError) as ctx:
-                    cls(root="data")
-                message = str(ctx.exception)
-                self.assertIn(f"{cls.__name__} is built on", message)
-                self.assertIn("does not work yet", message)
         with self.assertRaises(NotImplementedError) as ctx:
             MIMICExtractDataset(root="data", tables=["C"])
         self.assertIn(
