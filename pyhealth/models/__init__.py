@@ -70,6 +70,11 @@ from .molerec import MoleRec, MoleRecLayer
 from .retain import MultimodalRETAIN, RETAIN, RETAINLayer
 from .rnn import MultimodalRNN, RNN, RNNLayer
 from .rnn import RNN_V2 as RNN_V2
+from .resnet1d import (
+    BasicBlock1D as BasicBlock1D,
+    Bottleneck1D as Bottleneck1D,
+    ResNet1D as ResNet1D,
+)
 from .safedrug import SafeDrug, SafeDrugLayer
 from .shy import SHy as SHy
 from .sleepkd import SleepKD as SleepKD
