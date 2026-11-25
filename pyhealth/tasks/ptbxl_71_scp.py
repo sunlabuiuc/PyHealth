@@ -1,6 +1,7 @@
-from typing import Any, ClassVar
-import pandas as pd
 from pathlib import Path
+from typing import Any, ClassVar
+
+import pandas as pd
 
 from pyhealth.data import Patient
 from pyhealth.tasks.base_task import BaseTask
@@ -8,9 +9,15 @@ from pyhealth.tasks.base_task import BaseTask
 
 class PTBXLAllDiagnosticClassification(BaseTask):
     """71-class multi-label classification on PTB-XL (All diagnostic SCP codes).
-    
-    Unlike the 5-superclass task, this extracts all granular SCP codes 
+
+    Unlike the 5-superclass task, this extracts all granular SCP codes
     flagged as diagnostic (diagnostic == 1) in scp_statements.csv.
+
+    >>> task = PTBXLAllDiagnosticClassification(
+    ...     scp_statements_path="tests/data/ptbxl_synthetic/scp_statements.csv"
+    ... )
+    >>> task.task_name
+    'PTBXLAllDiagnosticClassification'
     """
     
     task_name: str = "PTBXLAllDiagnosticClassification"
@@ -25,13 +32,13 @@ class PTBXLAllDiagnosticClassification(BaseTask):
         super().__init__()
 
     def __call__(self, patient: Patient) -> list[dict[str, Any]]:
-        from pyhealth.datasets.ptbxl import parse_scp_codes, load_ptbxl_record
-        
+        from pyhealth.datasets.ptbxl import load_ptbxl_record, parse_scp_codes
+
         samples = []
         for event in patient.get_events(event_type="records"):
             codes = parse_scp_codes(event.scp_codes)
             
-            labels = sorted([code for code in codes.keys() if code in self.valid_codes])
+            labels = sorted([code for code in codes if code in self.valid_codes])
             
             if not labels:
                 continue

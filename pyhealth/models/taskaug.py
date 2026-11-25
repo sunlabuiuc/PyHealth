@@ -1,13 +1,19 @@
-from typing import Dict, List
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 from pyhealth.models.base_model import BaseModel
 
-
 class BasicBlock1D(nn.Module):
-    """1D ResNet Basic Block."""
+    """1D ResNet Basic Block.
+
+    >>> import torch
+    >>> from pyhealth.models.taskaug import BasicBlock1D
+    >>> block = BasicBlock1D(in_channels=12, out_channels=12, stride=1)
+    >>> x = torch.randn(2, 12, 100)
+    >>> block(x).shape
+    torch.Size([2, 12, 100])
+    """
     def __init__(self, in_channels: int, out_channels: int, stride: int = 1):
         super().__init__()
         self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
@@ -31,17 +37,37 @@ class BasicBlock1D(nn.Module):
 
 class TaskAug(BaseModel):
     """TaskAug model for ECG classification with learnable data augmentation.
-    
+
     Paper: Raghu et al. (2022). Data Augmentation for Electrocardiograms.
-    
-    Integrates a 1D ResNet-18 backbone with a learnable, task-dependent data 
+
+    Integrates a 1D ResNet-18 backbone with a learnable, task-dependent data
     augmentation policy. Maintains class-specific augmentation strengths (mu_0, mu_1).
+
+    >>> import torch
+    >>> from pyhealth.datasets import PTBXLDataset
+    >>> from pyhealth.models import TaskAug
+    >>> dataset = PTBXLDataset(
+    ...     root="tests/data/ptbxl_synthetic",
+    ...     cache_dir="tests/data/my_clean_cache",
+    ... )
+    >>> samples = dataset.set_task(dataset.default_task)
+    >>> model = TaskAug(
+    ...     dataset=samples,
+    ...     feature_keys=["signal"],
+    ...     label_key="labels",
+    ...     mode="multilabel",
+    ...     num_stages=2,
+    ... )
+    >>> batch = {"signal": torch.randn(2, 12, 1000), "labels": torch.tensor([[0, 1, 0], [1, 0, 1]])}
+    >>> out = model(**batch)
+    >>> out["y_prob"].shape
+    torch.Size([2, 3])
     """
 
     def __init__(
         self,
         dataset,
-        feature_keys: List[str],
+        feature_keys: list[str],
         label_key: str,
         mode: str,
         num_stages: int = 2,
@@ -99,7 +125,7 @@ class TaskAug(BaseModel):
             return F.binary_cross_entropy_with_logits(logits, y.float())
         return F.cross_entropy(logits, y.long())
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward pass for the model."""
         x = kwargs[self.model_feature_keys[0]]
         
