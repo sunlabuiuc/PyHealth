@@ -162,4 +162,4 @@ from .dearllm import (
     DearLLM as DearLLM,
     DearLLMGraphEncoder as DearLLMGraphEncoder,
 )
-from .tpc import TPC
+from .tpc import TPC as TPC
