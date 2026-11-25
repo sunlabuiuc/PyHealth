@@ -314,6 +314,7 @@ Available Tasks
     YAIB Tasks (MIMIC-IV) <tasks/pyhealth.tasks.yaib_mimic4>
     YAIB Tasks (MIMIC-III) <tasks/pyhealth.tasks.yaib_mimic3>
     YAIB Tasks (eICU) <tasks/pyhealth.tasks.yaib_eicu>
+    TPC Day-One Length of Stay (eICU/MIMIC-IV) <tasks/pyhealth.tasks.tpc_day_one>
     Value Set Completion (VSAC) <tasks/pyhealth.tasks.ValueSetCompletion>
     Value Set Pair Classification (VSAC) <tasks/pyhealth.tasks.ValueSetPairClassification>
     Time-to-event survival (GBSG and SUPPORT) <tasks/pyhealth.tasks.survival_time_to_event>
