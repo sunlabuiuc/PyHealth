@@ -239,14 +239,13 @@ def main() -> None:
         X_fit, X_in = X_hist.iloc[:split], X_hist.iloc[split:]
         shap_fit = shap_hist[:split]
         y_in = y_hist[split:]
-        n_train = len(X_fit)
         label = "Synthetic Temporal Shift Cohort (2008-2019 vs 2020-2022)"
 
     print(f"Uni-ACS Temporal Validation — {label}")
-    print(
-        f"Sizes (fit / 2008-2019 test / 2020-2022 test): "
-        f"{n_train} / {len(X_in)} / {len(X_temp)}"
-    )
+    if args.mimic_dir is not None:
+        print(f"RandomForest training admissions: {n_train}")
+    print(f"Uni-ACS score-fitting admissions: {len(X_fit)}")
+    print(f"Test admissions (historical / recent): {len(X_in)} / {len(X_temp)}")
     print(
         f"Mortality rates (in-period / temporal): "
         f"{y_in.mean():.4f} / {y_temp.mean():.4f}\n"

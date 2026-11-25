@@ -2,6 +2,7 @@
 
 import importlib.util
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -41,6 +42,58 @@ class TestUniACS(unittest.TestCase):
                 [0.4, 0.2],
             ]
         )
+
+    def test_build_score_table_rejects_invalid_inputs(self) -> None:
+        for data, attributions, message in (
+            (self.X.iloc[:0], self.shap_values[:0], "non-empty"),
+            (self.X, self.shap_values[:, :1], "same shape"),
+            (self.X, np.full(self.X.shape, np.nan), "finite values"),
+            (self.X * np.nan, self.shap_values, "non-finite values"),
+            (self.X, np.zeros(self.X.shape), "exceed the threshold"),
+        ):
+            with (
+                self.subTest(message=message),
+                self.assertRaisesRegex(ValueError, message),
+            ):
+                build_score_table(data, attributions)
+
+    def test_build_score_table_rejects_invalid_parameters(self) -> None:
+        for options, message in (
+            ({"top_k": 0}, "top_k"),
+            ({"threshold": 0}, "threshold"),
+        ):
+            with (
+                self.subTest(options=options),
+                self.assertRaisesRegex(ValueError, message),
+            ):
+                build_score_table(self.X, self.shap_values, **options)
+
+    def test_predict_score_rejects_non_dataframe_and_non_finite_values(self) -> None:
+        table, _ = build_score_table(self.X, self.shap_values)
+        with self.assertRaisesRegex(TypeError, "pandas DataFrame"):
+            predict_score(self.X.to_numpy(), table)
+        with self.assertRaisesRegex(ValueError, "non-finite values"):
+            predict_score(self.X * np.nan, table)
+
+    def test_calibration_rejects_mismatched_labels(self) -> None:
+        scorer = UniACS().fit(self.X, self.shap_values, expected_value=0.0)
+        with self.assertRaisesRegex(ValueError, "equal length"):
+            scorer.calibrate_scores(self.X, np.array([0, 1]))
+
+    def test_scipy_spline_fallbacks_find_a_zero_crossing(self) -> None:
+        values = np.linspace(-2.0, 2.0, 101)
+        with patch("pyhealth.interpret.uni_acs._csaps", None):
+            for n_bins in (3, 10):
+                with self.subTest(n_bins=n_bins):
+                    breaks = find_novel_breakpoints(values, values, n_bins=n_bins)
+                    self.assertTrue(np.any(np.abs(breaks) < 0.25), breaks)
+
+    def test_fit_from_data_explains_missing_shap_dependency(self) -> None:
+        with (
+            patch.dict("sys.modules", {"shap": None}),
+            self.assertRaisesRegex(ImportError, "required for UniACS.fit_from_data"),
+        ):
+            UniACS().fit_from_data(self.X, np.zeros(len(self.X)))
 
     def test_build_score_table(self) -> None:
         table, unit = build_score_table(

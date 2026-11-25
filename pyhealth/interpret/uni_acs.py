@@ -8,7 +8,8 @@ tables.
 Reference:
     Li, A., Ong, M. L., Oei, C. W., Lian, W., Phua, H. P., Htet, L. H.,
     Lim, W. Y., & Motani, M. (2022). Unified Auto Clinical Scoring
-    (Uni-ACS) with Interpretable ML models. arXiv preprint.
+    (Uni-ACS) with Interpretable ML models. Proceedings of Machine Learning for
+    Healthcare, PMLR 182:26–53.
 """
 
 from __future__ import annotations
@@ -42,9 +43,8 @@ def find_novel_breakpoints(
 
     Bins the sorted feature values into ``n_bins - 1`` uniform intervals,
     interpolates empty bins, fits a cubic smoothing spline (using
-    ``csaps`` when installed and falling back to SciPy's
-    :func:`scipy.interpolate.make_smoothing_spline`), and locates points
-    where the smoothed SHAP curve crosses zero.
+    ``csaps`` when installed and otherwise using SciPy), and locates zero
+    crossings. The two backends can produce different breakpoints.
 
     Args:
         values: One-dimensional array of feature values.
@@ -406,6 +406,11 @@ class UniACS:
     model into an additive, integer-valued clinical scoring table, with
     optional score-level isotonic calibration for probability outputs.
 
+    Integer points are summed to produce a score. When using
+    :meth:`fit_from_data`, the per-feature logit transformation of
+    probability-scale SHAP values is an approximation. The summed
+    contributions generally differ from the model's log-odds change.
+
     Args:
         top_k: Number of top features selected by mean absolute SHAP.
         threshold: Minimum absolute bin mean SHAP value used to determine
@@ -499,6 +504,12 @@ class UniACS:
         Splits ``(X, y)`` into 60% model training, 20% score table
         construction, and 20% score-level isotonic calibration to avoid
         leakage across stages. Requires the optional ``shap`` package.
+
+        Each probability-scale SHAP value is transformed separately via
+        the logit difference from the baseline. Because the logit is
+        nonlinear, these contributions generally do not sum to the
+        model's log-odds change. Held-out isotonic calibration maps the
+        resulting integer score to probabilities.
 
         Args:
             X: Feature DataFrame.
@@ -651,7 +662,8 @@ class UniACS:
 
         Uses the fitted isotonic score calibrator when available;
         otherwise applies :func:`predict_proba_from_score` using the
-        baseline expected log-odds and scaling unit.
+        baseline expected log-odds and scaling unit for an approximate
+        probability.
 
         Args:
             X: Feature DataFrame containing the scored features.

@@ -2,7 +2,8 @@
 
 Run `python examples/mimic4_mortality_uni_acs.py` from the repository root for the
 synthetic ablation. Only the optional real-data runs require MIMIC-IV access.
-All results below are aggregate metrics from local runs.
+All results below are aggregate metrics from local runs. The reported novel
+binning results used `csaps`. The SciPy fallback can give different breakpoints.
 
 ## Synthetic ablation
 
@@ -47,12 +48,16 @@ from 0.0588 to 0.0529 after held-out isotonic calibration on the same test set.
 
 The ICD-defined sepsis cohort uses age, sex, and 12 lab features. Top 14 is the
 all-features configuration. The [stratified random-split experiment](uni_acs_mimic31_model.py)
-used 12,202 training and 5,230 test admissions. Calibrated RandomForest achieved
+used 12,202 training and 5,230 test admissions. This baseline filters labs by
+`charttime` and may include results released after the cutoff. Calibrated
+RandomForest achieved
 AUROC 0.7235. Novel Uni-ACS AUROC was 0.6862, 0.6958, and 0.6975 at Top 5, 10, and 14.
 
 The [temporal experiment](uni_acs_mimic31_temporal_validation.py) used labs available
-by 24 hours after admission. It fit on 8,593 historical admissions and evaluated
-3,683 historical and 2,724 recent admissions. The estimated admission ranges
+by 24 hours after admission, using both `charttime` and `storetime`.
+It trained the random forest on 8,593 historical admissions and used a sample
+of 2,000 from that training set for SHAP and score fitting. It evaluated 3,683
+historical and 2,724 recent admissions. The estimated admission ranges
 were 2008–2019 and 2020–2022, respectively. Another 2,432 admissions were excluded
 because their estimated ranges crossed a boundary or extended outside the study
 years. Test mortality was 18.49% historically and 21.66% in the recent group.

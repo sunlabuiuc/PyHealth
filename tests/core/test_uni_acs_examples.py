@@ -1,4 +1,8 @@
-"""Regression tests for the Uni-ACS examples using synthetic inputs."""
+"""Test the same metric and era grouping functions used by the examples.
+
+Run from the repository root. Synthetic inputs keep these checks independent
+of MIMIC-IV files.
+"""
 
 import numpy as np
 import pandas as pd

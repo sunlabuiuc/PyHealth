@@ -68,6 +68,7 @@ class TestUniACSPipeline(unittest.TestCase):
         "Optional 'shap' and 'scikit-learn' packages are required.",
     )
     def test_calibrated_model_and_shap_aggregation(self) -> None:
+        # Exercise the actual example workflow with synthetic data.
         from examples.uni_acs_utils import aggregate_shap, train_calibrated_rf
 
         X, y = _synthetic_data()
