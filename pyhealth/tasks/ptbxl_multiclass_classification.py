@@ -54,6 +54,78 @@ PTBXL_PAPER_FOLD_SPLITS: dict[int, tuple[int, int]] = {
 }
 
 
+def compute_multiclass_class_weights(
+    samples: Any,
+    label_key: str = "label",
+) -> list[float]:
+    """Class weights for the 3-way loss from a training split only.
+
+    Reproduces ``_calc_class_weight`` of the benchmark
+    (*Nonaka & Seita, 2021*): ``[1, n_target/n_normal, n_other/n_normal]``
+    in :data:`PTBXL_MULTICLASS_CLASSES` order, meant for
+    ``ResNet1D(class_weight=...)``. Pass the **training** split's samples
+    (e.g. the output of :func:`~pyhealth.datasets.split_by_strat_fold`) so
+    the weights never see validation or test data. Labels may be raw
+    strings or processor-encoded integers.
+
+    Note:
+        The benchmark counts raw label vectors, so a record carrying both
+        the normal and the target statement inflates both counts. Here the
+        counts come from the 3-way labels themselves (target takes
+        precedence), a small, deliberate difference.
+
+    Args:
+        samples: Iterable of samples (dict-like) with ``label_key``.
+        label_key: Sample key holding the class label.
+
+    Returns:
+        list[float]: ``[w_normal, w_target, w_other]`` with ``w_normal``
+        fixed at 1.0.
+
+    Raises:
+        ValueError: If the samples contain no ``"normal"`` label.
+
+    Examples:
+        >>> samples = [
+        ...     {"label": "normal"}, {"label": "normal"},
+        ...     {"label": "target"},
+        ...     {"label": "other"}, {"label": "other"},
+        ...     {"label": "other"},
+        ... ]
+        >>> compute_multiclass_class_weights(samples)
+        [1.0, 0.5, 1.5]
+    """
+    counts = {name: 0 for name in PTBXL_MULTICLASS_CLASSES}
+    for sample in samples:
+        label = sample[label_key]
+        if isinstance(label, str):
+            name = label
+        else:
+            index = int(label)
+            if not 0 <= index < len(PTBXL_MULTICLASS_CLASSES):
+                raise ValueError(
+                    f"label index {index} outside "
+                    f"{PTBXL_MULTICLASS_CLASSES}"
+                )
+            name = PTBXL_MULTICLASS_CLASSES[index]
+        if name not in counts:
+            raise ValueError(
+                f"label {label!r} not in {PTBXL_MULTICLASS_CLASSES}"
+            )
+        counts[name] += 1
+    n_normal = counts["normal"]
+    if n_normal == 0:
+        raise ValueError(
+            "no 'normal' samples in the training split; cannot normalize "
+            "class weights"
+        )
+    return [
+        1.0,
+        counts["target"] / n_normal,
+        counts["other"] / n_normal,
+    ]
+
+
 class PTBXLMulticlassClassification(BaseTask):
     """3-way classification (normal / target dx / other) of PTB-XL ECGs.
 
@@ -104,15 +176,16 @@ class PTBXLMulticlassClassification(BaseTask):
     Examples:
         >>> from pyhealth.datasets import (  # doctest: +SKIP
         ...     PTBXLDataset, compute_ptbxl_lead_stats, split_by_strat_fold)
-        >>> from pyhealth.tasks import PTBXLMulticlassClassification
-        >>> dataset = PTBXLDataset(
+        >>> from pyhealth.tasks import PTBXLMulticlassClassification  # doctest: +SKIP
+        >>> dataset = PTBXLDataset(  # doctest: +SKIP
         ...     root="/data/ptb-xl/1.0.3", sampling_rate=500)
-        >>> stats = compute_ptbxl_lead_stats(dataset, train_folds=(1, 2, 3,
-        ...     4, 5, 6, 9, 10))  # paper split 1: val 9, test 10
-        >>> task = PTBXLMulticlassClassification(
+        >>> stats = compute_ptbxl_lead_stats(  # doctest: +SKIP
+        ...     dataset, train_folds=(1, 2, 3, 4, 5, 6, 9, 10)
+        ... )  # paper split 1: val 9, test 10
+        >>> task = PTBXLMulticlassClassification(  # doctest: +SKIP
         ...     target_dx="AF", standardize="train_stats", stats_path=stats)
-        >>> samples = dataset.set_task(task)
-        >>> train, val, test = split_by_strat_fold(
+        >>> samples = dataset.set_task(task)  # doctest: +SKIP
+        >>> train, val, test = split_by_strat_fold(  # doctest: +SKIP
         ...     samples, train_folds=(1, 2, 3, 4, 5, 6, 9, 10),
         ...     val_folds=(9,), test_folds=(10,))
     """

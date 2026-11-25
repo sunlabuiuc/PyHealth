@@ -12,6 +12,7 @@ import unittest
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import BasicBlock1D, Bottleneck1D, ResNet1D
@@ -204,6 +205,161 @@ class TestResNet1DConfig(unittest.TestCase):
         self.assertEqual(model.head[0].out_features, 8)
         self.assertEqual(model.head[3].p, 0.0)
         self.assertEqual(model.head[4].out_features, 2)
+
+
+class TestResNet1DCropWindow(unittest.TestCase):
+    """Benchmark protocol: random training crop + sliding-window eval."""
+
+    def _binary_model(self, **kwargs):
+        dataset = _signal_dataset(
+            {"label": "binary"}, n=4, labels_fn=lambda i: i % 2
+        )
+        return ResNet1D(dataset=dataset, head_dropout=0.0, **kwargs)
+
+    def test_training_crop_shapes_offsets_and_seed(self):
+        model = self._binary_model(training_crop_len=100)
+        model.train()
+        x = torch.randn(2, 12, 400)
+        out = model(signal=x)
+        self.assertEqual(tuple(out["logit"].shape), (2, 1))
+        torch.manual_seed(7)
+        crop_a = model._random_crop(x, 100)
+        torch.manual_seed(7)
+        crop_b = model._random_crop(x, 100)
+        self.assertTrue(torch.equal(crop_a, crop_b))
+        self.assertEqual(tuple(crop_a.shape), (2, 12, 100))
+        torch.manual_seed(11)
+        self.assertFalse(torch.equal(crop_a, model._random_crop(x, 100)))
+        for sample in range(2):
+            offsets = [
+                s for s in range(400 - 100 + 1)
+                if torch.equal(crop_a[sample], x[sample, :, s:s + 100])
+            ]
+            self.assertTrue(offsets, msg=f"sample {sample} is not a crop")
+
+    def test_crop_skipped_when_signal_shorter(self):
+        model = self._binary_model(training_crop_len=1000)
+        model.train()
+        x = torch.randn(2, 12, 400)
+        torch.manual_seed(3)
+        out_crop = model(signal=x)["logit"]
+        torch.manual_seed(3)
+        model.training_crop_len = None
+        out_plain = model(signal=x)["logit"]
+        torch.testing.assert_close(out_crop, out_plain)
+
+    def test_eval_window_matches_manual_unfold(self):
+        model = self._binary_model(
+            eval_window_len=100, eval_window_stride=50
+        )
+        model.eval()
+        x = torch.randn(2, 12, 400)
+        with torch.no_grad():
+            out = model(signal=x)
+            # Mirror SubsampleEval: windows start at arange(0, T, stride);
+            # the tail is zero-padded so the last window fits.
+            n_windows = (400 - 1) // 50 + 1
+            self.assertEqual(n_windows, 8)
+            padded = F.pad(x, (0, (n_windows - 1) * 50 + 100 - 400))
+            windows = padded.unfold(2, 100, 50)
+            windows = windows.permute(0, 2, 1, 3).reshape(-1, 12, 100)
+            logits = model.head(model.backbone(windows))
+            manual = logits.view(2, n_windows, -1).max(dim=1).values
+        torch.testing.assert_close(out["logit"], manual)
+
+    def test_eval_window_default_stride_is_half_window(self):
+        model = self._binary_model(eval_window_len=100)
+        self.assertIsNone(model.eval_window_stride)
+        model.eval()
+        x = torch.randn(1, 12, 300)
+        with torch.no_grad():
+            out = model(signal=x)["logit"]
+            n_windows = (300 - 1) // 50 + 1
+            padded = F.pad(x, (0, (n_windows - 1) * 50 + 100 - 300))
+            windows = padded.unfold(2, 100, 50)
+            windows = windows.permute(0, 2, 1, 3).reshape(-1, 12, 100)
+            manual = model.head(model.backbone(windows)).view(
+                1, n_windows, -1
+            ).max(dim=1).values
+        torch.testing.assert_close(out, manual)
+
+    def test_window_skipped_when_signal_shorter(self):
+        model = self._binary_model(eval_window_len=1000)
+        model.eval()
+        x = torch.randn(2, 12, 400)
+        with torch.no_grad():
+            out = model(signal=x)["logit"]
+            model.eval_window_len = None
+            plain = model(signal=x)["logit"]
+        torch.testing.assert_close(out, plain)
+
+    def test_embed_returns_mean_window_features(self):
+        model = self._binary_model(
+            hidden_dim=32, eval_window_len=100, eval_window_stride=100
+        )
+        model.eval()
+        x = torch.randn(2, 12, 400)
+        with torch.no_grad():
+            out = model(signal=x, embed=True)
+        self.assertEqual(tuple(out["embed"].shape), (2, 32))
+
+    def test_invalid_crop_or_window_raises(self):
+        with self.assertRaisesRegex(ValueError, "positive integer"):
+            self._binary_model(training_crop_len=0)
+        with self.assertRaisesRegex(ValueError, "positive integer"):
+            self._binary_model(eval_window_len=-5)
+        with self.assertRaisesRegex(ValueError, "must not exceed"):
+            self._binary_model(eval_window_len=100, eval_window_stride=150)
+
+
+class TestResNet1DClassWeight(unittest.TestCase):
+    def _binary_model(self, **kwargs):
+        dataset = _signal_dataset(
+            {"label": "binary"}, n=4, labels_fn=lambda i: i % 2
+        )
+        return ResNet1D(dataset=dataset, head_dropout=0.0, **kwargs)
+
+    def test_class_weight_rejected_for_non_multiclass(self):
+        with self.assertRaisesRegex(ValueError, "label mode is 'binary'"):
+            self._binary_model(class_weight=[1.0, 2.0])
+
+    def test_class_weight_length_must_match_classes(self):
+        schema = {
+            "label": (
+                "multiclass",
+                {"labels": ["normal", "target", "other"]},
+            )
+        }
+        dataset = _signal_dataset(
+            schema, n=6, labels_fn=lambda i: ["normal", "target", "other"][i % 3]
+        )
+        with self.assertRaisesRegex(ValueError, "one entry per class"):
+            ResNet1D(dataset=dataset, class_weight=[1.0, 2.0])
+
+    def test_weighted_loss_differs_from_unweighted(self):
+        schema = {
+            "label": (
+                "multiclass",
+                {"labels": ["normal", "target", "other"]},
+            )
+        }
+        dataset = _signal_dataset(
+            schema, n=6, labels_fn=lambda i: ["normal", "target", "other"][i % 3]
+        )
+        torch.manual_seed(0)
+        model_w = ResNet1D(dataset=dataset, class_weight=[1.0, 0.5, 1.5])
+        torch.manual_seed(0)
+        model_0 = ResNet1D(dataset=dataset)
+        self.assertEqual(model_w.class_weight.tolist(), [1.0, 0.5, 1.5])
+        x, y = _batch(dataset, "label")
+        model_w.train()
+        model_0.train()
+        loss_w = model_w(signal=x, label=y)["loss"]
+        loss_0 = model_0(signal=x, label=y)["loss"]
+        self.assertTrue(torch.isfinite(loss_w))
+        self.assertFalse(torch.allclose(loss_w, loss_0))
+        loss_w.backward()
+        self.assertIsNotNone(model_w.projection.weight.grad)
 
 
 class TestResNet1DErrors(unittest.TestCase):

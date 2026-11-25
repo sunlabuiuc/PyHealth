@@ -17,10 +17,11 @@ fixed-size feature vector and ends in the benchmark's prediction head.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, ClassVar
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor, nn
 
 from ..datasets import SampleDataset
@@ -170,6 +171,24 @@ class ResNet1D(BaseModel):
         head_hidden_dim: Prediction-hidden width; the benchmark uses 128.
         head_dropout: Dropout probability in the prediction head; the
             benchmark uses 0.25.
+        training_crop_len: When set and training, each sample longer than
+            this is cropped to it at a random offset (the benchmark uses
+            1250 samples = 2.5 s at 500 Hz, resampled every epoch).
+        eval_window_len: When set and evaluating, a signal longer than this
+            is run through the network in overlapping windows of this
+            length and the class logits are aggregated by element-wise
+            maximum across windows (the benchmark's ``SubsampleEval`` +
+            ``aggregator``, 1250 samples). The maximum is taken on the
+            logits, before the label processor's activation.
+        eval_window_stride: Stride between evaluation windows; defaults to
+            ``eval_window_len // 2`` (benchmark: 625 samples = 1.25 s).
+            Must not exceed ``eval_window_len``.
+        class_weight: Per-class weights for the multiclass cross-entropy,
+            in label-vocabulary order (the benchmark uses
+            ``[1, n_target/n_normal, n_other/n_normal]`` computed from the
+            training split, see
+            :func:`~pyhealth.tasks.compute_multiclass_class_weights`).
+            Only valid when the dataset's label processor is multiclass.
 
     Attributes:
         mode (str): Label kind inherited from
@@ -179,6 +198,15 @@ class ResNet1D(BaseModel):
         Convolution weights use Kaiming (fan_out, ReLU) initialization and
         normalization layers weight=1 / bias=0, matching the benchmark's
         released code.
+
+    Note:
+        Evaluation windowing pads the signal tail with zeros so the last
+        window starting before the end still fits, exactly like the
+        benchmark's ``SubsampleEval._pad_signal``; with the benchmark
+        settings a 5000-sample record yields 8 windows of 1250 (stride
+        625). The random training crop draws from torch's global RNG, so
+        ``torch.manual_seed(...)`` makes runs reproducible (the original
+        seeded NumPy instead).
 
     Examples:
         >>> import torch
@@ -221,6 +249,10 @@ class ResNet1D(BaseModel):
         hidden_dim: int = 256,
         head_hidden_dim: int = 128,
         head_dropout: float = 0.25,
+        training_crop_len: int | None = None,
+        eval_window_len: int | None = None,
+        eval_window_stride: int | None = None,
+        class_weight: Sequence[float] | None = None,
     ) -> None:
         if depth not in self.DEPTHS:
             raise ValueError(
@@ -232,12 +264,46 @@ class ResNet1D(BaseModel):
                 "PTB-XL task); this dataset has features "
                 f"{self._feature_keys(dataset)}."
             )
+        for name, value in (
+            ("training_crop_len", training_crop_len),
+            ("eval_window_len", eval_window_len),
+            ("eval_window_stride", eval_window_stride),
+        ):
+            if value is not None and int(value) <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+        if (
+            eval_window_len is not None
+            and eval_window_stride is not None
+            and int(eval_window_stride) > int(eval_window_len)
+        ):
+            raise ValueError(
+                "eval_window_stride must not exceed eval_window_len"
+            )
         super().__init__(dataset)
+        if class_weight is not None:
+            if self.mode != "multiclass":
+                raise ValueError(
+                    "class_weight weights the multiclass cross-entropy; "
+                    f"this dataset's label mode is {self.mode!r}."
+                )
+            weights = torch.as_tensor(class_weight, dtype=torch.float32)
+            if weights.numel() != self.label_processor.output_size():
+                raise ValueError(
+                    "class_weight must have one entry per class; expected "
+                    f"{self.label_processor.output_size()}, got "
+                    f"{weights.numel()}."
+                )
+            self.register_buffer("class_weight", weights)
+        else:
+            self.register_buffer("class_weight", None)
         self.signal_key = "signal"
         self.label_key = self.label_keys[0]
         self.depth = depth
         self.in_channels = in_channels
         self.hidden_dim = hidden_dim
+        self.training_crop_len = training_crop_len
+        self.eval_window_len = eval_window_len
+        self.eval_window_stride = eval_window_stride
 
         layers, block = self.DEPTHS[depth]
         self._planes = 64
@@ -316,6 +382,45 @@ class ResNet1D(BaseModel):
         x = self.avgpool(x)
         return self.projection(torch.flatten(x, 1))
 
+    @staticmethod
+    def _random_crop(signal: Tensor, length: int) -> Tensor:
+        """Crops each sample to ``length`` at an independent random offset."""
+        total = signal.shape[-1]
+        starts = torch.randint(
+            0, total - length + 1, (signal.shape[0],), device=signal.device
+        )
+        indices = starts[:, None] + torch.arange(length, device=signal.device)
+        indices = indices[:, None, :].expand(-1, signal.shape[1], -1)
+        return torch.gather(signal, 2, indices)
+
+    def _windowed_logits(self, signal: Tensor) -> tuple[Tensor, Tensor]:
+        """Runs ``eval_window_len`` windows and aggregates by max of logits.
+
+        Mirrors the benchmark's ``SubsampleEval`` (window stride
+        ``eval_window_stride``, default half the window; the tail is
+        zero-padded so the last window starting before the end fits) and
+        ``aggregator`` (element-wise maximum over windows, on the logits).
+
+        Returns:
+            ``(feature, logits)``: the mean backbone feature across
+            windows and the aggregated logits, both ``(batch, ...)``.
+        """
+        length = int(self.eval_window_len)
+        stride = int(self.eval_window_stride or length // 2)
+        total = signal.shape[-1]
+        n_windows = (total - 1) // stride + 1
+        pad = (n_windows - 1) * stride + length - total
+        if pad > 0:
+            signal = F.pad(signal, (0, pad))
+        windows = signal.unfold(2, length, stride)  # (B, C, W, length)
+        batch, channels = windows.shape[0], windows.shape[1]
+        windows = windows.permute(0, 2, 1, 3).reshape(-1, channels, length)
+        feature = self.backbone(windows)
+        logits = self.head(feature)
+        feature = feature.view(batch, n_windows, -1).mean(dim=1)
+        logits = logits.view(batch, n_windows, -1).max(dim=1).values
+        return feature, logits
+
     def forward_from_embedding(self, feature: Tensor) -> dict[str, Tensor]:
         """Applies the prediction head to backbone features.
 
@@ -342,7 +447,8 @@ class ResNet1D(BaseModel):
                 ``labels``, i.e. ``self.label_key``) is optional; when
                 present it also yields ``loss`` and ``y_true``. A truthy
                 ``embed`` keyword adds the backbone features under
-                ``embed``.
+                ``embed`` (the mean over windows when evaluation windowing
+                is active).
 
         Returns:
             Dict with ``logit`` and ``y_prob``, plus ``loss`` / ``y_true``
@@ -361,15 +467,32 @@ class ResNet1D(BaseModel):
             signal = torch.as_tensor(signal)
         signal = signal.to(self.device).float()
 
-        feature = self.backbone(signal)
-        logits = self.head(feature)
+        if self.training and self.training_crop_len:
+            if signal.shape[-1] > self.training_crop_len:
+                signal = self._random_crop(signal, self.training_crop_len)
+
+        windowed = (
+            not self.training
+            and self.eval_window_len is not None
+            and signal.shape[-1] > self.eval_window_len
+        )
+        if windowed:
+            feature, logits = self._windowed_logits(signal)
+        else:
+            feature = self.backbone(signal)
+            logits = self.head(feature)
 
         y_prob = self.label_processor.activation(logits)
         results = {"y_prob": y_prob, "logit": logits}
         # The label is optional, so the model can predict without it.
         if self.label_key in kwargs:
             y_true = kwargs[self.label_key].to(self.device)
-            results["loss"] = self.label_processor.loss(logits, y_true)
+            if self.class_weight is not None:
+                results["loss"] = self.label_processor.loss(
+                    logits, y_true, weight=self.class_weight
+                )
+            else:
+                results["loss"] = self.label_processor.loss(logits, y_true)
             results["y_true"] = y_true
         if kwargs.get("embed", False):
             results["embed"] = feature

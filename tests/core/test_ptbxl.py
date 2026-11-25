@@ -43,6 +43,7 @@ from pyhealth.tasks.ptbxl import (
 )
 from pyhealth.tasks.ptbxl_multiclass_classification import (
     PTBXLMulticlassClassification,
+    compute_multiclass_class_weights,
 )
 from pyhealth.tasks.ptbxl_multilabel_classification import (
     PTBXLMultilabelClassification,
@@ -70,7 +71,9 @@ def _write_dummy_wfdb(
     lines = [f"{name} {n_leads} {fs} {n_samples}"]
     for i in range(n_leads):
         lines.append(f"{name}.dat 16 1000.0(0)/uV 16 0 0 0 0 {i}")
-    Path(str(record_base) + ".hea").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    Path(str(record_base) + ".hea").write_text(
+        "\n".join(lines) + "\n", encoding="utf-8"
+    )
 
 
 def _materialize_fixture(dest: Path) -> Path:
@@ -745,8 +748,12 @@ class TestPTBXLMultilabelClassification(unittest.TestCase):
         cls.tmp = tempfile.mkdtemp()
         cls.root = Path(cls.tmp) / "ptbxl"
         cls.root.mkdir()
-        shutil.copy(FIXTURE_ROOT / "ptbxl_database.csv", cls.root / "ptbxl_database.csv")
-        shutil.copy(FIXTURE_ROOT / "scp_statements.csv", cls.root / "scp_statements.csv")
+        shutil.copy(
+            FIXTURE_ROOT / "ptbxl_database.csv", cls.root / "ptbxl_database.csv"
+        )
+        shutil.copy(
+            FIXTURE_ROOT / "scp_statements.csv", cls.root / "scp_statements.csv"
+        )
         for row in pd.read_csv(cls.root / "ptbxl_database.csv").itertuples():
             _write_dummy_wfdb(cls.root / str(row.filename_lr), n_samples=1000)
             _write_dummy_wfdb(cls.root / str(row.filename_hr), n_samples=5000, fs=500)
@@ -1182,6 +1189,57 @@ class TestPTBXLMulticlassClassification(unittest.TestCase):
             self.assertNotEqual(val_fold, test_fold)
             self.assertIn(val_fold, range(1, 11))
             self.assertIn(test_fold, range(1, 11))
+
+
+class TestComputeMulticlassClassWeights(unittest.TestCase):
+    """compute_multiclass_class_weights from string and processed labels."""
+
+    def test_string_labels(self):
+        samples = [
+            {"label": "normal"}, {"label": "normal"},
+            {"label": "target"},
+            {"label": "other"}, {"label": "other"},
+            {"label": "other"},
+        ]
+        self.assertEqual(
+            compute_multiclass_class_weights(samples), [1.0, 0.5, 1.5]
+        )
+
+    def test_processed_index_labels_from_fixture(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            root = _materialize_fixture(tmp / "data")
+            db = pd.read_csv(root / "ptbxl_database.csv")
+            db.loc[db["ecg_id"] == 4, "scp_codes"] = (
+                "{'IMI': 100.0, 'LVH': 80.0, 'AFIB': 60.0}"
+            )
+            db.to_csv(root / "ptbxl_database.csv", index=False)
+            dataset = PTBXLDataset(
+                root=str(root),
+                metadata_cache_dir=tmp / "meta",
+                sampling_rate=100,
+                cache_dir=tmp / "ds_cache",
+            )
+            task = PTBXLMulticlassClassification(
+                target_dx="AF", standardize=None
+            )
+            samples = dataset.set_task(task, num_workers=1)
+            # ecg 1 normal, ecg 4 target, ecgs 2/3 other (ecg 5 dropped).
+            weights = compute_multiclass_class_weights(samples)
+            self.assertEqual(weights, [1.0, 1.0, 2.0])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_missing_normal_raises(self):
+        samples = [{"label": "target"}, {"label": "other"}]
+        with self.assertRaisesRegex(ValueError, "no 'normal' samples"):
+            compute_multiclass_class_weights(samples)
+
+    def test_unknown_label_raises(self):
+        with self.assertRaisesRegex(ValueError, "not in"):
+            compute_multiclass_class_weights([{"label": "NORM"}])
+        with self.assertRaisesRegex(ValueError, "outside"):
+            compute_multiclass_class_weights([{"label": 7}])
 
 
 if __name__ == "__main__":

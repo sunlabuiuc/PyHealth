@@ -306,8 +306,7 @@ def load_ptbxl_lead_stats(
         ValueError: If the stored arrays have the wrong shape.
 
     Examples:
-        >>> # doctest: +SKIP
-        >>> mean, std = load_ptbxl_lead_stats(
+        >>> mean, std = load_ptbxl_lead_stats(  # doctest: +SKIP
         ...     "/data/cache/ptbxl/ptbxl-lead-stats-500hz-....npz")
     """
     path = Path(stats_path)
@@ -353,9 +352,9 @@ def load_ptbxl_record(record_path: str | Path) -> np.ndarray:
         FileNotFoundError: If the ``.hea`` header cannot be found.
 
     Examples:
-        >>> # doctest: +SKIP
-        >>> signal = load_ptbxl_record("/data/ptb-xl/1.0.3/records100/00000/00001_lr")
-        >>> signal.shape[0]
+        >>> signal = load_ptbxl_record(  # doctest: +SKIP
+        ...     "/data/ptb-xl/1.0.3/records100/00000/00001_lr")
+        >>> signal.shape[0]  # doctest: +SKIP
         12
     """
     try:
@@ -421,12 +420,12 @@ def compute_ptbxl_lead_stats(
         ValueError: If ``train_folds`` is empty or matches no records.
 
     Examples:
-        >>> # doctest: +SKIP
-        >>> from pyhealth.datasets import (
+        >>> from pyhealth.datasets import (  # doctest: +SKIP
         ...     PTBXLDataset, compute_ptbxl_lead_stats)
-        >>> ds = PTBXLDataset(root="/data/ptb-xl/1.0.3", sampling_rate=500)
-        >>> stats = compute_ptbxl_lead_stats(ds, train_folds=(1, 2, 3, 4,
-        ...     5, 6, 9, 10))
+        >>> ds = PTBXLDataset(  # doctest: +SKIP
+        ...     root="/data/ptb-xl/1.0.3", sampling_rate=500)
+        >>> stats = compute_ptbxl_lead_stats(  # doctest: +SKIP
+        ...     ds, train_folds=(1, 2, 3, 4, 5, 6, 9, 10))
     """
     folds = sorted({int(f) for f in train_folds})
     if not folds:
@@ -561,7 +560,8 @@ class PTBXLDataset(BaseDataset):
     Examples:
         >>> dataset = PTBXLDataset(root="/data/ptb-xl/1.0.3")  # doctest: +SKIP
         >>> dataset.stats()  # doctest: +SKIP
-        >>> patient = dataset.get_patient(dataset.unique_patient_ids[0])  # doctest: +SKIP
+        >>> patient = dataset.get_patient(  # doctest: +SKIP
+        ...     dataset.unique_patient_ids[0])
         >>> event = patient.get_events(event_type="records")[0]  # doctest: +SKIP
         >>> signal = load_ptbxl_record(event.signal_file)  # doctest: +SKIP
     """
@@ -704,9 +704,8 @@ class PTBXLDataset(BaseDataset):
             None
 
         Examples:
-            >>> # doctest: +SKIP
-            >>> ds = PTBXLDataset(root="/data/ptb-xl/1.0.3")
-            >>> ds.prepare_metadata()
+            >>> ds = PTBXLDataset(root="/data/ptb-xl/1.0.3")  # doctest: +SKIP
+            >>> ds.prepare_metadata()  # doctest: +SKIP
         """
         csv_path = self.metadata_cache_dir / self.metadata_file_name
         if csv_path.exists() and self._metadata_matches_request(csv_path):

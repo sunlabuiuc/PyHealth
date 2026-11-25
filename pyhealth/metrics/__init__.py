@@ -1,5 +1,9 @@
 from .binary import binary_metrics_fn, timeseries_binary_metrics_fn
-from .bootstrap import bootstrap_ci, paired_bootstrap_diff
+from .bootstrap import (
+    bootstrap_ci,
+    bootstrap_metrics_ci,
+    paired_bootstrap_diff,
+)
 from .clinical import (
     alert_rate_metrics,
     calibration_bins,
@@ -69,6 +73,7 @@ __all__ = [
     "alert_rate_metrics",
     "binary_metrics_fn",
     "bootstrap_ci",
+    "bootstrap_metrics_ci",
     "calc_membership_inference",
     "calc_nnaar",
     "calibration_bins",
