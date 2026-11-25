@@ -79,6 +79,33 @@ def save_tiny_tokenizer(vocab: list[str], folder: str) -> None:
     ).save_pretrained(folder)
 
 
+def save_tiny_encoder(folder: str) -> BertModel:
+    """Writes the tiny tokenizer and a seeded one-layer BERT to ``folder``."""
+    save_tiny_tokenizer(VOCAB, folder)
+    config = BertConfig(
+        vocab_size=len(VOCAB),
+        hidden_size=HIDDEN_DIM,
+        num_hidden_layers=1,
+        num_attention_heads=2,
+        intermediate_size=32,
+        max_position_embeddings=64,
+    )
+    torch.manual_seed(0)
+    encoder = BertModel(config)
+    encoder.save_pretrained(folder)
+    return encoder
+
+
+def tiny_dataset(name: str):
+    """The two synthetic notes as a multilabel ICD coding dataset."""
+    return create_sample_dataset(
+        samples=SAMPLES,
+        input_schema={"text": "text"},
+        output_schema={"icd_codes": "multilabel"},
+        dataset_name=name,
+    )
+
+
 class TestClassWiseCrossAttention(unittest.TestCase):
     """Tests for the decoder on its own."""
 
@@ -102,23 +129,8 @@ class TestPLMCA(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp_dir = tempfile.mkdtemp()
-        save_tiny_tokenizer(VOCAB, cls.tmp_dir)
-        config = BertConfig(
-            vocab_size=len(VOCAB),
-            hidden_size=HIDDEN_DIM,
-            num_hidden_layers=1,
-            num_attention_heads=2,
-            intermediate_size=32,
-            max_position_embeddings=64,
-        )
-        torch.manual_seed(0)
-        BertModel(config).save_pretrained(cls.tmp_dir)
-        cls.dataset = create_sample_dataset(
-            samples=SAMPLES,
-            input_schema={"text": "text"},
-            output_schema={"icd_codes": "multilabel"},
-            dataset_name="test_plm_ca",
-        )
+        save_tiny_encoder(cls.tmp_dir)
+        cls.dataset = tiny_dataset("test_plm_ca")
 
     @classmethod
     def tearDownClass(cls):

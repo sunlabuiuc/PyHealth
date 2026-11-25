@@ -5,56 +5,37 @@ Paper: Edin et al., "An Unsupervised Approach to Achieve Supervised-Level
     Explainability in Healthcare Records", EMNLP 2024.
 Paper link: https://arxiv.org/abs/2406.08958
 
-Stage 1, ``--train``: trains :class:`pyhealth.models.PLMCA` (default) or,
-with ``--model caml``, :class:`pyhealth.models.CAML` (Mullenbach et al.,
-NAACL 2018) on the
-MIMIC-III discharge summaries of the paper's ``mdace_icd9_inpatient_code``
-split (MIMIC-III full + MDACE train), using only the ICD-9 codes that occur
-in MDACE so a laptop GPU can fit it.
+``--train`` trains :class:`pyhealth.models.PLMCA` (or :class:`pyhealth.models.CAML`
+with ``--model caml``) on MIMIC-III discharge summaries (the paper's
+``mdace_icd9_inpatient_code`` split), using only codes that occur in MDACE.
+``--evaluate`` explains every (MDACE note, gold code) pair with Attention,
+InputXGrad, AttInGrad, Integrated Gradients and attention x IG, tunes each
+method's threshold on MDACE val and reports token precision, recall, F1, Empty
+and recall@5 on MDACE test (add ``--faithfulness`` for comprehensiveness and
+sufficiency). ``--tm --init_checkpoint path/to/best.ckpt`` fine-tunes a trained
+model with token masking (one epoch, lr 1e-5, frozen teacher).
 
-Stage 2, ``--evaluate``: explains every (MDACE note, gold code) pair with
-Attention, InputXGrad, AttInGrad, Integrated Gradients and attention x IG,
-picks each method's threshold on MDACE val and reports token precision,
-recall, F1, Empty and recall@5 on MDACE test.
-
-No credentials? ``--synthetic`` runs both stages in about a minute on CPU:
-fake notes where each code is signalled by a known keyword phrase (its
-evidence span), plus filler and distractor words, and a tiny local encoder.
+No credentials? ``--synthetic`` runs both stages on CPU in about a minute, with
+fake notes where each code is signalled by a known phrase::
 
     python examples/mdace_icd9_coding_plm_ca_attingrad.py --synthetic
 
-Real data: run the authors' preparation scripts first (github.com/JoakimEdin/
-explainable-medical-coding: ``make mimiciii`` and ``make mdace``) and pass
-their ``data/processed`` folder as ``--processed``. MIMIC-III needs
-PhysioNet credentialed access; never commit the files.
+Real data: run the authors' preparation (github.com/JoakimEdin/
+explainable-medical-coding: ``make mimiciii`` and ``make mdace``; PhysioNet
+access needed, never commit the files), then::
 
     python examples/mdace_icd9_coding_plm_ca_attingrad.py --train \\
         --processed /path/to/data/processed \\
         --model_name /path/to/roberta-base-pm-m3-voc-hf --device mps
     python examples/mdace_icd9_coding_plm_ca_attingrad.py --evaluate \\
-        --processed /path/to/data/processed \\
-        --model_name /path/to/roberta-base-pm-m3-voc-hf --device mps \\
-        --checkpoint output/mdace/plm_ca_mdace/best.ckpt
+        --processed ... --model_name ... --checkpoint .../plm_ca_mdace/best.ckpt
 
-Add ``--model caml`` to train or evaluate CAML instead. It uses the same
-tokenizer (so MDACE spans map to the same tokens), initialises its word
-embeddings from ``--model_name`` and saves under ``caml_mdace/`` instead of
-``plm_ca_mdace/``. Unless overridden, CAML uses the CAML paper's learning rate
-1e-4 and batch size 16 with no accumulation.
-
-Add ``--tm --init_checkpoint path/to/best.ckpt`` to fine-tune a trained model
-with token masking (:func:`pyhealth.interpret.methods.token_masking_loss`):
-one epoch at constant lr 1e-5, distilling from a frozen copy of the starting
-model. It saves under ``{model}_tm_mdace/``.
-
-Deviations from the paper (for compute): label space restricted to MDACE
-codes, notes truncated to 4096 tokens instead of 6000, 2 epochs instead of
-20, fixed 0.5 decision threshold. Training uses 10% linear warmup then
-linear decay (``--warmup``) for both models.
+Deviations from the paper (compute): MDACE codes only, notes cut to 4096
+tokens instead of 6000, 2 epochs instead of 20, fixed 0.5 decision threshold.
+Both models train with 10% linear warmup then linear decay.
 
 Results on real data (MDACE test, 62 discharge summaries, 566 (note, gold
-code) pairs; token-level plausibility in percent, thresholds tuned on MDACE
-val; one training run each):
+code) pairs; token F1 in percent; one training run each):
 
     Encoder / model        Attention  InputXGrad  AttInGrad  IntGrad  Att x IG
     PLM-CA, RoBERTa-PM        31.1       31.5        40.6      31.1     40.1
@@ -67,13 +48,13 @@ val; one training run each):
 
 Findings:
 
-* AttInGrad beats Attention and InputXGrad on every model (PLM-CA: +9.5 F1
-  over Attention, paired bootstrap 95% CI [+7.6, +11.5]).
+* AttInGrad beats Attention and InputXGrad on every model (PLM-CA: +9.5 F1,
+  paired bootstrap 95% CI [+7.6, +11.5]).
 * Multiplying attention by any input-level gradient attribution gives the
-  gain: attention x IG matches AttInGrad (40.1 vs 40.6), while IG alone does
-  not (31.1).
-* The gain is smaller on the CNN model CAML (+2.8) than on PLM-CA (+9.5),
-  and token-masking fine-tuning barely changes CAML's explanations.
+  gain: attention x IG matches AttInGrad (40.1 vs 40.6); IG alone does not
+  (31.1).
+* The gain is smaller on the CNN model CAML (+2.8 vs +9.5), and token-masking
+  fine-tuning barely changes CAML's explanations.
 * With ``--faithfulness`` (PLM-CA, 345 test pairs whose gold code is
   predicted), AttInGrad is also more faithful than Attention:
   comprehensiveness 0.902 vs 0.881, sufficiency 0.170 vs 0.277.
@@ -606,8 +587,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--faithfulness",
         action="store_true",
-        help="with --evaluate: add comprehensiveness and sufficiency (slow: "
-        "about 102 forward passes per method and predicted test pair)",
+        help="with --evaluate: add comprehensiveness and sufficiency (slow)",
     )
     parser.add_argument("--synthetic", action="store_true")
     parser.add_argument("--processed", type=str, default=None)
@@ -627,8 +607,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--tm",
         action="store_true",
-        help="fine-tune --init_checkpoint with token masking; saves to "
-        "{model}_tm_mdace (lr 1e-5 and 1 epoch unless set)",
+        help="fine-tune --init_checkpoint with token masking",
     )
     parser.add_argument("--init_checkpoint", type=str, default=None)
     parser.add_argument("--tm_lambda", type=float, default=1.0)
@@ -639,8 +618,7 @@ def parse_args() -> argparse.Namespace:
         "--tm_min_iters",
         type=int,
         default=0,
-        help="mask updates before the convergence check may stop (authors: 0, "
-        "which stops at update 3 with every token still kept)",
+        help="mask updates before early stopping (authors: 0)",
     )
     parser.add_argument(
         "--tm_mask_init",
@@ -652,8 +630,7 @@ def parse_args() -> argparse.Namespace:
         "--tm_baseline_id",
         type=int,
         default=None,
-        help="token id for masked tokens (default: the mask token; the "
-        "authors' TM runs used 50001, an unused RoBERTa-PM embedding row)",
+        help="token id for masked tokens (default: mask token; authors: 50001)",
     )
     args = parser.parse_args()
     lr, batch_size, accum = MODEL_DEFAULTS[args.model]

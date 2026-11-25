@@ -5,76 +5,47 @@ Paper: Edin et al., "An Unsupervised Approach to Achieve Supervised-Level
     Explainability in Healthcare Records", EMNLP 2024.
 Paper link: https://arxiv.org/abs/2406.08958
 
-What this script does
----------------------
-1. Builds the medical coding data. With ``--mimic3_root`` it follows the
-   paper: MIMIC-III discharge summaries labelled with the admission's ICD-9
-   diagnosis and procedure codes. With ``--synthetic`` it generates small
-   fake notes in which each code is signalled by a few keywords, so the whole
-   pipeline runs without credentials or downloads.
-2. Keeps the ``--top_k`` most frequent codes (default 50), splits by patient
-   and builds dataloaders.
-3. Trains :class:`pyhealth.models.PLMCA` with the paper's optimizer settings
-   (AdamW, learning rate 5e-5, dropout 0.2) via :class:`pyhealth.trainer.Trainer`.
-4. With ``--ablation``, repeats training for several configurations and prints
-   one results table.
+Builds MIMIC-III discharge summaries labelled with their admission's ICD-9
+codes (``--mimic3_root``), or small fake notes where keywords signal each code
+(``--synthetic``, no credentials needed). Keeps the ``--top_k`` most frequent
+codes, splits by patient and trains :class:`pyhealth.models.PLMCA` with the
+paper's optimizer settings (AdamW, lr 5e-5, dropout 0.2).
 
-Ablation: what is varied and why
---------------------------------
-The paper truncates every note to 6000 tokens and states this has a negligible
-cost because few notes are longer. ``max_length`` tests that claim: if the
-statement holds, cutting notes to 2048 tokens should cost little, while 512
-tokens should hurt because codes documented late in the note are lost.
-``chunk_size`` is the window each encoder pass sees (PLM-ICD style chunked
-encoding); larger chunks give tokens more context but use more memory.
-The explanation-method ablation (Attention vs InputXGrad vs AttInGrad) is
-added in a later step, once AttInGrad is merged.
+Ablation (``--ablation``): the paper truncates notes to 6000 tokens and says
+little is lost. ``max_length`` tests this (shorter notes drop codes documented
+late in the note); ``chunk_size`` varies the window of each encoder pass. The
+explanation-method ablation is in ``mdace_icd9_coding_plm_ca_attingrad.py``.
 
-How to run
-----------
-Synthetic data, tiny local encoder, CPU, about a minute::
+Run::
 
     python examples/mimic3_icd9_coding_plm_ca.py --synthetic --ablation
+    python examples/mimic3_icd9_coding_plm_ca.py --mimic3_root /path/to/1.4 \\
+        --model_name <encoder> --top_k 50 --epochs 20 --ablation
 
-MIMIC-III (needs PhysioNet access and a GPU)::
+On a small GPU, run one configuration per session with ``--max_samples N
+--configs <name>`` (scores go to ``<output_dir>/<config>/test_scores.json``),
+``--eval_only`` to score saved checkpoints, and ``--summarize`` for the table.
 
-    python examples/mimic3_icd9_coding_plm_ca.py \\
-        --mimic3_root /path/to/mimic-iii/1.4 \\
-        --model_name <hugging-face-encoder> --top_k 50 --epochs 20 --ablation
+Results (test set):
 
-On a single free GPU, train on a random subset and run one configuration per
-session. Each run saves ``<output_dir>/<config>/test_scores.json``, and
-``--summarize`` collects the saved runs into one table::
+    Synthetic (--synthetic --ablation)   f1_micro  f1_macro
+    base (max_length 128, chunk 32)        1.00      1.00
+    truncate_32                            0.78      0.80
+    chunk_16                               1.00      1.00
 
-    python examples/mimic3_icd9_coding_plm_ca.py --mimic3_root ... \\
-        --model_name ... --max_samples 4000 --epochs 3 --configs truncate_512
-    python examples/mimic3_icd9_coding_plm_ca.py --summarize
+    MIMIC-III top-50, 4,000 notes, 3 epochs, Bio_ClinicalBERT, one seed
+    base_6000                              0.568     0.403
+    chunk_256                              0.546     0.397
+    truncate_2048                          0.387     0.193
+    truncate_512                           0.425     0.297
 
-If a session ends after training but before testing, ``--eval_only`` scores
-the saved checkpoints without retraining (same data arguments as the run)::
+Full-length notes beat truncated ones by 12-18 micro-F1, supporting the
+paper's 6000-token limit; chunk size matters little. 2048 below 512 is most
+likely single-seed variance.
 
-    python examples/mimic3_icd9_coding_plm_ca.py --mimic3_root ... \\
-        --model_name ... --max_samples 4000 --epochs 3 --configs chunk_256 \\
-        --eval_only
-
-Results
--------
-Fill in from the printed table after running.
-
-* Synthetic run: TODO
-* MIMIC-III top-50: TODO
-
-Deviations from the paper
--------------------------
-* Random patient-level 80/10/10 split instead of the MIMIC-III full split of
-  Mullenbach et al. (2018).
-* Top-K codes instead of all ~8.9k codes, to keep the class-by-token
-  attention matrix within a single GPU's memory.
-* Fixed decision threshold of 0.3 (PyHealth's multilabel default) instead of
-  tuning it on the validation set.
-* No learning-rate warmup or linear decay, since ``Trainer`` has no scheduler.
-* With ``--max_samples``, a seeded random subset of notes instead of the full
-  training set, and fewer epochs, to fit a single free GPU.
+Deviations from the paper: random patient-level 80/10/10 split; top-K codes
+instead of ~8.9k; fixed 0.3 decision threshold; no warmup or decay (``Trainer``
+has no scheduler); with ``--max_samples``, a seeded subset and fewer epochs.
 """
 
 import argparse

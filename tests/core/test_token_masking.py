@@ -15,12 +15,12 @@ import unittest
 
 import torch
 from torch import nn
-from transformers import AutoTokenizer, BertConfig, BertModel
+from transformers import AutoTokenizer
 
-from pyhealth.datasets import create_sample_dataset, get_dataloader
+from pyhealth.datasets import get_dataloader
 from pyhealth.interpret.methods import optimize_token_mask, token_masking_loss
 from pyhealth.models import CAML, PLMCA
-from tests.core.test_plm_ca import HIDDEN_DIM, SAMPLES, VOCAB, save_tiny_tokenizer
+from tests.core.test_plm_ca import VOCAB, save_tiny_encoder, tiny_dataset
 
 
 class OneTokenModel(nn.Module):
@@ -50,23 +50,8 @@ class TestTokenMasking(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp_dir = tempfile.mkdtemp()
-        save_tiny_tokenizer(VOCAB, cls.tmp_dir)
-        config = BertConfig(
-            vocab_size=len(VOCAB),
-            hidden_size=HIDDEN_DIM,
-            num_hidden_layers=1,
-            num_attention_heads=2,
-            intermediate_size=32,
-            max_position_embeddings=64,
-        )
-        torch.manual_seed(0)
-        BertModel(config).save_pretrained(cls.tmp_dir)
-        cls.dataset = create_sample_dataset(
-            samples=SAMPLES,
-            input_schema={"text": "text"},
-            output_schema={"icd_codes": "multilabel"},
-            dataset_name="test_token_masking",
-        )
+        save_tiny_encoder(cls.tmp_dir)
+        cls.dataset = tiny_dataset("test_token_masking")
         cls.texts = next(iter(get_dataloader(cls.dataset, batch_size=2)))["text"]
 
     @classmethod
