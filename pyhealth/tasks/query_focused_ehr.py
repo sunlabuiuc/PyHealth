@@ -10,8 +10,8 @@ queries, and future-diagnosis labels. It does not train a model.
 
 import re
 from collections import defaultdict
-from datetime import datetime, timedelta
 from collections.abc import Mapping
+from datetime import datetime, timedelta
 from typing import ClassVar
 
 from pyhealth.data import Patient
@@ -45,9 +45,7 @@ def parse_clinical_datetime(value) -> datetime | None:
         return None
 
     try:
-        return datetime.fromisoformat(
-            value.replace("Z", "+00:00")
-        )
+        return datetime.fromisoformat(value)
     except ValueError:
         return None
     
@@ -286,7 +284,7 @@ class QueryFocusedEHRTask(BaseTask):
                     )
 
                 if not isinstance(group, Mapping):
-                    raise ValueError(
+                    raise TypeError(
                         f"Group '{group_id}' must be a mapping."
                     )
 
