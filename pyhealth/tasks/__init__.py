@@ -17,6 +17,11 @@ from .cardiology_detect import (
     cardiology_isCD_fn,
     cardiology_isWA_fn,
 )
+from .climb_ecg import (
+    CLIMB_ECG_CLASSES as CLIMB_ECG_CLASSES,
+    CLIMBECGClassification as CLIMBECGClassification,
+    read_climb_ecg_splits as read_climb_ecg_splits,
+)
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .isic2019_classification import (
     ISIC2019Classification as ISIC2019Classification,

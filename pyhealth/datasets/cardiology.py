@@ -94,7 +94,8 @@ def parse_header(header_path: str | Path) -> dict:
             comments[key.strip().lower()] = value.strip()
     age = comments.get("age", "")
     return {
-        "record_id": fields[0],
+        # Some copies of the Georgia headers write "E00001.mat" here.
+        "record_id": Path(fields[0]).stem,
         "n_leads": int(fields[1]),
         # WFDB allows "fs/counter_freq"; only fs is used.
         "fs": float(fields[2].split("/")[0]),
