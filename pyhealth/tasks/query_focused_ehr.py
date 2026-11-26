@@ -11,14 +11,15 @@ queries, and future-diagnosis labels. It does not train a model.
 import re
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Dict, List, Mapping, Optional, Type, Union
+from collections.abc import Mapping
+from typing import ClassVar
 
 from pyhealth.data import Patient
 from pyhealth.processors import BinaryLabelProcessor, TextProcessor
 from pyhealth.tasks.base_task import BaseTask
 
 
-def parse_clinical_datetime(value) -> Optional[datetime]:
+def parse_clinical_datetime(value) -> datetime | None:
     """Parse a clinical timestamp without inventing missing values.
 
     Returns None for missing or invalid timestamps.
@@ -71,7 +72,7 @@ def normalize_icd9(code: str) -> str:
 
     return normalized
 
-def split_clinical_sentences(text: str) -> List[str]:
+def split_clinical_sentences(text: str) -> list[str]:
     """Split clinical note text into candidate sentences.
 
     Args:
@@ -176,23 +177,23 @@ class QueryFocusedEHRTask(BaseTask):
 
     task_name: str = "query_focused_ehr"
 
-    input_schema: Dict[str, Union[str, Type]] = {
+    input_schema: ClassVar[dict[str, type]] = {
         "sentences": TextProcessor,
         "query": TextProcessor,
     }
 
-    output_schema: Dict[str, Union[str, Type]] = {
+    output_schema: ClassVar[dict[str, type]] = {
         "label": BinaryLabelProcessor,
     }
 
     def __init__(
         self,
-        diagnosis_descriptions: Optional[Mapping[str, str]] = None,
-        history_days: Optional[int] = None,
-        max_sentences: Optional[int] = None,
-        note_categories: Optional[List[str]] = None,
+        diagnosis_descriptions: Mapping[str, str] | None = None,
+        history_days: int | None = None,
+        max_sentences: int | None = None,
+        note_categories: list[str] | None = None,
         min_sentences: int = 1,
-        diagnosis_groups: Optional[Mapping[str, dict]] = None,
+        diagnosis_groups: Mapping[str, dict] | None = None,
         negative_sampling: str = "never_observed",
     ) -> None:
         super().__init__()
@@ -214,10 +215,10 @@ class QueryFocusedEHRTask(BaseTask):
         self.negative_sampling = negative_sampling
 
         if (diagnosis_descriptions is None) == (diagnosis_groups is None):
-                raise ValueError(
-                    "Provide exactly one of diagnosis_descriptions "
-                    "or diagnosis_groups."
-                )
+            raise ValueError(
+                "Provide exactly one of diagnosis_descriptions "
+                "or diagnosis_groups."
+            )
 
         if history_days is not None and history_days <= 0:
             raise ValueError("history_days must be positive.")
@@ -328,7 +329,7 @@ class QueryFocusedEHRTask(BaseTask):
             else None
         )
 
-    def __call__(self, patient: Patient) -> List[Dict]:
+    def __call__(self, patient: Patient) -> list[dict]:
         """Generate training examples for a single patient.
 
         Args:

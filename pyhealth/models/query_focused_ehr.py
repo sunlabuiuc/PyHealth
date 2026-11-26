@@ -11,7 +11,6 @@ or end-to-end trainable text encoder.
 
 from collections import OrderedDict
 from contextlib import nullcontext
-from typing import Dict, List, Optional
 
 import torch
 from torch import Tensor, nn
@@ -88,7 +87,7 @@ class QueryFocusedEHRModel(BaseModel):
         max_token_length: int = 128,
         encoder_batch_size: int = 16,
         dropout: float = 0.1,
-        encoder: Optional[nn.Module] = None,
+        encoder: nn.Module | None = None,
         tokenizer=None,
         cache_embeddings: bool = False,
         cache_max_size: int = 50000,
@@ -108,7 +107,7 @@ class QueryFocusedEHRModel(BaseModel):
         if not 0 <= dropout < 1:
             raise ValueError("dropout must be in [0, 1).")
         if not isinstance(cache_embeddings, bool):
-            raise ValueError("cache_embeddings must be a boolean.")
+            raise TypeError("cache_embeddings must be a boolean.")
         if cache_max_size <= 0:
             raise ValueError("cache_max_size must be positive.")
         if cache_embeddings and not freeze_encoder:
@@ -200,7 +199,7 @@ class QueryFocusedEHRModel(BaseModel):
         self._cache_hits = 0
         self._cache_misses = 0
 
-    def embedding_cache_info(self) -> Dict[str, int]:
+    def embedding_cache_info(self) -> dict[str, int]:
         """Return cache capacity, entries, and hit/miss counts."""
         return {
             "size": len(self._embedding_cache),
@@ -224,7 +223,7 @@ class QueryFocusedEHRModel(BaseModel):
         self.clear_embedding_cache()
         return result
 
-    def _encode_uncached(self, texts: List[str]) -> Tensor:
+    def _encode_uncached(self, texts: list[str]) -> Tensor:
         """Encode texts in chunks while preserving fine-tuning gradients."""
         chunks = []
         for start in range(0, len(texts), self.encoder_batch_size):
@@ -246,7 +245,7 @@ class QueryFocusedEHRModel(BaseModel):
                 chunks.append(output.last_hidden_state[:, 0, :])
         return torch.cat(chunks, dim=0)
 
-    def _encode_texts(self, texts: List[str]) -> Tensor:
+    def _encode_texts(self, texts: list[str]) -> Tensor:
         """Encode texts, reusing bounded CPU embeddings if enabled.
 
         Only frozen encoder outputs are cached. Projection layers are never
@@ -287,11 +286,11 @@ class QueryFocusedEHRModel(BaseModel):
 
     def forward(
         self,
-        sentences: List[List[str]],
-        query: List[str],
-        label: Optional[Tensor] = None,
+        sentences: list[list[str]],
+        query: list[str],
+        label: Tensor | None = None,
         **kwargs,
-    ) -> Dict[str, Tensor]:
+    ) -> dict[str, Tensor]:
         """Predict diagnosis presence and sentence relevance."""
         if not sentences or not query:
             raise ValueError(
@@ -433,10 +432,10 @@ class QueryFocusedEHRModel(BaseModel):
     @torch.no_grad()
     def extract_top_k(
         self,
-        sentences: List[List[str]],
-        query: List[str],
+        sentences: list[list[str]],
+        query: list[str],
         k: int = 5,
-    ) -> List[List[dict]]:
+    ) -> list[list[dict]]:
         """Rank and return the most relevant sentences.
 
         Args:
