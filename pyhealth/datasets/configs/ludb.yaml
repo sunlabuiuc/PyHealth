@@ -1,0 +1,16 @@
+version: "1.0.1"  # PhysioNet LUDB v1.0.1
+tables:
+  recordings:
+    # Written by LUDBDataset.prepare_metadata (one row per 12-lead record).
+    file_path: "ludb-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "record_id"
+    - "signal_file"
+    - "age"
+    - "age_is_censored"
+    - "sex"
+    - "rhythm"
+    - "electric_axis"
+    - "has_p_wave"

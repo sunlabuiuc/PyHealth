@@ -73,6 +73,10 @@ from .sparcnet import DenseBlock, DenseLayer, SparcNet, TransitionLayer
 from .stagenet import StageNet, StageNetLayer
 from .stagenet_mha import StageAttentionNet, StageNetAttentionLayer
 from .tcn import TCN, TCNLayer
+from .unet3plus import (
+    UNet3Plus as UNet3Plus,
+    segmentation_iou as segmentation_iou,
+)
 from .tfm_tokenizer import (
     TFMTokenizer,
     TFM_VQVAE2_deep,
