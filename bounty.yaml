@@ -203,7 +203,7 @@ bounty:
     category: model
     title: Delphi-2M (Nature 2025)
     description: "Port the Delphi generative transformer for multi-disease next-event and time-to-event prediction with a MIMIC-IV/MEDS port alongside the credentialed UK Biobank setup. [code](https://github.com/gerstung-lab/Delphi), [paper](https://doi.org/10.1038/s41586-025-09529-3)"
-    complete: ~
+    complete: "@etikhonov-dev (#1587)"
   - id: 35
     priority: 1
     category: model
@@ -227,7 +227,7 @@ bounty:
     category: model
     title: TarDiff Synthetic EHR Time-Series Generator (KDD 2025)
     description: "Implement TarDiff, a target-oriented diffusion framework for generating synthetic EHR time-series data in PyHealth."
-    complete: "@irvifa (#1552, #1562)"
+    complete: "@irvifa (#1552, #1562, #1578)"
   - id: 39
     priority: 1
     category: model
@@ -275,7 +275,7 @@ bounty:
     category: model
     title: GAME Multi-Institution Code Embeddings (Nature Communications 2025)
     description: "Add GAME harmonized medical code embeddings as a drop-in embedding initializer for PyHealth models on MIMIC-IV and OMOP. [code](https://github.com/celehs/GAME), [paper](https://arxiv.org/abs/2502.08547)"
-    complete: ~
+    complete: "@Alhibb (#1582)"
   - id: 47
     priority: 1
     category: model
@@ -293,7 +293,7 @@ bounty:
     category: model
     title: Joint Sequence and Image Irregular Time-Series Model (AAAI 2025)
     description: "Implement the self-supervised joint sequence-and-image model for irregular medical time series on PhysioNet 2012 and PhysioNet 2019 sepsis tasks. [code](https://github.com/zju-d3/AAAI25-Irregular-Medical-Time-Series), [paper](https://arxiv.org/abs/2502.06134)"
-    complete: ~
+    complete: "@irvifa (#1605)"
   - id: 50
     priority: 1
     category: model
