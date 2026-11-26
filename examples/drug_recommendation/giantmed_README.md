@@ -57,13 +57,9 @@ Batching is an adaptation: the paper and reference use one prompt per visit. The
 
 For OpenRouter debugging, `--response-trace PATH` writes each response incrementally as JSONL; this may include clinical information and must be stored accordingly.
 
-### Prompt templates and optional tracking
+### Prompt templates
 
 `GiantMed(..., prompt_template="Assess {boundary} conservatively and consider interactions.")` replaces the shared clinical instruction text. The template must be a nonempty single line containing only the `{boundary}` placeholder; use doubled braces for literal braces. All prompt modes still add their own evidence sections and JSON response contract, and token budgeting includes the template. Custom instructions can conflict with the remaining prompt or change model behavior; evaluate them rather than assuming equivalent safety or paper fidelity. `model.prompt_metadata()` returns the exact patient-independent template, its SHA-256 and a renderer-version identifier. The example accepts the same text from `--prompt-template-file PATH`.
-
-Tracking is disabled by default and does not require MLflow. To write one end-of-run local JSON manifest, pass `--tracking local --tracking-dir PATH`. To use MLflow, install it separately and pass `--tracking mlflow --tracking-uri URI`; set `--experiment-name NAME` if desired. A local MLflow file-store URI can be used for a local-only experiment, subject to your MLflow version's store support. MLflow errors fail visibly by default. To explicitly permit fallback, also pass `--tracking-fallback --tracking-dir PATH`; the console and manifest report that the actual backend is local, the error type and any partial MLflow run ID. A partial remote run may already exist; an attempted failed termination is reported. Local manifests use restrictive file permissions and unique names.
-
-The example records only caller-selected run settings, template text and hash, model-source hash, aggregate evaluation/coverage counts and available provider usage. It does not automatically record rendered prompts, raw responses, patient IDs or individual visit data. **Supply a patient-independent template:** the tracker does not redact patient data or secrets from custom templates or caller-supplied metadata. The existing `--save-responses` and `--response-trace` options separately write raw responses and may contain patient information. Tracking occurs after evaluation; it does not currently record epoch metrics, model weights, dataset snapshots, exact provider routing, or interrupted runs. Store or version those separately as appropriate. Renderer version and source hash are provenance aids, not a guarantee of reproducibility. The patient-specific prompt is not hashed or logged by this feature.
 
 ### MIMIC-IV demo and MEDI diagnosis codes
 
