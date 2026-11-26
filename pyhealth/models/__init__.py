@@ -35,6 +35,7 @@ from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D
 from .deepsleepnet import DeepSleepNet as DeepSleepNet
 from .deepr import Deepr, DeeprLayer
+from .delphi import Delphi as Delphi
 from .eegnet import EEGNet as EEGNet
 from .embedding import EmbeddingModel
 from .sequence_embedding import (
@@ -45,6 +46,9 @@ from .sequence_embedding import (
 from .armr import ARMR as ARMR
 from .gamenet import GAMENet, GAMENetLayer
 from .jamba_ehr import JambaEHR, JambaLayer
+from .joint_seq_image import (
+    JointSeqImage as JointSeqImage,
+)
 from .logistic_regression import LogisticRegression
 from .gan import GAN
 from .gnn import GAT, GCN
@@ -80,6 +84,7 @@ from .tfm_tokenizer import (
 from .torchvision_model import TorchvisionModel
 from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
+from .rasc import RASCCrossEncoder as RASCCrossEncoder
 from .llm_ehr_encoder import LLMEHREncoder as LLMEHREncoder
 from .ehr_fm import (
     EHRFoundationModelBase as EHRFoundationModelBase,
@@ -161,4 +166,11 @@ from .bulk_rna_bert import BulkRNABert as BulkRNABert
 from .dearllm import (
     DearLLM as DearLLM,
     DearLLMGraphEncoder as DearLLMGraphEncoder,
+)
+from .game import (
+    GAME as GAME,
+    GAMEEmbedding as GAMEEmbedding,
+    init_embedding_with_game as init_embedding_with_game,
+    load_game_embeddings as load_game_embeddings,
+    normalize_game_code as normalize_game_code,
 )

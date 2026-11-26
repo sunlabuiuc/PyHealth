@@ -154,8 +154,8 @@ def load_run(
     """Builds the report of a run from its directory alone.
 
     Reads ``trials.jsonl`` and, when present, ``run.json``, ``lessons.json``,
-    ``card.json``, ``attribution.json``, ``explain.json``, ``test.json`` and
-    ``review.json``. Runs written before ``run.json``
+    ``card.json``, ``attribution.json``, ``explain.json``, ``test.json``,
+    ``signal.json`` and ``review.json``. Runs written before ``run.json``
     existed need ``metric`` (and ``maximize`` for a metric where lower is
     better). Their selection is recomputed under the rule the report states,
     and the report says so: the search itself may have chosen another trial.
@@ -221,6 +221,7 @@ def load_run(
         confirm_se=settings.get("confirm_se", 2.0),
         fold_events=settings.get("fold_events"),
         min_events=settings.get("min_events_per_fold", 10),
+        signal=read("signal.json"),
     )
 
 
@@ -248,6 +249,7 @@ def build_report(
     confirm_se: float = 2.0,
     fold_events: Sequence[int] | None = None,
     min_events: int = 10,
+    signal: dict[str, Any] | None = None,
 ) -> Report:
     """Builds a report from a run's trials and, optionally, its test and attribution.
 
@@ -281,6 +283,7 @@ def build_report(
         fold_events: Positive samples in each CV fold, for the ``few_events``
             flag; ``None`` raises no flag.
         min_events: The fewest positives per fold without that flag.
+        signal: The comparison with chance, from ``signal.json``.
 
     Examples:
         >>> from pyhealth.autoimprove import Trial
@@ -405,7 +408,7 @@ def build_report(
     }
     flags = [{**f, "review": review.get(f["id"])}
              for f in flags_for(card, explanation, test, fold_events=fold_events,
-                                min_events=min_events)]
+                                min_events=min_events, signal=signal)]
     sections = [
         _summary(ctx, test, flags, notes),
         _task_section(task, dropped_models or {}, card),
@@ -445,7 +448,7 @@ def build_report(
         "card": card.to_dict() if card is not None else None,
         "explanation": explanation, "flags": flags,
         "confirmed": {str(k): v for k, v in (confirmed or {}).items()},
-        "pruning": pruning,
+        "pruning": pruning, "signal": signal,
         "trials": [_public_trial(t) for t in trials],
     }
     return Report(title, sections, data)
@@ -456,6 +459,8 @@ def _summary(ctx, test, flags, notes) -> Section:
     sel, ref, metric = ctx["selected"], ctx["reference"], ctx["metric"]
     space = ctx["space"]
     blocks = [("p", f"**Note.** {n}") for n in notes]
+    blocks += [("p", f"**No signal?** {f['detail']} *(measured)*")
+               for f in flags if f["id"] == "no_signal"]
     blocks += [("p", (f"**Selected: #{sel.trial_id}, "
                      f"{_model_words(sel.config, space)}.** "
                      f"{_score_line(sel, ref, ctx)} *(measured)*"))]
@@ -466,6 +471,8 @@ def _summary(ctx, test, flags, notes) -> Section:
             line += f" against {_ci(test['baseline'])} for the starting pipeline"
             if "difference" in test:
                 line += f"; difference {_ci(test['difference'], signed=True)}"
+        if not has_intervals(test):
+            line += f" ({NO_INTERVALS})"
         blocks.append(("p", line + ". *(measured)*"))
         clinical = b.get("clinical")
         if clinical:
@@ -673,7 +680,8 @@ def _test_section(ctx, test) -> Section:
     names = {"best": "selected", "baseline": "starting pipeline",
              "top": "highest-scoring candidate"}
     present = [(k, n) for k, n in names.items() if k in test]
-    # PR-AUC's chance level is the prevalence, so only there is the ratio a lift.
+    # PR-AUC's chance level is about the prevalence, so only there is the
+    # ratio a lift.
     lift = metric == "pr_auc"
     rows = []
     for key, name in present:
@@ -688,14 +696,18 @@ def _test_section(ctx, test) -> Section:
     headers = ["config", "trial", "model", f"test {metric}"]
     if lift and any(test[k].get("clinical") for k, _ in present):
         headers.append("lift over prevalence")
-    blocks = [("p", ("Each config was retrained on all training patients and "
-                     "scored once on the test patients; intervals are "
-                     "patient-level bootstrap 95% CIs. *(measured)*")),
-              ("table", headers, rows)]
+    scored = ("Each config was retrained on all training patients and scored "
+              "once on the test patients; ")
+    scored += ("intervals are patient-level bootstrap 95% CIs." if has_intervals(test)
+               else f"{NO_INTERVALS}, so treat small differences as unconfirmed.")
+    blocks = [("p", scored + " *(measured)*"), ("table", headers, rows)]
     diffs = []
     if "difference" in test:
         diffs.append(f"selected − starting pipeline: "
                      f"{_ci(test['difference'], signed=True)}")
+    elif "best" in test and "baseline" in test:
+        gain = test["best"]["estimate"] - test["baseline"]["estimate"]
+        diffs.append(f"selected − starting pipeline: {gain:+.3f} (no interval)")
     if "top_minus_best" in test:
         diffs.append(f"highest-scoring − selected: "
                      f"{_ci(test['top_minus_best'], signed=True)}")
@@ -938,6 +950,9 @@ def _checklist_section(ctx, card, explanation, test, attribution) -> Section:
     clinical = (test or {}).get("best", {}).get("clinical")
     subgroups = bool(clinical and clinical.get("subgroups"))
     missing = "not covered"
+    # evaluate_on_test ran, but on a task without intervals or clinical metrics
+    not_binary = bool(test) and not has_intervals(test)
+    hint_test = "run evaluate_on_test"
 
     def where(ok, text, hint):
         return text if ok else f"{missing}: {hint}"
@@ -967,9 +982,12 @@ def _checklist_section(ctx, card, explanation, test, attribution) -> Section:
             ", with the attribution of each setting" if attribution else "")),
         ("Discrimination and calibration, with uncertainty", where(
             bool(clinical), "Performance in clinical terms",
-            "run evaluate_on_test")),
+            "intervals and calibration need a binary task"
+            if not_binary else hint_test)),
         ("Clinical utility", where(bool(clinical), "Performance in clinical terms: "
-                                   "alerts and net benefit", "run evaluate_on_test")),
+                                   "alerts and net benefit",
+                                   "alerts and net benefit need a binary task"
+                                   if not_binary else hint_test)),
         ("Fairness: performance in subgroups", where(
             subgroups, "Performance in clinical terms: subgroups",
             "pass subgroups to evaluate_on_test")),
@@ -989,7 +1007,7 @@ def _checklist_section(ctx, card, explanation, test, attribution) -> Section:
 
 def flags_for(
     card, explanation, test, suspicious=(), features=(), fold_events=None,
-    min_events=10,
+    min_events=10, signal=None,
 ) -> list[dict[str, str]]:
     """Items for clinician review, from the task card, explanation and test.
 
@@ -998,6 +1016,9 @@ def flags_for(
     predicted the outcome almost perfectly, which usually means leakage.
     ``features`` are the selection's engineered specs; those without a
     rationale are flagged whether or not ``explanation`` is given.
+    ``signal`` is the comparison with chance
+    (:func:`~pyhealth.autoimprove.improver.signal_check`); a run whose
+    baseline or selection does not beat chance gets a ``no_signal`` flag.
 
     Examples:
         >>> [f["id"] for f in flags_for(None, None, None)]
@@ -1007,8 +1028,13 @@ def flags_for(
         ['no_task_card', 'no_rationale:count_90d__visits']
         >>> [f["id"] for f in flags_for(None, None, None, fold_events=[7, 6, 7])]
         ['no_task_card', 'few_events']
+        >>> weak = {"no_signal": True, "detail": "The baseline is not above chance."}
+        >>> [f["id"] for f in flags_for(None, None, None, signal=weak)]
+        ['no_signal', 'no_task_card']
     """
     out = []
+    if signal and signal.get("no_signal"):
+        out.append({"id": "no_signal", "kind": "signal", "detail": signal["detail"]})
     if card is None:
         out.append({"id": "no_task_card", "kind": "task",
                     "detail": "No task card: the cohort, outcome and features have "
@@ -1341,6 +1367,26 @@ def _pm(gain, se, better=None, n=None) -> str:
 
 def _signed(value) -> str:
     return f"{value:+.3f}"
+
+
+NO_INTERVALS = ("point estimates without confidence intervals: bootstrap intervals "
+                "are computed for binary tasks only")
+
+
+def has_intervals(test: dict[str, Any] | None) -> bool:
+    """Whether an ``evaluate_on_test`` result holds confidence intervals.
+
+    Binary tasks get patient-level bootstrap intervals; other label types
+    get the metric's value only, and the report must not promise more.
+
+    Examples:
+        >>> has_intervals({"best": {"estimate": 0.3, "lower": 0.2, "upper": 0.4}})
+        True
+        >>> has_intervals({"metric": "f1_macro", "best": {"estimate": 0.15}})
+        False
+    """
+    return any(isinstance(r, dict) and r.get("lower") is not None
+               for r in (test or {}).values())
 
 
 def _ci(r: dict[str, Any], signed: bool = False) -> str:

@@ -53,7 +53,7 @@ from pyhealth.tasks import (
     PhysioNet2012InHospitalMortality,
     physionet2012_normalization,
 )
-from pyhealth.tasks.physionet2012_mortality import (
+from pyhealth.tasks.physionet2012_inhospital_mortality import (
     LAB_VARIABLES,
     MORTALITY_VARIABLES,
 )
