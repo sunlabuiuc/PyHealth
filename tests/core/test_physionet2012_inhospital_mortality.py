@@ -50,7 +50,7 @@ def _write_fake_root(root: Path) -> None:
         "05:30,Lactate,2.0\n", "30:00,HR,100\n",
     ]))
     (folder / "100002.txt").write_text(_record(100002, 40, 0, -1, 1, [
-        "03:00,HR,60\n", "10:00,Lactate,1.0\n",
+        "03:00,HR,60\n", "03:00,Weight,82\n", "10:00,Lactate,1.0\n",
     ]))
     (folder / "100003.txt").write_text(_record(100003, 75, 1, 160, 4, [
         "30:00,HR,70\n",
@@ -189,6 +189,17 @@ class TestPhysioNet2012InHospitalMortality(unittest.TestCase):
         self.assertAlmostEqual(float(s["measurements"][30, hr]), 100.0)
         self.assertAlmostEqual(float(s["measurements"][5, creat]), 1.3, places=5)
         self.assertEqual(int(s["padding_mask"].sum()), 31)  # hours 0..30
+
+    def test_weight_column_holds_in_stay_measurements_only(self):
+        # Every record has "00:00,Weight,80", a descriptor that goes to the
+        # patients table and so never reaches the grid.
+        out = self.samples()
+        w = MORTALITY_VARIABLES.index("Weight")
+        self.assertEqual(float(out["100001"]["observed"][:, w].sum()), 0.0)
+        self.assertEqual(float(out["100001"]["measurements"][:, w].sum()), 0.0)
+        # 100002 also has an in-stay "03:00,Weight,82".
+        self.assertEqual(float(out["100002"]["observed"][:, w].sum()), 1.0)
+        self.assertAlmostEqual(float(out["100002"]["measurements"][3, w]), 82.0)
 
     def test_event_stream_from_dataset(self):
         s = self.samples()["100001"]

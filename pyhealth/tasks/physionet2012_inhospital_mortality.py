@@ -37,7 +37,9 @@ MORTALITY_VARIABLES = (
 """The 36 time series of the TransEHR experiments: the 37 PhysioNet 2012
 series without the mechanical-ventilation flag (``MechVent``). Unlike
 :data:`~pyhealth.tasks.physionet2012_forecasting.TIME_SERIES_VARIABLES`, this
-includes ``Weight``."""
+includes ``Weight``. The ``Weight`` column holds in-stay measurements only: the
+00:00 admission weight is a descriptor stored in the ``patients`` table, not in
+the events the grid reads."""
 
 VITAL_VARIABLES = (
     "DiasABP", "Glucose", "HR", "MAP", "RespRate", "SysABP", "Temp",
@@ -383,7 +385,8 @@ def physionet2012_normalization(
         variable that is constant (``p95 == p5``) has scale 0.
 
     Raises:
-        ValueError: If a variable has no non-zero observation.
+        ValueError: If a variable has no non-zero observation (this includes
+            ``Weight`` when no stay has an in-stay weight measurement).
 
     Examples:
         >>> center, scale = physionet2012_normalization(dataset)  # doctest: +SKIP

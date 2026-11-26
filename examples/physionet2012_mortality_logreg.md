@@ -15,9 +15,11 @@ model capacity.
   part is scored (2,398 samples; 357 for the ICU-type-1 cohort). Trained with the PyHealth `Trainer` (Adam, lr 1e-3, batch 128, 20 epochs, seed 0, plain binary
   cross-entropy); the epoch is selected on validation AUROC.
 - Normalization `(x - median) / (p95 - p5)`, fitted on training patients only.
-- `Weight` is a patient descriptor recorded at 00:00. In set-a (4,000 stays) 92 % of
-  stays have it at hour 0, and 53 % of the 48-hour grid cells of the column are observed
-  (HR: 90 %), so the column is sparser than the vitals but not mostly empty.
+- The 00:00 admission `Weight` is a patient descriptor: `PhysioNet2012Dataset` stores it in
+  the patients table, so it is in neither the grid nor the static features. The `Weight`
+  grid column holds only the weights measured during the stay. In set-a (4,000 stays) 68 %
+  of stays have one in the first 48 hours (18 % in hour 0), and 51 % of the grid cells of
+  the column are observed (HR: 90 %).
 - Single run, single split: no spread is available, so small differences are not evidence.
 
 ## Results (test)
