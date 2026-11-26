@@ -1,4 +1,14 @@
-"""Mortality prediction tasks for the NHANES dataset."""
+"""Mortality prediction tasks for the NHANES dataset.
+
+Contributors: Inoh Pak (inohpak2), Yejin Kim (yejink6)
+
+Paper: Song et al., MotionAge: A Deep Learning Framework for Biological Age
+    Prediction from Wearable Activity, MLHC 2026 (PMLR 340).
+    https://proceedings.mlr.press/v340/song26a.html
+
+Description: Five-year mortality prediction from 3.5-day activity windows,
+    with an optional MotionAge input format (intensity, hour, day, wear mask).
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,11 @@
-"""Tests for NHANES dataset preprocessing."""
+"""Tests for NHANES dataset preprocessing.
+
+Contributors: Inoh Pak (inohpak2), Yejin Kim (yejink6)
+
+Paper: Song et al., MotionAge: A Deep Learning Framework for Biological Age
+    Prediction from Wearable Activity, MLHC 2026 (PMLR 340).
+    https://proceedings.mlr.press/v340/song26a.html
+"""
 
 import unittest
 

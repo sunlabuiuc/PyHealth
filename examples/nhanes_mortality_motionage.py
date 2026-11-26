@@ -27,7 +27,8 @@ Usage:
         --ablation --sample-fraction 0.25 --seed 42
 
     # Real-data model ablation with the reported configuration.
-    python examples/nhanes_mortality_motionage.py --root /path/to/nhanes --model-ablation --sample-fraction 0.25 --seed 42
+    python examples/nhanes_mortality_motionage.py --root /path/to/nhanes \
+        --model-ablation --sample-fraction 0.25 --seed 42
 
 Experimental results:
     NHANES 2003-2006, 25% stratified participant subset (2,129 participants).
@@ -78,7 +79,8 @@ Experimental results:
 Limitations:
     This experiment reproduces the mortality prediction component,
     not the biological age calibration or full cross-validation protocol.
-    Temporal day indices represent relative monitoring days.
+    Temporal day indices represent relative monitoring days (1-7), while
+    the paper uses day-of-week indices.
     Results are based on one participant split and one random seed.
     Synthetic results are for pipeline validation, not clinical evidence.
 """

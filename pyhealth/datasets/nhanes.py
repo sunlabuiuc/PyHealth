@@ -1,4 +1,14 @@
-"""NHANES accelerometer and linked mortality dataset."""
+"""NHANES accelerometer and linked mortality dataset.
+
+Contributors: Inoh Pak (inohpak2), Yejin Kim (yejink6)
+
+Paper: Song et al., MotionAge: A Deep Learning Framework for Biological Age
+    Prediction from Wearable Activity, MLHC 2026 (PMLR 340).
+    https://proceedings.mlr.press/v340/song26a.html
+
+Description: Loads NHANES 2003-2006 accelerometer data with linked mortality,
+    detects non-wear (Choi), and builds 5-minute wear-aware epochs.
+"""
 
 from __future__ import annotations
 
