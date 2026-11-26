@@ -35,6 +35,8 @@ on a CPU (04 and 07 with smaller settings). The same notebooks are listed on
      - Fine-tuning language models for specialty classification and ICD coding, label distributions, and checks against simple baselines. Opens on a T4 GPU.
    * - `08. Contributing a dataset or task <https://colab.research.google.com/drive/1tuiooZgK-rR50NdCG9Ylq5HNgqSUBwvE>`_
      - Dataset classes, file-based data, tests and the pull request checklist.
+   * - `09. AutoImprove: letting agents improve your pipeline <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/09_autoimprove.ipynb>`_
+     - Agents propose models and settings from your starting pipeline; patient-grouped cross-validation, the one-SE selection rule, what each change contributed, a single test comparison, the run's report and a null-label control. Installs PyHealth from GitHub; about 5 minutes on a CPU.
 
 What's new in PyHealth 2.1
 --------------------------

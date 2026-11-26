@@ -237,6 +237,7 @@ Available Tasks
     PTB-XL Heartbeat MI <tasks/pyhealth.tasks.PTBXLHeartbeatMI>
     Chapman-Shaoxing ECG Classification <tasks/pyhealth.tasks.ChapmanShaoxingSuperclassClassification>
     PhysioNet 2012 Forecasting <tasks/pyhealth.tasks.PhysioNet2012Forecasting>
+    PhysioNet 2012 Mortality <tasks/pyhealth.tasks.PhysioNet2012Mortality>
     Disease Progression (MIMIC-IV + Chest ImaGenome) <tasks/pyhealth.tasks.DiseaseProgressionMIMIC4>
     DKA Prediction (MIMIC-IV) <tasks/pyhealth.tasks.dka>
     Drug Recommendation <tasks/pyhealth.tasks.drug_recommendation>
