@@ -224,6 +224,9 @@ Available Tasks
     Prolonged Length of Stay (MEDS) <tasks/pyhealth.tasks.ProlongedLengthOfStayMEDS>
     ETHOS Timelines (MEDS) <tasks/pyhealth.tasks.EthosTimelineMEDS>
     ETHOS Zero-Shot Outcomes (MEDS) <tasks/pyhealth.tasks.EthosOutcomeMEDS>
+    Delphi Trajectory (MEDS) <tasks/pyhealth.tasks.DelphiTrajectoryMEDS>
+    Delphi Trajectory (MIMIC-IV) <tasks/pyhealth.tasks.DelphiTrajectoryMIMIC4>
+    Delphi Trajectory (UK Biobank) <tasks/pyhealth.tasks.DelphiTrajectoryUKB>
     MIMIC-III ICD-9 Coding <tasks/pyhealth.tasks.MIMIC3ICD9Coding>
     BMD-HS Disease Classification <tasks/pyhealth.tasks.bmd_hs_disease_classification>
     Cardiology Detection <tasks/pyhealth.tasks.cardiology_detect>
@@ -231,8 +234,10 @@ Available Tasks
     COVID-19 CXR Image Generation <tasks/pyhealth.tasks.COVID19CXRImageGeneration>
     PTB-XL Multilabel Classification <tasks/pyhealth.tasks.PTBXLMultilabelClassification>
     PTB-XL HeartLang Classification <tasks/pyhealth.tasks.PTBXLHeartLangClassification>
+    PTB-XL Heartbeat MI <tasks/pyhealth.tasks.PTBXLHeartbeatMI>
     Chapman-Shaoxing ECG Classification <tasks/pyhealth.tasks.ChapmanShaoxingSuperclassClassification>
     PhysioNet 2012 Forecasting <tasks/pyhealth.tasks.PhysioNet2012Forecasting>
+    PhysioNet 2012 Mortality <tasks/pyhealth.tasks.PhysioNet2012Mortality>
     Disease Progression (MIMIC-IV + Chest ImaGenome) <tasks/pyhealth.tasks.DiseaseProgressionMIMIC4>
     DKA Prediction (MIMIC-IV) <tasks/pyhealth.tasks.dka>
     Drug Recommendation <tasks/pyhealth.tasks.drug_recommendation>
@@ -252,9 +257,11 @@ Available Tasks
     Readmission Prediction <tasks/pyhealth.tasks.readmission_prediction>
     Sleep Staging <tasks/pyhealth.tasks.sleep_staging>
     Sleep Staging (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSleepEDF>
+    Sleep Staging (Cardio-Respiratory, NSRR) <tasks/pyhealth.tasks.SleepStagingCardioRespiratory>
     Sleep Staging Sequences (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSequenceSleepEDF>
     Sleep Staging (ISRUC) <tasks/pyhealth.tasks.SleepStagingISRUC>
     Sleep Staging Sequences (ISRUC) <tasks/pyhealth.tasks.SleepStagingSequenceISRUC>
+    Sleep Staging (HMC) <tasks/pyhealth.tasks.SleepStagingHMC>
     Seizure Onset Zone Localization (HUP iEEG) <tasks/pyhealth.tasks.SOZLocalizationHUP>
     Temple University EEG Tasks <tasks/pyhealth.tasks.temple_university_EEG_tasks>
     CHB-MIT Seizure Detection <tasks/pyhealth.tasks.SeizureDetectionCHBMIT>
@@ -262,6 +269,9 @@ Available Tasks
     Ear-EEG Sleep Staging (EESM23) <tasks/pyhealth.tasks.SleepStagingEarEEG>
     IIIC Seizure Classification <tasks/pyhealth.tasks.iiic_seizure_classification>
     EEGBCI Tasks <tasks/pyhealth.tasks.eegbci>
+    AHEPA Dementia Classification <tasks/pyhealth.tasks.DementiaClassificationAHEPA>
+    BCI Competition IV 2a Motor Imagery <tasks/pyhealth.tasks.BCIIV2aMotorImageryClassification>
+    BCI Competition IV 2a Left vs Right Hand <tasks/pyhealth.tasks.BCIIV2aLeftRightImagery>
     PTB-XL Tasks <tasks/pyhealth.tasks.ptbxl>
     Sleep Staging v2 <tasks/pyhealth.tasks.sleep_staging_v2>
     Benchmark EHRShot <tasks/pyhealth.tasks.benchmark_ehrshot>
@@ -269,23 +279,43 @@ Available Tasks
     EHR Foundation Model Timelines <tasks/pyhealth.tasks.ehr_foundation_model>
     ED Disposition and Outcomes (MIMIC-IV-ED) <tasks/pyhealth.tasks.ed_disposition_mimic4>
     ChestX-ray14 Binary Classification <tasks/pyhealth.tasks.ChestXray14BinaryClassification>
+    ISIC 2019 Skin Lesion Classification <tasks/pyhealth.tasks.ISIC2019Classification>
     De-Identification NER <tasks/pyhealth.tasks.DeIDNERTask>
     ChestX-ray14 Multilabel Classification <tasks/pyhealth.tasks.ChestXray14MultilabelClassification>
+    HAM10000 Skin Lesion Classification <tasks/pyhealth.tasks.HAM10000Classification>
     MSD Segmentation <tasks/pyhealth.tasks.MSDSegmentationTask>
     CHAOS Segmentation Tasks <tasks/pyhealth.tasks.CHAOSSegmentation>
     RSNA Pneumonia Classification <tasks/pyhealth.tasks.RSNAPneumoniaClassification>
+    PAD-UFES-20 Skin Lesion Classification <tasks/pyhealth.tasks.PADUFES20Classification>
+    ISIC 2020 Melanoma Classification <tasks/pyhealth.tasks.ISIC2020MelanomaClassification>
+    CBIS-DDSM Mammography Classification <tasks/pyhealth.tasks.cbis_ddsm_classification>
+    CBIS-DDSM Abnormality Type Classification <tasks/pyhealth.tasks.CBISDDSMAbnormalityClassification>
+    CBIS-DDSM Breast Density Classification <tasks/pyhealth.tasks.CBISDDSMDensityClassification>
     Variant Classification (ClinVar) <tasks/pyhealth.tasks.VariantClassificationClinVar>
+    Jichi Davis DR Grading <tasks/pyhealth.tasks.JichiDavisGrading>
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
+    LNDb Finding Classification <tasks/pyhealth.tasks.LNDbFindingClassification>
+    LNDb Texture Classification <tasks/pyhealth.tasks.LNDbTextureClassification>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>
     In-Hospital Survival (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalSurvivalMIMIC4>
+    BCSS Tile Classification <tasks/pyhealth.tasks.BCSSTileClassification>
+    BCSS Tissue Segmentation <tasks/pyhealth.tasks.BCSSTissueSegmentation>
     METABRIC Survival Prediction <tasks/pyhealth.tasks.MetabricSurvivalPrediction>
+    ABIDE Autism Classification <tasks/pyhealth.tasks.ABIDEAutismClassification>
     Rare-Condition ICU Mortality (KnowRare, MIMIC-IV) <tasks/pyhealth.tasks.KnowRareICUMortalityMIMIC4>
+    KiTS23 Malignancy Classification <tasks/pyhealth.tasks.KiTS23MalignancyClassification>
+    KiTS23 Segmentation <tasks/pyhealth.tasks.KiTS23Segmentation>
     Lab Nowcasting (MIMIC-III/IV) <tasks/pyhealth.tasks.LabNowcasting>
+    COVID-BLUES Frame Classification <tasks/pyhealth.tasks.COVIDBLUESFrameClassification>
+    COVID-BLUES Severity Classification <tasks/pyhealth.tasks.COVIDBLUESSeverityClassification>
     ICU Acuity and Therapies (MIMIC-IV) <tasks/pyhealth.tasks.ICUAcuityMIMIC4>
+    Brain Tumor MRI Classification <tasks/pyhealth.tasks.BrainTumorMRIClassification>
     Cancer Mutation Burden (TCGA) <tasks/pyhealth.tasks.CancerMutationBurden>
     Survival Preprocessing (SUPPORT2) <tasks/pyhealth.tasks.SurvivalPreprocessSupport2>
     YAIB Tasks (MIMIC-IV) <tasks/pyhealth.tasks.yaib_mimic4>
     YAIB Tasks (MIMIC-III) <tasks/pyhealth.tasks.yaib_mimic3>
     YAIB Tasks (eICU) <tasks/pyhealth.tasks.yaib_eicu>
     Value Set Completion (VSAC) <tasks/pyhealth.tasks.ValueSetCompletion>
+    Value Set Pair Classification (VSAC) <tasks/pyhealth.tasks.ValueSetPairClassification>
     Time-to-event survival (GBSG and SUPPORT) <tasks/pyhealth.tasks.survival_time_to_event>
+    TCGA RNA-seq Survival Prediction <tasks/pyhealth.tasks.TCGASurvivalPrediction>

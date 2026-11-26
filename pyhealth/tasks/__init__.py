@@ -10,6 +10,7 @@ from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
 from .cardiology_detect import (
+    CardiologyDetection as CardiologyDetection,
     cardiology_isAD_fn,
     cardiology_isAR_fn,
     cardiology_isBBBFB_fn,
@@ -17,7 +18,13 @@ from .cardiology_detect import (
     cardiology_isWA_fn,
 )
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
+from .isic2019_classification import (
+    ISIC2019Classification as ISIC2019Classification,
+)
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
+from .ham10000_classification import (
+    HAM10000Classification as HAM10000Classification,
+)
 from .chaos_segmentation import (
     CHAOSAbdominalSegmentationCTMRI as CHAOSAbdominalSegmentationCTMRI,
     CHAOSAbdominalSegmentationMRIonly as CHAOSAbdominalSegmentationMRIonly,
@@ -25,15 +32,24 @@ from .chaos_segmentation import (
     CHAOSLiverSegmentationCTonly as CHAOSLiverSegmentationCTonly,
     CHAOSLiverSegmentationMRIonly as CHAOSLiverSegmentationMRIonly,
 )
+from .brain_tumor_mri_classification import (
+    BrainTumorMRIClassification as BrainTumorMRIClassification,
+)
 from .covid19_cxr_classification import COVID19CXRClassification
 from .covid19_cxr_generation import (
     COVID19CXRImageGeneration as COVID19CXRImageGeneration,
 )
 from .ptbxl_multilabel_classification import PTBXLMultilabelClassification as PTBXLMultilabelClassification
 from .ptbxl_heartlang import PTBXLHeartLangClassification as PTBXLHeartLangClassification
+from .ptbxl_heartbeat import PTBXLHeartbeatMI as PTBXLHeartbeatMI
 from .chapman_shaoxing_classification import (
     ChapmanShaoxingSNOMEDClassification as ChapmanShaoxingSNOMEDClassification,
     ChapmanShaoxingSuperclassClassification as ChapmanShaoxingSuperclassClassification,
+)
+from .physionet2012_mortality import (
+    PhysioNet2012Mortality as PhysioNet2012Mortality,
+    physionet2012_mortality_statistics as physionet2012_mortality_statistics,
+    split_by_record_ids as split_by_record_ids,
 )
 from .physionet2012_forecasting import (
     PhysioNet2012Forecasting as PhysioNet2012Forecasting,
@@ -46,6 +62,11 @@ from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
 # __all__, and the PR lint gate flags F401 on newly added import lines.
 from .disease_progression_mimic4 import (
     DiseaseProgressionMIMIC4 as DiseaseProgressionMIMIC4,
+)
+from .delphi_trajectory import (
+    DelphiTrajectoryMEDS as DelphiTrajectoryMEDS,
+    DelphiTrajectoryMIMIC4 as DelphiTrajectoryMIMIC4,
+    DelphiTrajectoryUKB as DelphiTrajectoryUKB,
 )
 from .drug_recommendation import (
     DrugRecommendationEICU,
@@ -82,11 +103,24 @@ from .in_hospital_mortality_meds import (
     InHospitalMortalityMEDS as InHospitalMortalityMEDS,
 )
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
+from .kits23_classification import (
+    KiTS23MalignancyClassification as KiTS23MalignancyClassification,
+    KiTS23MalignancySliceClassification as KiTS23MalignancySliceClassification,
+)
+from .kits23_segmentation import (
+    KiTS23Segmentation as KiTS23Segmentation,
+)
 from .lab_nowcasting import (
     LabNowcasting as LabNowcasting,
     LabNowcastingMIMIC3 as LabNowcastingMIMIC3,
     LabNowcastingMIMIC4 as LabNowcastingMIMIC4,
     lab_flag as lab_flag,
+)
+from .lndb_classification import (
+    LNDbFindingClassification as LNDbFindingClassification,
+)
+from .lndb_texture import (
+    LNDbTextureClassification as LNDbTextureClassification,
 )
 from .length_of_stay_prediction import (
     LengthOfStayPredictioneICU,
@@ -153,9 +187,32 @@ from .generate_ehr import (
     decode_dataset,
     to_evaluation_dataframe,
 )
+from .pad_ufes_20_classification import (
+    PADUFES20Classification as PADUFES20Classification,
+)
 from .patient_linkage import patient_linkage_mimic3_fn
+from .jichi_davis_grading import JichiDavisGrading as JichiDavisGrading
 from .rsna_pneumonia_classification import (
     RSNAPneumoniaClassification as RSNAPneumoniaClassification,
+)
+from .bcss_tile_classification import (
+    BCSSTileClassification as BCSSTileClassification,
+)
+from .bcss_tissue_segmentation import (
+    BCSSTissueSegmentation as BCSSTissueSegmentation,
+)
+from .isic2020_melanoma_classification import (
+    ISIC2020MelanomaClassification as ISIC2020MelanomaClassification,
+)
+from .cbis_ddsm_abnormality_classification import (
+    CBISDDSMAbnormalityClassification as CBISDDSMAbnormalityClassification,
+)
+from .cbis_ddsm_classification import (
+    CBISDDSMBIRADSClassification as CBISDDSMBIRADSClassification,
+    CBISDDSMPathologyClassification as CBISDDSMPathologyClassification,
+)
+from .cbis_ddsm_density_classification import (
+    CBISDDSMDensityClassification as CBISDDSMDensityClassification,
 )
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
@@ -168,12 +225,23 @@ from .sleep_staging import (
     sleep_staging_shhs_fn,
     sleep_staging_sleepedf_fn,
 )
+from .abide_classification import (
+    ABIDEAutismClassification as ABIDEAutismClassification,
+)
 from .sleep_staging_v2 import SleepStagingSequenceSleepEDF as SleepStagingSequenceSleepEDF
+from .covid_blues_classification import (
+    COVIDBLUESFrameClassification as COVIDBLUESFrameClassification,
+)
+from .covid_blues_severity import (
+    COVIDBLUESSeverityClassification as COVIDBLUESSeverityClassification,
+)
 from .sleep_staging_v2 import SleepStagingSleepEDF
+from .sleep_staging_nsrr import SleepStagingCardioRespiratory  # noqa: F401
 from .sleep_staging_isruc import SleepStagingISRUC as SleepStagingISRUC
 from .sleep_staging_isruc import (
     SleepStagingSequenceISRUC as SleepStagingSequenceISRUC,
 )
+from .sleep_staging_hmc import SleepStagingHMC as SleepStagingHMC
 from .temple_university_EEG_tasks import (
     EEGEventsTUEV,
     EEGAbnormalTUAB
@@ -187,12 +255,21 @@ from .seizure_detection_chbmit import (
 from .sleep_staging_ear_eeg import (
     SleepStagingEarEEG as SleepStagingEarEEG,
 )
+from .dementia_classification_ahepa import (
+    DementiaClassificationAHEPA as DementiaClassificationAHEPA,
+)
 from .soz_localization_hup import (
     SOZLocalizationHUP as SOZLocalizationHUP,
 )
 from .eegbci import (
     EEGBCIPatternDiscovery as EEGBCIPatternDiscovery,
     EEGMotorImageryEEGBCI as EEGMotorImageryEEGBCI,
+)
+from .bciiv2a_left_right_imagery import (
+    BCIIV2aLeftRightImagery as BCIIV2aLeftRightImagery,
+)
+from .bciiv2a_motor_imagery import (
+    BCIIV2aMotorImageryClassification as BCIIV2aMotorImageryClassification,
 )
 from .iiic_seizure_classification import (
     EEGSeizureIIIC as EEGSeizureIIIC,
@@ -209,6 +286,10 @@ from .knowrare_mimic4 import (
 from .value_set_completion import (
     ValueSetCompletion as ValueSetCompletion,
     build_retrieval_index as build_retrieval_index,
+)
+from .value_set_pair_classification import (
+    ValueSetPairClassification as ValueSetPairClassification,
+    build_hybrid_retrieval_index as build_hybrid_retrieval_index,
 )
 from .yaib_mimic3 import (
     YAIBAKIMIMIC3 as YAIBAKIMIMIC3,
@@ -231,7 +312,7 @@ from .yaib_eicu import (
     YAIBMortalityEICU as YAIBMortalityEICU,
     YAIBSepsisEICU as YAIBSepsisEICU,
 )
-
+from .tcga_survival_prediction import TCGASurvivalPrediction as TCGASurvivalPrediction
 
 def __getattr__(name: str):
     if name == "MPFClinicalPredictionTask":

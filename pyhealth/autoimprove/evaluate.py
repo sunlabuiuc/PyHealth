@@ -211,6 +211,56 @@ def patient_folds(
     return [np.array(sorted(f), dtype=np.int64) for f in folds]
 
 
+def chance_fold_scores(
+    labels: Sequence[float], folds: Sequence[np.ndarray], metric: str
+) -> list[float] | None:
+    """The expected score of a ranking that ignores the inputs, per fold.
+
+    A model that learned nothing scores 0.5 ROC-AUC. Its expected PR-AUC
+    (average precision) is the share of positives only for large folds; with
+    few positives it is noticeably higher (0.104 rather than 0.083 for 19
+    positives among 228 samples), so the exact expectation for a random
+    ranking of ``n`` samples with ``r`` positives is used:
+    ``((r - 1) / (n - 1) * (n - H_n) + H_n) / n``, where ``H_n`` is the
+    ``n``-th harmonic number. Gains over a baseline mean little if the
+    baseline itself is not above this level.
+
+    Args:
+        labels: The 0/1 label of each training sample.
+        folds: The sample indices of each fold (:func:`patient_folds`).
+        metric: The search metric.
+
+    Returns:
+        One chance score per fold, or ``None`` for metrics without a
+        known chance level (only ``roc_auc`` and ``pr_auc`` have one here).
+
+    Examples:
+        >>> folds = [np.array([0, 1, 2, 3]), np.array([4, 5, 6, 7])]
+        >>> labels = [1, 0, 0, 0, 1, 1, 0, 0]
+        >>> [round(x, 3) for x in chance_fold_scores(labels, folds, "pr_auc")]
+        [0.521, 0.681]
+        >>> chance_fold_scores(labels, folds, "roc_auc")
+        [0.5, 0.5]
+        >>> chance_fold_scores(labels, folds, "f1") is None
+        True
+    """
+    labels = np.asarray(labels, dtype=float)
+    if metric == "roc_auc":
+        return [0.5] * len(folds)
+    if metric != "pr_auc":
+        return None
+    out = []
+    for fold in folds:
+        y = labels[np.asarray(fold, dtype=np.int64)]
+        n, r = len(y), float(y.sum())
+        if n < 2 or r == 0:
+            out.append(float(r / n) if n else 0.0)
+            continue
+        h = float(np.sum(1.0 / np.arange(1, n + 1)))
+        out.append(((r - 1) / (n - 1) * (n - h) + h) / n)
+    return out
+
+
 def _positive_patients(dataset: SampleDataset) -> set[str] | None:
     """Patients with a positive sample, or ``None`` if the label is not 0/1
     or the dataset is too large to read every label."""
