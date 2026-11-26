@@ -506,13 +506,13 @@ def _fit_classical_models(
     allow_rsf: bool,
     rf_n_estimators: int,
 ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
-    """Fit CoxPH and, when its optional dependency works, random survival forest."""
+    """Fit regularized Cox PH (Coxnet) and optionally random survival forest."""
     from sksurv.linear_model import CoxnetSurvivalAnalysis
     from sksurv.util import Surv
 
     y_train = Surv.from_arrays(split.event_train, split.duration_train)
     models: dict[str, Any] = {
-        "CoxPH": CoxnetSurvivalAnalysis(
+        "Regularized Cox PH (Coxnet)": CoxnetSurvivalAnalysis(
             alphas=[0.01],
             l1_ratio=0.01,
             fit_baseline_model=True,
@@ -525,7 +525,7 @@ def _fit_classical_models(
             warnings.warn(
                 "Skipping RSF: scikit-survival could not import "
                 "RandomSurvivalForest in this environment "
-                f"({error}). CoxPH and neural models will still run.",
+                f"({error}). Coxnet and neural models will still run.",
                 RuntimeWarning,
                 stacklevel=2,
             )
@@ -717,7 +717,7 @@ def run_experiment(
                     )
                 )
 
-        progress.set_postfix(seed=seed, stage="CoxPH/RSF")
+        progress.set_postfix(seed=seed, stage="Coxnet/RSF")
         classical = _fit_classical_models(
             split,
             seed,

@@ -86,6 +86,9 @@ The five-seed baseline run uses the same 80/10/10 stratified splits and
 training-only preprocessing. It ran on CPU with PyTorch 2.7.1+cpu; the machine
 has an RTX 4090, but that CPU-only run did not use it. Values are mean
 (standard deviation); C-index is on the 0--100 scale.
+The Cox baseline is a regularized Cox proportional-hazards model using
+``CoxnetSurvivalAnalysis`` with ``alpha=0.01`` and ``l1_ratio=0.01``; it is
+not an unpenalized CoxPH fit.
 
 .. list-table::
     :header-rows: 1
@@ -106,7 +109,7 @@ has an RTX 4090, but that CPU-only run did not use it. Values are mean
       - 71.83 (1.43)
       - 0.0422 (0.0091)
       - 0.1891 (0.0063)
-    * - CoxPH
+    * - Regularized Cox PH (Coxnet)
       - 72.94 (1.05)
       - 0.0449 (0.0067)
       - 0.1877 (0.0046)
@@ -177,8 +180,7 @@ These are descriptive results from one local experiment, not evidence of
 statistical significance or a comparison against the original paper's reported
 results. The experiment ran all three studies with seeds ``11, 22, 33, 44, 55``.
 For strict reproducibility, preserve the notebook configuration alongside the
-results. Do not commit the SUPPORT2 source CSV or patient-level assignment
-outputs.
+results.
 
 .. autoclass:: pyhealth.models.survival_moe.SurvivalMoEModel
     :members:
