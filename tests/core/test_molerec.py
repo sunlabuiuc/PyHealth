@@ -1,10 +1,10 @@
 import unittest
 import torch
-import importlib.metadata as importlib_metadata
-from packaging import version
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import MoleRec
+from pyhealth.models.utils import ddi_adjacency
+from tests.core.ogb_test_utils import require_ogb
 
 
 class TestMoleRec(unittest.TestCase):
@@ -12,19 +12,7 @@ class TestMoleRec(unittest.TestCase):
 
     def setUp(self):
         """Set up test data and model."""
-        min_version = "1.3.5"
-        try:
-            installed = importlib_metadata.version("ogb")
-        except importlib_metadata.PackageNotFoundError:
-            self.skipTest("ogb package not available")
-
-        if version.parse(installed) < version.parse(min_version):
-            self.skipTest(f"ogb>={min_version} required, but found {installed}")
-
-        try:
-            from ogb.utils import smiles2graph  # noqa: F401
-        except Exception as exc:
-            self.skipTest(f"ogb import failed: {exc}")
+        require_ogb(self)
         
         self.samples = [
             {
@@ -161,6 +149,28 @@ class TestMoleRec(unittest.TestCase):
             torch.equal(before, self.model.simple_predictor.weight.detach()),
             "fallback predictor was not updated by the optimizer step",
         )
+
+    def test_generate_ddi_adj_matches_the_shared_helper(self):
+        """The DDI matrix is the shared ATC-3 one, over the drug labels."""
+        samples = [
+            {"patient_id": "p0", "visit_id": "v0",
+             "conditions": [["c1"], ["c2"]], "procedures": [["p1"], ["p2"]],
+             "drugs": ["N02B", "B01A", "C03C"]},
+            {"patient_id": "p1", "visit_id": "v1",
+             "conditions": [["c3"]], "procedures": [["p3"]],
+             "drugs": ["N02A", "M01A"]},
+        ]
+        dataset = create_sample_dataset(
+            samples=samples, input_schema=self.input_schema,
+            output_schema=self.output_schema, dataset_name="ddi",
+        )
+        model = MoleRec(dataset=dataset)
+        adj = model.generate_ddi_adj()
+        vocab = dataset.output_processors["drugs"].label_vocab
+        self.assertEqual(tuple(adj.shape), (len(vocab), len(vocab)))
+        self.assertTrue(torch.equal(adj, ddi_adjacency(vocab)))
+        self.assertTrue(torch.equal(adj, adj.T))
+        self.assertGreater(adj.sum().item(), 0)
 
 
 if __name__ == "__main__":

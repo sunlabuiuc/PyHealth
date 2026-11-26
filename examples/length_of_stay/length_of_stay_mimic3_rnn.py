@@ -1,3 +1,19 @@
+"""Length-of-stay prediction on MIMIC-III with an RNN.
+
+Loads diagnoses, procedures and prescriptions, applies
+``LengthOfStayPredictionMIMIC3`` (10-class LOS category per admission: <1
+day, 1..7 days, 1-2 weeks, >2 weeks), and trains/evaluates an ``RNN`` for
+one epoch, reporting accuracy and F1.
+
+Data: by default ``root`` points at the public Synthetic MIMIC-III copy
+(downloaded on the fly, no credentials). For real MIMIC-III
+(https://physionet.org/content/mimiciii/, credentialed) set ``root`` to your
+local folder.
+
+Run: ``python examples/length_of_stay/length_of_stay_mimic3_rnn.py`` (CPU).
+Offline: set ``root`` to ``test-resources/core/mimic3demo`` and
+``dev=False``.
+"""
 import tempfile
 
 from pyhealth.datasets import MIMIC3Dataset, get_dataloader, split_by_patient

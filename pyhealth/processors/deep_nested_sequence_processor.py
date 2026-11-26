@@ -3,11 +3,11 @@ from typing import Any, Dict, List, Iterable
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor, TokenProcessorInterface, _warn_truncated
+from .base_processor import LegacyFeatureProcessor, TokenProcessorInterface, _warn_truncated
 
 
 @register_processor("deep_nested_sequence")
-class DeepNestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
+class DeepNestedSequenceProcessor(LegacyFeatureProcessor, TokenProcessorInterface):
     """
     Feature processor for deeply nested categorical sequences with vocabulary.
 
@@ -93,6 +93,7 @@ class DeepNestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
         order = [k for k, v in sorted(self.code_vocab.items(), key=lambda x: x[1]) if k in keep]
         
         self.code_vocab = { k : i for i, k in enumerate(order) }
+        self._next_index = len(self.code_vocab)
 
     def retain(self, tokens: set[str]):
         """Retain only the specified vocabularies in the processor."""
@@ -100,6 +101,7 @@ class DeepNestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
         order = [k for k, v in sorted(self.code_vocab.items(), key=lambda x: x[1]) if k in keep]
         
         self.code_vocab = { k : i for i, k in enumerate(order) }
+        self._next_index = len(self.code_vocab)
 
     def add(self, tokens: set[str]):
         """Add specified vocabularies to the processor."""
@@ -108,6 +110,7 @@ class DeepNestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
             if token not in self.code_vocab:
                 self.code_vocab[token] = i
                 i += 1
+        self._next_index = len(self.code_vocab)
 
     def tokens(self) -> set[str]:
         """Return the set of tokens in the processor's vocabulary."""
@@ -215,7 +218,7 @@ class DeepNestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
 
 
 @register_processor("deep_nested_sequence_floats")
-class DeepNestedFloatsProcessor(FeatureProcessor):
+class DeepNestedFloatsProcessor(LegacyFeatureProcessor):
     """
     Feature processor for 3-level nested numerical sequences without vocabulary.
 
@@ -254,11 +257,15 @@ class DeepNestedFloatsProcessor(FeatureProcessor):
     """
 
     stores_tensor = True
+    _saw_values: bool | None = None
+    """Whether ``fit()`` saw any values; None for a processor pickled before
+    this was recorded."""
 
     def __init__(self, forward_fill: bool = True):
         self._max_middle_len = 1  # Maximum length of middle sequences (visits)
         self._max_inner_len = 1   # Maximum length of inner sequences (values per visit)
         self.forward_fill = forward_fill
+        self._saw_values = False
 
     def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Determine maximum sequence lengths.
@@ -286,6 +293,7 @@ class DeepNestedFloatsProcessor(FeatureProcessor):
 
         self._max_middle_len = max(1, max_middle_len)
         self._max_inner_len = max(1, max_inner_len)
+        self._saw_values = max_inner_len > 0
 
     def process(self, value: List[List[List[float]]]) -> torch.Tensor:
         """Process deep nested numerical sequence with optional forward fill.

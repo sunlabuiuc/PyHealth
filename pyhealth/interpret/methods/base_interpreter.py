@@ -254,11 +254,7 @@ class BaseInterpreter(ABC):
             str: The prediction mode, one of "binary", "multiclass", "multilabel" or "regression".
         """
         
-        assert (
-            len(self.model.label_keys) == 1
-        ), "Only one label key is supported if get_loss_function is called"
-        label_key = self.model.label_keys[0]
-        return self.model._resolve_mode(self.model.dataset.output_schema[label_key])
+        return self.model.label_processor.mode
 
     def __call__(self, **data) -> Dict[str, torch.Tensor]:
         """Convenience method to call attribute().

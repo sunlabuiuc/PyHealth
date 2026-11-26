@@ -1,0 +1,25 @@
+version: "1.0"
+tables:
+  pbc:
+    file_path: "pbc2.csv"
+    patient_id: "id"
+    timestamp: null
+    attributes:
+      - "year"
+      - "years"
+      - "status"
+      - "drug"
+      - "age"
+      - "sex"
+      - "ascites"
+      - "hepatomegaly"
+      - "spiders"
+      - "edema"
+      - "serBilir"
+      - "serChol"
+      - "albumin"
+      - "alkaline"
+      - "SGOT"
+      - "platelets"
+      - "prothrombin"
+      - "histologic"

@@ -6,6 +6,13 @@ This example demonstrates:
 2. Applying the DrugRecommendationMIMIC4 task
 3. Creating a SampleDataset with nested sequence processors
 4. Training an RNN model
+
+Data: MIMIC-IV 2.2 from PhysioNet (https://physionet.org/content/mimiciv/,
+credentialed). Set MIMIC4_ROOT and CACHE_DIR below.
+
+Run: ``python examples/drug_recommendation/drug_recommendation_mimic4_rnn.py``.
+Full MIMIC-IV with 50 epochs needs a GPU. Without credentials, set
+MIMIC4_ROOT to ``test-resources/core/mimic4demo`` and epochs=1.
 """
 
 import torch
@@ -19,11 +26,14 @@ from pyhealth.models import RNN
 from pyhealth.tasks import DrugRecommendationMIMIC4
 from pyhealth.trainer import Trainer
 
+MIMIC4_ROOT = "/path/to/mimiciv/2.2"
+CACHE_DIR = "/path/to/pyhealth_cache"
+
 if __name__ == "__main__":
     # STEP 1: Load MIMIC-IV base dataset
     base_dataset = MIMIC4Dataset(
-        ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
-        cache_dir="/shared/eng/pyhealth_agent/baselines",
+        ehr_root=MIMIC4_ROOT,
+        cache_dir=CACHE_DIR,
         ehr_tables=[
             "patients",
             "admissions",
@@ -87,7 +97,7 @@ if __name__ == "__main__":
     # STEP 5: Train the model
     trainer = Trainer(
         model=model,
-        device="cuda:0",  # or "cpu"
+        device="cuda" if torch.cuda.is_available() else "cpu",
         metrics=["pr_auc_samples", "f1_samples", "jaccard_samples"],
     )
 

@@ -1,9 +1,17 @@
 import unittest
+from datetime import datetime, timedelta
+from unittest import mock
 
 import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import LogisticRegression
+from tests.core.timeseries_test_utils import (
+    NUMERIC_INPUTS,
+    nested_multihot,
+    numeric_input,
+    padded_series,
+)
 
 
 class TestLogisticRegression(unittest.TestCase):
@@ -186,6 +194,150 @@ class TestLogisticRegression(unittest.TestCase):
         self.assertIn("y_true", ret)
         self.assertIn("logit", ret)
 
+    def test_timeseries_and_nested_codes(self):
+        """A (time, features) series is embedded per step, not flattened."""
+        t0 = datetime(2020, 1, 1)
+        samples = [
+            {
+                "patient_id": f"patient-{i}",
+                "vitals": (
+                    [t0 + timedelta(hours=h) for h in range(4)],
+                    [[float(i + h), 1.0, 2.0] for h in range(4)],
+                ),
+                "visits": [["a", "b"], ["c"]],
+                "label": i % 2,
+            }
+            for i in range(4)
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"vitals": "timeseries", "visits": "nested_sequence"},
+            output_schema={"label": "binary"},
+            dataset_name="test_timeseries",
+        )
+        model = LogisticRegression(dataset=dataset, embedding_dim=8)
+        batch = next(iter(get_dataloader(dataset, batch_size=4)))
+        ret = model(**batch)
+        ret["loss"].backward()
+        self.assertEqual(ret["y_prob"].shape, (4, 1))
+
+    def test_other_numeric_3d_inputs_are_embedded_per_step(self):
+        """nested_sequence_floats, stagenet_tensor and tensor inputs are
+        embedded per step too, each pooling to the mean of its steps."""
+        for input_type in NUMERIC_INPUTS:
+            with self.subTest(input_type):
+                dataset = numeric_input(input_type)
+                model = LogisticRegression(dataset=dataset, embedding_dim=8)
+                batch = next(iter(get_dataloader(dataset, batch_size=4)))
+                ret = model(**batch)
+                ret["loss"].backward()
+                self.assertEqual(ret["y_prob"].shape, (4, 1))
+                model.eval()
+                linear = model.embedding_model.embedding_layers["x"]
+                schema = dataset.input_processors["x"].schema()
+                with torch.no_grad():
+                    embed = model(**batch, embed=True)["embed"]
+                    for i in range(len(dataset)):
+                        row = batch["patient_id"].index(dataset[i]["patient_id"])
+                        steps = dataset[i]["x"]
+                        if isinstance(steps, tuple):
+                            steps = steps[schema.index("value")]
+                        pooled = linear(steps).mean(dim=0)
+                        torch.testing.assert_close(embed[row], pooled)
+
+    def test_padded_steps_are_left_out_of_the_mean(self):
+        """A short series pools the same in a padded batch as on its own."""
+        dataset = padded_series()
+        model = LogisticRegression(dataset=dataset, embedding_dim=8)
+        model.eval()
+        linear = model.embedding_model.embedding_layers["vitals"]
+        with torch.no_grad():
+            batch = next(iter(get_dataloader(dataset, batch_size=3)))
+            together = model(**batch, embed=True)["embed"]
+            self.assertTrue(torch.isfinite(together).all())
+            for i in range(len(dataset)):
+                row = batch["patient_id"].index(dataset[i]["patient_id"])
+                alone = next(iter(get_dataloader(dataset.subset([i]), batch_size=1)))
+                torch.testing.assert_close(
+                    together[row], model(**alone, embed=True)["embed"][0]
+                )
+                # each step is embedded on its own, then the real steps averaged
+                pooled = linear(dataset[i]["vitals"]).mean(dim=0)
+                torch.testing.assert_close(together[row], pooled)
+
+    def test_mean_pooling_without_a_valid_step(self):
+        """A row whose mask is all zero is averaged over all its steps."""
+        x = torch.arange(24, dtype=torch.float).reshape(2, 3, 4)
+        mask = torch.tensor([[1.0, 0.0, 1.0], [0.0, 0.0, 0.0]])
+        pooled = LogisticRegression.mean_pooling(x, mask)
+        torch.testing.assert_close(pooled[0], x[0, [0, 2]].mean(dim=0))
+        torch.testing.assert_close(pooled[1], x[1].mean(dim=0))
+
+    def test_nested_multihot_passes_through_flattened(self):
+        """Documents a limitation: EmbeddingModel has no layer for
+        nested_multihot, so the raw multi-hot rows pass through and are
+        flattened into one vector. The model only runs because embedding_dim
+        is set to that flattened width (visits x vocabulary size)."""
+        dataset = nested_multihot()
+        width = 2 * dataset.input_processors["visits"].size()  # two visits
+        model = LogisticRegression(dataset=dataset, embedding_dim=width)
+        batch = next(iter(get_dataloader(dataset, batch_size=4)))
+        with torch.no_grad():
+            embed = model(**batch, embed=True)["embed"]
+        torch.testing.assert_close(embed, batch["visits"].reshape(4, -1))
+
+    def test_a_processor_mask_is_used_in_pooling(self):
+        """A processor's mask (e.g. tuple_time_text's attention mask) is used
+        in pooling: changing the tokens it masks out leaves the output
+        unchanged. Codes given in 3D are flattened with their mask."""
+        cases = {
+            "sequence": lambda i: ["a", "b", "c"][: 1 + i % 3],
+            "nested_sequence": lambda i: [["a", "b"], ["c", "d"] if i % 2 else ["c"]],
+        }
+        for input_type, make in cases.items():
+            with self.subTest(input_type):
+                dataset = create_sample_dataset(
+                    samples=[
+                        {"patient_id": f"patient-{i}", "x": make(i), "label": i % 2}
+                        for i in range(4)
+                    ],
+                    input_schema={"x": input_type},
+                    output_schema={"label": "binary"},
+                    dataset_name=f"test_mask_{input_type}",
+                )
+                model = LogisticRegression(dataset=dataset, embedding_dim=8)
+                model.eval()
+                batch = next(iter(get_dataloader(dataset, batch_size=4)))
+                codes = batch["x"]
+                mask = codes != 0
+                self.assertFalse(mask.all())  # the batch has padding
+                # fill the padded positions with a real token
+                filled = codes.masked_fill(~mask, 1)
+                processor = dataset.input_processors["x"]
+                with torch.no_grad():
+                    unmasked = model(**batch)["logit"]
+                    # without a mask the filled tokens count, so the output moves
+                    self.assertFalse(
+                        torch.allclose(model(x=filled, label=batch["label"])["logit"],
+                                       unmasked)
+                    )
+                    with mock.patch.object(
+                        processor, "schema", return_value=("value", "mask")
+                    ):
+                        for x in (codes, filled):
+                            out = model(x=(x, mask), label=batch["label"])
+                            torch.testing.assert_close(out["logit"], unmasked)
+
+    def test_list_inputs_and_unsupported_ranks(self):
+        """Inputs given as lists are converted; other ranks are rejected."""
+        dataset = padded_series()
+        model = LogisticRegression(dataset=dataset, embedding_dim=8)
+        batch = next(iter(get_dataloader(dataset, batch_size=3)))
+        with torch.no_grad():
+            as_list = model(vitals=batch["vitals"].tolist(), label=batch["label"])
+            torch.testing.assert_close(as_list["logit"], model(**batch)["logit"])
+            with self.assertRaises(ValueError):
+                model(vitals=batch["vitals"].unsqueeze(1), label=batch["label"])
 
 if __name__ == "__main__":
     unittest.main()

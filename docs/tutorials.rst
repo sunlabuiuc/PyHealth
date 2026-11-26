@@ -4,10 +4,12 @@ Tutorials
 Tutorial series
 ---------------
 
-A step-by-step series, from a first model to contributing to PyHealth. Each
-notebook opens in Google Colab, runs on a free CPU runtime, and uses public or
-synthetic data, so no credentials are needed. The sources are in
-`examples/tutorials/series <https://github.com/sunlabuiuc/PyHealth/tree/master/examples/tutorials/series>`_.
+A step-by-step series for PyHealth 2.1, from a first model to contributing to
+PyHealth. Each notebook opens in Google Colab, installs PyHealth 2.1.0, and
+uses public or synthetic data, so no credentials are needed. Most run on a free
+CPU runtime. Tutorials 00, 04 and 07 open on a free T4 GPU runtime and also run
+on a CPU (04 and 07 with smaller settings). The same notebooks are listed on
+`pyhealth.dev <https://pyhealth.dev/tutorials.html>`_.
 
 .. list-table::
    :widths: 40 60
@@ -15,24 +17,47 @@ synthetic data, so no credentials are needed. The sources are in
 
    * - Notebook
      - What you will learn
-   * - `00. Quickstart: your first clinical prediction model <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/00_quickstart.ipynb>`_
-     - The five steps every project follows: dataset, task, split, model, evaluation.
-   * - `01. Datasets: patients, events and your own data <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/01_datasets.ipynb>`_
+   * - `00. Quickstart: a complete clinical prediction study <https://colab.research.google.com/drive/1KXloapcMeYubw4dT_fPJKTY1pepH2vvl>`_
+     - In-hospital mortality from start to finish: data figures, a Table 1 of the cohort, logistic regression, RNN and XGBoost with confidence intervals and calibration, SHAP, subgroups, and every table and figure exported. Opens on a T4 GPU.
+   * - `01. Datasets: patients, events and your own data <https://colab.research.google.com/drive/1azBqFS_vrJxoYMxP4M_dAIDcrU92uNDv>`_
      - Exploring patients and events, YAML configs, caching, and loading your own CSV files.
-   * - `02. Tasks and processors <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/02_tasks_and_processors.ipynb>`_
+   * - `02. Tasks and processors <https://colab.research.google.com/drive/1ndi6HGnC_l_1s23LUmzcICPgfc-cJn2N>`_
      - Writing your own task and what each processor turns raw values into.
-   * - `03. Training and evaluating models properly <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/03_training_and_evaluation.ipynb>`_
+   * - `03. Training and evaluating models properly <https://colab.research.google.com/drive/1dCOzL7JVmxgXqNw4wLny3L3z_L0ivyXi>`_
      - Leakage-free patient splits, early stopping, class imbalance, calibration and bootstrap confidence intervals.
-   * - `04. Choosing a model <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/04_choosing_a_model.ipynb>`_
-     - Logistic regression to Transformer, and an XGBoost baseline, compared on one split.
-   * - `05. Interpreting predictions <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/05_interpreting_predictions.ipynb>`_
+   * - `04. Choosing a model <https://colab.research.google.com/drive/1hHJ1Ll6lQIq95EnRzn3jC9V2XeP-0lU2>`_
+     - Logistic regression, MLP, RNN, Transformer, RETAIN and an XGBoost baseline, compared on one patient split. Opens on a T4 GPU.
+   * - `05. Interpreting predictions <https://colab.research.google.com/drive/1sS0kvQ51NUue_f4p1mFlsKV6pvhdc_AD>`_
      - Exact TreeSHAP, Integrated Gradients, and checking that explanations are faithful.
-   * - `06. Medical codes <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/06_medical_codes.ipynb>`_
+   * - `06. Medical codes <https://colab.research.google.com/drive/1P_yEVCeza0SRtvI800fOdfLlhEwg1Wsh>`_
      - Code lookups, ICD-9/ICD-10 translation, CCS and ATC groupers, and code mapping inside tasks.
-   * - `07. Clinical text <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/07_clinical_text.ipynb>`_
-     - Fine-tuning language models for specialty classification and ICD coding, with a TF-IDF baseline.
-   * - `08. Contributing a dataset or task <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/08_contributing.ipynb>`_
+   * - `07. Clinical text <https://colab.research.google.com/drive/1Q9TrbXxitZ8Cr1R9G2XyWTolooQYq-lg>`_
+     - Fine-tuning language models for specialty classification and ICD coding, label distributions, and checks against simple baselines. Opens on a T4 GPU.
+   * - `08. Contributing a dataset or task <https://colab.research.google.com/drive/1tuiooZgK-rR50NdCG9Ylq5HNgqSUBwvE>`_
      - Dataset classes, file-based data, tests and the pull request checklist.
+   * - `09. AutoImprove: letting agents improve your pipeline <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/09_autoimprove.ipynb>`_
+     - Agents propose models and settings from your starting pipeline; patient-grouped cross-validation, the one-SE selection rule, what each change contributed, a single test comparison, the run's report and a null-label control. Installs PyHealth from GitHub; about 5 minutes on a CPU.
+
+What's new in PyHealth 2.1
+--------------------------
+
+Already using PyHealth? Three short notebooks, about 10 minutes each on a free
+CPU runtime, walk through the main 2.1 features on runnable examples. For the
+full list of changes, see the
+`release notes <https://github.com/sunlabuiuc/PyHealth/releases/tag/v2.1.0>`_.
+
+.. list-table::
+   :widths: 40 60
+   :header-rows: 1
+
+   * - Notebook
+     - What you will learn
+   * - `1/3. Splits you can trust, runs you can repeat <https://colab.research.google.com/drive/1yqgMaVuGWw6IGjDi6L_S7MHp087A2fWg>`_
+     - Leakage-free ``PatientSplit``, four-way splits with a calibration set, and reproducible training.
+   * - `2/3. Calibration, confidence intervals and imbalanced outcomes <https://colab.research.google.com/drive/1uzdKvu8Gf5snQI5uURh9iBJojGFduc3F>`_
+     - Brier score, observed/expected ratio, calibration slope and intercept, patient-level bootstrap intervals and ``set_pos_weight``.
+   * - `3/3. XGBoost with exact explanations, medical-code translation and new processors <https://colab.research.google.com/drive/1rx6J10qVlXbLphG-sn3yhddWXT21uZXK>`_
+     - ``XGBoostModel`` with exact TreeSHAP, ICD-9/ICD-10 and CCSR mapping, and ``nested_multihot``.
 
 Earlier tutorials
 -----------------
@@ -78,6 +103,7 @@ Additionally, for detailed tutorials on accessing PhysioNet and MIMIC datasets, 
 `Pipeline 5: Readmission Prediction <https://colab.research.google.com/drive/1h0pAymUlPQfkLFryI9QI37-HAW1tRxGZ?usp=sharing>`_ 
 
 .. `Pipeline 5: Phenotype Prediction <https://colab.research.google.com/drive/10CSb4F4llYJvv42yTUiRmvSZdoEsbmFF>`_ 
+
 Multimodal & Smart Processors
 ------------------------------
 
@@ -112,8 +138,15 @@ These examples demonstrate PyHealth's unified multimodal architecture using
 Additional Examples
 ===================
 
-.. warning::
-   **Compatibility Notice**: Not all examples below have been updated to PyHealth 2.0. However, they remain useful references for understanding workflows and implementation patterns. If you encounter compatibility issues, please refer to the tutorials above or consult the updated API documentation.
+.. note::
+   The examples below were updated for PyHealth 2.1 in the examples cleanup
+   (November 2026) and smoke-run on demo or synthetic data. Each header says
+   which dataset the example needs and how to try it without credentials
+   (usually by pointing it at the demo data in ``test-resources/core/``). The
+   few examples with a step that doesn't run yet say so here and in their
+   header. Examples added later may not follow this yet. Older examples that
+   no longer run, or that duplicate a maintained one, are archived in
+   ``examples/old/`` and are not listed here.
 
 The ``examples/`` directory contains additional code examples demonstrating various tasks, models, and techniques. These examples show how to use PyHealth in real-world scenarios.
 
@@ -146,8 +179,6 @@ These examples are located in ``examples/mortality_prediction/``.
      - Temporal Convolutional Network for mortality prediction
    * - ``mortality_prediction/mortality_mimic4_stagenet_v2.py``
      - StageNet for mortality prediction on MIMIC-IV (v2)
-   * - ``mortality_prediction/timeseries_mimic4.py``
-     - Time series analysis on MIMIC-IV
 
 Readmission Prediction
 ----------------------
@@ -164,7 +195,7 @@ These examples are located in ``examples/readmission/``.
      - RNN for readmission prediction on MIMIC-III
    * - ``readmission/readmission_mimic3_fairness.py``
      - Fairness-aware readmission prediction on MIMIC-III
-    * - ``readmission/readmission_omop_rnn.py``
+   * - ``readmission/readmission_omop_rnn.py``
      - RNN for readmission prediction on OMOP dataset
 
 Survival Prediction
@@ -204,7 +235,7 @@ These examples are located in ``examples/drug_recommendation/``.
      - GAMENet for drug recommendation on MIMIC-IV
    * - ``drug_recommendation/drug_recommendation_mimic4_retain.py``
      - RETAIN for drug recommendation on MIMIC-IV
-   * - ``drug_recommendation/drug_recommendation_eICU_transformer.py``
+   * - ``drug_recommendation/drug_recommendation_eicu_transformer.py``
      - Transformer for drug recommendation on eICU
 
 EEG and Sleep Analysis
@@ -216,18 +247,15 @@ EEG and Sleep Analysis
 
    * - Example File
      - Description
-   * - ``sleep_staging_sleepEDF_contrawr.py``
-     - ContraWR for sleep staging on SleepEDF
-   * - ``sleep_staging_shhs_contrawr.py``
-     - ContraWR for sleep staging on SHHS
-   * - ``sleep_staging_ISRUC_SparcNet.py``
-     - SparcNet for sleep staging on ISRUC
-   * - ``EEG_events_SparcNet.py``
-     - SparcNet for EEG event detection
-   * - ``EEG_isAbnormal_SparcNet.py``
-     - SparcNet for EEG abnormality detection
-   * - ``cardiology_detection_isAR_SparcNet.py``
-     - SparcNet for cardiology arrhythmia detection
+   * - ``eeg/sleep_staging/sleep_staging_sleepEDF_contrawr.py``
+     - SparcNet for sleep staging on SleepEDF (despite the file name;
+       ContraWR is a drop-in swap)
+   * - ``eeg/sleep_staging/contrawr_sleepedf.ipynb``
+     - ContraWR for sleep staging on SleepEDF (notebook)
+   * - ``eeg/eeg_models/SparcNet_eeg_events_classification.py``
+     - SparcNet for EEG event classification on TUEV
+   * - ``eeg/eeg_models/SparcNet_eeg_abnormal_classification.py``
+     - SparcNet for EEG abnormality detection on TUAB
 
 Image Analysis (Chest X-Ray)
 ----------------------------
@@ -241,7 +269,8 @@ These examples are located in ``examples/cxr/``.
    * - Example File
      - Description
    * - ``cxr/covid19cxr_tutorial.py``
-     - ViT training, conformal prediction & interpretability for COVID-19 CXR
+     - ViT training and conformal prediction for COVID-19 CXR (its Chefer
+       interpretability step currently fails; see the file's header)
    * - ``cxr/covid19cxr_conformal.py``
      - Conformal prediction for COVID-19 CXR classification
    * - ``cxr/cnn_cxr.ipynb``
@@ -254,6 +283,12 @@ These examples are located in ``examples/cxr/``.
      - Chest X-ray classification with saliency maps (notebook)
    * - ``cxr/chextXray_image_generation_VAE.py``
      - VAE for chest X-ray image generation
+   * - ``cxr/vae_cxr_synthetic.ipynb``
+     - Synthetic image VAE (no download needed)
+   * - ``cxr/vae_cxr_chestxray14.ipynb``
+     - ChestXray14 conditional image VAE
+   * - ``mortality_prediction/vae_ehr_sequences.ipynb``
+     - EHR code-sequence VAE
    * - ``cxr/ChestXray-image-generation-GAN.ipynb``
      - GAN for chest X-ray image generation (notebook)
 
@@ -268,7 +303,7 @@ These examples are located in ``examples/interpretability/``.
 
    * - Example File
      - Description
-   * - ``integrated_gradients_mortality_mimic4_stagenet.py``
+   * - ``interpretability/integrated_gradients_mortality_mimic4_stagenet.py``
      - Integrated Gradients for StageNet interpretability
    * - ``interpretability/deeplift_stagenet_mimic4.py``
      - DeepLift attributions for StageNet on MIMIC-IV
@@ -280,10 +315,6 @@ These examples are located in ``examples/interpretability/``.
      - SHAP attributions for StageNet on MIMIC-IV
    * - ``interpretability/interpretability_metrics.py``
      - Evaluating attribution methods with metrics
-   * - ``interpretability/interpret_demo.ipynb``
-     - Interactive interpretability demonstrations (notebook)
-   * - ``interpretability/shap_stagenet_mimic4.ipynb``
-     - SHAP attributions for StageNet (notebook)
 
 Patient Linkage
 ---------------
@@ -340,8 +371,6 @@ Notebooks (Interactive)
      - Description
    * - ``tutorial_stagenet_comprehensive.ipynb``
      - Comprehensive StageNet tutorial
-   * - ``mimic3_mortality_prediction_cached.ipynb``
-     - Cached mortality prediction workflow
    * - ``mortality_prediction/timeseries_mimic4.ipynb``
      - Time series analysis on MIMIC-IV
    * - ``transformer_mimic4.ipynb``
@@ -352,22 +381,10 @@ Notebooks (Interactive)
      - Graph Attention Networks on MIMIC-IV
    * - ``gcn_mimic4.ipynb``
      - Graph Convolutional Networks on MIMIC-IV
-   * - ``safedrug_mimic3.ipynb``
+   * - ``drug_recommendation/safedrug_mimic3.ipynb``
      - SafeDrug interactive notebook
    * - ``molerec_mimic3.ipynb``
      - MoleRec interactive notebook
-   * - ``drug_recommendation/drug_recommendation_mimic3_micron.ipynb``
-     - MICRON interactive notebook
-   * - ``kg_embedding.ipynb``
-     - Knowledge graph embeddings
-   * - ``lm_embedding_huggingface.ipynb``
-     - Language model embeddings with HuggingFace
-   * - ``lm_embedding_openai.ipynb``
-     - Language model embeddings with OpenAI
-   * - ``prepare_mapping.ipynb``
-     - Data preprocessing and mapping utilities
-   * - ``graph_torchvision_model.ipynb``
-     - Using Torchvision models with graph data
 
 
 ----------

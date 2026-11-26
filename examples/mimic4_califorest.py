@@ -1,3 +1,21 @@
+"""CaliForest vs. a plain random forest for in-hospital mortality on MIMIC-IV.
+
+Runs ``InHospitalMortalityMIMIC4`` on MIMIC-IV, flattens the lab time series of
+up to 2,000 admissions into a feature matrix, and compares a scikit-learn
+random forest with CaliForest (isotonic and logistic calibration) on AUROC
+and Brier score, using an 80/20 split.
+
+Data: MIMIC-IV hosp module (https://physionet.org/content/mimiciv/,
+credentialed); diagnoses_icd, procedures_icd and labevents are read. Point the
+``MIMIC4_ROOT`` environment variable at the folder that contains ``hosp/``.
+To try it without credentials, use the bundled demo subset:
+``MIMIC4_ROOT=test-resources/core/mimic4demo`` (few admissions, so the
+metrics are not meaningful).
+
+Run: ``MIMIC4_ROOT=/path/to/mimiciv/3.1 python examples/mimic4_califorest.py``.
+CPU only; labevents makes the first (cached) load of full MIMIC-IV slow.
+"""
+
 from __future__ import annotations
 
 import os
@@ -119,7 +137,7 @@ def main():
 
     print(f"Total samples: {len(sample_dataset)}")
 
-    subset_size = 2000
+    subset_size = min(2000, len(sample_dataset))
     raw_subset_samples = [sample_dataset[i] for i in range(subset_size)]
 
     clean_subset_samples = []

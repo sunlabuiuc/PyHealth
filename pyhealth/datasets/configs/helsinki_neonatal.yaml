@@ -1,0 +1,15 @@
+version: "4.0"
+tables:
+  recordings:
+    file_path: "helsinki_neonatal-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "signal_file"
+    - "annotation_file_a"
+    - "annotation_file_b"
+    - "annotation_file_c"
+    - "gender"
+    - "gestational_age"
+    - "diagnosis"
+    - "n_reviewers_seizure"

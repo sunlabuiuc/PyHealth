@@ -1,0 +1,17 @@
+version: "1.0"
+tables:
+  isic2019:
+    file_path: "isic2019-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "image_id"
+      - "lesion_id"
+      - "path"
+      - "split"
+      - "diagnosis"
+      - "is_ham10000"
+      - "age_approx"
+      - "anatom_site"
+      - "sex"
+      - "score_weight"

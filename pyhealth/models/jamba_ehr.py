@@ -263,7 +263,7 @@ class JambaEHR(BaseModel):
                 conv_kernel=conv_kernel,
             )
 
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.dropout = nn.Dropout(dropout)
         self.fc = nn.Linear(
             len(self.feature_keys) * embedding_dim, output_size
@@ -379,7 +379,7 @@ class JambaEHR(BaseModel):
 
         patient_emb = torch.cat(patient_emb, dim=1)
         logits = self.fc(self.dropout(patient_emb))
-        y_prob = self.prepare_y_prob(logits)
+        y_prob = self.label_processor.activation(logits)
 
         results = {
             "logit": logits,
@@ -390,7 +390,7 @@ class JambaEHR(BaseModel):
             y_true = cast(
                 torch.Tensor, kwargs[self.label_key]
             ).to(self.device)
-            loss = self.get_loss_function()(logits, y_true)
+            loss = self.label_processor.loss(logits, y_true)
             results["loss"] = loss
             results["y_true"] = y_true
 

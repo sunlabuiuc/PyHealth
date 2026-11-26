@@ -1,14 +1,21 @@
-"""
-Mortality Prediction on eICU with RNN
+"""Mortality prediction on the eICU demo with an RNN.
 
-This example demonstrates how to use the modernized eICUDataset with the
-MortalityPredictionEICU task class for in-hospital mortality prediction
-using an RNN model.
+Loads eICUDataset (diagnosis, medication and physicalExam tables) and applies
+MortalityPredictionEICU, which predicts whether the patient dies in the next
+ICU stay from the current stay's diagnosis codes, physical-exam items and
+medications. It then trains a GRU-based RNN for one epoch and evaluates it.
 
-Features:
-- Uses the new BaseDataset-based eICUDataset with YAML configuration
-- Uses the MortalityPredictionEICU BaseTask class
-- Demonstrates the standardized PyHealth workflow
+Data: the public eICU demo copy at
+https://storage.googleapis.com/pyhealth/eicu-demo/. It is downloaded on the
+first run and needs no credentials. For the full eICU-CRD v2.0 (credentialed
+access, https://physionet.org/content/eicu-crd/2.0/), set ``root`` to your
+local copy and drop ``dev=True``.
+
+Usage:
+    python examples/mortality_prediction/mortality_prediction_eicu_rnn.py
+
+Runs on a CPU in a few minutes. The dev test split is small, so metrics can be
+nan.
 """
 
 import tempfile
