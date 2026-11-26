@@ -33,6 +33,25 @@ The linked mortality files are available from the
 `NCHS Data Linkage website
 <https://www.cdc.gov/nchs/data-linkage/mortality-public.htm>`_.
 
+Data Download
+~~~~~~~~~~~~~
+
+Download the required raw data from the following CDC sources:
+
+- `Demographics
+  <https://wwwn.cdc.gov/Nchs/Nhanes/Search/DataPage.aspx?Component=Demographics>`_:
+  DEMO_C.XPT and DEMO_D.XPT.
+- `Examination
+  <https://wwwn.cdc.gov/Nchs/Nhanes/Search/DataPage.aspx?Component=Examination>`_:
+  BMX_C.XPT, BMX_D.XPT, BPX_C.XPT, BPX_D.XPT,
+  and the PAXRAW_C and PAXRAW_D activity archives.
+- `Linked Mortality Data
+  <https://ftp.cdc.gov/pub/Health_Statistics/NCHS/datalinkage/linked_mortality/>`_:
+  the 2019 public-use mortality files for both survey cycles.
+
+Select the 2003-2004 and 2005-2006 survey cycles.
+Extract the PAXRAW archives before initializing the dataset.
+
 Extract the activity archives and organize the files as follows:
 
 .. code-block:: text
