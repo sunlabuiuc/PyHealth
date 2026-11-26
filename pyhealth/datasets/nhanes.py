@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -618,8 +619,15 @@ class NHANESDataset(BaseDataset):
         tables: list[str] | None = None,
         dataset_name: str | None = None,
         config_path: str | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
+        """Prepares the processed files if needed and loads the dataset.
+
+        The arguments are described in the class docstring.
+
+        Raises:
+            FileNotFoundError: If ``root`` is not a directory.
+        """
 
         root_path = Path(root).resolve()
 

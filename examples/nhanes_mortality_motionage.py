@@ -103,6 +103,7 @@ from sklearn.model_selection import train_test_split
 
 from pyhealth.datasets import (
     NHANESDataset,
+    SampleDataset,
     create_sample_dataset,
     get_dataloader,
 )
@@ -365,7 +366,8 @@ def run_experiment(
     )
 
     # Reuse fitted processors for validation and test samples.
-    def transform(samples: list[dict[str, Any]]):
+    def transform(samples: list[dict[str, Any]]) -> SampleDataset:
+        """Build an evaluation dataset with the training processors."""
         return create_sample_dataset(
             samples=samples,
             input_schema=input_schema,
