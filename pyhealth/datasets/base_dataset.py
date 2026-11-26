@@ -1383,13 +1383,13 @@ class BaseDataset(ABC):
                     *.bin                       # Processed sample files
 
         ``task_fingerprint`` is a digest of everything that determines the
-        generated samples: the ``__init__`` arguments of the task (with defaults
-        applied, so passing a default explicitly is not a different config),
-        class-level attributes, the input and output schemas, and
-        ``BaseTask.version``. Changing any of them yields a new directory, so
-        two configurations can never share a cache. Arguments that do not affect
-        the output -- ``num_workers``, ``verbose`` -- are excluded, and a task
-        can exclude more of its own via ``fingerprint_exclude``.
+        generated samples: the state ``__init__`` leaves on the task (so passing
+        a default explicitly is not a different config), public class-level
+        attributes, the input and output schemas, and ``BaseTask.version``.
+        Changing any of them yields a new directory. What the digest does not
+        see is listed in :mod:`pyhealth.tasks.fingerprint`. Attributes that do
+        not affect the output -- ``num_workers``, ``verbose`` -- are excluded,
+        and a task can exclude more of its own via ``fingerprint_exclude``.
 
         ``proc_fingerprint`` covers everything that determines the processed
         samples below a given task directory: the pre-fitted processors, the

@@ -202,7 +202,8 @@ fingerprint of everything that determines the generated samples:
   ``MyTask(window=timedelta(days=15))`` share a cache when 15 days is the
   default, and so do two spellings that ``__init__`` normalises to the same
   value;
-- class-level attributes, the input schema and the output schema;
+- public, non-callable class-level attributes, the input schema and the output
+  schema;
 - ``BaseTask.version`` (see below).
 
 Attributes that do not affect the output are ignored, so changing
@@ -226,15 +227,25 @@ which parameter changed. Each cache directory therefore contains a
        class MyTask(BaseTask):
            version = "2"   # was "1"; excluded ICU stays under 24h
 
-   Alternatively, set ``PYHEALTH_FINGERPRINT_SOURCE=1`` to fold a structural
-   hash of ``__call__`` and ``pre_filter`` into the fingerprint. This is off by
-   default because it invalidates the cache on cosmetic edits too.
+   Alternatively, set ``PYHEALTH_FINGERPRINT_SOURCE=1`` before importing
+   PyHealth to fold a structural hash of ``__call__`` and ``pre_filter`` into
+   the fingerprint. Comments, whitespace and docstrings do not count, but
+   renaming a local variable does, and helpers that ``__call__`` calls are not
+   covered, so this is off by default.
 
 If a task attribute cannot be fingerprinted deterministically -- an object
 whose ``repr()`` embeds a memory address, for instance -- ``set_task()``
 raises ``UnfingerprintableError`` rather than risk a colliding or unstable
 cache key. Give the class a ``__pyhealth_fingerprint__()`` method returning a
-plain description of its configuration, or exclude the attribute.
+plain description of its configuration, or exclude the attribute. To get a
+warning and a best-effort key instead of an error, set
+``PYHEALTH_FINGERPRINT_STRICT=0`` before importing PyHealth.
+
+A function or bound method is identified by its code and by what it carries:
+captured variables, default values and the object it is bound to. Tables
+(pandas, polars) are identified by their labels, dtypes and values. The
+fingerprint does not follow module-level globals read by a function or the
+contents of a file behind a path.
 
 .. note::
 

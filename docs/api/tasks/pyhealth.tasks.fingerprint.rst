@@ -9,3 +9,4 @@ processes nor injective for large arrays.
     :members: UnfingerprintableError, task_spec, task_fingerprint, task_cache_name, processors_fingerprint, write_task_metadata, slugify
     :undoc-members:
     :show-inheritance:
+    :exclude-members: Any, Mapping, Path, PurePath

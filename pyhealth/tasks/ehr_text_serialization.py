@@ -27,6 +27,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from .base_task import BaseTask
+from .fingerprint import task_spec
 
 logger = logging.getLogger(__name__)
 
@@ -93,11 +94,11 @@ _MEDCODE_NAMES = {
 
 
 class _Keyed:
-    """An object with a stable ``str``, for the task's cache key.
+    """An object with a stable ``str``.
 
-    ``set_task`` keys its cache on ``json.dumps(vars(task), default=str)``;
-    a plain object or function would print with its memory address and miss
-    the cache on every run.
+    A plain object or function would print with its memory address in
+    ``json.dumps(vars(task), default=str)``. The cache key describes the object
+    itself instead, through ``__pyhealth_fingerprint__``.
     """
 
     def __init__(self, obj: Any, key: str) -> None:
@@ -106,6 +107,10 @@ class _Keyed:
 
     def __str__(self) -> str:
         return self.key
+
+    def __pyhealth_fingerprint__(self) -> Any:
+        """The wrapped object; for a task, its ``version`` and schemas too."""
+        return task_spec(self.obj) if isinstance(self.obj, BaseTask) else self.obj
 
 
 def _name(obj: Any) -> str:
@@ -179,10 +184,9 @@ class CodeDescriber:
         lookup: Optional ``lookup(code, vocabularies) -> str | None`` that
             replaces the medcode lookup, e.g. for a custom vocabulary or to
             work offline.
-        name: The lookup's name in the task's cache key. Defaults to the
-            function's module, name, line and code hash; pass one when two
-            lookups share their code but not their data, e.g. closures
-            over different tables.
+        name: The lookup's name in the task's cache key, in place of its code
+            and captured values. Pass one when the lookup's data is not part of
+            either, e.g. a file it reads or a module-level table.
         raw_fallback: If a vocabulary cannot be loaded, warn and keep its
             codes raw instead of raising. This is part of the cache key, so
             such text is never reused by a run without it.
@@ -222,6 +226,13 @@ class CodeDescriber:
         if self.raw_fallback:
             args.append("raw_fallback=True")
         return f"CodeDescriber({', '.join(args)})"
+
+    def __pyhealth_fingerprint__(self) -> dict[str, Any]:
+        """The configuration only: the memoized lookups change with use."""
+        return {
+            "lookup": self._name or self._lookup,
+            "raw_fallback": self.raw_fallback,
+        }
 
     def __call__(self, code: str, vocabularies: Sequence[str] = ()) -> str | None:
         key = (code, tuple(vocabularies))
@@ -510,7 +521,7 @@ class EHRTextSerializationTask(BaseTask):
         demographics: ``demographics(patient, sample) -> dict`` for the
             header of each sample, or ``None`` for no demographics. Defaults to
             :func:`mimic_demographics`. A lambda or nested function is
-            named in the cache key by its code, not by captured values.
+            identified in the cache key by its code and captured values.
         describer: Code lookup; defaults to :class:`CodeDescriber`. Pass
             ``CodeDescriber(lookup=lambda code, vocabularies: None)`` to keep
             raw codes.
