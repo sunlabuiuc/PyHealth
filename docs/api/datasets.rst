@@ -6,6 +6,7 @@ Getting Started
 
 New to PyHealth datasets? Start here:
 
+- **Browse datasets**: `pyhealth.dev/datasets <https://pyhealth.dev/datasets.html>`_ has a card per dataset with a quick-start snippet, how to get the data, and its tasks
 - **Tutorial**: `Introduction to pyhealth.datasets <https://colab.research.google.com/drive/1vI_oljc7rU5ocsC26ITM7HUgD5SGZkFE?usp=sharing>`_ | `Video (PyHealth 1.6) <https://www.youtube.com/watch?v=c1InKqFJbsI&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=3>`_
 
 This tutorial covers:
@@ -16,7 +17,7 @@ This tutorial covers:
 - Accessing patient records, visits, and clinical events
 - Dataset splitting for train/validation/test sets
 
-**Data Access**: If you're new and need help accessing MIMIC datasets, check the :doc:`../how_to_contribute` guide's "Data Access for Testing" section for information on:
+**Data Access**: See `Accessing the Data`_ below for where to download every dataset and what access each one needs. For MIMIC specifically, the :doc:`../how_to_contribute` guide's "Data Access for Testing" section covers:
 
 - Getting MIMIC credentialing through PhysioNet
 - Using openly available demo datasets (MIMIC-III Demo, MIMIC-IV Demo)
@@ -37,6 +38,45 @@ the config and the size and modification time of every source file the requested
 tables read. Editing the YAML or rewriting a source file (even at the same path)
 therefore builds a fresh cache instead of silently reusing a stale one. Old cache
 folders are left in place; delete them to reclaim disk space.
+
+Temporary files (converted source tables, Dask scratch space) go to folders
+under ``tmp/`` in the cache directory. Each dataset removes only the folders it
+created, so a job that finishes does not delete the temporary files of another
+job using the same ``cache_dir``.
+
+Task caches and when to clear them
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``set_task()`` caches its output under ``tasks/`` in the dataset's cache
+directory, in two layers:
+
+- ``tasks/<task_name>_<hash>/task_df.ld`` holds the raw samples the task
+  returned. The hash covers the task's attributes (its constructor arguments
+  and anything else set on ``self``) and its ``input_schema`` and
+  ``output_schema``.
+- ``samples_<hash>.ld`` inside it holds the processed samples. This hash also
+  covers any processors you passed in, the split (with ``set_task(split=...)``)
+  and the storage format.
+
+So changing a task argument, a schema, the processors or the split gives a new
+cache automatically. **Editing the task's code does not**: the hash does not see
+the body of ``__call__``. Neither does upgrading PyHealth to a version whose
+task or processor code changed. In those cases the old samples are reused
+without a warning. Clear the cache to rebuild them:
+
+.. code-block:: python
+
+    dataset.clear_task_cache(task)   # this task's samples only
+    dataset.clear_cache()            # the event table and every task's samples
+
+``clear_task_cache()`` returns ``False`` when there was nothing to delete.
+Both delete only the cache of this dataset configuration; other
+configurations, and other datasets sharing ``cache_dir``, keep theirs. Close
+any :class:`~pyhealth.datasets.SampleDataset` built from the deleted cache
+first, because it reads its files lazily.
+
+Deleting the folders by hand works too. ``dataset.cache_dir`` is this
+configuration's folder, and its task caches are under ``tasks/``.
 
 The result is a :class:`~pyhealth.datasets.BaseDataset` — a structured
 patient→event tree. It is different from a PyTorch Dataset: it has no integer
@@ -88,6 +128,17 @@ future runs without re-fitting.
 
 Calling ``samples.subset(...)`` rebuilds both lookups with indices local to the
 new dataset, so they remain valid after repeated splitting.
+
+Calling ``close()`` preserves reusable task caches. Disk-backed datasets created
+by ``create_sample_dataset()`` own a temporary directory and remove it on close.
+
+.. note::
+   Subsets (from ``subset()``, ``split_by_patient`` and ``set_task(split=...)``)
+   read with litdata's POSIX-fast mmap reads turned off (litdata 0.2.68+);
+   the full dataset keeps them. POSIX-fast caches per run of consecutive
+   indices instead of per chunk file. A patient-level split has thousands of
+   such runs over a few files, so with it on in litdata 0.2.76, iterating a
+   training part takes ~20x longer (43 s vs 2 s for 140k samples).
 
 For testing or small cohorts you can skip the disk step entirely using
 ``InMemorySampleDataset``, which holds all processed samples in RAM and is
@@ -269,6 +320,287 @@ before running a full training job.
 **Multiprocessing guard.** Scripts that call ``set_task()`` should wrap their
 top-level code in ``if __name__ == '__main__':``. See :doc:`tasks` for details.
 
+Accessing the Data
+------------------
+
+PyHealth does not ship any data: you download each dataset from its source and pass the folder as ``root``. The table shows what each source needs before you can download. Every dataset page also has a **Getting the data** section in its class docstring, covering the download command and the folder ``root`` should point to.
+
+- **Open**: download directly, sometimes after a free account.
+- **Restricted / request**: free, but you must sign a data use agreement or have a request approved.
+- **Credentialed**: needs `PhysioNet credentialing <https://physionet.org/settings/credentialing/>`_ (or the source's equivalent) plus CITI human-subjects training, then a signed DUA for each dataset. Approval usually takes days to weeks, so start with an open demo if one is listed.
+
+**Auto-download** means the class accepts ``download=True``.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 18 18 12 28
+
+   * - Dataset
+     - Access
+     - Source
+     - Auto-download
+     - Open demo / subset
+   * - :doc:`MIMIC-III <datasets/pyhealth.datasets.MIMIC3Dataset>`
+     - Credentialed
+     - `PhysioNet <https://physionet.org/content/mimiciii/1.4/>`__
+     - No
+     - `MIMIC-III demo <https://physionet.org/content/mimiciii-demo/1.4/>`__
+   * - :doc:`MIMIC-IV (EHR, note, CXR, ED) <datasets/pyhealth.datasets.MIMIC4Dataset>`
+     - Credentialed
+     - `PhysioNet <https://physionet.org/content/mimiciv/>`__
+     - No
+     - `MIMIC-IV demo <https://physionet.org/content/mimic-iv-demo/2.2/>`__, `ED demo <https://physionet.org/content/mimic-iv-ed-demo/>`__
+   * - :doc:`MIMIC-IV on FHIR <datasets/pyhealth.datasets.MIMIC4FHIR>`
+     - Credentialed
+     - `PhysioNet <https://physionet.org/content/mimic-iv-fhir/2.1/>`__
+     - No
+     - `FHIR demo <https://physionet.org/content/mimic-iv-fhir-demo/2.1.0/>`__
+   * - :doc:`MIMIC-Extract <datasets/pyhealth.datasets.MIMICExtractDataset>`
+     - Credentialed (MIMIC-III)
+     - `GitHub <https://github.com/MLforHealth/MIMIC_Extract>`__
+     - No
+     - —
+   * - :doc:`eICU-CRD <datasets/pyhealth.datasets.eICUDataset>`
+     - Credentialed
+     - `PhysioNet <https://physionet.org/content/eicu-crd/2.0/>`__
+     - No
+     - `eICU demo <https://physionet.org/content/eicu-crd-demo/2.0.1/>`__
+   * - :doc:`PhysioNet De-ID <datasets/pyhealth.datasets.PhysioNetDeIDDataset>`
+     - Credentialed
+     - `PhysioNet <https://physionet.org/content/deidentifiedmedicaltext/1.0/>`__
+     - No
+     - —
+   * - :doc:`IIIC (SPaRCNet) <datasets/pyhealth.datasets.IIICDataset>`
+     - Credentialed
+     - `BDSP <https://bdsp.io/content/bdsp-sparcnet/>`__
+     - No
+     - —
+   * - :doc:`DREAMT <datasets/pyhealth.datasets.DREAMTDataset>`
+     - Restricted (DUA)
+     - `PhysioNet <https://physionet.org/content/dreamt/>`__
+     - No
+     - —
+   * - :doc:`EHRSHOT <datasets/pyhealth.datasets.EHRShotDataset>`
+     - Restricted (DUA)
+     - `Redivis <https://redivis.com/datasets/53gc-8rhx41kgt>`__
+     - No
+     - —
+   * - :doc:`SHHS <datasets/pyhealth.datasets.SHHSDataset>`
+     - Restricted (request)
+     - `NSRR <https://sleepdata.org/datasets/shhs>`__
+     - No
+     - —
+   * - :doc:`TUAB / TUEV <datasets/pyhealth.datasets.TUABDataset>`
+     - Free, request form
+     - `TUH EEG <https://isip.piconepress.com/projects/nedc/html/tuh_eeg/>`__
+     - No
+     - —
+   * - :doc:`COSMIC <datasets/pyhealth.datasets.COSMICDataset>`
+     - Registration / license
+     - `Sanger <https://cancer.sanger.ac.uk/cosmic/download>`__
+     - No
+     - —
+   * - :doc:`VSAC <datasets/pyhealth.datasets.VSACDataset>`
+     - Free UMLS license
+     - `NLM <https://vsac.nlm.nih.gov>`__
+     - Via ``download_expansions`` (API key)
+     - —
+   * - :doc:`COVID-19 Radiography <datasets/pyhealth.datasets.COVID19CXRDataset>`
+     - Open (Kaggle account)
+     - `Kaggle <https://www.kaggle.com/datasets/tawsifurrahman/covid19-radiography-database>`__
+     - No
+     - —
+   * - :doc:`ISIC 2019 <datasets/pyhealth.datasets.ISIC2019Dataset>`
+     - Open (CC BY-NC 4.0)
+     - `ISIC <https://challenge.isic-archive.com/data/#2019>`__
+     - Yes
+     - —
+   * - :doc:`ISIC 2020 (SIIM-ISIC melanoma) <datasets/pyhealth.datasets.ISIC2020Dataset>`
+     - Open (CC BY-NC 4.0)
+     - `ISIC <https://challenge2020.isic-archive.com/>`__
+     - Yes
+     - —
+   * - :doc:`Medical Transcriptions <datasets/pyhealth.datasets.MedicalTranscriptionsDataset>`
+     - Open (Kaggle account)
+     - `Kaggle <https://www.kaggle.com/datasets/tboyle10/medicaltranscriptions>`__
+     - No
+     - —
+   * - :doc:`PhysioNet/CinC 2020 (Cardiology) <datasets/pyhealth.datasets.CardiologyDataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/challenge-2020/1.0.2/>`__
+     - No
+     - —
+   * - :doc:`PhysioNet/CinC 2012 <datasets/pyhealth.datasets.PhysioNet2012Dataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/challenge-2012/1.0.0/>`__
+     - Yes
+     - —
+   * - :doc:`PTB-XL <datasets/pyhealth.datasets.PTBXLDataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/ptb-xl/1.0.3/>`__
+     - No
+     - —
+   * - :doc:`Chapman-Shaoxing 12-lead ECG <datasets/pyhealth.datasets.ChapmanShaoxingDataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/ecg-arrhythmia/1.0.0/>`__
+     - No
+     - —
+   * - :doc:`Sleep-EDF <datasets/pyhealth.datasets.SleepEDFDataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/sleep-edfx/1.0.0/>`__
+     - No
+     - —
+   * - :doc:`CHB-MIT <datasets/pyhealth.datasets.CHBMITDataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/chbmit/1.0.0/>`__
+     - No
+     - —
+   * - :doc:`Helsinki Neonatal EEG <datasets/pyhealth.datasets.HelsinkiNeonatalDataset>`
+     - Open
+     - `Zenodo <https://zenodo.org/records/4940267>`__
+     - No
+     - —
+   * - :doc:`EEG Motor Movement/Imagery <datasets/pyhealth.datasets.EEGBCIDataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/eegmmidb/1.0.0/>`__
+     - Yes
+     - —
+   * - :doc:`HMC Sleep Staging <datasets/pyhealth.datasets.HMCDataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/hmc-sleep-staging/1.1/>`__
+     - No
+     - —
+   * - :doc:`BCI Competition IV 2a <datasets/pyhealth.datasets.BCICompetitionIV2aDataset>`
+     - Open (CC BY-ND)
+     - `BNCI Horizon <https://bnci-horizon-2020.eu/database/data-sets>`__
+     - Yes
+     - —
+   * - :doc:`HUP iEEG (epilepsy surgery) <datasets/pyhealth.datasets.HUPiEEGDataset>`
+     - Open
+     - `OpenNeuro <https://openneuro.org/datasets/ds004100>`__
+     - No
+     - —
+   * - :doc:`ISRUC-Sleep <datasets/pyhealth.datasets.ISRUCDataset>`
+     - Open
+     - `ISRUC <https://sleeptight.isr.uc.pt/>`__
+     - No
+     - —
+   * - :doc:`EESM23 (ear-EEG) <datasets/pyhealth.datasets.EESM23Dataset>`
+     - Open
+     - `OpenNeuro <https://openneuro.org/datasets/ds005178>`__
+     - No
+     - —
+   * - :doc:`AHEPA Dementia EEG <datasets/pyhealth.datasets.AHEPADementiaDataset>`
+     - Open
+     - `OpenNeuro <https://openneuro.org/datasets/ds004504>`__
+     - No
+     - —
+   * - :doc:`PAD-UFES-20 <datasets/pyhealth.datasets.PADUFES20Dataset>`
+     - Open (CC BY 4.0)
+     - `Mendeley Data <https://data.mendeley.com/datasets/zr7vgbcyr2/1>`__
+     - No
+     - —
+   * - :doc:`NIH ChestX-ray14 <datasets/pyhealth.datasets.ChestXray14Dataset>`
+     - Open
+     - `NIH <https://nihcc.app.box.com/v/ChestXray-NIHCC>`__
+     - Yes
+     - —
+   * - :doc:`Jichi DR fundus <datasets/pyhealth.datasets.JichiDRDataset>`
+     - Open
+     - `figshare <https://figshare.com/articles/dataset/4879853>`__
+     - No
+     - —
+   * - :doc:`Medical Segmentation Decathlon <datasets/pyhealth.datasets.MSDSegmentationDataset>`
+     - Open
+     - `MSD <http://medicaldecathlon.com/>`__
+     - Yes
+     - —
+   * - :doc:`BCSS (breast pathology) <datasets/pyhealth.datasets.BCSSDataset>`
+     - Open
+     - `GitHub <https://github.com/PathologyDataScience/BCSS>`__
+     - No
+     - —
+   * - :doc:`BMD-HS <datasets/pyhealth.datasets.BMDHSDataset>`
+     - Open
+     - `GitHub <https://github.com/sani002/BMD-HS-Dataset>`__
+     - No
+     - —
+   * - :doc:`HAM10000 (ISIC 2018 Task 3) <datasets/pyhealth.datasets.HAM10000Dataset>`
+     - Open (CC BY-NC 4.0)
+     - `ISIC <https://challenge.isic-archive.com/data/#2018>`__
+     - Yes
+     - —
+   * - :doc:`SUPPORT2 <datasets/pyhealth.datasets.Support2Dataset>`
+     - Open
+     - `UCI <https://archive.ics.uci.edu/dataset/880/support2>`__
+     - No
+     - —
+   * - :doc:`LNDb (lung nodule CT) <datasets/pyhealth.datasets.LNDbDataset>`
+     - Open, no account (CC BY 4.0 or CC BY-NC-ND 4.0; the record states both)
+     - `Zenodo <https://doi.org/10.5281/zenodo.8348419>`__
+     - No (RAR archives)
+     - One ``dataN.rar`` (~40 CTs) is enough
+   * - :doc:`METABRIC <datasets/pyhealth.datasets.MetabricDataset>`
+     - Open
+     - `GitHub <https://github.com/XintianHan/Survival-MDN>`__
+     - Yes
+     - —
+   * - :doc:`KiTS23 (kidney tumour CT) <datasets/pyhealth.datasets.KiTS23Dataset>`
+     - Open, no account (CC BY-NC-SA 4.0)
+     - `GitHub <https://github.com/neheller/kits23>`__ + `Hugging Face <https://huggingface.co/datasets/neheller/KiTS-Challenge-Imaging>`__
+     - No (``kits23_download_data``)
+     - Single CTs by URL (``wget``)
+   * - :doc:`TCGA-PRAD <datasets/pyhealth.datasets.TCGAPRADDataset>`
+     - Open
+     - `GDC <https://portal.gdc.cancer.gov/projects/TCGA-PRAD>`__
+     - No
+     - —
+   * - :doc:`Brain Tumor MRI (Bhuvaji) <datasets/pyhealth.datasets.BrainTumorMRIDataset>`
+     - Open (MIT, per the Kaggle listing)
+     - `GitHub <https://github.com/SartajBhuvaji/Brain-Tumor-Classification-DataSet>`__, `Kaggle <https://www.kaggle.com/datasets/sartajbhuvaji/brain-tumor-classification-mri>`__
+     - No (``git clone`` or ``kaggle datasets download``)
+     - —
+   * - :doc:`ClinVar <datasets/pyhealth.datasets.ClinVarDataset>`
+     - Open
+     - `NCBI <https://ftp.ncbi.nlm.nih.gov/pub/clinvar/>`__
+     - No
+     - —
+   * - :doc:`CBIS-DDSM <datasets/pyhealth.datasets.CBISDDSMDataset>`
+     - Open
+     - `TCIA <https://www.cancerimagingarchive.net/collection/cbis-ddsm/>`__
+     - CSVs only; DICOMs (163.5 GB) via the NBIA Data Retriever, or a few series with ``download_series()``
+     - —
+   * - :doc:`Synthea <datasets/pyhealth.datasets.SyntheaCSVDataset>`
+     - Open (synthetic)
+     - `Synthea <https://synthea.mitre.org/downloads>`__
+     - Generate locally
+     - —
+   * - :doc:`OMOP CDM (format) <datasets/pyhealth.datasets.OMOPDataset>`
+     - Depends on source
+     - `OHDSI <https://www.ohdsi.org/data-standardization/>`__
+     - —
+     - `MIMIC-IV demo in OMOP <https://physionet.org/content/mimic-iv-demo-omop/0.9/>`__
+   * - :doc:`ABIDE I (PCP connectivity) <datasets/pyhealth.datasets.ABIDEDataset>`
+     - Open, no account (CC BY-NC-SA 3.0)
+     - `PCP / S3 <http://preprocessed-connectomes-project.org/abide/download.html>`__
+     - Yes
+     - ``max_subjects`` partial download
+   * - :doc:`MEDS (format) <datasets/pyhealth.datasets.MEDSDataset>`
+     - Depends on source
+     - `MEDS <https://medical-event-data-standard.github.io/>`__
+     - —
+     - EHRSHOT ships a MEDS release
+   * - :doc:`COVID-BLUES (lung ultrasound) <datasets/pyhealth.datasets.COVIDBLUESDataset>`
+     - Open, no account (CC BY-NC-ND 4.0)
+     - `GitHub <https://github.com/NinaWie/COVID-BLUES>`__
+     - No (``git clone``)
+     - —
+   * - :doc:`FHIR (format) <datasets/pyhealth.datasets.FHIRDataset>`
+     - Depends on source
+     - `HL7 <https://www.hl7.org/fhir/>`__
+     - —
+     - `MIMIC-IV FHIR demo <https://physionet.org/content/mimic-iv-fhir-demo/2.1.0/>`__
+
 Available Datasets
 ------------------
 
@@ -276,33 +608,76 @@ Available Datasets
     :maxdepth: 3
 
     datasets/pyhealth.datasets.BaseDataset
+    datasets/pyhealth.datasets.PBCDataset
     datasets/pyhealth.datasets.SampleDataset
+    datasets/pyhealth.datasets.PatchDataset
+    MSD Base Loader <datasets/pyhealth.datasets.MSDSegmentationDataset>
+    datasets/pyhealth.datasets.MSDHippocampusDataset
+    datasets/pyhealth.datasets.MSDProstateDataset
+    datasets/pyhealth.datasets.MSDSpleenDataset
+    datasets/pyhealth.datasets.CHAOSDataset
+    datasets/pyhealth.datasets.RSNAPneumoniaDataset
+    datasets/pyhealth.datasets.PADUFES20Dataset
+    datasets/pyhealth.datasets.ISIC2020Dataset
+    datasets/pyhealth.datasets.CBISDDSMDataset
     datasets/pyhealth.datasets.MIMIC3Dataset
+    datasets/pyhealth.datasets.JichiDRDataset
     datasets/pyhealth.datasets.MIMIC4Dataset
+    datasets/pyhealth.datasets.LNDbDataset
+    datasets/pyhealth.datasets.MIMIC4EHRDataset
+    datasets/pyhealth.datasets.MIMIC4NoteDataset
+    datasets/pyhealth.datasets.BCSSDataset
+    datasets/pyhealth.datasets.MIMIC4CXRDataset
+    datasets/pyhealth.datasets.ABIDEDataset
+    datasets/pyhealth.datasets.MIMIC4EDDataset
+    datasets/pyhealth.datasets.KiTS23Dataset
+    datasets/pyhealth.datasets.MIMIC4ImaGenomeDataset
+    datasets/pyhealth.datasets.BrainTumorMRIDataset
     datasets/pyhealth.datasets.FHIRDataset
     datasets/pyhealth.datasets.MEDSDataset
     datasets/pyhealth.datasets.MIMIC4FHIR
     datasets/pyhealth.datasets.MedicalTranscriptionsDataset
     datasets/pyhealth.datasets.CardiologyDataset
+    datasets/pyhealth.datasets.ChapmanShaoxingDataset
     datasets/pyhealth.datasets.eICUDataset
     datasets/pyhealth.datasets.ISRUCDataset
+    datasets/pyhealth.datasets.HMCDataset
+    datasets/pyhealth.datasets.HUPiEEGDataset
     datasets/pyhealth.datasets.MIMICExtractDataset
     datasets/pyhealth.datasets.OMOPDataset
     datasets/pyhealth.datasets.SyntheaCSVDataset
     datasets/pyhealth.datasets.DREAMTDataset
     datasets/pyhealth.datasets.SHHSDataset
     datasets/pyhealth.datasets.SleepEDFDataset
+    datasets/pyhealth.datasets.NSRRSleepDataset
     datasets/pyhealth.datasets.EHRShotDataset
     datasets/pyhealth.datasets.Support2Dataset
+    datasets/pyhealth.datasets.MetabricDataset
+    datasets/pyhealth.datasets.GBSGDataset
     datasets/pyhealth.datasets.BMDHSDataset
     datasets/pyhealth.datasets.COVID19CXRDataset
+    datasets/pyhealth.datasets.ISIC2019Dataset
     datasets/pyhealth.datasets.ChestXray14Dataset
+    datasets/pyhealth.datasets.COVIDBLUESDataset
+    datasets/pyhealth.datasets.ChestImaGenomeDataset
+    datasets/pyhealth.datasets.HAM10000Dataset
     datasets/pyhealth.datasets.PhysioNetDeIDDataset
     datasets/pyhealth.datasets.EEGBCIDataset
+    datasets/pyhealth.datasets.AHEPADementiaDataset
+    datasets/pyhealth.datasets.BCICompetitionIV2aDataset
+    PTB-XL Dataset <datasets/pyhealth.datasets.PTBXLDataset>
+    PhysioNet 2012 Dataset <datasets/pyhealth.datasets.PhysioNet2012Dataset>
     datasets/pyhealth.datasets.TUABDataset
     datasets/pyhealth.datasets.TUEVDataset
+    datasets/pyhealth.datasets.CHBMITDataset
+    datasets/pyhealth.datasets.HelsinkiNeonatalDataset
+    datasets/pyhealth.datasets.EESM23Dataset
+    datasets/pyhealth.datasets.IIICDataset
     datasets/pyhealth.datasets.ClinVarDataset
     datasets/pyhealth.datasets.COSMICDataset
     datasets/pyhealth.datasets.TCGAPRADDataset
+    datasets/pyhealth.datasets.VSACDataset
     datasets/pyhealth.datasets.splitter
+    datasets/pyhealth.datasets.GoldTestSplit
     datasets/pyhealth.datasets.utils
+    datasets/pyhealth.datasets.TCGARNASeqDataset

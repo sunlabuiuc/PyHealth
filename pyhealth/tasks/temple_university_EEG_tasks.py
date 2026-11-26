@@ -2,23 +2,86 @@ import numpy as np
 import torch
 import mne
 from typing import Any, Dict, List, Tuple
+import logging
 import numpy as np
 from pyhealth.tasks import BaseTask
+
+logger = logging.getLogger(__name__)
+
+# The 16 electrodes that EEGAbnormalTUAB.convert_to_bipolar combines.
+_TUAB_ELECTRODES = tuple(
+    f"EEG {name}-REF"
+    for name in (
+        "FP1", "F7", "T3", "T5", "O1", "FP2", "F8", "T4",
+        "T6", "O2", "F3", "C3", "P3", "F4", "C4", "P4",
+    )
+)  # fmt: skip
+
+
+def read_edf_uv(
+    file_name: str,
+    bandpass_filter: tuple[float, float] | None = None,
+    notch_filter: float | None = None,
+    resample_rate: float | None = None,
+) -> tuple[np.ndarray, list[str], float]:
+    """Read an EDF in microvolts, with optional filtering and resampling.
+
+    Args:
+        file_name: Path to an EDF recording.
+        bandpass_filter: ``(low, high)`` in Hz, or None to skip it.
+        notch_filter: Notch frequency in Hz, or None to skip it.
+        resample_rate: Target rate in Hz, or None to keep the native rate.
+
+    Returns:
+        ``(data, ch_names, sfreq)``: data shaped ``(n_channels, n_samples)``
+        in uV, the channel names, and the rate of ``data`` in Hz.
+
+    Examples:
+        >>> from pyhealth.tasks.temple_university_EEG_tasks import read_edf_uv
+        >>> data, ch_names, sfreq = read_edf_uv(
+        ...     "chb01_03.edf", bandpass_filter=(0.1, 75.0), notch_filter=60.0
+        ... )
+    """
+    raw = mne.io.read_raw_edf(file_name, preload=True, verbose="error")
+    if bandpass_filter is not None:
+        raw.filter(
+            l_freq=bandpass_filter[0], h_freq=bandpass_filter[1], verbose="error"
+        )
+    if notch_filter is not None:
+        raw.notch_filter(notch_filter, verbose="error")
+    if resample_rate is not None:
+        raw.resample(resample_rate, n_jobs=1, verbose="error")
+    data = raw.get_data(units="uV")
+    ch_names = list(raw.ch_names)
+    sfreq = float(raw.info["sfreq"])
+    raw.close()
+    return data, ch_names, sfreq
 
 
 class EEGEventsTUEV(BaseTask):
     """Multi-class classification task for EEG event detection on TUEV.
 
+    Works with :class:`~pyhealth.datasets.TUEVDataset`.
+
     For each EDF recording, this task:
       1) reads the EDF
-      2) applies bandpass (0.1-75 Hz), notch (50 Hz), resamples to 256 Hz
+      2) applies bandpass (0.1-75 Hz), notch (50 Hz), resamples to
+         ``resample_rate`` (200 Hz by default)
       3) loads the paired .rec file (same path, .edf -> .rec)
       4) constructs 5-second event-centered windows (16 bipolar channels)
       5) returns one sample per event
 
+    Recordings without the ``EEG XX-REF`` channels of the averaged-reference
+    montage (TUEV also has linked-ear recordings) are skipped with a
+    warning, as in the BIOT preprocessing this task follows.
+
     Each returned sample contains:
-      - "signal": np.ndarray, shape (16, 256*5)
-      - "offending_channel": int
+      - "signal": torch.FloatTensor, shape (16, 5 * resample_rate), with
+        ``resample_rate`` a whole number of Hz. ``BuildEvents`` sizes the windows with ``int(resample_rate)``, so
+        ``resample_rate`` has to be a whole number of Hz.
+      - "offending_channel": int, the channel number from the .rec file.
+        It indexes the 22-channel TCP montage (0-21), not a row of
+        ``signal``.
       - "label": int
 
     Examples:
@@ -31,7 +94,7 @@ class EEGEventsTUEV(BaseTask):
         >>> sample = sample_dataset[0]
         >>> print(sample['label'])
 
-        For a complete example, see `examples/conformal_eeg/tuev_eeg_quickstart.ipynb`.
+        For a complete example, see `examples/conformal_eeg/contrawr_tuev_eeg.ipynb`.
     """
 
     task_name: str = "EEG_events"
@@ -163,7 +226,16 @@ class EEGEventsTUEV(BaseTask):
                         edf_path, self.resample_rate, self.bandpass_filter, self.notch_filter
                     )
                     signals = self.convert_signals(signals, raw)
-                except (ValueError, KeyError):
+                except KeyError as exc:
+                    logger.warning(
+                        "Skipping %s: channel %s not found. Only recordings "
+                        "with the EEG XX-REF channels are used.",
+                        edf_path,
+                        exc,
+                    )
+                    continue
+                except ValueError as exc:
+                    logger.warning("Skipping %s: %s", edf_path, exc)
                     continue
 
                 feats, offending_channels, labels = self.BuildEvents(
@@ -204,15 +276,23 @@ class EEGEventsTUEV(BaseTask):
 class EEGAbnormalTUAB(BaseTask):
     """Binary classification task for abnormal EEG detection on TUAB.
 
+    Works with :class:`~pyhealth.datasets.TUABDataset`.
+
     For each EDF recording, this task:
       1) reads the EDF
-      2) Applies bandpass (0.1-75 Hz), notch (50 Hz) and resamples to 200 Hz
+      2) Applies bandpass (0.1-75 Hz), notch (50 Hz) and resamples to
+         ``resample_rate`` (200 Hz by default)
       3) Constructs 16 bipolar channels from the TCP montage of non-overlapping 10 second windows # following BIOT
       4) assigns a binary label (1 = abnormal, 0 = normal) derived from the
          metadata ``label`` attribute
 
+    Recordings that cannot be read, or that lack one of the 16 ``EEG XX-REF``
+    electrodes of the bipolar montage, are skipped with a warning.
+
     Each returned sample contains:
-      - "signal": np.ndarray, shape (16, 2000)
+      - "signal": torch.FloatTensor, shape (16, 10 * resample_rate) for an
+        integer rate. Otherwise the window holds round(10 * resample_rate)
+        samples, close to but not exactly 10 s.
       - "label": int (0 = normal, 1 = abnormal)
 
     Examples:
@@ -261,14 +341,9 @@ class EEGAbnormalTUAB(BaseTask):
                              bandpass_filter: Tuple[float, float] = (0.1, 75.0),
                              notch_filter: float = 50.0,
                              ) -> Tuple[np.ndarray, List[str]]:
-        Rawdata = mne.io.read_raw_edf(fileName, preload=True, verbose="error")
-
-        Rawdata.filter(l_freq=bandpass_filter[0], h_freq=bandpass_filter[1], verbose="error")
-        Rawdata.notch_filter(notch_filter, verbose="error")
-        Rawdata.resample(resample_rate, n_jobs=1, verbose="error")
-
-        raw_data = Rawdata.get_data(units="uV")
-        ch_name = Rawdata.ch_names
+        raw_data, ch_name, _ = read_edf_uv(
+            fileName, bandpass_filter, notch_filter, resample_rate
+        )
         return raw_data, ch_name
 
     @staticmethod
@@ -372,15 +447,28 @@ class EEGAbnormalTUAB(BaseTask):
                     raw_data, ch_name = self.read_and_process_edf(
                         edf_path, self.resample_rate, self.bandpass_filter, self.notch_filter
                     )
-                except (ValueError, KeyError):
+                except (ValueError, KeyError) as exc:
+                    logger.warning("Skipping %s: %s", edf_path, exc)
                     continue
 
+                missing = [c for c in _TUAB_ELECTRODES if c not in ch_name]
+                if missing:
+                    logger.warning(
+                        "Skipping %s: it has no %s %s, which the 16-channel "
+                        "bipolar montage needs.",
+                        edf_path,
+                        ", ".join(missing),
+                        "channel" if len(missing) == 1 else "channels",
+                    )
+                    continue
                 bipolar_data = self.convert_to_bipolar(raw_data, ch_name)
 
-                num_samples = int(bipolar_data.shape[1] // (fs * 10))
+                # Slice indices must be ints, and resample_rate may be a float.
+                window = round(fs * 10)
+                num_samples = bipolar_data.shape[1] // window
                 for i in range(num_samples):
-                    start = i * fs * 10
-                    end = start + fs * 10
+                    start = i * window
+                    end = start + window
                     signal = bipolar_data[:, start:end]
 
                     if self.normalization == '95th_percentile':

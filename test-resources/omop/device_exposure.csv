@@ -1,0 +1,4 @@
+device_exposure_id,person_id,device_concept_id,device_exposure_start_date,device_exposure_start_datetime,device_exposure_end_date,device_exposure_end_datetime,device_type_concept_id,unique_device_id,quantity,provider_id,visit_occurrence_id,visit_detail_id,device_source_value,device_source_concept_id
+1,-4873075614181207858,0,2124-03-06,2124-03-06 01:50:04,2124-03-06,2124-03-06 02:19:24,32817,,1,,-6107999210390459343,,,0
+2,1,0,2017-12-31,2017-12-31 23:59:59,2018-01-01,2018-01-01 12:00:00,32817,,1,,1,,,0
+3,4668337230155062633,0,2116-12-02,2116-12-02 22:57:00,2116-12-28,2116-12-28 13:19:00,32817,,1,,2572864492537913938,,,0

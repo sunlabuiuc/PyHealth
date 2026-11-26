@@ -19,6 +19,10 @@ results here before running anything.
 | 06 | [Medical codes](06_medical_codes.ipynb) | Lookups, ICD-9/ICD-10 translation, CCS/ATC groupers, `code_mapping` |
 | 07 | [Clinical text](07_clinical_text.ipynb) | Fine-tuning language models; specialty classification and ICD coding; label distributions and baselines (T4 GPU) |
 | 08 | [Contributing](08_contributing.ipynb) | Dataset classes, file-based data, tests, PR checklist |
+| 09 | [AutoImprove](09_autoimprove.ipynb) | Agents search models and settings from your baseline; cross-validated, one-SE selection, attribution, one test, report, null-label control (installs from GitHub) |
+
+Tutorial 09 covers AutoImprove, which was added after 2.1.0, so it installs
+PyHealth from GitHub; its saved outputs come from a CPU run.
 
 Most notebooks run on a free Colab CPU runtime. Tutorials 00, 04 and 07 open on
 a free T4 GPU runtime and also run on a CPU (04 and 07 with smaller settings).

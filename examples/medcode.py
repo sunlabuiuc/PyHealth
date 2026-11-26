@@ -1,3 +1,13 @@
+"""Look up and map medical codes with pyhealth.medcode.
+
+Looks up an NDC drug code, maps it to ATC with ``CrossMap``, and looks up the
+ATC code with ``InnerMap``. Needs internet on the first run only: the NDC and
+ATC vocabularies are downloaded (a few MB) and cached.
+
+Usage:
+    python examples/medcode.py
+"""
+
 from pyhealth.medcode import CrossMap, InnerMap
 
 # The first load downloads the mapping files and caches them under

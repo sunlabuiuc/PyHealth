@@ -10,6 +10,8 @@ from .length_of_stay_prediction import categorize_los
 class LengthOfStayStageNetMIMIC4(BaseTask):
     """StageNet-format length of stay prediction for MIMIC-IV.
 
+    Works with :class:`~pyhealth.datasets.MIMIC4EHRDataset`.
+
     Creates a single PATIENT-LEVEL sample by aggregating all admissions. Input
     structures mirror ``MortalityPredictionStageNetMIMIC4`` (ICD codes and labs
     with StageNet encodings). The target is the length-of-stay category for the

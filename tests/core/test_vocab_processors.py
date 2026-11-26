@@ -258,5 +258,27 @@ class TestVocabProcessors(unittest.TestCase):
         e_idx = processor.code_vocab["E"]
         self.assertEqual(res[0, 0, 0].item(), e_idx)
 
+    def test_fit_after_vocab_edit_keeps_indices_contiguous(self):
+        # A code added by fit() after remove/retain/add must get a fresh index
+        # below vocab_size(), not one that is taken or past the embedding table.
+        cases = [
+            (SequenceProcessor, lambda codes: codes),
+            (StageNetProcessor, lambda codes: ([0.0] * len(codes), codes)),
+            (NestedSequenceProcessor, lambda codes: [codes]),
+            (DeepNestedSequenceProcessor, lambda codes: [[codes]]),
+        ]
+        edits = [("remove", {"A", "B"}), ("retain", {"C"}), ("add", {"X"})]
+        for cls, wrap in cases:
+            for method, tokens in edits:
+                with self.subTest(processor=cls.__name__, edit=method):
+                    processor = cls()
+                    processor.fit([{"codes": wrap(["A", "B", "C", "D"])}], "codes")
+                    getattr(processor, method)(tokens)
+                    processor.fit([{"codes": wrap(["Y"])}], "codes")
+                    self.assertEqual(
+                        sorted(processor.code_vocab.values()),
+                        list(range(processor.vocab_size())),
+                    )
+
 if __name__ == "__main__":
     unittest.main()

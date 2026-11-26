@@ -215,6 +215,9 @@ def infer_mortality_label(patient: Patient) -> int:
 class MPFClinicalPredictionTask(BaseTask):
     """Binary mortality prediction from FHIR CEHR sequences with optional MPF tokens.
 
+    Works with :class:`~pyhealth.datasets.FHIRDataset` and its subclass
+    :class:`~pyhealth.datasets.MIMIC4FHIR`.
+
     The task does timeline extraction and emits **raw** per-event lists,
     including concept keys as strings. Tokenization is the
     :class:`~pyhealth.processors.CehrProcessor`'s job, fit during the
@@ -224,6 +227,14 @@ class MPFClinicalPredictionTask(BaseTask):
         max_len: Output sequence length (must be >= 2 for boundary tokens).
         use_mpf: If True, prepend ``<mor>`` to the sequence; else ``<cls>``.
             The closing ``<reg>`` is always emitted.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4FHIR
+        >>> from pyhealth.tasks.mpf_clinical_prediction import (
+        ...     MPFClinicalPredictionTask,
+        ... )
+        >>> dataset = MIMIC4FHIR(root="/path/to/mimic-iv-fhir-demo/2.1.0/fhir")
+        >>> samples = dataset.set_task(MPFClinicalPredictionTask(max_len=512))
     """
 
     task_name: str = "MPFClinicalPredictionFHIR"

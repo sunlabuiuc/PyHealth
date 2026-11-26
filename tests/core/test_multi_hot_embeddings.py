@@ -178,6 +178,31 @@ class TestMultiHotEmbeddings(unittest.TestCase):
         print("[TEST] ✓ test_mlp_forward_with_multihot passed")
 
 
+class TestMultiHotProcessorStandalone(unittest.TestCase):
+    """MultiHotProcessor and MultiLabelProcessor are independent classes."""
+
+    def test_no_inheritance(self):
+        from pyhealth.processors import MultiHotProcessor, MultiLabelProcessor
+
+        self.assertFalse(issubclass(MultiHotProcessor, MultiLabelProcessor))
+        self.assertFalse(issubclass(MultiLabelProcessor, MultiHotProcessor))
+        self.assertNotIsInstance(MultiHotProcessor(), MultiLabelProcessor)
+
+    def test_encoding(self):
+        from pyhealth.processors import MultiHotProcessor
+
+        p = MultiHotProcessor()
+        p.fit([{"x": ["b", "a"]}, {"x": ["c"]}], "x")
+        self.assertEqual(p.label_vocab, {"a": 0, "b": 1, "c": 2})
+        self.assertEqual(p.size(), 3)
+        self.assertTrue(
+            torch.equal(p.process(["a", "c"]), torch.tensor([1.0, 0.0, 1.0]))
+        )
+        self.assertFalse(p.is_token())
+        with self.assertRaises(ValueError):
+            p.process("a")
+
+
 if __name__ == "__main__":
     unittest.main()
 
