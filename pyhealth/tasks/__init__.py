@@ -46,6 +46,11 @@ from .chapman_shaoxing_classification import (
     ChapmanShaoxingSNOMEDClassification as ChapmanShaoxingSNOMEDClassification,
     ChapmanShaoxingSuperclassClassification as ChapmanShaoxingSuperclassClassification,
 )
+from .physionet2012_mortality import (
+    PhysioNet2012Mortality as PhysioNet2012Mortality,
+    physionet2012_mortality_statistics as physionet2012_mortality_statistics,
+    split_by_record_ids as split_by_record_ids,
+)
 from .physionet2012_forecasting import (
     PhysioNet2012Forecasting as PhysioNet2012Forecasting,
     physionet2012_benchmark_split as physionet2012_benchmark_split,
