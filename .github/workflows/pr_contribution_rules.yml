@@ -11,15 +11,16 @@ jobs:
   contribution-rules:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      # The PR head, with full history: line numbers must match the head and
+      # the merge base with master must be reachable.
+      - name: Checkout the PR head
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
-      - name: Fetch PR base and head commits
-        run: |
-          git fetch origin ${{ github.event.pull_request.base.sha }} --depth=1
-          git fetch origin ${{ github.event.pull_request.head.sha }} --depth=1
+      - name: Fetch the PR base
+        run: git fetch --no-tags origin ${{ github.event.pull_request.base.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
