@@ -9,6 +9,7 @@ selects the most interpretable one within noise of the best, and its report
 """
 
 from .evaluate import (
+    chance_fold_scores,
     check_models,
     describe_error,
     fold_parts,
@@ -19,6 +20,12 @@ from .evaluate import (
     score,
     train_pipeline,
 )
+from .evidence import (
+    EvidenceProposer,
+    add_literature,
+    evidence_lines,
+    literature_section,
+)
 from .features import EngineeredDataset, FeatureSpace, FeatureSpec
 from .improver import (
     DEFAULT_METRIC,
@@ -28,9 +35,10 @@ from .improver import (
     paired_gain,
     select_simplest,
     select_trial,
+    signal_check,
 )
 from .knowledge import Document, Evidence, KnowledgeBase, parse_effect, pubmed_query
-from .llm import LLM, ClaudeLLM
+from .llm import LLM, ClaudeLLM, GeminiLLM, OpenAILLM
 from .proposers import (
     STRATEGIES,
     LLMProposer,
@@ -64,12 +72,15 @@ __all__ = [
     "Document",
     "EngineeredDataset",
     "Evidence",
+    "EvidenceProposer",
     "FeatureSpace",
     "FeatureSpec",
+    "GeminiLLM",
     "ImproveResult",
     "KnowledgeBase",
     "LLMProposer",
     "ModelSpec",
+    "OpenAILLM",
     "Param",
     "PipelineConfig",
     "Proposer",
@@ -79,11 +90,15 @@ __all__ = [
     "Report",
     "SearchSpace",
     "Trial",
+    "add_literature",
     "build_report",
+    "chance_fold_scores",
     "check_models",
     "config_diff",
     "describe_error",
+    "evidence_lines",
     "fold_parts",
+    "literature_section",
     "load_run",
     "paired_gain",
     "parse_effect",
@@ -95,6 +110,7 @@ __all__ = [
     "score",
     "select_simplest",
     "select_trial",
+    "signal_check",
     "train_pipeline",
     "unverified_numbers",
     "with_xgboost",

@@ -374,6 +374,36 @@ class TestPipeline(unittest.TestCase):
         self.assertEqual(time.shape, (3, 5))
         self.assertEqual(int((tokens == 0).sum()), 7)
 
+    def test_interval_estimates_are_mean_hours_per_token(self):
+        processor = EthosProcessor()
+        timelines = [
+            timeline((0, "A", None), (10, "A", None)),
+            timeline((0, "A", None), (14, "A", None)),
+        ]
+        processor.fit([{"timeline": t} for t in timelines], "timeline")
+        self.assertAlmostEqual(
+            processor.interval_estimates["5m-15m"], (10 + 14) / 2 / 60
+        )
+
+    def test_interval_estimates_split_repeated_tokens(self):
+        days = 24 * 60
+        processor = fitted((0, "A", None), (400 * days, "A", None))
+        self.assertAlmostEqual(processor.interval_estimates["=6mt"], 200 * 24.0)
+
+    def test_interval_estimates_fall_back_to_the_lower_bound(self):
+        processor = fitted((0, "A", None))
+        self.assertEqual(len(processor.interval_estimates), 19)
+        self.assertAlmostEqual(processor.interval_estimates["2h-3h"], 2.0)
+
+    def test_interval_estimates_survive_save_and_load(self):
+        processor = fitted((0, "A", None), (10, "A", None))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "ethos.json")
+            processor.save(path)
+            restored = EthosProcessor()
+            restored.load(path)
+        self.assertEqual(restored.interval_estimates, processor.interval_estimates)
+
 
 if __name__ == "__main__":
     unittest.main()

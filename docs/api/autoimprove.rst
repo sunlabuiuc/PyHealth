@@ -10,7 +10,9 @@ in turn: explore, refine, crossover and contrast. The design follows
 `codegen-classroom <https://github.com/google-research/codegen-classroom>`_.
 
 Proposals come from an LLM (:class:`~pyhealth.autoimprove.LLMProposer`, with
-:class:`~pyhealth.autoimprove.ClaudeLLM` or any ``llm(system, prompt) -> str``
+:class:`~pyhealth.autoimprove.ClaudeLLM`,
+:class:`~pyhealth.autoimprove.OpenAILLM`,
+:class:`~pyhealth.autoimprove.GeminiLLM`, or any ``llm(system, prompt) -> str``
 callable), or from random search
 (:class:`~pyhealth.autoimprove.RandomProposer`), which needs no API key.
 
@@ -154,7 +156,9 @@ features: meaning, clinical group and expected direction of effect. Then:
     wrong expectation, confounding by indication, overlap with a related
     feature, a coding artifact, a data error or leakage;
   - poor calibration;
-  - a large gap between subgroups.
+  - a large gap between subgroups;
+  - no signal: on binary cross-validation, the selection and the baseline
+    don't clearly beat chance (skipped above 50,000 training samples).
 
   :meth:`~pyhealth.autoimprove.AutoImprover.approve` records each decision
   in ``review.json``, and the report shows it.
@@ -240,6 +244,9 @@ itself, so the sentence a clinician reviews is exactly what was computed:
   - ``feature_vocabulary()``: named code groups such as SABA;
   - ``derived_events(patient, t)`` with ``derived_event_types``: clinical
     definitions, such as exacerbation episodes, built from events before t.
+    The hook is called only for the types declared in
+    ``derived_event_types``; rows it returns for any other type are ignored,
+    so ordinary tables are always read from the EHR.
 
   Tasks without them work as before.
 
@@ -319,6 +326,10 @@ ranked, justified candidate features. It reads two kinds of source:
     kb.map(fs, card)          # have / build / not in data, with priors
     print(kb.gap_report())    # the "not in data" list is a ready data request
     improver = AutoImprover(..., proposer=QueueProposer(kb.ranked_specs()), features=fs)
+    # or let the LLM see the published predictors, and report the literature:
+    improver = AutoImprover(..., proposer=EvidenceProposer(ClaudeLLM(), kb), features=fs)
+    # improver.report() saves its files first; path= saves them again with the section
+    report = add_literature(improver.report(), kb, path="runs/asthma/report.html")
 
 - **LLMs invent references, so every record is checked.** A record is kept
   only if its source is a gathered document, its quoted sentence appears in
@@ -335,6 +346,17 @@ ranked, justified candidate features. It reads two kinds of source:
   candidates are tried; the feature search decides what is kept. Specs
   from :meth:`~pyhealth.autoimprove.KnowledgeBase.ranked_specs` carry their
   citations.
+- **In the search** (:class:`~pyhealth.autoimprove.EvidenceProposer`), each
+  feature prompt also lists the untried published predictors with their
+  definitions, directions, priors and citations, until all are tried.
+  Model prompts are unchanged. A predictor counts as tried once proposed,
+  accepted or adapted (same citation and the same set of selections, e.g.
+  another window; a ratio of two selections adapts neither), so two
+  predictors from one paper that read exactly the same events count as one. After a resumed run, earlier predictors may be listed
+  again.
+- **In the report** (:func:`~pyhealth.autoimprove.add_literature`), a
+  *Literature* section gives the citation-check counts, the gap report and
+  the published discrimination values.
 - **Privacy.** The knowledge base never sees patient data. PubMed queries
   use only the task card's text, and every query is kept in ``kb.queries``.
   Mapping sees only the names of event types, groups and columns.
@@ -367,7 +389,7 @@ API Reference
 .. automodule:: pyhealth.autoimprove
     :members: AutoImprover, ImproveResult, Trial, PipelineConfig, SearchSpace,
         ModelSpec, Param, Proposer, LLMProposer, RandomProposer, QueueProposer,
-        ProposerExhausted, ClaudeLLM,
+        ProposerExhausted, ClaudeLLM, OpenAILLM, GeminiLLM,
         with_xgboost, patient_folds, run_config_cv, select_trial, paired_gain,
         check_models, describe_error, select_simplest, config_diff, Report,
         build_report, load_run, unverified_numbers, fold_parts
@@ -381,3 +403,6 @@ API Reference
 
 .. automodule:: pyhealth.autoimprove.knowledge
     :members: KnowledgeBase, Evidence, Document, parse_effect, pubmed_query
+
+.. automodule:: pyhealth.autoimprove.evidence
+    :members: EvidenceProposer, evidence_lines, literature_section, add_literature

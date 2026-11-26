@@ -221,7 +221,7 @@ def survival_metrics_fn(
         0.0312
     """
     out = {"c_index": concordance_index(duration, event, risk)}
-    if survival is not None and times and time_grid is None:
+    if survival is not None and len(times) > 0 and time_grid is None:
         raise ValueError("time_grid is needed with survival")
     for t in times:
         out[f"auc@{t:g}"] = cumulative_dynamic_auc(duration, event, risk, t)
