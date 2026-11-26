@@ -126,6 +126,10 @@ from .generators.corgan import CorGAN as CorGAN
 from .generators.tardiff import TarDiff as TarDiff
 from .survival_mdn import SurvivalMDN as SurvivalMDN
 from .personalized_survival_moe import PersonalizedSurvivalMoE as PersonalizedSurvivalMoE
+from .survival_moe import (
+    SurvivalMoE as SurvivalMoE,
+    SurvivalMoEModel as SurvivalMoEModel,
+)
 from .cet import CET as CET
 from .trajsurv import TrajSurv as TrajSurv
 from .knowrare import KnowRare as KnowRare

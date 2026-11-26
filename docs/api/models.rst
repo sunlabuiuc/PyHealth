@@ -57,6 +57,9 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.XGBoostModel`
      - Features are tabular (engineered labs, demographics) or bags of codes; you want the standard strong baseline
      - Gradient-boosted trees; fit with ``model.fit`` (not ``Trainer.train``); exact TreeSHAP; needs ``pip install "pyhealth[xgboost]"``
+   * - :doc:`models/pyhealth.models.survival_moe`
+     - You want discrete-time survival predictions with right-censoring
+     - Supports personalized or fixed experts and an MTLR baseline
    * - :doc:`models/pyhealth.models.td_cnn_lstm`
      - You want real-time ICU mortality risk for each measurement-time state of irregular event streams
      - Temporal-difference training needs paired ``next_*`` successor states and a custom loop that calls ``model.update_target()`` after each optimizer step
@@ -359,6 +362,7 @@ API Reference
     models/pyhealth.models.XGBoostModel
     models/pyhealth.models.survival_mdn
     models/pyhealth.models.personalized_survival_moe
+    models/pyhealth.models.survival_moe
     models/pyhealth.models.cet
     models/pyhealth.models.TrajSurv
     models/pyhealth.models.KnowRare
