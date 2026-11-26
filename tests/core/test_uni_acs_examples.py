@@ -1,4 +1,4 @@
-"""Test the same metric and era grouping functions used by the examples.
+"""Test the same metric, era grouping, and feature extraction functions used by the examples.
 
 Run from the repository root. Synthetic inputs keep these checks independent
 of MIMIC-IV files.
@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from examples.mimic4_mortality_uni_acs import _average_precision
+from examples.uni_acs_mimic31_features import extract_labs
 from examples.uni_acs_mimic31_temporal_validation import assign_admission_eras
 
 
@@ -49,3 +50,29 @@ def test_assign_admission_eras_applies_year_offsets_and_reports_exclusions(capsy
     assert "Estimated year range crosses the 2020 boundary: 1" in output
     assert "Missing or invalid year range: 1" in output
     assert "Total excluded: 3" in output
+
+
+def test_extract_labs_keeps_only_results_available_by_cutoff(tmp_path):
+    cohort = pd.DataFrame({
+        "hadm_id": [1, 2, 3, 4],
+        "admittime": pd.Timestamp("2024-01-01 08:00:00"),
+        "cutoff": pd.Timestamp("2024-01-02 08:00:00"),
+    })
+    labs = pd.DataFrame(
+        [
+            (1, 50813, "2024-01-02 07:00:00", "2024-01-02 07:30:00", 2.0),
+            (2, 50813, "2024-01-02 07:00:00", "2024-01-02 08:00:00", 3.0),
+            (3, 50813, "2024-01-02 07:00:00", "2024-01-02 08:01:00", 6.0),
+            (4, 50813, "2024-01-02 07:00:00", None, 4.0),
+        ],
+        columns=["hadm_id", "itemid", "charttime", "storetime", "valuenum"],
+    )
+    hosp = tmp_path / "hosp"
+    hosp.mkdir()
+    labs.to_csv(hosp / "labevents.csv.gz", index=False)
+
+    result = extract_labs(
+        cohort, {50813: "lactate"}, data_path=tmp_path, require_available=True
+    )
+
+    assert result.set_index("hadm_id")["lactate"].to_dict() == {1: 2.0, 2: 3.0}
