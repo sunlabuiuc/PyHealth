@@ -365,6 +365,7 @@ API Reference
     models/pyhealth.models.APRICOTM
     models/pyhealth.models.ProtoECGNet
     models/pyhealth.models.HeartLang
+    models/pyhealth.models.PTBXLResNet
     models/pyhealth.models.APN
     models/pyhealth.models.JointSeqImage
     models/pyhealth.models.td_cnn_lstm

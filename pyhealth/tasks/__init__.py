@@ -313,6 +313,12 @@ from .yaib_eicu import (
     YAIBSepsisEICU as YAIBSepsisEICU,
 )
 from .tcga_survival_prediction import TCGASurvivalPrediction as TCGASurvivalPrediction
+from .ptbxl_binary import (
+    PTBXLCD as PTBXLCD,
+    PTBXLHYP as PTBXLHYP,
+    PTBXLMI as PTBXLMI,
+    PTBXLSTTC as PTBXLSTTC,
+)
 
 def __getattr__(name: str):
     if name == "MPFClinicalPredictionTask":
