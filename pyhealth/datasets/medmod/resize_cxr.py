@@ -68,7 +68,7 @@ def original_path(
     dicom_id: str,
 ) -> Path:
     """files/p<first 2 digits>/p<subject_id>/s<study_id>/<dicom_id>.jpg
-    (same layout PyHealth builds, pyhealth/datasets/mimic4.py:208-216).
+    (the layout PyHealth builds in ``process_image_path``, pyhealth/datasets/mimic4.py).
 
     Examples:
         >>> from pyhealth.datasets.medmod.resize_cxr import original_path

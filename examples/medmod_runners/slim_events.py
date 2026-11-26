@@ -6,7 +6,7 @@ reads ``<data-root>/mimiciv/1.0`` and writes ``<data-root>/mimiciv_medmod_slim/1
 (override either with ``--ehr-root`` / ``--out``).
 
 Why: PyHealth caches a dataset by converting every table to parquet and then
-sorting the whole event table by patient (pyhealth/datasets/base_dataset.py:828),
+sorting the whole event table by patient (``BaseDataset._event_transform``),
 which Dask does with a temporary copy on disk. With all of chartevents and
 labevents this needs more free space than a laptop usually has
 (P2POutOfDiskError). This script streams the two event tables once and keeps
@@ -84,7 +84,7 @@ LINKED = (
 
 
 def _resolve(root: Path, rel: str) -> Path:
-    """Accept .csv.gz or .csv, like PyHealth (base_dataset.py:255-287)."""
+    """Accept .csv.gz or .csv, like PyHealth's ``_csv_tsv_gz_path``."""
     p = root / rel
     if p.exists():
         return p

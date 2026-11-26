@@ -101,8 +101,9 @@ MedSigLIP. The two intervals overlap with every seed. So the gain is
 consistent across seeds but small.
 
 Our scores vary much less between seeds than the paper's. A likely reason is
-that only the projection and the classifier are trained. The pretrained
-encoders are frozen and stay exactly as released (see Deviations and caveats).
+that our frozen encoders stay in evaluation mode, so they stay exactly as
+released. MedMod's code leaves them in training mode (see Deviations and
+caveats).
 
 ## ConVIRT linear probe
 

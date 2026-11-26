@@ -10,7 +10,8 @@
 #     with no match is dropped
 #   * labevents: no join with d_labitems (the task needs only itemid/value)
 #   * chartevents, labevents: no valueuom (see the note at the end)
-# PyHealth tries both .csv and .csv.gz (base_dataset.py:255-287), so either works.
+# PyHealth tries both .csv and .csv.gz (_csv_tsv_gz_path in base_dataset.py), so
+# either works.
 # Column lists were written from memory of the v1.0 schema and confirmed by a
 # full run on the real v1.0 files (2026-11-09): PyHealth selects every listed
 # attribute, so a missing column would have failed the load.

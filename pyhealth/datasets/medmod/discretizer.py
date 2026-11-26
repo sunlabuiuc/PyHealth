@@ -235,7 +235,7 @@ class Normalizer:
 
     def __repr__(self) -> str:
         # Stable across runs (no object address): PyHealth puts str() of
-        # pre-fitted processors into its cache key (base_dataset.py:1207-1230).
+        # pre-fitted processors into its cache key (BaseDataset.set_task).
         if self._means is None:
             state = "unfitted"
         else:

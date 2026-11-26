@@ -184,7 +184,7 @@ class MedModResources:
 
     ``repr`` shows only the source paths (``sources``), so it is short and the
     same in every run. PyHealth puts ``str()`` of each task attribute into the
-    task's cache key (base_dataset.py:1340-1354), so this matters.
+    task's cache key (``BaseDataset._task_cache_dir``), so this matters.
 
     Examples:
         >>> from pyhealth.datasets.medmod.extraction import MedModResources

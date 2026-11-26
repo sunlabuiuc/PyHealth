@@ -1,4 +1,4 @@
-"""Which code a run used, and refusing to run on code that cannot be traced.
+"""Which code a run used, recorded in every report and checkpoint.
 
 ``code_version(*scripts)`` returns the git commit of the ``pyhealth`` that is
 imported, or, when it runs from the Colab code zip, the time the zip was made

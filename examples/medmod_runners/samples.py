@@ -21,10 +21,10 @@ Two sample sets share one cohort and differ only in ``ehr`` (rows at Hours == 0)
     (MedModInHospitalMortality docs, "Per-model settings")
 
 PyHealth caches each set under ``cache_dir``, keyed by the task's settings
-(base_dataset.py:1340-1354). The first build runs the task over every patient
+(``BaseDataset._task_cache_dir``). The first build runs the task over every patient
 (~15 min with 4 workers); later builds with the same settings load in seconds.
 With ``num_workers > 1`` PyHealth starts "spawn" worker processes
-(base_dataset.py:1160-1161) that re-import the main script. Run this as a
+(``BaseDataset._task_transform``) that re-import the main script. Run this as a
 module, or keep your own code under ``if __name__ == "__main__":``.
 """
 

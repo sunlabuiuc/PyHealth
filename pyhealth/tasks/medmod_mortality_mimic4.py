@@ -57,7 +57,7 @@ from .base_task import BaseTask
 
 def _table(patient: Patient, event_type: str, ts_name: str) -> pd.DataFrame:
     """One event type as pandas, with the ``<event_type>/`` prefix removed
-    (attribute naming from base_dataset.py:1029-1033) and ``timestamp``
+    (attribute naming from ``BaseDataset.load_table``) and ``timestamp``
     renamed to ``ts_name``."""
     df: pl.DataFrame = patient.get_events(event_type=event_type, return_df=True)
     prefix = f"{event_type}/"
@@ -101,9 +101,10 @@ class MedModInHospitalMortality(BaseTask):
             the task's arguments, not by the folder's contents: after adding
             images, use a fresh cache_dir or delete the task cache.
         resources: MedMod's item map, split lists and discretizer config.
-            Defaults to MedMod's files bundled in ``pyhealth/datasets/medmod/files``
-            (``MedModResources.load()``); pass your own ``MedModResources``
-            only to use different files.
+            Defaults to ``MedModResources.load()``, which downloads the item
+            map and split lists from MedMod's GitHub on first use and reads
+            the discretizer config bundled in ``pyhealth/datasets/medmod/files``.
+            Pass your own ``MedModResources`` only to use different files.
 
     Examples:
         >>> from pyhealth.tasks import MedModInHospitalMortality
@@ -143,7 +144,7 @@ class MedModInHospitalMortality(BaseTask):
         if image_dir is not None and not Path(image_dir).is_dir():
             raise FileNotFoundError(f"image_dir does not exist: {image_dir}")
         # set_task builds its cache key from vars(task) with json.dumps(default=str)
-        # (base_dataset.py:1340-1354): plain values, and a resources object whose
+        # (BaseDataset._task_cache_dir): plain values, and a resources object whose
         # str() is its source paths.
         self.hours_zero = hours_zero
         self.timestep = float(timestep)
@@ -159,7 +160,7 @@ class MedModInHospitalMortality(BaseTask):
 
     def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
         """Drop chartevents/labevents rows outside the 114 ready itemids before
-        patients are materialised (hook called at base_dataset.py:1126). This
+        patients are materialised (hook called in BaseDataset._task_transform). This
         matches MedMod, which keeps only mapped itemids (extract_subj.py:91-96,
         bench_prep.py:159-164)."""
         names = df.collect_schema().names()

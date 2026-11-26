@@ -152,7 +152,7 @@ def test_processor_output_matches_medmods_arithmetic():
 
 def test_processor_cache_key_is_stable():
     """With pre-fitted processors PyHealth keys its cache on
-    json.dumps(vars(processor), default=str) (base_dataset.py:1207-1230)."""
+    json.dumps(vars(processor), default=str) (BaseDataset.set_task)."""
     def key(p):
         return json.dumps(vars(p), default=str, sort_keys=True)
 

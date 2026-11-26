@@ -115,14 +115,15 @@ class MedModMIMIC4Dataset(MIMIC4Dataset):
     """``MIMIC4Dataset`` with the v1.0 config, the tables the task reads, and
     the row filters above.
 
-    ``dataset_name`` is part of PyHealth's cache key (base_dataset.py:581-635),
-    so this cache never mixes with an unfiltered ``MIMIC4Dataset`` cache.
+    ``dataset_name`` is part of PyHealth's cache key
+    (``BaseDataset._init_cache_dir``), so this cache never mixes with an
+    unfiltered ``MIMIC4Dataset`` cache.
 
     Args:
         ehr_root: folder holding ``core/``, ``hosp/``, ``icu/`` (MIMIC-IV v1.0).
         cxr_root: folder holding the MIMIC-CXR-JPG CSVs.
         cache_dir: where PyHealth writes its processed copy of the data. Put it
-            next to the data; without it PyHealth uses ~/Library/Caches/pyhealth.
+            next to the data; without it PyHealth uses its default cache folder.
         itemid_map: MedMod's ``itemid_to_variable_map.csv``. Without it, the
             file is downloaded from MedMod's GitHub on first use.
 
@@ -159,7 +160,7 @@ class MedModMIMIC4Dataset(MIMIC4Dataset):
             num_workers=num_workers,
         )
         # Swap in the filtering EHR sub-dataset (built the same way as
-        # mimic4.py:400-408). Nothing is loaded until global_event_df is used.
+        # MIMIC4Dataset.__init__). Nothing is loaded until global_event_df is used.
         self.sub_datasets["ehr"] = MedModEHRDataset(
             root=ehr_root,
             tables=list(EHR_TABLES),
