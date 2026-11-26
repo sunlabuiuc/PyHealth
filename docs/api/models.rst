@@ -302,6 +302,7 @@ API Reference
     models/pyhealth.models.BEHRT
     models/pyhealth.models.BiteNet
     models/pyhealth.models.TransformersModel
+    models/pyhealth.models.RASCCrossEncoder
     models/pyhealth.models.LLMEHREncoder
     models/pyhealth.models.HFEHRFoundationModel
     models/pyhealth.models.CLMBR
@@ -319,6 +320,7 @@ API Reference
     models/pyhealth.models.EHRMamba
     models/pyhealth.models.EHRMambaCEHR
     models/pyhealth.models.ETHOS
+    models/pyhealth.models.Delphi
     models/pyhealth.models.JambaEHR
     models/pyhealth.models.ContraWR
     models/pyhealth.models.EEGNet
@@ -364,6 +366,7 @@ API Reference
     models/pyhealth.models.ProtoECGNet
     models/pyhealth.models.HeartLang
     models/pyhealth.models.APN
+    models/pyhealth.models.JointSeqImage
     models/pyhealth.models.td_cnn_lstm
     models/pyhealth.models.TRACE
     models/pyhealth.models.MIRA
@@ -371,4 +374,5 @@ API Reference
     models/pyhealth.models.DescEmb
     models/pyhealth.models.bulk_rna_bert
     models/pyhealth.models.DearLLM
+    models/pyhealth.models.GAME
 

@@ -3,6 +3,7 @@
 import os
 import tempfile
 import unittest
+import unittest.mock
 
 import torch
 import torch.nn.functional as F
@@ -117,6 +118,24 @@ class TestTarDiff(unittest.TestCase):
             model.q_sample(x0, t0, noise), a.sqrt() * x0 + (1 - a).sqrt() * noise
         )
 
+    def test_v_prediction_recovers_noise_and_series(self):
+        model = self._model(prediction="v")
+        self.assertTrue(torch.isfinite(model(**next(iter(self.loader)))["loss"]))
+        x0 = torch.randn(3, C, L)
+        noise = torch.randn_like(x0)
+        y = torch.tensor([0, 1, 1])
+        t = 12
+        a = model.alphas_cumprod[t]
+        xt = model.q_sample(x0, torch.full_like(y, t), noise)
+        # A network that outputs the true v gives back the true noise and x0.
+        v = a.sqrt() * noise - (1 - a).sqrt() * x0
+        with unittest.mock.patch.object(model.net, "forward", lambda *_: v):
+            eps, x0_hat = model._eps_and_x0(xt, t, y)
+        torch.testing.assert_close(eps, noise)
+        torch.testing.assert_close(x0_hat, x0)
+        with self.assertRaises(ValueError):
+            self._model(prediction="x0")
+
     def test_train_model_updates_the_network(self):
         model = self._model()
         before = [p.clone() for p in model.net.parameters()]
@@ -166,6 +185,47 @@ class TestTarDiff(unittest.TestCase):
         align = xf @ Gw[0] + Gb
         expected = (s * (1 - s) * align)[:, None] * w + (s - y.float())[:, None] * Gw[0]
         torch.testing.assert_close(got, expected.view(3, C, L))
+
+    def test_cosine_influence_matches_the_closed_form(self):
+        model = self._model()
+        guide = LinearGuide(self.dataset)
+        G = TarDiff.guidance_gradient(guide, self.loader)
+        Gw, Gb = [g for g in G if g.numel()]
+        x = torch.randn(3, C, L)
+        y = torch.tensor([0, 1, 1])
+        got = model._influence_grad(guide, G, x, y, cosine=True)
+        # The batch gradient is sum_i (s_i - y_i) [x_i, 1]; differentiate its
+        # cosine with G directly.
+        w, b = guide.fc.weight.detach()[0], guide.fc.bias.detach()
+        xf = x.flatten(1).requires_grad_(True)
+        err = torch.sigmoid(xf @ w + b) - y.float()
+        g = torch.cat([(err[:, None] * xf).sum(0), err.sum().view(1)])
+        cos = F.cosine_similarity(g, torch.cat([Gw[0], Gb]), dim=0)
+        (expected,) = torch.autograd.grad(cos, xf)
+        torch.testing.assert_close(got, expected.view(3, C, L))
+
+    def test_official_guidance_options_change_the_samples(self):
+        model = self._model()
+        guide = LinearGuide(self.dataset)
+        G = TarDiff.guidance_gradient(guide, self.loader)
+
+        def run(**kwargs):
+            gen = torch.Generator().manual_seed(3)
+            return model.generate(
+                torch.tensor([0, 1]),
+                steps=3,
+                generator=gen,
+                guide=guide,
+                guidance=G,
+                guidance_scale=10.0,
+                **kwargs,
+            )["signal"]
+
+        paper = run()
+        official = run(guide_on_x0=True, cosine=True)
+        self.assertFalse(torch.equal(official, paper))
+        self.assertFalse(torch.equal(run(guide_on_x0=True), paper))
+        self.assertTrue(torch.isfinite(official).all())
 
     def test_guidance_moves_samples_and_scale_zero_does_not(self):
         model = self._model()
@@ -252,6 +312,43 @@ class TestTarDiff(unittest.TestCase):
                 torch.testing.assert_close(a, b)
             with self.assertRaises(ValueError):
                 self._model(base_channels=16).load_model(path)
+
+    def test_loads_checkpoints_saved_before_the_options(self):
+        model = self._model()
+        new_keys = ("beta_schedule", "prediction")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "tardiff.pt")
+            config = {k: v for k, v in model.config.items() if k not in new_keys}
+            torch.save({"config": config, "state_dict": model.state_dict()}, path)
+            self._model().load_model(path)
+            with self.assertRaises(ValueError):
+                self._model(beta_schedule="scaled_linear").load_model(path)
+            with self.assertRaises(ValueError):
+                self._model(prediction="v").load_model(path)
+
+    def test_beta_schedules(self):
+        def betas(model):
+            a = model.alphas_cumprod.double()
+            return 1 - a / torch.cat([a.new_ones(1), a[:-1]])
+
+        kwargs = {**SMALL, "n_steps": 5, "beta_start": 0.01, "beta_end": 0.09}
+        linear = TarDiff(_dataset(), **kwargs)
+        torch.testing.assert_close(
+            betas(linear), torch.linspace(0.01, 0.09, 5).double(), atol=1e-6, rtol=0
+        )
+        scaled = TarDiff(_dataset(), **kwargs, beta_schedule="scaled_linear")
+        torch.testing.assert_close(
+            betas(scaled).sqrt(),
+            torch.linspace(0.1, 0.3, 5).double(),
+            atol=1e-6,
+            rtol=0,
+        )
+        # Same first beta, smaller ones after it: more signal kept at every later step.
+        self.assertTrue(
+            torch.all(scaled.alphas_cumprod[1:] > linear.alphas_cumprod[1:])
+        )
+        with self.assertRaises(ValueError):
+            TarDiff(_dataset(), **SMALL, beta_schedule="cosine")
 
     def test_multiclass_labels_set_the_number_of_classes(self):
         dataset = _dataset(n=9, label_kind="multiclass", n_classes=3)

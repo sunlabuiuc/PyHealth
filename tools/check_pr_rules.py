@@ -11,6 +11,10 @@ Rules enforced whenever a PR touches pyhealth/**/*.py:
        functions in pyhealth/**/*.py must include a '>>>' usage example in
        their docstring.
 
+Only the PR's own changes count: diffs start from the merge base of
+<base> and <head>, so a branch that is behind master is not blamed for lines
+master changed since it branched off. Run it with <head> checked out.
+
 Usage:
     python tools/check_pr_rules.py --base <base_sha> --head <head_sha>
 """
@@ -31,13 +35,14 @@ def sh(*args):
 
 
 def changed_files(base, head):
-    out = sh("git", "diff", "--name-only", "--diff-filter=ACMR", f"{base}..{head}")
+    """Files the PR adds or modifies, compared with the merge base."""
+    out = sh("git", "diff", "--name-only", "--diff-filter=ACMR", f"{base}...{head}")
     return [line.strip() for line in out.splitlines() if line.strip()]
 
 
 def added_lines(base, head, path):
-    """Line numbers in `path` at `head` that were added or modified vs `base`."""
-    out = sh("git", "diff", "--unified=0", f"{base}..{head}", "--", path)
+    """Line numbers in `path` at `head` added or modified since the merge base."""
+    out = sh("git", "diff", "--unified=0", f"{base}...{head}", "--", path)
     lines = set()
     for line in out.splitlines():
         if not line.startswith("@@"):

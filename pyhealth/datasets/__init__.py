@@ -77,6 +77,7 @@ from .dreamt import DREAMTDataset
 from .ehrshot import EHRShotDataset
 from .eicu import eICUDataset
 from .isruc import ISRUCDataset
+from .hmc import HMCDataset as HMCDataset
 from .medical_transcriptions import MedicalTranscriptionsDataset
 from .msd import (
     MSDHippocampusDataset as MSDHippocampusDataset,
@@ -104,6 +105,7 @@ from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .abide import ABIDEDataset as ABIDEDataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
+from .nsrr_sleep import NSRRSleepDataset as NSRRSleepDataset
 from .bmd_hs import BMDHSDataset
 from .support2 import Support2Dataset
 from .synthea_csv import SyntheaCSVDataset as SyntheaCSVDataset
