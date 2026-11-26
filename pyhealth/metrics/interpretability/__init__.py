@@ -3,6 +3,17 @@
 from .base import RemovalBasedMetric
 from .comprehensiveness import ComprehensivenessMetric
 from .evaluator import Evaluator, evaluate_attribution
+from .faithfulness import (
+    faithfulness,
+    perturbation_curve,
+    roberta_word_map,
+    word_feature_map,
+)
+from .plausibility import (
+    best_plausibility_threshold,
+    plausibility_metrics,
+    spans_to_token_ids,
+)
 from .sufficiency import SufficiencyMetric
 from .utils import (
     SampleClass,
@@ -17,6 +28,15 @@ __all__ = [
     "RemovalBasedMetric",
     "Evaluator",
     "evaluate_attribution",
+    # Faithfulness as in Edin et al. (2024)
+    "faithfulness",
+    "perturbation_curve",
+    "roberta_word_map",
+    "word_feature_map",
+    # Plausibility against human evidence spans
+    "plausibility_metrics",
+    "best_plausibility_threshold",
+    "spans_to_token_ids",
     # Sample classification
     "SampleClass",
     "SampleFilterFn",

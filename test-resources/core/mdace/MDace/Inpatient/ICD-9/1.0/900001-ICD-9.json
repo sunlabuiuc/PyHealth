@@ -1,0 +1,52 @@
+{
+ "hadm_id": 900001,
+ "comment": "",
+ "notes": [
+  {
+   "note_id": 11,
+   "category": "Discharge summary",
+   "description": "Report",
+   "annotations": [
+    {
+     "begin": 19,
+     "end": 32,
+     "code": "401.9",
+     "code_system": "ICD-9-CM",
+     "description": "synthetic",
+     "type": "MapType.EXACT"
+    },
+    {
+     "begin": 34,
+     "end": 49,
+     "code": "250.00",
+     "code_system": "ICD-9-CM",
+     "description": "synthetic",
+     "type": "MapType.EXACT"
+    },
+    {
+     "begin": 51,
+     "end": 59,
+     "code": "250.00",
+     "code_system": "ICD-9-CM",
+     "description": "synthetic",
+     "type": "MapType.EXACT"
+    }
+   ]
+  },
+  {
+   "note_id": 12,
+   "category": "Nursing",
+   "description": "Nursing Progress Note",
+   "annotations": [
+    {
+     "begin": 32,
+     "end": 44,
+     "code": "401.9",
+     "code_system": "ICD-9-CM",
+     "description": "synthetic",
+     "type": "MapType.EXACT"
+    }
+   ]
+  }
+ ]
+}

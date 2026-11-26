@@ -1,0 +1,21 @@
+{
+ "hadm_id": 900003,
+ "comment": "",
+ "notes": [
+  {
+   "note_id": 31,
+   "category": "Discharge summary",
+   "description": "Report",
+   "annotations": [
+    {
+     "begin": 18,
+     "end": 37,
+     "code": "493.92",
+     "code_system": "ICD-9-CM",
+     "description": "synthetic",
+     "type": "MapType.EXACT"
+    }
+   ]
+  }
+ ]
+}

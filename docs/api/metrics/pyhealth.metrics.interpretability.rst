@@ -75,3 +75,51 @@ Utility Functions
 .. autofunction:: get_model_predictions
 
 .. autofunction:: create_validity_mask
+
+Plausibility
+------------
+
+Plausibility metrics compare token explanations with evidence spans that human
+coders marked (for example MDACE, Cheng et al. 2023), following Edin et al.
+(2024). Each explanation is one (note, code) pair. Tokens scoring above a
+threshold are the predicted evidence; precision, recall and F1 are pooled over
+all pairs, ``empty`` is the share of pairs with no predicted token, and
+``recall@k`` is the share of evidence tokens found among each pair's top-k
+tokens. Choose the threshold on a validation split with
+:func:`best_plausibility_threshold`. See
+``examples/mdace_icd9_coding_plm_ca_attingrad.py``.
+
+.. currentmodule:: pyhealth.metrics.interpretability.plausibility
+
+.. autofunction:: plausibility_metrics
+
+.. autofunction:: best_plausibility_threshold
+
+.. autofunction:: spans_to_token_ids
+
+Faithfulness (Edin et al.)
+--------------------------
+
+Comprehensiveness and sufficiency for (note, code) explanations as computed in
+the evaluation code of Edin et al. (2024). Words (or tokens) are ranked by
+attribution and replaced with the mask token; ``<s>``, ``</s>`` and padding are
+never touched. With ``K = max_features = 100`` and ``step_size = 2``,
+comprehensiveness removes the top 0, 2, ..., 98 features and sufficiency keeps
+only the top 100, 98, ..., 2 features. Per pair,
+``comprehensiveness = mean(p - p_i) / p`` and
+``sufficiency = mean(max(0, p - p_i)) / p`` with ``p`` the sigmoid
+probability of the explained code; a method's score is the mean over pairs.
+Higher comprehensiveness and lower sufficiency are better. These differ from
+:class:`ComprehensivenessMetric` and :class:`SufficiencyMetric` above
+(percentage bins, zero ablation, no division by ``p``). See
+``examples/mdace_icd9_coding_plm_ca_attingrad.py --faithfulness``.
+
+.. currentmodule:: pyhealth.metrics.interpretability.faithfulness
+
+.. autofunction:: faithfulness
+
+.. autofunction:: perturbation_curve
+
+.. autofunction:: word_feature_map
+
+.. autofunction:: roberta_word_map

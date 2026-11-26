@@ -62,6 +62,9 @@ from .medfuse import MedFuse, MedFuseLayer
 from .medlink import MedLink
 from .micron import MICRON, MICRONLayer
 from .mlp import MLP
+from .caml import CAML as CAML
+from .plm_ca import ClassWiseCrossAttention as ClassWiseCrossAttention
+from .plm_ca import PLMCA as PLMCA
 from .molerec import MoleRec, MoleRecLayer
 from .retain import MultimodalRETAIN, RETAIN, RETAINLayer
 from .rnn import MultimodalRNN, RNN, RNNLayer

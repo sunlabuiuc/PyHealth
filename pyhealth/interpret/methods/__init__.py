@@ -3,6 +3,7 @@ from pyhealth.interpret.methods.baseline import RandomBaseline
 from pyhealth.interpret.methods.chefer import CheferRelevance
 from pyhealth.interpret.methods.attention_rollout import AttentionRollout
 from pyhealth.interpret.methods.raw_attention import RawAttention
+from pyhealth.interpret.methods.attingrad import AttInGrad
 from pyhealth.interpret.methods.basic_gradient import BasicGradientSaliencyMaps
 from pyhealth.interpret.methods.deeplift import DeepLift
 from pyhealth.interpret.methods.gim import GIM
@@ -15,12 +16,17 @@ from pyhealth.interpret.methods.tree_shap import TreeSHAP
 from pyhealth.interpret.methods.ensemble_crh import CrhEnsemble
 from pyhealth.interpret.methods.ensemble_avg import AvgEnsemble
 from pyhealth.interpret.methods.ensemble_var import VarEnsemble
+from pyhealth.interpret.methods.token_masking import (
+    optimize_token_mask,
+    token_masking_loss,
+)
 
 __all__ = [
     "BaseInterpreter",
     "CheferRelevance",
     "AttentionRollout",
     "RawAttention",
+    "AttInGrad",
     "DeepLift",
     "GIM",
     "GradCAM",
@@ -33,5 +39,7 @@ __all__ = [
     "TreeSHAP",
     "CrhEnsemble",
     "AvgEnsemble",
-    "VarEnsemble"
+    "VarEnsemble",
+    "optimize_token_mask",
+    "token_masking_loss",
 ]
