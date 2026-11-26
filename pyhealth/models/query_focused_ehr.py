@@ -69,6 +69,12 @@ class QueryFocusedEHRModel(BaseModel):
         The cache is held in memory, is specific to the current
         model instance, and does not persist across program runs.
         Use clear_embedding_cache() to reset cached embeddings.
+
+    Examples:
+        >>> from pyhealth.models import QueryFocusedEHRModel
+        >>> # Instantiate with an injected lightweight encoder or ClinicalBERT:
+        >>> # model = QueryFocusedEHRModel(dataset=sample_dataset, hidden_dim=64)
+        >>> # out = model(sentences=[["Fever noted."]], query=["Pneumonia"])
     """
 
     def __init__(

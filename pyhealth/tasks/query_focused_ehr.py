@@ -22,6 +22,12 @@ def parse_clinical_datetime(value) -> Optional[datetime]:
     """Parse a clinical timestamp without inventing missing values.
 
     Returns None for missing or invalid timestamps.
+    Examples:
+        >>> from pyhealth.tasks.query_focused_ehr import parse_clinical_datetime
+        >>> parse_clinical_datetime("2025-01-10T08:00:00").year
+        2025
+        >>> parse_clinical_datetime("") is None
+        True
     """
     if isinstance(value, datetime):
         return value
@@ -49,6 +55,11 @@ def normalize_icd9(code: str) -> str:
 
     Handles dotted and undotted representations, for example
     '415.19' and '41519'.
+
+    Examples:
+        >>> from pyhealth.tasks.query_focused_ehr import normalize_icd9
+        >>> normalize_icd9("415.19")
+        '41519'
     """
     if code is None:
         raise ValueError("ICD-9 code cannot be None.")
@@ -73,6 +84,11 @@ def split_clinical_sentences(text: str) -> List[str]:
         This lightweight rule-based splitter is suitable for
         baseline preprocessing. Clinical abbreviations and
         templated reports may require more advanced segmentation.
+    
+        Examples:
+        >>> from pyhealth.tasks.query_focused_ehr import split_clinical_sentences
+        >>> split_clinical_sentences("Fever noted. Chest X-ray clear.")
+        ['Fever noted.', 'Chest X-ray clear.']
     """
     if not isinstance(text, str):
         return []
@@ -147,6 +163,15 @@ class QueryFocusedEHRTask(BaseTask):
         "never_observed" uses the complete observed patient
         record to select negative examples and is intended
         for retrospective sample construction.
+
+    Examples:
+        >>> from pyhealth.tasks import QueryFocusedEHRTask
+        >>> task = QueryFocusedEHRTask(
+        ...     diagnosis_descriptions={"41519": "Pulmonary embolism"},
+        ...     history_days=90,
+        ... )
+        >>> task.task_name
+        'query_focused_ehr'
     """
 
     task_name: str = "query_focused_ehr"
