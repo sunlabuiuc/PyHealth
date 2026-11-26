@@ -1,0 +1,11 @@
+version: "1.0"
+tables:
+  tcga_rna_seq:
+    file_path: "tcga_rna_seq.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "cohort"
+      - "duration"
+      - "event"
+      - "embedding"

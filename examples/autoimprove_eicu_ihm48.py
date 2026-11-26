@@ -67,7 +67,9 @@ from pyhealth.autoimprove import (
     TRAIN_PARAMS,
     AutoImprover,
     ClaudeLLM,
+    GeminiLLM,
     LLMProposer,
+    OpenAILLM,
     Param,
     PipelineConfig,
     RandomProposer,
@@ -546,7 +548,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True, help="eICU demo folder")
     parser.add_argument("--view", choices=list(SPACES), default="tabular")
-    parser.add_argument("--llm", choices=["none", "claude"], default="none")
+    parser.add_argument(
+        "--llm", choices=["none", "claude", "openai", "gemini"], default="none"
+    )
     parser.add_argument("--agents", type=int, default=3)
     parser.add_argument("--cycles", type=int, default=6)
     parser.add_argument("--patience", type=int, default=3)
@@ -581,7 +585,10 @@ def main():
             print(f"  {name}: {error or 'ok'}")
         return
 
-    proposer = LLMProposer(ClaudeLLM()) if args.llm == "claude" else RandomProposer(0)
+    llms = {"claude": ClaudeLLM, "openai": OpenAILLM, "gemini": GeminiLLM}
+    proposer = (
+        LLMProposer(llms[args.llm]()) if args.llm != "none" else RandomProposer(0)
+    )
     improver = AutoImprover(
         train, val, proposer, baseline=BASELINES[args.view], space=space,
         metric="pr_auc", report_metrics=["roc_auc"], n_agents=args.agents,

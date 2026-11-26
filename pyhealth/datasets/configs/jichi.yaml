@@ -1,0 +1,13 @@
+version: "1.0"
+tables:
+  jichi:
+    file_path: "jichi-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "image_id"
+      - "path"
+      - "image_index"
+      - "eye"
+      - "davis_one"
+      - "davis_concatenated"

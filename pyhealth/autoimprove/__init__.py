@@ -9,6 +9,7 @@ selects the most interpretable one within noise of the best, and its report
 """
 
 from .evaluate import (
+    chance_fold_scores,
     check_models,
     describe_error,
     fold_parts,
@@ -34,9 +35,10 @@ from .improver import (
     paired_gain,
     select_simplest,
     select_trial,
+    signal_check,
 )
 from .knowledge import Document, Evidence, KnowledgeBase, parse_effect, pubmed_query
-from .llm import LLM, ClaudeLLM
+from .llm import LLM, ClaudeLLM, GeminiLLM, OpenAILLM
 from .proposers import (
     STRATEGIES,
     LLMProposer,
@@ -73,10 +75,12 @@ __all__ = [
     "EvidenceProposer",
     "FeatureSpace",
     "FeatureSpec",
+    "GeminiLLM",
     "ImproveResult",
     "KnowledgeBase",
     "LLMProposer",
     "ModelSpec",
+    "OpenAILLM",
     "Param",
     "PipelineConfig",
     "Proposer",
@@ -88,6 +92,7 @@ __all__ = [
     "Trial",
     "add_literature",
     "build_report",
+    "chance_fold_scores",
     "check_models",
     "config_diff",
     "describe_error",
@@ -105,6 +110,7 @@ __all__ = [
     "score",
     "select_simplest",
     "select_trial",
+    "signal_check",
     "train_pipeline",
     "unverified_numbers",
     "with_xgboost",

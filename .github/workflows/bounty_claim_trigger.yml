@@ -1,0 +1,38 @@
+name: Bounty Claim Trigger
+
+# Signals the Bounty Board workflow when a PR that claims a bounty opens, is
+# renamed, closes or reopens. It only runs a job (and so only triggers a
+# rebuild) when the PR title, or its previous title on a rename, looks like it
+# carries a [BTY-<id>] / [Bounty-<id>] tag.
+#
+# This workflow does nothing itself and needs no permissions, so it is safe to
+# run on pull requests from forks. Bounty Board listens for it through
+# workflow_run, which runs from the default branch with a write token.
+#
+# contains() is case-insensitive. The check is a loose prefilter: a stray match
+# costs one idempotent rebuild, and an odd spelling the full regex accepts
+# (e.g. "[ BTY-3]") is still picked up by the hourly schedule.
+
+on:
+  pull_request:
+    types: [opened, edited, closed, reopened]
+
+permissions: {}
+
+jobs:
+  signal:
+    # On `edited`, only a title change matters; body edits are ignored.
+    if: >-
+      (github.event.action != 'edited' || github.event.changes.title) &&
+      (contains(github.event.pull_request.title, '[bty') ||
+       contains(github.event.pull_request.title, '[bounty') ||
+       contains(github.event.changes.title.from, '[bty') ||
+       contains(github.event.changes.title.from, '[bounty'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report bounty claim change
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_ACTION: ${{ github.event.action }}
+        # quoted: an unquoted " #" would start a YAML comment and cut the command
+        run: 'echo "PR #$PR_NUMBER ($PR_ACTION) carries a bounty tag; Bounty Board will rebuild."'

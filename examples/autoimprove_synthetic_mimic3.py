@@ -25,7 +25,9 @@ import argparse
 from pyhealth.autoimprove import (
     AutoImprover,
     ClaudeLLM,
+    GeminiLLM,
     LLMProposer,
+    OpenAILLM,
     PipelineConfig,
     RandomProposer,
 )
@@ -37,7 +39,9 @@ SYNTHETIC_ROOT = "https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III"
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--llm", choices=["none", "claude"], default="none")
+    parser.add_argument(
+        "--llm", choices=["none", "claude", "openai", "gemini"], default="none"
+    )
     parser.add_argument("--agents", type=int, default=2)
     parser.add_argument("--cycles", type=int, default=3)
     parser.add_argument("--run-dir", default=None,
@@ -55,8 +59,9 @@ def main():
         split=PatientSplit(ratios=(0.6, 0.2, 0.2), seed=0),
     )
 
+    llms = {"claude": ClaudeLLM, "openai": OpenAILLM, "gemini": GeminiLLM}
     proposer = (
-        LLMProposer(ClaudeLLM()) if args.llm == "claude" else RandomProposer(0)
+        LLMProposer(llms[args.llm]()) if args.llm != "none" else RandomProposer(0)
     )
     improver = AutoImprover(
         train, val, proposer,

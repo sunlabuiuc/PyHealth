@@ -1,4 +1,4 @@
-"""Tests for SleepEDFDataset metadata and the SleepStagingSleepEDF task.
+"""Tests for SleepEDFDataset metadata and the Sleep EDF staging tasks.
 
 All data is synthetic. The subject spreadsheets (``*.xls``) are replaced by
 in-memory DataFrames, because reading ``.xls`` needs ``xlrd``, which PyHealth
@@ -14,11 +14,16 @@ from unittest.mock import patch
 import mne
 import numpy as np
 import pandas as pd
+import torch
 
+from pyhealth.datasets import create_sample_dataset
 from pyhealth.datasets.base_dataset import BaseDataset
 from pyhealth.datasets.sleepedf import SleepEDFDataset
 from pyhealth.tasks import sleep_staging_v2
-from pyhealth.tasks.sleep_staging_v2 import SleepStagingSleepEDF
+from pyhealth.tasks.sleep_staging_v2 import (
+    SleepStagingSequenceSleepEDF,
+    SleepStagingSleepEDF,
+)
 
 CASSETTE_SHEET = pd.DataFrame(
     {
@@ -176,20 +181,23 @@ TYPES = ["eeg", "eeg", "eog", "stim"]
 SFREQ = 100
 
 
-def _run_task(descriptions, chunk_duration=30.0):
-    """Run the task on one synthetic night scored with ``descriptions``.
+def _run_task(descriptions, chunk_duration=30.0, task=None, n_epochs=None):
+    """Run a task on one synthetic night scored with ``descriptions``.
 
-    Each description covers one 30 s epoch, in order.
+    Each description covers one 30 s epoch, in order. Every sample of epoch
+    ``i`` holds the value ``i``, so a test can tell which epoch a signal came
+    from. ``n_epochs`` shortens the recording below the scored epochs.
     """
-    n_epochs = len(descriptions)
+    n_epochs = len(descriptions) if n_epochs is None else n_epochs
+    values = np.repeat(np.arange(n_epochs, dtype=float), SFREQ * 30)
     raw = mne.io.RawArray(
-        np.zeros((len(CHANNELS), SFREQ * 30 * n_epochs)),
+        np.tile(values, (len(CHANNELS), 1)),
         mne.create_info(CHANNELS, SFREQ, TYPES),
         verbose="error",
     )
     annotations = mne.Annotations(
-        onset=[30.0 * i for i in range(n_epochs)],
-        duration=[30.0] * n_epochs,
+        onset=[30.0 * i for i in range(len(descriptions))],
+        duration=[30.0] * len(descriptions),
         description=list(descriptions),
     )
     event = SimpleNamespace(
@@ -206,7 +214,9 @@ def _run_task(descriptions, chunk_duration=30.0):
             sleep_staging_v2.mne, "read_annotations", return_value=annotations
         ),
     ):
-        return SleepStagingSleepEDF(chunk_duration=chunk_duration)(patient)
+        if task is None:
+            task = SleepStagingSleepEDF(chunk_duration=chunk_duration)
+        return task(patient)
 
 
 class TestSleepStagingSleepEDF(unittest.TestCase):
@@ -247,6 +257,76 @@ class TestSleepStagingSleepEDF(unittest.TestCase):
         samples = _run_task(["Sleep stage 2", "Sleep stage R"], chunk_duration=15.0)
         self.assertEqual([s["label"] for s in samples], [2, 2, 5, 5])
         self.assertEqual(samples[0]["signal"].shape, (len(CHANNELS), 15 * SFREQ))
+
+
+W, N1, N2, N3, N4, R = (f"Sleep stage {s}" for s in "W1234R")
+
+
+def _run_sequence(descriptions, n_epochs=None, **kwargs):
+    kwargs.setdefault("wake_edge_minutes", None)
+    task = SleepStagingSequenceSleepEDF(**kwargs)
+    return _run_task(descriptions, task=task, n_epochs=n_epochs)
+
+
+class TestSleepStagingSequenceSleepEDF(unittest.TestCase):
+    def test_windows_hold_aasm_codes_and_their_epochs(self):
+        samples = _run_sequence([W, N1, N2, N3, N4, R], seq_len=3)
+        self.assertEqual([s["label"].tolist() for s in samples], [[0, 1, 2], [3, 3, 4]])
+        first = samples[0]
+        self.assertEqual(first["signal"].shape, (3, 1, 30 * SFREQ))
+        self.assertEqual(first["signal"].dtype, np.float32)
+        self.assertEqual(first["label"].dtype, np.int64)
+        # Epoch i holds i volts, read out in microvolts: the second window is
+        # epochs 3-5.
+        self.assertEqual(samples[1]["signal"][:, 0, 0].tolist(), [3e6, 4e6, 5e6])
+        self.assertEqual([s["start"] for s in samples], [0.0, 90.0])
+
+    def test_windows_do_not_span_unscored_epochs(self):
+        samples = _run_sequence(
+            [N2, N2, "Sleep stage ?", N2, N2, "Movement time", N2, N2, N2],
+            seq_len=2,
+        )
+        starts = [(s["signal"][:, 0, 0] / 1e6).tolist() for s in samples]
+        # The run 6-8 gives one window; its last epoch is left over.
+        self.assertEqual(starts, [[0.0, 1.0], [3.0, 4.0], [6.0, 7.0]])
+
+    def test_stride_gives_overlapping_windows(self):
+        samples = _run_sequence([N2] * 4, seq_len=2, stride=1)
+        self.assertEqual(len(samples), 3)
+
+    def test_wake_is_trimmed_around_sleep(self):
+        # 2 min of wake on each side is kept: four epochs before N1, four after R.
+        night = [W] * 10 + [N1, N2, R] + [W] * 10
+        samples = _run_sequence(night, seq_len=1, wake_edge_minutes=2)
+        epochs = [int(s["signal"][0, 0, 0] / 1e6) for s in samples]
+        self.assertEqual(epochs, list(range(6, 17)))
+
+    def test_night_without_sleep_is_skipped_when_trimming(self):
+        self.assertEqual(_run_sequence([W] * 3, seq_len=1, wake_edge_minutes=30), [])
+
+    def test_epoch_past_the_end_of_the_recording_is_dropped(self):
+        samples = _run_sequence([N2, N2, N2], n_epochs=2, seq_len=1)
+        self.assertEqual(len(samples), 2)
+
+    def test_samples_load_with_long_labels(self):
+        samples = _run_sequence([W, N1, N2, N3, R, W], seq_len=3)
+        task = SleepStagingSequenceSleepEDF
+        dataset = create_sample_dataset(
+            samples=[
+                {k: s[k] for k in ("patient_id", "signal", "label")} for s in samples
+            ],
+            input_schema=task.input_schema,
+            output_schema=task.output_schema,
+        )
+        item = dataset[0]
+        self.assertEqual(item["label"].dtype, torch.long)
+        self.assertEqual(tuple(item["signal"].shape), (3, 1, 30 * SFREQ))
+
+    def test_rejects_bad_window_sizes(self):
+        with self.assertRaises(ValueError):
+            SleepStagingSequenceSleepEDF(seq_len=0)
+        with self.assertRaises(ValueError):
+            SleepStagingSequenceSleepEDF(stride=0)
 
 
 if __name__ == "__main__":
