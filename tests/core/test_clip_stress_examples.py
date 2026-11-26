@@ -12,11 +12,14 @@ from sklearn.metrics import average_precision_score, roc_auc_score
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "examples"))
 from clip_stress import build_parser, run
 from lifesnaps_stress_clip_stress import (
+    execute,
     experiment_identity,
     experiment_jobs,
+    job_path,
     parser,
     random_folds,
     subject_folds,
+    summarize,
 )
 from support2_mortality_clip_stress import (
     prepare_records,
@@ -135,6 +138,78 @@ class TestRecordedExperiments(unittest.TestCase):
         self.assertEqual(before, experiment_identity(args)[0])
         args.epochs += 1
         self.assertNotEqual(before, experiment_identity(args)[0])
+
+    def test_summarize_reports_mean_sd_and_paired_differences(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = parser().parse_args(
+                ["--output-dir", tmp, "--folds", "2", "--seeds", "0", "1"]
+            )
+            digest, _ = experiment_identity(args)
+            pretrain = f"tau-{args.temperature:g}"
+            # roc_auc per (seed, fold): pretraining beats supervised by 0.1 + 0.01*k
+            scores = {}
+            for k, (seed, fold) in enumerate([(0, 0), (0, 1), (1, 0), (1, 1)]):
+                scores[seed, fold, "supervised"] = (0.70 + 0.02 * k, 0.30 + 0.01 * k)
+                scores[seed, fold, pretrain] = (0.80 + 0.03 * k, 0.40)
+
+            def write(seed, fold, name, **changes):
+                roc, pr = scores[seed, fold, name]
+                record = {
+                    "complete": True, "experiment_id": digest, "recipe": name,
+                    "seed": seed, "fold": fold + 1,
+                    "results": {"test": {"roc_auc": roc, "pr_auc": pr}},
+                    **changes,
+                }
+                job_path(args, seed, fold, name).write_text(json.dumps(record))
+
+            jobs = experiment_jobs(args)
+            self.assertEqual(len(jobs), 8)
+            for seed, fold, name, _ in jobs:
+                write(seed, fold, name)
+            report = summarize(args)
+
+            self.assertEqual(report["runs"], 8)
+            for name in ("supervised", pretrain):
+                roc = [scores[s, f, name][0] for s in (0, 1) for f in (0, 1)]
+                stats = report["summary"][name]["roc_auc"]
+                self.assertAlmostEqual(stats["mean"], np.mean(roc))
+                self.assertAlmostEqual(stats["std"], np.std(roc, ddof=1))
+                self.assertEqual(stats["runs"], 4)
+            self.assertAlmostEqual(report["summary"][pretrain]["pr_auc"]["std"], 0.0)
+            paired = report["paired_against_supervised"]
+            self.assertEqual(list(paired), [pretrain])
+            np.testing.assert_allclose(
+                paired[pretrain]["roc_auc_differences"], [0.10, 0.11, 0.12, 0.13]
+            )
+            self.assertAlmostEqual(paired[pretrain]["mean"], 0.115)
+            saved = json.loads((Path(tmp) / "summary.json").read_text())
+            self.assertEqual(saved["experiment_id"], digest)
+
+            # a record from another configuration, or an unfinished one, is refused
+            for changes in ({"experiment_id": "other"}, {"complete": False}):
+                with self.subTest(changes=changes):
+                    write(1, 1, "supervised", **changes)
+                    with self.assertRaisesRegex(ValueError, "Incompatible or"):
+                        summarize(args)
+            write(1, 1, "supervised")
+            job_path(args, 1, 1, pretrain).unlink()
+            with self.assertRaises(FileNotFoundError):
+                summarize(args)
+
+    def test_resume_skips_finished_jobs_and_refuses_foreign_results(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = parser().parse_args(
+                ["--output-dir", tmp, "--folds", "2", "--seeds", "0"]
+            )
+            digest, _ = experiment_identity(args)
+            done = {"complete": True, "experiment_id": digest}
+            for seed, fold, name, _ in experiment_jobs(args):
+                job_path(args, seed, fold, name).write_text(json.dumps(done))
+            execute(args)  # every job is finished, so nothing is retrained
+            foreign = job_path(args, 0, 1, "supervised")
+            foreign.write_text(json.dumps({**done, "experiment_id": "other"}))
+            with self.assertRaisesRegex(ValueError, "Refusing to reuse"):
+                execute(args)
 
     def test_subject_fold_protocol_matches_every_subject_once(self):
         splits = subject_folds(np.arange(20), 5, 7)
