@@ -1,4 +1,5 @@
 from .base_task import BaseTask
+from .survival_time_support2 import SurvivalTimeSupport2 as SurvivalTimeSupport2
 from .task_card import (
     DIRECTIONS as DIRECTIONS,
     FeatureInfo as FeatureInfo,

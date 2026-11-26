@@ -85,6 +85,11 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+graft = [
+  "torchsort>=0.1.10",
+  "lifelines>=0.30.0",
+  "scikit-survival>=0.26.0",
+]
 imaging = [
   "pydicom>=3.0",
   "nibabel>=5.0",
