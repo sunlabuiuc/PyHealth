@@ -115,7 +115,7 @@ class TestECGJEPA(unittest.TestCase):
 
     def test_trainer(self):
         model = ECGJEPA(self.dataset, num_leads=3, **SMALL)
-        trainer = Trainer(model=model, metrics=["roc_auc_macro"])
+        trainer = Trainer(model=model, metrics=["roc_auc_macro"], enable_logging=False)
         loader = get_dataloader(self.dataset, batch_size=4, shuffle=True, seed=0)
         trainer.train(train_dataloader=loader, epochs=1)
         self.assertIn("roc_auc_macro", trainer.evaluate(loader))
