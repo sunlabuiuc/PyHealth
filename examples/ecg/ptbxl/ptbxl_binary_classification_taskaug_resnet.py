@@ -47,8 +47,9 @@ Findings (reference, original TaskAug code):
         STTC   0.8761   0.8619  0.8824  0.8547
         CD     0.8201   0.8294  0.8363  0.8260
 
-    K=2 is best or tied on MI, STTC and CD; HYP prefers K=1. TaskAug clearly
-    helps only on CD. Single seed, so small differences are within noise.
+    On MI the no-aug baseline is best and K=2 ties K=3 within noise; K=2 is
+    best on STTC and CD; HYP prefers K=1. TaskAug clearly helps only on CD.
+    Single seed, so small differences are within noise.
 
 Synthetic run (--synthetic --ablation, seed 42, 3 epochs, 48 train ECGs):
     Test scores on 32 random ECGs. This only checks that the pipeline runs

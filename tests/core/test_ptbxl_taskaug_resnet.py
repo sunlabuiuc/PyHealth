@@ -78,6 +78,29 @@ class TestPTBXLModels(unittest.TestCase):
             model.train()
             self.assertEqual(tuple(model(**batch)["y_prob"].shape), (4, 1))
     
+    def test_training_rejects_unsupported_length(self):
+        dataset = _make_dataset(length=1000)
+        batch = next(iter(get_dataloader(dataset, batch_size=4, shuffle=False)))
+        model = TaskAugResNet(dataset=dataset)
+        model.train()
+        with self.assertRaises(ValueError):
+            model(**batch)
+        model.eval()
+        self.assertEqual(tuple(model(**batch)["y_prob"].shape), (4, 1))
+
+    def test_training_mode_augments_input(self):
+        model = TaskAugResNet(dataset=self.dataset, k=2)
+        seen = []
+        model.encoder.register_forward_hook(
+            lambda module, args, out: seen.append(args[0].detach().clone())
+        )
+        torch.manual_seed(0)
+        model.train()
+        model(**self.batch)
+        model.eval()
+        model(**self.batch)
+        self.assertFalse(torch.allclose(seen[0], seen[1]))
+    
     def test_state_dict_round_trip(self):
         for k in (1, 2):
             source = TaskAugResNet(dataset=self.dataset, k=k).eval()

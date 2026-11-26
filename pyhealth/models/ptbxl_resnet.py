@@ -90,7 +90,8 @@ class PTBXLResNet(BaseModel):
     The model takes a 12-lead signal under the dataset's single input key and
     predicts the dataset's single label. Signals with 5000 samples (500 Hz)
     are first reduced to the 2496 samples used by the TaskAug experiments, so
-    this baseline sees the same input as :class:`TaskAugResNet`.
+    this baseline sees the same input as :class:`TaskAugResNet`. Use
+    ``PTBXLDataset(sampling_rate=500)`` for a fair comparison.
 
     Args:
         dataset (SampleDataset): Dataset with one tensor input of shape
@@ -159,6 +160,11 @@ class TaskAugResNet(PTBXLResNet):
         bilevel optimization, where the augmentation magnitudes are updated
         from a validation-set hypergradient. Here the magnitudes are ordinary
         parameters trained jointly with the network on the training loss.
+        Minimizing the training loss tends to shrink the magnitudes and favor
+        the weakest operations, so the policy can drift toward little or no
+        augmentation. In training mode the signal must be 500 Hz (5000
+        samples) or already 2496 samples long, otherwise ``ValueError`` is
+        raised.
 
     Args:
         dataset (SampleDataset): As for :class:`PTBXLResNet`.
@@ -193,6 +199,12 @@ class TaskAugResNet(PTBXLResNet):
         """
         x = kwargs[self.feature_keys[0]].to(self.device)
         x = _to_taskaug_length(x)
+        if self.training and x.shape[-1] != 2496:
+            raise ValueError(
+                "TaskAugResNet needs 500 Hz PTB-XL signals (5000 samples, "
+                "trimmed to 2496) in training mode, got length "
+                f"{x.shape[-1]}. Load the dataset with sampling_rate=500."
+            )
         y_true = kwargs[self.label_keys[0]].to(self.device)
         if self.training:
             # TaskAug conditions its magnitudes on integer class labels.
