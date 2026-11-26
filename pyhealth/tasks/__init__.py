@@ -46,6 +46,11 @@ from .chapman_shaoxing_classification import (
     ChapmanShaoxingSNOMEDClassification as ChapmanShaoxingSNOMEDClassification,
     ChapmanShaoxingSuperclassClassification as ChapmanShaoxingSuperclassClassification,
 )
+from .physionet2012_mortality import (
+    PhysioNet2012Mortality as PhysioNet2012Mortality,
+    physionet2012_mortality_statistics as physionet2012_mortality_statistics,
+    split_by_record_ids as split_by_record_ids,
+)
 from .physionet2012_forecasting import (
     PhysioNet2012Forecasting as PhysioNet2012Forecasting,
     physionet2012_benchmark_split as physionet2012_benchmark_split,
@@ -57,6 +62,11 @@ from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
 # __all__, and the PR lint gate flags F401 on newly added import lines.
 from .disease_progression_mimic4 import (
     DiseaseProgressionMIMIC4 as DiseaseProgressionMIMIC4,
+)
+from .delphi_trajectory import (
+    DelphiTrajectoryMEDS as DelphiTrajectoryMEDS,
+    DelphiTrajectoryMIMIC4 as DelphiTrajectoryMIMIC4,
+    DelphiTrajectoryUKB as DelphiTrajectoryUKB,
 )
 from .drug_recommendation import (
     DrugRecommendationEICU,
@@ -226,10 +236,12 @@ from .covid_blues_severity import (
     COVIDBLUESSeverityClassification as COVIDBLUESSeverityClassification,
 )
 from .sleep_staging_v2 import SleepStagingSleepEDF
+from .sleep_staging_nsrr import SleepStagingCardioRespiratory  # noqa: F401
 from .sleep_staging_isruc import SleepStagingISRUC as SleepStagingISRUC
 from .sleep_staging_isruc import (
     SleepStagingSequenceISRUC as SleepStagingSequenceISRUC,
 )
+from .sleep_staging_hmc import SleepStagingHMC as SleepStagingHMC
 from .temple_university_EEG_tasks import (
     EEGEventsTUEV,
     EEGAbnormalTUAB
@@ -274,6 +286,10 @@ from .knowrare_mimic4 import (
 from .value_set_completion import (
     ValueSetCompletion as ValueSetCompletion,
     build_retrieval_index as build_retrieval_index,
+)
+from .value_set_pair_classification import (
+    ValueSetPairClassification as ValueSetPairClassification,
+    build_hybrid_retrieval_index as build_hybrid_retrieval_index,
 )
 from .yaib_mimic3 import (
     YAIBAKIMIMIC3 as YAIBAKIMIMIC3,
