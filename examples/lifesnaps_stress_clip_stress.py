@@ -13,8 +13,8 @@ comparing the supervised multimodal network with contrastive pretraining
 followed by end-to-end fine-tuning. Use --fold-data-dir with --paper-budget,
 which applies Section 3.2.3: 300 supervised epochs; 300 pretraining and
 150 fine-tuning epochs; learning rate 0.001; batch size 512; a 3-layer, 4-head
-Transformer; the printed cosine contrastive objective (Eq. 1); all unlabeled
-training windows for pretraining; and seeds 0-3.
+Transformer; the printed cosine contrastive objective (Eq. 1); every
+training-fold window, with its label removed, for pretraining; and seeds 0-3.
 
 The default paper_random protocol is the public code's StratifiedKFold over all
 windows (shuffled, random_state 42, stratified by stressed/relaxed/unlabeled),

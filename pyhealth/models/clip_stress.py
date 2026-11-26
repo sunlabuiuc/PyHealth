@@ -241,7 +241,9 @@ class CLIPStress(BaseModel):
 
         Notes:
             Create a new Trainer/optimizer after switching stages. A linear
-            probe keeps encoder dropout disabled even after ``model.train()``.
+            probe freezes encoder parameters only: in ``model.train()``
+            dropout stays active and BatchNorm buffers keep updating, as in
+            the reference loop; ``model.eval()`` disables both.
             For an entirely unlabeled model, use ``load_pretrained_encoder``
             on a new model built on the labeled dataset.
         """
