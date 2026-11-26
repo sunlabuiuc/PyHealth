@@ -15,8 +15,9 @@ are also used to rank sentences for extractive summarization.
 
 The model supports frozen ClinicalBERT embeddings with optional
 in-memory LRU caching, as well as end-to-end encoder fine-tuning.
-Caching reduces repeated text encoding during training and is
-disabled when fine-tuning the encoder.
+Caching reduces repeated text encoding when ``freeze_encoder=True``.
+Setting ``cache_embeddings=True`` with ``freeze_encoder=False``
+raises a ``ValueError`` because caching requires a frozen encoder.
 
 See ``examples/mimic3_query_focused_ehr_attention.py`` for an
 implementation demonstrating MIMIC-III preprocessing, training,
