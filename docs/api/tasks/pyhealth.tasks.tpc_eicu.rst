@@ -40,23 +40,21 @@ and normalization are handled by the configured YAIB preprocessing
 pipeline.
 
 
-Extension points
-----------------
+Implementation summary
+----------------------
 
 * ``pyhealth/tasks/tpc_eicu.py`` implements hourly remaining-LOS
   preprocessing, deterministic observation removal, and optional
   decay features.
 * ``tests/core/test_tpc_eicu.py`` covers cohort selection, static
-  features, LOS labels, observation removal, decay, and temporal
-  consistency. Some hourly aggregation, forward-fill, and combined
-  preprocessing tests remain skipped pending verification.
-* ``examples/eicu_hourly_los_lstm.py`` is the model-training and
-  missingness-ablation integration point. Complete and validate
-  model training, patient-disjoint splits, evaluation metrics,
-  and the two-training by three-test missingness study.
-* The integration checkpoint currently validates synthetic
-  CSV-to-task outputs. It does not replace actual model training
-  or final experimental evaluation.
+  features, LOS labels, observation removal, decay, forward-fill
+  integration, and temporal consistency using synthetic patients.
+* ``examples/eicu_hourly_los_lstm.py`` implements end-to-end
+  ``RNN_V2(rnn_type="LSTM")`` training, all six paper metrics
+  (MAD, MAPE, MSE, MSLE, R^2, and Cohen's linear weighted Kappa),
+  and the 2x3 missingness robustness ablation study.
+* ``tests/integration/test_tpc_checkpoint.py`` provides an opt-in
+  synthetic CSV-to-task loader check.
 
 Runnable validation
 -------------------
@@ -67,7 +65,9 @@ From a repository checkout in Python 3.12 or 3.13::
     python examples/tpc_support/generate_synthetic.py /tmp/tpc_synthetic
     python -m examples.tpc_support.checkpoint --output /tmp/tpc_checkpoint.json
     python -m pytest tests/core/test_tpc_eicu.py -q --durations=5
-    PYHEALTH_RUN_TPC_INTEGRATION=1 python -m pytest tests/integration/test_tpc_checkpoint.py -q
+    PYHEALTH_RUN_TPC_INTEGRATION=1 python -m pytest \
+        tests/integration/test_tpc_checkpoint.py -q
+    python examples/eicu_hourly_los_lstm.py --synthetic --epochs 2
 
 All seven generated CSVs use invented records across five patients. The
 checkpoint verifies cohort selection, static values, aggregated measurements

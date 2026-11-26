@@ -26,7 +26,7 @@ import numpy as np
 import pytest
 
 from pyhealth.tasks import TPCLengthOfStayEICU
-from tests.core.tpc_fixtures import _patient, _labels, _lab
+from tests.core.tpc_fixtures import _lab, _labels, _patient
 
 
 @pytest.mark.parametrize(
@@ -129,7 +129,6 @@ def test_invalid_rate(rate):
         TPCLengthOfStayEICU(missing_rate=rate)
 
 
-@pytest.mark.skip(reason="Pending verification of hourly aggregation semantics")
 def test_hourly_measurements_and_missing_data():
     """Check hourly lab aggregation and masking."""
     task = TPCLengthOfStayEICU()
@@ -158,7 +157,6 @@ def test_hourly_measurements_and_missing_data():
     assert masked["static"] == sample["static"]
 
 
-@pytest.mark.skip(reason="Pending verification of processor forward-fill integration")
 def test_forward_fill_after_removal():
     """Check forward-fill behavior after missingness removal."""
     from pyhealth.processors import JaggedFeatureProcessor
@@ -290,7 +288,7 @@ def test_stays_are_isolated():
 def test_empty_patient():
     """Return no samples for a patient without admission records."""
     from pyhealth.data import Patient
-    from tests.core.tpc_fixtures import _frame, _event
+    from tests.core.tpc_fixtures import _event, _frame
 
     patient = Patient(
         patient_id="empty",
@@ -304,7 +302,6 @@ def test_empty_patient():
     "rate",
     [0, 0.1, 0.2, 1],
 )
-@pytest.mark.skip(reason="Pending verification of combined processor integration")
 def test_combined_mask_fill_and_decay(rate):
     """Check masking, forward-fill, and decay together."""
     from pyhealth.processors import JaggedFeatureProcessor

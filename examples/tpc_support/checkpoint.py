@@ -13,16 +13,17 @@ Paper URL:
 https://arxiv.org/abs/2007.09483
 """
 
-
 """Synthetic CSV-to-task checkpoint for cohort, static features and labels."""
 
-from pathlib import Path
 import json
 import tempfile
+from pathlib import Path
+
 import numpy as np
+
+from examples.tpc_support.generate_synthetic import TABLES, generate
 from pyhealth.datasets import eICUDataset
 from pyhealth.tasks import TPCLengthOfStayEICU
-from examples.tpc_support.generate_synthetic import generate, TABLES
 
 
 def run(root: Path) -> dict:
@@ -71,16 +72,15 @@ def run(root: Path) -> dict:
     assert samples[103]["los"]["values"][-1] == [64.5]
     assert samples[103]["dynamic"]["values"][0, names.index("hr")] == 100
     assert np.isnan(samples[105]["static"]["values"][0][2])
-    # TODO(A): downstream model validation belongs in the training
-    # example once preprocessing and the agreed input interface are complete.
+    # Downstream model training and ablation live in examples/eicu_hourly_los_lstm.py.
     return {
         "status": "passed",
         "scope": "CSV loading, cohort, static features, hourly labels",
         "synthetic_patients": 5,
         "included_stays": [101, 103, 105],
         "excluded_stays": [102, 104],
-        "model_training": "pending training integration",
-        "missingness_and_decay": "pending preprocessing integration",
+        "model_training": "implemented in examples/eicu_hourly_los_lstm.py",
+        "missingness_and_decay": "implemented in TPCLengthOfStayEICU",
     }
 
 

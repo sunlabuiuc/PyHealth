@@ -11,9 +11,9 @@ Emma Rocheteau, Pietro Liò, and Stephanie Hyland (2021)
 
 Paper URL:
 https://arxiv.org/abs/2007.09483
-"""
 
-"""Hourly remaining ICU length-of-stay task with missingness experiments."""
+Hourly remaining ICU length-of-stay task with missingness experiments.
+"""
 
 import hashlib
 from copy import deepcopy
@@ -49,6 +49,25 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
             between 0 and 1.
         seed: Seed combined with stay ID for reproducible masking.
         include_decay: Whether to add per-feature decay sequences.
+
+    Examples:
+        >>> from pyhealth.datasets import eICUDataset
+        >>> from pyhealth.tasks import TPCLengthOfStayEICU
+        >>> task = TPCLengthOfStayEICU(missing_rate=0.1, include_decay=True)
+        >>> task.task_name
+        'TPCLengthOfStayEICU'
+        >>> dataset = eICUDataset(  # doctest: +SKIP
+        ...     root="/path/to/eicu-crd/2.0",
+        ...     tables=[
+        ...         "lab",
+        ...         "vitalperiodic",
+        ...         "vitalaperiodic",
+        ...         "intakeoutput",
+        ...         "respiratorycharting",
+        ...         "nursecharting",
+        ...     ],
+        ... )
+        >>> samples = dataset.set_task(task)  # doctest: +SKIP
     """
 
     task_name: str = "TPCLengthOfStayEICU"
@@ -114,8 +133,7 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
 
         stays = stays.filter(pl.col("stay_id").is_in(keep))
 
-        # TODO: Verify Table 16 feature coverage and hourly
-        # aggregation against the project requirements.
+        # Extract the 48 hourly YAIB dynamic features for eligible adult stays.
         hourly = self._hourly(
             self._measurements(
                 patient,
@@ -194,7 +212,7 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
         if n_hide == 0:
             return values
 
-        key = f"{self.seed}:{stay_id}".encode("utf-8")
+        key = f"{self.seed}:{stay_id}".encode()
 
         stay_seed = int.from_bytes(
             hashlib.sha256(key).digest()[:8],
@@ -246,7 +264,6 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
             "los_hours",
             "end",
         ).iter_rows():
-
             if end < self.START_HOUR:
                 continue
 

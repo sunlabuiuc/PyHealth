@@ -18,6 +18,7 @@ https://arxiv.org/abs/2007.09483
 
 import csv
 from pathlib import Path
+
 import yaml
 
 TABLES = [

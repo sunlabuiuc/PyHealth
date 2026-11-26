@@ -17,8 +17,10 @@ https://arxiv.org/abs/2007.09483
 """Small synthetic eICU records; adapted from YAIB regression fixtures."""
 
 from pathlib import Path
+
 import polars as pl
 import yaml
+
 from pyhealth.data import Patient
 
 # Every column of the eICU config, as in the dataset's event dataframe.

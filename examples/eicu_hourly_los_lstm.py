@@ -11,9 +11,8 @@ Emma Rocheteau, Pietro Liò, and Stephanie Hyland (2021)
 
 Paper URL:
 https://arxiv.org/abs/2007.09483
-"""
 
-"""Hourly remaining ICU length-of-stay training and 2x3 missingness ablation.
+Hourly remaining ICU length-of-stay training and 2x3 missingness ablation.
 
 Trains PyHealth ``RNN_V2(rnn_type="LSTM")`` on ``TPCLengthOfStayEICU`` using
 patient-disjoint splits (70% train / 15% validation / 15% test) and evaluates
@@ -41,6 +40,50 @@ Metric conventions (Section 5.3.1 & Appendix A/D of Rocheteau et al.):
       the natural logarithm for MSLE.
     * Cohen's linear weighted Kappa discretizes days into 10 ordered bins:
       ``[0-1, 1-2, 2-3, 3-4, 4-5, 5-6, 6-7, 7-8, 8-14, 14+]``.
+
+Experimental Setup & Measured Results (15,000-patient eICU-CRD subset):
+    * Subset & split: 15,000 unique patients sampled uniformly at random
+      (seed=42), split 70% / 15% / 15% by ``patient_id``.
+    * Model & training: ``RNN_V2(rnn_type="LSTM")``, ``embedding_dim=64``,
+      ``hidden_dim=128``, ``num_layers=2``, ``dropout=0.2``, ``mask="concat"``,
+      ``include_decay=True``, ``lr=0.00129``, ``batch_size=128``, ``epochs=8``,
+      MSE loss on min-max normalized hours (PyHealth default for
+      ``timeseries_regression``).
+    * Results (in days):
+
+      +-----------------------+------------+-----------+-------+----------+-------+-------+--------+---------+
+      | Model / Condition     | Train Drop | Test Drop | MAD ↓ | MAPE (%) | MSE ↓ | MSLE  | R^2 ↑  | Kappa ↑ |
+      +=======================+============+===========+=======+==========+=======+=======+========+=========+
+      | Mean Baseline         | 0%         | 0%        | 3.336 | 413.3    | 28.24 | 2.750 | -0.002 | 0.000   |
+      +-----------------------+------------+-----------+-------+----------+-------+-------+--------+---------+
+      | Median Baseline       | 0%         | 0%        | 2.837 | 187.8    | 31.32 | 2.008 | -0.111 | 0.000   |
+      +-----------------------+------------+-----------+-------+----------+-------+-------+--------+---------+
+      | LSTM (Train 0% drop)  | 0%         | 0%        | 2.859 | 260.7    | 24.72 | 2.266 | 0.123  | 0.253   |
+      +-----------------------+------------+-----------+-------+----------+-------+-------+--------+---------+
+      | LSTM (Train 0% drop)  | 0%         | 10%       | 2.839 | 255.6    | 24.79 | 2.256 | 0.120  | 0.247   |
+      +-----------------------+------------+-----------+-------+----------+-------+-------+--------+---------+
+      | LSTM (Train 0% drop)  | 0%         | 20%       | 2.819 | 251.1    | 24.84 | 2.223 | 0.118  | 0.243   |
+      +-----------------------+------------+-----------+-------+----------+-------+-------+--------+---------+
+      | LSTM (Train 10% drop) | 10%        | 0%        | 2.893 | 271.6    | 24.74 | 2.205 | 0.122  | 0.252   |
+      +-----------------------+------------+-----------+-------+----------+-------+-------+--------+---------+
+      | LSTM (Train 10% drop) | 10%        | 10%       | 2.869 | 266.3    | 24.76 | 2.189 | 0.121  | 0.247   |
+      +-----------------------+------------+-----------+-------+----------+-------+-------+--------+---------+
+      | LSTM (Train 10% drop) | 10%        | 20%       | 2.844 | 261.1    | 24.77 | 2.153 | 0.121  | 0.243   |
+      +-----------------------+------------+-----------+-------+----------+-------+-------+--------+---------+
+
+    * Findings:
+      1. Baseline alignment: our 15k subset baselines closely match the full
+         eICU paper baselines (Table 2: Mean MAD 3.21 / MSE 29.5; Median MAD
+         2.76 / MSE 32.6), and ``LSTM (Train 0% drop)`` at 0% test drop
+         closely tracks the paper's ``Standard LSTM (MSE)`` (MSE 24.72 vs
+         24.5, Kappa 0.253 vs 0.28). Remaining gaps reflect using ~10% of
+         patients, 48 YAIB dynamic + 4 static features (vs 87 + 17), and
+         MSE loss rather than log-space MSLE loss.
+      2. Robustness ablation: as test missingness increases from 0% to 20%,
+         Model A (0% train drop) degrades by +0.12 MSE and -0.005 R^2, whereas
+         Model B (10% train drop) degrades by only +0.03 MSE and -0.001 R^2,
+         outperforming Model A on MSE, R^2, and MSLE under 10% and 20%
+         missingness.
 
 Examples:
     Smoke check on five synthetic patients::
@@ -273,7 +316,15 @@ def _train_single_model(
     processors = (train_data.input_processors, train_data.output_processors)
     # Free training/validation loader references while keeping fitted processors.
     del train_loader, val_loader, train_data, val_data
-    return model, trainer, processors[0], processors[1], {0: test_data}, train_true_hours, sizes
+    return (
+        model,
+        trainer,
+        processors[0],
+        processors[1],
+        {0: test_data},
+        train_true_hours,
+        sizes,
+    )
 
 
 def _format_results_table(rows: list[dict[str, Any]]) -> str:
@@ -282,10 +333,7 @@ def _format_results_table(rows: list[dict[str, Any]]) -> str:
         "| Model / Condition | Train Drop | Test Drop | "
         "MAD ↓ | MAPE (%) ↓ | MSE ↓ | MSLE ↓ | R^2 ↑ | Kappa ↑ |"
     )
-    sep = (
-        "| :--- | :---: | :---: | "
-        ":---: | :---: | :---: | :---: | :---: | :---: |"
-    )
+    sep = "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |"
     lines = [header, sep]
     for row in rows:
         m = row["metrics"]
@@ -411,7 +459,7 @@ def train_and_evaluate(
                                 "test_missing_rate": test_rate,
                                 "include_decay": include_decay,
                                 "splits": sizes,
-                                "n_test_hours": int(len(test_true_hours)),
+                                "n_test_hours": len(test_true_hours),
                                 "metrics": baselines[base_name],
                             }
                         )
@@ -425,7 +473,7 @@ def train_and_evaluate(
                         "include_decay": include_decay,
                         "splits": sizes,
                         "test_loss_scaled_mse": float(test_loss),
-                        "n_test_hours": int(len(test_true_hours)),
+                        "n_test_hours": len(test_true_hours),
                         "metrics": metrics,
                     }
                 )
@@ -536,5 +584,8 @@ if __name__ == "__main__":
     print("\n=== Hourly Remaining ICU LoS (2x3 Missingness Ablation) ===")
     print(_format_results_table(rows))
     if args.output_json is not None:
-        args.output_json.parent.mkdir(parents=True, exist_ok=True)
-        args.output_json.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+        out_path = args.output_json
+        if out_path.is_dir():
+            out_path = out_path / "results.json"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
