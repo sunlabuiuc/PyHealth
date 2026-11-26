@@ -44,6 +44,7 @@ from .sequence_embedding import (
     SequenceEmbeddingModel as SequenceEmbeddingModel,
 )
 from .armr import ARMR as ARMR
+from .ga2m import GA2M as GA2M
 from .gamenet import GAMENet, GAMENetLayer
 from .jamba_ehr import JambaEHR, JambaLayer
 from .joint_seq_image import (

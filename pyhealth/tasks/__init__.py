@@ -102,6 +102,9 @@ from .ehr_text_serialization import (
 from .in_hospital_mortality_meds import (
     InHospitalMortalityMEDS as InHospitalMortalityMEDS,
 )
+from .in_hospital_mortality_48h_mimic3 import (
+    InHospitalMortality48hMIMIC3 as InHospitalMortality48hMIMIC3,
+)
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
 from .kits23_classification import (
     KiTS23MalignancyClassification as KiTS23MalignancyClassification,
