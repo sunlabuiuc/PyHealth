@@ -27,7 +27,8 @@ Challenge 2020 or 2021 (``cpsc_2018``, ``georgia``, ``ptb-xl``) for
 
 Usage::
 
-    # A few minutes: the first 1,000 recordings of each dataset, tiny models, one epoch.
+    # A few minutes: dev mode (1,000 patients per dataset object, so PTB-XL, CPSC and
+    # Georgia share one limit and Chapman-Shaoxing has its own), tiny models, one epoch.
     python examples/ecg/climb_ecg_benchmark.py --root .../training \\
         --chapman-root .../training/chapman_shaoxing --tiny
 
@@ -198,7 +199,7 @@ def main() -> None:
     parser.add_argument("--max-hours", type=float, default=None, help="Stop training after this.")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", default=None)
-    parser.add_argument("--tiny", action="store_true", help="Smoke test: 1,000 records per dataset.")
+    parser.add_argument("--tiny", action="store_true", help="Smoke test: dev mode (1,000 patients per dataset object), tiny models, one epoch.")
     args = parser.parse_args()
     torch.manual_seed(args.seed)
     device = args.device or (

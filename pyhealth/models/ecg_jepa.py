@@ -208,6 +208,8 @@ class ECGJEPAEncoder(nn.Module):
         )
         if len(index) != n_leads:
             raise ValueError(f"x has {n_leads} leads but {len(index)} were named.")
+        if index.min() < 0 or index.max() >= self.num_leads:
+            raise ValueError(f"leads must be rows 0..{self.num_leads - 1} of the grid, got {list(leads)}.")
         tokens = (index[:, None] * self.num_patches + torch.arange(self.num_patches, device=x.device)).reshape(-1)
         pos = self.pos_embed[tokens]
         mask = self.attention_mask[tokens][:, tokens]
@@ -282,7 +284,11 @@ class ECGJEPA(BaseModel):
         self.label_key = self.label_keys[0]
         n_leads = int(torch.as_tensor(dataset[0][feature_key]).shape[0])
         self.lead_indices = list(range(n_leads)) if lead_indices is None else list(lead_indices)
-        if len(self.lead_indices) != n_leads or max(self.lead_indices) >= num_leads:
+        if (
+            len(self.lead_indices) != n_leads
+            or min(self.lead_indices) < 0
+            or max(self.lead_indices) >= num_leads
+        ):
             raise ValueError(
                 f"The signal has {n_leads} leads; lead_indices must name {n_leads} "
                 f"rows of the {num_leads}-lead grid, got {self.lead_indices}."

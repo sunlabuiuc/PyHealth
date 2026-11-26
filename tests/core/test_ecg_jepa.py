@@ -67,6 +67,9 @@ class TestParts(unittest.TestCase):
             encoder(torch.randn(2, 3, 21))
         with self.assertRaises(ValueError):
             encoder(torch.randn(2, 2, 20), leads=[0])
+        for leads in ([-1, 0], [0, 3]):
+            with self.subTest(leads=leads), self.assertRaises(ValueError):
+                encoder(torch.randn(2, 2, 20), leads=leads)
 
 
 class TestECGJEPA(unittest.TestCase):
@@ -125,6 +128,8 @@ class TestECGJEPA(unittest.TestCase):
             ECGJEPA(self.dataset, num_leads=2, **SMALL)  # 3 leads, 2-lead grid
         with self.assertRaises(ValueError):
             ECGJEPA(self.dataset, num_leads=8, lead_indices=[0, 1], **SMALL)
+        with self.assertRaises(ValueError):
+            ECGJEPA(self.dataset, num_leads=8, lead_indices=[-1, 0, 1], **SMALL)
         two_fields = create_sample_dataset(
             [{"patient_id": str(i), "signal": torch.randn(3, 20), "other": torch.randn(3, 20),
               "label": ["a"]} for i in range(2)],
