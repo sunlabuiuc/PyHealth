@@ -9,7 +9,7 @@ gradients along a path from a baseline to the actual input. This helps identify 
 (e.g., diagnosis codes, lab values) most influenced a model's prediction.
 
 For a complete working example, see:
-``examples/integrated_gradients_mortality_mimic4_stagenet.py``
+``examples/interpretability/integrated_gradients_mortality_mimic4_stagenet.py``
 
 API Reference
 -------------

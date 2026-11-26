@@ -1,0 +1,15 @@
+version: "1.0"
+tables:
+  images:
+    file_path: "brain-tumor-mri-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "record_id"
+      - "image_path"
+      - "split"
+      - "label"
+      - "content_md5"
+      - "duplicate_count"
+      - "cross_split_duplicate"
+      - "fold"

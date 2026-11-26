@@ -23,6 +23,7 @@ from pyhealth.trainer import get_metrics_fn
 
 from .evaluate import (
     MAX_LABEL_SCAN,
+    chance_fold_scores,
     check_models,
     describe_error,
     fold_parts,
@@ -313,6 +314,10 @@ class AutoImprover:
         suspicion_auc: A new feature whose ROC-AUC alone exceeds this (or
             is below 1 minus it) is flagged as possible leakage and not
             accepted.
+        min_events_per_fold: With ``cv_folds`` on a binary task, warn and
+            raise a ``few_events`` flag when a fold has fewer positive
+            samples than this. With so few events one lucky fold can carry a
+            trial's whole gain, so the search's gains are unconfirmed.
 
     Examples:
         >>> from pyhealth.autoimprove import (AutoImprover, ClaudeLLM,
@@ -361,6 +366,7 @@ class AutoImprover:
         prune: bool = True,
         early_stop: float | None = None,
         suspicion_auc: float = 0.95,
+        min_events_per_fold: int = 10,
     ):
         if features is not None and not cv_folds:
             raise ValueError("feature search needs cv_folds")
@@ -384,6 +390,7 @@ class AutoImprover:
         self._results: dict[str, Any] = {}
         self.lessons_path = lessons_path
         self.cv_folds = cv_folds
+        self.min_events_per_fold = min_events_per_fold
         self.promote_se = promote_se if cv_folds else None
         self.one_se = one_se
         if self.promote_se is not None and baseline is None:
@@ -487,7 +494,48 @@ class AutoImprover:
             self.confirm()
             if self.prune_enabled and self.features is not None:
                 self.prune()
+        self._check_signal()
         return self.result()
+
+    def _check_signal(self) -> None:
+        """Compares the selection and baseline with chance (binary CV only).
+
+        Saves ``signal.json``, read by :meth:`flags` and :meth:`report`, and
+        warns when the gains may not reflect any signal in the inputs.
+        """
+        # A signal.json from an earlier run in this run_dir no longer applies.
+        self._results.pop("signal.json", None)
+        if self.run_dir and os.path.exists(os.path.join(self.run_dir, "signal.json")):
+            os.remove(os.path.join(self.run_dir, "signal.json"))
+        best = self.result().best
+        if self.mode != "binary" or self.folds is None or best is None:
+            return
+        if len(self.train_dataset) > MAX_LABEL_SCAN:
+            # Reading every label would load every training sample.
+            logger.info("Skipped the chance check: more than %d training samples.",
+                        MAX_LABEL_SCAN)
+            return
+        base = next((t for t in self.trials
+                     if t.agent == "baseline" and t.fold_scores), None)
+        folds, selected = self.folds, best.fold_scores
+        base_scores = base.fold_scores if base else None
+        if best.trial_id in self.confirmed and (
+            base is None or base.trial_id in self.confirmed
+        ):
+            # Compare on the confirmation folds: fresh scores for both, and
+            # chance on the same partition.
+            folds = patient_folds(self.train_dataset, len(self.folds), self.seed + 1)
+            selected = self.confirmed[best.trial_id]
+            base_scores = self.confirmed[base.trial_id] if base else None
+        chance = chance_fold_scores(self._labels(), folds, self.metric)
+        if chance is None or not self.maximize:
+            return
+        check = signal_check(chance, selected, base_scores, self.metric)
+        if check is None:
+            return
+        self._save_result("signal.json", check, str)
+        if check["no_signal"]:
+            logger.warning("No signal check: %s", check["detail"])
 
     def _cycle_kind(self, cycle: int) -> str:
         if self.features is None:
@@ -533,7 +581,19 @@ class AutoImprover:
         self._fingerprint = space_fingerprint(self.space, self.train_dataset)
 
     def _warn_if_small_validation(self, min_positives: int = 30) -> None:
-        if self.mode != "binary" or self.cv_folds:
+        if self.mode != "binary":
+            return
+        if self.cv_folds:
+            events = self._fold_events()
+            if events and min(events) < self.min_events_per_fold:
+                logger.warning(
+                    "The %d folds have %s positive samples. With fewer than %d "
+                    "per fold, one lucky fold can carry a trial's whole gain: "
+                    "treat the search's gains as unconfirmed until "
+                    "evaluate_on_test (or more events) supports them.",
+                    len(events), ", ".join(map(str, events)),
+                    self.min_events_per_fold,
+                )
             return
         positives = _positive_count(self.val_dataset)
         if positives is not None and positives < min_positives:
@@ -544,6 +604,14 @@ class AutoImprover:
                 "leaderboard.",
                 positives,
             )
+
+    def _fold_events(self) -> list[int] | None:
+        """Positive samples in each CV fold (binary tasks with CV only)."""
+        if (self.mode != "binary" or not self.folds
+                or len(self.train_dataset) > MAX_LABEL_SCAN):
+            return None
+        labels = self._labels()
+        return [int((labels[fold] > 0.5).sum()) for fold in self.folds]
 
     def result(self) -> ImproveResult:
         """The current state as an :class:`ImproveResult`.
@@ -669,7 +737,8 @@ class AutoImprover:
                 continue
             new = [s for s in specs if s.name not in have and s.name not in tried]
             if not new:
-                feedback = "every feature in your last proposal was already tried"
+                feedback = ("every feature in your last proposal was already tried ("
+                            + ", ".join(s.name for s in specs) + "); propose new ones")
                 continue
             leaks = {k: v for k, v in self.features.future_blind(
                 new, self.train_dataset).items() if v}
@@ -1008,6 +1077,7 @@ class AutoImprover:
             accepted=self._accepted(),
             feature_trials=[t for t in self.trials if t.added][-12:],
             card=card,
+            tried_features=sorted({n for t in self.trials for n in t.added}),
         )
 
     def _best_score(self) -> float | None:
@@ -1311,9 +1381,10 @@ class AutoImprover:
         :meth:`evaluate_on_test` results (kept in memory, or read from
         ``run_dir`` when resuming a saved run): a missing task card, a top feature with no
         entry in the card's dictionary, a learned effect opposite to the
-        expected direction, poor calibration, and a large gap between
-        subgroups. Each flag carries the decision recorded with
-        :meth:`approve`, if any.
+        expected direction, poor calibration, a large gap between
+        subgroups, and (binary tasks with ``cv_folds``) a baseline or
+        selection that does not beat a chance-level ranking. Each flag
+        carries the decision recorded with :meth:`approve`, if any.
 
         Examples:
             >>> for flag in improver.flags():  # doctest: +SKIP
@@ -1331,7 +1402,10 @@ class AutoImprover:
             {**flag, "review": review.get(flag["id"])}
             for flag in flags_for(self.task_card, self._read_json("explain.json"),
                                   self._read_json("test.json"), suspicious,
-                                  features=best.features if best else ())
+                                  features=best.features if best else (),
+                                  fold_events=self._fold_events(),
+                                  min_events=self.min_events_per_fold,
+                                  signal=self._read_json("signal.json"))
         ]
 
     def _held_back(self, best: Trial | None) -> set[str]:
@@ -1417,7 +1491,9 @@ class AutoImprover:
             card=self.task_card, explanation=self._read_json("explain.json"),
             review=self._read_json("review.json") or {},
             confirmed=self.confirmed, pruning=self._read_json("prune.json"),
-            confirm_se=self.confirm_se,
+            confirm_se=self.confirm_se, fold_events=self._fold_events(),
+            min_events=self.min_events_per_fold,
+            signal=self._read_json("signal.json"),
         )
         if path is None and self.run_dir:
             path = os.path.join(self.run_dir, "report.html")
@@ -1536,6 +1612,8 @@ class AutoImprover:
             "one_se": self.one_se, "seed": self.seed,
             "models": sorted(self.space.models), "rule": self.selection_rule(),
             "dropped_models": self.dropped_models, "confirm_se": self.confirm_se,
+            "fold_events": self._fold_events(),
+            "min_events_per_fold": self.min_events_per_fold,
         }
         with open(os.path.join(self.run_dir, "run.json"), "w") as f:
             json.dump(settings, f, indent=1)
@@ -1621,6 +1699,67 @@ def paired_gain(
         diff = -diff
     se = float(diff.std(ddof=1) / math.sqrt(len(diff))) if len(diff) > 1 else math.inf
     return round(float(diff.mean()), 12), round(se, 12)
+
+
+def signal_check(
+    chance: Sequence[float],
+    selected: Sequence[float],
+    baseline: Sequence[float] | None = None,
+    metric: str = "",
+) -> dict[str, Any] | None:
+    """Compares the selection and the baseline with a chance-level ranking.
+
+    A gain over the baseline is only evidence of signal if the baseline
+    itself beats chance: with labels the inputs cannot predict, a baseline
+    can score below chance and any model that merely reaches chance then
+    looks like an improvement. Each comparison is paired over the folds;
+    ``no_signal`` is set when the baseline or the selection is not above
+    chance by more than one standard error.
+
+    Args:
+        chance: Chance-level score per fold (:func:`chance_fold_scores`).
+        selected: The selected trial's fold scores.
+        baseline: The baseline's fold scores, if a baseline ran.
+        metric: The metric name, for the message.
+
+    Returns:
+        ``{"metric", "chance", "selected": {"gain", "se"}, "baseline":
+        {"gain", "se"} or None, "no_signal", "detail"}``, or ``None`` when
+        the fold scores do not line up with ``chance``.
+
+    Examples:
+        >>> check = signal_check([0.08] * 3, [0.11, 0.10, 0.12],
+        ...                      baseline=[0.07, 0.09, 0.08], metric="pr_auc")
+        >>> check["no_signal"]
+        True
+        >>> signal_check([0.5] * 3, [0.8, 0.82, 0.79], [0.75, 0.76, 0.74])["no_signal"]
+        False
+    """
+    if not chance or len(selected) != len(chance):
+        return None
+    sel_gain, sel_se = paired_gain(selected, chance, maximize=True)
+    base = None
+    if baseline is not None and len(baseline) == len(chance):
+        base_gain, base_se = paired_gain(baseline, chance, maximize=True)
+        base = {"gain": base_gain, "se": base_se}
+    weak_base = base is not None and base["gain"] - base["se"] <= 0
+    weak_sel = sel_gain - sel_se <= 0
+    level = float(np.mean(chance))
+    if weak_base:
+        detail = (f"The baseline's {metric} is not above chance ({level:.3f}; "
+                  f"baseline minus chance {base['gain']:+.3f} ± {base['se']:.3f}), "
+                  "so gains over it may only be gains over a model that learned "
+                  "nothing. Check the label and the inputs, and compare with a "
+                  "null-label control before trusting the improvement.")
+    elif weak_sel:
+        detail = (f"The selected model's {metric} is not above chance "
+                  f"({level:.3f}; selected minus chance {sel_gain:+.3f} ± "
+                  f"{sel_se:.3f}): the inputs may not predict the outcome.")
+    else:
+        detail = ""
+    return {"metric": metric, "chance": [float(c) for c in chance],
+            "selected": {"gain": sel_gain, "se": sel_se}, "baseline": base,
+            "no_signal": weak_base or weak_sel, "detail": detail}
 
 
 def select_trial(

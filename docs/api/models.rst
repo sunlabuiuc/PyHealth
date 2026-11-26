@@ -40,7 +40,7 @@ routes each feature type automatically.
      - Features mix sequential codes with static tensors or multi-hot encodings
      - Auto-routes sequential features to RNN layers and non-sequential features to linear layers; good default for EHR
    * - ``RNN_V2``
-     - Features are ``jagged`` fields (nested codes, values and timestamps); static values are a series with one record at ``t = 0``
+     - Features are ``jagged`` fields (nested codes, values and timestamps); static values are a ``single`` level, one record per sample
      - Encodes each field bottom-up over packed records, without padding the hierarchy
    * - :doc:`models/pyhealth.models.StageNet`
      - You have time-stamped vital signs with irregular measurement intervals
@@ -57,6 +57,9 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.XGBoostModel`
      - Features are tabular (engineered labs, demographics) or bags of codes; you want the standard strong baseline
      - Gradient-boosted trees; fit with ``model.fit`` (not ``Trainer.train``); exact TreeSHAP; needs ``pip install "pyhealth[xgboost]"``
+   * - :doc:`models/pyhealth.models.td_cnn_lstm`
+     - You want real-time ICU mortality risk for each measurement-time state of irregular event streams
+     - Temporal-difference training needs paired ``next_*`` successor states and a custom loop that calls ``model.update_target()`` after each optimizer step
 
 How BaseModel Works
 --------------------
@@ -129,8 +132,8 @@ on the label processor in your task's ``output_schema``:
    * - ``"regression"``
      - MSE
      - identity → (batch, 1)
-   * - ``"timeseries_binary"``, ``"timeseries_multiclass"``,
-       ``"timeseries_multilabel"``, ``"timeseries_regression"``
+   * - ``("timeseries_<kind>", {"timeline": [...]})``, where ``<kind>`` is
+       ``binary``, ``multiclass``, ``multilabel`` or ``regression``
      - the static loss, per label record
      - the static activation → (label records, ...)
 
@@ -142,6 +145,11 @@ processor instance, or a ``(name, kwargs)`` tuple. These are equivalent:
     output_schema = {"icd_codes": "multilabel"}
     output_schema = {"icd_codes": MultiLabelProcessor}
     output_schema = {"icd_codes": ("multilabel", {})}
+
+The ``timeseries_*`` labels take a required ``timeline`` (see
+:class:`~pyhealth.processors.TimeseriesLabelProcessor`), so they are written
+in the tuple form, e.g. ``("timeseries_binary", {"timeline": ["dynamic"]})``.
+A bare ``"timeseries_binary"`` raises ``TypeError``.
 
 Whichever form a task uses, the model gets the same fitted label processor,
 and ``model.mode`` is its kind (``"binary"``, ``"multiclass"``, ...), or
@@ -283,6 +291,7 @@ API Reference
     :maxdepth: 3
 
     models/pyhealth.models.BaseModel
+    models/pyhealth.models.NeuralFineGray
     models/pyhealth.models.LogisticRegression
     models/pyhealth.models.MLP
     models/pyhealth.models.CNN
@@ -290,8 +299,13 @@ API Reference
     models/pyhealth.models.RNN
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
+    models/pyhealth.models.BEHRT
+    models/pyhealth.models.BiteNet
     models/pyhealth.models.TransformersModel
+    models/pyhealth.models.RASCCrossEncoder
     models/pyhealth.models.LLMEHREncoder
+    models/pyhealth.models.HFEHRFoundationModel
+    models/pyhealth.models.CLMBR
     models/pyhealth.models.MEME
     models/pyhealth.models.TransformerDeID
     models/pyhealth.models.RETAIN
@@ -306,8 +320,12 @@ API Reference
     models/pyhealth.models.EHRMamba
     models/pyhealth.models.EHRMambaCEHR
     models/pyhealth.models.ETHOS
+    models/pyhealth.models.Delphi
     models/pyhealth.models.JambaEHR
     models/pyhealth.models.ContraWR
+    models/pyhealth.models.EEGNet
+    models/pyhealth.models.DeepSleepNet
+    models/pyhealth.models.SleepKD
     models/pyhealth.models.SparcNet
     models/pyhealth.models.StageNet
     models/pyhealth.models.StageAttentionNet
@@ -316,6 +334,8 @@ API Reference
     models/pyhealth.models.Agent
     models/pyhealth.models.GRASP
     models/pyhealth.models.MedFuse
+    models/pyhealth.models.MAESTRO
+    models/pyhealth.models.DAFT
     models/pyhealth.models.DiPro
     models/pyhealth.models.MedLink
     models/pyhealth.models.TCN
@@ -327,6 +347,7 @@ API Reference
     models/pyhealth.models.PromptEHR
     models/pyhealth.models.MedGAN
     models/pyhealth.models.CorGAN
+    models/pyhealth.models.TarDiff
     models/pyhealth.models.Synthea
     models/pyhealth.models.SDOH
     models/pyhealth.models.SequenceEmbeddingModel
@@ -337,6 +358,7 @@ API Reference
     models/pyhealth.models.califorest
     models/pyhealth.models.XGBoostModel
     models/pyhealth.models.survival_mdn
+    models/pyhealth.models.personalized_survival_moe
     models/pyhealth.models.cet
     models/pyhealth.models.TrajSurv
     models/pyhealth.models.KnowRare
@@ -344,6 +366,13 @@ API Reference
     models/pyhealth.models.ProtoECGNet
     models/pyhealth.models.HeartLang
     models/pyhealth.models.APN
+    models/pyhealth.models.JointSeqImage
+    models/pyhealth.models.td_cnn_lstm
     models/pyhealth.models.TRACE
     models/pyhealth.models.MIRA
+    models/pyhealth.models.UDC
+    models/pyhealth.models.DescEmb
+    models/pyhealth.models.bulk_rna_bert
+    models/pyhealth.models.DearLLM
+    models/pyhealth.models.GAME
 

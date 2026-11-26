@@ -19,6 +19,14 @@ Example (from repo root):
 Note: NeighborhoodLabel.calibrate() excludes each calibration point from
 its own k-nearest-neighbor set during the alpha_tilde search, to avoid a
 calibration point's own score leaking into its own threshold.
+
+Data: TUEV v2.0.x (TUH EEG Events) from the Temple University EEG Corpus,
+https://isip.piconepress.com/projects/nedc/html/tuh_eeg/ (free, registration
+required). Pass its edf/ folder (with train/ and eval/) as --root. The full
+run trains on CPU or GPU (--device); --quick-test caps the data at 2000
+samples and 2 epochs for a check that finishes in minutes.
+--model tfm skips training and needs the released TFM-Tokenizer checkpoints
+(--tokenizer-weights and --weights-dir).
 """
 
 from __future__ import annotations

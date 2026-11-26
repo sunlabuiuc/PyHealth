@@ -1,13 +1,16 @@
-"""EHRMambaCEHR on the local MIMIC-IV FHIR demo.
+"""EHRMambaCEHR on the MIMIC-IV on FHIR demo (MPF clinical prediction).
 
-Barebones path: Dataset -> task -> model -> trainer -> evaluate.
+Barebones path: FHIR NDJSON -> ``MIMIC4FHIR`` dataset ->
+``MPFClinicalPredictionTask`` -> ``EHRMambaCEHR`` -> ``Trainer`` -> evaluate.
 
-Runs against the bundled demo at
-``datasets/physionet.org/mimic-iv-fhir-demo/2.1.0/fhir`` and persists the
-flattened-table cache under ``datasets/.cache/pyhealth/fhir-demo`` so a
-second run hits the cache.
+Data: the MIMIC-IV on FHIR demo, open access, no credentials
+(https://physionet.org/content/mimic-iv-fhir-demo/2.1.0/). Download it and set
+``DEMO_ROOT`` to its ``fhir`` folder (the ``*.ndjson.gz`` files), and
+``CACHE_DIR`` to a writable folder; a second run reuses the flattened-table
+cache there. The full credentialed MIMIC-IV on FHIR export works the same way.
 
-    PYTHONPATH=. python examples/mimic4fhir_mpf_ehrmamba.py
+Run: ``python examples/mimic4fhir_mpf_ehrmamba.py``. Two epochs of a small
+model; a few minutes on a laptop CPU for the demo.
 """
 
 from __future__ import annotations
@@ -19,14 +22,9 @@ from pyhealth.models import EHRMambaCEHR
 from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
 from pyhealth.trainer import Trainer
 
-# Absolute paths to the bundled PhysioNet MIMIC-IV-on-FHIR demo and its cache.
-DEMO_ROOT = Path(
-    "/home/johnwu3/projects/PyHealth_Branch_Testing/datasets/"
-    "physionet.org/mimic-iv-fhir-demo/2.1.0/fhir"
-)
-CACHE_DIR = Path(
-    "/home/johnwu3/projects/PyHealth_Branch_Testing/datasets/.cache/pyhealth/fhir-demo"
-)
+# Set these: the demo's fhir/ folder and a writable cache folder.
+DEMO_ROOT = Path("/path/to/mimic-iv-fhir-demo/2.1.0/fhir")
+CACHE_DIR = Path("/path/to/pyhealth_cache/fhir-demo")
 
 
 def main() -> None:

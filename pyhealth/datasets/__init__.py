@@ -1,69 +1,83 @@
-class BaseEHRDataset:
-    """This class is deprecated and should not be used."""
+def _removed_1x_class(name: str, replacement: str) -> type:
+    """Builds a placeholder for a PyHealth 1.x class removed in 2.0.
+
+    The name stays importable so old imports load, but creating an instance
+    (or an instance of a subclass) raises at once with the 2.x replacement,
+    instead of returning an object with none of its attributes set.
+
+    Example:
+        >>> from pyhealth.datasets import SampleEHRDataset
+        >>> try:
+        ...     SampleEHRDataset()
+        ... except NotImplementedError as err:
+        ...     print(str(err).split(";")[0])
+        SampleEHRDataset was removed in PyHealth 2.0. Use SampleDataset \
+(returned by BaseDataset.set_task) instead
+    """
 
     def __init__(self, *args, **kwargs):
-        import warnings
-
-        warnings.warn(
-            "The BaseEHRDataset class is deprecated and will be removed in a future version.",
-            DeprecationWarning,
+        docs = "https://pyhealth.readthedocs.io/en/latest/api/datasets.html"
+        cls = type(self).__name__
+        if cls != name:
+            # An in-tree or user dataset still built on the 1.x base class
+            # (e.g. SHHSDataset, MIMICExtractDataset). It never worked on 2.x: the stub set no
+            # attributes and provided no set_task.
+            raise NotImplementedError(
+                f"{cls} is built on {name}, which was removed in PyHealth "
+                f"2.0, so {cls} does not work yet. It needs porting to "
+                f"{replacement}; see {docs}"
+            )
+        raise NotImplementedError(
+            f"{name} was removed in PyHealth 2.0. Use {replacement} instead; "
+            f"see {docs}"
         )
 
-
-class BaseSignalDataset:
-    """This class is deprecated and should not be used."""
-
-    def __init__(self, *args, **kwargs):
-        import warnings
-
-        warnings.warn(
-            "The BaseSignalDataset class is deprecated and will be removed in a future version.",
-            DeprecationWarning,
-        )
+    return type(
+        name,
+        (),
+        {
+            "__init__": __init__,
+            "__doc__": f"Removed in PyHealth 2.0; use {replacement}.",
+        },
+    )
 
 
-class SampleEHRDataset:
-    """This class is deprecated and should not be used."""
-
-    def __init__(self, *args, **kwargs):
-        import warnings
-
-        warnings.warn(
-            "The SampleEHRDataset class is deprecated and will be removed in a future version.",
-            DeprecationWarning,
-        )
-
-
-class SampleSignalDataset:
-    """This class is deprecated and should not be used."""
-
-    def __init__(self, *args, **kwargs):
-        import warnings
-
-        warnings.warn(
-            "The SampleSignalDataset class is deprecated and will be removed in a future version.",
-            DeprecationWarning,
-        )
+BaseEHRDataset = _removed_1x_class("BaseEHRDataset", "BaseDataset")
+BaseSignalDataset = _removed_1x_class("BaseSignalDataset", "BaseDataset")
+SampleEHRDataset = _removed_1x_class(
+    "SampleEHRDataset", "SampleDataset (returned by BaseDataset.set_task)"
+)
+SampleSignalDataset = _removed_1x_class(
+    "SampleSignalDataset", "SampleDataset (returned by BaseDataset.set_task)"
+)
 
 
 from .base_dataset import BaseDataset
+from .pbc import PBCDataset as PBCDataset
 from .imaging.patches import PatchDataset as PatchDataset
 from .imaging.stats import (
     compute_foreground_intensity_stats as compute_foreground_intensity_stats,
 )
+from .bcss import BCSSDataset as BCSSDataset
 from .cardiology import CardiologyDataset
+from .brain_tumor_mri import BrainTumorMRIDataset as BrainTumorMRIDataset
 from .chaos import CHAOSDataset as CHAOSDataset
 from .chest_imagenome import ChestImaGenomeDataset as ChestImaGenomeDataset
 from .chestxray14 import ChestXray14Dataset
+from .ham10000 import HAM10000Dataset as HAM10000Dataset
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
 from .covid19_cxr import COVID19CXRDataset
+from .isic2019 import ISIC2019Dataset as ISIC2019Dataset
 from .ptbxl import PTBXLDataset as PTBXLDataset
+from .covid_blues import COVIDBLUESDataset as COVIDBLUESDataset
+from .chapman_shaoxing import ChapmanShaoxingDataset as ChapmanShaoxingDataset
 from .physionet2012 import PhysioNet2012Dataset as PhysioNet2012Dataset
 from .dreamt import DREAMTDataset
 from .ehrshot import EHRShotDataset
 from .eicu import eICUDataset
 from .isruc import ISRUCDataset
+from .hmc import HMCDataset as HMCDataset
 from .medical_transcriptions import MedicalTranscriptionsDataset
 from .msd import (
     MSDHippocampusDataset as MSDHippocampusDataset,
@@ -77,13 +91,21 @@ from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
 from .mimic4 import MIMIC4EDDataset as MIMIC4EDDataset
 from .fhir import FHIRDataset, MIMIC4FHIR
+from .lndb import LNDbDataset as LNDbDataset
 from .mimicextract import MIMICExtractDataset
+from .kits23 import KiTS23Dataset as KiTS23Dataset
 from .omop import OMOPDataset
+from .pad_ufes_20 import PADUFES20Dataset as PADUFES20Dataset
 from .physionet_deid import PhysioNetDeIDDataset
+from .jichi import JichiDRDataset as JichiDRDataset
 from .rsna_pneumonia import RSNAPneumoniaDataset as RSNAPneumoniaDataset
+from .cbis_ddsm import CBISDDSMDataset as CBISDDSMDataset
+from .isic2020 import ISIC2020Dataset as ISIC2020Dataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
+from .abide import ABIDEDataset as ABIDEDataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
+from .nsrr_sleep import NSRRSleepDataset as NSRRSleepDataset
 from .bmd_hs import BMDHSDataset
 from .support2 import Support2Dataset
 from .synthea_csv import SyntheaCSVDataset as SyntheaCSVDataset
@@ -110,11 +132,16 @@ from .splitter import (
 from .gold_test_split import GoldTestSplit as GoldTestSplit
 from .mimic4_imagenome import MIMIC4ImaGenomeDataset as MIMIC4ImaGenomeDataset
 from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
+from .ahepa_dementia import AHEPADementiaDataset as AHEPADementiaDataset
+from .bciiv2a import BCICompetitionIV2aDataset as BCICompetitionIV2aDataset
+from .hup_ieeg import HUPiEEGDataset as HUPiEEGDataset
 from .iiic import IIICDataset as IIICDataset
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
 from .chbmit import CHBMITDataset as CHBMITDataset
+from .helsinki_neonatal import HelsinkiNeonatalDataset as HelsinkiNeonatalDataset
 from .eesm23 import EESM23Dataset as EESM23Dataset
+from .tcga_rna_seq import TCGARNASeqDataset as TCGARNASeqDataset
 from .utils import (
     collate_fn_dict,
     collate_fn_dict_with_padding,

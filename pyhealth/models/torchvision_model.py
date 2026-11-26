@@ -179,6 +179,7 @@ class TorchvisionModel(BaseModel):
                 - loss: classification loss (if embed=False)
                 - y_prob: predicted probabilities (if embed=False)
                 - y_true: true labels (if embed=False)
+                - logit: the classifier's raw outputs (if embed=False)
                 - embed: embeddings before final layer (if embed=True)
         """
         x = kwargs[self.feature_key]
@@ -206,6 +207,7 @@ class TorchvisionModel(BaseModel):
                 "loss": loss,
                 "y_prob": y_prob,
                 "y_true": y_true,
+                "logit": logits,
             }
 
     def _extract_embeddings(self, x: torch.Tensor) -> torch.Tensor:
