@@ -131,8 +131,8 @@ def preprocess_heartlang_cpsc2018(
         float32 array of shape ``(leads, total_seconds * target_rate)``.
 
     Raises:
-        ValueError: If ``signal`` is not 2-D or ``keep_seconds`` is longer
-            than ``total_seconds``.
+        ValueError: If ``signal`` is not 2-D, holds NaN or infinite values,
+            or ``keep_seconds`` is longer than ``total_seconds``.
 
     Examples:
         >>> import numpy as np
@@ -149,6 +149,8 @@ def preprocess_heartlang_cpsc2018(
         raise ValueError(f"signal must be (leads, samples), got shape {x.shape}")
     if keep_seconds > total_seconds:
         raise ValueError("keep_seconds must not exceed total_seconds")
+    if not np.isfinite(x).all():
+        raise ValueError("signal holds NaN or infinite values")
     keep = round(keep_seconds * sampling_rate)
     total = round(total_seconds * sampling_rate)
     x = x[:, :keep]
@@ -346,7 +348,7 @@ def split_by_heartlang_cpsc2018(
     """Splits a sample dataset into HeartLang's CPSC2018 train/val/test sets.
 
     Samples whose record is in none of HeartLang's lists are left out, and
-    their number is logged.
+    their number is logged. An empty split is logged as a warning.
 
     Args:
         dataset: A :class:`~pyhealth.datasets.SampleDataset` built with
@@ -387,4 +389,7 @@ def split_by_heartlang_cpsc2018(
     unused = n_samples - sum(len(v) for v in index.values())
     if unused:
         logger.info("%d samples are in no HeartLang CPSC2018 split", unused)
+    for split in _SPLITS:
+        if not index[split]:
+            logger.warning("HeartLang CPSC2018 %s split is empty", split)
     return tuple(dataset.subset(index[split]) for split in _SPLITS)

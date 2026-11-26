@@ -126,6 +126,13 @@ class TestPreprocess(unittest.TestCase):
                 np.zeros((12, 5000)), keep_seconds=11, total_seconds=10
             )
 
+    def test_non_finite_input_is_an_error(self):
+        for bad in (np.nan, np.inf):
+            signal = np.zeros((12, 5000))
+            signal[3, 100] = bad
+            with self.assertRaises(ValueError):
+                preprocess_heartlang_cpsc2018(signal)
+
 
 @unittest.skipUnless(HAS_WFDB, "wfdb is needed for QRS detection")
 class TestQRSDetection(unittest.TestCase):
@@ -247,8 +254,12 @@ class TestSplit(unittest.TestCase):
 
     def test_split_drops_unlisted_records(self):
         samples = self.make_samples(["A0001", "A0002", "A0003", "A0009"])
-        train, val, test = split_by_heartlang_cpsc2018(samples, self.tmp)
+        with self.assertLogs(
+            "pyhealth.tasks.cpsc2018_heartlang", level="WARNING"
+        ) as logs:
+            train, val, test = split_by_heartlang_cpsc2018(samples, self.tmp)
         self.assertEqual((len(train), len(val), len(test)), (2, 1, 0))
+        self.assertIn("test split is empty", logs.output[0])
         self.assertEqual(val[0]["record_id"], "A0003")
         with self.assertRaises(ValueError):
             split_by_heartlang_cpsc2018(samples, self.tmp, record_ids=["A0001"])
