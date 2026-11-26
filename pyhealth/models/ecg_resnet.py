@@ -1,7 +1,7 @@
 """Plain 1D ResNet-18 classifier for multilabel ECG tasks."""
 
 import torch
-import torch.nn as nn
+from torch import nn
 import torch.nn.functional as F
 
 from pyhealth.datasets import SampleDataset
