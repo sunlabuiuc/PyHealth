@@ -2,7 +2,8 @@ import unittest
 import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
-from pyhealth.models import CNN
+from pyhealth.models import CNN, CNNLayer
+from pyhealth.models.cnn import CNNBlock
 
 
 class TestCNN(unittest.TestCase):
@@ -277,15 +278,62 @@ class TestCNN(unittest.TestCase):
         self.assertEqual(model.feature_conv_dims["demographics"], 1)
         self.assertEqual(model.feature_conv_dims["vitals"], 1)
 
-        train_loader = get_dataloader(dataset, batch_size=2, shuffle=False)
+        train_loader = get_dataloader(dataset, batch_size=1, shuffle=False)
         data_batch = next(iter(train_loader))
 
         ret = model(**data_batch)
         ret["loss"].backward()
 
-        self.assertEqual(ret["y_prob"].shape[0], 2)
-        self.assertEqual(ret["logit"].shape[0], 2)
+        self.assertEqual(ret["y_prob"].shape[0], 1)
+        self.assertEqual(ret["logit"].shape[0], 1)
         self.assertEqual(ret["loss"].dim(), 0)
+        self.assertTrue(torch.isfinite(ret["loss"]))
+        for module in model.modules():
+            if isinstance(module, torch.nn.BatchNorm1d):
+                self.assertTrue(module.training)
+                self.assertEqual(module.num_batches_tracked.item(), 0)
+                self.assertIsNotNone(module.weight.grad)
+                self.assertTrue(torch.isfinite(module.weight.grad).all())
+
+    def test_size_arguments_are_rejected(self):
+        """input_size and hidden_size come from embedding_dim and hidden_dim."""
+        for name in ("input_size", "hidden_size"):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                CNN(dataset=self.dataset, **{name: 8})
+
+
+class TestCNNBlock(unittest.TestCase):
+    """Batch normalization in CNNBlock with a single value per channel."""
+
+    def test_singleton_batch_leaves_running_statistics_unchanged(self):
+        block = CNNBlock(4, 8, spatial_dim=1)
+        block.train()
+        norms = [m for m in block.modules() if isinstance(m, torch.nn.BatchNorm1d)]
+        before = [(m.running_mean.clone(), m.running_var.clone()) for m in norms]
+
+        x = torch.randn(1, 4, 1, requires_grad=True)
+        block(x).sum().backward()
+
+        self.assertIsNotNone(x.grad)
+        for norm, (mean, var) in zip(norms, before):
+            self.assertTrue(norm.training)
+            self.assertTrue(torch.equal(norm.running_mean, mean))
+            self.assertTrue(torch.equal(norm.running_var, var))
+            self.assertEqual(norm.num_batches_tracked.item(), 0)
+
+    def test_larger_batch_updates_running_statistics(self):
+        block = CNNBlock(4, 8, spatial_dim=1)
+        block.train()
+        block(torch.randn(2, 4, 1))
+        for norm in block.modules():
+            if isinstance(norm, torch.nn.BatchNorm1d):
+                self.assertEqual(norm.num_batches_tracked.item(), 1)
+
+    def test_unsupported_spatial_dim_raises(self):
+        with self.assertRaises(ValueError):
+            CNNBlock(4, 8, spatial_dim=4)
+        with self.assertRaises(ValueError):
+            CNNLayer(4, 8, spatial_dim=4)
 
 
 if __name__ == "__main__":

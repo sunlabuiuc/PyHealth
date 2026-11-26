@@ -1,0 +1,79 @@
+cff-version: 1.2.0
+message: "If you use PyHealth in your research, please cite the PyHealth 2.0 paper below."
+title: "PyHealth"
+abstract: "A deep learning toolkit for healthcare AI: datasets, tasks, models, training and evaluation for EHR, clinical text, biosignals and medical imaging."
+type: software
+authors:
+  - name: "SunLab, University of Illinois Urbana-Champaign"
+repository-code: "https://github.com/sunlabuiuc/PyHealth"
+url: "https://pyhealth.dev"
+version: "2.1.0"
+date-released: "2026-10-16"
+keywords:
+  - healthcare
+  - deep learning
+  - electronic health records
+  - clinical machine learning
+preferred-citation:
+  type: conference-paper
+  title: "PyHealth 2.0: A Comprehensive Open-Source Toolkit for Accessible and Reproducible Clinical Deep Learning"
+  collection-title: "Proceedings of the 43rd International Conference on Machine Learning (ICML 2026)"
+  year: 2026
+  url: "https://openreview.net/forum?id=gMLVFN9hl8"
+  authors:
+    - family-names: Wu
+      given-names: John
+    - family-names: Fan
+      given-names: Yongda
+    - family-names: Wu
+      given-names: Zhenbang
+    - family-names: Landes
+      given-names: Paul
+    - family-names: Schrock
+      given-names: Eric
+    - family-names: Razin
+      given-names: Sayeed Sajjad
+    - family-names: Chatterjee
+      given-names: Arjun
+    - family-names: Baskaran
+      given-names: Naveen
+    - family-names: Steier
+      given-names: Joshua
+    - family-names: Fitzpatrick
+      given-names: Andrea
+    - family-names: Arif
+      given-names: Bilal
+    - family-names: Atri
+      given-names: Rian
+    - family-names: Pradeepkumar
+      given-names: Jathurshan
+    - family-names: Laghuvarapu
+      given-names: Siddhartha
+    - family-names: Gao
+      given-names: Junyi
+    - family-names: Cross
+      given-names: Adam Richard
+    - family-names: Sun
+      given-names: Jimeng
+references:
+  - type: conference-paper
+    title: "PyHealth: A Deep Learning Toolkit for Healthcare Applications"
+    collection-title: "Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining (KDD '23)"
+    year: 2023
+    pages: "5788-5789"
+    doi: "10.1145/3580305.3599178"
+    authors:
+      - family-names: Yang
+        given-names: Chaoqi
+      - family-names: Wu
+        given-names: Zhenbang
+      - family-names: Jiang
+        given-names: Patrick
+      - family-names: Lin
+        given-names: Zhen
+      - family-names: Gao
+        given-names: Junyi
+      - family-names: Danek
+        given-names: Benjamin P.
+      - family-names: Sun
+        given-names: Jimeng

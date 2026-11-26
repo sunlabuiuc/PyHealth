@@ -24,6 +24,7 @@ from ..processors import (
     BinaryLabelProcessor,
     DeepNestedSequenceProcessor,
     MultiClassLabelProcessor,
+    MultiHotProcessor,
     MultiLabelProcessor,
     NestedMultiHotProcessor,
     NestedSequenceProcessor,
@@ -195,7 +196,7 @@ class GradientBoostedTreeModel(BaseModel):
         for key in self.feature_keys:
             proc = self.dataset.input_processors[key]
             name = type(proc).__name__
-            if isinstance(proc, MultiLabelProcessor):  # includes multi_hot
+            if isinstance(proc, (MultiHotProcessor, MultiLabelProcessor)):
                 kind, width = "multi_hot", proc.size()
             elif isinstance(proc, NestedMultiHotProcessor):
                 kind, width = "visit_counts", len(proc.code_vocab) - _RESERVED_CODES
@@ -346,9 +347,20 @@ class GradientBoostedTreeModel(BaseModel):
                     f"{name} has drop_last=True; tree models must see every "
                     f"sample. Use a loader with drop_last=False."
                 )
-            if isinstance(loader.sampler, RandomSampler) or getattr(
-                loader.dataset, "shuffle", False
-            ):
+            # get_dataloader's loaders apply their own shuffle setting at each
+            # pass, so the dataset's flag may be left over from another loader.
+            shuffles = getattr(loader, "shuffle_samples", None)
+            if shuffles is None:
+                # Iterating a SampleDataset shuffles when its flag is set:
+                # litdata's ``shuffle`` on disk, ``_shuffle`` in memory. For
+                # other iterable datasets, get_dataloader sets the flag once,
+                # when a loader is created, so the flag (and the order of this
+                # pass) follows the most recently created loader, not this one.
+                shuffles = isinstance(loader.sampler, RandomSampler) or bool(
+                    getattr(loader.dataset, "shuffle", False)
+                    or getattr(loader.dataset, "_shuffle", False)
+                )
+            if shuffles:
                 logger.warning(
                     "%s shuffles; row order changes row subsampling, so fits "
                     "are only reproducible with an unshuffled loader "
@@ -418,7 +430,7 @@ class GradientBoostedTreeModel(BaseModel):
         if val_data is not None:
             eval_X, eval_y = self._collect(val_data, "val_data")
         if self.mode == "multiclass":
-            n_classes = self.get_output_size()
+            n_classes = self.label_processor.output_size()
             missing = sorted(set(range(n_classes)) - set(np.unique(y).tolist()))
             if missing:
                 raise ValueError(
@@ -482,7 +494,7 @@ class GradientBoostedTreeModel(BaseModel):
         """Predicts with the fitted trees.
 
         ``logit`` is the trees' raw margin (not an inverted probability), and
-        ``loss`` is ``get_loss_function()`` on it.
+        ``loss`` is ``label_processor.loss`` on it.
 
         Returns:
             ``{"logit", "y_prob"}``, plus ``"loss"`` and ``"y_true"`` when the
@@ -496,7 +508,7 @@ class GradientBoostedTreeModel(BaseModel):
         if self.label_key in kwargs:
             y_true = kwargs[self.label_key].to(self.device)
             results["y_true"] = y_true
-            results["loss"] = self.get_loss_function()(logit, y_true)
+            results["loss"] = self.label_processor.loss(logit, y_true)
         return results
 
     # ------------------------------------------------------------------

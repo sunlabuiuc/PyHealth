@@ -3,6 +3,7 @@ Neighborhood Conformal Prediction (NCP).
 
 """
 
+import warnings
 from typing import Dict, Optional, Union
 
 import numpy as np
@@ -29,7 +30,34 @@ class NeighborhoodLabel(SetPredictor):
     Reference:
         Ghosh, S., Belkhouja, T., Yan, Y., & Doppa, J. R. (2023).
         Improving Uncertainty Quantification of Deep Classifiers via
-        Neighborhood Conformal Prediction.
+        Neighborhood Conformal Prediction. https://arxiv.org/abs/2303.10694
+
+    Note:
+        This implements the paper's NCP calibration with marginal coverage
+        only (the paper has no class-conditional variant). Two deviations
+        from a literal reading of the paper, both deliberate:
+
+        1. The paper does not say whether a calibration point is part of
+           its own neighbor set when searching for alpha_tilde. This
+           implementation excludes it (leave-one-out), matching test time,
+           where a test point's neighbors never include itself. Including
+           it inflates calibration coverage and causes under-coverage at
+           test time. With leave-one-out, the lowest-scoring calibration
+           point is never covered, so calibration coverage is at most
+           (N-1)/N for N calibration points, whatever ``k_neighbors`` is.
+           If the target 1 - alpha is unreachable, ``calibrate()`` warns:
+           above (N-1)/N it needs more calibration data or a larger alpha;
+           below it, a larger ``k_neighbors`` can also help.
+        2. If a prediction set would come out empty (no class's score
+           reaches the threshold), the model's top-1 predicted class is
+           force-included. This is not specified in the paper, but is
+           coverage-safe: adding a class to a set can only raise coverage,
+           never lower it.
+
+        Like standard split-conformal prediction, this assumes the
+        calibration and test data are exchangeable; it does not correct for
+        covariate shift (see
+        :class:`~pyhealth.calib.predictionset.CovariateLabel`).
 
     Args:
         model: A trained base model that supports embedding extraction
@@ -184,10 +212,22 @@ class NeighborhoodLabel(SetPredictor):
         self.cal_embeddings_ = np.atleast_2d(cal_embeddings)
         self.cal_conformity_scores_ = np.asarray(conformity_scores, dtype=np.float64)
 
-       # this is the ncp calibration step
-        distances_cal, indices_cal = self._nn.kneighbors(
-            self.cal_embeddings_, n_neighbors=k
+        # NCP calibration step. kneighbors(X) on the fitted set returns each
+        # point as its own nearest neighbor (distance 0), so request one
+        # extra neighbor and drop the self-match (leave-one-out). Otherwise a
+        # point's own score leaks into its own threshold, which a test point
+        # never gets, and the search under-covers at test time.
+        k_query = min(k + 1, N)
+        distances_all, indices_all = self._nn.kneighbors(
+            self.cal_embeddings_, n_neighbors=k_query
         )
+        n_neighbors_loo = k_query - 1
+        distances_cal = np.zeros((N, n_neighbors_loo), dtype=distances_all.dtype)
+        indices_cal = np.zeros((N, n_neighbors_loo), dtype=indices_all.dtype)
+        for i in range(N):
+            mask = indices_all[i] != i
+            distances_cal[i] = distances_all[i][mask][:n_neighbors_loo]
+            indices_cal[i] = indices_all[i][mask][:n_neighbors_loo]
         cal_weights = np.exp(-distances_cal / self.lambda_L)
         cal_weights = cal_weights / cal_weights.sum(axis=1, keepdims=True)
 
@@ -209,6 +249,36 @@ class NeighborhoodLabel(SetPredictor):
             else:
                 high = mid
         self.alpha_tilde_ = float(low)
+
+        # Coverage is largest at alpha_tilde = 0. If even that misses the
+        # target, the search above silently bottoms out at 0 and the
+        # prediction sets will under-cover. With leave-one-out the
+        # lowest-scoring point is never covered, so (N-1)/N is a ceiling
+        # that no k_neighbors can lift.
+        if self.alpha_tilde_ == 0.0:
+            best_coverage = _empirical_coverage(0.0)
+            target = 1.0 - self.alpha
+            if best_coverage < target:
+                ceiling = (N - 1) / N
+                if target > ceiling:
+                    advice = (
+                        f"With {N} calibration points coverage is at most "
+                        f"{ceiling:.3f} for any k_neighbors; use a larger "
+                        "calibration set or a larger alpha."
+                    )
+                else:
+                    advice = (
+                        f"Increase k_neighbors (now {self.k_neighbors}), the "
+                        "calibration set size, or alpha."
+                    )
+                warnings.warn(
+                    f"NeighborhoodLabel: target coverage {target:.3f} is not "
+                    f"reachable on the calibration set (best achievable: "
+                    f"{best_coverage:.3f}), so prediction sets will likely "
+                    f"under-cover. {advice}",
+                    UserWarning,
+                    stacklevel=2,
+                )
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward with NCP: per-sample weighted quantile threshold."""

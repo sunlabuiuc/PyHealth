@@ -1,0 +1,21 @@
+{
+  "hidden_dim": 32,
+  "num_components": 10,
+  "batch_size": 512,
+  "learning_rate": 0.001,
+  "weight_decay": 1e-06,
+  "grad_clip": 100.0,
+  "max_epochs": 100,
+  "patience": 10,
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "transforms": [
+    "softplus",
+    "exp"
+  ]
+}

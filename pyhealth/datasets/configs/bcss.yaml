@@ -1,0 +1,18 @@
+version: "1.0"
+tables:
+  bcss:
+    file_path: "bcss-tiles-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "roi_id"
+      - "site"
+      - "split"
+      - "tile_id"
+      - "path"
+      - "mask_path"
+      - "x"
+      - "y"
+      - "label_code"
+      - "label"
+      - "purity"

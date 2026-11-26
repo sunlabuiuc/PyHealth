@@ -135,6 +135,25 @@ Particularly useful for multilabel tasks with asymmetric costs (e.g., medical di
 - Lin, Zhen, Shubhendu Trivedi, Cao Xiao, and Jimeng Sun. "Fast Online Value-Maximizing Prediction Sets with Conformal Cost Control (FavMac)." ICML 2023.
 - Fisch, Adam, Tal Schuster, Tommi Jaakkola, and Regina Barzilay. "Conformal prediction sets with limited false positives." ICML 2022.
 
+### LabelShift (Label Shift Adaptive Conformal)
+
+**Modes**: `multiclass`
+
+**Class**: `pyhealth.calib.predictionset.LabelShift`
+
+LabelShift handles label shift, where the label distribution changes between calibration and deployment while the class-conditional input distribution stays the same. It weights each calibration example by the label ratio Q(y)/P(y) and computes a separate threshold per class, reserving the candidate class ratio as mass at +inf for the test point. The target label distribution can be supplied directly, or estimated with the `bbse` (Black Box Shift Estimation) or `em` (MLLS expectation maximization) helpers in the same package.
+
+**Guarantee**: Distribution-free coverage under label shift when both label distributions are known:
+- **Marginal**: P_test(Y ∉ C(X)) ≤ α on the target distribution
+
+If the source distribution is estimated from the calibration labels instead, the ratios are plug-in estimates and coverage is approximate.
+
+**References**:
+- Tibshirani, Ryan J., Rina Foygel Barber, Emmanuel Candes, and Aaditya Ramdas. "Conformal prediction under covariate shift." NeurIPS 2019. https://arxiv.org/abs/1904.06019
+- Podkopaev, Alexander, and Aaditya Ramdas. "Distribution-free uncertainty quantification for classification under label shift." UAI 2021. https://arxiv.org/abs/2103.03323
+- Lipton, Zachary C., Yu-Xiang Wang, and Alexander Smola. "Detecting and correcting for label shift with black box predictors." ICML 2018. https://arxiv.org/abs/1802.03916
+- Alexandari, Amr, Anshul Kundaje, and Avanti Shrikumar. "Maximum likelihood with bias-corrected calibration is hard-to-beat at label shift adaptation." ICML 2020. https://arxiv.org/abs/1901.06852
+
 ### CovariateLabel (Covariate Shift Adaptive Conformal)
 
 **Modes**: `multiclass`

@@ -428,7 +428,7 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
                 **kwargs,
             )
 
-        output_size = self.get_output_size()
+        output_size = self.label_processor.output_size()
         self.fc = nn.Linear(
             len(self.feature_keys) * self.chunk_size * self.levels, output_size
         )
@@ -552,7 +552,7 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
         patient_emb = torch.cat(patient_emb, dim=1)
         # (patient, label_size)
         logits = self.fc(patient_emb)
-        y_prob = self.prepare_y_prob(logits)
+        y_prob = self.label_processor.activation(logits)
 
         results = {
             "logit": logits,
@@ -562,7 +562,7 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
         # obtain y_true, loss, y_prob
         if self.label_key in kwargs:
             y_true = cast(torch.Tensor, kwargs[self.label_key]).to(self.device)
-            loss = self.get_loss_function()(logits, y_true)
+            loss = self.label_processor.loss(logits, y_true)
             results["loss"] = loss
             results["y_true"] = y_true
 

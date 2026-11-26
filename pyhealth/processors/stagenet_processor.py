@@ -3,7 +3,12 @@ from typing import Any, Dict, List, Optional, Tuple, Iterable
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor, ModalityType, TemporalFeatureProcessor, TokenProcessorInterface
+from .base_processor import (
+    ModalityType,
+    TemporalFeatureProcessor,
+    TokenProcessorInterface,
+    _warn_truncated,
+)
 
 
 @register_processor("stagenet")
@@ -28,6 +33,8 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
             sequence length. The actual padding length will be observed_max + padding.
             This ensures the processor can handle sequences longer than those in the
             training data. Default: 0 (no extra padding). Only applies to nested sequences.
+            Inner sequences longer than this width are truncated to it, keeping the
+            first codes, and one warning is logged.
 
     Returns:
         Tuple of (time_tensor, value_tensor) where time_tensor can be None
@@ -123,6 +130,7 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
         order = [k for k, v in sorted(self.code_vocab.items(), key=lambda x: x[1]) if k in keep]
         
         self.code_vocab = { k : i for i, k in enumerate(order) }
+        self._next_index = len(self.code_vocab)
 
     def retain(self, tokens: set[str]):
         """Retain only the specified vocabularies in the processor."""
@@ -130,6 +138,7 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
         order = [k for k, v in sorted(self.code_vocab.items(), key=lambda x: x[1]) if k in keep]
         
         self.code_vocab = { k : i for i, k in enumerate(order) }
+        self._next_index = len(self.code_vocab)
 
     def add(self, tokens: set[str]):
         """Add specified vocabularies to the processor."""
@@ -138,6 +147,7 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
             if token not in self.code_vocab:
                 self.code_vocab[token] = i
                 i += 1
+        self._next_index = len(self.code_vocab)
 
     def tokens(self) -> set[str]:
         """Return the set of tokens in the processor's vocabulary."""
@@ -194,6 +204,7 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
         """Encode nested code lists to padded 2D tensor.
 
         Pads all inner sequences to self._max_nested_len (global max).
+        Longer inner sequences are truncated to it, keeping the first codes.
         """
         assert self._max_nested_len is not None, "Max nested length must be set during fit()"
         
@@ -214,7 +225,10 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
                     indices.append(self.code_vocab["<unk>"])
                 else:
                     indices.append(self.code_vocab[code])
-            # Pad to GLOBAL max_len
+            # Truncate to, or pad to, the GLOBAL max_len from fit()
+            if len(indices) > max_len:
+                _warn_truncated(self, "codes in a visit", len(indices), max_len)
+                indices = indices[:max_len]
             while len(indices) < max_len:
                 indices.append(self.code_vocab["<pad>"])
             encoded_sequences.append(indices)

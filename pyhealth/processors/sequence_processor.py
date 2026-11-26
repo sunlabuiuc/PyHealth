@@ -3,11 +3,11 @@ from typing import Any, Dict, List, Iterable, Optional, Tuple
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor, TokenProcessorInterface
+from .base_processor import LegacyFeatureProcessor, TokenProcessorInterface
 
 
 @register_processor("sequence")
-class SequenceProcessor(FeatureProcessor, TokenProcessorInterface):
+class SequenceProcessor(LegacyFeatureProcessor, TokenProcessorInterface):
     """Feature processor for encoding categorical sequences.
 
     Encodes medical codes (e.g., diagnoses, procedures) into numerical
@@ -91,12 +91,14 @@ class SequenceProcessor(FeatureProcessor, TokenProcessorInterface):
         keep = set(self.code_vocab.keys()) - tokens | {"<pad>", "<unk>"}
         order = [k for k, v in sorted(self.code_vocab.items(), key=lambda x: x[1]) if k in keep]
         self.code_vocab = { k : i for i, k in enumerate(order) }
+        self._next_index = len(self.code_vocab)
 
     def retain(self, tokens: set[str]):
         """Retain only the specified vocabularies in the processor."""
         keep = set(self.code_vocab.keys()) & tokens | {"<pad>", "<unk>"}
         order = [k for k, v in sorted(self.code_vocab.items(), key=lambda x: x[1]) if k in keep]
         self.code_vocab = { k : i for i, k in enumerate(order) }
+        self._next_index = len(self.code_vocab)
 
     def add(self, tokens: set[str]):
         """Add specified vocabularies to the processor."""
@@ -105,6 +107,7 @@ class SequenceProcessor(FeatureProcessor, TokenProcessorInterface):
             if token not in self.code_vocab:
                 self.code_vocab[token] = i
                 i += 1
+        self._next_index = len(self.code_vocab)
 
     def tokens(self) -> set[str]:
         """Return the set of tokens in the processor's vocabulary."""

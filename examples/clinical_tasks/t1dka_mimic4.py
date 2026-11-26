@@ -11,6 +11,16 @@ Target Population:
     - Patients with Type 1 Diabetes Mellitus (T1DM) ONLY
     - Predicts DKA from the T1DM diagnosis through the next 90 days
     - Smaller, focused patient cohort
+
+Data: MIMIC-IV v2.2 hosp tables (credentialed PhysioNet access:
+https://physionet.org/content/mimiciv/2.2/).
+Run: set MIMIC4_ROOT, DATASET_CACHE_DIR and PROCESSOR_DIR in ``main()``, then
+    python examples/clinical_tasks/t1dka_mimic4.py
+Full MIMIC-IV with 50 epochs needs a GPU and a few hours. To try it without
+credentials, set MIMIC4_ROOT to ``test-resources/core/mimic4demo``, but the
+demo has only 2 T1DM patients, so the 80/10/10 split leaves validation empty
+and training stops there; train and evaluate on all samples to check the
+pipeline.
 """
 
 import os
@@ -31,10 +41,10 @@ def main():
     """Main function to run T1D DKA prediction pipeline."""
 
     # Configuration
-    MIMIC4_ROOT = "/srv/local/data/physionet.org/files/mimiciv/2.2/"
-    DATASET_CACHE_DIR = "/shared/rsaas/pyhealth/cache/mimic4_dataset"
-    PROCESSOR_DIR = "/shared/rsaas/pyhealth/processors/stagenet_t1d_dka_mimic4_v2"
-    DEVICE = "cuda:5" if torch.cuda.is_available() else "cpu"
+    MIMIC4_ROOT = "/path/to/mimiciv/2.2/"
+    DATASET_CACHE_DIR = "/path/to/cache/mimic4_dataset"
+    PROCESSOR_DIR = "/path/to/processors/stagenet_t1d_dka_mimic4_v2"
+    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
     print("=" * 60)
     print("T1D DKA PREDICTION WITH STAGENET ON MIMIC-IV")

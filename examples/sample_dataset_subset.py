@@ -1,4 +1,15 @@
-"""Create reordered and nested SampleDataset subsets."""
+"""Create reordered and nested SampleDataset subsets.
+
+``SampleDataset.subset(indices)`` returns a view over the chosen samples, in
+the order given, and a subset can be subset again. The printout shows how
+``patient_to_index`` is renumbered for each view. Closing the parent dataset
+cleans up its cache once, after the subsets are done with.
+
+Runs in a few seconds on CPU with four synthetic samples; no download.
+
+Usage:
+    python examples/sample_dataset_subset.py
+"""
 
 from pyhealth.datasets import create_sample_dataset
 
@@ -14,6 +25,7 @@ def main():
         samples=samples,
         input_schema={"feature": "raw"},
         output_schema={"label": "raw"},
+        in_memory=False,
     )
 
     subset = dataset.subset([3, 0, 2])
@@ -21,6 +33,7 @@ def main():
 
     print(subset.patient_to_index)
     print(nested_subset.patient_to_index)
+    dataset.close()
 
 
 if __name__ == "__main__":

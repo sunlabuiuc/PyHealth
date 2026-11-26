@@ -17,7 +17,7 @@ from pyhealth.datasets import SampleEHRDataset
 from pyhealth.medcode import ATC
 from pyhealth.metrics import ddi_rate_score
 from pyhealth.models import BaseModel
-from pyhealth.models.utils import get_last_visit
+from pyhealth.models.utils import ddi_adjacency, get_last_visit, save_ddi_adj
 from pyhealth.models.embedding import EmbeddingModel
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
 
@@ -327,6 +327,29 @@ class SafeDrug(BaseModel):
         num_layers: the number of layers used in RNN. Default is 1.
         dropout: the dropout rate. Default is 0.5.
         **kwargs: other parameters for the SafeDrug layer.
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
+        >>> samples = [
+        ...     {"patient_id": "p0", "visit_id": "v0",
+        ...      "conditions": [["c1", "c2"], ["c3"]],
+        ...      "procedures": [["p1"], ["p2"]],
+        ...      "drugs": ["A01A", "B01A"]},
+        ...     {"patient_id": "p1", "visit_id": "v1",
+        ...      "conditions": [["c2"]], "procedures": [["p1"]],
+        ...      "drugs": ["N02B"]},
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={"conditions": "nested_sequence",
+        ...                   "procedures": "nested_sequence"},
+        ...     output_schema={"drugs": "multilabel"},
+        ...     dataset_name="demo",
+        ... )
+        >>> model = SafeDrug(dataset)  # doctest: +SKIP
+        >>> batch = next(iter(get_dataloader(dataset, batch_size=2)))
+        >>> sorted(model(**batch))  # doctest: +SKIP
+        ['loss', 'y_prob', 'y_true']
     """
 
     def __init__(
@@ -361,11 +384,6 @@ class SafeDrug(BaseModel):
         else:
             raise ValueError(f"SafeDrug requires exactly one label key, but got {self.label_keys}")
         
-        if not hasattr(self, 'mode') or not self.mode:
-            if self.label_key in self.dataset.output_schema:
-                self.mode = self._resolve_mode(self.dataset.output_schema[self.label_key])
-            else:
-                self.mode = "multilabel"
         
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
@@ -431,24 +449,14 @@ class SafeDrug(BaseModel):
         
         # save ddi adj
         ddi_adj = self.generate_ddi_adj()
-        np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj.numpy())
+        self.ddi_adj_matrix = save_ddi_adj(
+            ddi_adj, os.path.join(CACHE_PATH, "ddi_adj.npy")
+        )
 
     def generate_ddi_adj(self) -> torch.tensor:
         """Generates the DDI graph adjacency matrix."""
-        atc = ATC()
-        ddi = atc.get_ddi(gamenet_ddi=True)
         label_vocab = self.dataset.output_processors[self.label_key].label_vocab
-        label_size = len(label_vocab)
-        ddi_adj = np.zeros((label_size, label_size))
-        ddi_atc3 = [
-            [ATC.convert(l[0], level=3), ATC.convert(l[1], level=3)] for l in ddi
-        ]
-        for atc_i, atc_j in ddi_atc3:
-            if atc_i in label_vocab and atc_j in label_vocab:
-                ddi_adj[label_vocab[atc_i], label_vocab[atc_j]] = 1
-                ddi_adj[label_vocab[atc_j], label_vocab[atc_i]] = 1
-        ddi_adj = torch.FloatTensor(ddi_adj)
-        return ddi_adj
+        return ddi_adjacency(label_vocab)
 
     def generate_smiles_list(self) -> List[List[str]]:
         """Generates the list of SMILES strings."""

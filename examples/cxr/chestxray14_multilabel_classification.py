@@ -1,3 +1,17 @@
+"""ChestX-ray14 with PyHealth's CNN: multilabel classification.
+
+Downloads part of NIH ChestX-ray14 with ``ChestXray14Dataset``, builds
+the default multilabel task (14 findings), and trains PyHealth's ``CNN`` for one epoch with ``Trainer``.
+
+Data: NIH ChestX-ray14, https://nihcc.app.box.com/v/ChestXray-NIHCC (open, no
+credentials). ``download=True, partial=True`` fetches only the first of the 12
+image archives (about 2 GB) into a temporary folder that is deleted at exit; to
+use an existing copy, pass its folder as ``root`` and drop ``download``.
+
+Run: ``python examples/cxr/chestxray14_multilabel_classification.py`` (a few minutes after the download on a GPU).
+A notebook version sits next to this file.
+"""
+
 import tempfile
 
 from pyhealth.datasets import ChestXray14Dataset, get_dataloader, split_by_sample

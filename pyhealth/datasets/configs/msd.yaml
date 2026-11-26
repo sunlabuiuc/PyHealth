@@ -1,0 +1,15 @@
+version: "1.0"
+tables:
+  cases:
+    file_path: "msd-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "record_id"
+      - "image_path"
+      - "label_path"
+      - "modality"
+      - "channels"
+      - "split"
+      - "labels"
+      - "tensor_image_size"

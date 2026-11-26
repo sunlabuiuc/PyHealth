@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 class MIMIC3ICD9Coding(BaseTask):
     """Medical coding task for MIMIC-III using ICD-9 codes.
 
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
+
     This task uses clinical notes to predict ICD-9 codes for a patient.
 
     Args:

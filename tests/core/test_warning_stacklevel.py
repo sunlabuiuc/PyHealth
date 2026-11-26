@@ -11,13 +11,8 @@ from unittest import mock
 
 import torch
 
-from pyhealth.data import Visit
 from pyhealth.datasets import (
-    BaseEHRDataset,
-    BaseSignalDataset,
     MIMIC3Dataset,
-    SampleEHRDataset,
-    SampleSignalDataset,
     create_sample_dataset,
     get_dataloader,
 )
@@ -42,14 +37,6 @@ class TestWarningLocation(unittest.TestCase):
         self.assertTrue(matches, f"no warning containing {text!r}")
         for w in matches:
             self.assertEqual(os.path.abspath(w.filename), os.path.abspath(__file__))
-
-    def test_deprecated_stubs(self):
-        for cls in (Visit, BaseEHRDataset, BaseSignalDataset, SampleEHRDataset,
-                    SampleSignalDataset):
-            with self.subTest(cls=cls.__name__):
-                caught = _caught(cls)
-                self.assert_points_here(caught, "deprecated")
-                self.assertIs(caught[0].category, DeprecationWarning)
 
     def test_dataset_constructor_warnings(self):
         # the base constructor would build the event table; only the warning

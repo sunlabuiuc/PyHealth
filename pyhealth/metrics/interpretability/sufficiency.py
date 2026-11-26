@@ -24,7 +24,7 @@ class SufficiencyMetric(RemovalBasedMetric):
         "ERASER: A Benchmark to Evaluate Rationalized NLP Models." ACL 2020.
 
     The metric is computed as:
-        SUFF = (1/|B|) × Σ[p_c(x)(x) - p_c(x)(x:q%)]
+        SUFF = (1/\\|B\\|) × Σ[p_c(x)(x) - p_c(x)(x:q%)]
                         q∈B
 
     Where:
