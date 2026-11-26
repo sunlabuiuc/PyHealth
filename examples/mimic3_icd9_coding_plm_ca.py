@@ -103,6 +103,9 @@ class DischargeSummaryICD9Coding(MIMIC3ICD9Coding):
 
     The parent task concatenates every note of an admission. The paper uses
     discharge summaries only, so this subclass filters notes by category.
+    Subclassing is intentional: it keeps the parent's input/output schema and
+    label processing, so the only difference from the stock task is the note
+    filter.
     """
 
     task_name: str = "mimic3_icd9_coding_discharge"

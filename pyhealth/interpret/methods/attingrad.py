@@ -41,6 +41,9 @@ Description:
 import torch
 
 from pyhealth.interpret.methods.base_interpreter import BaseInterpreter
+# Intentional reuse of DeepLift's private hook context: att_deeplift then uses
+# the same Rescale rules and activation swapping as pyhealth's DeepLift instead
+# of a second copy that could drift from it.
 from pyhealth.interpret.methods.deeplift import _DeepLiftHookContext
 
 METHODS = (
@@ -69,8 +72,9 @@ class AttInGrad(BaseInterpreter):
         steps: Riemann steps for Integrated Gradients.
 
     Raises:
-        ValueError: If ``method`` is unknown or the model lacks the methods
-            listed above.
+        ValueError: If ``method`` is unknown or ``steps`` is less than 1.
+        TypeError: If the model lacks ``tokenize``,
+            ``get_input_embeddings`` or ``forward_from_embedding``.
 
     Example:
         >>> interpreter = AttInGrad(model)  # model is a trained PLMCA

@@ -152,6 +152,11 @@ def load_authors():
     return namespace
 
 
+# Skipped in CI. To run locally, clone the authors' code next to the PyHealth
+# checkout, so both folders share a parent:
+#   git clone https://github.com/JoakimEdin/explainable-medical-coding ../explainable-medical-coding
+# then, from PyHealth/:
+#   python -m pytest tests/core/test_faithfulness_mdace.py -k Authors
 @unittest.skipUnless(AUTHORS.exists(), "authors' repository not found")
 class TestMatchesAuthors(unittest.TestCase):
     @classmethod

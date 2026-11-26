@@ -141,6 +141,11 @@ class MDACEDataset(BaseDataset):
     row per annotated note into a temporary directory. The data folders are
     only read.
 
+    The temporary directory (``pyhealth_mdace_*`` in the system temp folder,
+    e.g. ``/tmp``; path in ``dataset._tmp_dir``) holds MIMIC-III note text.
+    It is deleted when the dataset object is garbage-collected, so keep the
+    process on a machine covered by your PhysioNet data use agreement.
+
     Per-note attributes: ``hadm_id``, ``note_id``, ``category``,
     ``description``, ``text``, ``codes`` / ``code_systems`` (JSON lists) and
     ``spans`` (JSON list aligned with ``codes``; each entry is a list of

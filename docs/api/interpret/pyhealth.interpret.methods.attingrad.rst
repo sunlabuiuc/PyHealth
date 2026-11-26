@@ -30,6 +30,10 @@ The same interpreter also returns its parts and an ablation variant through
 - ``"integrated_gradients"``: Integrated Gradients on the embeddings from a
   mask-token baseline (special tokens kept), reduced per token with the L2 norm
 - ``"att_ig"``: attention x Integrated Gradients
+- ``"deeplift"``: DeepLIFT (Rescale rule) on the embeddings from the same
+  mask-token baseline, reduced per token with the L2 norm; it reuses the hook
+  context of :class:`~pyhealth.interpret.methods.DeepLift`
+- ``"att_deeplift"``: attention x DeepLIFT
 
 Every explanation is L1-normalized so one note's token scores sum to 1;
 padding gets 0.
