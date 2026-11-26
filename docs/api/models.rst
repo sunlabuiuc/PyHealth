@@ -296,6 +296,7 @@ API Reference
     models/pyhealth.models.MLP
     models/pyhealth.models.CNN
     models/pyhealth.models.UNet
+    models/pyhealth.models.UNet3Plus
     models/pyhealth.models.RNN
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer

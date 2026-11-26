@@ -445,6 +445,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `PhysioNet <https://physionet.org/content/ecg-arrhythmia/1.0.0/>`__
      - No
      - —
+   * - :doc:`LUDB (ECG delineation) <datasets/pyhealth.datasets.LUDBDataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/ludb/1.0.1/>`__
+     - No
+     - —
    * - :doc:`Sleep-EDF <datasets/pyhealth.datasets.SleepEDFDataset>`
      - Open
      - `PhysioNet <https://physionet.org/content/sleep-edfx/1.0.0/>`__
@@ -672,6 +677,7 @@ Available Datasets
     datasets/pyhealth.datasets.CHBMITDataset
     datasets/pyhealth.datasets.HelsinkiNeonatalDataset
     datasets/pyhealth.datasets.EESM23Dataset
+    datasets/pyhealth.datasets.LUDBDataset
     datasets/pyhealth.datasets.IIICDataset
     datasets/pyhealth.datasets.ClinVarDataset
     datasets/pyhealth.datasets.COSMICDataset

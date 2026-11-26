@@ -255,6 +255,7 @@ from .seizure_detection_chbmit import (
 from .sleep_staging_ear_eeg import (
     SleepStagingEarEEG as SleepStagingEarEEG,
 )
+from .ecg_delineation_ludb import ECGDelineationLUDB as ECGDelineationLUDB
 from .dementia_classification_ahepa import (
     DementiaClassificationAHEPA as DementiaClassificationAHEPA,
 )
