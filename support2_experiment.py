@@ -27,8 +27,6 @@ from sklearn.metrics import adjusted_rand_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sksurv.metrics import brier_score, concordance_index_censored
-from sksurv.util import Surv
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm.auto import tqdm
 
@@ -469,6 +467,9 @@ def _score_predictions(
     brier_times: np.ndarray,
     ece_times: np.ndarray,
 ) -> dict[str, float]:
+    from sksurv.metrics import brier_score, concordance_index_censored
+    from sksurv.util import Surv
+
     y_train = Surv.from_arrays(split.event_train, split.duration_train)
     y_test = Surv.from_arrays(split.event_test, split.duration_test)
     c_index = concordance_index_censored(
@@ -507,6 +508,7 @@ def _fit_classical_models(
 ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
     """Fit CoxPH and, when its optional dependency works, random survival forest."""
     from sksurv.linear_model import CoxnetSurvivalAnalysis
+    from sksurv.util import Surv
 
     y_train = Surv.from_arrays(split.event_train, split.duration_train)
     models: dict[str, Any] = {
