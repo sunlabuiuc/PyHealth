@@ -163,6 +163,7 @@ from .survival_metabric import (
 )
 from .survival_mimic4 import InHospitalSurvivalMIMIC4 as InHospitalSurvivalMIMIC4
 from .acuity_mimic4 import ICUAcuityMIMIC4 as ICUAcuityMIMIC4
+from .support2_survival import Support2SurvivalTask as Support2SurvivalTask
 from .survival_preprocess_support2 import SurvivalPreprocessSupport2
 from .survival_time_to_event import (
     SurvivalTimeToEventGBSG as SurvivalTimeToEventGBSG,

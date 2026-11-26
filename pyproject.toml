@@ -104,6 +104,12 @@ ptbxl = [
 xgboost = [
   "xgboost>=2.0",
 ]
+# Deep Cox Mixtures training. Also install the authors' auton-survival package
+# with --no-deps from git; see pyhealth.models.DeepCoxMixtures.
+dcm = [
+  "scikit-survival>=0.25",
+  "lifelines>=0.27",
+]
 lint = [
   "ruff~=0.15",
 ]
