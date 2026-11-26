@@ -26,6 +26,9 @@ Usage:
     python examples/nhanes_mortality_motionage.py --root /path/to/nhanes \
         --ablation --sample-fraction 0.25 --seed 42
 
+    # Real-data model ablation with the reported configuration.
+    python examples/nhanes_mortality_motionage.py --root /path/to/nhanes --model-ablation --sample-fraction 0.25 --seed 42
+
 Experimental results:
     NHANES 2003-2006, 25% stratified participant subset (2,129 participants).
     Train/validation/test: 1,490/319/320 participants.
@@ -48,6 +51,29 @@ Experimental results:
 
     Continuous wear weighting improved the observed metrics, but the
     confidence intervals included zero.
+
+
+    Model ablation results (participant level):
+        Same participant split and seed. Pooling and hidden-size
+        experiments use binary wear masks.
+
+        Configuration      Params  AUROC     AP     F1    Acc
+        Binary baseline      4765 0.8562 0.3333 0.3778 0.8250
+        Continuous wear      4765 0.8667 0.3605 0.4186 0.8438
+        Mean pooling         4765 0.8530 0.3781 0.3855 0.8406
+        Last pooling         4765 0.7476 0.2891 0.2171 0.6844
+        Hidden dim 16        1725 0.8366 0.3780 0.3256 0.8187
+        Hidden dim 64       15453 0.8718 0.3308 0.3864 0.8313
+
+    Mean pooling achieved the highest AP, while hidden dimension
+    64 achieved the highest AUROC with more parameters.
+    Last pooling performed worse than the masked baseline.
+    Continuous wear weighting improved all four observed metrics
+    over the binary baseline without additional parameters.
+
+    AUPRC is reported as average precision (AP).
+    Model ablation results are exploratory single-seed comparisons
+    without separate statistical significance testing.
 
 Limitations:
     This experiment reproduces the mortality prediction component,

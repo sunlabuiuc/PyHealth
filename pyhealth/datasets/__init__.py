@@ -162,4 +162,4 @@ from .support2 import (
     support2_released_split_ids as support2_released_split_ids,
 )
 
-from .nhanes import NHANESDataset
+from .nhanes import NHANESDataset as NHANESDataset
