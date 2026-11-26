@@ -1,0 +1,57 @@
+version: "1.4"
+tables:
+  patients:
+    file_path: "PATIENTS.csv.gz"
+    patient_id: "subject_id"
+    timestamp: null
+    attributes:
+      - "gender"
+      - "dob"
+      - "dod"
+
+  admissions:
+    file_path: "ADMISSIONS.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "admittime"
+    attributes:
+      - "hadm_id"
+      - "dischtime"
+      - "deathtime"
+      - "hospital_expire_flag"
+
+  icustays:
+    file_path: "ICUSTAYS.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "intime"
+    attributes:
+      - "hadm_id"
+      - "icustay_id"
+      - "first_careunit"
+      - "last_careunit"
+      - "first_wardid"
+      - "last_wardid"
+      - "outtime"
+      - "los"
+
+  chartevents:
+    file_path: "CHARTEVENTS.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "charttime"
+    attributes:
+      - "hadm_id"
+      - "icustay_id"
+      - "itemid"
+      - "value"
+      - "valuenum"
+      - "valueuom"
+
+  labevents:
+    file_path: "LABEVENTS.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "charttime"
+    attributes:
+      - "hadm_id"
+      - "itemid"
+      - "value"
+      - "valuenum"
+      - "valueuom"
