@@ -1,7 +1,9 @@
 """Paired H1 ablation with PyHealth Trainer, standard projection and refit.
 
 Contributor: Chia Yang Tsai (UIUC NetID: ct68).
-Paper: Sethi et al., ProtoECGNet, MLHC 2025.
+Paper: Sethi et al., MLHC 2025.
+ProtoECGNet: Case-Based Interpretable Deep Learning for Multi-Label ECG
+Classification with Contrastive Learning.
 https://proceedings.mlr.press/v298/sethi25a.html
 
 Default: a short CPU-only synthetic demonstration, with no downloads. The two

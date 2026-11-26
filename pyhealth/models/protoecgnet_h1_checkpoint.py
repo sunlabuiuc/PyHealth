@@ -1,6 +1,11 @@
 """Bind H1 projection sources to the bank and feature state that produced them.
 
 Contributor: Chia Yang Tsai (UIUC NetID: ct68).
+Paper: Sethi et al., MLHC 2025.
+ProtoECGNet: Case-Based Interpretable Deep Learning for Multi-Label ECG
+Classification with Contrastive Learning.
+https://proceedings.mlr.press/v298/sethi25a.html
+
 Uses the existing standard projection algorithm. This is native H1 checkpoint
 support, not a converter for historical reference checkpoints.
 """

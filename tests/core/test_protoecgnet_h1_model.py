@@ -1,4 +1,11 @@
-"""Synthetic H1 model/Trainer checks, using four samples and a tiny backbone."""
+"""Synthetic H1 model/Trainer checks, using four samples and a tiny backbone.
+
+Contributor: Chia Yang Tsai (UIUC NetID: ct68).
+Paper: Sethi et al., MLHC 2025.
+ProtoECGNet: Case-Based Interpretable Deep Learning for Multi-Label ECG
+Classification with Contrastive Learning.
+https://proceedings.mlr.press/v298/sethi25a.html
+"""
 
 import copy
 

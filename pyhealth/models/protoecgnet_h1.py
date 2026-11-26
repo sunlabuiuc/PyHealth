@@ -1,7 +1,9 @@
 """Reference-compatible morphology building blocks for ProtoECGNet H1.
 
 Contributor: Chia Yang Tsai (UIUC NetID: ct68).
-Paper: Sethi et al., ProtoECGNet, MLHC 2025.
+Paper: Sethi et al., MLHC 2025.
+ProtoECGNet: Case-Based Interpretable Deep Learning for Multi-Label ECG
+Classification with Contrastive Learning.
 https://proceedings.mlr.press/v298/sethi25a.html
 
 H1 adds pooled-similarity consistency to the average of two complete original

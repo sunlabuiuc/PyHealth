@@ -1,6 +1,11 @@
 """Ordered preprocessed PTB-XL data and reproducible paired views for H1.
 
 Contributor: Chia Yang Tsai (UIUC NetID: ct68).
+Paper: Sethi et al., MLHC 2025.
+ProtoECGNet: Case-Based Interpretable Deep Learning for Multi-Label ECG
+Classification with Contrastive Learning.
+https://proceedings.mlr.press/v298/sethi25a.html
+
 Category-3 order comes from bbj-lab/protoecgnet at author commit
 fefbe6166a87a961c9c65d220d6344e8d53f2c49. No ECG preprocessing, statistics
 fitting, checkpoint conversion or research evaluation is performed here.

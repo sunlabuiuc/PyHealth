@@ -1,6 +1,11 @@
 """Explicit import of the pinned, refitted H1 research checkpoint format.
 
 Contributor: Chia Yang Tsai (UIUC NetID: ct68).
+Paper: Sethi et al., MLHC 2025.
+ProtoECGNet: Case-Based Interpretable Deep Learning for Multi-Label ECG
+Classification with Contrastive Learning.
+https://proceedings.mlr.press/v298/sethi25a.html
+
 No file is unpickled here. Callers must authenticate trusted input files before
 loading them. Conversion does not project, train, or restore optimizer state.
 """
