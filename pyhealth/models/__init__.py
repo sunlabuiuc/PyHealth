@@ -167,6 +167,7 @@ from .dearllm import (
     DearLLM as DearLLM,
     DearLLMGraphEncoder as DearLLMGraphEncoder,
 )
+from .tpc import TPC as TPC
 from .game import (
     GAME as GAME,
     GAMEEmbedding as GAMEEmbedding,
