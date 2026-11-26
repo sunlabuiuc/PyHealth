@@ -15,8 +15,14 @@ Only the PR's own changes count: diffs start from the merge base of
 <base> and <head>, so a branch that is behind master is not blamed for lines
 master changed since it branched off. Run it with <head> checked out.
 
+In CI, <head> is GitHub's test merge of the PR into master (the default
+checkout) and <base> its first parent, the master it merged into. That diff is
+exactly the PR's changes, its line numbers match the checked-out files, and
+this script is master's copy, so a PR branched before a fix here still gets it.
+
 Usage:
     python tools/check_pr_rules.py --base <base_sha> --head <head_sha>
+    python tools/check_pr_rules.py --base upstream/master --head HEAD  # local
 """
 import argparse
 import ast
