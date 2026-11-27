@@ -92,6 +92,23 @@ def _label_processor(model: nn.Module) -> LabelProcessor | None:
     return cls()
 
 
+def _batch_size(batch: dict) -> int:
+    """Number of samples in a collated batch, used to weight its mean loss.
+
+    Read from ``patient_id`` when present, else from the first tensor or list
+    field. Falls back to 1, which weights every batch equally.
+    """
+    ids = batch.get("patient_id")
+    if isinstance(ids, (list, tuple)) and ids:
+        return len(ids)
+    for value in batch.values():
+        if isinstance(value, torch.Tensor) and value.dim() > 0:
+            return int(value.shape[0])
+        if isinstance(value, (list, tuple)) and value:
+            return len(value)
+    return 1
+
+
 def model_metrics_kwargs(model: nn.Module, metrics_fn: Callable) -> dict:
     """Extra keyword arguments that ``metrics_fn`` should get for ``model``.
 
@@ -402,11 +419,13 @@ class Trainer:
                 one array, or for the per-step ``timeseries_*`` labels a list
                 with one array per sample, over its label records.
             y_prob_all: Predictions, in the same layout.
-            loss_mean: Mean loss over batches.
+            loss_mean: Mean loss over samples: each batch's mean loss weighted
+                by its number of samples, so it doesn't depend on the batch
+                size.
             additional_outputs (only if requested): Dict of additional results.
             patient_ids (only if requested): List of patient ids in the same order as y_true_all/y_prob_all.
         """
-        loss_all = []
+        loss_sum, n_samples = 0.0, 0
         y_true_all = []
         y_prob_all = []
         patient_ids = []
@@ -417,8 +436,9 @@ class Trainer:
         for data in tqdm(dataloader, desc="Evaluation"):
             with torch.no_grad():
                 output = self.model(**data)
-                loss = output["loss"]
-                loss_all.append(loss.item())
+                n = _batch_size(data)
+                loss_sum += output["loss"].item() * n
+                n_samples += n
                 if label is not None:
                     y_true, y_prob = label.to_numpy(output["y_true"], output["y_prob"])
                     y_true_all.extend(y_true)
@@ -431,7 +451,7 @@ class Trainer:
                         additional_outputs[key].append(output[key].cpu().numpy())
             if return_patient_ids:
                 patient_ids.extend(data["patient_id"])
-        loss_mean = sum(loss_all) / len(loss_all)
+        loss_mean = loss_sum / n_samples
         if label is not None:
             y_true_all, y_prob_all = label.gather(y_true_all, y_prob_all)
         else:
@@ -466,15 +486,15 @@ class Trainer:
             )
             scores["loss"] = loss_mean
         else:
-            loss_all = []
+            loss_sum, n_samples = 0.0, 0
             for data in tqdm(dataloader, desc="Evaluation"):
                 self.model.eval()
                 with torch.no_grad():
                     output = self.model(**data)
-                    loss = output["loss"]
-                    loss_all.append(loss.item())
-            loss_mean = sum(loss_all) / len(loss_all)
-            scores = {"loss": loss_mean}
+                    n = _batch_size(data)
+                    loss_sum += output["loss"].item() * n
+                    n_samples += n
+            scores = {"loss": loss_sum / n_samples}
         return scores
 
     def save_ckpt(self, ckpt_path: str) -> None:
