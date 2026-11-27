@@ -328,7 +328,7 @@ bounty:
     priority: 1
     category: model
     title: MEME Pseudo-Notes EHR Model (npj Digital Medicine 2025)
-    description: "Implement the MEME multiple-embedding model (EHR-to-pseudo-notes) and MIMIC-IV-ED disposition and decompensation tasks on MIMIC-IV and EHRSHOT. [code](https://github.com/Simonlee711/MEME), [paper](https://doi.org/10.1038/s41746-025-01777-x) — Merged in #1384: MEME with MIMIC-IV-ED disposition tasks. Remaining: decompensation and EHRSHOT."
+    description: "Implement the MEME multiple-embedding model (EHR-to-pseudo-notes) and MIMIC-IV-ED disposition and decompensation tasks on MIMIC-IV and EHRSHOT. [code](https://github.com/Simonlee711/MEME), [paper](https://doi.org/10.1038/s41746-025-01777-x) — Merged in #1384: MEME with MIMIC-IV-ED disposition tasks. Remaining: MEME's ED decompensation task and EHRSHOT (medmod_decompensation_mimic4.py is MedMod's ICU + chest X-ray task, not MEME's)."
     complete: ~
   - id: 56
     priority: 1
