@@ -239,6 +239,7 @@ Quick Navigation
    api/interpret
    api/trainer
    api/autoimprove
+   api/experiment_tracking
    api/benchmarks
    api/tokenizer
    api/metrics
