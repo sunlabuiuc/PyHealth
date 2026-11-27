@@ -219,6 +219,12 @@ class TestNestedSequenceFloatsProcessor(unittest.TestCase):
         self.assertEqual(result[0, 0].item(), 0.0)
         self.assertEqual(result[0, 1].item(), 0.0)
 
+        # Regression: a leading empty visit must not stop the later, real
+        # visit from being within-visit forward-filled for its own padding.
+        # [3.0] should become [3.0, 3.0], not [3.0, 0.0].
+        self.assertEqual(result[1, 0].item(), 3.0)
+        self.assertEqual(result[1, 1].item(), 3.0)
+
     def test_none_first_visit(self):
         """Test when first visit is None (no prior history)."""
         processor = NestedFloatsProcessor(padding=0)
@@ -231,6 +237,11 @@ class TestNestedSequenceFloatsProcessor(unittest.TestCase):
         # First visit should be zeros (no prior history)
         self.assertEqual(result[0, 0].item(), 0.0)
         self.assertEqual(result[0, 1].item(), 0.0)
+
+        # Regression: a leading None visit must not stop the later, real
+        # visit from being within-visit forward-filled for its own padding.
+        self.assertEqual(result[1, 0].item(), 3.0)
+        self.assertEqual(result[1, 1].item(), 3.0)
 
     def test_empty_sequence(self):
         """Test processing completely empty sequence."""

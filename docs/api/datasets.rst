@@ -465,6 +465,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `PhysioNet <https://physionet.org/content/eegmmidb/1.0.0/>`__
      - Yes
      - —
+   * - :doc:`HMC Sleep Staging <datasets/pyhealth.datasets.HMCDataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/hmc-sleep-staging/1.1/>`__
+     - No
+     - —
    * - :doc:`BCI Competition IV 2a <datasets/pyhealth.datasets.BCICompetitionIV2aDataset>`
      - Open (CC BY-ND)
      - `BNCI Horizon <https://bnci-horizon-2020.eu/database/data-sets>`__
@@ -483,6 +488,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
    * - :doc:`EESM23 (ear-EEG) <datasets/pyhealth.datasets.EESM23Dataset>`
      - Open
      - `OpenNeuro <https://openneuro.org/datasets/ds005178>`__
+     - No
+     - —
+   * - :doc:`AHEPA Dementia EEG <datasets/pyhealth.datasets.AHEPADementiaDataset>`
+     - Open
+     - `OpenNeuro <https://openneuro.org/datasets/ds004504>`__
      - No
      - —
    * - :doc:`PAD-UFES-20 <datasets/pyhealth.datasets.PADUFES20Dataset>`
@@ -519,6 +529,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - Open (CC BY-NC 4.0)
      - `ISIC <https://challenge.isic-archive.com/data/#2018>`__
      - Yes
+     - —
+   * - :doc:`PH2 <datasets/pyhealth.datasets.PH2Dataset>`
+     - Restricted / request (form)
+     - `PH2 <https://www.fc.up.pt/addi/ph2%20database.html>`__
+     - No
      - —
    * - :doc:`SUPPORT2 <datasets/pyhealth.datasets.Support2Dataset>`
      - Open
@@ -585,6 +600,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `GitHub <https://github.com/NinaWie/COVID-BLUES>`__
      - No (``git clone``)
      - —
+   * - :doc:`CDC COVID-19 Case Surveillance <datasets/pyhealth.datasets.CDCCOVIDDataset>`
+     - Open public-use data
+     - `CDC Socrata <https://data.cdc.gov/d/n8mc-b4w4>`__
+     - CSV export
+     - Bounded API samples supported
    * - :doc:`FHIR (format) <datasets/pyhealth.datasets.FHIRDataset>`
      - Depends on source
      - `HL7 <https://www.hl7.org/fhir/>`__
@@ -598,6 +618,7 @@ Available Datasets
     :maxdepth: 3
 
     datasets/pyhealth.datasets.BaseDataset
+    datasets/pyhealth.datasets.CDCCOVIDDataset
     datasets/pyhealth.datasets.PBCDataset
     datasets/pyhealth.datasets.SampleDataset
     datasets/pyhealth.datasets.PatchDataset
@@ -631,6 +652,7 @@ Available Datasets
     datasets/pyhealth.datasets.ChapmanShaoxingDataset
     datasets/pyhealth.datasets.eICUDataset
     datasets/pyhealth.datasets.ISRUCDataset
+    datasets/pyhealth.datasets.HMCDataset
     datasets/pyhealth.datasets.HUPiEEGDataset
     datasets/pyhealth.datasets.MIMICExtractDataset
     datasets/pyhealth.datasets.OMOPDataset
@@ -638,6 +660,7 @@ Available Datasets
     datasets/pyhealth.datasets.DREAMTDataset
     datasets/pyhealth.datasets.SHHSDataset
     datasets/pyhealth.datasets.SleepEDFDataset
+    datasets/pyhealth.datasets.NSRRSleepDataset
     datasets/pyhealth.datasets.EHRShotDataset
     datasets/pyhealth.datasets.Support2Dataset
     datasets/pyhealth.datasets.MetabricDataset
@@ -649,8 +672,10 @@ Available Datasets
     datasets/pyhealth.datasets.COVIDBLUESDataset
     datasets/pyhealth.datasets.ChestImaGenomeDataset
     datasets/pyhealth.datasets.HAM10000Dataset
+    datasets/pyhealth.datasets.PH2Dataset
     datasets/pyhealth.datasets.PhysioNetDeIDDataset
     datasets/pyhealth.datasets.EEGBCIDataset
+    datasets/pyhealth.datasets.AHEPADementiaDataset
     datasets/pyhealth.datasets.BCICompetitionIV2aDataset
     PTB-XL Dataset <datasets/pyhealth.datasets.PTBXLDataset>
     PhysioNet 2012 Dataset <datasets/pyhealth.datasets.PhysioNet2012Dataset>

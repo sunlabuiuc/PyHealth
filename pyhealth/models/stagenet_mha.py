@@ -1,5 +1,4 @@
 from typing import Dict, Optional, Tuple, cast
-import warnings
 
 import torch
 import torch.nn as nn
@@ -11,6 +10,7 @@ from .transformer import MultiHeadedAttention
 from pyhealth.interpret.api import CheferInterpretable
 
 from .embedding import EmbeddingModel
+from pyhealth.utils import _warn_user
 
 
 class StageNetAttentionLayer(nn.Module):
@@ -508,7 +508,7 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
                 value = value.to(self.device)
 
             if time is None:
-                warnings.warn(
+                _warn_user(
                     f"Feature '{feature_key}' does not have time "
                     f"intervals. StageNet's temporal modeling "
                     f"capabilities will be limited. Consider using "
@@ -523,7 +523,7 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
                     time = time.unsqueeze(0)
 
             if mask is None:
-                warnings.warn(
+                _warn_user(
                     f"Feature '{feature_key}' does not have mask "
                     f"information. Default mask will be created from "
                     f"embedded values. But it may not be accurate.",
@@ -656,9 +656,19 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
         R: dict[str, torch.Tensor],
         **data: torch.Tensor | tuple[torch.Tensor, ...],
     ) -> dict[str, torch.Tensor]:
-        # StageAttentionNet uses get_last_visit (last valid timestep)
-        # instead of a CLS token.  Derive the mask from **data using
-        # the same logic as forward_from_embedding.
+        """Select the last valid timestep's relevance row per feature.
+
+        StageAttentionNet has no CLS token, so each feature's relevance
+        matrix is reduced with ``get_last_visit`` logic: the mask is taken
+        from ``**data`` the same way as ``forward_from_embedding``.
+
+        Note:
+            Flat continuous ``stagenet_tensor`` values have no processor
+            mask. When one must be inferred, a measured ``0.0`` is treated
+            as padding (``v != 0``), so attribution can land on an earlier
+            step if the last real value is exactly zero. Pass an explicit
+            mask, or use feature vectors (rank > 1), to avoid that.
+        """
         result = {}
         for key in self.feature_keys:
             r = R[key]
@@ -678,10 +688,26 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
             if len(feature) == len(schema) + 1 and mask is None:
                 mask = feature[-1]
 
+            # Flat values are [batch, seq]. An inner axis (feature vectors)
+            # exists only when the processor's value rank is greater than 1.
+            # Summing that axis on a flat tensor drops the sequence dimension
+            # and makes mask.sum(dim=1) raise IndexError.
+            has_inner_axis = False
+            if "value" in schema and not processor.is_token():
+                has_inner_axis = processor.dim()[schema.index("value")] > 1
+
             if mask is None:
                 if value is not None:
                     v = value.to(device)
-                    mask = (v.abs().sum(dim=-1) != 0).int()
+                    if has_inner_axis:
+                        # 0.0 is a valid measurement; only an all-zero
+                        # feature vector is padding.
+                        mask = (v.abs().sum(dim=-1) != 0).int()
+                    else:
+                        # Token indices use PAD = 0, including nested codes
+                        # [batch, visits, codes]. Flat continuous scalars
+                        # have no feature axis, so 0.0 is padding.
+                        mask = (v != 0).int()
                 else:
                     # Cannot determine mask; fall back to last position
                     last_idx = torch.full(
@@ -694,7 +720,7 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
                     continue
             else:
                 mask = mask.to(device)
-                if not processor.is_token() and value is not None and value.dim() == mask.dim():
+                if has_inner_axis and value is not None and value.dim() == mask.dim():
                     mask = mask.any(dim=-1).int()
 
             if mask.dim() == 3:

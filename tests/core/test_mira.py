@@ -315,6 +315,14 @@ class TestMIRAModel(unittest.TestCase):
             self.assertEqual(call.args[0], HF_REPO_ID)
             self.assertEqual(call.kwargs["revision"], HF_REVISION)
 
+    def test_failed_download_says_how_to_load_a_local_snapshot(self):
+        error = OSError("401 Client Error: Repository Not Found")
+        with mock.patch("huggingface_hub.hf_hub_download", side_effect=error):
+            with self.assertRaisesRegex(RuntimeError, "local snapshot") as caught:
+                MIRA(self.dataset, pretrained=True)
+        self.assertIn(HF_REPO_ID, str(caught.exception))
+        self.assertIs(caught.exception.__cause__, error)
+
     def test_pretrained_rejects_config(self):
         with self.assertRaisesRegex(ValueError, "pretrained"):
             MIRA(self.dataset, pretrained=True, config=_tiny_config())

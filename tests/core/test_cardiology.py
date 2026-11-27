@@ -79,6 +79,13 @@ class TestParseHeader(unittest.TestCase):
         self.assertEqual(header["age"], "")
         self.assertEqual(header["dx"], f"{AR_CODE},{WA_CODE}")
 
+    def test_record_name_drops_a_file_extension(self):
+        # Some copies of the Georgia headers name the record "E00001.mat".
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "E00001.hea"
+            path.write_text("E00001.mat 12 500 5000 05-May-2020 14:50:55\n#Dx: 426783006\n")
+            self.assertEqual(parse_header(path)["record_id"], "E00001")
+
 
 class TestCardiologyDetection(unittest.TestCase):
     @classmethod

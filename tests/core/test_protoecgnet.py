@@ -1,6 +1,7 @@
 """Tests for ProtoECGNet using tiny synthetic ECG tensors (no real data)."""
 
 import unittest
+import warnings
 
 import torch
 
@@ -635,6 +636,31 @@ class TestProtoECGNet(unittest.TestCase):
         shuffled = get_dataloader(self.dataset, batch_size=4, shuffle=True)
         with self.assertRaises(ValueError, msg="shuffled loader must raise"):
             model.project_prototypes(shuffled)
+
+    def test_eval_right_after_projection_warns_once(self):
+        model = ProtoECGNet(self.dataset, prototypes_per_label=1, **TINY)
+        model.project_prototypes(self.loader)
+        model.set_stage("classifier")
+        model.eval()
+        with self.assertWarnsRegex(UserWarning, "project_prototypes"):
+            model(**self.batch)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            model(**self.batch)
+
+    def test_training_step_after_projection_prevents_warning(self):
+        # Covers repeated joint + projection rounds, where the trainer
+        # validates after each joint epoch.
+        for stage in ("joint", "classifier"):
+            model = ProtoECGNet(self.dataset, prototypes_per_label=1, **TINY)
+            model.project_prototypes(self.loader)
+            model.set_stage(stage)
+            model.train()
+            model(**self.batch)
+            model.eval()
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                model(**self.batch)
 
     def test_trainer_runs_through_staged_protocol(self):
         """One epoch per stage through the PyHealth Trainer, with a projection
