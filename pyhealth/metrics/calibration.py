@@ -27,11 +27,16 @@ Reference Papers:
     "Verification of forecasts expressed in terms of probability."
     Monthly weather review 78, no. 1 (1950): 1-3.
 
+    [7] Park, Yubin, and Joyce C. Ho.
+    "CaliForest: Calibrated Random Forest for Health Data."
+    ACM Conference on Health, Inference, and Learning (CHIL), 2020.
+
 """
 import bisect
 
 import numpy as np
 import pandas as pd
+from scipy.stats import chi2, norm
 
 
 def _get_bins(bins):
@@ -193,3 +198,231 @@ def brier_top1(prob:np.ndarray, label:np.ndarray):
     conf = prob.max(1)
     acc = (label == np.argmax(prob, 1)).astype(int)
     return np.mean(np.square(conf - acc))
+
+
+# ---------------------------------------------------------------------------
+# Binary calibration metrics from Table 1 of reference [7]:
+#   Park & Ho, "CaliForest: Calibrated Random Forest for Health Data",
+#   CHIL 2020. https://pmc.ncbi.nlm.nih.gov/articles/PMC8299436/
+# All take predicted probabilities of the positive class and 0/1 labels.
+# ---------------------------------------------------------------------------
+
+
+def _check_binary(
+    prob: np.ndarray, label: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Validates and converts binary-calibration inputs.
+
+    Args:
+        prob: Predicted probabilities of the positive class, shape (N,).
+        label: Binary labels (0/1), shape (N,).
+
+    Returns:
+        ``(prob, label)`` as 1-D float arrays.
+
+    Raises:
+        ValueError: If the inputs are empty, differ in length, are not 1-D,
+            if ``prob`` is outside [0, 1], or if ``label`` is not 0/1.
+    """
+    prob = np.asarray(prob, dtype=float).ravel()
+    label = np.asarray(label, dtype=float).ravel()
+    if prob.size == 0 or prob.shape != label.shape:
+        raise ValueError(
+            f"prob and label must be non-empty and the same length, got "
+            f"{prob.size} and {label.size}"
+        )
+    if np.any((prob < 0) | (prob > 1)):
+        raise ValueError("prob must be within [0, 1]")
+    if not np.all(np.isin(label, (0, 1))):
+        raise ValueError("label must contain only 0 and 1")
+    return prob, label
+
+
+def _risk_groups(prob: np.ndarray, ngroups: int) -> list[np.ndarray]:
+    """Splits sample indices into equal-sized groups of increasing risk.
+
+    Samples are sorted by predicted probability and split into ``ngroups``
+    groups whose sizes differ by at most one (``N_g`` in Park & Ho, 2020).
+
+    Args:
+        prob: Predicted probabilities of the positive class, shape (N,).
+        ngroups: Number of groups.
+
+    Returns:
+        A list of ``ngroups`` index arrays, from lowest to highest risk.
+
+    Raises:
+        ValueError: If ``ngroups`` is less than 1 or greater than N.
+    """
+    if not 1 <= ngroups <= len(prob):
+        raise ValueError(
+            f"ngroups must be between 1 and the number of samples "
+            f"({len(prob)}), got {ngroups}"
+        )
+    return np.array_split(np.argsort(prob, kind="stable"), ngroups)
+
+
+def scaled_brier(prob: np.ndarray, label: np.ndarray) -> float:
+    """Scaled Brier score.
+
+    ``1 - Brier / (ybar * (1 - ybar))``: the Brier score relative to always
+    predicting the event rate. 1 is perfect; 0 is no better than the event
+    rate.
+
+    Args:
+        prob: Predicted probabilities of the positive class, shape (N,).
+        label: Binary labels (0/1), shape (N,).
+
+    Returns:
+        The scaled Brier score.
+
+    Raises:
+        ValueError: If ``label`` contains only one class.
+
+    Examples:
+        >>> prob = np.array([0.1, 0.2, 0.8, 0.9])
+        >>> label = np.array([0, 0, 1, 1])
+        >>> round(scaled_brier(prob, label), 4)
+        0.9
+    """
+    prob, label = _check_binary(prob, label)
+    ybar = label.mean()
+
+    if ybar in (0.0, 1.0):
+        raise ValueError("scaled_brier needs both classes in label")
+
+    brier = np.mean(np.square(label - prob))
+    return float(1 - brier / (ybar * (1 - ybar)))
+
+
+def reliability_in_the_large(prob: np.ndarray, label: np.ndarray) -> float:
+    """Reliability-in-the-large (the model's overall bias).
+
+    ``(mean(prob) - mean(label))^2``. 0 is perfect.
+
+    Args:
+        prob: Predicted probabilities of the positive class, shape (N,).
+        label: Binary labels (0/1), shape (N,).
+
+    Returns:
+        The reliability-in-the-large value.
+
+    Examples:
+        >>> prob = np.array([0.2, 0.4])
+        >>> label = np.array([0, 1])
+        >>> round(reliability_in_the_large(prob, label), 4)
+        0.04
+    """
+    prob, label = _check_binary(prob, label)
+
+    return float(np.square(prob.mean() - label.mean()))
+
+
+def reliability_in_the_small(
+    prob: np.ndarray, label: np.ndarray, ngroups: int = 10
+) -> float:
+    """Reliability-in-the-small.
+
+    Mean over equal-sized risk groups of the squared gap between the average
+    predicted probability and the observed event rate in that group.
+    0 is perfect.
+
+    Args:
+        prob: Predicted probabilities of the positive class, shape (N,).
+        label: Binary labels (0/1), shape (N,).
+        ngroups: Number of equal-sized risk groups. Default 10.
+
+    Returns:
+        The reliability-in-the-small value.
+
+    Examples:
+        >>> prob = np.array([0.1, 0.2, 0.8, 0.9])
+        >>> label = np.array([0, 0, 1, 1])
+        >>> round(reliability_in_the_small(prob, label, ngroups=2), 4)
+        0.0225
+    """
+    prob, label = _check_binary(prob, label)
+    gaps = [
+        prob[idx].mean() - label[idx].mean()
+        for idx in _risk_groups(prob, ngroups)
+    ]
+    return float(np.mean(np.square(gaps)))
+
+
+def hosmer_lemeshow(
+    prob: np.ndarray, label: np.ndarray, ngroups: int = 10
+) -> tuple[float, float]:
+    """Hosmer-Lemeshow goodness-of-fit test.
+
+    Compares observed and expected event counts across equal-sized risk
+    groups. The statistic is referred to a chi-squared distribution with
+    ``ngroups - 2`` degrees of freedom. A p-value closer to 1 indicates
+    better calibration.
+
+    Args:
+        prob: Predicted probabilities of the positive class, shape (N,).
+        label: Binary labels (0/1), shape (N,).
+        ngroups: Number of equal-sized risk groups (at least 3). Default 10.
+
+    Returns:
+        A tuple ``(statistic, p_value)``.
+
+    Raises:
+        ValueError: If ``ngroups`` is less than 3.
+
+    Examples:
+        >>> prob = np.array([0.1, 0.2, 0.3, 0.6, 0.7, 0.9])
+        >>> label = np.array([0, 0, 1, 0, 1, 1])
+        >>> stat, p = hosmer_lemeshow(prob, label, ngroups=3)
+        >>> round(stat, 3), round(p, 3)
+        (0.873, 0.35)
+    """
+
+    if ngroups < 3:
+        raise ValueError(f"hosmer_lemeshow needs ngroups >= 3, got {ngroups}")
+    prob, label = _check_binary(prob, label)
+    stat = 0.0
+    for idx in _risk_groups(prob, ngroups):
+        pi_g = prob[idx].mean()
+        observed, expected = label[idx].sum(), prob[idx].sum()
+        # Guard against groups whose predictions are all exactly 0 or 1.
+        var = max(len(idx) * pi_g * (1 - pi_g), 1e-12)
+        stat += (observed - expected) ** 2 / var
+    return float(stat), float(chi2.sf(stat, df=ngroups - 2))
+
+
+def spiegelhalter(prob: np.ndarray, label: np.ndarray) -> tuple[float, float]:
+    """Spiegelhalter's z-test for calibration.
+
+    ``z = sum((y - p)(1 - 2p)) / sqrt(sum((1 - 2p)^2 p (1 - p)))`` with a
+    two-sided p-value from the standard normal. A p-value closer to 1
+    indicates better calibration.
+
+    Args:
+        prob: Predicted probabilities of the positive class, shape (N,).
+        label: Binary labels (0/1), shape (N,).
+
+    Returns:
+        A tuple ``(z, p_value)``.
+
+    Raises:
+        ValueError: If every prediction is exactly 0, 0.5, or 1, which makes
+            the denominator 0.
+
+    Examples:
+        >>> prob = np.array([0.1, 0.9])
+        >>> label = np.array([0, 1])
+        >>> z, p = spiegelhalter(prob, label)
+        >>> round(z, 3), round(p, 3)
+        (-0.471, 0.637)
+    """
+
+    prob, label = _check_binary(prob, label)
+    num = np.sum((label - prob) * (1 - 2 * prob))
+    den = np.sqrt(np.sum(np.square(1 - 2 * prob) * prob * (1 - prob)))
+
+    if den == 0:
+        raise ValueError("spiegelhalter is undefined when all prob are 0, 0.5, or 1")
+    z = num / den
+
+    return float(z), float(2 * norm.sf(abs(z)))

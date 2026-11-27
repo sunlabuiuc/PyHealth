@@ -132,6 +132,12 @@ from .kits23_classification import (
 from .kits23_segmentation import (
     KiTS23Segmentation as KiTS23Segmentation,
 )
+from .mimic_extract import (
+    MIMICExtractBinaryTask as MIMICExtractBinaryTask,
+    MIMICExtractLengthOfStay as MIMICExtractLengthOfStay,
+    MIMICExtractMortalityHospital as MIMICExtractMortalityHospital,
+    MIMICExtractMortalityICU as MIMICExtractMortalityICU,
+)
 from .lab_nowcasting import (
     LabNowcasting as LabNowcasting,
     LabNowcastingMIMIC3 as LabNowcastingMIMIC3,
