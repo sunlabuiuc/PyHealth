@@ -68,6 +68,23 @@ class TestMedTokKeys(unittest.TestCase):
         self.assertEqual(medtok_keys("0src0j9", "ICD10PCS"), ["0SRC0J9"])
         self.assertEqual(medtok_keys("B01AC06", "ATC"), ["B01AC06"])
 
+    def test_versioned_mimic4_codes(self):
+        self.assertEqual(medtok_keys("9_4280", "ICD_DX"), ["428.0"])
+        self.assertEqual(medtok_keys("10_E119", "ICD_DX"), ["E11.9"])
+        # The same digits mean different codes in the two versions.
+        self.assertEqual(medtok_keys("9_E8889", "ICD_DX"), ["E888.9"])
+        self.assertEqual(medtok_keys("10_E8889", "ICD_DX"), ["E88.89"])
+        self.assertEqual(medtok_keys("9_3893", "ICD_PROC"), ["38.93"])
+        self.assertEqual(medtok_keys("10_0SRC0J9", "ICD_PROC"), ["0SRC0J9"])
+        for bad in ("4280", "11_4280", "9_", "_4280"):
+            with self.assertRaises(ValueError):
+                medtok_keys(bad, "ICD_DX")
+
+    def test_special_tokens_have_no_keys(self):
+        for system in ("ICD9CM", "ICD_DX", "ICD_PROC", "ATC", "RAW"):
+            self.assertEqual(medtok_keys("<pad>", system), [])
+            self.assertEqual(medtok_keys("<unk>", system), [])
+
     def test_prefix_blank_and_raw(self):
         self.assertEqual(medtok_keys("ICD9CM:4280", "ICD9CM"), ["428.0"])
         self.assertEqual(medtok_keys("  ", "ICD9CM"), [])
@@ -280,6 +297,30 @@ class TestApplyMedTok(unittest.TestCase):
         self.assertTrue(torch.isfinite(self._train_step(model, dataset)["loss"]))
         self.assertIsNotNone(layers["conditions"].proj.weight.grad)
         self.assertIsNotNone(layers["procedures"].missing.grad)
+
+    def test_mimic4_versioned_codes_end_to_end(self):
+        samples = [
+            {
+                "patient_id": f"p{i}",
+                "visit_id": f"v{i}",
+                "conditions": ["9_4280", "10_E119"] if i % 2 else ["10_I10"],
+                "procedures": ["9_3893", "10_0SRC0J9"],
+                "label": i % 2,
+            }
+            for i in range(4)
+        ]
+        dataset = create_sample_dataset(
+            samples,
+            {"conditions": "sequence", "procedures": "sequence"},
+            {"label": "binary"},
+        )
+        model = Transformer(dataset, embedding_dim=8)
+        medtok = {k: _vec(i) for i, k in enumerate(["428.0", "E11.9", "38.93"])}
+        coverage = apply_medtok(
+            model, medtok, {"conditions": "ICD_DX", "procedures": "ICD_PROC"}
+        )
+        self.assertEqual(coverage, {"conditions": 2 / 3, "procedures": 1 / 2})
+        self._train_step(model, dataset)
 
     def test_rnn_with_tokens_from_a_file(self):
         dataset = _dataset()

@@ -1,4 +1,4 @@
-"""MedTok vs learned code embeddings on MIMIC-III (Su et al., ICML 2025).
+"""MedTok vs learned code embeddings on MIMIC-III and MIMIC-IV (Su et al., ICML 2025).
 
 MedTok's claim is that swapping an EHR model's code embeddings for MedTok's
 improves its predictions. This script trains the same PyHealth model twice
@@ -6,8 +6,13 @@ per seed, once with its usual learned embeddings and once with MedTok's
 (:func:`pyhealth.models.apply_medtok`), and reports the test metrics as mean
 (std) over seeds.
 
-1. Load MIMIC-III and set one of PyHealth's tasks: in-hospital mortality,
-   readmission, length of stay or drug recommendation (the paper's tasks).
+1. Load MIMIC-III or MIMIC-IV and set one of PyHealth's tasks: in-hospital
+   mortality, readmission, length of stay or drug recommendation (the paper's
+   tasks). MIMIC-IV's mortality task is left out: it drops each code's ICD
+   version, and MIMIC-IV mixes ICD-9 and ICD-10 codes that cannot be told
+   apart without it (``E8889`` is both ICD-9 E888.9 and ICD-10 E88.89). The
+   other MIMIC-IV tasks keep it (``9_4280``, ``10_E119``), which MedTok's
+   ``ICD_DX`` / ``ICD_PROC`` code systems read.
 2. Split by patient (70/10/20), with a different split for every seed.
 3. For each embedding, train with early stopping on the validation AUPRC (or
    AUROC for length of stay) and score the best epoch on the test split.
@@ -20,11 +25,15 @@ Get the embeddings from https://huggingface.co/mims-harvard/MedTok
 
 Usage::
 
-    # Smoke test on the MIMIC-III demo bundled with the repository:
-    python examples/medtok_mimic3.py --medtok medtok.npz --demo --epochs 2
+    # Smoke tests on the MIMIC-III and MIMIC-IV demos bundled with the repository:
+    python examples/medtok_mimic.py --medtok medtok.npz --demo --epochs 2
+    python examples/medtok_mimic.py --dataset mimic4 --task drugrec \\
+        --medtok medtok.npz --demo --epochs 2
     # The full comparison:
-    python examples/medtok_mimic3.py --root /data/mimic-iii/1.4 \\
+    python examples/medtok_mimic.py --root /data/mimic-iii/1.4 \\
         --medtok medtok.npz --task mortality --seeds 0 1 2
+    python examples/medtok_mimic.py --dataset mimic4 --root /data/mimic-iv/2.2 \\
+        --medtok medtok.npz --task readmission --seeds 0 1 2
 
 ``--embeddings tokens`` also runs MedTok's token mode, which needs
 ``code2tokens.json``.
@@ -37,7 +46,12 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from pyhealth.datasets import MIMIC3Dataset, get_dataloader, split_by_patient
+from pyhealth.datasets import (
+    MIMIC3Dataset,
+    MIMIC4EHRDataset,
+    get_dataloader,
+    split_by_patient,
+)
 from pyhealth.models import (
     RETAIN,
     RNN,
@@ -48,42 +62,59 @@ from pyhealth.models import (
 )
 from pyhealth.tasks import (
     DrugRecommendationMIMIC3,
+    DrugRecommendationMIMIC4,
     LengthOfStayPredictionMIMIC3,
+    LengthOfStayPredictionMIMIC4,
     MortalityPredictionMIMIC3,
     ReadmissionPredictionMIMIC3,
+    ReadmissionPredictionMIMIC4,
 )
 from pyhealth.trainer import Trainer
 
-DEMO_ROOT = Path(__file__).resolve().parent.parent / "test-resources/core/mimic3demo"
-CODES = {"conditions": "ICD9CM", "procedures": "ICD9PROC", "drugs": "NDC"}
+RESOURCES = Path(__file__).resolve().parent.parent / "test-resources/core"
+DATASETS = {
+    "mimic3": (MIMIC3Dataset, RESOURCES / "mimic3demo"),
+    "mimic4": (MIMIC4EHRDataset, RESOURCES / "mimic4demo"),
+}
+BINARY = ["roc_auc", "pr_auc"]
+MULTICLASS = ["roc_auc_macro_ovr", "accuracy", "f1_macro"]
+MULTILABEL = ["pr_auc_samples", "roc_auc_samples", "jaccard_samples"]
+CODES3 = {"conditions": "ICD9CM", "procedures": "ICD9PROC", "drugs": "NDC"}
+# MIMIC-IV tasks write codes with their ICD version: "9_4280", "10_E119".
+CODES4 = {"conditions": "ICD_DX", "procedures": "ICD_PROC", "drugs": "NDC"}
+# Drug recommendation's inputs and labels are ATC level-3 codes.
+DRUGREC = {"drugs_hist": "ATC", "drugs": None}
 TASKS = {
-    "mortality": (MortalityPredictionMIMIC3, CODES, ["roc_auc", "pr_auc"]),
-    "readmission": (ReadmissionPredictionMIMIC3, CODES, ["roc_auc", "pr_auc"]),
-    "los": (
-        LengthOfStayPredictionMIMIC3,
-        CODES,
-        ["roc_auc_macro_ovr", "accuracy", "f1_macro"],
-    ),
-    # Drug recommendation's inputs and labels are ATC level-3 codes.
-    "drugrec": (
-        DrugRecommendationMIMIC3,
-        {**CODES, "drugs_hist": "ATC", "drugs": None},
-        ["pr_auc_samples", "roc_auc_samples", "jaccard_samples"],
-    ),
+    "mimic3": {
+        "mortality": (MortalityPredictionMIMIC3, CODES3, BINARY),
+        "readmission": (ReadmissionPredictionMIMIC3, CODES3, BINARY),
+        "los": (LengthOfStayPredictionMIMIC3, CODES3, MULTICLASS),
+        "drugrec": (DrugRecommendationMIMIC3, {**CODES3, **DRUGREC}, MULTILABEL),
+    },
+    "mimic4": {
+        "readmission": (ReadmissionPredictionMIMIC4, CODES4, BINARY),
+        "los": (LengthOfStayPredictionMIMIC4, CODES4, MULTICLASS),
+        "drugrec": (DrugRecommendationMIMIC4, {**CODES4, **DRUGREC}, MULTILABEL),
+    },
 }
 MODELS = {"transformer": Transformer, "rnn": RNN, "retain": RETAIN}
 
 
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--root", help="MIMIC-III 1.4 folder (with ADMISSIONS.csv.gz).")
+    p.add_argument("--dataset", choices=DATASETS, default="mimic3")
+    p.add_argument(
+        "--root", help="MIMIC-III 1.4 folder, or MIMIC-IV 2.2 (with hosp/ and icu/)."
+    )
     p.add_argument("--demo", action="store_true", help="Use the bundled demo.")
     p.add_argument("--cache-dir", default=None)
     p.add_argument(
         "--medtok", help="medtok.npz or code2embeddings.json, for --embeddings medtok."
     )
     p.add_argument("--tokens", help="code2tokens.json, for --embeddings tokens.")
-    p.add_argument("--task", choices=TASKS, default="mortality")
+    p.add_argument(
+        "--task", choices=["mortality", "readmission", "los", "drugrec"], default=None
+    )
     p.add_argument("--model", choices=MODELS, default="transformer")
     p.add_argument(
         "--embeddings",
@@ -96,7 +127,7 @@ def parse_args():
     p.add_argument("--batch-size", type=int, default=256)
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--embedding-dim", type=int, default=128)
-    p.add_argument("--output", default="output/medtok_mimic3")
+    p.add_argument("--output", default="output/medtok_mimic")
     p.add_argument(
         "--device",
         default="cuda"
@@ -106,6 +137,16 @@ def parse_args():
         else "cpu",
     )
     args = p.parse_args()
+    args.task = args.task or (
+        "mortality" if args.dataset == "mimic3" else "readmission"
+    )
+    if args.task not in TASKS[args.dataset]:
+        p.error(
+            f"--task {args.task} is not available for {args.dataset}: "
+            "MortalityPredictionMIMIC4 drops each code's ICD version, and "
+            "MIMIC-IV's ICD-9 and ICD-10 codes cannot be told apart without it."
+        )
+    args.spec = TASKS[args.dataset][args.task]
     if not args.demo and not args.root:
         p.error("pass --root or --demo")
     if "tokens" in args.embeddings and not args.tokens:
@@ -116,12 +157,13 @@ def parse_args():
 
 
 def load_samples(args):
-    dataset = MIMIC3Dataset(
-        root=str(DEMO_ROOT) if args.demo else args.root,
+    dataset_cls, demo_root = DATASETS[args.dataset]
+    dataset = dataset_cls(
+        root=str(demo_root) if args.demo else args.root,
         tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
         cache_dir=args.cache_dir,
     )
-    return dataset.set_task(TASKS[args.task][0]())
+    return dataset.set_task(args.spec[0]())
 
 
 def build_model(samples, args, embeddings, medtok):
@@ -131,9 +173,7 @@ def build_model(samples, args, embeddings, medtok):
     model = MODELS[args.model](samples, **kwargs)
     if embeddings != "learned":
         systems = {
-            k: v
-            for k, v in TASKS[args.task][1].items()
-            if v and k in model.feature_keys
+            k: v for k, v in args.spec[1].items() if v and k in model.feature_keys
         }
         source = medtok["tokens" if embeddings == "tokens" else "medtok"]
         mode = "tokens" if embeddings == "tokens" else "embedding"
@@ -151,13 +191,13 @@ def run(samples, args, seed, embeddings, medtok):
         for i, d in enumerate((train, val, test))
     ]
     model = build_model(samples, args, embeddings, medtok)
-    metrics = TASKS[args.task][2]
+    metrics = args.spec[2]
     trainer = Trainer(
         model=model,
         metrics=metrics,
         device=args.device,
         output_path=args.output,
-        exp_name=f"{args.task}-{args.model}-{embeddings}-seed{seed}",
+        exp_name=f"{args.dataset}-{args.task}-{args.model}-{embeddings}-seed{seed}",
     )
     trainer.train(
         train_dataloader=loaders[0],
@@ -180,7 +220,7 @@ def main():
         # every patient a minor, and the task drops minors.
         raise SystemExit(f"{args.task} gave no samples on this data.")
     # Read each MedTok file once, keeping only the codes this task uses.
-    systems = {k: v for k, v in TASKS[args.task][1].items() if v}
+    systems = {k: v for k, v in args.spec[1].items() if v}
     wanted = {
         key
         for feature, system in systems.items()
@@ -203,10 +243,14 @@ def main():
 
     out = Path(args.output)
     out.mkdir(parents=True, exist_ok=True)
-    name = out / f"{args.task}-{args.model}.json"
-    name.write_text(json.dumps({"args": vars(args), "results": results}, indent=2))
-    print(f"\n{args.task}, {args.model}, seeds {args.seeds}: test mean (std)")
-    metrics = TASKS[args.task][2]
+    name = out / f"{args.dataset}-{args.task}-{args.model}.json"
+    config = {k: v for k, v in vars(args).items() if k != "spec"}
+    name.write_text(json.dumps({"args": config, "results": results}, indent=2))
+    print(
+        f"\n{args.dataset} {args.task}, {args.model}, seeds {args.seeds}: "
+        "test mean (std)"
+    )
+    metrics = args.spec[2]
     print(f"{'embeddings':<10}" + "".join(f"{m:>22}" for m in metrics))
     for embeddings, runs in results.items():
         cells = []

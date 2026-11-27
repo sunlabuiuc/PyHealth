@@ -27,7 +27,12 @@ tokenizer of existing EHR models:
    MedTok tokens.
 3. :func:`~pyhealth.models.medtok_keys` converts dataset codes to MedTok's
    dotted keys (MIMIC stores ICD-9 ``428.0`` as ``4280``) and maps NDC drugs
-   to ATC.
+   to ATC. For MIMIC-IV, whose readmission, length-of-stay and drug
+   recommendation tasks write versioned codes such as ``9_4280`` and
+   ``10_E119``, use ``"ICD_DX"`` and ``"ICD_PROC"``: the prefix picks ICD-9
+   or ICD-10, so ``9_E8889`` (E888.9) and ``10_E8889`` (E88.89) stay
+   distinct. ``MortalityPredictionMIMIC4`` drops the version, so its codes
+   are ambiguous and are not supported.
 
 .. note::
 
@@ -55,6 +60,18 @@ Example
         "medtok.npz",
         {"conditions": "ICD9CM", "procedures": "ICD9PROC", "drugs": "NDC"},
     )
+
+    # MIMIC-IV: samples from a task that keeps the ICD version, such as
+    # ReadmissionPredictionMIMIC4 (codes like "9_4280" and "10_E119")
+    model4 = Transformer(mimic4_samples, embedding_dim=128)
+    coverage = apply_medtok(
+        model4,
+        "medtok.npz",
+        {"conditions": "ICD_DX", "procedures": "ICD_PROC", "drugs": "NDC"},
+    )
+
+``examples/medtok_mimic.py`` compares learned and MedTok embeddings on
+MIMIC-III (``--dataset mimic3``) or MIMIC-IV (``--dataset mimic4``).
 
 API Reference
 -------------
