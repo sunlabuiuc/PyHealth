@@ -756,7 +756,10 @@ def task_fingerprint(task: Any, *, include_source: bool | None = None) -> str:
         >>> task_fingerprint(T()) == task_fingerprint(T())
         True
     """
-    spec = task_spec(task, include_source=include_source)
+    return _spec_digest(task_spec(task, include_source=include_source))
+
+
+def _spec_digest(spec: dict[str, Any]) -> str:
     return _digest(json.dumps(spec, sort_keys=True, separators=(",", ":")).encode())
 
 
@@ -883,11 +886,12 @@ def write_task_metadata(
     except ImportError:  # pragma: no cover
         pyhealth_version = "unknown"
 
+    spec = task_spec(task)  # walked once: a task may hold large tables
     payload = {
-        "fingerprint": task_fingerprint(task),
+        "fingerprint": _spec_digest(spec),
         "created_at": _dt.datetime.now(_dt.UTC).isoformat(),
         "pyhealth_version": pyhealth_version,
-        "spec": task_spec(task),
+        "spec": spec,
         **(extra or {}),
     }
 

@@ -1476,7 +1476,7 @@ class BaseDataset(ABC):
         logger.info(
             "Task cache key %s -- derived from instance state, schemas and task "
             "version. Full spec: %s",
-            task_cache_name(task),
+            Path(cache_dir).name,  # already task_cache_name(task)
             meta_path,
         )
         logger.info(f"Task cache paths: task_df={task_df_path}, samples={samples_path}")

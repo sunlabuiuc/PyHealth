@@ -976,6 +976,15 @@ class TestMetadataSidecar(unittest.TestCase):
             self.assertIsNotNone(write_task_metadata(unwritable, Readmission()))
 
 
+class TestSidecarDigest(unittest.TestCase):
+    def test_sidecar_fingerprint_is_the_task_fingerprint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_task_metadata(Path(tmp), Readmission())
+            payload = json.loads(path.read_text())
+        self.assertEqual(payload["fingerprint"], task_fingerprint(Readmission()))
+        self.assertEqual(payload["spec"], json.loads(json.dumps(task_spec(Readmission()))))
+
+
 class TestRealTasks(unittest.TestCase):
     """Smoke test against tasks actually shipped in the package."""
 
@@ -1036,6 +1045,22 @@ class TestRealTasks(unittest.TestCase):
         )
         self.assertNotEqual(
             task_fingerprint(task(name="a")), task_fingerprint(task(name="b"))
+        )
+
+    def test_base_task_with_mixed_dict_keys(self):
+        # The wrapped task used to be printed with json.dumps(sort_keys=True),
+        # which raises on a dict whose keys mix types.
+        from pyhealth.tasks import MortalityPredictionMIMIC4
+        from pyhealth.tasks.ehr_text_serialization import EHRTextSerializationTask
+
+        def wrapped(codes):
+            base = MortalityPredictionMIMIC4()
+            base.codes = codes
+            return EHRTextSerializationTask(base)
+
+        self.assertNotEqual(
+            task_fingerprint(wrapped({1: "a", "1": "b"})),
+            task_fingerprint(wrapped({1: "a", "1": "c"})),
         )
 
     def test_wrapped_task_version_changes_the_key(self):

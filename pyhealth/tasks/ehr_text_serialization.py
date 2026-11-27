@@ -20,7 +20,6 @@ adds no events and cannot leak the label.
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import re
 from collections.abc import Callable, Mapping, Sequence
@@ -94,11 +93,10 @@ _MEDCODE_NAMES = {
 
 
 class _Keyed:
-    """An object with a stable ``str``.
+    """An object with a readable, stable ``str``.
 
-    A plain object or function would print with its memory address in
-    ``json.dumps(vars(task), default=str)``. The cache key describes the object
-    itself instead, through ``__pyhealth_fingerprint__``.
+    The cache key does not use that string: it describes the object itself,
+    through ``__pyhealth_fingerprint__``.
     """
 
     def __init__(self, obj: Any, key: str) -> None:
@@ -551,8 +549,7 @@ class EHRTextSerializationTask(BaseTask):
         keep_inputs: bool = False,
         drop_codes: Sequence[str] = ("0",),
     ) -> None:
-        params = json.dumps(vars(base_task), sort_keys=True, default=str)
-        self._base = _Keyed(base_task, f"{_name(type(base_task))}{params}")
+        self._base = _Keyed(base_task, _name(type(base_task)))
         self.task_name = f"{base_task.task_name}/text"
         inputs = dict(base_task.input_schema)
         known = dict(DEFAULT_SECTIONS, **(sections or {}))

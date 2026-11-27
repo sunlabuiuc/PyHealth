@@ -62,7 +62,9 @@ So changing a task argument, a schema, the processors or the split gives a new
 cache automatically. **Editing the task's code does not**: the hash does not see
 the body of ``__call__``. Neither does upgrading PyHealth to a version whose
 task or processor code changed, unless the task's ``version`` changed too. In
-those cases the old samples are reused without a warning. Bump the task's
+those cases the old samples are reused without a warning. Functions stored on
+the task are the exception: their code is part of the hash, so editing one, in
+your code or in PyHealth, gives a new cache. Bump the task's
 ``version``, or clear the cache to rebuild them:
 
 .. code-block:: python
