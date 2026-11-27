@@ -111,6 +111,12 @@ class TestGroupBalancedDataloader(unittest.TestCase):
             self.dataset, batch_size=4, groups=SEXES, labels=LABELS, seed=0
         )
         self.assertAlmostEqual(float(loader.sampler.weights[6]), 1.0)
+        self.assertEqual(len(loader.dataset), len(SEXES))
+
+    def test_seed_drawn_when_not_given(self):
+        loader = get_group_balanced_dataloader(self.dataset, 4, groups=SEXES)
+        self.assertIsInstance(loader.sampler.seed, int)
+        self.assertEqual(sum(len(b["sex"]) for b in loader), len(SEXES))
 
     def test_bad_arguments_raise(self):
         with self.assertRaises(ValueError):
@@ -121,6 +127,10 @@ class TestGroupBalancedDataloader(unittest.TestCase):
             )
         with self.assertRaises(ValueError):
             get_group_balanced_dataloader(self.dataset, 4, groups=SEXES[:-1])
+        with self.assertRaises(ValueError):
+            get_group_balanced_dataloader(
+                self.dataset, 4, groups=SEXES, label_key="y", labels=LABELS
+            )
 
     def test_missing_key_raises(self):
         with self.assertRaises(KeyError):
