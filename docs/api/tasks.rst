@@ -255,6 +255,7 @@ Available Tasks
     Medical Transcriptions Classification <tasks/pyhealth.tasks.MedicalTranscriptionsClassification>
     MPF Clinical Prediction (FHIR) <tasks/pyhealth.tasks.mpf_clinical_prediction>
     Mortality Prediction (Next Visit) <tasks/pyhealth.tasks.mortality_prediction>
+    Diagnosis Evidence Retrieval (MIMIC-III) <tasks/pyhealth.tasks.diagnosis_evidence_retrieval>
     Mortality Prediction (StageNet MIMIC-IV) <tasks/pyhealth.tasks.mortality_prediction_stagenet_mimic4>
     Next-Visit Diagnosis Prediction <tasks/pyhealth.tasks.next_visit_diagnosis_prediction>
     Patient Linkage (MIMIC-III, legacy) <tasks/pyhealth.tasks.patient_linkage_mimic3_fn>
