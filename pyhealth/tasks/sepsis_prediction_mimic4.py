@@ -6,9 +6,8 @@
 #     admission for sepsis onset using a qSOFA-based approximation of the
 #     Sepsis-3 clinical criteria (Seymour et al., "Assessment of Clinical
 #     Criteria for Sepsis," JAMA 2016, https://doi.org/10.1001/jama.2016.0288),
-#     built on the labs/vitals/prescriptions tables PyHealth's MIMIC-IV
-#     loader already supports (plus a new `chartevents` table added to
-#     mimic4_ehr.yaml for vitals).
+#     built on the labevents, chartevents (vitals) and prescriptions tables
+#     of PyHealth's MIMIC-IV loader (mimic4_ehr.yaml).
 
 from datetime import datetime, timedelta
 from typing import Any, ClassVar
@@ -288,7 +287,7 @@ class SepsisPredictionMIMIC4(BaseTask):
             try:
                 # MIMIC-IV timestamps are naive by design (de-identified,
                 # date-shifted, no timezone).
-                dischtime = datetime.strptime(  # noqa: DTZ007
+                dischtime = datetime.strptime(
                     admission.dischtime, "%Y-%m-%d %H:%M:%S"
                 )
             except (TypeError, ValueError):
