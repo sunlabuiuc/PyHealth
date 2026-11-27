@@ -37,6 +37,7 @@ from .contrawr import ContraWR, ResBlock2D
 from .deepsleepnet import DeepSleepNet as DeepSleepNet
 from .deepr import Deepr, DeeprLayer
 from .delphi import Delphi as Delphi
+from .ecg_jepa import ECGJEPA as ECGJEPA, ECGJEPAEncoder as ECGJEPAEncoder
 from .eegnet import EEGNet as EEGNet
 from .embedding import EmbeddingModel
 from .sequence_embedding import (

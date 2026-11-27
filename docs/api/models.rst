@@ -321,6 +321,7 @@ API Reference
     models/pyhealth.models.EHRMambaCEHR
     models/pyhealth.models.ETHOS
     models/pyhealth.models.Delphi
+    models/pyhealth.models.ECGJEPA
     models/pyhealth.models.JambaEHR
     models/pyhealth.models.ContraWR
     models/pyhealth.models.CLIPStress
