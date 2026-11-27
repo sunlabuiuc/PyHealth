@@ -10,71 +10,47 @@ Demonstrates:
 - AUROC and average precision
 - History-length ablations with matched patient/visit/query cohorts
 - Optional in-memory frozen ClinicalBERT embedding caching
-- Synthetic augmentation of the public MIMIC-III demo at runtime
-- Configurable ICD-9 diagnosis groups, note counts, history offsets and seed
+- Full Dataset -> Task -> Model test using generated synthetic MIMIC-III tables
+- Configurable ICD-9 diagnosis groups
 - Top-k extractive sentence ranking
 
-Data modes:
-  --synthetic         Download the public MIMIC-III demo (or pass --demo-zip),
-                      augment it with synthetic historical admissions and notes
-                      in temporary storage, and run Dataset -> Task -> Model.
-                      Uses real Bio_ClinicalBERT by default.
-  --root PATH         Load an existing local MIMIC-III dataset.
-
-The synthetic augmentation is NOT a clinical benchmark. All note text added
-in --synthetic mode is artificial and is not patient-linked clinical evidence.
-No generated datasets or public-demo files are committed to this repository.
+Synthetic mode verifies execution only; it is not a
+clinical reproduction or a performance benchmark.
 
 Examples:
-    # Main --synthetic mode: reproduce the demo mimic data + synthetic data augmentation
-    # with the standard experiment args (no synthetic overrides required):
-    python examples/mimic3_query_focused_ehr_attention.py --synthetic --history-windows 30 90 365 --epochs 10 --batch-size 4 --learning-rate 2e-5 --max-patients 100 --seed 42 --output hybrid_enhanced_results.json
+    # Fast smoke test: sample dictionaries -> TinyEncoder model
+    python examples/mimic3_query_focused_ehr_attention.py --synthetic
 
-    # Customize synthetic augmentation independently from evaluation windows:
-    python examples/mimic3_query_focused_ehr_attention.py --synthetic --synthetic-notes-per-original-admission 3 --synthetic-history-offsets-days 200 80 15 --synthetic-notes-per-historical-admission 4 --synthetic-augmentation-seed 123 --history-windows 30 90 365 --epochs 10
+    # Full pipeline smoke test: generated MIMIC-III CSV -> Dataset -> Task -> TinyEncoder
+    python examples/mimic3_query_focused_ehr_attention.py --synthetic-mimic
 
-    # Use an already-downloaded public demo ZIP instead of downloading again:
-    python examples/mimic3_query_focused_ehr_attention.py --synthetic --demo-zip /path/to/mimiciii-demo-1.4.zip --epochs 10
+    # Full pipeline + actual ClinicalBERT (requires model download, GPU recommended)
+    python examples/mimic3_query_focused_ehr_attention.py --synthetic-mimic --use-clinicalbert --history-windows 30 --epochs 1
 
-    # Real MIMIC-III (requires authorized access and local files):
+    # Real MIMIC-III (requires credentialed local data)
     python examples/mimic3_query_focused_ehr_attention.py --root /path/to/mimic-iii
 
-Default --synthetic augmentation configuration (based on Colab):
-  --synthetic-notes-per-original-admission 5
-      Five synthetic notes per ORIGINAL admission: 129 x 5 = 645 notes.
-  --synthetic-history-offsets-days 230 65 20
-      Three synthetic historical admissions per patient (100 x 3 = 300).
-      Each new admission lasts two days.
-  --synthetic-notes-per-historical-admission 5
-      Five synthetic notes per HISTORICAL admission: 300 x 5 = 1,500.
-  --synthetic-augmentation-seed 42
-      Both independent synthetic note-sampling stages use seed 42.
+    python examples/mimic3_query_focused_ehr_attention.py --synthetic --fine-tune --learning-rate 0.001 --epochs 20 --history-windows 30 90 365
 
-The published public demo contains 100 patients and 129 admissions, yielding
-429 admissions and 2,145 synthetic notes with the defaults. Diagnosis records
-remain unchanged. Values depend on the source demo release. Note counts are
-per ADMISSION, not per patient. --history-windows controls lookback at model
-sample construction; it does not control how many admissions are generated.
-
-The example does not guarantee reproducing the original Colab AUROC/AP because
-package versions, data splits, training and stochasticity can affect results.
-Requires pandas, scikit-learn, PyTorch, transformers and PyHealth.
+Requires scikit-learn, PyTorch, transformers and PyHealth.
 """
 
 import argparse
+import csv
+import gzip
 import json
 import random
 import tempfile
-import urllib.request
+from collections import defaultdict
 from pathlib import Path
-from zipfile import ZipFile
+from types import SimpleNamespace
 
 import numpy as np
-import pandas as pd
 import torch
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.metrics.pairwise import cosine_similarity
+from torch import nn
 
 from pyhealth.datasets import MIMIC3Dataset
 from pyhealth.models.query_focused_ehr import QueryFocusedEHRModel
@@ -105,7 +81,7 @@ def load_diagnosis_groups(path):
         if not isinstance(group_id, str) or not group_id.strip():
             raise ValueError("Diagnosis group identifiers must be nonempty strings.")
         if not isinstance(config, dict):
-            raise TypeError(f"Diagnosis group {group_id!r} must be an object.")
+            raise ValueError(f"Diagnosis group {group_id!r} must be an object.")
         if not isinstance(config.get("description"), str) or not config["description"].strip():
             raise ValueError(f"Diagnosis group {group_id!r} requires a description.")
         codes = config.get("codes")
@@ -154,244 +130,247 @@ def label_value(sample):
     return int(label)
 
 # ---------------------------------------------------------
-# 2. Synthetic augmentation of public MIMIC-III demo (full pipeline)
+# 2. Synthetic smoke-test encoder
 # ---------------------------------------------------------
 
-MIMIC_III_DEMO_URL = "https://physionet.org/content/mimiciii-demo/get-zip/1.4/"
-HYBRID_TABLES = ("PATIENTS", "ADMISSIONS", "ICUSTAYS", "DIAGNOSES_ICD", "NOTEEVENTS")
-HYBRID_NOTE_COLUMNS = (
-    "row_id", "subject_id", "hadm_id", "chartdate", "charttime",
-    "storetime", "category", "description", "cgid", "iserror", "text",
-)
-# 26 generic synthetic-note templates used in the Colab augmentation.
-HYBRID_NOTE_TEMPLATES = [
-    "Patient reports intermittent fatigue and reduced exercise tolerance.",
-    "Vital signs are stable during routine clinical observation.",
-    "Patient reports occasional shortness of breath with exertion.",
-    "Medication history and adherence were reviewed.",
-    "Patient reports intermittent chest discomfort.",
-    "Respiratory examination and oxygen saturation were assessed.",
-    "Patient reports occasional productive cough.",
-    "Patient reports mild discomfort in the lower extremities.",
-    "Previous outpatient laboratory findings were reviewed.",
-    "Patient reports intermittent fever and malaise.",
-    "Nursing assessment documented stable respiratory status.",
-    "Patient reports difficulty sleeping during hospitalization.",
-    "Clinical team reviewed previous medical history.",
-    "Patient reports occasional dizziness while standing.",
-    "Fluid balance and nutritional intake were assessed.",
-    "Patient reports generalized weakness and reduced mobility.",
-    "Cardiovascular examination was performed.",
-    "Patient reports intermittent abdominal discomfort.",
-    "Routine blood tests were obtained for clinical monitoring.",
-    "Patient received counseling about medication management.",
-    "Physical examination findings were discussed with the care team.",
-    "Patient reports occasional nausea and reduced appetite.",
-    "Mobility assessment and fall-risk precautions were reviewed.",
-    "Clinical progress was reassessed during morning rounds.",
-    "Patient reports mild headache without additional symptoms.",
-    "Continued monitoring and follow-up evaluation were recommended.",
-]
+class HashTokenizer:
+    """Small tokenizer used only for synthetic smoke tests."""
 
+    def __call__(
+        self,
+        texts,
+        padding=True,
+        truncation=True,
+        max_length=128,
+        return_tensors="pt",
+    ):
+        sequences = []
+        for text in texts:
+            words = str(text).lower().split()
+            ids = [
+                1 + sum(word.encode("utf-8")) % 255
+                for word in words[:max_length]
+            ]
+            sequences.append(ids or [1])
 
-def write_synthetic_augmented_demo(
-    root,
-    demo_zip=None,
-    notes_per_original_admission=5,
-    history_offsets_days=(230, 65, 20),
-    notes_per_historical_admission=5,
-    seed=42,
-):
-    """Augment the public demo with synthetic notes, as in Colab Hybrid_Enhanced.
+        width = max(map(len, sequences))
 
-    Defaults match the notebook: five synthetic notes per ORIGINAL
-    admission (129 * 5 = 645 notes), plus three synthetic historical
-    admissions per patient (offsets 230, 65 and 20 days). Each of those
-    admissions gets five additional notes (100 * 3 * 5 = 1,500 notes).
-    Thus the 100-patient demo yields 429 admissions and 2,145 notes.
-
-    These counts are dataset-specific; the number of patients and original
-    admissions comes from the public demo, not function arguments.
-    ``notes_per_original_admission`` and
-    ``notes_per_historical_admission`` are *per admission*, not per patient.
-
-    Override these defaults with the corresponding ``--synthetic-*`` arguments.
-    ``history_offsets_days`` determines synthetic admission dates, while the
-    independent ``--history-windows`` flag filters model input histories.
-    The two stages each use a separate random generator seeded with ``seed``.
-    A local ``demo_zip`` can be provided to avoid downloading. The generated
-    files are written beneath ``root``; main() supplies a temporary folder
-    outside the git repository and cleans it up after training.
-
-    All clinical note text is synthetic and unrelated to the patients'
-    actual diagnoses. This reproduces the data-construction procedure,
-    not guaranteed bitwise-identical model scores or clinical validity.
-    """
-    if notes_per_original_admission < 1 or notes_per_historical_admission < 1:
-        raise ValueError("Notes per admission must be positive.")
-    if not history_offsets_days or any(days <= 2 for days in history_offsets_days):
-        raise ValueError("History offsets must contain days greater than two.")
-    if len(set(history_offsets_days)) != len(history_offsets_days):
-        raise ValueError("History offsets must be unique to avoid duplicate admission dates.")
-    if max(notes_per_original_admission, notes_per_historical_admission) > len(HYBRID_NOTE_TEMPLATES):
-        raise ValueError("Requested note count exceeds distinct templates.")
-    root.mkdir(parents=True, exist_ok=True)
-    if demo_zip is None:
-        demo_zip = root / "mimiciii-demo-1.4.zip"
-        print(f"Downloading public MIMIC-III demo to {demo_zip}")
-        urllib.request.urlretrieve(MIMIC_III_DEMO_URL, demo_zip)
-
-    tables = {}
-    with ZipFile(demo_zip) as archive:
-        members = {
-            Path(member).name.upper(): member
-            for member in archive.namelist()
-            if member.lower().endswith(".csv")
+        return {
+            "input_ids": torch.tensor([
+                seq + [0] * (width - len(seq))
+                for seq in sequences
+            ], dtype=torch.long),
+            "attention_mask": torch.tensor([
+                [1] * len(seq) + [0] * (width - len(seq))
+                for seq in sequences
+            ], dtype=torch.long),
         }
-        for name in HYBRID_TABLES:
-            key = f"{name}.CSV"
-            if key not in members:
-                raise ValueError(f"Demo ZIP is missing {key}")
-            with archive.open(members[key]) as stream:
-                table = pd.read_csv(stream, low_memory=False)
-            table.columns = table.columns.str.strip().str.lower()
-            tables[name] = table
 
-    patients = tables["PATIENTS"]
-    admissions = tables["ADMISSIONS"].copy()
-    original_notes = tables["NOTEEVENTS"]
-    if len(original_notes):
-        raise ValueError(
-            "This reproduction expects the public demo's empty NOTEEVENTS; "
-            "refusing to overwrite authentic notes."
+
+class TinyEncoder(nn.Module):
+    """Small trainable encoder; NOT pretrained ClinicalBERT."""
+
+    def __init__(self, hidden_size=32):
+        super().__init__()
+        self.config = SimpleNamespace(hidden_size=hidden_size)
+        self.embedding = nn.Embedding(256, hidden_size, padding_idx=0)
+        self.projection = nn.Linear(hidden_size, hidden_size)
+
+    def forward(self, input_ids, attention_mask=None):
+        vectors = self.embedding(input_ids)
+        mask = attention_mask.unsqueeze(-1)
+        pooled = (vectors * mask).sum(1) / mask.sum(1).clamp(min=1)
+        contextual = self.projection(pooled)
+
+        output = vectors.clone()
+        output[:, 0, :] = contextual
+        return SimpleNamespace(last_hidden_state=output)
+
+
+def synthetic_samples(history_days, diagnosis_groups=None):
+    """Generate deterministic synthetic examples for smoke testing.
+
+    Default query vocabulary gives each patient one positive and
+    one negative; custom groups may yield other label balances.
+    Sentences are intentionally artificial.
+    """
+    samples = []
+
+    diagnosis_groups = diagnosis_groups or DEFAULT_DIAGNOSIS_GROUPS
+
+    for i in range(40):
+        is_embolism = i % 2 == 0
+
+        recent = (
+            "Patient reports chest pain and shortness of breath."
+            if is_embolism
+            else "Patient has cough and fever."
         )
-    if not len(patients) or not len(admissions):
-        raise ValueError("Demo patients/admissions are empty.")
-    admissions["admittime"] = pd.to_datetime(admissions["admittime"])
-    admissions["dischtime"] = pd.to_datetime(admissions["dischtime"])
 
-    # Colab cell 13: five distinct random note templates per ORIGINAL
-    # admission, chronological timestamps within the admission.
-    rng = random.Random(seed)
-    initial_notes = []
-    valid_patients = set(patients["subject_id"])
-    for admission in admissions.itertuples(index=False):
-        patient_id, hadm_id = admission.subject_id, admission.hadm_id
-        admit_time, discharge_time = admission.admittime, admission.dischtime
-        if patient_id not in valid_patients:
-            raise ValueError(f"Unknown patient: {patient_id}")
-        if pd.isna(admit_time) or pd.isna(discharge_time) or discharge_time <= admit_time:
-            continue
-        for j, sentence in enumerate(
-            rng.sample(HYBRID_NOTE_TEMPLATES, k=notes_per_original_admission)
-        ):
-            timestamp = admit_time + (discharge_time - admit_time) * (
-                (j + 1) / (notes_per_original_admission + 1)
+        medium = (
+            "History of deep vein thrombosis."
+            if is_embolism
+            else "History of respiratory infection."
+        )
+
+        older = "Previous hospitalization and medication review."
+
+        sentences = [recent]
+
+        if history_days >= 90:
+            sentences.insert(0, medium)
+
+        if history_days >= 365:
+            sentences.insert(0, older)
+
+        observed_codes = {"41519"} if is_embolism else {"486"}
+        for group_id, group in diagnosis_groups.items():
+            positive = bool(
+                observed_codes.intersection(normalize_icd(c) for c in group["codes"])
             )
-            initial_notes.append({
-                "row_id": len(initial_notes) + 1,
-                "subject_id": patient_id,
-                "hadm_id": hadm_id,
-                "chartdate": timestamp.strftime("%Y-%m-%d"),
-                "charttime": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-                "storetime": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-                "category": "Physician",
-                "description": "Synthetic progress note",
-                "cgid": None,
-                "iserror": None,
-                "text": "[SYNTHETIC] " + sentence,
+            samples.append({
+                "patient_id": f"synthetic_{i:03d}",
+                "visit_id": f"visit_{i:03d}",
+                "sentences": list(sentences),
+                "query": group["description"],
+                "diagnosis_code": group_id,
+                "label": int(positive),
             })
-    note_df = pd.DataFrame(initial_notes, columns=HYBRID_NOTE_COLUMNS)
 
-    # Colab cell 16: independently reseed the second random generator, then
-    # add historical admissions for each patient with notes in each stay.
-    rng = random.Random(seed)
-    next_hadm_id = int(pd.to_numeric(admissions["hadm_id"]).max()) + 1
-    next_note_id = int(pd.to_numeric(note_df["row_id"]).max()) + 1
-    new_admissions = []
-    new_notes = []
-    for patient_id, group in admissions.groupby("subject_id"):
-        first_admission = group["admittime"].min()
-        if pd.isna(first_admission):
-            continue
-        for days_before in history_offsets_days:
-            hadm_id = next_hadm_id
-            next_hadm_id += 1
-            admit_time = first_admission - pd.Timedelta(days=days_before)
-            discharge_time = admit_time + pd.Timedelta(days=2)
-            new_admission = {column: None for column in admissions.columns}
-            new_admission.update({
-                "subject_id": patient_id,
-                "hadm_id": hadm_id,
-                "admittime": admit_time,
-                "dischtime": discharge_time,
-            })
-            if "admission_type" in new_admission:
-                new_admission["admission_type"] = "ELECTIVE"
-            if "diagnosis" in new_admission:
-                new_admission["diagnosis"] = "Synthetic historical admission"
-            if "hospital_expire_flag" in new_admission:
-                new_admission["hospital_expire_flag"] = 0
-            new_admissions.append(new_admission)
-            for j, sentence in enumerate(
-                rng.sample(HYBRID_NOTE_TEMPLATES, k=notes_per_historical_admission)
-            ):
-                # Preserve original 6, 14, 22, 30, 38-hour timestamps
-                # for the default five-note configuration.
-                timestamp = admit_time + pd.Timedelta(
-                    hours=(6 + j * 8)
-                    if notes_per_historical_admission == 5
-                    else 48 * (j + 1) / (notes_per_historical_admission + 1)
-                )
-                new_notes.append({
-                    "row_id": next_note_id,
-                    "subject_id": patient_id,
-                    "hadm_id": hadm_id,
-                    "chartdate": timestamp.strftime("%Y-%m-%d"),
-                    "charttime": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-                    "storetime": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-                    "category": "Physician",
-                    "description": "Synthetic historical progress note",
-                    "cgid": None,
-                    "iserror": None,
-                    "text": "[SYNTHETIC] " + sentence,
-                })
-                next_note_id += 1
+    return samples
 
-    enhanced_admissions = pd.concat(
-        [admissions, pd.DataFrame(new_admissions, columns=admissions.columns)],
-        ignore_index=True,
-    )
-    if "row_id" in enhanced_admissions.columns:
-        original_row_ids = pd.to_numeric(admissions["row_id"], errors="coerce").dropna()
-        next_row_id = int(original_row_ids.max()) + 1 if len(original_row_ids) else 1
-        enhanced_admissions.loc[len(admissions):, "row_id"] = range(
-            next_row_id, next_row_id + len(new_admissions)
+
+# ---------------------------------------------------------
+# 3. Synthetic MIMIC-III CSV fixtures (full pipeline smoke test)
+# ---------------------------------------------------------
+
+def write_synthetic_mimic_tables(root, num_patients=40):
+    """Write a small, de-identified, *artificial* MIMIC-III-style dataset.
+
+    The five CSV.gz tables match PyHealth's existing MIMIC3Dataset loader.
+    Each patient has three earlier note-bearing admissions and one target
+    admission with an ICD-9 diagnosis. Note timestamps are 18, 51 and
+    ~219 days before the target, enabling 30/90/365-day ablations.
+
+    This checks loader and task integration; it is not clinical evidence.
+    All files are generated locally and need no PhysioNet credentials.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+
+    columns = {
+        "PATIENTS": [
+            "SUBJECT_ID", "GENDER", "DOB", "DOD", "DOD_HOSP",
+            "DOD_SSN", "EXPIRE_FLAG",
+        ],
+        "ADMISSIONS": [
+            "SUBJECT_ID", "HADM_ID", "ADMITTIME", "DISCHTIME",
+            "ADMISSION_TYPE", "ADMISSION_LOCATION", "INSURANCE",
+            "LANGUAGE", "RELIGION", "MARITAL_STATUS", "ETHNICITY",
+            "EDREGTIME", "EDOUTTIME", "DEATHTIME", "DIAGNOSIS",
+            "DISCHARGE_LOCATION", "HOSPITAL_EXPIRE_FLAG",
+        ],
+        "ICUSTAYS": [
+            "SUBJECT_ID", "HADM_ID", "ICUSTAY_ID", "INTIME",
+            "OUTTIME", "FIRST_CAREUNIT", "LAST_CAREUNIT", "DBSOURCE",
+        ],
+        "NOTEEVENTS": [
+            "ROW_ID", "SUBJECT_ID", "HADM_ID", "CHARTDATE",
+            "CHARTTIME", "STORETIME", "CATEGORY", "DESCRIPTION", "TEXT",
+        ],
+        "DIAGNOSES_ICD": [
+            "ROW_ID", "SUBJECT_ID", "HADM_ID", "SEQ_NUM", "ICD9_CODE",
+        ],
+    }
+    rows = {key: [] for key in columns}
+    admission_dates = [
+        ("2020-05-25 08:00:00", "2020-05-29 12:00:00",
+         "2020-05-27 09:00:00", "2020-05-27 10:00:00"),
+        ("2020-11-09 08:00:00", "2020-11-13 12:00:00",
+         "2020-11-11 09:00:00", "2020-11-11 10:00:00"),
+        ("2020-12-11 08:00:00", "2020-12-15 12:00:00",
+         "2020-12-13 09:00:00", "2020-12-13 10:00:00"),
+        ("2021-01-01 08:00:00", "2021-01-05 12:00:00", None, None),
+    ]
+    note_id = 1
+    for idx in range(1, num_patients + 1):
+        patient_id = str(idx)
+        embolism = idx % 2 == 0
+        code = "41519" if embolism else "486"
+        rows["PATIENTS"].append({
+            "SUBJECT_ID": patient_id,
+            "GENDER": "M" if embolism else "F",
+            "DOB": "1970-01-01 00:00:00",
+            "EXPIRE_FLAG": "0",
+        })
+        history = (
+            ["Past anticoagulation medication review.",
+             "History of deep vein thrombosis.",
+             "Patient reports chest pain and shortness of breath."]
+            if embolism else
+            ["Past respiratory medication review.",
+             "History of respiratory infection.",
+             "Patient has cough and fever."]
         )
-    enhanced_notes = pd.concat(
-        [note_df, pd.DataFrame(new_notes, columns=HYBRID_NOTE_COLUMNS)],
-        ignore_index=True,
-    )
+        for visit_idx, (admit, discharge, chart, store) in enumerate(
+            admission_dates
+        ):
+            visit_id = str(100000 + idx * 10 + visit_idx)
+            rows["ADMISSIONS"].append({
+                "SUBJECT_ID": patient_id,
+                "HADM_ID": visit_id,
+                "ADMITTIME": admit,
+                "DISCHTIME": discharge,
+                "ADMISSION_TYPE": "EMERGENCY",
+                "DIAGNOSIS": "Chest pain" if embolism else "Cough",
+                "HOSPITAL_EXPIRE_FLAG": "0",
+            })
+            if chart is not None:
+                rows["NOTEEVENTS"].append({
+                    "ROW_ID": str(note_id),
+                    "SUBJECT_ID": patient_id,
+                    "HADM_ID": visit_id,
+                    "CHARTDATE": chart[:10],
+                    "CHARTTIME": chart,
+                    "STORETIME": store,
+                    "CATEGORY": "Physician",
+                    "DESCRIPTION": "Progress note",
+                    "TEXT": history[visit_idx],
+                })
+                note_id += 1
+            else:
+                # Only target admissions receive the future diagnosis labels.
+                rows["DIAGNOSES_ICD"].append({
+                    "ROW_ID": str(idx),
+                    "SUBJECT_ID": patient_id,
+                    "HADM_ID": visit_id,
+                    "SEQ_NUM": "1",
+                    "ICD9_CODE": code,
+                })
+        # PyHealth expects this table even when it is not used by our task.
+        rows["ICUSTAYS"].append({
+            "SUBJECT_ID": patient_id,
+            "HADM_ID": str(100000 + idx * 10 + 3),
+            "ICUSTAY_ID": str(200000 + idx),
+            "INTIME": "2021-01-01 10:00:00",
+            "OUTTIME": "2021-01-03 10:00:00",
+            "FIRST_CAREUNIT": "MICU",
+            "LAST_CAREUNIT": "MICU",
+            "DBSOURCE": "metavision",
+        })
 
-    # Guard against accidental patient / visit mismatches.
-    valid_pairs = set(zip(enhanced_admissions["subject_id"], enhanced_admissions["hadm_id"]))
-    if not set(enhanced_admissions["subject_id"]).issubset(valid_patients):
-        raise ValueError("Augmented admissions contain unknown patient IDs")
-    if not enhanced_admissions["hadm_id"].is_unique:
-        raise ValueError("Duplicate admission ID in augmented data")
-    if not set(zip(enhanced_notes["subject_id"], enhanced_notes["hadm_id"])).issubset(valid_pairs):
-        raise ValueError("Augmented notes refer to an unknown patient/admission")
-
-    tables["ADMISSIONS"] = enhanced_admissions
-    tables["NOTEEVENTS"] = enhanced_notes
-    for name in HYBRID_TABLES:
-        tables[name].to_csv(root / f"{name}.csv.gz", index=False, compression="gzip")
+    for table, fieldnames in columns.items():
+        with gzip.open(
+            root / f"{table}.csv.gz", "wt", encoding="utf-8", newline=""
+        ) as stream:
+            writer = csv.DictWriter(stream, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows[table])
 
     print(
-        "Created runtime public-demo synthetic augmentation: "
-        f"{len(patients)} patients, {len(enhanced_admissions)} admissions, "
-        f"{len(enhanced_notes)} synthetic notes, "
-        f"{len(tables['DIAGNOSES_ICD'])} unchanged diagnosis rows."
+        f"Created artificial MIMIC-III tables: "
+        f"{num_patients} patients, {len(rows['ADMISSIONS'])} admissions, "
+        f"{len(rows['NOTEEVENTS'])} notes, "
+        f"{len(rows['DIAGNOSES_ICD'])} diagnosis rows."
     )
     return root
 
@@ -483,10 +462,13 @@ def build_matched_windows(args, diagnosis_groups):
     """
     windows = {}
     for days in args.history_windows:
-        samples = load_mimic_samples(
-            root=args.root, history_days=days,
-            diagnosis_groups=diagnosis_groups,
-        )
+        if args.synthetic:
+            samples = synthetic_samples(days, diagnosis_groups)
+        else:
+            samples = load_mimic_samples(
+                root=args.root, history_days=days,
+                diagnosis_groups=diagnosis_groups,
+            )
         keys = [sample_key(sample) for sample in samples]
         if len(keys) != len(set(keys)):
             raise ValueError(f"Duplicate patient/visit/query key in {days}-day window.")
@@ -604,17 +586,34 @@ def evaluate_tfidf(train, test):
 # ---------------------------------------------------------
 
 def make_model(args, device):
-    """Construct the ClinicalBERT model for either supported data mode."""
-    model = QueryFocusedEHRModel(
-        dataset=None,
-        pretrained_model_name=args.encoder,
-        hidden_dim=64,
-        freeze_encoder=not args.fine_tune,
-        max_token_length=128,
-        encoder_batch_size=args.encoder_batch_size,
-        cache_embeddings=args.cache_embeddings and not args.fine_tune,
-        cache_max_size=args.cache_max_size,
+    # Synthetic data can also exercise the *real* pretrained text encoder.
+    use_tiny_encoder = (
+        (args.synthetic or args.synthetic_mimic) and not args.use_clinicalbert
     )
+    if use_tiny_encoder:
+        model = QueryFocusedEHRModel(
+            dataset=None,
+            hidden_dim=32,
+            freeze_encoder=not args.fine_tune,
+            encoder=TinyEncoder(hidden_size=32),
+            tokenizer=HashTokenizer(),
+            max_token_length=64,
+            encoder_batch_size=args.encoder_batch_size,
+            cache_embeddings=args.cache_embeddings and not args.fine_tune,
+            cache_max_size=args.cache_max_size,
+        )
+    else:
+        model = QueryFocusedEHRModel(
+            dataset=None,
+            pretrained_model_name=args.encoder,
+            hidden_dim=64,
+            freeze_encoder=not args.fine_tune,
+            max_token_length=128,
+            encoder_batch_size=args.encoder_batch_size,
+            cache_embeddings=args.cache_embeddings and not args.fine_tune,
+            cache_max_size=args.cache_max_size,
+        )
+
     return model.to(device)
 
 
@@ -772,45 +771,22 @@ def main():
     )
     parser.add_argument(
         "--synthetic", action="store_true",
+        help="Fast artificial-sample smoke test (skips Dataset and Task).",
+    )
+    parser.add_argument(
+        "--synthetic-mimic", action="store_true",
         help=(
-            "Augment the public MIMIC-III demo with synthetic notes and "
-            "historical admissions in temporary storage; run full PyHealth "
-            "pipeline using Bio_ClinicalBERT by default."
+            "Generate artificial MIMIC-III tables, then run "
+            "MIMIC3Dataset -> QueryFocusedEHRTask -> Model -> evaluation."
         ),
     )
     parser.add_argument(
-        "--demo-zip", type=Path,
-        help="Optional local MIMIC-III demo v1.4 ZIP for --synthetic.",
+        "--synthetic-patients", type=int, default=40,
+        help="Number of artificial patients for --synthetic-mimic (default: 40).",
     )
     parser.add_argument(
-        "--synthetic-notes-per-original-admission", type=int, default=5,
-        metavar="N",
-        help=(
-            "Synthetic notes per original MIMIC-III demo admission "
-            "(default: 5; 129 x 5 = 645 with the 100-patient demo)."
-        ),
-    )
-    parser.add_argument(
-        "--synthetic-history-offsets-days", nargs="+", type=int,
-        default=[230, 65, 20], metavar="DAYS",
-        help=(
-            "Days before each patient's first original admission at which "
-            "to create synthetic historical admissions (default: 230 65 20). "
-            "Each new admission lasts two days. Not the same as --history-windows."
-        ),
-    )
-    parser.add_argument(
-        "--synthetic-notes-per-historical-admission", type=int, default=5,
-        metavar="N",
-        help="Synthetic notes per generated historical admission (default: 5).",
-    )
-    parser.add_argument(
-        "--synthetic-augmentation-seed", type=int, default=42,
-        metavar="SEED",
-        help=(
-            "Random seed for both independent note-template sampling stages "
-            "(default: 42); separate from --seed used for splitting/training."
-        ),
+        "--use-clinicalbert", action="store_true",
+        help="Use real pretrained ClinicalBERT with synthetic inputs instead of TinyEncoder.",
     )
     parser.add_argument(
         "--encoder",
@@ -858,42 +834,28 @@ def main():
 
     args = parser.parse_args()
 
-    if args.synthetic and args.root is not None:
-        parser.error("Choose exactly one data source: --synthetic or --root.")
-    if args.demo_zip is not None and not args.synthetic:
-        parser.error("--demo-zip requires --synthetic.")
-    if not args.synthetic and args.root is None:
-        parser.error("Provide either --synthetic or --root PATH.")
+    if args.synthetic and args.synthetic_mimic:
+        parser.error("Select either --synthetic or --synthetic-mimic, not both.")
+    if (args.synthetic or args.synthetic_mimic) and args.root is not None:
+        parser.error("Do not combine a synthetic mode with --root.")
+    if not (args.synthetic or args.synthetic_mimic) and args.root is None:
+        parser.error(
+            "Provide --root for real MIMIC-III, "
+            "--synthetic-mimic for the full artificial-data pipeline, "
+            "or --synthetic for a fast smoke test."
+        )
 
     if (
         args.epochs < 1
         or args.batch_size < 1
         or args.max_patients < 3
+        or args.synthetic_patients < 3
         or args.encoder_batch_size < 1
         or args.cache_max_size < 1
         or any(d <= 0 for d in args.history_windows)
         or len(set(args.history_windows)) != len(args.history_windows)
     ):
         parser.error("Invalid numeric experiment argument.")
-
-    if (
-        args.synthetic_notes_per_original_admission < 1
-        or args.synthetic_notes_per_historical_admission < 1
-        or max(
-            args.synthetic_notes_per_original_admission,
-            args.synthetic_notes_per_historical_admission,
-        ) > len(HYBRID_NOTE_TEMPLATES)
-    ):
-        parser.error(
-            f"Synthetic notes per admission must be between 1 and "
-            f"{len(HYBRID_NOTE_TEMPLATES)} (sampled without replacement)."
-        )
-    if (
-        any(days <= 2 for days in args.synthetic_history_offsets_days)
-        or len(set(args.synthetic_history_offsets_days))
-        != len(args.synthetic_history_offsets_days)
-    ):
-        parser.error("Synthetic history offsets must be unique and greater than 2 days.")
 
     set_seed(args.seed)
     diagnosis_groups = load_diagnosis_groups(args.diagnosis_groups)
@@ -907,26 +869,32 @@ def main():
     )
 
     print("Device:", device)
-    if args.synthetic:
-        print("Experiment: PUBLIC MIMIC-III DEMO + SYNTHETIC AUGMENTATION")
-        # Temporary CSV files persist for the entire experiment, then are deleted.
+    if args.synthetic_mimic:
+        print("Experiment: ARTIFICIAL MIMIC-III FULL PIPELINE")
+        # Keep the generated CSV files alive for the entire experiment.
         synthetic_tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
-        args.root = write_synthetic_augmented_demo(
-            Path(synthetic_tmp.name) / "mimic3",
-            demo_zip=args.demo_zip,
-            notes_per_original_admission=args.synthetic_notes_per_original_admission,
-            history_offsets_days=tuple(args.synthetic_history_offsets_days),
-            notes_per_historical_admission=args.synthetic_notes_per_historical_admission,
-            seed=args.synthetic_augmentation_seed,
+        args.root = write_synthetic_mimic_tables(
+            Path(synthetic_tmp.name) / "mimic3", args.synthetic_patients
         )
     else:
         synthetic_tmp = None
-        print("Experiment: LOCAL MIMIC-III FILES")
+        print(
+            "Experiment:",
+            "SYNTHETIC SMOKE TEST"
+            if args.synthetic else "MIMIC-III",
+        )
 
     results = {
-        "dataset": "public-demo-synthetic-augmentation" if args.synthetic else "MIMIC-III",
+        "dataset": (
+            "synthetic-direct" if args.synthetic else
+            "synthetic-mimic" if args.synthetic_mimic else "MIMIC-III"
+        ),
         "seed": args.seed,
-        "encoder": args.encoder,
+        "encoder": (
+            "TinyEncoder"
+            if (args.synthetic or args.synthetic_mimic) and not args.use_clinicalbert
+            else args.encoder
+        ),
         "fine_tune": args.fine_tune,
         "cache_embeddings": args.cache_embeddings,
         "cache_max_size": args.cache_max_size if args.cache_embeddings else None,
@@ -935,18 +903,7 @@ def main():
         "epochs": args.epochs,
         "learning_rate": args.learning_rate,
         "max_patients": args.max_patients,
-        "negative_sampling": "never_observed",
-        "synthetic_augmentation": (
-            {
-                "notes_per_original_admission": args.synthetic_notes_per_original_admission,
-                "history_offsets_days": args.synthetic_history_offsets_days,
-                "notes_per_historical_admission": args.synthetic_notes_per_historical_admission,
-                "augmentation_seed": args.synthetic_augmentation_seed,
-                "demo_zip": str(args.demo_zip) if args.demo_zip else None,
-                "synthetic_notes": True,
-            }
-            if args.synthetic else None
-        ),
+        "negative_sampling": "synthetic_balanced" if args.synthetic else "never_observed",
         "diagnosis_groups": diagnosis_groups,
         "history_windows": {},
     }
@@ -1032,10 +989,10 @@ def main():
     )
 
     print("\nResults saved to:", args.output)
-    if args.synthetic:
+    if args.synthetic or args.synthetic_mimic:
         print(
-            "Synthetic-note evaluations are not clinical performance "
-            "benchmarks; results may not match the original Colab scores."
+            "Synthetic metrics are smoke-test results, "
+            "not clinical reproduction findings."
         )
     if synthetic_tmp is not None:
         synthetic_tmp.cleanup()
