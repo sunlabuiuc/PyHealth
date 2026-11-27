@@ -70,6 +70,20 @@ class TestOnlyPrChangesCount(unittest.TestCase):
         self.assertEqual(rules.added_lines(self.fork, self.head, "pyhealth/a.py"),
                          {2})
 
+    def test_test_merge_against_its_first_parent(self):
+        # CI checks GitHub's merge of the PR into master against master. Make
+        # master shift a.py's lines down so the PR's line moves in the merge.
+        self.git("checkout", "-q", "master")
+        self.write("pyhealth/a.py", "top1 = 1\ntop2 = 2\n"
+                   + BASE_FILE.replace("x9 = 9", "x9 = 90"))
+        self.commit("master adds two lines on top")
+        self.git("merge", "-q", "--no-ff", "--no-edit", "pr")
+        merged = (self.repo / "pyhealth/a.py").read_text().splitlines()
+        self.assertEqual(merged[3], "x2 = 20")  # the PR's change, now line 4
+
+        self.assertEqual(rules.changed_files("HEAD^1", "HEAD"), ["pyhealth/a.py"])
+        self.assertEqual(rules.added_lines("HEAD^1", "HEAD", "pyhealth/a.py"), {4})
+
 
 if __name__ == "__main__":
     unittest.main()
