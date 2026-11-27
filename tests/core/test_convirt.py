@@ -5,7 +5,7 @@ from torch import nn
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import ConVIRT, ConVIRTLinearProbe
-from pyhealth.models.convirt import info_nce_loss
+from pyhealth.models.convirt import IMAGENET_MEAN, IMAGENET_STD, info_nce_loss
 from pyhealth.trainer import Trainer
 
 HIDDEN = 8
@@ -166,6 +166,20 @@ class TestConVIRT(unittest.TestCase):
 
     def test_images_are_used_as_given_by_default(self) -> None:
         self.assertIsNone(_convirt(self.dataset).encoders.cxr_mean)
+
+    def test_cxr_mean_and_std_undo_the_normalization(self) -> None:
+        model = _convirt(self.dataset, cxr_mean=IMAGENET_MEAN, cxr_std=IMAGENET_STD)
+        model.eval()
+        raw = torch.rand(2, 3, 32, 32, generator=torch.Generator().manual_seed(0))
+        mean = torch.tensor(IMAGENET_MEAN).view(1, -1, 1, 1)
+        std = torch.tensor(IMAGENET_STD).view(1, -1, 1, 1)
+        ehr = torch.randn(2, 5, EHR_DIM, generator=torch.Generator().manual_seed(1))
+        with torch.no_grad():
+            _, from_normalized = model.encoders(ehr, (raw - mean) / std)
+            model.encoders.cxr_mean = None
+            model.encoders.cxr_std = None
+            _, from_raw = model.encoders(ehr, raw)
+        torch.testing.assert_close(from_normalized, from_raw)
 
     def test_images_added_to_the_batch_by_the_training_loop(self) -> None:
         dataset = create_sample_dataset(
