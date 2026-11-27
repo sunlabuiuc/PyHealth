@@ -52,7 +52,6 @@ settings. The Colab notebook ``mimic4_medmod_ihm_colab_runs.ipynb`` prints
 them in the cell "Summary of the runner reports". With seed 0, this script and
 the runner give the same scores, AUROC 0.8408 and AUPRC 0.5137 (cell "Result
 line of every job").
-``medmod_runners/`` and the Colab notebook come in a follow-up pull request.
 
     ResNet-34:  AUROC 0.8407 +- 0.0004, AUPRC 0.5140 +- 0.0007
     MedSigLIP:  AUROC 0.8461 +- 0.0010, AUPRC 0.5367 +- 0.0035

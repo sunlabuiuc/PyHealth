@@ -22,7 +22,7 @@ Real data, two steps:
 As the paper describes, NNN is the pretraining epoch with the highest
 validation AUROC. ``mimic4_medmod_ihm_colab_runs.ipynb`` chooses NNN among
 every 10th epoch, with quick probes of
-``medmod_runners/convirt_probe.py --no-augment`` (follow-up pull request).
+``medmod_runners/convirt_probe.py --no-augment``.
 
 ``--extracted-root`` is the output of MedMod's extraction scripts (MIMIC-IV
 benchmark + ``create_phenotyping``); ``--image-dir`` holds the images resized
@@ -72,7 +72,6 @@ gives the same scores as the runner with the ResNet-34, AUROC 0.8207 and AUPRC
 0.4685. With MedSigLIP, it gives AUROC 0.8159 and AUPRC 0.4640, and the runner
 gives 0.8148 and 0.4589, because the runner shuffles the training batches in a
 different order (cell "Result line of every job").
-``medmod_runners/`` and the Colab notebook come in a follow-up pull request.
 
     ResNet-34:  AUROC 0.8206 +- 0.0049, AUPRC 0.4588 +- 0.0114
     MedSigLIP:  AUROC 0.8200 +- 0.0037, AUPRC 0.4686 +- 0.0077

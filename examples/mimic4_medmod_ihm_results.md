@@ -24,9 +24,6 @@ All numbers are measured on MedMod's fixed test split, which has 1,241 stays
 and 187 deaths. This page reports only aggregate scores and no patient-level
 data.
 
-The runner scripts in `medmod_runners/` and the Colab notebook come in a
-follow-up pull request.
-
 The Google Colab notebook `mimic4_medmod_ihm_colab_runs.ipynb` goes with this
 page. It holds our real-data runs, with the output each run printed. Both
 scripts also run end to end on synthetic data, which needs no MIMIC access
