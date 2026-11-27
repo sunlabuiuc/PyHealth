@@ -845,8 +845,10 @@ class EviCare(BaseModel):
         use_relations: Add relational evidence. Default True.
         max_prompt_visits: In the ``"overall"`` setting, show only the most
             recent visits in the prompt. Default None (all, as in the paper).
-        embedding_dim: Embedding size of the default RETAIN guide.
-        **guide_kwargs: Extra arguments of the guide's constructor.
+        embedding_dim: Embedding size of the default RETAIN guide. Ignored
+            when ``guide_model`` is a class or an instance.
+        **guide_kwargs: Extra arguments of the guide's constructor. Ignored
+            when ``guide_model`` is an already-built instance.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset
@@ -995,9 +997,10 @@ class EviCare(BaseModel):
             One :class:`EviCarePrediction` per sample, in dataset order.
 
         Raises:
-            ValueError: If relational evidence is on and
-                :meth:`fit_cooccurrence` has not been called, or the guide's
-                logits do not match the label vocabulary.
+            ValueError: If ``llm`` is given, relational evidence is on and
+                :meth:`fit_cooccurrence` has not been called (the guide-only
+                path never uses relations), or if the guide's logits do not
+                match the label vocabulary.
         """
         if llm is not None and self.use_relations and self.cooccurrence is None:
             raise ValueError(
