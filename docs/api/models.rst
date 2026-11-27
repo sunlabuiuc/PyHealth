@@ -379,4 +379,5 @@ API Reference
     models/pyhealth.models.CHET
     models/pyhealth.models.GAME
     models/pyhealth.models.EviCare
+    models/pyhealth.models.QueryFocusedEHRModel
 
