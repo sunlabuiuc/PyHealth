@@ -273,9 +273,9 @@ def test_token_budget_preserves_core_and_reports_evidence_omissions(visits):
     model = make(visits, '{"B": 0.8, "C": 0.1}')
     unbounded, _ = model.refine(query, [0.9, 0.3, 0.69, 0.8])
     model.prompt_token_counter = len
-    model.max_prompt_tokens = 1400
+    model.max_prompt_tokens = 1510
     result = model.refine_with_details(query, [0.9, 0.3, 0.69, 0.8])
-    assert len(result["prompt"]) <= 1400
+    assert len(result["prompt"]) <= 1510
     assert '["B",0.3,' in result["prompt"] and '["C",0.69,' in result["prompt"]
     assert '"a (a)"' in result["prompt"] and '"b (b)"' in result["prompt"]
     assert result["prompt_budget"]["history_visits"] == [0, 1]
@@ -378,6 +378,7 @@ def test_indexed_prompt_preserves_interactions_names_and_retrieval(visits):
     neighbours = read_section("Similar training visits")
     assert neighbours[0]["diagnoses"] == ["a", "b"]
     assert [candidates[i][0] for i in neighbours[0]["medications"]] == ["B", "C"]
+    assert "Each pair is listed once and applies in both directions" in result["prompt"]
     assert result["prompt_budget"]["candidate_names"] == [2, 2]
     assert result["prompt_budget"]["ddi_pairs"] == [1, 1]
 
@@ -429,6 +430,7 @@ def test_batches_preserve_cross_batch_interactions_and_only_update_targets():
     expected = {("A", "B"), ("A", "C"), ("B", "D"), ("C", "D")}
     seen = set()
     for prompt in prompts:
+        assert "Each pair is listed once and applies in both directions" in prompt
         assert len(prompt) <= 3000
         rows = json.loads(
             next(
@@ -570,6 +572,25 @@ def test_response_with_surrounding_text_and_numeric_string(response):
     result = model.refine_with_details({"patient_id": "p"}, [0.5])
     assert result["probabilities"].tolist() == [0.8]
     assert result["status"] == "complete"
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        '<think>example {"A": 0.9}',
+        '<THINK>example {"A": 0.9}',
+        'Final: {"A": 0.9} <think>unfinished',
+        '<think>closed</think><think>{"A": 0.9}',
+        '<think>outer <think>nested</think> {"A": 0.9}',
+        '<think>outer <think>nested</think></think> {"A": 0.9}',
+        '</think> {"A": 0.9}',
+    ],
+)
+def test_unclosed_reasoning_never_updates_scores(response):
+    model = GiantMed(["A"], [[0]], lambda p: response, [])
+    result = model.refine_with_details({"patient_id": "p"}, [0.5])
+    assert result["probabilities"].tolist() == [0.5]
+    assert result["status"] == "invalid_response"
 
 
 def test_empty_response_status_and_code_validation():

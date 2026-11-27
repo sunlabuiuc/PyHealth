@@ -207,13 +207,13 @@ class GiantMed:
         Examples:
             >>> model = GiantMed(["A"], [[0]], lambda p: "{}", [])
             >>> model.prompt_metadata()["renderer_version"]
-            'giantmed-renderer-v1'
+            'giantmed-renderer-v2'
         """
         source = self.prompt_template or _DEFAULT_PROMPT_TEMPLATE
         return {
             "template": source,
             "template_sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
-            "renderer_version": "giantmed-renderer-v1",
+            "renderer_version": "giantmed-renderer-v2",
         }
 
     def build_prompt(self, sample, probabilities, indices, neighbours):
@@ -392,8 +392,8 @@ class GiantMed:
                 parts.append(name + ": " + json.dumps(values, separators=(",", ":")))
             parts.append(
                 "Interactions are an adjacency list: the candidate at each key's index interacts with "
-                "the candidates at the indices in its list. "
-                "Candidate names and supporting evidence may be incomplete when the input budget is reached."
+                "the candidates at the indices in its list. Each pair is listed once "
+                "and applies in both directions. Candidate names and supporting evidence may be incomplete when the input budget is reached."
             )
             return "\n".join(parts)
 
@@ -539,7 +539,8 @@ class GiantMed:
                     'must be numeric probabilities between 0 and 1, e.g. {"0":0.8}. '
                     "Other rows are interaction context and must not be returned. A score >= 0.5 "
                     "recommends a drug. Interaction adjacency keys and values are row "
-                    "numbers. All boundary interactions involving targets are included; "
+                    "numbers. Each pair is listed once and applies in both directions. "
+                    "All boundary interactions involving targets are included; "
                     "other interactions are not necessarily listed. Similar-visit codes "
                     "refer to the current visit; its medication numbers refer to target rows. "
                     "Similar visits and medication history may be incomplete."
@@ -707,6 +708,15 @@ class GiantMed:
             details["responses"].append(text)
             try:
                 # Preserve duplicate keys to reject ambiguous scores.
+                # Reject malformed, nested or incomplete reasoning blocks.
+                in_thinking = False
+                for tag in re.finditer(r"</?think>", text, flags=re.IGNORECASE):
+                    opening = tag.group().lower() == "<think>"
+                    if opening == in_thinking:
+                        raise ValueError("malformed thinking block")
+                    in_thinking = opening
+                if in_thinking:
+                    continue
                 cleaned = re.sub(
                     r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE
                 )
