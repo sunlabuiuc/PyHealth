@@ -340,6 +340,16 @@ def make_samples(
 
 
 def digest(value):
+    """Generate a deterministic SHA-256 hash of a JSON-serialized value.
+
+    Examples:
+        >>> len(digest("clinical note"))
+        64
+        >>> digest("note A") == digest("note A")
+        True
+        >>> digest("note A") == digest("note B")
+        False
+    """
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, ensure_ascii=False, default=str).encode()
     ).hexdigest()

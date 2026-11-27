@@ -70,7 +70,6 @@ class DiagnosisEvidenceRetrievalMIMIC3(BaseTask):
     }
 
     output_schema: ClassVar[dict[str, str]] = {}
-    output_schema = {}
 
     def __init__(
         self,
