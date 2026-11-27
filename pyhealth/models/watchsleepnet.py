@@ -2,6 +2,10 @@
 
 Ported from WatchSleepNet; keep in sync with the reference implementation:
 https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L225
+
+The optional ``loss`` switch changes only the training objective. Inverse
+weights are inferred from the fitted dataset and cached as plain attributes,
+so the bare checkpoint state dict stays identical to the reference layout.
 """
 
 from typing import Any, Literal
@@ -19,6 +23,18 @@ _QUANTIZATION_DTYPES = {
     "fp16": torch.float16,
     "bf16": torch.bfloat16,
 }
+_LOSS_MODES = ("ce", "weighted_ce", "focal", "inverse_focal")
+
+
+def _inverse_frequency_weights(counts: torch.Tensor) -> torch.Tensor:
+    """Returns inverse-frequency class weights with a mean of one."""
+    present = counts > 0
+    weights = torch.zeros_like(counts)
+    if bool(present.any()):
+        weights[present] = counts.sum() / (
+            present.sum().to(dtype=counts.dtype) * counts[present]
+        )
+    return weights
 
 
 class _ResBlock(nn.Module):
@@ -214,6 +230,10 @@ class WatchSleepNet(BaseModel):
         quantization: Compute dtype, one of ``"fp32"``, ``"fp16"``, or
             ``"bf16"``. Default is ``"fp32"``. Logits are upcast to float32
             for loss and probabilities.
+        loss: Training objective. ``"ce"`` is the paper's reference default.
+            ``"weighted_ce"`` is cross-entropy with inverse-frequency class
+            weights; ``"focal"`` is gamma-2 focal loss; ``"inverse_focal"``
+            adds inverse-frequency alpha weights. Default is ``"ce"``.
 
     Examples:
         >>> import numpy as np
@@ -240,6 +260,14 @@ class WatchSleepNet(BaseModel):
         >>> out = model(**batch)
         >>> out["logit"].shape
         torch.Size([2, 3, 3])
+        >>> weighted = WatchSleepNet(
+        ...     dataset, hidden_dim=8, num_heads=2, num_channels=8,
+        ...     num_layers=1, tcn_layers=1, loss="weighted_ce"
+        ... )
+        >>> weighted.loss
+        'weighted_ce'
+        >>> set(model.state_dict()) == set(weighted.state_dict())
+        True
     """
 
     def __init__(
@@ -255,6 +283,7 @@ class WatchSleepNet(BaseModel):
         use_tcn: bool = True,
         use_attention: bool = True,
         quantization: Literal["fp32", "fp16", "bf16"] = "fp32",
+        loss: Literal["ce", "weighted_ce", "focal", "inverse_focal"] = "ce",
     ):
         super().__init__(dataset=dataset)
         # Keep the state dict identical to the reference bare checkpoint.
@@ -294,11 +323,16 @@ class WatchSleepNet(BaseModel):
                 f"quantization must be one of {sorted(_QUANTIZATION_DTYPES)}, "
                 f"got {quantization!r}."
             )
+        if loss not in _LOSS_MODES:
+            raise ValueError(f"loss must be one of {_LOSS_MODES}, got {loss!r}.")
 
         self.feature_key = "signal"
         self.label_key = "label"
         self.n_classes = n_classes
         self.quantization = quantization
+        self.loss = loss
+        self._class_counts: torch.Tensor | None = None
+        self._weight_cache: dict[tuple[torch.device, torch.dtype], torch.Tensor] = {}
         self._label_processor = MultiClassLabelProcessor(labels=n_classes)
         self.use_tcn = use_tcn  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L240
         self.use_attention = use_attention  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L251
@@ -335,6 +369,59 @@ class WatchSleepNet(BaseModel):
         return {self.label_key: self._label_processor}
 
     forward_from_embedding = None
+
+    def _resolve_class_counts(self) -> torch.Tensor:
+        """Counts valid training labels once for weighted loss presets."""
+        if self._class_counts is not None:
+            return self._class_counts
+        counts = torch.zeros(self.n_classes, dtype=torch.float32)
+        for sample in self.dataset:
+            values = sample.get(self.label_key) if hasattr(sample, "get") else None
+            if values is None:
+                continue
+            labels = torch.as_tensor(values).detach().reshape(-1)
+            valid = (labels >= 0) & (labels < self.n_classes)
+            if bool(valid.any()):
+                binned = torch.bincount(
+                    labels[valid].to(device=counts.device, dtype=torch.int64),
+                    minlength=self.n_classes,
+                )
+                counts += binned[:self.n_classes].to(dtype=counts.dtype)
+        if counts.sum() == 0:
+            raise ValueError(
+                f"loss={self.loss!r} needs labeled samples to infer class weights"
+            )
+        self._class_counts = counts
+        return counts
+
+    def _loss_weights(self, logits: torch.Tensor) -> torch.Tensor | None:
+        """Returns cached inverse-frequency weights for weighted presets."""
+        if self.loss not in ("weighted_ce", "inverse_focal"):
+            return None
+        device, dtype = logits.device, logits.dtype
+        weights = self._weight_cache.get((device, dtype))
+        if weights is None:
+            weights = _inverse_frequency_weights(self._resolve_class_counts()).to(
+                device=device, dtype=dtype
+            )
+            self._weight_cache[(device, dtype)] = weights
+        return weights
+
+    def _training_loss(
+        self, logits: torch.Tensor, targets: torch.Tensor
+    ) -> torch.Tensor:
+        """Computes the configured loss over valid, flattened epochs."""
+        if self.loss == "ce":
+            return self._label_processor.loss(logits, targets)
+        weights = self._loss_weights(logits)
+        if self.loss == "weighted_ce":
+            return F.cross_entropy(logits, targets, weight=weights)
+        ce = F.cross_entropy(logits, targets, reduction="none")
+        pt = torch.exp(-ce).clamp(max=1.0)
+        loss = (1.0 - pt) ** 2.0 * ce
+        if weights is not None:
+            loss = loss * weights[targets]
+        return loss.mean()
 
     @staticmethod
     def _resolve_lengths(
@@ -420,7 +507,7 @@ class WatchSleepNet(BaseModel):
         y_true = labels.reshape(-1)[flat_valid]  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/engine.py#L272
         y_prob = self._label_processor.activation(flat_logits)[flat_valid]  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/engine.py#L276
         if y_true.numel():
-            loss = self._label_processor.loss(flat_logits[flat_valid], y_true)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/engine.py#L319
+            loss = self._training_loss(flat_logits[flat_valid], y_true)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/engine.py#L319
         else:
             loss = flat_logits.sum() * 0
         return {

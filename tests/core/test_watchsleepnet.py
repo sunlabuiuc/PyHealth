@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from pyhealth.datasets import create_sample_dataset
 from pyhealth.models import WatchSleepNet
@@ -40,6 +41,22 @@ def _dataset(n_samples=2, include_lengths=True, single_epoch=False, seed=0):
     )
 
 
+def _labeled_dataset(labels_per_sample):
+    samples = []
+    for i, labels in enumerate(labels_per_sample):
+        samples.append({
+            "patient_id": str(i),
+            "signal": np.zeros((len(labels), EPOCH_LEN), dtype=np.float32),
+            "label": np.asarray(labels, dtype=np.int64),
+            "lengths": len(labels),
+        })
+    return create_sample_dataset(
+        samples=samples,
+        input_schema={"signal": "tensor", "lengths": "raw"},
+        output_schema={"label": ("tensor", {"dtype": torch.long})},
+    )
+
+
 def _tiny_model(dataset, **kwargs):
     params = {
         "num_channels": 16,
@@ -56,11 +73,44 @@ def _tiny_model(dataset, **kwargs):
 class TestWatchSleepNet(unittest.TestCase):
     def test_construction_and_label_processor(self):
         model = _tiny_model(_dataset(), n_classes=4)
+        self.assertEqual(model.loss, "ce")
         self.assertEqual(model.n_classes, 4)
         self.assertEqual(model.label_processors["label"].size(), 4)
         self.assertEqual(model.label_processor.size(), 4)
         self.assertIs(model.forward_from_embedding.__func__, model.forward.__func__)
         self.assertNotIn("_dummy_param", model.state_dict())
+
+    def test_loss_modes_match_reference_formulas(self):
+        dataset = _labeled_dataset([[0, 1, -1], [1, 2, 2]])
+        logits = torch.tensor(
+            [[2.0, 0.5, -1.0], [0.0, 1.0, 3.0]], requires_grad=True
+        )
+        plain = logits.detach()
+        targets = torch.tensor([0, 2])
+        weights = torch.tensor([5.0 / 3.0, 5.0 / 6.0, 5.0 / 6.0])
+        per_class_ce = F.cross_entropy(plain, targets, reduction="none")
+        pt = torch.exp(-per_class_ce).clamp(max=1.0)
+        focal = ((1.0 - pt) ** 2.0 * per_class_ce).mean()
+        cases = (
+            ("ce", F.cross_entropy(plain, targets)),
+            ("weighted_ce", F.cross_entropy(plain, targets, weight=weights)),
+            ("focal", focal),
+            ("inverse_focal", ((1.0 - pt) ** 2.0 * per_class_ce
+                               * weights[targets]).mean()),
+        )
+        baseline_keys = set(_tiny_model(dataset).state_dict())
+        for loss, expected in cases:
+            with self.subTest(loss=loss):
+                model = _tiny_model(dataset, loss=loss)
+                actual = model._training_loss(logits, targets)
+                self.assertTrue(
+                    torch.allclose(actual, expected, atol=1e-6),
+                    msg=f"{loss}: {actual.item()} != {expected.item()}",
+                )
+                self.assertEqual(set(model.state_dict()), baseline_keys)
+                actual.backward()
+                self.assertIsNotNone(logits.grad)
+                self.assertTrue(torch.isfinite(logits.grad).all())
 
     def test_forward_shapes_gradients_and_masking(self):
         dataset = _dataset()
@@ -147,6 +197,7 @@ class TestWatchSleepNet(unittest.TestCase):
             {"num_layers": 0},
             {"hidden_dim": 30, "num_heads": 8},
             {"quantization": "fp8"},
+            {"loss": "focal_inverse"},
         ):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 _tiny_model(dataset, **kwargs)
