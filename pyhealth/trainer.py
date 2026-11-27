@@ -95,19 +95,17 @@ def _label_processor(model: nn.Module) -> LabelProcessor | None:
 def _batch_size(batch: dict) -> int:
     """Number of samples in a collated batch, used to weight its mean loss.
 
-    Read from ``patient_id`` when present, else from the first tensor or list
-    field. Falls back to 1, which weights every batch equally.
+    Read from a per-sample id list (``patient_id``, else ``visit_id``), which
+    collation keeps as one entry per sample. Feature fields are not used:
+    jagged and timeseries fields are flattened, so their first dimension need
+    not be the number of samples. Without an id list this returns 1, so every
+    batch gets the same weight, as before.
     """
-    ids = batch.get("patient_id")
-    if isinstance(ids, (list, tuple)) and ids:
-        return len(ids)
-    for value in batch.values():
-        if isinstance(value, torch.Tensor) and value.dim() > 0:
-            return int(value.shape[0])
-        if isinstance(value, (list, tuple)) and value:
-            return len(value)
+    for key in ("patient_id", "visit_id"):
+        ids = batch.get(key)
+        if isinstance(ids, (list, tuple)) and ids:
+            return len(ids)
     return 1
-
 
 def model_metrics_kwargs(model: nn.Module, metrics_fn: Callable) -> dict:
     """Extra keyword arguments that ``metrics_fn`` should get for ``model``.
