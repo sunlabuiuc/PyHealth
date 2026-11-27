@@ -31,8 +31,10 @@ class OMOPDataset(BaseDataset):
         - death: mortality information
 
     Additional tables can be specified via the `tables` parameter:
-        - condition_occurrence: diagnoses (ICD codes)
-        - procedure_occurrence: procedures (CPT, ICD codes)
+        - condition_occurrence: diagnoses, as standard condition concept
+          IDs (mostly SNOMED CT), not ICD codes
+        - procedure_occurrence: procedures, as standard procedure concept
+          IDs (e.g. SNOMED CT, CPT4, ICD10PCS)
         - drug_exposure: medication orders and administrations
         - measurement: laboratory tests and vital signs
         - observation_period: spans of time when a person is observed
@@ -64,19 +66,6 @@ class OMOPDataset(BaseDataset):
             OMOP config.
         dev (bool): Whether to enable dev mode (only use first 1000
             patients for faster testing). Default is False.
-        refresh_cache (bool): Whether to refresh the cache; if true, the
-            dataset will be processed from scratch. Default is False.
-
-    Attributes:
-        task: Optional[str], name of the task (e.g., "mortality
-            prediction"). Default is None.
-        samples: Optional[List[Dict]], a list of samples, each sample is
-            a dict with patient_id, visit_id, and other task-specific
-            attributes as key. Default is None.
-        patient_to_index: Optional[Dict[str, List[int]]], a dict mapping
-            patient_id to a list of sample indices. Default is None.
-        visit_to_index: Optional[Dict[str, List[int]]], a dict mapping
-            visit_id to a list of sample indices. Default is None.
 
     Examples:
         >>> from pyhealth.datasets import OMOPDataset
@@ -89,8 +78,7 @@ class OMOPDataset(BaseDataset):
         ...             "drug_exposure"],
         ...     dev=False,
         ... )
-        >>> dataset.stat()
-        >>> dataset.info()
+        >>> dataset.stats()
         >>>
         >>> # Access patient data
         >>> patient = dataset.get_patient("123")

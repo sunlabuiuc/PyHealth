@@ -595,6 +595,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `GitHub <https://github.com/NinaWie/COVID-BLUES>`__
      - No (``git clone``)
      - —
+   * - :doc:`CDC COVID-19 Case Surveillance <datasets/pyhealth.datasets.CDCCOVIDDataset>`
+     - Open public-use data
+     - `CDC Socrata <https://data.cdc.gov/d/n8mc-b4w4>`__
+     - CSV export
+     - Bounded API samples supported
    * - :doc:`FHIR (format) <datasets/pyhealth.datasets.FHIRDataset>`
      - Depends on source
      - `HL7 <https://www.hl7.org/fhir/>`__
@@ -608,6 +613,7 @@ Available Datasets
     :maxdepth: 3
 
     datasets/pyhealth.datasets.BaseDataset
+    datasets/pyhealth.datasets.CDCCOVIDDataset
     datasets/pyhealth.datasets.PBCDataset
     datasets/pyhealth.datasets.SampleDataset
     datasets/pyhealth.datasets.PatchDataset

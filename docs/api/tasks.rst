@@ -214,6 +214,7 @@ Available Tasks
 
     Base Task <tasks/pyhealth.tasks.BaseTask>
     Task Card <tasks/pyhealth.tasks.TaskCard>
+    CDC COVID-19 Mortality <tasks/pyhealth.tasks.CDCCOVIDMortalityPrediction>
     PBC Competing Risks <tasks/pyhealth.tasks.competing_risks_pbc>
     Competing-Risk Preprocessing <tasks/pyhealth.tasks.competing_risks>
     In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
@@ -230,6 +231,7 @@ Available Tasks
     MIMIC-III ICD-9 Coding <tasks/pyhealth.tasks.MIMIC3ICD9Coding>
     BMD-HS Disease Classification <tasks/pyhealth.tasks.bmd_hs_disease_classification>
     Cardiology Detection <tasks/pyhealth.tasks.cardiology_detect>
+    CPSC 2018 HeartLang Classification <tasks/pyhealth.tasks.CPSC2018HeartLangClassification>
     COVID-19 CXR Classification <tasks/pyhealth.tasks.COVID19CXRClassification>
     COVID-19 CXR Image Generation <tasks/pyhealth.tasks.COVID19CXRImageGeneration>
     PTB-XL Multilabel Classification <tasks/pyhealth.tasks.PTBXLMultilabelClassification>
@@ -237,6 +239,7 @@ Available Tasks
     PTB-XL Heartbeat MI <tasks/pyhealth.tasks.PTBXLHeartbeatMI>
     Chapman-Shaoxing ECG Classification <tasks/pyhealth.tasks.ChapmanShaoxingSuperclassClassification>
     Chapman-Shaoxing HeartLang Classification <tasks/pyhealth.tasks.ChapmanShaoxingHeartLangClassification>
+    CLIMB ECG Classification <tasks/pyhealth.tasks.CLIMBECGClassification>
     PhysioNet 2012 Forecasting <tasks/pyhealth.tasks.PhysioNet2012Forecasting>
     PhysioNet 2012 Mortality <tasks/pyhealth.tasks.PhysioNet2012Mortality>
     Disease Progression (MIMIC-IV + Chest ImaGenome) <tasks/pyhealth.tasks.DiseaseProgressionMIMIC4>

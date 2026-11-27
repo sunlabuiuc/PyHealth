@@ -53,6 +53,7 @@ SampleSignalDataset = _removed_1x_class(
 
 
 from .base_dataset import BaseDataset
+from .cdc_covid import CDCCOVIDDataset as CDCCOVIDDataset
 from .pbc import PBCDataset as PBCDataset
 from .imaging.patches import PatchDataset as PatchDataset
 from .imaging.stats import (

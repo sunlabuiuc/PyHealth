@@ -11,16 +11,14 @@ jobs:
   contribution-rules:
     runs-on: ubuntu-latest
     steps:
-      # The PR head, with full history: line numbers must match the head and
-      # the merge base with master must be reachable.
-      - name: Checkout the PR head
+      # GitHub's test merge of the PR into master, with full history. Its first
+      # parent (HEAD^1) is the master it merged into, so the diff is the PR's
+      # own changes and line numbers match the files. tools/check_pr_rules.py
+      # is master's copy, not the PR branch's, which may predate fixes to it.
+      - name: Checkout the test merge
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
-
-      - name: Fetch the PR base
-        run: git fetch --no-tags origin ${{ github.event.pull_request.base.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -33,5 +31,5 @@ jobs:
       - name: Check PR contribution rules
         run: |
           python tools/check_pr_rules.py \
-            --base ${{ github.event.pull_request.base.sha }} \
-            --head ${{ github.event.pull_request.head.sha }}
+            --base HEAD^1 \
+            --head HEAD

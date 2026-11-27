@@ -1,4 +1,7 @@
 from .base_task import BaseTask
+from .cdc_covid_mortality import (
+    CDCCOVIDMortalityPrediction as CDCCOVIDMortalityPrediction,
+)
 from .task_card import (
     DIRECTIONS as DIRECTIONS,
     FeatureInfo as FeatureInfo,
@@ -16,6 +19,11 @@ from .cardiology_detect import (
     cardiology_isBBBFB_fn,
     cardiology_isCD_fn,
     cardiology_isWA_fn,
+)
+from .climb_ecg import (
+    CLIMB_ECG_CLASSES as CLIMB_ECG_CLASSES,
+    CLIMBECGClassification as CLIMBECGClassification,
+    read_climb_ecg_splits as read_climb_ecg_splits,
 )
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .isic2019_classification import (
@@ -41,6 +49,9 @@ from .covid19_cxr_generation import (
 )
 from .ptbxl_multilabel_classification import PTBXLMultilabelClassification as PTBXLMultilabelClassification
 from .ptbxl_heartlang import PTBXLHeartLangClassification as PTBXLHeartLangClassification
+from .cpsc2018_heartlang import (
+    CPSC2018HeartLangClassification as CPSC2018HeartLangClassification,
+)
 from .ptbxl_heartbeat import PTBXLHeartbeatMI as PTBXLHeartbeatMI
 from .chapman_shaoxing_classification import (
     ChapmanShaoxingSNOMEDClassification as ChapmanShaoxingSNOMEDClassification,
