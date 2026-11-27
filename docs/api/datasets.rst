@@ -530,6 +530,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `ISIC <https://challenge.isic-archive.com/data/#2018>`__
      - Yes
      - —
+   * - :doc:`PH2 <datasets/pyhealth.datasets.PH2Dataset>`
+     - Restricted / request (form)
+     - `PH2 <https://www.fc.up.pt/addi/ph2%20database.html>`__
+     - No
+     - —
    * - :doc:`SUPPORT2 <datasets/pyhealth.datasets.Support2Dataset>`
      - Open
      - `UCI <https://archive.ics.uci.edu/dataset/880/support2>`__
@@ -667,6 +672,7 @@ Available Datasets
     datasets/pyhealth.datasets.COVIDBLUESDataset
     datasets/pyhealth.datasets.ChestImaGenomeDataset
     datasets/pyhealth.datasets.HAM10000Dataset
+    datasets/pyhealth.datasets.PH2Dataset
     datasets/pyhealth.datasets.PhysioNetDeIDDataset
     datasets/pyhealth.datasets.EEGBCIDataset
     datasets/pyhealth.datasets.AHEPADementiaDataset
