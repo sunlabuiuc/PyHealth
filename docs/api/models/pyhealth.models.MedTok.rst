@@ -61,7 +61,9 @@ Example
         {"conditions": "ICD9CM", "procedures": "ICD9PROC", "drugs": "NDC"},
     )
 
-    # MIMIC-IV (versioned codes, e.g. ReadmissionPredictionMIMIC4)
+    # MIMIC-IV: samples from a task that keeps the ICD version, such as
+    # ReadmissionPredictionMIMIC4 (codes like "9_4280" and "10_E119")
+    model4 = Transformer(mimic4_samples, embedding_dim=128)
     coverage = apply_medtok(
         model4,
         "medtok.npz",
