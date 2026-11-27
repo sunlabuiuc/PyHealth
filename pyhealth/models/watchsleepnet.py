@@ -26,7 +26,7 @@ class _ResBlock(nn.Module):
 
     def __init__(self, in_channels: int, out_channels: int, stride: int = 1):
         super().__init__()
-        self.conv1 = nn.Conv1d(
+        self.conv1 = nn.Conv1d(  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L8
             in_channels,
             out_channels,
             kernel_size=3,
@@ -34,10 +34,10 @@ class _ResBlock(nn.Module):
             padding=1,
             bias=False,
         )
-        self.bn1 = nn.BatchNorm1d(out_channels)
-        self.relu1 = nn.ReLU(inplace=True)
-        self.dropout1 = nn.Dropout(0.2)
-        self.conv2 = nn.Conv1d(
+        self.bn1 = nn.BatchNorm1d(out_channels)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L16
+        self.relu1 = nn.ReLU(inplace=True)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L17
+        self.dropout1 = nn.Dropout(0.2)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L18
+        self.conv2 = nn.Conv1d(  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L20
             out_channels,
             out_channels,
             kernel_size=3,
@@ -45,49 +45,52 @@ class _ResBlock(nn.Module):
             padding=1,
             bias=False,
         )
-        self.bn2 = nn.BatchNorm1d(out_channels)
-        self.relu2 = nn.ReLU(inplace=True)
-        self.dropout2 = nn.Dropout(0.2)
-        self.downsample = nn.Sequential()
-        if stride != 1 or in_channels != out_channels:
-            self.downsample = nn.Sequential(
-                nn.Conv1d(
+        self.bn2 = nn.BatchNorm1d(out_channels)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L28
+        self.relu2 = nn.ReLU(inplace=True)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L29
+        self.dropout2 = nn.Dropout(0.2)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L30
+        self.downsample = nn.Sequential()  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L32
+        if stride != 1 or in_channels != out_channels:  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L33
+            self.downsample = nn.Sequential(  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L34
+                nn.Conv1d(  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L35
                     in_channels, out_channels, kernel_size=1, stride=stride, bias=False
                 ),
-                nn.BatchNorm1d(out_channels),
+                nn.BatchNorm1d(out_channels),  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L38
             )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        residual = self.downsample(x)
-        x = self.conv1(x)
+        residual = self.downsample(x)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L42
+        x = self.conv1(x)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L43
+        # BN -> ReLU -> dropout: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L44
         x = self.dropout1(self.relu1(self.bn1(x)))
-        x = self.conv2(x)
+        x = self.conv2(x)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L47
+        # BN -> ReLU -> dropout: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L48
         x = self.dropout2(self.relu2(self.bn2(x)))
-        return x + residual
+        return x + residual  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L51
 
 
 class _DeepFeatureExtractor(nn.Module):
     """Reference per-epoch feature extractor (ported; keep in sync)."""
 
-    def __init__(self, initial_channels: int = 1):
+    def __init__(self, initial_channels: int = 1):  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L56
         super().__init__()
         layers: list[nn.Module] = [
-            nn.Conv1d(initial_channels, 16, kernel_size=7, stride=1, padding=3),
-            nn.ReLU(inplace=True),
+            nn.Conv1d(initial_channels, 16, kernel_size=7, stride=1, padding=3),  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L64
+            nn.ReLU(inplace=True),  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L70
         ]
-        current_channels = 16
-        for i in range(4):
-            out_channels = 32 * (2**i)
+        current_channels = 16  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L71
+        for i in range(4):  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L73
+            out_channels = 32 * (2**i)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L74
             # Four stride-4 ResBlocks: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L73
-            layers.append(_ResBlock(current_channels, out_channels, stride=4))
-            current_channels = out_channels
-        self.layers = nn.Sequential(*layers)
-        self.final_conv = nn.Conv1d(256, 256, kernel_size=3, stride=4)
+            layers.append(_ResBlock(current_channels, out_channels, stride=4))  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L76
+            current_channels = out_channels  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L77
+        self.layers = nn.Sequential(*layers)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L79
+        self.final_conv = nn.Conv1d(256, 256, kernel_size=3, stride=4)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L80
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        for layer in self.layers:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L82
+        for layer in self.layers:  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L83
             x = layer(x)
-        # Collapse the epoch to 256 features: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L88
+        # Final convolution: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L86
+        # Flatten to 256 features: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L88
         return self.final_conv(x).view(x.size(0), -1)
 
 
@@ -100,37 +103,40 @@ class _DeepTCNBlock(nn.Module):
         out_channels: int,
         kernel_size: int,
         num_layers: int,
-    ):
+    ):  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L93
         super().__init__()
-        self.layers = nn.ModuleList()
-        current_channels = in_channels
-        dilation = 1
-        for _ in range(num_layers):
+        self.layers = nn.ModuleList()  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L95
+        current_channels = in_channels  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L96
+        dilation = 1  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L97
+        for _ in range(num_layers):  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L99
             self.layers.append(
                 nn.Sequential(
-                    nn.Conv1d(
+                    nn.Conv1d(  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L102
                         current_channels,
                         out_channels,
                         kernel_size,
-                        padding=(kernel_size - 1) * dilation // 2,
-                        dilation=dilation,
+                        padding=(kernel_size - 1) * dilation // 2,  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L106
+                        dilation=dilation,  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L107
                     ),
-                    nn.BatchNorm1d(out_channels),
-                    nn.ReLU(),
-                    nn.Dropout(0.2),
+                    nn.BatchNorm1d(out_channels),  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L109
+                    nn.ReLU(),  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L110
+                    nn.Dropout(0.2),  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L111
                 )
             )
-            current_channels = out_channels
-            dilation *= 2
+            current_channels = out_channels  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L114
+            dilation *= 2  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L115
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        for layer in self.layers:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L117
+        for layer in self.layers:  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L118
             x = layer(x)
         return x
 
 
 class _LSTMLayer(nn.Module):
     """Reference BiLSTM layer with optional self-attention (ported)."""
+
+    # Attention variant: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L123
+    # No-attention variant: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L185
 
     def __init__(
         self,
@@ -142,40 +148,40 @@ class _LSTMLayer(nn.Module):
     ):
         super().__init__()
         self.use_attention = use_attention
-        self.lstm = nn.LSTM(
+        self.lstm = nn.LSTM(  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L134
             input_size,
             hidden_size,
             num_layers,
             batch_first=True,
             bidirectional=True,
         )
-        feature_size = hidden_size * 2
-        if use_attention:
-            self.attention = nn.MultiheadAttention(
+        feature_size = hidden_size * 2  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L142
+        if use_attention:  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L252
+            self.attention = nn.MultiheadAttention(  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L143
                 feature_size, num_heads, batch_first=True
             )
 
     def forward(
         self, x: torch.Tensor, lengths: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        # Packing needs CPU int64 lengths: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L155
-        lengths_cpu = lengths.detach().to(device="cpu", dtype=torch.int64)
-        packed = nn.utils.rnn.pack_padded_sequence(
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L147
+        # Packing needs CPU int64 lengths: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L148
+        lengths_cpu = lengths.detach().to(device="cpu", dtype=torch.int64)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L155
+        packed = nn.utils.rnn.pack_padded_sequence(  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L158
             x, lengths_cpu, batch_first=True, enforce_sorted=False
         )
-        output, _ = self.lstm(packed)
-        output, _ = nn.utils.rnn.pad_packed_sequence(output, batch_first=True)
-        weights = None
-        if self.use_attention:
+        output, _ = self.lstm(packed)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L163
+        output, _ = nn.utils.rnn.pad_packed_sequence(output, batch_first=True)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L166
+        weights = None  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L222
+        if self.use_attention:  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L179
             # Ignore positions beyond each night's true length: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L173
-            max_seq_len = output.size(1)
-            key_padding_mask = torch.arange(
+            max_seq_len = output.size(1)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L172
+            key_padding_mask = torch.arange(  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L173
                 max_seq_len, device=output.device
             ).unsqueeze(0) >= lengths.to(output.device).unsqueeze(1)
-            output, weights = self.attention(
+            output, weights = self.attention(  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L179
                 output, output, output, key_padding_mask=key_padding_mask
             )
-        return output, weights
+        return output, weights  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L182
 
 
 class WatchSleepNet(BaseModel):
@@ -294,27 +300,27 @@ class WatchSleepNet(BaseModel):
         self.n_classes = n_classes
         self.quantization = quantization
         self._label_processor = MultiClassLabelProcessor(labels=n_classes)
-        self.use_tcn = use_tcn
-        self.use_attention = use_attention
-
+        self.use_tcn = use_tcn  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L240
+        self.use_attention = use_attention  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L251
         # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L242
         self.feature_extractor = _DeepFeatureExtractor(initial_channels=1)
-        feature_dim = 256
-        if use_tcn:
+        feature_dim = 256  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L243
+        if use_tcn:  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L245
             # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L246
             self.tcn = _DeepTCNBlock(feature_dim, num_channels, kernel_size, tcn_layers)
-            lstm_input_dim = num_channels
+            lstm_input_dim = num_channels  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L247
         else:
-            lstm_input_dim = feature_dim
-        self.lstm_layer = _LSTMLayer(
+            lstm_input_dim = feature_dim  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L249
+        # Attention variant: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L253
+        # Plain-LSTM variant: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L262
+        self.lstm_layer = _LSTMLayer(  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L253
             input_size=lstm_input_dim,
             hidden_size=hidden_dim,
             num_heads=num_heads,
             num_layers=num_layers,
             use_attention=use_attention,
         )
-        # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L271
-        self.classifier = nn.Linear(hidden_dim * 2, n_classes)
+        self.classifier = nn.Linear(hidden_dim * 2, n_classes)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L271
         # No capability checks: PyTorch reports unsupported dtype/device combinations.
         self.to(dtype=_QUANTIZATION_DTYPES[quantization])
 
@@ -354,7 +360,7 @@ class WatchSleepNet(BaseModel):
             lengths = torch.full((batch_size,), int(value))
         return lengths.to(dtype=torch.int64).clamp(min=1, max=seq_len)
 
-    def forward(self, **kwargs: Any) -> dict[str, torch.Tensor]:
+    def forward(self, **kwargs: Any) -> dict[str, torch.Tensor]:  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L273
         """Runs WatchSleepNet and returns masked, flattened multiclass outputs.
 
         The returned ``logit`` has shape ``(batch, epochs, n_classes)``;
@@ -380,7 +386,7 @@ class WatchSleepNet(BaseModel):
             raise ValueError(
                 f"WatchSleepNet needs 750 samples per epoch, got {signal.size(-1)}."
             )
-        batch_size, seq_len, _ = signal.shape
+        batch_size, seq_len, _ = signal.shape  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L274
         lengths = self._resolve_lengths(
             signal, kwargs.get("lengths"), batch_size, seq_len
         )
@@ -393,29 +399,28 @@ class WatchSleepNet(BaseModel):
             labels = labels.unsqueeze(1)
         labels = labels[:, :seq_len]
 
-        # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L277
-        x = signal.reshape(batch_size * seq_len, 1, -1)
-        x = self.feature_extractor(x)
-        x = x.view(batch_size, seq_len, -1)
-        if self.use_tcn:
-            x = x.permute(0, 2, 1)
-            x = self.tcn(x)
-            x = x.permute(0, 2, 1).contiguous()
-        x, _ = self.lstm_layer(x, lengths)
-        logits = self.classifier(x)
+        x = signal.reshape(batch_size * seq_len, 1, -1)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L277
+        x = self.feature_extractor(x)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L278
+        x = x.view(batch_size, seq_len, -1)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L279
+        if self.use_tcn:  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L282
+            x = x.permute(0, 2, 1)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L283
+            x = self.tcn(x)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L284
+            x = x.permute(0, 2, 1).contiguous()  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L285
+        x, _ = self.lstm_layer(x, lengths)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L288
+        logits = self.classifier(x)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/models/watchsleepnet.py#L291
         if logits.size(1) < seq_len:
             # pad_packed_sequence returns max(lengths); restore the batch grid.
             logits = F.pad(logits, (0, 0, 0, seq_len - logits.size(1)))
         logits = logits[:, :seq_len, :].to(torch.float32)
 
         epoch_index = torch.arange(seq_len, device=self.device).unsqueeze(0)
-        valid = (epoch_index < lengths.to(self.device).unsqueeze(1)) & (labels >= 0)
-        flat_logits = logits.reshape(-1, self.n_classes)
+        valid = (epoch_index < lengths.to(self.device).unsqueeze(1)) & (labels >= 0)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/engine.py#L266; https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/config.py#L142
+        flat_logits = logits.reshape(-1, self.n_classes)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/engine.py#L271
         flat_valid = valid.reshape(-1)
-        y_true = labels.reshape(-1)[flat_valid]
-        y_prob = self._label_processor.activation(flat_logits)[flat_valid]
+        y_true = labels.reshape(-1)[flat_valid]  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/engine.py#L272
+        y_prob = self._label_processor.activation(flat_logits)[flat_valid]  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/engine.py#L276
         if y_true.numel():
-            loss = self._label_processor.loss(flat_logits[flat_valid], y_true)
+            loss = self._label_processor.loss(flat_logits[flat_valid], y_true)  # https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/engine.py#L319
         else:
             loss = flat_logits.sum() * 0
         return {
