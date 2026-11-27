@@ -12,9 +12,9 @@ from collections.abc import Sequence
 
 import numpy as np
 import torch
-from torch import nn
 import torch.nn.functional as F
 from scipy.interpolate import PchipInterpolator
+from torch import nn
 
 from pyhealth.datasets import SampleDataset
 
