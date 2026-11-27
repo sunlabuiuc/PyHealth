@@ -143,6 +143,21 @@ class TestSplitByPredefined(unittest.TestCase):
             with self.assertRaises(ValueError):
                 D.split_by_predefined(ds, ratios, seed=0)
 
+    def test_by_patient_mixed_partitions_raises(self):
+        samples = [
+            {"patient_id": "p0", "record_id": "r0", "feature": 0,
+             "label": 0, "split": "train"},
+            {"patient_id": "p0", "record_id": "r1", "feature": 1,
+             "label": 1, "split": "eval"},
+            {"patient_id": "p1", "record_id": "r2", "feature": 2,
+             "label": 0, "split": "train"},
+        ]
+        ds = create_sample_dataset(
+            samples, {"feature": "raw"}, {"label": "raw"}
+        )
+        with self.assertRaises(ValueError):
+            D.split_by_predefined(ds, [0.5, 0.5], seed=0, by_patient=True)
+
     def test_wrappers_forward_to_split_by_predefined(self):
         ds = make_dataset()
         cases = [
