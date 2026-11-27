@@ -245,7 +245,7 @@ bounty:
     category: model
     title: HeartLang (ICLR 2025)
     description: "Implement the HeartLang ECG language model and PTB-XL, CPSC2018, and Chapman ECG classification benchmarks, coordinating with PTB-XL loader PRs #1187 and #1323. [code](https://github.com/PKUDigitalHealth/HeartLang), [paper](https://arxiv.org/abs/2502.10707)"
-    complete: "@solarsys (#1372), @rayrayowo (#1571, #1613)"
+    complete: ~
   - id: 42
     priority: 1
     category: model
@@ -346,8 +346,8 @@ bounty:
     priority: 2
     category: model
     title: ETHOS-ARES (GigaScience 2025)
-    description: "Implement the ETHOS generative timeline model and MEDS-based hospital outcome tasks (mortality, ICU admission, readmission, and length of stay) on MIMIC-IV using PyHealth's MEDSDataset. [code](https://github.com/ipolharvard/ethos-ares), [paper](https://arxiv.org/abs/2502.06124)"
-    complete: "@jhnwu3 (#1397)"
+    description: "Implement the ETHOS generative timeline model and MEDS-based hospital outcome tasks (mortality, ICU admission, readmission, and length of stay) on MIMIC-IV using PyHealth's MEDSDataset. [code](https://github.com/ipolharvard/ethos-ares), [paper](https://arxiv.org/abs/2502.06124) — Merged in #1397: ETHOS with ICU admission, readmission and prolonged-stay (10+ days) outcomes through EthosOutcomeMEDS. Remaining: mortality (InHospitalMortalityMEDS is not an ETHOS outcome yet) and length of stay as a regression."
+    complete: ~
   - id: 59
     priority: 2
     category: model
