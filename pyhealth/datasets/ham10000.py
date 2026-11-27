@@ -101,7 +101,9 @@ class HAM10000Dataset(BaseDataset):
           file as ``HAM10000_metadata.csv`` in ``root`` (``wget -O
           HAM10000_metadata.csv
           "https://dataverse.harvard.edu/api/access/datafile/4338392?format=original"``).
-          It also replaces the lesion groupings CSV if that is missing.
+          It covers the training images only, so the validation and test
+          splits have no age, sex or body site. It also replaces the lesion
+          groupings CSV if that is missing.
           A tab-separated copy (the default download) is rejected when it
           stands in for the groupings CSV; otherwise it is ignored with a
           warning.

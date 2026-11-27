@@ -53,6 +53,8 @@ def pareto_front(scores: np.ndarray) -> np.ndarray:
 
     Candidate ``j`` dominates ``i`` if it scores at least as well on every
     subgroup and strictly better on one. Identical candidates are all kept.
+    The comparison is all-pairs, which suits a hyper-parameter grid rather
+    than thousands of candidates.
 
     Args:
         scores: Per-subgroup scores of shape (n_candidates, n_groups).

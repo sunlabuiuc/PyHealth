@@ -22,7 +22,9 @@ class HAM10000MalignancyClassification(BaseTask):
 
     Works with :class:`~pyhealth.datasets.HAM10000Dataset` when the Dataverse
     ``HAM10000_metadata.csv`` is in its root, since age and sex come from it;
-    without it no samples are produced.
+    without it no samples are produced. That file covers only the training
+    images, so the ISIC 2018 validation and test splits give no samples
+    either; split the training set instead, as below.
 
     The HAM10000 setup of MEDFAIR (Zong et al., ICLR 2023): melanoma (MEL)
     and actinic keratosis / intraepithelial carcinoma (AKIEC) are malignant,
