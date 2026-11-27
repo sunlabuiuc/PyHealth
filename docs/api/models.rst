@@ -378,5 +378,6 @@ API Reference
     models/pyhealth.models.DearLLM
     models/pyhealth.models.CHET
     models/pyhealth.models.GAME
+    models/pyhealth.models.MedTok
     models/pyhealth.models.QueryFocusedEHRModel
 
