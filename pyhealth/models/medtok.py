@@ -47,7 +47,22 @@ from torch import nn
 
 MEDTOK_DIM = 256
 MEDTOK_TOKENS = 21000
-CODE_SYSTEMS = ("ICD9CM", "ICD9PROC", "ICD10CM", "ICD10PCS", "ATC", "NDC", "RAW")
+CODE_SYSTEMS = (
+    "ICD9CM",
+    "ICD9PROC",
+    "ICD10CM",
+    "ICD10PCS",
+    "ICD_DX",
+    "ICD_PROC",
+    "ATC",
+    "NDC",
+    "RAW",
+)
+# ICD_DX / ICD_PROC codes carry their version, as MIMIC-IV tasks write them.
+_VERSIONED = {
+    "ICD_DX": {"9": "ICD9CM", "10": "ICD10CM"},
+    "ICD_PROC": {"9": "ICD9PROC", "10": "ICD10PCS"},
+}
 _SPECIAL = ("<pad>", "<unk>")
 _NDC_TO_ATC = None
 
@@ -68,12 +83,23 @@ def medtok_keys(code: Any, system: str) -> list[str]:
         code: The code as the dataset stores it (MIMIC stores ICD codes
             without the dot, e.g. ``"4280"``).
         system: One of ``"ICD9CM"``, ``"ICD9PROC"``, ``"ICD10CM"``,
-            ``"ICD10PCS"``, ``"ATC"``, ``"NDC"`` (mapped to its ATC codes with
-            :class:`~pyhealth.medcode.CrossMap`) or ``"RAW"`` (used as is).
+            ``"ICD10PCS"``, ``"ICD_DX"`` / ``"ICD_PROC"`` (diagnosis or
+            procedure codes prefixed with their ICD version, ``"9_4280"`` or
+            ``"10_E119"``, as the MIMIC-IV readmission, length-of-stay and
+            drug-recommendation tasks write them), ``"ATC"``, ``"NDC"``
+            (mapped to its ATC codes with :class:`~pyhealth.medcode.CrossMap`)
+            or ``"RAW"`` (used as is).
 
     Returns:
-        The candidate keys; empty for a blank code. An NDC can map to several
-        ATC codes, whose embeddings are then averaged.
+        The candidate keys; empty for a blank code and for PyHealth's
+        ``<pad>`` and ``<unk>`` tokens. An NDC can map to several ATC codes,
+        whose embeddings are then averaged.
+
+    Raises:
+        ValueError: For an unknown ``system``, or an ``ICD_DX`` / ``ICD_PROC``
+            code without a ``9_`` or ``10_`` prefix. Unprefixed MIMIC-IV codes
+            mix ICD-9 and ICD-10 and cannot be told apart (``E8889`` is both
+            ICD-9 E888.9 and ICD-10 E88.89).
 
     Examples:
         >>> from pyhealth.models.medtok import medtok_keys
@@ -81,10 +107,21 @@ def medtok_keys(code: Any, system: str) -> list[str]:
         (['428.0'], ['E888.9'])
         >>> medtok_keys("3893", "ICD9PROC"), medtok_keys("E119", "ICD10CM")
         (['38.93'], ['E11.9'])
+        >>> medtok_keys("9_E8889", "ICD_DX"), medtok_keys("10_E8889", "ICD_DX")
+        (['E888.9'], ['E88.89'])
     """
     if system not in CODE_SYSTEMS:
         raise ValueError(f"system must be one of {CODE_SYSTEMS}, got {system!r}.")
     c = str(code).strip()
+    if c in _SPECIAL:
+        return []
+    if system in _VERSIONED:
+        version, _, rest = c.partition("_")
+        if version not in _VERSIONED[system] or not rest:
+            raise ValueError(
+                f"{system} codes look like '9_4280' or '10_E119', got {code!r}."
+            )
+        return medtok_keys(rest, _VERSIONED[system][version])
     if ":" in c and system != "RAW":
         c = c.split(":", 1)[1].strip()  # e.g. "ICD9CM:4280"
     if not c:
