@@ -106,11 +106,24 @@ def medtok_keys(code: Any, system: str) -> list[str]:
     return [c]
 
 
-_COLON = re.compile(r"\s*:\s*")
+_WS = re.compile(r"\s*")
+# An error this close to the buffer's end may be a value cut by the chunk
+# (inside a number, a \uXXXX escape, NaN or Infinity): read more and retry.
+_CUT_MARGIN = 12
 
 
 class _NeedMore(Exception):
     pass
+
+
+def _decode(decoder: json.JSONDecoder, buf: str, pos: int) -> tuple[Any, int]:
+    """``raw_decode`` that tells a value cut by the buffer's end from a bad one."""
+    try:
+        return decoder.raw_decode(buf, pos)
+    except json.JSONDecodeError as e:
+        if e.msg.startswith("Unterminated string") or e.pos >= len(buf) - _CUT_MARGIN:
+            raise _NeedMore from None
+        raise ValueError(f"Malformed MedTok JSON: {e}") from None
 
 
 def iter_medtok_json(
@@ -130,6 +143,10 @@ def iter_medtok_json(
     Yields:
         ``(code, list of numbers)``.
 
+    Raises:
+        ValueError: If the file is not a JSON object of code to list (for
+            example a missing comma or colon), or is empty or truncated.
+
     Examples:
         >>> import json, tempfile, os
         >>> from pyhealth.models.medtok import iter_medtok_json
@@ -140,34 +157,53 @@ def iter_medtok_json(
     """
     wanted = None if keys is None else set(keys)
     decoder = json.JSONDecoder()
+    # What may come next: "{" (start), "first" (an entry or "}"), "entry"
+    # (after a comma) or "sep" (a comma or "}").
+    expect = "{"
     with open(path, encoding="utf-8") as f:
-        buf, pos, eof, opened = "", 0, False, False
+        buf, pos, eof = "", 0, False
         while True:
-            while pos < len(buf) and buf[pos] in " \t\r\n,:":
-                pos += 1
             try:
-                if pos >= len(buf):
+                cur = _WS.match(buf, pos).end()
+                if cur >= len(buf):
                     raise _NeedMore
-                if not opened:
-                    if buf[pos] != "{":
+                char = buf[cur]
+                if expect == "{":
+                    if char != "{":
                         raise ValueError(f"{path} is not a JSON object.")
-                    opened, pos = True, pos + 1
+                    pos, expect = cur + 1, "first"
                     continue
-                if buf[pos] == "}":
-                    return
-                code, end = decoder.raw_decode(buf, pos)
-                colon = _COLON.match(buf, end)
-                if colon is None:
+                if expect == "sep" or (expect == "first" and char == "}"):
+                    if char == "}":
+                        rest = buf[cur + 1 :] + f.read()
+                        if rest.strip():
+                            raise ValueError(f"{path} has data after the object.")
+                        return
+                    if char != ",":
+                        raise ValueError(f"{path}: expected ',' or '}}' at {cur}.")
+                    pos, expect = cur + 1, "entry"
+                    continue
+                # An entry: "code" : [values]. Nothing moves until it is whole.
+                if char != '"':
+                    raise ValueError(f"{path}: expected a quoted code at {cur}.")
+                code, cur = _decode(decoder, buf, cur)
+                cur = _WS.match(buf, cur).end()
+                if cur >= len(buf):
                     raise _NeedMore
-                end = colon.end()
-                value, pos = decoder.raw_decode(buf, end)
-            except (_NeedMore, json.JSONDecodeError):
-                if eof:  # the closing "}" was never reached
+                if buf[cur] != ":":
+                    raise ValueError(f"{path}: expected ':' after {code!r}.")
+                cur = _WS.match(buf, cur + 1).end()
+                value, cur = _decode(decoder, buf, cur)
+                if not isinstance(value, list):  # bad file content, not a bad argument
+                    raise ValueError(f"{path}: {code!r} is not a list.")  # noqa: TRY004
+            except _NeedMore:
+                if eof:
                     raise ValueError(f"{path} is empty or truncated.") from None
                 more = f.read(chunk_size)
                 eof = not more
                 buf, pos = buf[pos:] + more, 0
                 continue
+            pos, expect = cur, "sep"
             if wanted is None or code in wanted:
                 yield code, value
 
@@ -247,6 +283,12 @@ class MedTokEmbedding(nn.Module):
     (``<pad>``) embeds to zeros, so PyHealth models still mask it; codes
     MedTok does not cover, and ``<unk>``, share one learned vector.
 
+    It is not an ``nn.Embedding`` subclass, since it has no single weight
+    table. Code that only looks for ``nn.Embedding`` layers in a model, such
+    as ``pyhealth.autoimprove``'s code explanations and
+    :class:`~pyhealth.models.DescEmb`'s pretrained-weight transfer, skips
+    the features MedTok replaced.
+
     Args:
         code_vocab: The processor's code-to-index mapping.
         medtok: :func:`load_medtok` output (embeddings for
@@ -256,7 +298,9 @@ class MedTokEmbedding(nn.Module):
         embedding_dim: Output size (the model's ``embedding_dim``).
         mode: ``"embedding"`` (released 256-d vectors, then a linear
             projection) or ``"tokens"`` (mean of learned token embeddings).
-            Default ``"embedding"``.
+            A code with several MedTok keys (an NDC mapped to several ATC
+            codes) gets the mean of their vectors, or the mean over all of
+            their tokens. Default ``"embedding"``.
         freeze: In ``"embedding"`` mode, keep the MedTok vectors fixed (the
             projection and missing-code vector still train), as the official
             EHR code does. Default True.
@@ -305,22 +349,43 @@ class MedTokEmbedding(nn.Module):
             medtok = load_medtok(medtok, {k for ks in keys.values() for k in ks})
 
         known = torch.zeros(size, dtype=torch.bool)
-        if mode == "embedding":
-            table = torch.zeros(size, MEDTOK_DIM)
-        else:
-            width = max((len(v) for v in medtok.values()), default=1)
-            table = torch.full((size, width), -1, dtype=torch.long)
+        table = torch.zeros(size, MEDTOK_DIM)
+        token_rows = {}  # tokens mode: vocab index -> all of its codes' token ids
         for tok, ks in keys.items():
-            vals = [medtok[k] for k in ks if k in medtok]
-            if not vals:
+            found = {k: np.asarray(medtok[k]) for k in ks if k in medtok}
+            if not found:
                 continue
+            for k, v in found.items():
+                if mode == "embedding" and v.shape != (MEDTOK_DIM,):
+                    raise ValueError(
+                        f"MedTok embedding of {k!r} has shape {v.shape}, expected "
+                        f"({MEDTOK_DIM},); for code2tokens.json use mode='tokens'."
+                    )
+                if mode == "tokens" and (
+                    v.ndim != 1
+                    or v.dtype.kind not in "iu"
+                    or v.min(initial=0) < 0
+                    or v.max(initial=0) >= MEDTOK_TOKENS
+                ):
+                    raise ValueError(
+                        f"MedTok tokens of {k!r} are not ids in [0, {MEDTOK_TOKENS}); "
+                        "mode='tokens' needs code2tokens.json."
+                    )
+            vals = list(found.values())
             idx = code_vocab[tok]
             known[idx] = True
             if mode == "embedding":
                 table[idx] = torch.as_tensor(np.mean(vals, axis=0), dtype=torch.float32)
             else:
-                ids = torch.as_tensor(np.concatenate(vals), dtype=torch.long)
-                table[idx, : len(ids)] = ids[: table.shape[1]]
+                token_rows[idx] = torch.as_tensor(
+                    np.concatenate(vals), dtype=torch.long
+                )
+        if mode == "tokens":
+            # Sized after concatenation, so an NDC keeps every ATC code's tokens.
+            width = max((len(ids) for ids in token_rows.values()), default=1)
+            table = torch.full((size, width), -1, dtype=torch.long)
+            for idx, ids in token_rows.items():
+                table[idx, : len(ids)] = ids
         self.coverage = float(known.sum()) / max(len(keys), 1)
         self.register_buffer("known", known)
 
@@ -423,6 +488,9 @@ def apply_medtok(
     coverage = {}
     for feature, vocab in vocabs.items():
         old = embedding_model.embedding_layers[feature]
+        # The old layer may be an nn.Embedding or, on a second call, a
+        # MedTokEmbedding; both have embedding_dim.
+        device = next(iter([*old.parameters(), *old.buffers()])).device
         layer = MedTokEmbedding(
             vocab,
             medtok,
@@ -430,7 +498,7 @@ def apply_medtok(
             embedding_dim=old.embedding_dim,
             mode=mode,
             freeze=freeze,
-        ).to(old.weight.device)
+        ).to(device)
         embedding_model.embedding_layers[feature] = layer
         coverage[feature] = layer.coverage
     return coverage

@@ -34,9 +34,12 @@ tokenizer of existing EHR models:
    Download ``code2embeddings.json`` (4 GB) or ``code2tokens.json`` (186 MB)
    from Hugging Face. :func:`~pyhealth.models.convert_medtok_embeddings`
    turns the embeddings into a 630 MB ``.npz`` that loads in seconds. MedTok
-   does not cover every code: on the MIMIC-III demo, about 74% of diagnosis
-   and 63% of procedure events (some frequent codes, such as ICD-9 ``401.9``,
-   are missing) and over 90% of ATC drug events have a MedTok entry.
+   does not cover every code. In the mortality task's samples on PyHealth's
+   synthetic MIMIC-III, 76% of the distinct diagnosis codes (74% of
+   diagnosis occurrences), 76% of procedure codes (72%) and 93% of drug codes
+   (90%) have a MedTok entry; :func:`~pyhealth.models.apply_medtok` returns
+   the distinct-code share for each feature. Some frequent codes, such as
+   ICD-9 ``401.9``, are missing and use the shared missing-code vector.
    Training the tokenizer itself is not included.
 
 Example

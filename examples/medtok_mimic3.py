@@ -38,7 +38,14 @@ import numpy as np
 import torch
 
 from pyhealth.datasets import MIMIC3Dataset, get_dataloader, split_by_patient
-from pyhealth.models import RETAIN, RNN, Transformer, apply_medtok, load_medtok
+from pyhealth.models import (
+    RETAIN,
+    RNN,
+    Transformer,
+    apply_medtok,
+    load_medtok,
+    medtok_keys,
+)
 from pyhealth.tasks import (
     DrugRecommendationMIMIC3,
     LengthOfStayPredictionMIMIC3,
@@ -168,12 +175,24 @@ def main():
     args = parse_args()
     samples = load_samples(args)
     print(f"{len(samples)} samples for {args.task}")
-    # Read the embeddings once; apply_medtok keeps only each model's codes.
+    if len(samples) == 0:
+        # e.g. readmission on the synthetic MIMIC-III, whose birth dates make
+        # every patient a minor, and the task drops minors.
+        raise SystemExit(f"{args.task} gave no samples on this data.")
+    # Read each MedTok file once, keeping only the codes this task uses.
+    systems = {k: v for k, v in TASKS[args.task][1].items() if v}
+    wanted = {
+        key
+        for feature, system in systems.items()
+        if feature in samples.input_processors
+        for code in getattr(samples.input_processors[feature], "code_vocab", {})
+        for key in medtok_keys(code, system)
+    }
     medtok = {"medtok": None, "tokens": None}
     if "medtok" in args.embeddings:
-        medtok["medtok"] = load_medtok(args.medtok)
+        medtok["medtok"] = load_medtok(args.medtok, wanted)
     if "tokens" in args.embeddings:
-        medtok["tokens"] = load_medtok(args.tokens)
+        medtok["tokens"] = load_medtok(args.tokens, wanted)
 
     results = {e: [] for e in args.embeddings}
     for seed in args.seeds:

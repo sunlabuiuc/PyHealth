@@ -84,6 +84,10 @@ class TestMedTokKeys(unittest.TestCase):
         finally:
             medtok_module._NDC_TO_ATC = old
 
+    def test_ndc_with_the_real_crossmap(self):
+        # Simvastatin 20 mg in the MIMIC-III demo.
+        self.assertEqual(medtok_keys("51079045420", "NDC"), ["C10AA01"])
+
 
 class TestFiles(unittest.TestCase):
     def setUp(self):
@@ -125,6 +129,43 @@ class TestFiles(unittest.TestCase):
         open(path, "w").close()
         with self.assertRaises(ValueError):
             list(iter_medtok_json(path))
+
+    def test_stream_handles_escapes_and_nan_at_any_chunk_size(self):
+        data = {"caf\u00e9": [1.5, float("nan")], "inf": [float("inf"), -2]}
+        path = self._write(data)  # ensure_ascii writes \u00e9; NaN, Infinity
+        for chunk in range(1, 40):
+            got = dict(iter_medtok_json(path, chunk_size=chunk))
+            self.assertEqual(list(got), ["caf\u00e9", "inf"])
+            self.assertTrue(np.isnan(got["caf\u00e9"][1]))
+            self.assertEqual(got["inf"], [float("inf"), -2])
+
+    def test_stream_is_strict_about_the_structure(self):
+        bad = [
+            '{"a": [1] "b": [2]}',  # missing comma
+            '{"a":: [1]}',  # double colon
+            '{"a" [1]}',  # missing colon
+            '{"a": [1],}',  # trailing comma
+            '{"a": [1],, "b": [2]}',  # double comma
+            '{, "a": [1]}',  # leading comma
+            "{a: [1]}",  # unquoted code
+            '{"a": [1, , 2]}',  # bad list
+            '{"a": 3}',  # not a list
+            '{"a": [1]} junk',  # data after the object
+            '{"a": [1, , 2], "b": [' + "0, " * 20 + "0]}",  # bad list, mid-buffer
+        ]
+        path = os.path.join(self.tmp.name, "bad.json")
+        for text in bad:
+            with open(path, "w") as f:
+                f.write(text)
+            for chunk in (1, 4, 1 << 20):
+                with (
+                    self.subTest(text=text, chunk=chunk),
+                    self.assertRaises(ValueError),
+                ):
+                    list(iter_medtok_json(path, chunk_size=chunk))
+        with open(path, "w") as f:
+            f.write("{ }")
+        self.assertEqual(list(iter_medtok_json(path)), [])
 
     def test_convert_and_load(self):
         emb = {"428.0": [0.5] * 256, "I10": [0.25] * 256}
@@ -195,6 +236,32 @@ class TestMedTokEmbedding(unittest.TestCase):
         with self.assertRaises(ValueError):
             MedTokEmbedding(VOCAB, MEDTOK, "ICD9CM", 8, mode="graph")
 
+    def test_tokens_mode_keeps_every_atc_code_of_an_ndc(self):
+        old = medtok_module._NDC_TO_ATC
+        medtok_module._NDC_TO_ATC = _FakeCrossMap()
+        try:
+            tokens = {"B01AC06": np.arange(20), "N02BA01": np.arange(20, 40)}
+            vocab = {"<pad>": 0, "123": 1, "456": 2}
+            emb = MedTokEmbedding(vocab, tokens, "NDC", embedding_dim=4, mode="tokens")
+        finally:
+            medtok_module._NDC_TO_ATC = old
+        self.assertEqual(emb.token_ids.shape, (3, 40))
+        np.testing.assert_array_equal(emb.token_ids[1], np.arange(40))
+        out = emb(torch.tensor([1, 2]))
+        w = emb.tokens.weight
+        torch.testing.assert_close(out[0], w[:40].mean(0))
+        torch.testing.assert_close(out[1], w[:20].mean(0))
+
+    def test_rejects_the_wrong_file_for_the_mode(self):
+        tokens = {"428.0": np.arange(20)}
+        with self.assertRaises(ValueError):  # embeddings in tokens mode
+            MedTokEmbedding(VOCAB, MEDTOK, "ICD9CM", 8, mode="tokens")
+        with self.assertRaises(ValueError):  # tokens in embedding mode
+            MedTokEmbedding(VOCAB, tokens, "ICD9CM", 8)
+        for bad in (np.array([-1, 2]), np.array([3, 21000])):  # outside the codebook
+            with self.assertRaises(ValueError):
+                MedTokEmbedding(VOCAB, {"428.0": bad}, "ICD9CM", 8, mode="tokens")
+
 
 class TestApplyMedTok(unittest.TestCase):
     def _train_step(self, model, dataset):
@@ -229,6 +296,18 @@ class TestApplyMedTok(unittest.TestCase):
         self.assertIsInstance(layers["procedures"], nn.Embedding)
         self._train_step(model, dataset)
         self.assertIsNotNone(layers["conditions"].tokens.weight.grad)
+
+    def test_applying_twice_replaces_the_medtok_layer(self):
+        dataset = _dataset()
+        model = Transformer(dataset, embedding_dim=8)
+        apply_medtok(model, MEDTOK, SYSTEMS)
+        first = model.embedding_model.embedding_layers["conditions"]
+        tokens = {"428.0": np.arange(20), "38.93": np.arange(20, 40)}
+        apply_medtok(model, tokens, SYSTEMS, mode="tokens")
+        second = model.embedding_model.embedding_layers["conditions"]
+        self.assertIsNot(first, second)
+        self.assertEqual((second.mode, second.embedding_dim), ("tokens", 8))
+        self._train_step(model, dataset)
 
     def test_errors(self):
         model = Transformer(_dataset(), embedding_dim=8)
