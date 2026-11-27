@@ -109,6 +109,9 @@ from .ehr_cxr_mimic4 import (
     EHRCXRMortalityMIMIC4 as EHRCXRMortalityMIMIC4,
     EHRCXRPhenotypingMIMIC4 as EHRCXRPhenotypingMIMIC4,
 )
+from .prior_exam_preference import (
+    PriorExamPreferenceTask as PriorExamPreferenceTask,
+)
 from .maestro_mortality_mimic4 import (
     MAESTROMortalityMIMIC4 as MAESTROMortalityMIMIC4,
 )
