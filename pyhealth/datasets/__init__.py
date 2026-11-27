@@ -105,6 +105,7 @@ from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .abide import ABIDEDataset as ABIDEDataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
+from .sleep_accel import SleepAccelDataset as SleepAccelDataset
 from .nsrr_sleep import NSRRSleepDataset as NSRRSleepDataset
 from .bmd_hs import BMDHSDataset
 from .support2 import Support2Dataset
