@@ -23,8 +23,9 @@ Description:
     2. Evidential prioritization: the patient's historical CCS codes are
        sorted by guide logit, and each historical ICD code is listed under
        its CCS parent in that order (paper Eqs. 7-8).
-    3. Relational evidence: ``G = A^T A`` counts, over training patients,
-       how many patients have both of two CCS codes. Each candidate ``c``
+    3. Relational evidence: ``G = A^T A`` counts, over training patients
+       (all of their admissions), how many patients have both of two CCS
+       codes. Each candidate ``c``
        that is new for the patient is linked to the historical code
        ``argmax_h G[h, c]`` (paper Eqs. 9-10).
 
@@ -276,12 +277,21 @@ class CooccurrenceGraph:
         self.counts = counts
 
     @classmethod
-    def fit(cls, patients: Iterable[Iterable[str]]) -> "CooccurrenceGraph":
+    def fit(
+        cls,
+        patients: Iterable[Iterable[str]],
+        vocab: Iterable[str] | None = None,
+    ) -> "CooccurrenceGraph":
         """Counts co-occurrences over patients.
 
         Args:
-            patients: For each patient, all of their CCS codes (any order,
-                duplicates allowed).
+            patients: For each patient, all of their CCS codes over all of
+                their admissions (any order, duplicates allowed), for
+                example the values of
+                :meth:`~pyhealth.tasks.EviCareDiagnosisPredictionMIMIC3.patient_code_sets`.
+            vocab: Codes to include even if no patient has them (their rows
+                are zero). The vocabulary is the sorted union of ``vocab``
+                and the patients' codes.
 
         Returns:
             The fitted graph.
@@ -289,55 +299,17 @@ class CooccurrenceGraph:
         Examples:
             >>> CooccurrenceGraph.fit([["a", "b"], ["b", "b"]]).count("b", "b")
             2
+            >>> CooccurrenceGraph.fit([["a"]], vocab=["c"]).codes
+            ['a', 'c']
         """
         code_sets = [set(codes) for codes in patients]
-        vocab = sorted(set().union(*code_sets)) if code_sets else []
+        vocab = sorted(set(vocab or ()).union(*code_sets))
         index = {code: i for i, code in enumerate(vocab)}
         counts = np.zeros((len(vocab), len(vocab)), dtype=np.int64)
         for codes in code_sets:
             idx = np.fromiter((index[c] for c in codes), dtype=np.int64)
             counts[np.ix_(idx, idx)] += 1
         return cls(vocab, counts)
-
-    @classmethod
-    def from_samples(
-        cls,
-        samples: Iterable[Mapping[str, Any]],
-        history_key: str = "history_ccs",
-        label_key: str = "ccs_targets",
-    ) -> "CooccurrenceGraph":
-        """Fits the graph from raw EviCare task samples.
-
-        A patient's codes are the union of the history and target codes of
-        all of their samples.
-
-        Args:
-            samples: Raw samples of
-                :class:`~pyhealth.tasks.EviCareDiagnosisPredictionMIMIC3`
-                (or MIMIC4), from training patients only.
-            history_key: The field with CCS codes per history visit.
-            label_key: The field with the target CCS codes.
-
-        Returns:
-            The fitted graph.
-
-        Examples:
-            >>> samples = [
-            ...     {"patient_id": "p1", "history_ccs": [["98"]],
-            ...      "ccs_targets": ["108"]},
-            ...     {"patient_id": "p2", "history_ccs": [["98", "106"]],
-            ...      "ccs_targets": ["106"]},
-            ... ]
-            >>> CooccurrenceGraph.from_samples(samples).count("98", "106")
-            1
-        """
-        by_patient: dict[Any, set[str]] = {}
-        for sample in samples:
-            codes = by_patient.setdefault(sample["patient_id"], set())
-            for visit in sample.get(history_key, []):
-                codes.update(visit)
-            codes.update(sample.get(label_key, []))
-        return cls.fit(by_patient.values())
 
     def count(self, a: str, b: str) -> int:
         """Returns the number of training patients with both ``a`` and ``b``."""
@@ -846,7 +818,7 @@ class EviCare(BaseModel):
     :class:`~pyhealth.trainer.Trainer`. After training:
 
     1. :meth:`fit_cooccurrence` builds the co-occurrence graph from the
-       training split.
+       training patients' code sets (``task.patient_code_sets``).
     2. :meth:`predict` selects candidates, builds the prompt with the
        prioritized history and relational evidence, calls the LLM and
        parses its ranking (falling back to the guide's on any failure).
@@ -897,7 +869,7 @@ class EviCare(BaseModel):
         ...     output_schema={"ccs_targets": "multilabel"},
         ... )
         >>> model = EviCare(dataset, k=3)
-        >>> model.fit_cooccurrence(dataset)
+        >>> model.fit_cooccurrence({"p1": ["98", "108"], "p2": ["98", "106"]})
         >>> fake_llm = lambda system, prompt: "Answer: 108, 98"
         >>> predictions = model.predict(dataset, llm=fake_llm)
         >>> predictions[0].ranking[:2]
@@ -963,33 +935,45 @@ class EviCare(BaseModel):
         return [[str(c) for c in codes] for codes in value]
 
     def fit_cooccurrence(
-        self, train_dataset: SampleDataset | Iterable[Mapping[str, Any]],
-        batch_size: int = 256,
+        self, patient_codes: Mapping[Any, Iterable[str]] | Iterable[Iterable[str]]
     ) -> None:
-        """Builds the co-occurrence graph ``G = A^T A`` from training data.
+        """Builds the co-occurrence graph ``G = A^T A`` from training patients.
+
+        ``A`` has one row per training patient with all of their CCS codes,
+        over all of their admissions. Build the rows with
+        :meth:`~pyhealth.tasks.EviCareDiagnosisPredictionMIMIC3.patient_code_sets`
+        (or the MIMIC-IV task's), which reads the patients themselves. The
+        samples are not enough: in the ``"novel"`` setting their labels
+        drop codes already seen, and patients whose admissions add no new
+        code give no sample at all. Use training patients only, so that
+        test labels do not leak into the prompt.
+
+        The graph's vocabulary is the guide's label codes plus every code
+        of the given patients, so each candidate has a row (all zeros if no
+        training patient has it).
 
         Args:
-            train_dataset: The training split (a dataset or a list of raw
-                samples). Use training patients only.
-            batch_size: Batch size used to read a dataset.
+            patient_codes: Patient ID -> CCS codes, or one code list per
+                patient.
+
+        Raises:
+            TypeError: If given a sample dataset instead of patient codes.
+
+        Examples:
+            >>> model.fit_cooccurrence(  # doctest: +SKIP
+            ...     task.patient_code_sets(base_dataset, patient_ids=train_ids)
+            ... )
         """
-        if isinstance(train_dataset, (list, tuple)):
-            samples = train_dataset
-        else:
-            samples = []
-            loader = get_dataloader(train_dataset, batch_size=batch_size)
-            for batch in loader:
-                labels = self._decode_labels(batch[self.label_key])
-                for i, patient_id in enumerate(batch["patient_id"]):
-                    samples.append(
-                        {
-                            "patient_id": patient_id,
-                            "history_ccs": batch["history_ccs"][i],
-                            "ccs_targets": labels[i],
-                        }
-                    )
-        self.cooccurrence = CooccurrenceGraph.from_samples(
-            samples, label_key="ccs_targets"
+        if isinstance(patient_codes, (SampleDataset, str)):
+            raise TypeError(
+                "fit_cooccurrence takes patient-level code sets, not samples: "
+                "pass task.patient_code_sets(base_dataset, patient_ids=...) "
+                "for the training patients."
+            )
+        if isinstance(patient_codes, Mapping):
+            patient_codes = patient_codes.values()
+        self.cooccurrence = CooccurrenceGraph.fit(
+            patient_codes, vocab=self.label_codes
         )
 
     @torch.no_grad()
@@ -1017,8 +1001,8 @@ class EviCare(BaseModel):
         """
         if llm is not None and self.use_relations and self.cooccurrence is None:
             raise ValueError(
-                "Call fit_cooccurrence(train_dataset) before predict, or set "
-                "use_relations=False."
+                "Call fit_cooccurrence(task.patient_code_sets(...)) before "
+                "predict, or set use_relations=False."
             )
         self.eval()
         results: list[EviCarePrediction] = []

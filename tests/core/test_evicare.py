@@ -488,6 +488,143 @@ class TestEviCareSampleModes(unittest.TestCase):
         self.assertNotEqual(last, every)
 
 
+class TestPatientCodeSets(unittest.TestCase):
+    """``G`` must count every training patient, whatever the task setting."""
+
+    def setUp(self):
+        t4 = datetime(2100, 2, 1, tzinfo=UTC)
+        # p_repeat: both admissions coded {98, 106}; no novel target.
+        # p_rare: 157 (renal failure) appears only in this patient, whose
+        #   admissions repeat {157}: no novel sample either.
+        # p_late: the last admission adds nothing new, an earlier one does,
+        #   so novel + sample_mode="last" gives no sample.
+        # p_new: every admission adds a code.
+        # p_single: one admission, below min_visits.
+        self.patients = [
+            make_patient(
+                "p_repeat",
+                [("r1", T1, ["4019", "42731"]), ("r2", T2, ["42731", "4019"])],
+            ),
+            make_patient("p_rare", [("x1", T1, ["5849"]), ("x2", T3, ["5849"])]),
+            make_patient(
+                "p_late",
+                [
+                    ("l1", T1, ["4019"]),
+                    ("l2", T2, ["4280", "4019"]),
+                    ("l3", T3, ["4280"]),
+                ],
+            ),
+            make_patient(
+                "p_new",
+                [("n1", T1, ["41401"]), ("n2", T2, ["4019"]), ("n3", t4, ["4269"])],
+            ),
+            make_patient("p_single", [("s1", T1, ["4168", "4019"])]),
+        ]
+        # Hand-written rows of A (all CCS codes of all admissions).
+        self.expected = {
+            "p_late": ["108", "98"],
+            "p_new": ["101", "105", "98"],
+            "p_rare": ["157"],
+            "p_repeat": ["106", "98"],
+        }
+
+    def task(self, **kwargs):
+        return EviCareDiagnosisPredictionMIMIC3(ccs_mapping=MAPPING_CSV, **kwargs)
+
+    def samples(self, task):
+        return [s for p in self.patients for s in task(p)]
+
+    def test_novel_repeat_patient_has_no_sample_but_is_counted(self):
+        task = self.task(setting="novel")
+        self.assertEqual(task(self.patients[0]), [])
+        codes = task.patient_code_sets(self.patients)
+        self.assertEqual(codes["p_repeat"], ["106", "98"])
+        graph = CooccurrenceGraph.fit(codes.values())
+        self.assertEqual(graph.count("98", "106"), 1)  # p_repeat only
+        self.assertEqual(graph.count("106", "106"), 1)
+        self.assertEqual(graph.count("98", "98"), 3)  # p_repeat, p_late, p_new
+
+    def test_code_only_in_no_sample_patients_is_in_vocabulary(self):
+        task = self.task(setting="novel")
+        samples = self.samples(task)
+        sampled_codes = {c for s in samples for c in s["ccs_targets"]}
+        sampled_codes.update(c for s in samples for v in s["history_ccs"] for c in v)
+        self.assertNotIn("157", sampled_codes)
+        self.assertNotIn("p_rare", {s["patient_id"] for s in samples})
+        model = EviCare(make_dataset(samples), setting="novel")
+        self.assertNotIn("157", model.label_codes)
+        model.fit_cooccurrence(task.patient_code_sets(self.patients))
+        self.assertIn("157", model.cooccurrence.codes)
+        self.assertEqual(model.cooccurrence.count("157", "157"), 1)
+        self.assertTrue(set(model.label_codes) <= set(model.cooccurrence.codes))
+
+    def test_sample_mode_last(self):
+        task = self.task(setting="novel", sample_mode="last")
+        self.assertEqual(task(self.patients[2]), [])  # p_late gives no sample
+        codes = task.patient_code_sets(self.patients)
+        self.assertEqual(codes["p_late"], ["108", "98"])
+        self.assertEqual(codes, self.expected)
+
+    def test_independent_of_setting_and_sample_mode(self):
+        for setting in ("overall", "novel"):
+            for mode in ("all_prefixes", "last"):
+                with self.subTest(setting=setting, sample_mode=mode):
+                    task = self.task(setting=setting, sample_mode=mode)
+                    self.assertEqual(
+                        task.patient_code_sets(self.patients), self.expected
+                    )
+
+    def test_graph_equals_hand_computed_a_transpose_a(self):
+        vocab = ["101", "105", "106", "108", "157", "98"]
+        # Rows: p_late, p_new, p_rare, p_repeat (patient ID order).
+        a = np.array(
+            [
+                [0, 0, 0, 1, 0, 1],
+                [1, 1, 0, 0, 0, 1],
+                [0, 0, 0, 0, 1, 0],
+                [0, 0, 1, 0, 0, 1],
+            ]
+        )
+        for setting in ("overall", "novel"):
+            with self.subTest(setting=setting):
+                task = self.task(setting=setting)
+                graph = CooccurrenceGraph.fit(
+                    task.patient_code_sets(self.patients).values()
+                )
+                self.assertEqual(graph.codes, vocab)
+                np.testing.assert_array_equal(graph.counts, a.T @ a)
+
+    def test_patient_ids_and_min_visits(self):
+        task = self.task()
+        subset = task.patient_code_sets(self.patients, patient_ids=["p_rare"])
+        self.assertEqual(subset, {"p_rare": ["157"]})
+        self.assertNotIn("p_single", task.patient_code_sets(self.patients))
+        self.assertEqual(task.patient_codes(self.patients[4]), [])
+        self.assertEqual(
+            self.task(min_visits=3).patient_code_sets(self.patients),
+            {k: self.expected[k] for k in ("p_late", "p_new")},
+        )
+
+    def test_reads_a_base_dataset_in_batches(self):
+        events = pl.concat(
+            [
+                p.data_source.with_columns(pl.lit(p.patient_id).alias("patient_id"))
+                for p in self.patients
+            ],
+            how="diagonal",
+        )
+        dataset = SimpleNamespace(
+            global_event_df=events.lazy(),
+            unique_patient_ids=[p.patient_id for p in self.patients],
+        )
+        task = self.task(setting="novel")
+        self.assertEqual(task.patient_code_sets(dataset, batch_size=2), self.expected)
+        self.assertEqual(
+            task.patient_code_sets(dataset, patient_ids=["p_new", "p_single"]),
+            {"p_new": self.expected["p_new"]},
+        )
+
+
 class TestEviCareTaskMIMIC4(unittest.TestCase):
     def test_mixed_icd_versions(self):
         patient = make_patient(
@@ -617,22 +754,12 @@ class TestCooccurrenceGraph(unittest.TestCase):
         self.assertIsNone(self.graph.best_partner("105", ["98", "108"]))
         self.assertIsNone(self.graph.best_partner("98", ["98"]))
 
-    def test_from_samples_unions_a_patients_samples(self):
-        samples = [
-            {"patient_id": "p1", "history_ccs": [["98"]], "ccs_targets": ["108"]},
-            {
-                "patient_id": "p1",
-                "history_ccs": [["98"], ["108"]],
-                "ccs_targets": ["106"],
-            },
-            {"patient_id": "p2", "history_ccs": [["106"]], "ccs_targets": ["108"]},
-        ]
-        graph = CooccurrenceGraph.from_samples(samples)
-        # One patient row per patient, not per sample.
-        self.assertEqual(graph.count("98", "98"), 1)
-        self.assertEqual(graph.count("108", "108"), 2)
-        self.assertEqual(graph.count("98", "106"), 1)
-        self.assertEqual(graph.count("106", "108"), 2)
+    def test_vocab_adds_zero_rows(self):
+        graph = CooccurrenceGraph.fit([["98", "108"]], vocab=["157", "98"])
+        self.assertEqual(graph.codes, ["108", "157", "98"])
+        self.assertEqual(graph.count("157", "157"), 0)
+        self.assertEqual(graph.count("98", "108"), 1)
+        self.assertEqual(CooccurrenceGraph.fit([], vocab=["a"]).codes, ["a"])
 
     def test_empty_and_bad_shape(self):
         empty = CooccurrenceGraph.fit([])
@@ -843,11 +970,10 @@ class TestMetrics(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-def evicare_samples():
-    """Task samples from four synthetic patients (overall setting)."""
-    task = EviCareDiagnosisPredictionMIMIC3(ccs_mapping=MAPPING_CSV)
+def evicare_patients():
+    """Four synthetic patients for the model tests."""
     t4 = datetime(2100, 2, 1, tzinfo=UTC)
-    patients = [
+    return [
         make_patient(
             "p1",
             [
@@ -860,7 +986,12 @@ def evicare_samples():
         make_patient("p3", [("c1", T2, ["42731"]), ("c2", t4, ["4269", "42731"])]),
         make_patient("p4", [("d1", T1, ["41401"]), ("d2", T2, ["40291", "4019"])]),
     ]
-    return [s for p in patients for s in task(p)]
+
+
+def evicare_samples():
+    """Task samples of :func:`evicare_patients` (overall setting)."""
+    task = EviCareDiagnosisPredictionMIMIC3(ccs_mapping=MAPPING_CSV)
+    return [s for p in evicare_patients() for s in task(p)]
 
 
 def make_dataset(samples):
@@ -889,6 +1020,9 @@ class TestEviCareModel(unittest.TestCase):
     def setUpClass(cls):
         cls.samples = evicare_samples()
         cls.dataset = make_dataset(cls.samples)
+        cls.code_sets = EviCareDiagnosisPredictionMIMIC3(
+            ccs_mapping=MAPPING_CSV
+        ).patient_code_sets(evicare_patients())
 
     def setUp(self):
         torch.manual_seed(0)
@@ -944,14 +1078,30 @@ class TestEviCareModel(unittest.TestCase):
         grads = [p.grad for p in model.guide.parameters() if p.grad is not None]
         self.assertTrue(grads)
 
-    def test_fit_cooccurrence_from_dataset_matches_raw_samples(self):
+    def test_fit_cooccurrence_from_patient_code_sets(self):
         model = EviCare(self.dataset)
-        model.fit_cooccurrence(self.dataset)
-        raw = CooccurrenceGraph.from_samples(self.samples)
-        self.assertEqual(model.cooccurrence.codes, raw.codes)
-        np.testing.assert_array_equal(model.cooccurrence.counts, raw.counts)
-        model.fit_cooccurrence(self.samples)  # a list of raw samples works too
-        np.testing.assert_array_equal(model.cooccurrence.counts, raw.counts)
+        model.fit_cooccurrence(self.code_sets)
+        expected = CooccurrenceGraph.fit(
+            self.code_sets.values(), vocab=model.label_codes
+        )
+        self.assertEqual(model.cooccurrence.codes, expected.codes)
+        np.testing.assert_array_equal(model.cooccurrence.counts, expected.counts)
+        # A plain list of per-patient code lists works too.
+        model.fit_cooccurrence(list(self.code_sets.values()))
+        np.testing.assert_array_equal(model.cooccurrence.counts, expected.counts)
+
+    def test_fit_cooccurrence_vocab_covers_label_space(self):
+        model = EviCare(self.dataset)
+        model.fit_cooccurrence({"p1": ["98"]})  # far fewer codes than labels
+        self.assertTrue(set(model.label_codes) <= set(model.cooccurrence.codes))
+        for code in model.label_codes:
+            if code != "98":
+                self.assertEqual(model.cooccurrence.count(code, code), 0)
+
+    def test_fit_cooccurrence_rejects_samples(self):
+        model = EviCare(self.dataset)
+        with self.assertRaises(TypeError):
+            model.fit_cooccurrence(self.dataset)
 
     def test_predict_without_llm_is_the_guide(self):
         model = self.fixed_model(k=3)
@@ -971,7 +1121,7 @@ class TestEviCareModel(unittest.TestCase):
 
     def test_predict_with_llm_reranks(self):
         model = self.fixed_model(k=4)
-        model.fit_cooccurrence(self.dataset)
+        model.fit_cooccurrence(self.code_sets)
         calls = []
 
         def llm(system, prompt):
@@ -1020,7 +1170,7 @@ class TestEviCareModel(unittest.TestCase):
 
     def test_llm_failure_falls_back_to_guide(self):
         model = self.fixed_model(k=3)
-        model.fit_cooccurrence(self.dataset)
+        model.fit_cooccurrence(self.code_sets)
 
         def broken(system, prompt):
             raise TimeoutError("endpoint down")
@@ -1034,7 +1184,7 @@ class TestEviCareModel(unittest.TestCase):
 
     def test_junk_reply_falls_back_to_guide(self):
         model = self.fixed_model(k=3)
-        model.fit_cooccurrence(self.dataset)
+        model.fit_cooccurrence(self.code_sets)
         predictions = model.predict(self.dataset, llm=lambda s, p: "no idea")
         for prediction in predictions:
             self.assertEqual(prediction.ranking, prediction.guide_ranking)
@@ -1044,7 +1194,7 @@ class TestEviCareModel(unittest.TestCase):
     def test_relational_evidence_in_prompt(self):
         n_labels = len(self.dataset.output_processors["ccs_targets"].label_vocab)
         model = self.fixed_model(k=n_labels)
-        model.fit_cooccurrence(self.dataset)
+        model.fit_cooccurrence(self.code_sets)
         prompts = []
         model.predict(self.dataset, llm=lambda s, p: prompts.append(p) or "")
         self.assertTrue(any("Relational Evidence" in p for p in prompts))

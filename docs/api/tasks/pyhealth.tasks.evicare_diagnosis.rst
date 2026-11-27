@@ -18,6 +18,13 @@ label ``ccs_targets``. The evidence fields ``history_icd``,
 ``history_icd_names``, ``history_ccs`` and ``days_ago`` are outside the schema
 and pass through processing unchanged for the prompt.
 
+For EviCare's co-occurrence graph, ``task.patient_code_sets(dataset,
+patient_ids=None)`` returns, for every eligible patient, all CCS codes over
+all of their admissions. It reads the patients rather than the samples, so it
+ignores ``setting`` and ``sample_mode`` and includes patients that give no
+sample; pass its training-patient entries to
+:meth:`~pyhealth.models.EviCare.fit_cooccurrence`.
+
 The ICD to CCS mapping is a :class:`~pyhealth.tasks.CCSMapping`. By default
 it is built from PyHealth's single-level CCS tables
 (:class:`~pyhealth.medcode.CrossMap` ``ICD9CM``/``ICD10CM -> CCSCM``, 285
@@ -61,6 +68,12 @@ the `HCUP CCSR tables
     :members:
     :undoc-members:
     :show-inheritance:
+
+Both tasks also provide (inherited from their shared base class):
+
+.. automethod:: pyhealth.tasks.EviCareDiagnosisPredictionMIMIC3.patient_code_sets
+
+.. automethod:: pyhealth.tasks.EviCareDiagnosisPredictionMIMIC3.patient_codes
 
 .. autoclass:: pyhealth.tasks.CCSMapping
     :members:

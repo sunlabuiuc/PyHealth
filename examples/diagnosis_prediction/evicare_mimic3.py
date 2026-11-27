@@ -10,11 +10,16 @@ Pipeline:
     1. Load diagnoses, map ICD codes to CCS and build one sample per visit
        after the first (``EviCareDiagnosisPredictionMIMIC3`` / ``MIMIC4``),
        in the ``overall`` or ``novel`` setting.
-    2. Split patients 7:1:2 and optionally keep a fraction of the training
-       patients (the paper's main tables train the guide on 5%).
+    2. Split the eligible patients (at least two admissions with mapped
+       diagnoses) 7:1:2 and optionally keep a fraction of the training
+       patients (the paper's main tables train the guide on 5%). The split
+       is over patients, not samples, so patients that give no sample (in
+       the novel setting) still belong to a split.
     3. Train the guide model (RETAIN, embedding size 16) and keep the epoch
        with the lowest validation loss.
-    4. Fit the co-occurrence graph on the training patients only.
+    4. Fit the co-occurrence graph on the training patients only, from all
+       CCS codes of all of their admissions (``task.patient_code_sets``),
+       whatever the setting.
     5. Evaluate the guide alone, then EviCare with an LLM, on the test split:
        visit-level P@k and code-level Acc@k (k = 5, 10 for novel; 10, 20 for
        overall, as in the paper).
@@ -34,6 +39,12 @@ Usage:
     #   vllm serve Qwen/Qwen3-8B --port 8000
     python examples/diagnosis_prediction/evicare_mimic3.py \\
         --llm Qwen/Qwen3-8B --base-url http://localhost:8000/v1
+
+    # Endpoints that reject top_k or chat_template_kwargs (vLLM-specific
+    # fields; e.g. api.openai.com returns HTTP 400): send only the standard
+    # temperature / top_p / max_tokens.
+    python examples/diagnosis_prediction/evicare_mimic3.py \\
+        --llm <model> --base-url <url> --no-extra-body
 
     # Paper setting (credentialed MIMIC-III, a GPU, a local LLM server).
     python examples/diagnosis_prediction/evicare_mimic3.py \\
@@ -139,14 +150,15 @@ def make_llm(args, root_is_demo: bool):
         )
     from pyhealth.autoimprove import OpenAILLM
 
-    # OpenAI-compatible servers (vLLM, SGLang) accept the sampling settings
-    # and Qwen3's chat-template switch in the request body.
-    extra_body = {
-        "temperature": args.temperature,
-        "top_p": args.top_p,
-        "top_k": args.top_k,
-        "chat_template_kwargs": {"enable_thinking": args.enable_thinking},
-    }
+    # vLLM and SGLang accept top_k and Qwen3's chat-template switch in the
+    # request body; other OpenAI-compatible endpoints may reject them, so
+    # --no-extra-body sends only the standard sampling fields.
+    extra_body = {"temperature": args.temperature, "top_p": args.top_p}
+    if not args.no_extra_body:
+        extra_body["top_k"] = args.top_k
+        extra_body["chat_template_kwargs"] = {
+            "enable_thinking": args.enable_thinking
+        }
     return OpenAILLM(
         model=args.llm,
         base_url=args.base_url,
@@ -159,7 +171,11 @@ def make_llm(args, root_is_demo: bool):
 # Data
 # ----------------------------------------------------------------------------
 def load_samples(args):
-    """Loads the dataset and applies the EviCare task."""
+    """Loads the dataset, applies the EviCare task and reads patient codes.
+
+    Returns the task, the samples and, for every eligible patient, all of
+    their CCS codes (the rows of the co-occurrence matrix ``A``).
+    """
     root = args.root or str(DEMO_ROOTS[args.dataset])
     if args.dataset == "mimic3":
         dataset = MIMIC3Dataset(root=root, tables=["diagnoses_icd"])
@@ -169,13 +185,17 @@ def load_samples(args):
         task_class = EviCareDiagnosisPredictionMIMIC4
     task = task_class(setting=args.setting, ccs_mapping=args.ccs_mapping)
     samples = dataset.set_task(task, num_workers=args.num_workers)
-    return task, samples
+    return task, samples, task.patient_code_sets(dataset)
 
 
-def split_patients(samples, train_fraction: float, seed: int):
-    """Splits patients 7:1:2 and keeps a fraction of the training patients."""
+def split_patients(samples, patient_ids, train_fraction: float, seed: int):
+    """Splits patients 7:1:2 and keeps a fraction of the training patients.
+
+    Returns the train, validation and test sample subsets and the kept
+    training patient IDs (including those without samples).
+    """
     rng = random.Random(seed)
-    patients = sorted(samples.patient_to_index, key=str)
+    patients = sorted({str(p) for p in patient_ids} | set(samples.patient_to_index))
     rng.shuffle(patients)
     n_train, n_val = int(len(patients) * 0.7), int(len(patients) * 0.1)
     parts = [
@@ -186,10 +206,13 @@ def split_patients(samples, train_fraction: float, seed: int):
     if train_fraction < 1.0:
         keep = max(1, round(len(parts[0]) * train_fraction))
         parts[0] = parts[0][:keep]
-    return [
-        samples.subset([i for p in part for i in samples.patient_to_index[p]])
+    subsets = [
+        samples.subset(
+            [i for p in part for i in samples.patient_to_index.get(p, [])]
+        )
         for part in parts
     ]
+    return (*subsets, parts[0])
 
 
 # ----------------------------------------------------------------------------
@@ -258,6 +281,12 @@ def main() -> None:
     llm.add_argument("--top-k", type=int, default=DEFAULT_TOP_K)
     llm.add_argument("--max-new-tokens", type=int, default=DEFAULT_MAX_NEW_TOKENS)
     llm.add_argument(
+        "--no-extra-body",
+        action="store_true",
+        help="Do not send top_k and chat_template_kwargs (vLLM/SGLang fields "
+        "that other OpenAI-compatible endpoints may reject).",
+    )
+    llm.add_argument(
         "--enable-thinking",
         action="store_true",
         help="Turn on Qwen3's thinking mode (off in the official config).",
@@ -285,8 +314,10 @@ def main() -> None:
     root_is_demo = args.root is None
     llm_fn = make_llm(args, root_is_demo)
 
-    task, samples = load_samples(args)
-    train, val, test = split_patients(samples, args.train_fraction, args.seed)
+    task, samples, code_sets = load_samples(args)
+    train, val, test, train_patients = split_patients(
+        samples, code_sets, args.train_fraction, args.seed
+    )
     if args.max_test_samples is not None:
         test = test.subset(list(range(min(args.max_test_samples, len(test)))))
     print(
@@ -317,7 +348,7 @@ def main() -> None:
         monitor="loss" if has_val else None,
         monitor_criterion="min",
     )
-    model.fit_cooccurrence(train)
+    model.fit_cooccurrence({p: code_sets[p] for p in train_patients if p in code_sets})
 
     ks = (5, 10) if args.setting == "novel" else (10, 20)
     print()

@@ -31,6 +31,12 @@ Description:
     on, and it matches the paper's visit-level P@k, averaged over all test
     visits. ``sample_mode="last"`` keeps only the last admission of each
     patient.
+
+    EviCare's co-occurrence graph needs every CCS code of each training
+    patient, which the samples do not always hold (novel targets drop seen
+    codes, and some patients give no sample). The tasks therefore also
+    return per-patient code sets read from the patients themselves
+    (``patient_code_sets``).
 """
 
 import csv
@@ -523,6 +529,103 @@ class _EviCareDiagnosisPrediction(BaseTask):
             if sample is not None:
                 samples.append(sample)
         return samples
+
+    def patient_codes(self, patient: Any) -> list[str]:
+        """Returns every CCS code of a patient, over all of their admissions.
+
+        This is the patient's row of the matrix ``A`` behind EviCare's
+        co-occurrence graph ``G = A^T A``. It uses the same admissions as
+        :meth:`__call__` (mapped diagnoses, an admission time, at least
+        ``min_visits`` of them) but ignores ``setting`` and ``sample_mode``:
+        a patient counts even if no target gives a sample, for example in
+        the ``"novel"`` setting when no admission adds a new code.
+
+        Args:
+            patient: A :class:`~pyhealth.data.Patient`.
+
+        Returns:
+            The sorted CCS codes, or an empty list if the patient has fewer
+            than ``min_visits`` usable admissions.
+        """
+        visits = self._visits(patient)
+        if len(visits) < self.min_visits:
+            return []
+        return sorted({ccs for _, _, codes in visits for _, _, ccs in codes})
+
+    def patient_code_sets(
+        self,
+        dataset: Any,
+        patient_ids: Iterable[Any] | None = None,
+        batch_size: int = 1000,
+    ) -> dict[str, list[str]]:
+        """Returns :meth:`patient_codes` for every eligible patient.
+
+        Pass the result, restricted to the training patients, to
+        :meth:`~pyhealth.models.EviCare.fit_cooccurrence`. It does not depend
+        on the samples, so patients without any sample (possible in the
+        ``"novel"`` setting) are included, and the result is the same for
+        both settings and both sample modes.
+
+        Args:
+            dataset: A :class:`~pyhealth.datasets.BaseDataset` (such as
+                :class:`~pyhealth.datasets.MIMIC3Dataset`) or an iterable of
+                :class:`~pyhealth.data.Patient`.
+            patient_ids: Only these patients. Default None (all).
+            batch_size: Patients loaded per query when ``dataset`` is a
+                dataset.
+
+        Returns:
+            Patient ID -> sorted CCS codes, for the patients with at least
+            ``min_visits`` usable admissions, in patient ID order.
+
+        Examples:
+            >>> task = EviCareDiagnosisPredictionMIMIC3(
+            ...     setting="novel"
+            ... )  # doctest: +SKIP
+            >>> codes = task.patient_code_sets(dataset)  # doctest: +SKIP
+            >>> model.fit_cooccurrence(  # doctest: +SKIP
+            ...     {p: codes[p] for p in train_patient_ids if p in codes}
+            ... )
+        """
+        wanted = (
+            None if patient_ids is None else {str(p) for p in patient_ids}
+        )
+        result: dict[str, list[str]] = {}
+        for patient in self._iter_patients(dataset, wanted, batch_size):
+            codes = self.patient_codes(patient)
+            if codes:
+                result[str(patient.patient_id)] = codes
+        return dict(sorted(result.items()))
+
+    @staticmethod
+    def _iter_patients(
+        dataset: Any, wanted: set[str] | None, batch_size: int
+    ) -> Iterable[Any]:
+        """Yields the patients of a dataset (or iterable), optionally a subset."""
+        if not hasattr(dataset, "global_event_df"):
+            for patient in dataset:
+                if wanted is None or str(patient.patient_id) in wanted:
+                    yield patient
+            return
+
+        import polars as pl
+
+        from ..data import Patient
+
+        events = dataset.global_event_df.filter(
+            pl.col("event_type").is_in(["admissions", "diagnoses_icd"])
+        )
+        ids = [str(p) for p in dataset.unique_patient_ids]
+        if wanted is not None:
+            ids = [p for p in ids if p in wanted]
+        for start in range(0, len(ids), batch_size):
+            frames = (
+                events.filter(pl.col("patient_id").is_in(ids[start : start + batch_size]))
+                .collect(engine="streaming")
+                .partition_by("patient_id", as_dict=True)
+            )
+            for (patient_id,), frame in frames.items():
+                yield Patient(patient_id=patient_id, data_source=frame)
 
 
 class EviCareDiagnosisPredictionMIMIC3(_EviCareDiagnosisPrediction):

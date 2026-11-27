@@ -19,8 +19,9 @@ supplies evidence that is written into the prompt:
    logit, and each historical ICD diagnosis is listed under its CCS parent in
    that order (paper Eqs. 7-8).
 3. **Relational evidence**: ``G = A^T A``, where ``A`` is the binary
-   patient-by-CCS matrix of the *training* patients, counts how many patients
-   have both of two codes (:class:`~pyhealth.models.CooccurrenceGraph`, Eq. 9).
+   patient-by-CCS matrix of the *training* patients (each row holds every CCS
+   code of the patient's admissions), counts how many patients have both of
+   two codes (:class:`~pyhealth.models.CooccurrenceGraph`, Eq. 9).
    Each candidate that is new for the patient is linked to the historical code
    ``argmax_h G[h, c]`` (Eq. 10).
 4. **Prompt and re-ranking**: the LLM sees the visit(s) with their time gap,
@@ -49,9 +50,12 @@ whose ``forward`` is the guide's, so the guide trains with the usual
 
    task = EviCareDiagnosisPredictionMIMIC3(setting="novel")
    samples = dataset.set_task(task)
+   code_sets = task.patient_code_sets(dataset)   # patient ID -> all CCS codes
+   # Split patients (the keys of code_sets) into train_ids / val / test, and
+   # the samples accordingly.
    model = EviCare(samples, setting="novel", ccs_names=task.ccs_mapping.ccs_names)
    Trainer(model=model).train(train_dataloader=..., epochs=...)
-   model.fit_cooccurrence(train)          # training patients only
+   model.fit_cooccurrence({p: code_sets[p] for p in train_ids})  # train only
    guide_only = model.predict(test)       # the deep-model baseline
    evicare = model.predict(test, llm=OpenAILLM(model="Qwen/Qwen3-8B",
                                                base_url="http://localhost:8000/v1"))
@@ -64,6 +68,26 @@ The samples come from
 evidence and are not seen by the guide. See
 ``examples/diagnosis_prediction/evicare_mimic3.py`` for the full pipeline,
 including the paper's decoding settings and an offline fake-LLM mode.
+
+**Fitting G.** :meth:`~pyhealth.models.EviCare.fit_cooccurrence` takes
+patient-level code sets, not samples.
+:meth:`~pyhealth.tasks.EviCareDiagnosisPredictionMIMIC3.patient_code_sets`
+reads them from the patients themselves: every CCS code of every usable
+admission, for each patient with at least ``min_visits`` of them. The result
+is the same for both settings and both sample modes. The samples cannot
+stand in for it: in the ``"novel"`` setting a label keeps only codes new to
+the patient, and a patient whose admissions repeat earlier codes gives no
+sample at all, yet still belongs in ``A``. To keep such patients in the
+training set, split the patients (the keys of ``patient_code_sets``) rather
+than the samples, as the example script does. The graph's vocabulary is the
+guide's label codes plus every code of the training patients, so every
+candidate has a row (zeros if no training patient has it).
+
+**LLM endpoints.** The example script sends ``top_k`` and Qwen3's
+``chat_template_kwargs`` in the request body, as vLLM and SGLang accept them.
+Other OpenAI-compatible endpoints (including ``api.openai.com``) may reject
+these fields with HTTP 400; pass ``--no-extra-body`` to send only
+``temperature``, ``top_p`` and ``max_tokens``.
 
 Metrics follow the paper's Appendix A:
 :func:`~pyhealth.models.evicare.precision_at_k_visit` divides the hits of
