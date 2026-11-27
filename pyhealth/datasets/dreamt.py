@@ -1,12 +1,94 @@
 import logging
 import os
 from pathlib import Path
-from typing import  Optional, Union
 
+import numpy as np
 import pandas as pd
+
 from pyhealth.datasets import BaseDataset
 
 logger = logging.getLogger(__name__)
+
+#: DREAMT sleep-stage strings mapped to canonical five-class integers.
+DREAMT_STAGE_MAPPING = {
+    "W": 0,
+    "N1": 1,
+    "N2": 2,
+    "N3": 3,
+    "R": 4,
+    "Missing": -1,
+}
+
+
+def map_dreamt_stages(values) -> np.ndarray:
+    """Maps DREAMT sleep stages to canonical integers.
+
+    Args:
+        values: Iterable of stage strings or already-numeric stages.
+
+    Returns:
+        ``int64`` array. ``"Missing"``, unrecognized tokens such as ``"P"``,
+        and out-of-range numbers become ``-1``.
+
+    Examples:
+        >>> map_dreamt_stages(["W", "N3", "Missing", "P"]).tolist()
+        [0, 3, -1, -1]
+    """
+    values = list(values)
+    if values and isinstance(values[0], str):
+        return np.asarray(
+            [DREAMT_STAGE_MAPPING.get(str(v).strip(), -1) for v in values],
+            dtype=np.int64,
+        )
+    return np.asarray(values, dtype=np.int64)
+
+
+def load_dreamt_frame(
+    file_path: str,
+    signal_cols: tuple[str, ...] = ("BVP",),
+    epoch_duration: float = 30.0,
+) -> pd.DataFrame:
+    """Reads the signal and stage columns of one DREAMT recording.
+
+    The frame is returned at its native sampling rate; epoch construction and
+    IBI extraction belong to the task layer. Non-finite signal samples are
+    preserved so the task can interpolate them consistently.
+
+    Args:
+        file_path: Path to ``*_whole_df.csv`` or ``*_PSG_df.csv``.
+        signal_cols: Waveform columns to read. Defaults to ``BVP``, the
+            reference DREAMT wearable channel.
+        epoch_duration: Epoch length in seconds, used only for validation.
+
+    Returns:
+        DataFrame containing the requested signal columns and a canonical
+        integer ``Sleep_Stage`` column.
+
+    Raises:
+        FileNotFoundError: If ``file_path`` does not exist.
+        ValueError: If no signal column or no stage column is present, or if
+            ``epoch_duration`` is not positive.
+
+    Examples:
+        >>> frame = load_dreamt_frame("S001_PSG_df.csv", ("BVP",))
+    """
+    if epoch_duration <= 0:
+        raise ValueError("epoch_duration must be positive")
+    path = Path(file_path)
+    if not path.is_file():
+        raise FileNotFoundError(str(path))
+    header = pd.read_csv(path, nrows=0)
+    wanted = [col for col in signal_cols if col in header.columns]
+    if not wanted:
+        raise ValueError(f"none of {signal_cols} found in {path}")
+    if "Sleep_Stage" not in header.columns:
+        raise ValueError(f"Sleep_Stage not found in {path}")
+    frame = pd.read_csv(path, usecols=[*wanted, "Sleep_Stage"])
+    for col in wanted:
+        frame[col] = pd.to_numeric(frame[col], errors="coerce").astype(np.float64)
+    frame["Sleep_Stage"] = map_dreamt_stages(frame["Sleep_Stage"].values)
+    return frame
+
 
 class DREAMTDataset(BaseDataset):
     """
@@ -87,8 +169,8 @@ class DREAMTDataset(BaseDataset):
     def __init__(
             self,
             root: str,
-            dataset_name: Optional[str] = None,
-            config_path: Optional[str] = None,
+            dataset_name: str | None = None,
+            config_path: str | None = None,
     ) -> None:
         if config_path is None:
             logger.info("No config provided, using default config")
@@ -109,30 +191,45 @@ class DREAMTDataset(BaseDataset):
             config_path=config_path
         )
     
-    def get_patient_file(self, patient_id: str, root: str, file_path: str) -> Union[str | None]:
-        """
-        Returns file path of 64Hz and 100Hz data for a patient, or None if no file found
+    def get_patient_file(
+        self, patient_id: str, root: str, file_path: str
+    ) -> str | None:
+        """Returns the 64 Hz or 100 Hz CSV for a patient, or ``None``.
 
         Args:
-            patient_id: patient identifier
-            root: root directory containing the dataset files
-            file_path: path to location of 64Hz or 100Hz file
-            
-        Returns:
-            file: path to file location or None if no file found
-        """
-        
-        if file_path == "data_64Hz" or file_path == "data":
-            file = Path(root) / f"{file_path}" / f"{patient_id}_whole_df.csv"
-    
-        if file_path == "data_100Hz":
-            file = Path(root) / f"{file_path}" / f"{patient_id}_PSG_df.csv"
+            patient_id: Patient identifier.
+            root: Root directory containing the dataset files.
+            file_path: Folder name for the requested sampling rate.
 
-        if not os.path.exists(str(file)):
-            logger.info(f"{file} not found")
-            file = None
-        
-        return file
+        Returns:
+            Absolute path string to the CSV, or ``None`` when the folder or
+            file is missing.
+
+        Examples:
+            >>> dataset.get_patient_file("S001", root, "data_100Hz")
+        """
+        file: Path | None = None
+        if file_path in ("data_64Hz", "data"):
+            file = Path(root) / file_path / f"{patient_id}_whole_df.csv"
+        elif file_path == "data_100Hz":
+            file = Path(root) / file_path / f"{patient_id}_PSG_df.csv"
+
+        if file is None or not file.exists():
+            logger.info("%s not found", file)
+            return None
+        return str(file)
+
+    @property
+    def default_task(self):
+        """Returns a fresh per-recording IBI sleep-staging task.
+
+        Examples:
+            >>> isinstance(dataset.default_task, SleepStagingIBIDREAMT)
+            True
+        """
+        from pyhealth.tasks.sleep_staging_ibi import SleepStagingIBIDREAMT
+
+        return SleepStagingIBIDREAMT()
 
 
     def prepare_metadata(self, root: str) -> None:
