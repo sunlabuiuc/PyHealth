@@ -1,18 +1,44 @@
-"""Encoders implement encode(texts) -> a finite [N, D] numpy array."""
+"""Text encoders for KeyClass: ``encode(texts)`` returns a finite ``[N, D]`` array."""
+
+from collections.abc import Iterable
 
 import numpy as np
 
 
 class ClinicalTextEncoder:
-    """Frozen Hugging Face encoder with masked mean pooling, no random projection.
+    """Frozen Hugging Face encoder with masked mean pooling.
 
-    Checkpoint is explicit because the clinical reproduction checkpoint is not
-    yet fixed. Notes are truncated to max_length tokens (including specials).
-    This is a configurable starting baseline, not the paper's TF-IDF selection.
-    Downloads occur only when this class is constructed.
+    Embeds phrases, category descriptions and notes for KeyClass. Each text is
+    truncated to ``max_length`` tokens (special tokens included), and token
+    vectors are averaged over the attention mask. The KeyClass paper uses
+    BlueBERT; notes are truncated rather than reduced with the paper's TF-IDF
+    text selection. The model is loaded, and downloaded if needed, only when
+    the encoder is constructed.
+
+    Args:
+        model_name: Hugging Face model ID or local snapshot directory, for
+            example ``"bionlp/bluebert_pubmed_mimic_uncased_L-12_H-768_A-12"``.
+        batch_size: Texts encoded per forward pass.
+        max_length: Maximum tokens per text, including special tokens.
+        device: Torch device, for example ``"cpu"``, ``"cuda"`` or ``"mps"``.
+
+    Raises:
+        ValueError: If ``batch_size`` is not positive or ``max_length < 2``.
+
+    Example:
+        >>> name = "bionlp/bluebert_pubmed_mimic_uncased_L-12_H-768_A-12"
+        >>> encoder = ClinicalTextEncoder(name)
+        >>> encoder.encode(["acute renal failure", "pneumonia"]).shape
+        (2, 768)
     """
 
-    def __init__(self, model_name, batch_size=16, max_length=512, device="cpu"):
+    def __init__(
+        self,
+        model_name: str,
+        batch_size: int = 16,
+        max_length: int = 512,
+        device: str = "cpu",
+    ) -> None:
         from transformers import AutoModel, AutoTokenizer
 
         if batch_size < 1 or max_length < 2:
@@ -24,7 +50,16 @@ class ClinicalTextEncoder:
         self.max_length = max_length
         self.device = device
 
-    def encode(self, texts):
+    def encode(self, texts: Iterable[str]) -> np.ndarray:
+        """Embeds texts with masked mean pooling.
+
+        Args:
+            texts: Texts to embed.
+
+        Returns:
+            A float32 array of shape ``[len(texts), hidden_size]``; empty input
+            gives shape ``[0, hidden_size]``.
+        """
         import torch
 
         texts = list(texts)

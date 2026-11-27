@@ -21,12 +21,13 @@ from pyhealth.weak_supervision import (
 STOPWORDS = ("and", "at", "by", "no", "not", "the")
 
 
-def corpus_available():
+def corpus_available() -> bool:
+    """Returns whether NLTK and a readable English stopwords corpus are installed."""
     try:
         from nltk.corpus import stopwords
 
         stopwords.words("english")
-    except (ImportError, LookupError):
+    except (ImportError, LookupError, OSError):  # OSError: damaged corpus files
         return False
     return True
 

@@ -3,42 +3,94 @@
 # Paper link: https://arxiv.org/abs/2206.12088v2
 # Description: Multilabel MLP trained on fixed clinical text embeddings.
 
+from collections.abc import Hashable, Sequence
+from typing import Any
+
+import numpy as np
 import torch
 from torch import nn
 
+from pyhealth.datasets import SampleDataset
 from pyhealth.processors import LabelProcessor, MultiLabelProcessor
 
 from .base_model import BaseModel
 
 
 class KeyClass(BaseModel):
-    """Four-linear-layer classifier with PyHealth Trainer output conventions.
+    """KeyClass downstream classifier for weakly labeled clinical notes.
 
-    Use tensor processors for embeddings AND dense soft targets; a multilabel
-    token processor would reinterpret probability values as category tokens.
-    category_ids fixes output order independently of categories seen in a batch.
-    Frozen embeddings are supplied separately, allowing encoder injection and
-    caching. Encoder fine-tuning is not included.
+    Paper: Chufan Gao, Mononito Goswami, Jieshi Chen and Artur Dubrawski.
+    Classifying Unstructured Clinical Notes via Automatic Weak Supervision.
+    MLHC 2022. https://arxiv.org/abs/2206.12088v2
 
-    Inputs are standardized per dimension with stored statistics (identity until
-    fit_input_standardization is called). Mean-pooled BlueBERT vectors share one
-    dominant direction, and the MLP trained on them raw collapsed to near-constant
-    scores. The statistics are buffers, so saved models scale new notes the same
-    way. The paper and the authors' code feed raw embeddings; this is a documented
-    deviation. An optional sample_weight batch field scales each note's loss by its
-    weak-label confidence, as in the authors' noise-aware loss.
+    A four-linear-layer MLP (LeakyReLU and dropout after each hidden layer) that
+    maps frozen document embeddings to one score per category. It is trained
+    with binary cross-entropy on the soft weak labels produced by
+    :class:`pyhealth.weak_supervision.KeywordLabeler` and
+    :func:`pyhealth.weak_supervision.aggregate_votes`, so no gold labels are
+    needed. Embeddings are computed outside the model, which allows any encoder
+    and caching; encoder fine-tuning is not included.
+
+    Both the embedding and the soft-label fields must use the ``"tensor"``
+    processor: a multilabel token processor would read probability values as
+    category tokens. ``category_ids`` fixes the output order regardless of
+    which categories appear in a batch.
+
+    Inputs are standardized per dimension with stored statistics, which are the
+    identity until :meth:`fit_input_standardization` is called. Mean-pooled
+    BlueBERT vectors share one dominant direction, and the MLP trained on them
+    raw collapsed to near-constant scores. The statistics are buffers, so a
+    saved model scales new notes the same way. The paper and the authors' code
+    feed raw embeddings; this is a documented deviation.
+
+    Args:
+        dataset: The sample dataset the model is trained on.
+        input_dim: Dimension of the document embeddings.
+        category_ids: Category IDs in output order; at least two, unique.
+        hidden_dims: Widths of the hidden layers.
+        dropout: Dropout probability after each hidden layer.
+        feature_key: Batch field holding the embeddings.
+        label_key: Batch field holding the soft weak labels.
+
+    Attributes:
+        network: The MLP mapping standardized embeddings to logits.
+        input_mean: Per-dimension mean subtracted from inputs.
+        input_scale: Per-dimension scale inputs are divided by.
+
+    Raises:
+        ValueError: If there are fewer than two or duplicate category IDs, or a
+            layer dimension is not positive.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
+        >>> samples = [
+        ...     {"patient_id": "p0", "embedding": [0.1, 0.2],
+        ...      "weak_labels": [1.0, 0.0]},
+        ...     {"patient_id": "p1", "embedding": [0.3, 0.1],
+        ...      "weak_labels": [0.4, 0.6]},
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={"embedding": "tensor"},
+        ...     output_schema={"weak_labels": "tensor"},
+        ... )
+        >>> model = KeyClass(dataset, input_dim=2, category_ids=["cardiac", "resp"])
+        >>> _ = model.fit_input_standardization([[0.1, 0.2], [0.3, 0.1]])
+        >>> batch = next(iter(get_dataloader(dataset, batch_size=2)))
+        >>> model(**batch)["y_prob"].shape
+        torch.Size([2, 2])
     """
 
     def __init__(
         self,
-        dataset,
-        input_dim,
-        category_ids,
-        hidden_dims=(256, 128, 64),
-        dropout=0.5,
-        feature_key="embedding",
-        label_key="weak_labels",
-    ):
+        dataset: SampleDataset,
+        input_dim: int,
+        category_ids: Sequence[Hashable],
+        hidden_dims: Sequence[int] = (256, 128, 64),
+        dropout: float = 0.5,
+        feature_key: str = "embedding",
+        label_key: str = "weak_labels",
+    ) -> None:
         super().__init__(dataset)
         self.category_ids = tuple(category_ids)
         if len(self.category_ids) < 2 or len(set(self.category_ids)) != len(
@@ -63,17 +115,32 @@ class KeyClass(BaseModel):
 
     @property
     def label_processors(self) -> dict[str, LabelProcessor]:
-        """Describe model outputs without tokenizing dense soft targets.
+        """Describes model outputs without tokenizing dense soft targets.
 
-        The dataset keeps its tensor processor; this processor supplies the
-        multilabel mode, output size, loss, and metrics expected by BaseModel.
+        The dataset keeps its tensor processor; this multilabel processor
+        supplies the mode, output size, loss and metrics ``BaseModel`` expects.
+
+        Returns:
+            A mapping from ``label_key`` to the multilabel processor.
         """
         return {self.label_key: self._target_processor}
 
-    def fit_input_standardization(self, embeddings):
-        """Store per-dimension mean and standard deviation of training embeddings.
+    def fit_input_standardization(
+        self, embeddings: torch.Tensor | np.ndarray | Sequence[Sequence[float]]
+    ) -> "KeyClass":
+        """Stores the per-dimension mean and spread of training embeddings.
 
         Uses no labels. Constant dimensions keep a scale of 1.
+
+        Args:
+            embeddings: Training embeddings of shape ``[notes, input_dim]``.
+
+        Returns:
+            The model, for chaining.
+
+        Raises:
+            ValueError: If the shape is wrong, there are fewer than two
+                embeddings, or values are not finite.
         """
         embeddings = torch.as_tensor(embeddings, dtype=torch.float32)
         if embeddings.ndim != 2 or embeddings.shape[1] != len(self.input_mean):
@@ -88,7 +155,26 @@ class KeyClass(BaseModel):
             )
         return self
 
-    def forward(self, **kwargs):
+    def forward(self, **kwargs: Any) -> dict[str, torch.Tensor]:
+        """Scores a batch and, when soft labels are given, computes the loss.
+
+        Args:
+            **kwargs: A batch. ``kwargs[feature_key]`` holds embeddings of shape
+                ``[batch, input_dim]``. Optional ``kwargs[label_key]`` holds soft
+                labels in [0, 1] of shape ``[batch, categories]``. Optional
+                ``kwargs["sample_weight"]`` holds nonnegative per-note weights
+                of shape ``[batch]``; each note's loss is scaled by its weight,
+                as in the authors' noise-aware loss.
+
+        Returns:
+            A dict with ``"logit"`` and ``"y_prob"`` (sigmoid scores), both of
+            shape ``[batch, categories]``. When labels are given it also has
+            ``"y_true"`` and the scalar ``"loss"``.
+
+        Raises:
+            ValueError: If embeddings, labels or weights have the wrong shape,
+                or labels are not finite probabilities.
+        """
         embedding = torch.as_tensor(
             kwargs[self.feature_key], dtype=torch.float32, device=self.device
         )
@@ -112,8 +198,6 @@ class KeyClass(BaseModel):
             if weights is None:
                 loss = self.label_processor.loss(logits, targets)
             else:
-                # Noise-aware loss as in the authors' code: scale each note's loss
-                # by its weak-label confidence, then average over the batch.
                 weights = torch.as_tensor(
                     weights, dtype=logits.dtype, device=self.device
                 )
