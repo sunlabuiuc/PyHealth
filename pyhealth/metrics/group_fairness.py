@@ -31,10 +31,15 @@ def best_f1_threshold(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     Returns:
         The threshold ``t`` maximising F1 of ``y_prob >= t``.
 
+    Raises:
+        ValueError: If ``y_true`` has no positives, where F1 is undefined.
+
     Examples:
         >>> best_f1_threshold(np.array([0, 1, 1]), np.array([0.2, 0.6, 0.9]))
         0.6
     """
+    if not np.any(np.asarray(y_true) == 1):
+        raise ValueError("best_f1_threshold needs at least one positive label.")
     precision, recall, thresholds = precision_recall_curve(y_true, y_prob)
     with np.errstate(divide="ignore", invalid="ignore"):
         f1 = np.nan_to_num(2 * precision * recall / (precision + recall))
@@ -118,7 +123,8 @@ def group_fairness_metrics_fn(
             with :func:`best_f1_threshold`, as the MEDFAIR paper does (its
             code uses 0.5 for the per-group FPR/FNR). For a clean test
             estimate pass the threshold tuned on validation. The value used
-            is returned as ``"threshold"``.
+            is returned as ``"threshold"``. Tuning needs at least one
+            positive label.
 
     Returns:
         Dictionary from metric name to value.

@@ -151,6 +151,10 @@ class TestGroupFairnessMetrics(unittest.TestCase):
 
 
 class TestHelpers(unittest.TestCase):
+    def test_best_f1_threshold_needs_a_positive(self):
+        with self.assertRaises(ValueError):
+            best_f1_threshold(np.zeros(4), np.array([0.1, 0.2, 0.3, 0.4]))
+
     def test_best_f1_threshold(self):
         y_true = np.array([0, 0, 1, 1, 0, 0, 1, 1])
         y_prob = np.array([0.1, 0.4, 0.35, 0.8, 0.2, 0.6, 0.7, 0.9])

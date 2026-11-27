@@ -23,8 +23,10 @@ def _check(scores: np.ndarray) -> np.ndarray:
             f"scores must be a non-empty (n_candidates, n_groups) matrix, "
             f"got shape {scores.shape}."
         )
-    if np.isnan(scores).any():
-        raise ValueError("scores contain NaN; drop or impute those groups first.")
+    if not np.isfinite(scores).all():
+        raise ValueError(
+            "scores contain NaN or inf; drop or impute those groups first."
+        )
     return scores
 
 
@@ -41,8 +43,8 @@ def dto_select(scores: np.ndarray) -> int:
         Row index of the candidate with the smallest DTO.
 
     Raises:
-        ValueError: If ``scores`` is not a non-empty 2-D matrix, has NaN, or
-            some group's best score is not positive.
+        ValueError: If ``scores`` is not a non-empty 2-D matrix, is not
+            finite, or some group's best score is not positive.
 
     Examples:
         >>> dto_select(np.array([[0.80, 0.70], [0.78, 0.76], [0.85, 0.60]]))
