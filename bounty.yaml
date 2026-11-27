@@ -389,7 +389,7 @@ bounty:
     category: model
     title: CHET Dynamic Disease Graphs (AAAI 2022)
     description: "Implement CHET (transition functions over dynamic disease graphs) for diagnosis and heart-failure prediction on MIMIC-III and MIMIC-IV. [code](https://github.com/luchang-cs/chet)"
-    complete: ~
+    complete: "@Alhibb (#1550)"
   - id: 66
     priority: 3
     category: calibration
