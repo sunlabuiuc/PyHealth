@@ -1,5 +1,10 @@
 """Run the PriorExamPreferenceTask context ablation with a PyHealth model.
 
+Author: Rishi Gopalan
+Paper: Direct Preference Optimization for Suppressing Hallucinated Prior
+    Exams in Radiology Report Generation (Banerjee et al., 2024)
+Paper link: https://arxiv.org/abs/2406.06496
+
 The three runs use the same ReXPref-Prior release splits, model, seed and
 training configuration.  Only ``PriorExamPreferenceTask.context_mode``
 changes.  The target is whether ReXPref-Prior rewrote or deleted a sentence;

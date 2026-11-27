@@ -1,5 +1,12 @@
 """ReXPref-Prior report editing task for MIMIC-CXR.
 
+Author: Rishi Gopalan
+Paper: Direct Preference Optimization for Suppressing Hallucinated Prior
+    Exams in Radiology Report Generation (Banerjee et al., 2024)
+Paper link: https://arxiv.org/abs/2406.06496
+Description: Join ReXPref-Prior sentence edits to PyHealth's supported
+    MIMIC-CXR dataset and create sentence-level edit-prediction samples.
+
 The task joins sentence-level ReXPref-Prior edits to
 :class:`~pyhealth.datasets.MIMIC4CXRDataset` metadata events by ``study_id``.
 It reconstructs the original (rejected) and edited (chosen) report and emits
@@ -22,6 +29,7 @@ from typing import Any, ClassVar, Literal
 
 import polars as pl
 
+from ..data import Patient
 from .base_task import BaseTask
 
 ContextMode = Literal["sentence_only", "neighbor_context", "section_context"]
@@ -244,9 +252,22 @@ class PriorExamPreferenceTask(BaseTask):
     Note:
         ``needs_edit`` means that ReXPref-Prior rewrote or deleted the sentence.
         It is not a label for whether a prior-exam statement was hallucinated.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4CXRDataset
+        >>> from pyhealth.tasks import PriorExamPreferenceTask
+        >>> dataset = MIMIC4CXRDataset(  # doctest: +SKIP
+        ...     root="/path/to/mimic-cxr-jpg/2.1.0",
+        ...     tables=["metadata"],
+        ... )
+        >>> task = PriorExamPreferenceTask(  # doctest: +SKIP
+        ...     {"train": "/path/to/train_rexprefprior.csv"},
+        ...     context_mode="sentence_only",
+        ... )
+        >>> samples = dataset.set_task(task)  # doctest: +SKIP
     """
 
-    task_name = "prior_exam_preference"
+    task_name: str = "PriorExamPreferenceTask"
     input_schema: ClassVar[dict[str, str]] = {"text": "text"}
     output_schema: ClassVar[dict[str, str]] = {"needs_edit": "binary"}
 
@@ -283,7 +304,7 @@ class PriorExamPreferenceTask(BaseTask):
             & pl.col("metadata/study_id").is_in(sorted(self._annotations.by_study))
         )
 
-    def __call__(self, patient: Any) -> list[dict[str, Any]]:
+    def __call__(self, patient: Patient) -> list[dict[str, Any]]:
         studies: dict[str, list[Any]] = defaultdict(list)
         for event in patient.get_events(event_type="metadata"):
             if "study_id" not in event or event.study_id is None:

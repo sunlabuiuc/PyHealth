@@ -84,6 +84,7 @@ def _metadata_row(dicom_id, view):
 
 def _write_tiny_bert(path):
     """Writes a random local encoder so the model smoke test needs no network."""
+    torch.manual_seed(0)
     vocab = path / "vocab.txt"
     vocab.write_text("[PAD]\n[UNK]\n[CLS]\n[SEP]\n[MASK]\n", encoding="utf-8")
     tokenizer = BertTokenizerFast(vocab_file=str(vocab), do_lower_case=True)
