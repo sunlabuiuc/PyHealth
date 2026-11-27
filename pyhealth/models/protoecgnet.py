@@ -935,6 +935,12 @@ class ProtoECGNet(BaseModel):
         alongside the model checkpoint to support case-based explanations after
         reloading (e.g. ``torch.save(model.projection_info, "proj.pt")``).
 
+        Follow projection with the ``"classifier"`` stage before evaluating.
+        The last layer was trained on the unprojected prototypes, so right
+        after projection the logits can be far below zero (around -300 on
+        PTB-XL), every ``y_prob`` rounds to exactly 0 in float32, and metrics
+        computed from ``y_prob`` are meaningless.
+
         Args:
             dataloader: Training dataloader (``shuffle=False``) yielding
                 batches with the signal and the multi-hot labels.
