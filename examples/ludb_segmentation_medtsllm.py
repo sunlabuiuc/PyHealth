@@ -1,28 +1,187 @@
-"""Native LUDB task/model example, without implicit downloads or submission.
+"""LUDB ECG delineation with MedTsLLM: full pipeline and ablations.
 
 Contributors: Thi Van Trinh Tran and Zexi Li.
-Paper: MedTsLLM, https://arxiv.org/abs/2408.07773.
+Paper: MedTsLLM: Leveraging LLMs for Multimodal Medical Time Series Analysis.
+Chan et al., MLHC 2024. https://arxiv.org/abs/2408.07773.
+Data: https://physionet.org/content/ludb/1.0.1/.
 
-Offline synthetic example (NOT a scientific experiment)::
+What it shows:
+    LUDBDataset -> ECGDelineationLUDB -> MedTsLLM -> point-wise ECG
+    predictions and segmentation metrics. The task assigns background,
+    P wave, QRS complex, or T wave to each supervised ECG sample.
+    Ignored annotation points are excluded from loss and evaluation.
 
-    python examples/ludb_segmentation_medtsllm.py --demo --output /tmp/ludb-demo
+How to run:
+    Offline synthetic example (NOT a scientific experiment)::
 
-One real condition, using existing frozen artifacts and a local snapshot::
+        python examples/ludb_segmentation_medtsllm.py \
+            --demo --output /tmp/ludb-demo
 
-    python examples/ludb_segmentation_medtsllm.py \
-      --manifest /project/window_manifest.csv \
-      --split-manifest /project/patient_split.csv --records-root /project/data \
-      --mask-root /project/prepared --metadata-path /project/metadata_prepared.csv \
-      --cache-dir /project/cache --llm-name /models/gpt2-xl/snapshot \
-      --condition all_correct --seeds 0 1 2 --output /project/NEW_runs/gpt2xl
+    One real condition, using existing frozen artifacts and a local snapshot::
 
-Use --condition all for nine conditions x three seeds (27 sequential runs).
-Use a different output root with the Llama-2-7B base snapshot for its 27 runs.
-This example does not submit HPC jobs or run both backbones automatically.
-Real runs require CUDA. WFDB reading/cache building are CPU I/O operations;
-model forward/backward and stored numeric windows use the requested GPU.
-Test evaluation is final-epoch only, never used for checkpoint selection.
-No tests, experiments, downloads, or environment installation run on import.
+        python examples/ludb_segmentation_medtsllm.py \
+            --manifest /project/window_manifest.csv \
+            --split-manifest /project/patient_split.csv \
+            --records-root /project/data \
+            --mask-root /project/prepared \
+            --metadata-path /project/metadata_prepared.csv \
+            --cache-dir /project/cache \
+            --llm-name /models/gpt2-xl/snapshot \
+            --condition all_correct --seeds 0 1 2 \
+            --output /project/NEW_runs/gpt2xl
+
+    Use --condition all for nine conditions x three seeds:
+    27 sequential runs per backbone.
+
+    For Llama-2-7B, supply its local base-model snapshot through
+    --llm-name and use a separate output root.
+
+    No tests, experiments, downloads, or environment installation
+    run on import.
+
+Experimental setup:
+    We evaluated nine conditions with three seeds (0, 1, 2) for each
+    backbone, completing 54 LUDB experiments in total. Llama-2-7B was
+    the main backbone; GPT-2 XL was the comparison.
+
+    Backbone weights remained frozen, including in the random-
+    initialization condition. The ECG adaptation and prediction
+    layers were trained.
+
+    The experiments used a fixed patient-level 80/20 train/test split
+    and 512-sample windows. The original 12-lead recordings were sampled
+    at 500 Hz, with each lead represented separately. We used previously
+    prepared labels and annotation ignore masks, without filtering
+    or downsampling.
+
+    Training used 10 epochs, batch size 32, AdamW with learning rate
+    1e-4 and weight decay 0, and gradient clipping at 1.0.
+
+    We reported final-epoch test results, without cross-validation,
+    test-based checkpoint selection, or test-based early stopping.
+
+    Each run's summary reported 4,320 test windows, 1,761,928 supervised
+    points, and 449,912 ignored points.
+
+Ablations:
+    1. Prompt components:
+       No prompt; dataset only; task only; patient only; statistics only;
+       or all information with correct patient context.
+
+    2. Patient context:
+       Correct patient context; mismatched patient context; or patient
+       context removed, while retaining the other prompt components.
+
+    3. Backbone initialization:
+       Pretrained frozen weights versus randomly initialized frozen
+       weights, using the all-information/correct-patient prompt.
+
+    All conditions were evaluated with both backbones and three seeds.
+
+    The condition names accepted by --condition are:
+
+        prompt_none:    No textual prompt.
+        prompt_dataset: Dataset information only.
+        prompt_task:    Task information only.
+        prompt_patient: Patient information only.
+        prompt_stats:   Signal statistics only.
+        all_correct:    All information with correct patient context.
+        all_mismatch:   All information with mismatched patient context.
+        all_removed:    All information with patient context removed.
+        all_random:     All information with a random frozen backbone.
+
+
+Results:
+    Values are mean +/- sample standard deviation across three seeds,
+    in percent except evaluation loss.
+
+    F1 and point IoU are macro averages over background, P, QRS, and T.
+    Segment mIoU is reported separately using our segment-matching metric.
+
+    Llama-2-7B::
+
+        Condition               Macro F1         Point IoU        Segment mIoU
+        All / correct           86.08 +/- 0.07    76.32 +/- 0.13    61.72 +/- 1.14
+        No prompt               86.75 +/- 0.01    77.27 +/- 0.01    62.58 +/- 1.00
+        Dataset only            86.73 +/- 0.12    77.23 +/- 0.21    61.44 +/- 0.94
+        Task only               86.94 +/- 0.10    77.54 +/- 0.16    61.47 +/- 0.88
+        Patient only            85.85 +/- 0.22    76.00 +/- 0.29    60.92 +/- 0.56
+        Statistics only         86.80 +/- 0.17    77.32 +/- 0.25    61.34 +/- 0.70
+        All / mismatched        86.58 +/- 0.20    77.02 +/- 0.28    61.04 +/- 0.52
+        All / patient removed   86.75 +/- 0.05    77.26 +/- 0.05    61.94 +/- 0.88
+        All / random backbone   85.74 +/- 0.32    75.79 +/- 0.44    58.20 +/- 0.61
+
+    GPT-2 XL::
+
+        Condition               Macro F1         Point IoU        Segment mIoU
+        All / correct           84.69 +/- 0.34    74.37 +/- 0.47    57.06 +/- 1.28
+        No prompt               85.01 +/- 1.02    74.72 +/- 1.50    56.65 +/- 4.17
+        Dataset only            86.44 +/- 0.14    76.79 +/- 0.24    59.61 +/- 0.68
+        Task only               86.23 +/- 0.15    76.51 +/- 0.24    59.98 +/- 0.88
+        Patient only            83.84 +/- 0.39    73.19 +/- 0.54    56.00 +/- 1.33
+        Statistics only         86.42 +/- 0.08    76.78 +/- 0.08    59.77 +/- 0.60
+        All / mismatched        85.74 +/- 0.05    75.80 +/- 0.09    58.90 +/- 0.76
+        All / patient removed   86.40 +/- 0.20    76.75 +/- 0.27    59.98 +/- 0.26
+        All / random backbone   81.22 +/- 0.88    69.68 +/- 1.01    44.41 +/- 1.50
+
+    Additional metrics for the all-information/correct-patient condition::
+
+        Metric                  Llama-2-7B          GPT-2 XL
+        Accuracy (%)            88.93 +/- 0.14      87.96 +/- 0.27
+        Macro precision (%)     88.43 +/- 0.96      87.38 +/- 0.77
+        Macro recall (%)        84.38 +/- 0.64      82.82 +/- 0.40
+        Evaluation loss         0.2973 +/- 0.0041   0.3126 +/- 0.0067
+
+    Precision and recall were reconstructed from saved confusion matrices.
+    The other metrics were read from individual summary.json files.
+    Recomputed accuracy, macro F1, and macro IoU agreed with stored scores.
+
+    Evaluation loss was the unweighted mean of cross-entropy losses over
+    batches containing supervised points.
+
+Findings:
+    With all information and correct patient context, Llama-2-7B had
+    higher mean macro F1, point IoU, and segment mIoU than GPT-2 XL.
+
+    All-information prompts did not consistently outperform simpler
+    prompts. Task-only prompting had the highest mean macro F1 for
+    Llama-2-7B, while dataset-only prompting had the highest mean
+    macro F1 for GPT-2 XL.
+
+    Correct patient context did not improve mean macro F1 over removing
+    patient context in either backbone. This finding concerns the context
+    representation and experimental setup evaluated here, not the
+    general clinical usefulness of patient information.
+
+    Pretrained backbones had higher mean segment mIoU than randomly
+    initialized frozen backbones: 61.72 versus 58.20 for Llama-2-7B,
+    and 57.06 versus 44.41 for GPT-2 XL.
+
+    These comparisons are descriptive results across three seeds, not
+    statistical-significance or causal claims.
+
+Comparison with the paper:
+    The paper reported LUDB F1=89.89% and IoU=81.73% in Table 2.
+    Its backbone comparison reported IoU=80.25% for Llama-2-7B base,
+    81.73% for Llama-2-7B Chat, and 80.50% for GPT-2 XL (Table 12).
+    Our Llama experiments used the base model, not Chat.
+
+    The following comparison uses the paper's reported F1 (Table 6)
+    and our mean macro F1 across three seeds::
+
+        Prompt          Paper F1    Our Llama-2-7B    Our GPT-2 XL
+        No prompt       87.40       86.75             85.01
+        Dataset only    89.21       86.73             86.44
+        Task only       88.79       86.94             86.23
+        Patient only    89.31       85.85             83.84
+        Statistics only 89.23       86.80             86.42
+        All information 88.41       86.08             84.69
+
+    Our F1 values were numerically lower. Both studies found that
+    including all prompt components was not consistently best.
+    Patient-only prompting performed best in the paper's table,
+    whereas task-only and dataset-only prompting performed best
+    in our Llama-2-7B and GPT-2 XL experiments, respectively.
 """
 
 import argparse
