@@ -162,10 +162,8 @@ def iter_medtok_json(
                 end = colon.end()
                 value, pos = decoder.raw_decode(buf, end)
             except (_NeedMore, json.JSONDecodeError):
-                if eof:
-                    if opened and buf[pos:].strip() in ("", "}"):
-                        return
-                    raise
+                if eof:  # the closing "}" was never reached
+                    raise ValueError(f"{path} is empty or truncated.") from None
                 more = f.read(chunk_size)
                 eof = not more
                 buf, pos = buf[pos:] + more, 0

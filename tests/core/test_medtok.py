@@ -117,6 +117,14 @@ class TestFiles(unittest.TestCase):
             f.write('{"a": [1, 2], "b": [3,')
         with self.assertRaises(ValueError):
             list(iter_medtok_json(path))
+        # Cut between two entries, before the closing brace, and empty.
+        with open(path, "w") as f:
+            f.write('{"a": [1, 2], "b": [3]')
+        with self.assertRaises(ValueError):
+            list(iter_medtok_json(path))
+        open(path, "w").close()
+        with self.assertRaises(ValueError):
+            list(iter_medtok_json(path))
 
     def test_convert_and_load(self):
         emb = {"428.0": [0.5] * 256, "I10": [0.25] * 256}

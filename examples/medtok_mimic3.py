@@ -73,7 +73,7 @@ def parse_args():
     p.add_argument("--demo", action="store_true", help="Use the bundled demo.")
     p.add_argument("--cache-dir", default=None)
     p.add_argument(
-        "--medtok", required=True, help="medtok.npz or code2embeddings.json."
+        "--medtok", help="medtok.npz or code2embeddings.json, for --embeddings medtok."
     )
     p.add_argument("--tokens", help="code2tokens.json, for --embeddings tokens.")
     p.add_argument("--task", choices=TASKS, default="mortality")
@@ -103,6 +103,8 @@ def parse_args():
         p.error("pass --root or --demo")
     if "tokens" in args.embeddings and not args.tokens:
         p.error("--embeddings tokens needs --tokens code2tokens.json")
+    if "medtok" in args.embeddings and not args.medtok:
+        p.error("--embeddings medtok needs --medtok medtok.npz")
     return args
 
 
