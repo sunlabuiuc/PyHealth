@@ -244,8 +244,8 @@ bounty:
     priority: 1
     category: model
     title: HeartLang (ICLR 2025)
-    description: "Implement the HeartLang ECG language model and PTB-XL, CPSC2018, and Chapman ECG classification benchmarks, coordinating with PTB-XL loader PRs #1187 and #1323. [code](https://github.com/PKUDigitalHealth/HeartLang), [paper](https://arxiv.org/abs/2502.10707) — Merged in #1372: the model with a PTB-XL reproduction. Remaining: the CPSC2018 and Chapman benchmarks (Chapman-Shaoxing loader added in #1531)."
-    complete: ~
+    description: "Implement the HeartLang ECG language model and PTB-XL, CPSC2018, and Chapman ECG classification benchmarks, coordinating with PTB-XL loader PRs #1187 and #1323. [code](https://github.com/PKUDigitalHealth/HeartLang), [paper](https://arxiv.org/abs/2502.10707)"
+    complete: "@solarsys (#1372), @rayrayowo (#1571, #1613)"
   - id: 42
     priority: 1
     category: model
