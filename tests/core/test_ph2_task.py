@@ -85,6 +85,15 @@ class TestViews(unittest.TestCase):
         self.assertLess(mid, 0.72)  # the smallest box that reaches 70%
         self.assertLess(big, 0.93)
 
+    def test_bbox_reaches_coverage_for_a_corner_lesion(self) -> None:
+        """A tiny lesion in a corner still grows to the coverage target."""
+        mask = np.zeros((100, 100), dtype=bool)
+        mask[99, 99] = True
+        for target in (0.7, 0.9):
+            box = bbox_mask(mask, target)
+            self.assertGreaterEqual(box.mean(), target)
+            self.assertTrue(box[99, 99])  # the lesion stays inside the box
+
     def test_bbox_of_empty_mask_does_not_crash(self) -> None:
         """An empty mask still gives a valid box."""
         empty = np.zeros((16, 16), dtype=bool)

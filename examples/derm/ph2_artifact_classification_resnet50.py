@@ -4,9 +4,10 @@
 # Paper: A Study of Artifacts on Melanoma Classification under Diffusion-Based
 # Perturbations (Jin and Ghassemi, CHIL 2025)
 # https://proceedings.mlr.press/v287/jin25b.html
-"""Artifact sensitivity of a ResNet-50 melanoma classifier on PH2.
+r"""Artifact sensitivity of a ResNet-50 melanoma classifier on PH2.
 
-Trains a ResNet-50 on each of the paper's 12 dataset modes of PH2, then tests it
+Trains a ResNet-50 on each of the paper's 12 dataset modes of PH2 (the default run
+uses the six region and box modes; ``--views`` selects others), then tests it
 with hand-drawn artifacts added. This reproduces, on PH2, the input-disruption
 experiment of Jin and Ghassemi, "A Study of Artifacts on Melanoma Classification
 under Diffusion-Based Perturbations" (CHIL 2025,
@@ -38,7 +39,8 @@ What the script does
 Results on the real PH2 archive
 -------------------------------
 One run, seed 0, ImageNet-pretrained ResNet-50, 224 px, 10 epochs, 5-fold CV
-(Apple GPU, about 50 minutes for all 12 views). Test AUROC, mean +- std over
+(Apple GPU, about 50 minutes, run with ``--views`` listing all 12 modes, as in
+the Usage section below). Test AUROC, mean +- std over
 folds, next to the paper's Table 2 (PH2 source column; the paper's std is
 0.01-0.11)::
 
@@ -95,6 +97,14 @@ Real PH2 (download it from the authors; see
     python examples/derm/ph2_artifact_classification_resnet50.py \
         --root /path/to/PH2Dataset --pretrained
 
+This trains the six default modes (whole, lesion, background, bbox, bbox70, bbox90).
+The 12-row table above needs all 12 modes::
+
+    python examples/derm/ph2_artifact_classification_resnet50.py \
+        --root /path/to/PH2Dataset --pretrained --views whole lesion background \
+        bbox bbox70 bbox90 whole_high lesion_high background_high whole_low \
+        lesion_low background_low
+
 Self-contained smoke test, with a synthetic PH2-like archive in which rulers
 appear only on malignant images and the lesions are uninformative (a planted
 shortcut). A classifier trained on
@@ -103,8 +113,8 @@ it should lose AUROC when rulers are added to every image::
     python examples/derm/ph2_artifact_classification_resnet50.py --quick
 
 Notes: 224 px images cost about 600 KB each per view and artifact in the task
-cache, so the full default run (6 views x 6 renderings) needs about 4 GB of
-disk, and a CPU run takes hours; use ``--views``, ``--artifacts``,
+cache, so the default run (6 views x 6 renderings) needs about 4 GB of disk (twice
+that for all 12 views), and a CPU run takes hours; use ``--views``, ``--artifacts``,
 ``--image-size`` and ``--epochs`` to shrink it. ``--quick`` uses 64 px images,
 ResNet-18, 15 epochs and the ``whole`` view, and finishes in about a minute on a
 CPU. Expected: AUROC 1.0 on the original images and a clear drop (about 0.7)
@@ -268,7 +278,7 @@ def predict(
         Float array with one malignancy probability per id in ``image_ids``.
     """
     subset = samples.subset([index_of[i] for i in image_ids])
-    y_true, y_prob, _ = trainer.inference(get_dataloader(subset, batch_size))
+    _, y_prob, _ = trainer.inference(get_dataloader(subset, batch_size))
     subset.close()
     return np.asarray(y_prob).reshape(-1)
 

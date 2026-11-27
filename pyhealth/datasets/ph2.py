@@ -144,7 +144,7 @@ class PH2Dataset(BaseDataset):
         """Return ``{image name: diagnosis}`` from the annotation file.
 
         Called by :meth:`prepare_metadata`. Uses the first of ``PH2_dataset.txt``,
-        ``.csv`` or ``.xlsx`` found under the source folder.
+        ``.csv`` or ``.xlsx`` (in that order) found under the source folder.
 
         Returns:
             Dict mapping an image name such as ``"IMD003"`` to one of
@@ -156,7 +156,13 @@ class PH2Dataset(BaseDataset):
             ValueError: If the file has no ``Clinical Diagnosis`` column or an
                 unknown diagnosis code.
         """
-        candidates = sorted(self.source_root.rglob(f"{_LABEL_FILE_STEM}.*"))
+        found = sorted(self.source_root.rglob(f"{_LABEL_FILE_STEM}.*"))
+        candidates = [
+            path
+            for suffix in (".txt", ".csv", ".xlsx")  # the order the docs list
+            for path in found
+            if path.suffix.lower() == suffix
+        ]
         for path in candidates:
             if path.suffix.lower() == ".xlsx":
                 try:
@@ -169,10 +175,8 @@ class PH2Dataset(BaseDataset):
                     ) from error
             elif path.suffix.lower() == ".csv":
                 table = pd.read_csv(path, header=None)
-            elif path.suffix.lower() == ".txt":
-                table = self._read_pipe_table(path)
             else:
-                continue
+                table = self._read_pipe_table(path)
             return self._parse_annotations(table, path)
         raise FileNotFoundError(
             f"No {_LABEL_FILE_STEM}.txt, .csv or .xlsx found under "
@@ -234,7 +238,11 @@ class PH2Dataset(BaseDataset):
         diagnoses = {}
         for _, row in table.iloc[header + 1 :].iterrows():
             name, code = str(row.iloc[0]).strip(), row.iloc[column]
-            if not name.upper().startswith("IMD") or pd.isna(code):
+            if (
+                not name.upper().startswith("IMD")
+                or pd.isna(code)
+                or str(code).strip() == ""
+            ):
                 continue
             if int(code) not in range(len(PH2_DIAGNOSES)):
                 raise ValueError(f"{path.name}: {name} has clinical diagnosis {code}.")

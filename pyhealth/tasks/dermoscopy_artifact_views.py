@@ -115,10 +115,12 @@ def bbox_mask(mask: np.ndarray, coverage: float | None = None) -> np.ndarray:
     """Return a boolean box around the lesion, optionally grown to a coverage.
 
     With ``coverage=None`` this is the lesion's tight bounding box. Otherwise
-    the box is scaled about its centre (keeping its aspect ratio, clipped to
-    the image) until it covers at least ``coverage`` of the image, as in the
-    paper's ``bbox70`` and ``bbox90`` modes. If the tight box already covers
-    more, it is returned unchanged.
+    the box is scaled about its centre (keeping its aspect ratio) until it
+    covers at least ``coverage`` of the image, as in the paper's ``bbox70`` and
+    ``bbox90`` modes. The box is clipped at the image border, so for a lesion
+    near a corner it grows mostly away from that corner; the search runs up to
+    the scale at which the box fills the whole image, so any target is reached.
+    If the tight box already covers more, it is returned unchanged.
 
     Args:
         mask: Boolean lesion mask of shape ``(H, W)``.
@@ -162,7 +164,8 @@ def bbox_mask(mask: np.ndarray, coverage: float | None = None) -> np.ndarray:
     tight = box(1.0)
     if coverage is None or tight.mean() >= coverage:
         return tight
-    low, high = 1.0, float(max(h, w))  # the box covers the image at `high`
+    # At this scale the box reaches every image border from any centre.
+    low, high = 1.0, max(h / half_h, w / half_w)
     for _ in range(30):  # bisection on the (monotone) scale
         middle = (low + high) / 2
         if box(middle).mean() >= coverage:

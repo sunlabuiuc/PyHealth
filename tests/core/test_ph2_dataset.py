@@ -118,6 +118,34 @@ class TestPH2Dataset(unittest.TestCase):
             },
         )
 
+    def test_blank_clinical_diagnosis_is_skipped(self) -> None:
+        """A row with a blank Clinical Diagnosis is skipped, not an error."""
+        (self.root / "PH2_dataset.csv").unlink()
+        (self.root / "PH2_dataset.txt").write_text(
+            "||   Name || Histological Diagnosis || Clinical Diagnosis || Colors ||\n"
+            "|| IMD001 ||                        ||                  0 ||    3 ||\n"
+            "|| IMD002 ||                        ||                    ||    3 ||\n"
+            "|| IMD003 ||                        ||                  2 ||    5 ||\n"
+        )
+        meta = pd.read_csv(self._dataset().metadata_path)
+        self.assertEqual(sorted(meta["image_id"]), ["IMD001", "IMD003"])
+
+    def test_txt_is_preferred_over_csv(self) -> None:
+        """When both files exist, PH2_dataset.txt is read before the .csv."""
+        (self.root / "PH2_dataset.txt").write_text(
+            "||   Name || Histological Diagnosis || Clinical Diagnosis ||\n"
+            "|| IMD001 ||                        ||                  2 ||\n"
+            "|| IMD003 ||                        ||                  0 ||\n"
+        )
+        meta = pd.read_csv(self._dataset().metadata_path)
+        self.assertEqual(
+            dict(zip(meta["image_id"], meta["diagnosis"])),
+            {
+                "IMD001": "melanoma",
+                "IMD003": "common_nevus",
+            },  # the csv says the reverse
+        )
+
     def test_missing_annotation_file_raises(self) -> None:
         """A missing annotation file raises FileNotFoundError."""
         (self.root / "PH2_dataset.csv").unlink()
