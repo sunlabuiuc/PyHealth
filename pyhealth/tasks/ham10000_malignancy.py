@@ -45,8 +45,12 @@ class HAM10000MalignancyClassification(BaseTask):
 
     Args:
         image_size: Side length of the square input image. Defaults to 224.
-        age_bins: Increasing upper edges of the age groups. Defaults to
-            ``(60,)``.
+        age_bins: Increasing upper edges of the age groups, in whole years.
+            Defaults to ``(60,)``.
+
+    Raises:
+        ValueError: If ``age_bins`` is empty, not strictly increasing, not
+            whole numbers, or not positive.
 
     Examples:
         >>> from pyhealth.datasets import HAM10000Dataset, PatientSplit
@@ -70,9 +74,11 @@ class HAM10000MalignancyClassification(BaseTask):
         super().__init__()
         edges = tuple(int(e) for e in age_bins)
         increasing = all(a < b for a, b in itertools.pairwise(edges))
-        if not edges or not increasing or edges[0] <= 0:
+        whole = all(e == b for e, b in zip(edges, age_bins))
+        if not edges or not increasing or not whole or edges[0] <= 0:
             raise ValueError(
-                f"age_bins must be positive and strictly increasing, got {age_bins!r}."
+                "age_bins must be positive, strictly increasing whole years, "
+                f"got {age_bins!r}."
             )
         self.image_size = int(image_size)
         self.age_bins = edges

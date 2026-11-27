@@ -124,8 +124,9 @@ def group_fairness_metrics_fn(
         Dictionary from metric name to value.
 
     Raises:
-        ValueError: On mismatched lengths, missing group values, unknown
-            metric names, or ``eqodd`` with other than two groups.
+        ValueError: On non-binary labels, probabilities outside [0, 1] or
+            NaN, mismatched lengths, missing group values, unknown metric
+            names, or ``eqodd`` with other than two groups.
 
     Examples:
         >>> y_true = np.array([0, 0, 1, 1, 0, 0, 1, 1])
@@ -135,8 +136,13 @@ def group_fairness_metrics_fn(
         >>> s["auc_M"], s["auc_F"], s["auc_gap"], s["eqodd"]
         (0.75, 1.0, 0.25, 0.5)
     """
-    y_true = np.asarray(y_true).reshape(-1).astype(int)
+    y_true = np.asarray(y_true).reshape(-1)
     y_prob = np.asarray(y_prob, dtype=float).reshape(-1)
+    if not np.isin(y_true, (0, 1)).all():
+        raise ValueError("y_true must contain only 0 and 1.")
+    if not ((y_prob >= 0) & (y_prob <= 1)).all():
+        raise ValueError("y_prob must be probabilities in [0, 1], without NaN.")
+    y_true = y_true.astype(int)
     groups = np.asarray(groups, dtype=object).reshape(-1)
     if not len(y_true) == len(y_prob) == len(groups):
         raise ValueError(

@@ -82,6 +82,15 @@ class TestGroupBalancedSampler(unittest.TestCase):
         with self.assertRaises(ValueError):
             GroupBalancedSampler([])
 
+    def test_rejects_missing_labels(self):
+        with self.assertRaises(ValueError):
+            GroupBalancedSampler(SEXES, labels=[*LABELS[:-1], None])
+
+    def test_rejects_non_positive_num_samples(self):
+        for n in (0, -1):
+            with self.assertRaises(ValueError):
+                GroupBalancedSampler(SEXES, num_samples=n)
+
 
 class TestGroupBalancedDataloader(unittest.TestCase):
     def setUp(self):
@@ -131,6 +140,11 @@ class TestGroupBalancedDataloader(unittest.TestCase):
             get_group_balanced_dataloader(
                 self.dataset, 4, groups=SEXES, label_key="y", labels=LABELS
             )
+
+    def test_order_arguments_rejected(self):
+        for kwargs in ({"shuffle": True}, {"shuffle": False}, {"sampler": None}):
+            with self.assertRaises(TypeError):
+                get_group_balanced_dataloader(self.dataset, 4, groups=SEXES, **kwargs)
 
     def test_missing_key_raises(self):
         with self.assertRaises(KeyError):

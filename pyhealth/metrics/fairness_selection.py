@@ -40,12 +40,19 @@ def dto_select(scores: np.ndarray) -> int:
     Returns:
         Row index of the candidate with the smallest DTO.
 
+    Raises:
+        ValueError: If ``scores`` is not a non-empty 2-D matrix, has NaN, or
+            some group's best score is not positive.
+
     Examples:
         >>> dto_select(np.array([[0.80, 0.70], [0.78, 0.76], [0.85, 0.60]]))
         1
     """
     scores = _check(scores)
-    return int(np.argmin(np.linalg.norm(1.0 - scores / scores.max(axis=0), axis=1)))
+    best = scores.max(axis=0)
+    if (best <= 0).any():
+        raise ValueError("DTO needs a positive best score for every group.")
+    return int(np.argmin(np.linalg.norm(1.0 - scores / best, axis=1)))
 
 
 def pareto_front(scores: np.ndarray) -> np.ndarray:

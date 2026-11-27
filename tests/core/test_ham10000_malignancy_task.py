@@ -103,6 +103,12 @@ class TestHAM10000MalignancyClassification(unittest.TestCase):
             HAM10000MalignancyClassification(age_bins=())
         with self.assertRaises(ValueError):
             HAM10000MalignancyClassification(age_bins=(60, 40))
+        with self.assertRaises(ValueError):
+            HAM10000MalignancyClassification(age_bins=(60.5,))
+        self.assertEqual(
+            HAM10000MalignancyClassification(age_bins=(60.0,)).age_groups,
+            ["<=60", ">60"],
+        )
 
 
 class TestHAM10000DemographicsFile(unittest.TestCase):
@@ -130,6 +136,23 @@ class TestHAM10000DemographicsFile(unittest.TestCase):
         frame = pd.read_csv(path).assign(sex="female")
         frame.to_csv(path, index=False)
         self.assertEqual(self._sex(metadata_dir), "F")
+
+    def test_duplicate_rows_keep_the_first(self):
+        path = self.root / "HAM10000_metadata.csv"
+        frame = pd.read_csv(path)
+        first = frame[frame["image_id"] == "ISIC_0000001"].assign(sex="female")
+        pd.concat([frame, first]).to_csv(path, index=False)
+        with self.assertLogs("pyhealth.datasets.ham10000", "WARNING") as logs:
+            self.assertEqual(self._sex(self.tmp / "meta"), "M")
+        self.assertIn("more than once", "".join(logs.output))
+
+    def test_unlisted_images_warn(self):
+        path = self.root / "HAM10000_metadata.csv"
+        frame = pd.read_csv(path)
+        frame[frame["image_id"] != "ISIC_0000001"].to_csv(path, index=False)
+        with self.assertLogs("pyhealth.datasets.ham10000", "WARNING") as logs:
+            self.assertIsNone(self._sex(self.tmp / "meta"))
+        self.assertIn("1 training images are not in", "".join(logs.output))
 
     def test_tab_separated_file_with_groupings_leaves_sex_empty(self):
         path = self.root / "HAM10000_metadata.csv"

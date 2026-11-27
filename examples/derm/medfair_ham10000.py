@@ -211,11 +211,10 @@ def main() -> None:
                 for lr in args.lrs
             }
 
-        kept = [
-            g
-            for g in names
-            if all(g in defined_groups(r, names) for r in results.values())
-        ]
+        defined = [set(defined_groups(r, names)) for r in results.values()]
+        kept = [g for g in names if all(g in d for d in defined)]
+        if not kept:
+            raise SystemExit("No group has a val AUC in every run; nothing to select.")
         if len(kept) < len(names):
             print(
                 f"Selecting on {kept}; no val AUC for {sorted(set(names) - set(kept))}."

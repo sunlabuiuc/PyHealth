@@ -36,8 +36,9 @@ class GroupBalancedSampler(Sampler[int]):
         seed: Seed of the draws. Defaults to 0.
 
     Raises:
-        ValueError: If ``groups`` is empty, has missing values, or differs
-            in length from ``labels``.
+        ValueError: If ``groups`` is empty, ``groups`` or ``labels`` have
+            missing values or differ in length, or ``num_samples`` is not
+            positive.
 
     Examples:
         >>> sampler = GroupBalancedSampler(["F", "F", "F", "M"], seed=0)
@@ -66,13 +67,18 @@ class GroupBalancedSampler(Sampler[int]):
                     f"groups and labels differ in length: "
                     f"{len(groups)} vs {len(labels)}."
                 )
-            keys = list(zip(groups, (_hashable(y) for y in labels)))
+            labels = [_hashable(y) for y in labels]
+            if any(pd.isna(y) for y in labels if not isinstance(y, tuple)):
+                raise ValueError("labels contain missing values.")
+            keys = list(zip(groups, labels))
         codes: dict = {}
         cells = np.array([codes.setdefault(k, len(codes)) for k in keys])
         self.weights = torch.as_tensor(
             1.0 / np.bincount(cells)[cells], dtype=torch.double
         )
         self.num_samples = len(cells) if num_samples is None else int(num_samples)
+        if self.num_samples <= 0:
+            raise ValueError(f"num_samples must be positive, got {num_samples}.")
         self.seed = int(seed)
         self.epoch = 0
 
@@ -172,6 +178,9 @@ def get_group_balanced_dataloader(
         ... )
         >>> trainer.train(train_dataloader=loader, ...)  # doctest: +SKIP
     """
+    clashing = sorted({"shuffle", "sampler", "batch_sampler"} & set(loader_kwargs))
+    if clashing:
+        raise TypeError(f"{clashing} cannot be set; the group sampler orders the data.")
     if (group_key is None) == (groups is None):
         raise ValueError("Pass exactly one of group_key and groups.")
     if label_key is not None and labels is not None:

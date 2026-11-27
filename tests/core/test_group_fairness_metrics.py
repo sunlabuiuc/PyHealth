@@ -124,6 +124,21 @@ class TestGroupFairnessMetrics(unittest.TestCase):
         with self.assertRaises(ValueError):
             group_fairness_metrics_fn(self.y_true, self.y_prob, self.groups[:-1])
 
+    def test_bad_labels_or_probs_raise(self):
+        with self.assertRaises(ValueError):
+            group_fairness_metrics_fn(self.y_true * 2, self.y_prob, self.groups)
+        for bad in (1.5, -0.1, np.nan):
+            y_prob = self.y_prob.copy()
+            y_prob[0] = bad
+            with self.assertRaises(ValueError):
+                group_fairness_metrics_fn(self.y_true, y_prob, self.groups)
+
+    def test_float_labels_accepted(self):
+        s = group_fairness_metrics_fn(
+            self.y_true.astype(float), self.y_prob, self.groups, threshold=0.5
+        )
+        self.assertAlmostEqual(s["auc_M"], 0.75)
+
     def test_unknown_metric_raises(self):
         with self.assertRaises(ValueError):
             self.score(metrics=["auroc"])

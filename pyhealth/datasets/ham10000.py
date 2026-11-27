@@ -304,9 +304,17 @@ class HAM10000Dataset(BaseDataset):
                 "%s has no age/sex columns; they stay empty.", _DATAVERSE_METADATA
             )
             return None
+        duplicated = meta["image_id"].duplicated()
+        if duplicated.any():
+            logger.warning(
+                "%s lists %d images more than once; keeping the first row.",
+                _DATAVERSE_METADATA,
+                int(duplicated.sum()),
+            )
+            meta = meta[~duplicated]
         if "localization" not in meta.columns:
-            meta["localization"] = None
-        meta["sex"] = meta["sex"].map({"male": "M", "female": "F"})
+            meta = meta.assign(localization=None)
+        meta = meta.assign(sex=meta["sex"].map({"male": "M", "female": "F"}))
         return meta.rename(columns={"image_id": "image"})[
             ["image", "age", "sex", "localization"]
         ]
@@ -352,6 +360,14 @@ class HAM10000Dataset(BaseDataset):
                     )
                 demographics = self._demographics()
                 if demographics is not None:
+                    unlisted = int((~gt["image"].isin(demographics["image"])).sum())
+                    if unlisted:
+                        logger.warning(
+                            "%d training images are not in %s; their age and "
+                            "sex stay empty.",
+                            unlisted,
+                            _DATAVERSE_METADATA,
+                        )
                     gt = gt.merge(demographics, on="image", how="left")
             else:
                 gt["lesion_id"] = None

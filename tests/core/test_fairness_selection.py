@@ -55,6 +55,8 @@ class TestFairnessSelection(unittest.TestCase):
             dto_select(np.array([[0.8, np.nan]]))
         with self.assertRaises(ValueError):
             minimax_pareto_select(SCORES, group=2)
+        with self.assertRaises(ValueError):
+            dto_select(np.array([[0.8, 0.0], [0.7, 0.0]]))
 
 
 if __name__ == "__main__":
