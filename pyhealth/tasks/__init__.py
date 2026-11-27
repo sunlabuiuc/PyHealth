@@ -57,6 +57,9 @@ from .chapman_shaoxing_classification import (
     ChapmanShaoxingSNOMEDClassification as ChapmanShaoxingSNOMEDClassification,
     ChapmanShaoxingSuperclassClassification as ChapmanShaoxingSuperclassClassification,
 )
+from .chapman_heartlang import (
+    ChapmanShaoxingHeartLangClassification as ChapmanShaoxingHeartLangClassification,
+)
 from .physionet2012_mortality import (
     PhysioNet2012Mortality as PhysioNet2012Mortality,
     physionet2012_mortality_statistics as physionet2012_mortality_statistics,

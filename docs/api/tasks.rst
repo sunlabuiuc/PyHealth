@@ -237,6 +237,7 @@ Available Tasks
     PTB-XL HeartLang Classification <tasks/pyhealth.tasks.PTBXLHeartLangClassification>
     PTB-XL Heartbeat MI <tasks/pyhealth.tasks.PTBXLHeartbeatMI>
     Chapman-Shaoxing ECG Classification <tasks/pyhealth.tasks.ChapmanShaoxingSuperclassClassification>
+    Chapman-Shaoxing HeartLang Classification <tasks/pyhealth.tasks.ChapmanShaoxingHeartLangClassification>
     CLIMB ECG Classification <tasks/pyhealth.tasks.CLIMBECGClassification>
     PhysioNet 2012 Forecasting <tasks/pyhealth.tasks.PhysioNet2012Forecasting>
     PhysioNet 2012 In-Hospital Mortality <tasks/pyhealth.tasks.PhysioNet2012InHospitalMortality>
