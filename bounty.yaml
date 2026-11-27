@@ -233,7 +233,7 @@ bounty:
     category: model
     title: MedTok Multimodal Code Tokenizer (ICML 2025)
     description: "Add MedTok as a drop-in multimodal medical code tokenizer and embedding module for PyHealth EHR models on MIMIC-III/IV and EHRSHOT tasks. [code](https://github.com/mims-harvard/MedTok), [paper](https://arxiv.org/abs/2502.04397)"
-    complete: "@irvifa (#1630)"
+    complete: "@irvifa (#1630, #1633)"
   - id: 40
     priority: 1
     category: model
