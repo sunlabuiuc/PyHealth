@@ -354,7 +354,7 @@ def train_and_evaluate(
     test_rates: tuple[float, ...] = DEFAULT_TEST_RATES,
     include_decay: bool = True,
     epochs: int = 8,
-    batch_size: int = 64,
+    batch_size: int = 128,
     lr: float = 0.00129,
     embedding_dim: int = 64,
     hidden_dim: int = 128,
@@ -542,7 +542,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.set_defaults(include_decay=True)
     parser.add_argument("--epochs", type=int, default=8)
-    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=0.00129)
     parser.add_argument("--embedding-dim", type=int, default=64)
     parser.add_argument("--hidden-dim", type=int, default=128)
