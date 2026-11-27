@@ -191,7 +191,7 @@ bounty:
     category: task
     title: CLIMB Multimodal Task Suite (ICML 2025)
     description: "Integrate the CLIMB multimodal benchmark task suite and shared loaders with PyHealth across datasets such as MIMIC-III/IV, MIMIC-CXR, PTB-XL, TUAB, and TUEV. [code](https://github.com/DDVD233/CLIMB), [paper](https://arxiv.org/abs/2503.07667)"
-    complete: ~
+    complete: "@irvifa (#1617)"
   - id: 33
     priority: 1
     category: model
@@ -245,7 +245,7 @@ bounty:
     category: model
     title: HeartLang (ICLR 2025)
     description: "Implement the HeartLang ECG language model and PTB-XL, CPSC2018, and Chapman ECG classification benchmarks, coordinating with PTB-XL loader PRs #1187 and #1323. [code](https://github.com/PKUDigitalHealth/HeartLang), [paper](https://arxiv.org/abs/2502.10707)"
-    complete: ~
+    complete: "@rayrayowo (#1613)"
   - id: 42
     priority: 1
     category: model
