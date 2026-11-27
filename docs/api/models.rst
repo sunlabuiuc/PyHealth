@@ -336,6 +336,8 @@ API Reference
     models/pyhealth.models.Agent
     models/pyhealth.models.GRASP
     models/pyhealth.models.MedFuse
+    models/pyhealth.models.EHRCXREarlyFusion
+    models/pyhealth.models.ConVIRT
     models/pyhealth.models.MAESTRO
     models/pyhealth.models.DAFT
     models/pyhealth.models.DiPro

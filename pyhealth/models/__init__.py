@@ -61,6 +61,8 @@ from .dipro import DiPro as DiPro
 from .daft import DAFT as DAFT, DAFTBlock as DAFTBlock, DAFTLayer as DAFTLayer
 from .maestro import MAESTRO as MAESTRO
 from .medfuse import MedFuse, MedFuseLayer
+from .ehr_cxr_early_fusion import EHRCXREarlyFusion as EHRCXREarlyFusion
+from .convirt import ConVIRT as ConVIRT, ConVIRTLinearProbe as ConVIRTLinearProbe
 from .medlink import MedLink
 from .micron import MICRON, MICRONLayer
 from .mlp import MLP
