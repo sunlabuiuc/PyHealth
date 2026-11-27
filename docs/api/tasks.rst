@@ -214,6 +214,7 @@ Available Tasks
 
     Base Task <tasks/pyhealth.tasks.BaseTask>
     Task Card <tasks/pyhealth.tasks.TaskCard>
+    CDC COVID-19 Mortality <tasks/pyhealth.tasks.CDCCOVIDMortalityPrediction>
     PBC Competing Risks <tasks/pyhealth.tasks.competing_risks_pbc>
     Competing-Risk Preprocessing <tasks/pyhealth.tasks.competing_risks>
     In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
