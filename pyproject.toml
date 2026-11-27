@@ -101,6 +101,9 @@ nlp = [
 ptbxl = [
   "wfdb>=4.1.0",
 ]
+dreamt = [
+  "neurokit2>=0.2.10",
+]
 xgboost = [
   "xgboost>=2.0",
 ]

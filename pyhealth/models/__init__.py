@@ -198,3 +198,4 @@ from .medtok import (
     medtok_keys as medtok_keys,
 )
 from .query_focused_ehr import QueryFocusedEHRModel as QueryFocusedEHRModel
+from .watchsleepnet import WatchSleepNet as WatchSleepNet
