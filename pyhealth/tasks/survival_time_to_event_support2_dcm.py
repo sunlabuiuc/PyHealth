@@ -1,6 +1,6 @@
 """SUPPORT2 time-to-death task in the Deep Cox Mixtures protocol.
 
-Contributor: <AUTHOR NAME> (NetID: liu323)
+Contributor: Xinyi Liu (NetID: liu323)
 
 Paper: Chirag Nagpal, Steve Yadlowsky, Negar Rostamzadeh and Katherine Heller.
 Deep Cox Mixtures for Survival Regression. MLHC 2021.

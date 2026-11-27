@@ -1,6 +1,6 @@
 """Deep Cox Mixtures for survival regression.
 
-Contributor: <AUTHOR NAME> (NetID: liu323)
+Contributor: Xinyi Liu (NetID: liu323)
 
 Paper: Chirag Nagpal, Steve Yadlowsky, Negar Rostamzadeh and Katherine Heller.
 Deep Cox Mixtures for Survival Regression. Machine Learning for Healthcare

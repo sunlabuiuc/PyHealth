@@ -1,6 +1,6 @@
 """Fast synthetic tests for SurvivalTimeToEventSupport2DCM; no real data.
 
-Contributor: <AUTHOR NAME> (NetID: liu323)
+Contributor: Xinyi Liu (NetID: liu323)
 Paper: Deep Cox Mixtures for Survival Regression (Nagpal et al., MLHC 2021),
 https://proceedings.mlr.press/v149/nagpal21a.html
 """

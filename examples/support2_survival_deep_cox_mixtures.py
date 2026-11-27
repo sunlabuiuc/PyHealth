@@ -1,6 +1,6 @@
 """SUPPORT2 survival with Deep Cox Mixtures: mixture-size ablation.
 
-Contributor: <AUTHOR NAME> (NetID: liu323)
+Contributor: Xinyi Liu (NetID: liu323)
 Paper: Nagpal, Yadlowsky, Rostamzadeh and Heller. Deep Cox Mixtures for
 Survival Regression. MLHC 2021. https://proceedings.mlr.press/v149/nagpal21a.html
 
