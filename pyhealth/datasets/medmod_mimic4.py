@@ -44,6 +44,7 @@ import warnings
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import narwhals as nw
 import numpy as np
@@ -57,6 +58,9 @@ from .medmod.extraction import (
 from .mimic4 import MIMIC4Dataset, MIMIC4EHRDataset
 from .sample_dataset import SampleDataset
 from .splitter import Split
+
+if TYPE_CHECKING:
+    from ..tasks.base_task import BaseTask
 
 EHR_V10_CONFIG = Path(__file__).resolve().parent / "configs" / "mimic4_ehr_v1.0.yaml"
 EHR_TABLES = ("chartevents", "labevents", "diagnoses_icd")
@@ -178,6 +182,45 @@ class MedModMIMIC4Dataset(MIMIC4Dataset):
         )
         if itemid_map is not None:
             self.sub_datasets["ehr"].itemid_map = os.fspath(itemid_map)
+
+    def set_task(
+        self, task: BaseTask | None = None, *args: Any, **kwargs: Any
+    ) -> SampleDataset | tuple[SampleDataset, ...]:
+        """Runs PyHealth's ``set_task`` after checking the task's item map.
+
+        The dataset drops events outside its own item map before caching, so a
+        MedMod task with item ids outside that map would silently miss their
+        events. This raises an error instead.
+
+        Args:
+            task: The task, usually ``MedModInHospitalMortality``.
+            *args: Passed on to ``BaseDataset.set_task``.
+            **kwargs: Passed on to ``BaseDataset.set_task``.
+
+        Returns:
+            What ``BaseDataset.set_task`` returns.
+
+        Raises:
+            ValueError: If some of the task's item ids are not in the dataset's
+                item map.
+
+        Examples:
+            >>> train, val, test = dataset.set_task(  # doctest: +SKIP
+            ...     task, split=MedModSplit()
+            ... )
+        """
+        resources = getattr(task, "resources", None)
+        if resources is not None:
+            kept = set(_ready_itemids(self.sub_datasets["ehr"].itemid_map))
+            missing = sorted({str(i) for i in resources.itemids} - kept)
+            if missing:
+                raise ValueError(
+                    f"{len(missing)} item ids of the task are not in this "
+                    f"dataset's itemid_map, so their events were dropped before "
+                    f"caching (first: {missing[:5]}). Use the same item map for "
+                    "the dataset and the task."
+                )
+        return super().set_task(task, *args, **kwargs)
 
 
 SPLITS = ("train", "val", "test")

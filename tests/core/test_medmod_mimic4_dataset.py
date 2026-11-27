@@ -49,13 +49,19 @@ def test_rows_filtered_before_cache(roots):
     assert df.filter(pl.col("event_type") == "labevents").height == 1
 
 
+def _map_without_220739(tmp_path):
+    """The test item map without item 220739."""
+    lines = TEST_ITEMID_MAP.read_text().splitlines(keepends=True)
+    smaller = tmp_path / "itemid_map_without_220739.csv"
+    smaller.write_text("".join(line for line in lines if ",220739," not in line))
+    return smaller
+
+
 def test_custom_item_map_gets_its_own_cache(roots, tmp_path):
     # PyHealth's cache key has no item map, so a dataset with another map must
     # not reuse the table the first map filtered.
     ehr, cxr, cache = roots
-    lines = TEST_ITEMID_MAP.read_text().splitlines(keepends=True)
-    smaller = tmp_path / "itemid_map_without_220739.csv"
-    smaller.write_text("".join(line for line in lines if ",220739," not in line))
+    smaller = _map_without_220739(tmp_path)
     other = MedModMIMIC4Dataset(
         ehr_root=ehr, cxr_root=cxr, cache_dir=cache, num_workers=1, itemid_map=smaller
     )
@@ -65,6 +71,22 @@ def test_custom_item_map_gets_its_own_cache(roots, tmp_path):
     assert set(items.unique().to_list()) == {"220045"}
     default = MedModMIMIC4Dataset(ehr_root=ehr, cxr_root=cxr, cache_dir=cache)
     assert default.dataset_name == "medmod_mimic4"  # pinned map, no digest
+
+
+def test_task_item_ids_must_be_in_the_dataset_map(roots, tmp_path):
+    # The dataset dropped item 220739 before caching, so a task that reads it
+    # would silently miss its events.
+    ehr, cxr, cache = roots
+    dataset = MedModMIMIC4Dataset(
+        ehr_root=ehr,
+        cxr_root=cxr,
+        cache_dir=cache,
+        num_workers=1,
+        itemid_map=_map_without_220739(tmp_path),
+    )
+    task = MedModInHospitalMortality(hours_zero="keep", resources=load_test_resources())
+    with pytest.raises(ValueError, match=r"\['220739'\]"):
+        dataset.set_task(task)
 
 
 def _lists(tmp_path, test=(), val=()):
