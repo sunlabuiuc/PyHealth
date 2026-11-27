@@ -186,10 +186,13 @@ class ConVIRT(BaseModel):
     :class:`ConVIRTLinearProbe`.
 
     The loss compares each pair with the other pairs of its batch, so a batch
-    of one sample has no negatives: its loss is zero and it changes nothing.
-    Use ``get_dataloader(..., drop_last=True)`` for pretraining, as MedMod
-    does, so every batch has the full set of negatives; a last batch of one
-    sample in validation would also lower the mean validation loss.
+    of one sample has no negatives: its loss is zero and gives no gradient.
+    It is not a full no-op: in train mode the ResNet's BatchNorm still updates
+    its running statistics (and raises an error for very small images), and
+    an optimizer with momentum or weight decay still moves the weights. Use
+    ``get_dataloader(..., drop_last=True)`` for pretraining, as MedMod does,
+    so every batch has the full set of negatives. In validation, a last batch
+    of one sample would also lower the mean loss.
 
     Paper:
         Zhang et al. (2022). Contrastive Learning of Medical Visual
@@ -202,9 +205,7 @@ class ConVIRT(BaseModel):
             Stays of different lengths may come zero-padded with their
             lengths, when the key's processor schema is
             ``("value", "lengths")``; the LSTM then packs them and stops at
-            each stay's last step. MedMod's ConVIRT pretraining on whole ICU
-            stays gets its EHR this way, from the ``MedModEHRSequenceProcessor``
-            of the MedMod dataset PR (#1637).
+            each stay's last step.
         cxr_feature_key: Key of the image input in the batch: an image tensor
             ``[batch, 3, H, W]`` for a ResNet, or ``[batch, cxr_feature_dim]``
             embeddings with ``cxr_backbone=nn.Identity()``. It need not be a
