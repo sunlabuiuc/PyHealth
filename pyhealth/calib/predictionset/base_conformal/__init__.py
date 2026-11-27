@@ -1,7 +1,7 @@
 """
 Base Conformal Prediction (Split Conformal)
 
-Standard split conformal prediction for multiclass classification without
+Standard split conformal prediction for binary and multiclass classification without
 covariate shift correction. 
 
 This method constructs prediction sets with coverage guarantees by calibrating
@@ -116,7 +116,7 @@ def _query_weighted_quantile(
 
 
 class BaseConformal(SetPredictor):
-    """Base Conformal Prediction for multiclass classification.
+    """Base Conformal Prediction for binary and multiclass classification.
 
     This implements standard split conformal prediction, which constructs
     prediction sets with distribution-free coverage guarantees. The method
@@ -215,9 +215,9 @@ class BaseConformal(SetPredictor):
     ) -> None:
         super().__init__(model, **kwargs)
 
-        if model.mode != "multiclass":
+        if self.model.mode != "multiclass":
             raise NotImplementedError(
-                "BaseConformal only supports multiclass classification"
+                "BaseConformal only supports binary and multiclass classification"
             )
         if score_type not in SUPPORTED_SCORE_TYPES:
             raise ValueError(
@@ -225,7 +225,6 @@ class BaseConformal(SetPredictor):
                 f"{SUPPORTED_SCORE_TYPES}."
             )
 
-        self.mode = self.model.mode
 
         # Freeze model parameters
         for param in model.parameters():
@@ -313,7 +312,7 @@ class BaseConformal(SetPredictor):
         if self.debug:
             print(f"Calibrated thresholds: {self.t}")
 
-    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
+    def _predict(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation with prediction set construction.
 
         Returns:

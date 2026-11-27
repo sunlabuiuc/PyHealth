@@ -7,7 +7,7 @@ Implementation based on https://github.com/zlin7/FavMac
 
 from importlib import reload
 import time
-from typing import Dict, Union
+from typing import Union
 
 import numpy as np
 import pandas as pd
@@ -195,7 +195,6 @@ class FavMac(SetPredictor):
         super().__init__(model, **kwargs)
         if model.mode != "multilabel":
             raise NotImplementedError()
-        self.mode = self.model.mode  # multilabel
         for param in model.parameters():
             param.requires_grad = False
         self.model.eval()
@@ -240,7 +239,7 @@ class FavMac(SetPredictor):
         )
         self._favmac.init_calibrate(_cal_data["logit"], _cal_data["y_true"])
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def _predict(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation (just like the original model).
 
         :return: A dictionary with all results from the base model, with the following updates:

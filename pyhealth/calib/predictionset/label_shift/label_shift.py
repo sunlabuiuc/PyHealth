@@ -164,7 +164,7 @@ def _compute_label_shift_thresholds(
 
 
 class LabelShift(BaseConformal):
-    """Label shift conformal prediction for multiclass classification.
+    """Label shift conformal prediction for binary and multiclass classification.
 
     This subclasses :class:`BaseConformal` and inherits its ``forward``:
     per-class thresholds stored in ``self.t`` broadcast against every
@@ -285,10 +285,6 @@ class LabelShift(BaseConformal):
         debug: bool = False,
         **kwargs,
     ) -> None:
-        if model.mode != "multiclass":
-            raise NotImplementedError(
-                "LabelShift only supports multiclass classification"
-            )
         if not isinstance(alpha, (float, np.floating)) or not 0.0 < alpha < 1.0:
             raise ValueError(
                 "LabelShift controls marginal coverage under the target "
@@ -356,10 +352,9 @@ class LabelShift(BaseConformal):
         )
 
         y_prob = cal_dataset_dict["y_prob"]
+        y_true = np.asarray(cal_dataset_dict["y_true"])
         num_rows, num_classes = y_prob.shape
-        y_true = _validate_calibration_labels(
-            np.asarray(cal_dataset_dict["y_true"]), num_rows, num_classes
-        )
+        y_true = _validate_calibration_labels(y_true, num_rows, num_classes)
 
         target_label_dist = _validate_label_distribution(
             target_label_dist, num_classes, "target_label_dist"

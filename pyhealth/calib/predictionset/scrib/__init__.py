@@ -6,7 +6,7 @@ Implementation based on https://github.com/zlin7/scrib
 """
 
 import time
-from typing import Dict, Union
+from typing import Union
 
 import numpy as np
 import pandas as pd
@@ -175,7 +175,7 @@ class _CoordDescent:
 class SCRIB(SetPredictor):
     """SCRIB: Set-classifier with Class-specific Risk Bounds
 
-    This is a prediction-set constructor for multi-class classification problems.
+    This is a prediction-set constructor for binary and multiclass classification problems.
     SCRIB tries to control class-specific risk while minimizing the ambiguity.
     To to this, it selects class-specific thresholds for the predictions, on a calibration set.
 
@@ -252,9 +252,8 @@ class SCRIB(SetPredictor):
         **kwargs,
     ) -> None:
         super().__init__(model, **kwargs)
-        if model.mode != "multiclass":
+        if self.model.mode != "multiclass":
             raise NotImplementedError()
-        self.mode = self.model.mode  # multiclass
         for param in model.parameters():
             param.requires_grad = False
         self.model.eval()
@@ -286,11 +285,13 @@ class SCRIB(SetPredictor):
         cal_dataset = prepare_numpy_dataset(
             self.model, cal_dataset, ["y_prob", "y_true"], debug=self.debug
         )
+        y_prob, y_true = cal_dataset["y_prob"], cal_dataset["y_true"]
+
         if self.loss_name == CLASSPECIFIC_LOSSFUNC:
-            assert len(self.risk) == cal_dataset["y_prob"].shape[1]
+            assert len(self.risk) == y_prob.shape[1]
         best_ts, _ = _CoordDescent.search(
-            cal_dataset["y_prob"],
-            cal_dataset["y_true"],
+            y_prob,
+            y_true,
             self.risk,
             self.loss_name,
             loss_kwargs=self.loss_kwargs,
@@ -298,7 +299,7 @@ class SCRIB(SetPredictor):
         )
         self.t = torch.nn.Parameter(torch.tensor(best_ts, device=self.device))
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def _predict(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation (just like the original model).
 
         :return: A dictionary with all results from the base model, with the following updates:
@@ -307,14 +308,15 @@ class SCRIB(SetPredictor):
         :rtype: Dict[str, torch.Tensor]
         """
         ret = self.model(**kwargs)
-        y_predset = ret["y_prob"] > self.t
+        y_prob = ret["y_prob"]
+        y_predset = y_prob > self.t
         if self.fill_max:
             # Match the calibration-time assumption: when no class clears
             # its threshold, fall back to the max-predicted class instead
             # of returning an empty set.
             empty = y_predset.sum(dim=1) == 0
             if empty.any():
-                argmax_idx = ret["y_prob"].argmax(dim=1)
+                argmax_idx = y_prob.argmax(dim=1)
                 y_predset[empty, argmax_idx[empty]] = True
         ret["y_predset"] = y_predset
         return ret

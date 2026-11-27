@@ -4,7 +4,7 @@ Neighborhood Conformal Prediction (NCP).
 """
 
 import warnings
-from typing import Dict, Optional, Union
+from typing import Optional
 
 import numpy as np
 import torch
@@ -18,14 +18,17 @@ from pyhealth.calib.predictionset.scores import (
     all_class_conformity_scores,
     true_class_conformity_scores,
 )
-from pyhealth.calib.utils import extract_embeddings, prepare_numpy_dataset
+from pyhealth.calib.utils import (
+    extract_embeddings,
+    prepare_numpy_dataset,
+)
 from pyhealth.models import BaseModel
 
 __all__ = ["NeighborhoodLabel"]
 
 
 class NeighborhoodLabel(SetPredictor):
-    """Neighborhood Conformal Prediction (NCP) for multiclass classification.
+    """Neighborhood Conformal Prediction (NCP) for binary and multiclass classification.
 
     Reference:
         Ghosh, S., Belkhouja, T., Yan, Y., & Doppa, J. R. (2023).
@@ -120,9 +123,9 @@ class NeighborhoodLabel(SetPredictor):
     ) -> None:
         super().__init__(model, **kwargs)
 
-        if model.mode != "multiclass":
+        if self.model.mode != "multiclass":
             raise NotImplementedError(
-                "NeighborhoodLabel only supports multiclass classification"
+                "NeighborhoodLabel only supports binary and multiclass classification"
             )
         if score_type not in SUPPORTED_SCORE_TYPES:
             raise ValueError(
@@ -130,7 +133,6 @@ class NeighborhoodLabel(SetPredictor):
                 f"{SUPPORTED_SCORE_TYPES}."
             )
 
-        self.mode = self.model.mode
 
         for param in model.parameters():
             param.requires_grad = False
@@ -280,7 +282,7 @@ class NeighborhoodLabel(SetPredictor):
                     stacklevel=2,
                 )
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def _predict(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward with NCP: per-sample weighted quantile threshold."""
         if (
             self.cal_embeddings_ is None
@@ -318,8 +320,6 @@ class NeighborhoodLabel(SetPredictor):
         th = torch.as_tensor(
             thresholds, device=self.device, dtype=pred["y_prob"].dtype
         )
-        if pred["y_prob"].ndim > 1:
-            th = th.view(-1, *([1] * (pred["y_prob"].ndim - 1)))
 
         y_prob_np = pred["y_prob"].detach().cpu().numpy()
         conformity_scores = all_class_conformity_scores(
@@ -328,11 +328,12 @@ class NeighborhoodLabel(SetPredictor):
         conformity_scores = torch.as_tensor(
             conformity_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype
         )
+        th = th.view(-1, 1)
         y_predset = conformity_scores >= th
         # if threshold is high, include at least argmax
         empty = y_predset.sum(dim=1) == 0
         if empty.any():
-            argmax_idx = pred["y_prob"].argmax(dim=1)
+            argmax_idx = torch.as_tensor(y_prob_np.argmax(axis=1), device=self.device)
             y_predset[empty, argmax_idx[empty]] = True
         pred["y_predset"] = y_predset
         pred.pop("embed", None)
