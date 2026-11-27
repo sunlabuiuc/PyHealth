@@ -165,6 +165,11 @@ from .ethos_tasks import (
     EthosRolloutRule as EthosRolloutRule,
     EthosTimelineMEDS as EthosTimelineMEDS,
 )
+from .evicare_diagnosis import (
+    CCSMapping as CCSMapping,
+    EviCareDiagnosisPredictionMIMIC3 as EviCareDiagnosisPredictionMIMIC3,
+    EviCareDiagnosisPredictionMIMIC4 as EviCareDiagnosisPredictionMIMIC4,
+)
 from .msd_segmentation import MSDSegmentationTask as MSDSegmentationTask
 from .next_visit_diagnosis_prediction import (
     NextVisitDiagnosisPredictionMIMIC3 as NextVisitDiagnosisPredictionMIMIC3,

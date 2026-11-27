@@ -165,6 +165,11 @@ from .descemb import (
     simple_word_tokenize as simple_word_tokenize,
 )
 from .bulk_rna_bert import BulkRNABert as BulkRNABert
+from .evicare import (
+    CooccurrenceGraph as CooccurrenceGraph,
+    EviCare as EviCare,
+    EviCarePrediction as EviCarePrediction,
+)
 from .dearllm import (
     DearLLM as DearLLM,
     DearLLMGraphEncoder as DearLLMGraphEncoder,
