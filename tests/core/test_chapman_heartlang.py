@@ -185,6 +185,33 @@ class TestTaskEndToEnd(unittest.TestCase):
         self.assertEqual(positive, {"AF", "AFIB", "RBBB"})
         self.assertEqual(int(by_id["JS00003"]["labels"].sum()), 0)
 
+    def test_samples_with_default_qrs_detection(self):
+        """Runs set_task without mocking the QRS detector."""
+        samples = self.dataset.set_task(
+            ChapmanShaoxingHeartLangClassification(leads=[0, 1]),
+            num_workers=1,
+        )
+        by_id = {samples[i]["record_id"]: samples[i] for i in range(len(samples))}
+        first = by_id["JS00001"]
+        self.assertEqual(tuple(first["ecg_sentence"].shape), (256, 96))
+        lead_ids = first["lead_ids"].numpy()
+        time_ids = first["time_ids"].numpy()
+        words = lead_ids > 0
+        # The synthetic beats are found, and on both leads alike.
+        self.assertGreater(int((lead_ids == 1).sum()), 0)
+        self.assertEqual(int((lead_ids == 1).sum()), int((lead_ids == 2).sum()))
+        self.assertTrue(set(np.unique(lead_ids[words])) <= {1, 2})
+        # time_ids are the second of the beat plus one: 1..10 for 10 s.
+        self.assertTrue(((time_ids[words] >= 1) & (time_ids[words] <= 10)).all())
+        self.assertTrue((time_ids[~words] == 0).all())
+        self.assertTrue(np.abs(first["ecg_sentence"].numpy()[words]).sum() > 0)
+        positive = {
+            HEARTLANG_CSN_LABELS[i]
+            for i, v in enumerate(first["labels"].tolist())
+            if v
+        }
+        self.assertEqual(positive, {"AF", "AFIB", "RBBB"})
+
     def test_drop_empty_labels(self):
         with mock.patch(
             "pyhealth.models.heartlang.ecg_to_heartbeat_sentence",
