@@ -902,19 +902,21 @@ def split_by_predefined(
             depend on the order of the samples.
         get_index: if True, return ``torch.Tensor`` index vectors instead of
             datasets.
-        by_patient: keep all of a patient's samples in the same split. The
-            first sample of each patient decides which partition the patient
-            belongs to.
+        by_patient: keep all of a patient's samples in the same split. All of
+            a patient's samples must carry the same partition.
         split_key: sample field holding the official partition label.
         train_value: value of ``split_key`` that marks the train pool.
 
     Returns:
         ``(train, val, test)`` for 2 ratios, ``(train, val, cal, test)`` for 3
         ratios; ``SampleDataset`` views, or index tensors if ``get_index``.
-        
+
     Raises:
-        TypeError: If ``ratios`` has an unsupported container or element type.
-        ValueError: If ``ratios`` is invalid or a sample lacks ``split_key``.
+        TypeError: If ``ratios`` has an unsupported container or element type
+            (raised by the shared ratio validation).
+        ValueError: If ``ratios`` is invalid, a sample lacks ``split_key``, or,
+            with ``by_patient=True``, a patient has samples in both the train
+            partition and another one.
 
     Examples:
         >>> from pyhealth.datasets import split_by_predefined
@@ -932,15 +934,24 @@ def split_by_predefined(
     holdout: list[int] = []
 
     if by_patient:
-        # A patient belongs to one partition, so the first sample decides.
+        # A patient belongs to one partition, so all samples must agree.
         for pid, indices in dataset.patient_to_index.items():
-            first = dataset[indices[0]]
-            if split_key not in first:
+            in_train = set()
+            for i in indices:
+                sample = dataset[i]
+                if split_key not in sample:
+                    raise ValueError(
+                        f"Patient {pid}: sample {i} is missing the "
+                        f"'{split_key}' field."
+                    )
+                in_train.add(sample[split_key] == train_value)
+            if len(in_train) > 1:
                 raise ValueError(
-                    f"Patient {pid}: sample missing '{split_key}' field."
+                    f"Patient {pid} has samples in both the train partition "
+                    f"('{train_value}') and another partition. With "
+                    "by_patient=True each patient must belong to one partition."
                 )
-            
-            if first[split_key] == train_value:
+            if True in in_train:
                 pool[pid] = list(indices)
             else:
                 holdout.extend(indices)
@@ -953,7 +964,6 @@ def split_by_predefined(
                 raise ValueError(
                     f"Sample {i} is missing the '{split_key}' field."
                 )
-            
             if sample[split_key] == train_value:
                 pool[i] = [i]
             else:
@@ -974,7 +984,6 @@ def split_by_predefined(
     if get_index:
         return tuple(torch.tensor(p) for p in parts)
     return tuple(dataset.subset(p) for p in parts)  # type: ignore
-
 
 def split_by_patient_conformal_tuh(
     dataset: SampleDataset,
