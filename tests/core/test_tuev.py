@@ -332,10 +332,6 @@ class TestTUEVMetadataCachePerRoot(unittest.TestCase):
             self.assertEqual(self._train_patients(meta_b), ["00000002"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestEEGEventsTUEVStftRate(unittest.TestCase):
     """The stft field is built for 200 Hz signals (#1521)."""
 
@@ -347,18 +343,38 @@ class TestEEGEventsTUEVStftRate(unittest.TestCase):
 
     def test_stft_at_another_rate_raises(self):
         for rate in (100, 256, 200.5):
-            with self.subTest(rate=rate):
-                with self.assertRaisesRegex(ValueError, "compute_stft=False"):
-                    EEGEventsTUEV(resample_rate=rate, compute_stft=True)
+            with (
+                self.subTest(rate=rate),
+                self.assertRaisesRegex(ValueError, "compute_stft=False"),
+            ):
+                EEGEventsTUEV(resample_rate=rate, compute_stft=True)
 
     def test_another_rate_without_stft_is_allowed(self):
         task = EEGEventsTUEV(resample_rate=256, compute_stft=False)
         self.assertEqual(task.input_schema, {"signal": "tensor"})
 
-    def test_stft_shape_at_200_hz(self):
-        # 1 s windows with a 0.5 s hop and 100 one-hertz bins.
+    def test_stft_field_at_200_hz(self):
+        # 1 s windows with a 0.5 s hop and 100 one-hertz bins: a 5 s event
+        # window gives 9 frames.
         from pyhealth.models.tfm_tokenizer import get_stft_torch
 
-        signal = torch.randn(1, 16, 200 * 5)
-        stft = get_stft_torch(signal).squeeze(0)
-        self.assertEqual(tuple(stft.shape), (16, 100, 9))
+        fs = 200
+        signals = np.random.randn(16, 30 * fs)
+        times = np.arange(30 * fs) / fs
+        rec = np.array([[4, 10.0, 11.0, 2]])
+        patient = _DummyPatient("patient-0", [_DummyEvent(signal_file="dummy.edf")])
+        task = EEGEventsTUEV(resample_rate=fs, compute_stft=True)
+        with (
+            patch.object(
+                EEGEventsTUEV, "readEDF", return_value=(signals, times, rec, None)
+            ),
+            patch.object(EEGEventsTUEV, "convert_signals", return_value=signals),
+        ):
+            (sample,) = task(patient)
+        self.assertEqual(tuple(sample["stft"].shape), (16, 100, 9))
+        expected = get_stft_torch(sample["signal"].unsqueeze(0)).squeeze(0)
+        torch.testing.assert_close(sample["stft"], expected)
+
+
+if __name__ == "__main__":
+    unittest.main()

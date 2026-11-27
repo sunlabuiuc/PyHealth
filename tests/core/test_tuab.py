@@ -12,7 +12,10 @@ from unittest.mock import patch
 
 from pyhealth.datasets.base_dataset import BaseDataset
 from pyhealth.datasets.tuab import TUABDataset
-from pyhealth.tasks.temple_university_EEG_tasks import EEGAbnormalTUAB
+from pyhealth.tasks.temple_university_EEG_tasks import (
+    _TUAB_ELECTRODES,
+    EEGAbnormalTUAB,
+)
 
 
 @dataclass
@@ -720,10 +723,6 @@ class TestTUABMetadataCachePerRoot(unittest.TestCase):
             self.assertEqual(self._train_patients(meta_b), ["bbbbbbbb"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestEEGAbnormalTUABStftRate(unittest.TestCase):
     """The stft field is built for 200 Hz signals (#1521)."""
 
@@ -735,18 +734,37 @@ class TestEEGAbnormalTUABStftRate(unittest.TestCase):
 
     def test_stft_at_another_rate_raises(self):
         for rate in (100, 256, 200.5):
-            with self.subTest(rate=rate):
-                with self.assertRaisesRegex(ValueError, "compute_stft=False"):
-                    EEGAbnormalTUAB(resample_rate=rate, compute_stft=True)
+            with (
+                self.subTest(rate=rate),
+                self.assertRaisesRegex(ValueError, "compute_stft=False"),
+            ):
+                EEGAbnormalTUAB(resample_rate=rate, compute_stft=True)
 
     def test_another_rate_without_stft_is_allowed(self):
         task = EEGAbnormalTUAB(resample_rate=256, compute_stft=False)
         self.assertEqual(task.input_schema, {"signal": "tensor"})
 
-    def test_stft_shape_at_200_hz(self):
-        # 1 s windows with a 0.5 s hop and 100 one-hertz bins.
+    def test_stft_field_at_200_hz(self):
+        # 1 s windows with a 0.5 s hop and 100 one-hertz bins: a 10 s window
+        # gives 19 frames.
         from pyhealth.models.tfm_tokenizer import get_stft_torch
 
-        signal = torch.randn(1, 16, 200 * 5)
-        stft = get_stft_torch(signal).squeeze(0)
-        self.assertEqual(tuple(stft.shape), (16, 100, 9))
+        fs = 200
+        ch_names = list(_TUAB_ELECTRODES)
+        raw_data = np.random.randn(len(ch_names), 10 * fs)
+        patient = _DummyPatient(
+            patient_id="patient-0",
+            events=[_DummyEvent(signal_file="/dummy/path.edf", label="normal")],
+        )
+        task = EEGAbnormalTUAB(resample_rate=fs, compute_stft=True)
+        with patch.object(
+            EEGAbnormalTUAB, "read_and_process_edf", return_value=(raw_data, ch_names)
+        ):
+            (sample,) = task(patient)
+        self.assertEqual(tuple(sample["stft"].shape), (16, 100, 19))
+        expected = get_stft_torch(sample["signal"].unsqueeze(0)).squeeze(0)
+        torch.testing.assert_close(sample["stft"], expected)
+
+
+if __name__ == "__main__":
+    unittest.main()
