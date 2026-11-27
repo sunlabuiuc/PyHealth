@@ -434,15 +434,70 @@ class TestCallables(_FingerprintAssertions):
         high = lambda x: x + 1
         self.assertDistinctKeys(low, high)
         self.assertSameKey(low, low)
-        pair = (lambda x: x, lambda x: x + 1)  # indistinguishable by source line
-        with self.assertRaises(UnfingerprintableError):
-            _key(pair[0])
+        pair = (lambda x: x, lambda x: x + 1)  # two lambdas on one line
+        self.assertDistinctKeys(*pair)
+        self.assertSameKey(pair[0], low)
+        twins = (lambda x: x, lambda x: x)
+        self.assertSameKey(*twins)
+
+    def test_lambda_on_a_line_that_is_not_a_statement(self):
+        # getsource() gives "    key=lambda v: v + 1, other=None)", which does
+        # not parse on its own.
+        def pick(first, key=None, other=None):
+            return key
+
+        plus_one = pick(1,
+                        key=lambda v: v + 1, other=None)  # fmt: skip
+        plus_two = pick(1,
+                        key=lambda v: v + 2, other=None)  # fmt: skip
+        self.assertDistinctKeys(plus_one, plus_two)
+        self.assertSameKey(plus_one, lambda v: v + 1)
+
+    def test_nested_lambdas(self):
+        outer = lambda: (lambda y: y * 3)  # noqa: E731
+        inner = outer()
+        self.assertDistinctKeys(outer, inner)
+        self.assertSameKey(inner, outer())
+
+    def test_lambdas_without_source_positions(self):
+        # python -X no_debug_ranges drops the columns that tell apart two
+        # lambdas of one line: distinct ones then raise, a single one works.
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "lambdas.py"
+            script.write_text(
+                f"""\
+import importlib.util
+s = importlib.util.spec_from_file_location("fp", r"{_FINGERPRINT_PATH}")
+fp = importlib.util.module_from_spec(s); s.loader.exec_module(fp)
+class T:
+    task_name = "T"; input_schema = {{}}; output_schema = {{}}
+    def __init__(self, f): self.f = f
+single = lambda x: x
+pair = (lambda x: x, lambda x: x + 1)
+print(len(fp.task_fingerprint(T(single))))
+try:
+    fp.task_fingerprint(T(pair[0]))
+except fp.UnfingerprintableError:
+    print("raised")
+""",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [sys.executable, "-X", "no_debug_ranges", str(script)],
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.split(), ["64", "raised"])
 
     def test_function_without_source(self):
         namespace = {}
         exec("def f(x): return x", namespace)
-        with self.assertRaises(UnfingerprintableError):
+        with self.assertRaisesRegex(UnfingerprintableError, "cannot be read"):
             _key(namespace["f"])
+        exec("g = lambda x: x", namespace)
+        with self.assertRaisesRegex(UnfingerprintableError, "cannot be read"):
+            _key(namespace["g"])
 
     def test_importable_function(self):
         self.assertSameKey(_module_function, _module_function)
@@ -607,6 +662,14 @@ class TestArrays(_FingerprintAssertions):
         )
         self.assertDistinctKeys(np.longdouble(1), np.longdouble(2))
         self.assertSameKey(np.float32(0.5), np.float32(0.5))
+
+    def test_numpy_scalars_keep_their_dtype(self):
+        self.assertDistinctKeys(np.float32(0.5), np.float64(0.5), 0.5)
+        self.assertDistinctKeys(np.int32(1), np.int64(1), np.uint8(1), 1)
+        self.assertDistinctKeys(np.bool_(True), True)
+        self.assertDistinctKeys(np.complex64(1j), np.complex128(1j), 1j)
+        self.assertDistinctKeys(np.str_("a"), "a")
+        self.assertSameKey(np.int64(1), np.int64(1))
         long_strings = np.array(["x" * 100], dtype=np.dtypes.StringDType())
         self.assertSameKey(long_strings, long_strings.copy())
         with tempfile.TemporaryDirectory() as tmp:

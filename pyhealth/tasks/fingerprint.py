@@ -32,6 +32,11 @@ function argument, the contents of a file behind a path, or the attributes of a
 class passed as an argument (classes are named by module and qualified name).
 Dict order is ignored.
 
+``pyhealth.benchmarks`` has its own canonical JSON for benchmark params. Those
+params must be decoded back into Python objects, so it accepts only JSON values
+and importable classes and functions; task state also holds arrays, tables and
+closures, which only need a digest.
+
 Public API
 ----------
 ``task_spec(task)``          -> canonical JSON-safe dict describing the task
@@ -44,6 +49,7 @@ from __future__ import annotations
 
 import ast
 import collections
+import copy
 import dataclasses
 import datetime as _dt
 import decimal
@@ -52,6 +58,7 @@ import functools
 import hashlib
 import inspect
 import json
+import linecache
 import logging
 import os
 import re
@@ -67,7 +74,7 @@ logger = logging.getLogger(__name__)
 
 # Bump when the fingerprint format itself changes. Every cache key changes,
 # so existing caches become unreachable (they are not deleted).
-FINGERPRINT_VERSION = 4
+FINGERPRINT_VERSION = 5
 
 # Opt-out for environments with exotic task arguments. Strict mode is the
 # default because a non-strict fallback reintroduces silent collisions.
@@ -158,6 +165,11 @@ def _canon(
     if callable(hook):
         described = _canon(hook(obj), f"{name}.<hook>", depth + 1, seen)
         return ["hook", _qualname(type(obj)), described]
+
+    # Before the scalars: np.float64 and np.complex128 are also float / complex.
+    numpy = sys.modules.get("numpy")
+    if numpy is not None and isinstance(obj, numpy.generic):
+        return _canon_numpy(obj, name, depth, seen)
 
     scalar = _canon_scalar(obj)
     if scalar is not None:
@@ -363,8 +375,10 @@ def _canon_numpy(obj: Any, name: str, depth: int, seen: dict[int, int]) -> Any:
     if isinstance(obj, np.generic):
         # item() turns a datetime64[ns] into a bare int, drops the field names
         # of a record and returns a longdouble unchanged.
+        # The dtype is kept: np.float32(0.5), np.float64(0.5) and 0.5 differ.
         if obj.dtype.kind in "biufc" and not isinstance(obj.item(), np.generic):
-            return _canon(obj.item(), name, depth + 1, seen)
+            value = _canon(obj.item(), name, depth + 1, seen)
+            return ["numpy_scalar", obj.dtype.str, value]
         return _canon(np.asarray(obj), name, depth + 1, seen)
     return None
 
@@ -478,10 +492,11 @@ def _canon_callable(fn: Any, name: str, depth: int, seen: dict[int, int]) -> Any
     if src is None and not (importable and fn.__module__ != "__main__"):
         if _STRICT:
             raise UnfingerprintableError(
-                f"{name}: callable {qn!r} has no source of its own (defined "
-                f"without a file, or one of several lambdas on a line), so two "
-                f"different functions would share a cache key. Use a module-level "
-                f"function, or exclude it via `fingerprint_exclude`."
+                f"{name}: the source of callable {qn!r} cannot be read (it was "
+                f"defined without a file, for example by exec(), or its file "
+                f"changed after import), so two different functions would share "
+                f"a cache key. Use a module-level function, or exclude it via "
+                f"`fingerprint_exclude`."
             )
         logger.warning("%s: callable with no source; cache key may collide", name)
     if importable:  # its name and code say it all
@@ -538,17 +553,16 @@ def _canon_captured(value: Any, name: str, depth: int, seen: dict[int, int]) -> 
 
 def _structural_source(fn: Any) -> str | None:
     """Hash the code of ``fn``, ignoring comments, whitespace and docstrings."""
-    try:
-        src = textwrap.dedent(inspect.getsource(fn))
-        tree: ast.AST = ast.parse(src)
-    except (OSError, TypeError, SyntaxError, IndentationError):
-        return None
+    tree: ast.AST | None
     if getattr(fn, "__name__", None) == "<lambda>":
-        # getsource() returns whole lines; keep the lambda itself.
-        lambdas = [node for node in ast.walk(tree) if isinstance(node, ast.Lambda)]
-        if len(lambdas) != 1:
-            return None
-        tree = lambdas[0]
+        tree = _lambda_node(fn)
+    else:
+        try:
+            tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+        except (OSError, TypeError, SyntaxError, IndentationError):
+            tree = None
+    if tree is None:
+        return None
     for node in ast.walk(tree):
         body = getattr(node, "body", None)
         if isinstance(body, list) and body:
@@ -561,6 +575,66 @@ def _structural_source(fn: Any) -> str | None:
                 body.pop(0)
     # Not ast.dump(): its output changed between Python 3.12 and 3.13.
     return _digest(ast.unparse(tree).encode())[:16]
+
+
+def _lambda_node(fn: Any) -> ast.Lambda | None:
+    """Find the ``lambda`` expression that defined ``fn`` in its source file.
+
+    ``inspect.getsource`` returns the lines of a lambda, which are not always
+    a complete statement (a lambda passed as the last argument of a call
+    that spans several lines) and may hold several lambdas. The whole file
+    is parsed instead, and the lambdas that start on the line of ``fn`` are
+    told apart by the source positions of its code.
+    """
+    code = fn.__code__
+    lines = linecache.getlines(code.co_filename)
+    if not lines:
+        return None
+    try:
+        module = _parse_source("".join(lines))
+    except (SyntaxError, ValueError):
+        return None
+    candidates = [
+        node
+        for node in ast.walk(module)
+        if isinstance(node, ast.Lambda) and node.lineno == code.co_firstlineno
+    ]
+    # Positions of the code, in the same (line, byte column) units as the AST.
+    # The first entry of a code object spans no columns and is left out.
+    spans = [
+        (line, col, end_line, end_col)
+        for line, end_line, col, end_col in code.co_positions()
+        if None not in (line, end_line, col, end_col)
+        and (line, col) != (end_line, end_col)
+    ]
+
+    def holds_code(node: ast.Lambda) -> bool:
+        body = node.body
+        return all(
+            (body.lineno, body.col_offset) <= (line, col)
+            and (end_line, end_col) <= (node.end_lineno, node.end_col_offset)
+            for line, col, end_line, end_col in spans
+        )
+
+    def size(node: ast.Lambda) -> tuple[int, int]:
+        return (node.end_lineno - node.lineno, node.end_col_offset - node.col_offset)
+
+    if not spans:
+        # No positions (python -X no_debug_ranges): only lambdas that read the
+        # same can share a key.
+        if len({ast.unparse(node) for node in candidates}) != 1:
+            return None
+        return copy.deepcopy(candidates[0])
+    # An enclosing lambda also holds the code of the ones it contains.
+    matches = sorted((node for node in candidates if holds_code(node)), key=size)
+    if not matches:
+        return None
+    return copy.deepcopy(matches[0])  # the parsed module is cached; keep it intact
+
+
+@functools.lru_cache(maxsize=16)
+def _parse_source(source: str) -> ast.Module:
+    return ast.parse(source)
 
 
 def _object_state(obj: Any) -> dict[str, Any] | None:

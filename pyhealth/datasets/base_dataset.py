@@ -585,10 +585,10 @@ class BaseDataset(ABC):
                 global_event_df.*.building/         # An event table being built; left
                                                     # behind only by a killed job
                 tasks/                              # Cached task-specific data
-                    {task_name}_{task_fingerprint}/ # One task configuration (see set_task)
+                    {slug}_{task_digest}/           # One task configuration (see set_task)
                         task_meta.json              # Readable spec behind the fingerprint
                         task_df.ld/                 # Intermediate task dataframe based on schema
-                        samples_{proc_fingerprint}.ld/  # Final processed samples after applying processors
+                        samples_{proc_digest}.ld/   # Final processed samples after applying processors
 
         Returns:
             Path: The resolved cache directory path.
@@ -1373,14 +1373,20 @@ class BaseDataset(ABC):
         """Processes the base dataset to generate the task-specific sample dataset.
         The cache structure is as follows::
 
-            {task_name}_{task_fingerprint}/     # One task configuration
+            {slug}_{task_digest}/               # One task configuration
                 task_meta.json                  # Readable spec behind the fingerprint
                 build.lock                      # Guards concurrent builds
                 task_df.ld/                     # Intermediate task dataframe based on schema
-                samples_{proc_fingerprint}.ld/  # Final processed samples after applying processors
+                samples_{proc_digest}.ld/       # Final processed samples after applying processors
                     schema.pkl                  # Saved SampleBuilder schema
                     split.npz                   # Sample indices per split part (with split= only)
                     *.bin                       # Processed sample files
+
+        ``slug`` is ``task_name`` made safe for a path: each run of characters
+        other than letters, digits, ``.``, ``_`` and ``-`` becomes ``-``, and
+        the result is cut to 48 characters.
+        ``task_digest`` and ``proc_digest`` are the first 16 hex characters of
+        ``task_fingerprint`` and ``proc_fingerprint``.
 
         ``task_fingerprint`` is a digest of everything that determines the
         generated samples: the state ``__init__`` leaves on the task (so passing
