@@ -59,4 +59,89 @@ A pull request switches to `status: manual`:
   The first time, the review asks for changes and warns you. If a later
   review finds the same problem, the pull request switches to manual.
 
-It never switches to manual because it is
+It never switches to manual because it is too large for AI review (clear
+notebook outputs or split the pull request, then comment `/review` again),
+because you pushed during a review (the new commit is reviewed instead), or
+because a review couldn't finish (comment `/review` to try again).
+
+For non-trivial changes, please discuss them in an issue first.
+
+## Submit an Issue
+
+[Submit an issue](https://github.com/sunlabuiuc/PyHealth/issues) on GitHub to
+report a bug or propose a new feature. For bug reports, please include:
+
+- A quick summary
+- Steps to reproduce (with sample code if possible)
+- What you expected to happen
+- What actually happens
+- Why you think this might be happening, and anything you tried that did not work
+
+## PR Contribution Rules (enforced in CI)
+
+Any pull request that modifies a file under `pyhealth/` must:
+
+- Keep newly added/modified lines free of [ruff](https://docs.astral.sh/ruff/)
+  lint violations (`ruff check`, 88-char line length). Pre-existing lint
+  issues elsewhere in a touched file are not blocked.
+- Give every new or modified top-level public class/function a `>>>` usage
+  example in its docstring, so it renders as example code in the API docs.
+
+These rules are checked by `.github/workflows/pr_contribution_rules.yml`,
+which runs `tools/check_pr_rules.py`. You can run the same check locally:
+
+```bash
+python tools/check_pr_rules.py --base <base_sha> --head HEAD
+```
+## Porting a Dataset's Official Splits
+
+Many datasets ship with pre-defined splits, for example the train/eval partitions
+of the TUH EEG corpora (TUEV, TUAB). To keep `pyhealth/datasets/splitter.py` from
+growing one near-identical function per dataset, port official splits as follows.
+
+1. **Tag every sample in the task.** In the task's `__call__`, set a `"split"`
+   field on each sample to the dataset's own partition label. `EEGEventsTUEV` and
+   `EEGAbnormalTUAB` in `pyhealth/tasks/temple_university_EEG_tasks.py` are the
+   reference: they iterate over the `"train"` and `"eval"` partitions and write
+   the partition name into `sample["split"]`. Document the field in the task's
+   docstring.
+2. **Do not add a new splitter to `splitter.py`.** Call
+   `pyhealth.datasets.split_by_predefined`, which holds the logic for all
+   pre-defined splits:
+    - `ratios` has 2 values (train / val) or 3 values (train / val / cal) and is
+      applied to the train pool only. Samples whose `split_key` value is not
+      `train_value` form the held-out test set.
+    - `by_patient=True` keeps all of a patient's samples in the same split
+      (the dataset must have `patient_to_index`, and each patient's samples must
+      all carry the same partition). Patients are sorted by ID before shuffling,
+      so the result does not depend on sample order.
+    - `split_key` (default `"split"`) and `train_value` (default `"train"`) adapt
+      the function to a different field name or partition label.
+    - `get_index=True` returns `torch.Tensor` index vectors instead of datasets.
+3. **Wrap it only if the arguments are fixed.** If a dataset always needs the same
+   arguments, add a thin wrapper next to that dataset (in its module under
+   `pyhealth/datasets/`), not in `splitter.py`. The existing `*_tuh` functions in
+   `splitter.py` are such wrappers, kept for backward compatibility.
+4. **Test it.** Add a unit test that checks the held-out set is exactly the
+   official eval partition, that no patient appears in more than one part when
+   `by_patient=True`, and that the same seed gives the same split.
+
+```python
+>>> from pyhealth.datasets import split_by_predefined
+>>> train, val, test = split_by_predefined(  # doctest: +SKIP
+...     sample_dataset, [0.8, 0.2], seed=42, by_patient=True
+... )
+>>> train, val, cal, test = split_by_predefined(  # doctest: +SKIP
+...     sample_dataset, [0.6, 0.2, 0.2], seed=42, by_patient=True
+... )
+```
+
+These functions split an already-processed `SampleDataset`, so its processors
+(vocabularies, learned statistics) were fitted on all samples. If preprocessing
+must be fitted on the training part only, split inside `set_task` instead, with
+`PatientSplit` or a custom `Split`.
+## Community
+
+Join our
+[Slack workspace](https://join.slack.com/t/pyhealthworkspace/shared_invite/zt-1j8h4da47-ZZWENUYax7SlgCRHNyL2DQ)
+to ask questions, discuss ideas, and share your work.
