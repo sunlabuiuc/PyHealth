@@ -185,6 +185,9 @@ tables:
       - "category"
       - "description"
       - "storetime"
+      - "chartdate"
+      - "iserror"
+      - "charttime_missing"
 
   transfers:
     file_path: "TRANSFERS.csv.gz"

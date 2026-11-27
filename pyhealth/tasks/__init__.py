@@ -341,6 +341,9 @@ from .yaib_eicu import (
 )
 from .tcga_survival_prediction import TCGASurvivalPrediction as TCGASurvivalPrediction
 from .query_focused_ehr import QueryFocusedEHRTask as QueryFocusedEHRTask
+from .diagnosis_evidence_retrieval import (
+    DiagnosisEvidenceRetrievalMIMIC3,
+)
 
 def __getattr__(name: str):
     if name == "MPFClinicalPredictionTask":
