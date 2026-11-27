@@ -350,12 +350,13 @@ def _infer_ehr_dim(dataset: SampleDataset, key: str) -> int:
 class ConVIRTLinearProbe(BaseModel):
     """Linear probe on the frozen encoders of a pretrained :class:`ConVIRT`.
 
-    The encoders are copied from ``convirt``, frozen and kept in eval mode,
-    and the projection heads are dropped. A single linear layer reads the
-    concatenated encoder outputs (``ehr_hidden_dim + cxr_dim`` features) and
-    is the only trained part. ``cxr_dim`` is 512 for a ResNet-34, giving
-    ``641`` parameters with the default sizes, or ``cxr_feature_dim`` for
-    precomputed embeddings (1,152 for MedSigLIP, giving 1,281 parameters).
+    The encoders are copied from ``convirt``, frozen and kept in eval mode
+    from construction on, and the projection heads are dropped. A single
+    linear layer reads the concatenated encoder outputs
+    (``ehr_hidden_dim + cxr_dim`` features) and is the only trained part.
+    ``cxr_dim`` is 512 for a ResNet-34, giving ``641`` parameters with the
+    default sizes, or ``cxr_feature_dim`` for precomputed embeddings (1,152
+    for MedSigLIP, giving 1,281 parameters).
 
     As the encoders are frozen and images are not augmented, the features can
     be computed once with :meth:`extract_features`, and the layer
@@ -387,6 +388,9 @@ class ConVIRTLinearProbe(BaseModel):
             self.encoders.ehr_dim + self.encoders.cxr_dim,
             self.label_processor.output_size(),
         )
+        # The copied encoders keep ConVIRT's train mode; put them in eval mode
+        # now, not only on the first train() or eval() call.
+        self.train(self.training)
 
     def train(self, mode: bool = True) -> ConVIRTLinearProbe:
         """Sets the training mode, keeping the frozen encoders in eval mode.
