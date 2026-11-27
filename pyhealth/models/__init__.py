@@ -167,6 +167,12 @@ from .dearllm import (
     DearLLM as DearLLM,
     DearLLMGraphEncoder as DearLLMGraphEncoder,
 )
+from .chet import (
+    CHET as CHET,
+    DotProductAttention as DotProductAttention,
+    SingleHeadAttentionLayer as SingleHeadAttentionLayer,
+    compute_cooccurrence_adj as compute_cooccurrence_adj,
+)
 from .game import (
     GAME as GAME,
     GAMEEmbedding as GAMEEmbedding,
