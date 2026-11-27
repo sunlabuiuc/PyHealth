@@ -3,7 +3,8 @@
 from __future__ import annotations
 from datetime import datetime
 import re
-
+import hashlib
+import json
 
 def clean_id(value):
     text = "" if value is None else str(value).strip()
@@ -187,3 +188,8 @@ def make_samples(reviews, notes, min_prior_notes=10, strict_availability=True,
             }
         )
     return samples
+
+def digest(value):
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, ensure_ascii=False, default=str).encode()
+    ).hexdigest()

@@ -4,6 +4,7 @@
 from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
+
 from pyhealth.data import Patient
 
 from .base_task import BaseTask
@@ -12,6 +13,7 @@ from ._diagnosis_evidence_utils import (
     parse_time,
     make_samples,
     choose_history,
+    digest,
 )
 
 
@@ -230,8 +232,27 @@ class DiagnosisEvidenceRetrievalMIMIC3(BaseTask):
         for query in queries:
             report = notes_by_id.get(query["report_id"])
 
+            expected_hash = query.get("report_hash")
+            has_hash = expected_hash is not None and expected_hash != ""
+
             if report is None:
+                if has_hash:
+                    raise ValueError(
+                        "Reviewed target report is missing from the dataset."
+                    )
                 continue
+
+            # Verify that the reviewed report has not changed.
+            if has_hash:
+                if not isinstance(report.get("text"), str):
+                    raise ValueError(
+                        "Reviewed target report text is missing."
+                    )
+
+                if digest(report["text"]) != expected_hash:
+                    raise ValueError(
+                        "Reviewed target report text hash mismatch."
+                    )
 
             if str(report["category"]).strip().lower() != "radiology":
                 continue
