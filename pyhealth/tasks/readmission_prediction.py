@@ -693,6 +693,6 @@ def _discharge_time(admission: Event) -> datetime:
     are compared with, so the result is naive too.
     """
     try:
-        return datetime.strptime(admission.dischtime, "%Y-%m-%d %H:%M:%S")  # noqa: DTZ007
+        return datetime.strptime(admission.dischtime, "%Y-%m-%d %H:%M:%S")
     except ValueError:
-        return datetime.strptime(admission.dischtime, "%Y-%m-%d")  # noqa: DTZ007
+        return datetime.strptime(admission.dischtime, "%Y-%m-%d")
