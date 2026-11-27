@@ -79,6 +79,9 @@ class EEGEventsTUEV(BaseTask):
       - "signal": torch.FloatTensor, shape (16, 5 * resample_rate) for an
         integer rate. Otherwise the window holds round(5 * resample_rate)
         samples, starting round(2 * resample_rate) samples before the event.
+        The window length is fixed and the end time in the .rec file is not
+        used: for a 1 s event the window covers the 2 s before it, the event
+        and the 2 s after it.
       - "offending_channel": int, the channel number from the .rec file.
         It indexes the 22-channel TCP montage (0-21), not a row of
         ``signal``.

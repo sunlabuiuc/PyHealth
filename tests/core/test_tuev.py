@@ -225,6 +225,18 @@ class TestEEGEventsTUEVFloatResampleRate(unittest.TestCase):
                     feats[0], signals[:, first : first + round(5 * fs)]
                 )
 
+    def test_window_length_does_not_depend_on_the_event_end(self):
+        # Only the onset is used: a 2 s event still gives a 5 s window that
+        # starts 2 s before the onset.
+        fs = 200
+        num_points = 30 * fs
+        signals = np.random.randn(16, num_points)
+        times = np.arange(num_points) / fs
+        event = np.array([4, 10.0, 12.0, 2])
+        feats, _, _ = EEGEventsTUEV.BuildEvents(signals, times, event, fs)
+        first = 10 * fs - 2 * fs
+        np.testing.assert_array_equal(feats[0], signals[:, first : first + 5 * fs])
+
     def test_integer_rate_matches_the_previous_slicing(self):
         # At an integer rate the window is the one the old code produced:
         # [start - 2 fs, end + 2 fs) for a 1 s event.
@@ -244,11 +256,13 @@ class TestEEGEventsTUEVFloatResampleRate(unittest.TestCase):
         times = np.arange(num_points) / fs
         rec = np.array([[4, 10.0, 11.0, 2], [7, 20.0, 21.0, 6]])
         patient = _DummyPatient("patient-0", [_DummyEvent(signal_file="dummy.edf")])
-        with patch.object(
-            EEGEventsTUEV, "readEDF", return_value=(signals, times, rec, None)
+        with (
+            patch.object(
+                EEGEventsTUEV, "readEDF", return_value=(signals, times, rec, None)
+            ),
+            patch.object(EEGEventsTUEV, "convert_signals", return_value=signals),
         ):
-            with patch.object(EEGEventsTUEV, "convert_signals", return_value=signals):
-                samples = task(patient)
+            samples = task(patient)
         self.assertEqual(len(samples), 2)
         for sample in samples:
             self.assertEqual(tuple(sample["signal"].shape), (16, round(5 * fs)))
