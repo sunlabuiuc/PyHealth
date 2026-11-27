@@ -42,6 +42,8 @@ LABEL_SCHEMES: dict[str, dict[int, int]] = {
     # Wake / Light (N1+N2) / Deep (N3+N4) / REM -- the wav2sleep classes.
     "four_class": {0: 0, 1: 1, 2: 1, 3: 2, 4: 2, 5: 3},
     # Wake / N1 / N2 / N3(+N4) / REM -- the AASM classes.
+    # Original 4 -> 3: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/utils.py#L48
+    # Original 5 -> 4: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/utils.py#L49
     "five_class": {0: 0, 1: 1, 2: 2, 3: 3, 4: 3, 5: 4},
     # Wake / Sleep.
     "sleep_wake": {0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1},
@@ -69,6 +71,7 @@ def _read_edf_channels(
     Raises:
         ValueError: If the file is not a valid EDF file.
     """
+    # Reference EDF reader: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/utils.py#L32
     with open(path, "rb") as f:
         head = f.read(256)
         if len(head) < 256 or not head[:8].startswith(b"0"):
@@ -103,6 +106,7 @@ def _read_edf_channels(
         n_records = n_available  # unknown or truncated record count
 
     starts = np.concatenate(([0], np.cumsum(nsamp)))
+    # Original channel pick: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/utils.py#L34
     wanted = {lab.lower() for lab in labels}
     out: dict[str, tuple[np.ndarray, float]] = {}
     data = np.memmap(
@@ -122,6 +126,7 @@ def _read_edf_channels(
             pmin, pmax = float(cols["pmin"][i]), float(cols["pmax"][i])
             gain = (pmax - pmin) / (dmax - dmin) if dmax != dmin else 1.0
             signal = (raw.astype(np.float32) - dmin) * gain + pmin
+            # Original EDF sampling rate: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/utils.py#L35
             out[key] = (signal.astype(np.float32), nsamp[i] / record_dur)
     finally:
         del data  # release the memory map so the file can be removed on Windows
@@ -140,10 +145,12 @@ def _read_stage_codes(path: str) -> np.ndarray:
     Raises:
         ValueError: If no stages are found or the epoch length is not 30 s.
     """
+    # Original XML parse: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/utils.py#L43
     root = ET.parse(path).getroot()
     length = root.find(".//EpochLength")
     if length is not None and length.text and int(length.text) != EPOCH_SECONDS:
         raise ValueError(f"{path}: expected {EPOCH_SECONDS} s epochs")
+    # Original SleepStage extraction: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/utils.py#L45
     stages = [int(s.text) for s in root.iter("SleepStage") if s.text]
     if not stages:
         raise ValueError(f"{path} contains no <SleepStage> entries")

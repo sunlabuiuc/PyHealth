@@ -43,9 +43,12 @@ from pyhealth.tasks.sleep_staging_nsrr import (
 logger = logging.getLogger(__name__)
 
 #: NSRR profusion codes -> canonical five-class stages.
+# Original 4 -> 3: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/utils.py#L48
+# Original 5 -> 4: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/utils.py#L49
 PROFUSION_STAGE_MAP: dict[int, int] = LABEL_SCHEMES["five_class"]
 
 #: Canonical five-class stages -> retrieved three-class labels.
+# Original three-class map: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/data_setup.py#L85
 CANONICAL_TO_THREE: dict[int, int] = {0: 0, 1: 1, 2: 1, 3: 1, 4: 2, -1: -1}
 
 _AASM_STRING_MAP: dict[str, int] = {
@@ -143,8 +146,11 @@ def _peaks_to_ibi(
         return ibi
     in_range = np.sort(in_range)
     for start, end in pairwise(in_range):
+        # Original np.diff(peaks) / fs: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/extract_and_save_ibi.py#L24
         interval = float(end - start) / float(fs)
+        # Original 2 s outlier zeroing: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/extract_and_save_ibi.py#L34
         if end > start and interval < max_ibi:
+            # Original sample-and-hold fill: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/extract_and_save_ibi.py#L31
             ibi[int(start) : int(end)] = interval
     return ibi
 
@@ -226,6 +232,7 @@ def _resample_rows(signal: np.ndarray, points: int) -> np.ndarray:
     signal = np.asarray(signal, dtype=np.float64)
     if signal.shape[1] == points:
         return signal
+    # Original resample_poly fallback: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/extract_and_save_ibi.py#L128
     ratio = Fraction(points, signal.shape[1])
     return resample_poly(
         signal, ratio.numerator, ratio.denominator, axis=1
@@ -275,6 +282,7 @@ def _ibi_to_epoch_grid(
         and native % downsample_factor == 0
         and native // downsample_factor == points_per_epoch
     ):
+        # Original integer-stride decimation: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/extract_and_save_ibi.py#L124
         grid = epochs[:, ::downsample_factor]
     else:
         grid = _resample_rows(epochs, points_per_epoch)
@@ -330,6 +338,7 @@ def _to_three_class(stage: Any, scheme: str = "aasm") -> Any:
         values = [_to_three_class(value, scheme) for value in array.ravel()]
         return np.asarray(values, dtype=np.int64).reshape(array.shape)
     canonical = _stage_to_canonical(stage, scheme)
+    # Original unmapped -> -1: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/data_setup.py#L91
     return CANONICAL_TO_THREE.get(canonical, -1)
 
 
@@ -355,6 +364,7 @@ def _truncate_epochs(
     labels = np.asarray(label)
     if rows.ndim != 2 or labels.ndim != 1 or rows.shape[0] != labels.shape[0]:
         raise ValueError("signal and label must be aligned (T, points) and (T,)")
+    # Original 1100-segment cap: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/modeling/data_setup.py#L68
     n = min(rows.shape[0], labels.shape[0], int(max_epochs))
     return rows[:n], labels[:n]
 
@@ -423,12 +433,14 @@ def _detect_peaks(
         try:
             from biosppy.signals import ecg as biosppy_ecg
 
+            # Original biosppy ECG detector: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/extract_and_save_ibi.py#L22
             result = biosppy_ecg.ecg(
                 signal=signal, sampling_rate=float(fs), show=False
             )
         except detector_errors as err:
             logger.debug("biosppy peak detection failed: %s", err)
             return empty()
+        # Original rpeaks key: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/extract_and_save_ibi.py#L23
         return np.asarray(result["rpeaks"], dtype=np.int64)
 
     if backend == "neurokit":
@@ -441,16 +453,20 @@ def _detect_peaks(
                     _, info = nk.ecg_process(signal, sampling_rate=float(fs))
                     key = "ECG_R_Peaks"
                 else:
+                    # Original neurokit PPG processor: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/extract_and_save_ibi.py#L46
                     _, info = nk.ppg_process(signal, sampling_rate=float(fs))
                     key = "PPG_Peaks"
+            # Original too-few-peaks guard: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/dreamt/dreamt_extract_ibi_se.py#L131
             if any(
                 "Too few peaks detected to compute the rate" in str(w.message)
                 for w in caught
             ):
+                # Original all-zero degenerate epoch: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/dreamt/dreamt_extract_ibi_se.py#L133
                 return empty()
         except detector_errors as err:
             logger.debug("neurokit peak detection failed: %s", err)
             return empty()
+        # Original PPG peak key: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/dreamt/dreamt_extract_ibi_se.py#L135
         return np.asarray(info.get(key, []), dtype=np.int64)
 
     candidates = ["biosppy", "neurokit"] if signal_type == "ecg" else ["neurokit"]
@@ -489,6 +505,7 @@ def _resample_to_rate(signal: np.ndarray, fs: float, target_fs: float) -> tuple[
         raise ValueError("sampling rates must be positive")
     if abs(fs - target_fs) < 1e-9:
         return array, float(fs)
+    # Original int-truncated Fourier resample: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/utils.py#L40
     target_length = int(array.size * float(target_fs) / float(fs))
     if target_length <= 0:
         return np.empty(0, dtype=np.float64), float(target_fs)
@@ -678,6 +695,7 @@ class SleepStagingIBIDREAMT(_SleepStagingIBIBase):
             raise ValueError("signal_channel must not be empty")
         self.signal_source = signal_source
         self.signal_channel = str(signal_channel)
+        # Original 100 Hz extraction: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/dreamt/dreamt_extract_ibi_se.py#L184
         self.source_fs = 100.0 if signal_source == "psg_100hz" else 64.0
         super().__init__(
             epoch_seconds=epoch_seconds,
@@ -688,6 +706,8 @@ class SleepStagingIBIDREAMT(_SleepStagingIBIBase):
             peak_backend=peak_backend,
         )
         target_rate = self.points_per_epoch / self.epoch_seconds
+        # Original 25 Hz target: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/dreamt/dreamt_extract_ibi_se.py#L115
+        # Original ::4 decimation: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/dreamt/dreamt_extract_ibi_se.py#L113
         self.downsample_factor = max(1, round(self.source_fs / target_rate))
 
     def __call__(self, patient: Any) -> list[dict[str, Any]]:
@@ -730,7 +750,9 @@ class SleepStagingIBIDREAMT(_SleepStagingIBIBase):
                 signal = _clean_signal(frame[self.signal_channel].to_numpy())
                 stages = frame["Sleep_Stage"].to_numpy(dtype=np.int64)
 
+                # Original epoch size: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/dreamt/dreamt_extract_ibi_se.py#L55
                 samples_per_epoch = round(self.source_fs * self.epoch_seconds)
+                # Reference offset-correction loop (conceptual): https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/dreamt/dreamt_extract_ibi_se.py#L100
                 changes = np.where(np.diff(stages) != 0)[0] + 1
                 if changes.size:
                     counts = np.bincount(
@@ -739,6 +761,7 @@ class SleepStagingIBIDREAMT(_SleepStagingIBIBase):
                     anchor = int(np.argmax(counts))
                 else:
                     anchor = 0
+                # Reference leading wake trim (PyHealth keeps full night): https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/dreamt/dreamt_extract_ibi_se.py#L62
                 n_epochs = max((len(stages) - anchor) // samples_per_epoch, 0)
                 if n_epochs == 0:
                     continue
@@ -746,9 +769,11 @@ class SleepStagingIBIDREAMT(_SleepStagingIBIBase):
                 end = anchor + n_epochs * samples_per_epoch
                 grid = stages[anchor:end].reshape(n_epochs, samples_per_epoch)
                 first = grid[:, 0]
+                # Original consistent-stage check: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/dreamt/dreamt_extract_ibi_se.py#L91
                 consistent = np.all(grid == first[:, None], axis=1)
                 known = first >= 0
                 epoch_stages = np.full(n_epochs, -1, dtype=np.int64)
+                # Original full-epoch stage repeat: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/dreamt/dreamt_extract_ibi_se.py#L97
                 epoch_stages[consistent & known] = first[consistent & known]
                 waveforms = signal[anchor:end].reshape(
                     n_epochs, samples_per_epoch
@@ -807,8 +832,11 @@ class SleepStagingIBISHHS(_SleepStagingIBIBase):
 
     def __init__(
         self,
+        # Original SHHS ECG channel: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/shhs_extract_ecg.py#L23
         signal_channel: str = "ECG",
+        # Original native EDF rate: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/utils.py#L35
         source_fs: float = 125.0,
+        # Original 25 Hz stride: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/extract_and_save_ibi.py#L123
         downsample_factor: int = 5,
         epoch_seconds: float = 30.0,
         points_per_epoch: int = 750,
@@ -894,8 +922,11 @@ class SleepStagingIBIMESA(_SleepStagingIBIBase):
 
     def __init__(
         self,
+        # Original MESA Pleth channel: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/mesa_extract_ppg.py#L16
         signal_channel: str = "Pleth",
+        # Original MESA native rate: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/preprocess_mesa_ppg.py#L14
         source_fs: float = 100.0,
+        # Original ::4 decimation: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/dreamt/dreamt_extract_ibi_se.py#L113
         downsample_factor: int = 4,
         epoch_seconds: float = 30.0,
         points_per_epoch: int = 750,

@@ -10,6 +10,7 @@ from pyhealth.datasets import BaseDataset
 logger = logging.getLogger(__name__)
 
 #: DREAMT sleep-stage strings mapped to canonical five-class integers.
+# Original stage map: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/dreamt/dreamt_extract_ibi_se.py#L42
 DREAMT_STAGE_MAPPING = {
     "W": 0,
     "N1": 1,
@@ -36,6 +37,7 @@ def map_dreamt_stages(values) -> np.ndarray:
     """
     values = list(values)
     if values and isinstance(values[0], str):
+        # Original unknown-stage fallback: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/dreamt/dreamt_extract_ibi_se.py#L43
         return np.asarray(
             [DREAMT_STAGE_MAPPING.get(str(v).strip(), -1) for v in values],
             dtype=np.int64,
@@ -45,6 +47,7 @@ def map_dreamt_stages(values) -> np.ndarray:
 
 def load_dreamt_frame(
     file_path: str,
+    # Original wearable channel: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/dreamt/dreamt_extract_ibi_se.py#L183
     signal_cols: tuple[str, ...] = ("BVP",),
     epoch_duration: float = 30.0,
 ) -> pd.DataFrame:
@@ -86,6 +89,7 @@ def load_dreamt_frame(
     frame = pd.read_csv(path, usecols=[*wanted, "Sleep_Stage"])
     for col in wanted:
         frame[col] = pd.to_numeric(frame[col], errors="coerce").astype(np.float64)
+    # Original Sleep_Stage column: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/dreamt/dreamt_extract_ibi_se.py#L35
     frame["Sleep_Stage"] = map_dreamt_stages(frame["Sleep_Stage"].values)
     return frame
 
@@ -210,8 +214,10 @@ class DREAMTDataset(BaseDataset):
         """
         file: Path | None = None
         if file_path in ("data_64Hz", "data"):
+            # Original legacy data directory: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/dreamt/dreamt_extract_ibi_se.py#L172
             file = Path(root) / file_path / f"{patient_id}_whole_df.csv"
         elif file_path == "data_100Hz":
+            # Original 100 Hz directory: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/dreamt/dreamt_extract_ibi_se.py#L202
             file = Path(root) / file_path / f"{patient_id}_PSG_df.csv"
 
         if file is None or not file.exists():
