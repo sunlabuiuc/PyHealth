@@ -73,12 +73,9 @@ at 252 days (0.665 -> 0.670-0.673), with a slightly lower Brier score.
 Calibration differences between K values are small and not consistent across
 K (ECE@252 0.014-0.021), so this run does not show that more components
 improve calibration. With extra training censoring, K = 3 kept an ECE@252
-no higher than K = 1 at every level in this single draw. In the project's
-full study (3 seeds / 3 censoring draws, paired bootstrap), the
-discrimination gain of K >= 2 over K = 1 was significant, while ECE
-differences were within sampling noise. The synthetic run (two groups with
-crossing curves) shows the expected calibration gain of K >= 2
-(ECE@252 0.056 for K = 1 vs 0.029-0.033).
+no higher than K = 1 at every level in this single draw. The synthetic run
+(two groups with crossing curves) shows the expected calibration gain of
+K >= 2 (ECE@252 0.056 for K = 1 vs 0.029-0.033).
 """
 
 import argparse
@@ -183,9 +180,16 @@ def extra_censoring(
 
     Returns:
         ``(t', e')`` with ``t' = min(t, C)`` and ``e' = e * 1[t <= C]``.
+
+    Raises:
+        ValueError: If ``points`` is negative or would censor every event.
     """
     if points == 0:
         return t, e
+    if not 0 < points < 100.0 * e.mean():
+        raise ValueError(
+            f"extra censoring must be in (0, {100 * e.mean():.1f}) points here"
+        )
     target = 1.0 - (1.0 - e.mean() + points / 100.0)
     lo, hi = 0.0, 1.0
     while np.mean(e * np.exp(-hi * t)) > target:

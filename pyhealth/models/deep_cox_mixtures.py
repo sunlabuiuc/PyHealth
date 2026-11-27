@@ -23,6 +23,7 @@ authors' TensorFlow code (Apache-2.0) and the PyTorch DCM in auton-survival
 
 import copy
 import math
+import numbers
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -40,10 +41,21 @@ _ACTIVATIONS: dict[str, type[nn.Module]] = {
     "relu6": nn.ReLU6,
     "tanh": nn.Tanh,
 }
-# Smallest per-group likelihood used in the E-step. The reference code floors
-# probabilities at the same value so that one group with zero density (for
-# example an event after that group's last event time) cannot produce NaNs.
+# Smallest per-group likelihood used in the E-step, so that a group with zero
+# density (for example an event after that group's last event time) cannot
+# produce NaNs. The authors' code floors the joint gate x likelihood at the
+# same value; flooring each group's likelihood instead means a row where every
+# group is floored falls back to the gate probabilities.
 _LIKELIHOOD_FLOOR = 1e-10
+
+
+def _is_positive_int(value: Any) -> bool:
+    """Whether ``value`` is a positive integer (NumPy integers included)."""
+    return (
+        isinstance(value, numbers.Integral)
+        and not isinstance(value, bool)
+        and value >= 1
+    )
 
 
 def _as_vector(value: Any, name: str, device: torch.device) -> Tensor:
@@ -213,7 +225,9 @@ class DeepCoxMixtures(BaseModel):
         duration_key: Output field with strictly positive times.
         event_key: Output field with 1 for an event and 0 for censoring.
         time_grid: Times at which ``forward`` returns ``y_prob`` (survival
-            probabilities) once baselines are fitted. Optional.
+            probabilities) once baselines are fitted. Optional. It is saved
+            in ``state_dict``; loading a checkpoint keeps a grid given here
+            and otherwise adopts the checkpoint's grid.
 
     Examples:
         >>> import torch
@@ -267,20 +281,27 @@ class DeepCoxMixtures(BaseModel):
                     raise ValueError(
                         f"output key {key!r} is not in dataset.output_schema"
                     )
-            if input_dim is None:
-                input_dim = self._infer_input_dim(dataset, feature_key)
+            inferred = self._infer_input_dim(dataset, feature_key)
+            if input_dim is not None and input_dim != inferred:
+                raise ValueError(
+                    f"input_dim={input_dim} but the dataset's features have "
+                    f"width {inferred}"
+                )
+            input_dim = inferred
         if input_dim is None:
             raise ValueError("input_dim is required when dataset is None")
         for name, value in (
             ("input_dim", input_dim),
             ("num_components", num_components),
         ):
-            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            if not _is_positive_int(value):
                 raise ValueError(f"{name} must be a positive integer")
-        hidden_dims = tuple(hidden_dims)
-        if any(
-            isinstance(h, bool) or not isinstance(h, int) or h < 1 for h in hidden_dims
+        if isinstance(hidden_dims, (str, bytes)) or not isinstance(
+            hidden_dims, Sequence
         ):
+            raise TypeError("hidden_dims must be a sequence of positive integers")
+        hidden_dims = tuple(int(h) if _is_positive_int(h) else h for h in hidden_dims)
+        if not all(_is_positive_int(h) for h in hidden_dims):
             raise ValueError("hidden_dims must contain positive integers")
         if activation not in _ACTIVATIONS:
             raise ValueError(f"activation must be one of {sorted(_ACTIVATIONS)}")
@@ -289,8 +310,8 @@ class DeepCoxMixtures(BaseModel):
         ):
             raise ValueError("log_risk_bound must be positive and finite, or None")
 
-        self.input_dim = input_dim
-        self.num_components = num_components
+        self.input_dim = int(input_dim)
+        self.num_components = int(num_components)
         self.hidden_dims = hidden_dims
         self.activation = activation
         self.log_risk_bound = log_risk_bound
@@ -389,9 +410,12 @@ class DeepCoxMixtures(BaseModel):
         Args:
             state: Output of :meth:`get_extra_state`.
 
+        A ``time_grid`` given to the constructor is kept; a model built
+        without one adopts the saved grid.
+
         Raises:
-            ValueError: If the saved baselines are incomplete or were fit for
-                a different number of components.
+            ValueError: If the saved baselines are incomplete, malformed, or
+                were fit for a different number of components.
         """
         knots, hazard = state.get("knots"), state.get("cumulative_hazard")
         if (knots is None) != (hazard is None):
@@ -399,11 +423,17 @@ class DeepCoxMixtures(BaseModel):
         if knots is not None:
             knots = knots.to(device=self.device, dtype=torch.float64)
             hazard = hazard.to(device=self.device, dtype=torch.float64)
-            if knots.shape != hazard.shape or knots.shape[0] != self.num_components:
-                raise ValueError("Saved baselines do not match num_components")
+            if knots.ndim != 2 or knots.shape != hazard.shape:
+                raise ValueError("Saved knots and cumulative hazards differ in shape")
+            if knots.shape[0] != self.num_components:
+                raise ValueError(
+                    f"Saved baselines have {knots.shape[0]} components, "
+                    f"the model has {self.num_components}"
+                )
         self._knots, self._cumulative_hazard = knots, hazard
-        if state.get("time_grid") is not None:
-            self.time_grid = state["time_grid"].to(self.device)
+        saved_grid = state.get("time_grid")
+        if saved_grid is not None and saved_grid.numel() and not self.time_grid.numel():
+            self.time_grid = saved_grid.to(self.device)
 
     def _apply(self, fn: Any, recurse: bool = True) -> "DeepCoxMixtures":
         """Move the baseline tensors along with the module (``.to()`` etc.)."""
@@ -536,7 +566,8 @@ class DeepCoxMixtures(BaseModel):
             also ``survival`` and ``y_prob``: survival at ``time_grid``,
             (batch, T). With labels, also ``loss`` (the negative Monte Carlo
             EM objective per patient, using responsibilities from the current
-            baselines), ``posterior`` (responsibilities, (batch, K)) and
+            baselines; it uses sampled assignments, so it varies between
+            calls), ``posterior`` (responsibilities, (batch, K)) and
             ``y_true`` ((batch, 2): duration, event).
         """
         if self.feature_key not in kwargs:
@@ -743,8 +774,10 @@ class DeepCoxMixtures(BaseModel):
         Each epoch shuffles the training data. For every mini-batch: E-step
         responsibilities under the current baselines, hard assignments
         sampled from them, one Adam step on the negative Q-function, and
-        (every ``baseline_update_every`` batches) Breslow baselines refit on
-        the full training set. With ``val_data``, training stops after
+        Breslow baselines refit on the full training set (after every
+        ``baseline_update_every``-th batch of the epoch and always after its
+        last batch, so validation and predictions use baselines estimated
+        with the current weights). With ``val_data``, training stops after
         ``patience`` epochs without a lower validation negative
         log-likelihood, and the best weights and baselines are restored.
 
@@ -760,8 +793,11 @@ class DeepCoxMixtures(BaseModel):
             patience: Early-stopping patience in epochs. ``None`` or no
                 ``val_data`` trains for all epochs.
             baseline_update_every: Refit the baselines after every this many
-                mini-batches. The authors' code refits after every batch.
-            seed: Seed for shuffling and the sampled assignments.
+                mini-batches (and after the last batch of each epoch). The
+                authors' code refits after every batch.
+            seed: Seed for shuffling and the sampled assignments. With
+                ``None`` they are drawn from torch's global random state, so
+                ``torch.manual_seed`` controls them.
 
         Returns:
             History with ``train_loss`` (mean M-step loss per epoch) and,
@@ -790,8 +826,9 @@ class DeepCoxMixtures(BaseModel):
         x, duration, event = self._collect(train_data)
         validation = None if val_data is None else self._collect(val_data)
         generator = torch.Generator()
-        if seed is not None:
-            generator.manual_seed(seed)
+        if seed is None:
+            seed = int(torch.randint(2**62, (1,)))
+        generator.manual_seed(seed)
         optimizer = torch.optim.Adam(
             self.parameters(), lr=learning_rate, weight_decay=weight_decay
         )
@@ -805,6 +842,7 @@ class DeepCoxMixtures(BaseModel):
             self.train()
             order = torch.randperm(n, generator=generator).to(self.device)
             total = 0.0
+            last_batch = (n - 1) // batch_size
             for batch, start in enumerate(range(0, n, batch_size)):
                 index = order[start : start + batch_size]
                 xb, tb, eb = x[index], duration[index], event[index]
@@ -818,7 +856,7 @@ class DeepCoxMixtures(BaseModel):
                 loss.backward()
                 optimizer.step()
                 total += float(loss.detach()) * len(index)
-                if batch % baseline_update_every == 0:
+                if batch % baseline_update_every == 0 or batch == last_batch:
                     self.fit_baselines(x, duration, event, generator)
             history["train_loss"].append(total / n)
             self.eval()

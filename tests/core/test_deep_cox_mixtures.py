@@ -10,6 +10,7 @@ import os
 import tempfile
 import unittest
 
+import numpy as np
 import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
@@ -103,6 +104,16 @@ class TestInstantiation(unittest.TestCase):
         for kwargs in bad:
             with self.assertRaises(ValueError, msg=str(kwargs)):
                 DeepCoxMixtures(None, **kwargs)
+        for hidden in (100, "64"):
+            with self.assertRaises(TypeError):
+                DeepCoxMixtures(None, input_dim=3, hidden_dims=hidden)
+        model = DeepCoxMixtures(
+            None,
+            input_dim=np.int64(3),
+            num_components=np.int64(2),
+            hidden_dims=[np.int64(4)],
+        )
+        self.assertEqual((model.input_dim, model.num_components), (3, 2))
 
     def test_dataset_keys_are_checked(self):
         dataset = create_sample_dataset(
@@ -122,6 +133,8 @@ class TestInstantiation(unittest.TestCase):
             DeepCoxMixtures(dataset, feature_key="x")
         with self.assertRaises(ValueError):
             DeepCoxMixtures(dataset, event_key="status")
+        with self.assertRaises(ValueError):
+            DeepCoxMixtures(dataset, input_dim=5)  # dataset width is 1
 
 
 class TestForward(unittest.TestCase):
@@ -353,6 +366,26 @@ class TestPersistenceAndValidation(unittest.TestCase):
                 None, input_dim=3, num_components=3, hidden_dims=(4,)
             ).set_extra_state(model.get_extra_state())
 
+    def test_time_grid_rules_when_loading(self):
+        model, _ = fitted_model(k=2)  # built with time_grid [0.5, 1, 2]
+        state = model.state_dict()
+        other = DeepCoxMixtures(
+            None, input_dim=3, num_components=2, hidden_dims=(4,), time_grid=[7.0]
+        )
+        other.load_state_dict(state)
+        torch.testing.assert_close(other.time_grid, torch.tensor([7.0]))
+        no_grid = DeepCoxMixtures(None, input_dim=3, num_components=2, hidden_dims=(4,))
+        keeps = DeepCoxMixtures(
+            None, input_dim=3, num_components=2, hidden_dims=(4,), time_grid=[3.0]
+        )
+        keeps.load_state_dict(no_grid.state_dict())
+        torch.testing.assert_close(keeps.time_grid, torch.tensor([3.0]))
+        bad = model.get_extra_state()
+        with self.assertRaises(ValueError):
+            model.set_extra_state({**bad, "cumulative_hazard": None})
+        with self.assertRaises(ValueError):
+            model.set_extra_state({**bad, "knots": bad["knots"][:, :2]})
+
     def test_invalid_inputs(self):
         model, (x, t, e) = fitted_model(k=2)
         with self.assertRaises(ValueError):
@@ -448,6 +481,53 @@ class TestFit(unittest.TestCase):
         self.assertEqual(y_true.shape, (12, 2))
         self.assertEqual(y_prob.shape, (12, 2))
         self.assertTrue(math.isfinite(loss))
+
+    def test_unseeded_fit_follows_global_seed(self):
+        x, t, e = synthetic(n=20)
+
+        def run(global_seed):
+            torch.manual_seed(0)
+            model = DeepCoxMixtures(
+                None, input_dim=3, num_components=2, hidden_dims=(4,)
+            )
+            torch.manual_seed(global_seed)
+            model.fit((x, t, e), epochs=2, batch_size=5)
+            return model.predict_survival(x, [1.0, 3.0])
+
+        torch.testing.assert_close(run(1), run(1))
+        self.assertFalse(torch.allclose(run(1), run(2)))
+
+    def test_early_stopping_restores_best_epoch(self):
+        x, t, e = synthetic(n=40, seed=1)
+        xv, tv, ev = synthetic(n=20, seed=2)
+        torch.manual_seed(0)
+        model = DeepCoxMixtures(None, input_dim=3, num_components=2, hidden_dims=(8,))
+        history = model.fit(
+            (x, t, e),
+            (xv, tv, -ev + 1),  # unrelated validation labels
+            epochs=30,
+            batch_size=10,
+            learning_rate=0.05,
+            patience=1,
+            seed=0,
+        )
+        self.assertLess(len(history["val_nll"]), 30)  # stopped early
+        self.assertAlmostEqual(
+            model.negative_log_likelihood(xv, tv, -ev + 1),
+            min(history["val_nll"]),
+            places=6,
+        )
+
+    def test_baselines_match_final_weights_with_sparse_refits(self):
+        x, t, e = synthetic(n=25)
+        torch.manual_seed(0)
+        model = DeepCoxMixtures(None, input_dim=3, num_components=1, hidden_dims=(4,))
+        # 5 batches per epoch, refit every 3rd: the last batch must still refit.
+        model.fit((x, t, e), epochs=2, batch_size=5, baseline_update_every=3, seed=0)
+        times, hazard = breslow_cumulative_hazard(model.predict_log_risk(x)[:, 0], t, e)
+        m = len(times)
+        torch.testing.assert_close(model._knots[0, 1 : m + 1], times.double())
+        torch.testing.assert_close(model._cumulative_hazard[0, 1 : m + 1], hazard)
 
     def test_fit_sample_dataset(self):
         x, t, e = synthetic(n=12)
