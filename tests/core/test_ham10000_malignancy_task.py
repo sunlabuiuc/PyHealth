@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from pyhealth.datasets import HAM10000Dataset
+from pyhealth.sampler import get_group_balanced_dataloader
 from pyhealth.tasks import HAM10000MalignancyClassification
 from tests.core.test_ham10000_dataset import _TRAIN, make_ham10000_root
 
@@ -98,6 +99,19 @@ class TestHAM10000MalignancyClassification(unittest.TestCase):
         self.assertEqual(rows["ISIC_0000004"]["age_group"], "(59, 79]")
         self.assertEqual(rows["ISIC_0000005"]["age_group"], ">79")
 
+    def test_group_loader_on_task_dataset(self):
+        samples = self.dataset.set_task(HAM10000MalignancyClassification(16))
+        try:
+            loader = get_group_balanced_dataloader(
+                samples, batch_size=4, group_key="sex", num_samples=8, seed=0
+            )
+            batches = list(loader)
+            self.assertEqual(sum(len(b["sex"]) for b in batches), 8)
+            self.assertEqual(tuple(batches[0]["image"].shape), (4, 3, 16, 16))
+            self.assertLessEqual(set(batches[0]["sex"]), {"F", "M"})
+        finally:
+            samples.close()
+
     def test_bad_age_bins_raise(self):
         with self.assertRaises(ValueError):
             HAM10000MalignancyClassification(age_bins=())
@@ -180,7 +194,12 @@ class TestHAM10000WithoutDemographics(unittest.TestCase):
             event = dataset.get_patient("HAM_1").get_events(event_type="ham10000")[0]
             self.assertIsNone(event.sex)
             task = HAM10000MalignancyClassification(image_size=16)
-            self.assertEqual(task(dataset.get_patient("HAM_1")), [])
+            log = "pyhealth.tasks.ham10000_malignancy"
+            with self.assertLogs(log, "WARNING") as logs:
+                self.assertEqual(task(dataset.get_patient("HAM_1")), [])
+                task(dataset.get_patient("HAM_2"))
+            self.assertEqual(len(logs.output), 1)
+            self.assertIn("HAM10000_metadata.csv", logs.output[0])
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

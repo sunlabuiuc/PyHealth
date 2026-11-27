@@ -154,7 +154,11 @@ def select(settings: dict, names: list[str], ref: int | None) -> dict[str, float
 def defined_groups(settings: dict, names: list[str]) -> list[str]:
     """Groups with a val AUC in every run; selection needs all of them."""
     runs = [r for rs in settings.values() for r in rs]
-    return [g for g in names if all(np.isfinite(r["val"][f"auc_{g}"]) for r in runs)]
+    return [
+        g
+        for g in names
+        if all(np.isfinite(r["val"].get(f"auc_{g}", np.nan)) for r in runs)
+    ]
 
 
 def main() -> None:
@@ -178,6 +182,11 @@ def main() -> None:
             write_synthetic_ham10000(root, n_lesions=400, seed=0)
             args.image_size, args.epochs, args.pretrained = 32, 2, False
             args.lrs, args.seeds = [1e-3, 1e-4], [0, 1]
+        elif not (Path(root) / "HAM10000_metadata.csv").exists():
+            raise SystemExit(
+                f"No HAM10000_metadata.csv in {root}; the task needs its age and "
+                "sex columns (see HAM10000Dataset)."
+            )
         dataset = HAM10000Dataset(
             root=str(root), cache_dir=args.cache_dir or str(Path(tmp) / "cache")
         )

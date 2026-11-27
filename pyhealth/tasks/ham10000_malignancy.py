@@ -1,6 +1,7 @@
 """Malignant vs. benign HAM10000 task with sensitive attributes (MEDFAIR)."""
 
 import itertools
+import logging
 import math
 from collections.abc import Sequence
 from typing import Any, ClassVar
@@ -8,6 +9,8 @@ from typing import Any, ClassVar
 import numpy as np
 
 from .base_task import BaseTask
+
+logger = logging.getLogger(__name__)
 
 MALIGNANT = frozenset({"MEL", "AKIEC"})
 
@@ -22,9 +25,9 @@ class HAM10000MalignancyClassification(BaseTask):
 
     Works with :class:`~pyhealth.datasets.HAM10000Dataset` when the Dataverse
     ``HAM10000_metadata.csv`` is in its root, since age and sex come from it;
-    without it no samples are produced. That file covers only the training
-    images, so the ISIC 2018 validation and test splits give no samples
-    either; split the training set instead, as below.
+    without it no samples are produced, and a warning says so. That file
+    covers only the training images, so the ISIC 2018 validation and test
+    splits give no samples either; split the training set instead, as below.
 
     The HAM10000 setup of MEDFAIR (Zong et al., ICLR 2023): melanoma (MEL)
     and actinic keratosis / intraepithelial carcinoma (AKIEC) are malignant,
@@ -83,6 +86,7 @@ class HAM10000MalignancyClassification(BaseTask):
         self.image_size = int(image_size)
         self.age_bins = edges
         self.age_groups = _age_labels(edges)
+        self._warned = False
         self.input_schema = {
             "image": ("image", {"image_size": self.image_size, "mode": "RGB"})
         }
@@ -102,6 +106,13 @@ class HAM10000MalignancyClassification(BaseTask):
             sex = getattr(event, "sex", None)
             age = getattr(event, "age", None)
             if sex not in ("F", "M") or age is None or math.isnan(float(age)):
+                if not self._warned:
+                    logger.warning(
+                        "Skipping HAM10000 images without age or sex; with no "
+                        "HAM10000_metadata.csv in the dataset root that is all "
+                        "of them."
+                    )
+                    self._warned = True
                 continue
             age = float(age)
             group = int(np.searchsorted(self.age_bins, age, side="left"))
