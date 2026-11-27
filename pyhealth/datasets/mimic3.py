@@ -100,7 +100,10 @@ class MIMIC3Dataset(BaseDataset):
             whether the original chart time was missing.
         """
         df = df.with_columns(
-            pl.col("charttime").is_null().alias("charttime_missing")
+            pl.when(pl.col("charttime").is_null())
+            .then(pl.lit("true"))
+            .otherwise(pl.lit("false"))
+            .alias("charttime_missing")
         )
 
         df = df.with_columns(

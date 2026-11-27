@@ -176,7 +176,15 @@ class DiagnosisEvidenceRetrievalMIMIC3(BaseTask):
 
             missing = attrs["charttime_missing"]
 
-            if missing is not True and missing is not False:
+            if isinstance(missing, str):
+                missing = missing.strip().lower()
+
+                if missing == "true":
+                    missing = True
+                elif missing == "false":
+                    missing = False
+
+            if not isinstance(missing, bool):
                 raise ValueError(
                     "Missing or invalid chart-time provenance."
                 )
