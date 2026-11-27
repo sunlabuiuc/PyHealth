@@ -26,11 +26,12 @@ This makes the task suitable for training and testing existing PyHealth models
 on synthetic or dataset-backed ECG classification workflows.
 """
 
-from typing import Dict, List, Any, Optional, Union
 import os
-import numpy as np
+from typing import Any, ClassVar
 
+import numpy as np
 from scipy.io import loadmat
+
 from pyhealth.tasks.base_task import BaseTask  # Import BaseTask from PyHealth
 
 
@@ -53,12 +54,12 @@ class ECGMultiLabelCardiologyTask(BaseTask):
         >>> print(samples[0]["signal"].shape)
     """
     task_name: str = "ECGMultiLabelCardiologyTask"
-    input_schema: Dict[str, str] = {"signal": "tensor"}
-    output_schema: Dict[str, str] = {"label": "multilabel"}
+    input_schema: ClassVar[dict[str, str]] = {"signal": "tensor"}
+    output_schema: ClassVar[dict[str, str]] = {"label": "multilabel"}
 
     def __init__(
         self,
-        labels: List[str],
+        labels: list[str],
         epoch_sec: int = 10,
         shift: int = 5,
         sampling_rate: int = 500,
@@ -87,7 +88,9 @@ class ECGMultiLabelCardiologyTask(BaseTask):
         self.sampling_rate = sampling_rate
         self.label_to_index = {label: idx for idx, label in enumerate(labels)}
 
-    def __call__(self, patient: Union[List[Dict[str, Any]], Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def __call__(
+        self, patient: list[dict[str, Any]] | dict[str, Any]
+    ) -> list[dict[str, Any]]:
         """Convert patient visits into model-ready samples.
 
         Args:
@@ -176,8 +179,8 @@ class ECGMultiLabelCardiologyTask(BaseTask):
 
     def _normalize_input(
         self,
-        patient: Union[List[Dict[str, Any]], Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
+        patient: list[dict[str, Any]] | dict[str, Any],
+    ) -> list[dict[str, Any]]:
         """Normalize input into list format.
 
         Args:
@@ -197,7 +200,7 @@ class ECGMultiLabelCardiologyTask(BaseTask):
         return []
 
 
-    def _is_valid_visit(self, visit: Dict[str, Any]) -> bool:
+    def _is_valid_visit(self, visit: dict[str, Any]) -> bool:
         """Validate that a visit dictionary contains the minimum required fields.
 
         This method checks whether the input `visit` dictionary includes the essential
@@ -246,7 +249,7 @@ class ECGMultiLabelCardiologyTask(BaseTask):
         )
 
 
-    def _load_signal(self, signal_path: str) -> Optional[np.ndarray]:
+    def _load_signal(self, signal_path: str) -> np.ndarray | None:
         """Load ECG signal from .mat file.
 
         Args:
@@ -260,7 +263,8 @@ class ECGMultiLabelCardiologyTask(BaseTask):
         """
         try:
             mat = loadmat(signal_path)
-        except Exception:
+        # scipy raises many exception types on corrupt files; skip the record
+        except Exception:  # noqa: BLE001
             return None
 
         # PyHealth's older built-in cardiology tasks use mat["val"].
@@ -271,7 +275,7 @@ class ECGMultiLabelCardiologyTask(BaseTask):
         return np.asarray(signal, dtype=np.float32)
 
 
-    def _parse_header_metadata(self, header_path: str) -> Dict[str, List[str]]:
+    def _parse_header_metadata(self, header_path: str) -> dict[str, list[str]]:
         """Extract metadata from .hea file.
 
         Args:
@@ -283,9 +287,9 @@ class ECGMultiLabelCardiologyTask(BaseTask):
         Example:
             >>> meta = self._parse_header_metadata("rec1.hea")
         """
-        dx_codes: List[str] = []
-        sex: List[str] = []
-        age: List[str] = []
+        dx_codes: list[str] = []
+        sex: list[str] = []
+        age: list[str] = []
 
         try:
             with open(header_path, "r", encoding="utf-8") as f:
@@ -303,8 +307,8 @@ class ECGMultiLabelCardiologyTask(BaseTask):
                     elif line.startswith("#Age:"):
                         value = line.split(":", 1)[1].strip()
                         age = [value] if value else []
-        except Exception:
-            pass
+        except (OSError, UnicodeDecodeError):
+            pass  # a missing or unreadable header leaves the fields empty
 
         return {
             "dx_codes": dx_codes,
@@ -313,7 +317,7 @@ class ECGMultiLabelCardiologyTask(BaseTask):
         }
 
 
-    def _encode_labels(self, patient_labels: List[str]) -> np.ndarray:
+    def _encode_labels(self, patient_labels: list[str]) -> np.ndarray:
         """Convert labels to multi-hot vector.
 
         Args:
