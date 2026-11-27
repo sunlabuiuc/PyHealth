@@ -28,6 +28,7 @@ from .unet import (
     evaluate_segmentation as evaluate_segmentation,
     sliding_window_inference as sliding_window_inference,
 )
+from .clip_stress import CLIPStress as CLIPStress
 from .transformer_deid import TransformerDeID
 from .biot import BIOT
 from .cnn import CNN, CNNLayer
@@ -36,6 +37,7 @@ from .contrawr import ContraWR, ResBlock2D
 from .deepsleepnet import DeepSleepNet as DeepSleepNet
 from .deepr import Deepr, DeeprLayer
 from .delphi import Delphi as Delphi
+from .ecg_jepa import ECGJEPA as ECGJEPA, ECGJEPAEncoder as ECGJEPAEncoder
 from .eegnet import EEGNet as EEGNet
 from .embedding import EmbeddingModel
 from .sequence_embedding import (
@@ -163,9 +165,20 @@ from .descemb import (
     simple_word_tokenize as simple_word_tokenize,
 )
 from .bulk_rna_bert import BulkRNABert as BulkRNABert
+from .evicare import (
+    CooccurrenceGraph as CooccurrenceGraph,
+    EviCare as EviCare,
+    EviCarePrediction as EviCarePrediction,
+)
 from .dearllm import (
     DearLLM as DearLLM,
     DearLLMGraphEncoder as DearLLMGraphEncoder,
+)
+from .chet import (
+    CHET as CHET,
+    DotProductAttention as DotProductAttention,
+    SingleHeadAttentionLayer as SingleHeadAttentionLayer,
+    compute_cooccurrence_adj as compute_cooccurrence_adj,
 )
 from .game import (
     GAME as GAME,
@@ -179,3 +192,11 @@ from .giantmed import (
     HuggingFaceGiantMedGenerator as HuggingFaceGiantMedGenerator,
     MediEvidenceFilter as MediEvidenceFilter,
 )
+from .medtok import (
+    MedTokEmbedding as MedTokEmbedding,
+    apply_medtok as apply_medtok,
+    convert_medtok_embeddings as convert_medtok_embeddings,
+    load_medtok as load_medtok,
+    medtok_keys as medtok_keys,
+)
+from .query_focused_ehr import QueryFocusedEHRModel as QueryFocusedEHRModel

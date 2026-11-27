@@ -530,6 +530,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `ISIC <https://challenge.isic-archive.com/data/#2018>`__
      - Yes
      - —
+   * - :doc:`PH2 <datasets/pyhealth.datasets.PH2Dataset>`
+     - Restricted / request (form)
+     - `PH2 <https://www.fc.up.pt/addi/ph2%20database.html>`__
+     - No
+     - —
    * - :doc:`SUPPORT2 <datasets/pyhealth.datasets.Support2Dataset>`
      - Open
      - `UCI <https://archive.ics.uci.edu/dataset/880/support2>`__
@@ -595,6 +600,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `GitHub <https://github.com/NinaWie/COVID-BLUES>`__
      - No (``git clone``)
      - —
+   * - :doc:`CDC COVID-19 Case Surveillance <datasets/pyhealth.datasets.CDCCOVIDDataset>`
+     - Open public-use data
+     - `CDC Socrata <https://data.cdc.gov/d/n8mc-b4w4>`__
+     - CSV export
+     - Bounded API samples supported
    * - :doc:`FHIR (format) <datasets/pyhealth.datasets.FHIRDataset>`
      - Depends on source
      - `HL7 <https://www.hl7.org/fhir/>`__
@@ -608,6 +618,7 @@ Available Datasets
     :maxdepth: 3
 
     datasets/pyhealth.datasets.BaseDataset
+    datasets/pyhealth.datasets.CDCCOVIDDataset
     datasets/pyhealth.datasets.PBCDataset
     datasets/pyhealth.datasets.SampleDataset
     datasets/pyhealth.datasets.PatchDataset
@@ -661,6 +672,7 @@ Available Datasets
     datasets/pyhealth.datasets.COVIDBLUESDataset
     datasets/pyhealth.datasets.ChestImaGenomeDataset
     datasets/pyhealth.datasets.HAM10000Dataset
+    datasets/pyhealth.datasets.PH2Dataset
     datasets/pyhealth.datasets.PhysioNetDeIDDataset
     datasets/pyhealth.datasets.EEGBCIDataset
     datasets/pyhealth.datasets.AHEPADementiaDataset
