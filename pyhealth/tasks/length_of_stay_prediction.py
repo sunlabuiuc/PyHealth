@@ -391,15 +391,12 @@ class LengthOfStayPredictionOMOP(BaseTask):
     Examples:
         >>> from pyhealth.datasets import OMOPDataset
         >>> omop_base = OMOPDataset(
-        ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
+        ...     root="/path/to/omop/data",
         ...     tables=["condition_occurrence", "procedure_occurrence", "drug_exposure"],
-        ...     code_mapping={},
         ... )
         >>> from pyhealth.tasks import LengthOfStayPredictionOMOP
         >>> task = LengthOfStayPredictionOMOP()
         >>> omop_sample = omop_base.set_task(task)
-        >>> omop_sample.samples[0]
-        [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51']], 'procedures': [['1']], 'drugs': [['...']], 'los': 7}]
     """
 
     task_name: str = "LengthOfStayPredictionOMOP"
