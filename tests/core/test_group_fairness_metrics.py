@@ -85,6 +85,13 @@ class TestGroupFairnessMetrics(unittest.TestCase):
         self.assertAlmostEqual(s["auc_1"], 0.75)
         self.assertAlmostEqual(s["auc_x"], 1.0)
 
+    def test_no_tuning_without_threshold_metrics(self):
+        y_true = np.zeros(8, dtype=int)
+        with self.assertWarns(UserWarning):
+            s = group_fairness_metrics_fn(y_true, self.y_prob, self.groups, ["auc"])
+        self.assertTrue(np.isnan(s["threshold"]))
+        self.assertTrue(np.isnan(s["auc"]))
+
     def test_tuned_threshold_when_none(self):
         s = group_fairness_metrics_fn(self.y_true, self.y_prob, self.groups)
         self.assertAlmostEqual(s["threshold"], 0.7)

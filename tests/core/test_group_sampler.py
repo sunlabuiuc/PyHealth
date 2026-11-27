@@ -86,6 +86,10 @@ class TestGroupBalancedSampler(unittest.TestCase):
         with self.assertRaises(ValueError):
             GroupBalancedSampler(SEXES, labels=[*LABELS[:-1], None])
 
+    def test_rejects_negative_seed(self):
+        with self.assertRaises(ValueError):
+            GroupBalancedSampler(SEXES, seed=-1)
+
     def test_rejects_non_positive_num_samples(self):
         for n in (0, -1):
             with self.assertRaises(ValueError):

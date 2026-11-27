@@ -108,9 +108,10 @@ class HAM10000MalignancyClassification(BaseTask):
             if sex not in ("F", "M") or age is None or math.isnan(float(age)):
                 if not self._warned:
                     logger.warning(
-                        "Skipping HAM10000 images without age or sex; with no "
-                        "HAM10000_metadata.csv in the dataset root that is all "
-                        "of them."
+                        "Skipping HAM10000 images without age or sex. They come "
+                        "from the Dataverse HAM10000_metadata.csv, which covers "
+                        "training images only; without it in the dataset root "
+                        "every image is skipped."
                     )
                     self._warned = True
                 continue

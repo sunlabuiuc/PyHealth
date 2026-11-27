@@ -124,7 +124,8 @@ def group_fairness_metrics_fn(
             code uses 0.5 for the per-group FPR/FNR). For a clean test
             estimate pass the threshold tuned on validation. The value used
             is returned as ``"threshold"``. Tuning needs at least one
-            positive label.
+            positive label, and is skipped (NaN) when no requested metric
+            uses the threshold.
 
     Returns:
         Dictionary from metric name to value.
@@ -168,15 +169,16 @@ def group_fairness_metrics_fn(
     if "eqodd" in metrics and len(names) != 2:
         raise ValueError(f"eqodd needs exactly two groups, got {len(names)}.")
 
-    if threshold is None:
-        threshold = best_f1_threshold(y_true, y_prob)
-    y_pred = y_prob >= threshold
-
     needed = set(metrics)
     if needed & {"worst_auc", "auc_gap"}:
         needed.add("auc")
     if "eqodd" in needed:
         needed |= {"fpr", "fnr"}
+
+    if threshold is None:
+        uses_threshold = needed & {"acc", "fpr", "fnr"}
+        threshold = best_f1_threshold(y_true, y_prob) if uses_threshold else np.nan
+    y_pred = y_prob >= threshold
 
     affected = needed & {"auc", "tpr_at_tnr80", "fpr", "fnr"}
     one_class = [str(g) for g in names if len(np.unique(y_true[groups == g])) < 2]

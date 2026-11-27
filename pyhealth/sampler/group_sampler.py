@@ -33,12 +33,12 @@ class GroupBalancedSampler(Sampler[int]):
         labels: Optional label of each sample, to balance the (group, label)
             cells. Defaults to None.
         num_samples: Indices drawn per pass. Defaults to ``len(groups)``.
-        seed: Seed of the draws. Defaults to 0.
+        seed: Non-negative seed of the draws. Defaults to 0.
 
     Raises:
         ValueError: If ``groups`` is empty, ``groups`` or ``labels`` have
-            missing values or differ in length, or ``num_samples`` is not
-            positive.
+            missing values or differ in length, ``num_samples`` is not
+            positive, or ``seed`` is negative.
 
     Examples:
         >>> sampler = GroupBalancedSampler(["F", "F", "F", "M"], seed=0)
@@ -80,6 +80,8 @@ class GroupBalancedSampler(Sampler[int]):
         if self.num_samples <= 0:
             raise ValueError(f"num_samples must be positive, got {num_samples}.")
         self.seed = int(seed)
+        if self.seed < 0:
+            raise ValueError(f"seed must be non-negative, got {seed}.")
         self.epoch = 0
 
     def set_epoch(self, epoch: int) -> None:
@@ -91,12 +93,10 @@ class GroupBalancedSampler(Sampler[int]):
         self.epoch = int(epoch)
 
     def __iter__(self) -> Iterator[int]:
-        state = np.random.SeedSequence([self.seed, self.epoch]).generate_state(1)
-        generator = torch.Generator().manual_seed(int(state[0]))
+        rng = np.random.default_rng(np.random.SeedSequence([self.seed, self.epoch]))
         self.epoch += 1
-        draws = torch.multinomial(
-            self.weights, self.num_samples, replacement=True, generator=generator
-        )
+        p = self.weights.numpy()
+        draws = rng.choice(len(p), size=self.num_samples, p=p / p.sum())
         return iter(draws.tolist())
 
     def __len__(self) -> int:
