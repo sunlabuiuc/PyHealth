@@ -19,9 +19,11 @@ and ``label``. Use it with :class:`~pyhealth.datasets.MedModMIMIC4Dataset`.
 Per-model settings
 ------------------
 
-MedMod's models read their data through two code paths, and the task
-reproduces each. Both use the same cohort, labels and split; only the EHR rows
-at Hours == 0 and the image transform differ.
+MedMod's models read their data through two code paths. Both use the same
+cohort, labels and split. They differ in the EHR rows at Hours == 0, which the
+task sets with ``hours_zero``, and in the image transform. The task returns
+``image_path`` and applies no image transform: the "Image transform" column is
+what the model's own image loader applies.
 
 .. list-table::
    :header-rows: 1

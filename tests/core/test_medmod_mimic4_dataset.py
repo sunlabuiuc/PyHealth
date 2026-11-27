@@ -8,7 +8,7 @@ import polars as pl
 import pytest
 import torch
 
-from pyhealth.datasets import MedModSplit, PatientSplit
+from pyhealth.datasets import MedModMIMIC4Dataset, MedModSplit, PatientSplit
 from pyhealth.datasets.medmod.discretizer import PH_NORMALIZER, medmod_ehr_funcs
 from pyhealth.datasets.medmod.extraction import STAGES, MedModResources
 from pyhealth.tasks import MedModInHospitalMortality
@@ -47,6 +47,24 @@ def test_rows_filtered_before_cache(roots):
     }  # non-MedMod itemid dropped early
     assert "chartevents/valueuom" not in df.columns
     assert df.filter(pl.col("event_type") == "labevents").height == 1
+
+
+def test_custom_item_map_gets_its_own_cache(roots, tmp_path):
+    # PyHealth's cache key has no item map, so a dataset with another map must
+    # not reuse the table the first map filtered.
+    ehr, cxr, cache = roots
+    lines = TEST_ITEMID_MAP.read_text().splitlines(keepends=True)
+    smaller = tmp_path / "itemid_map_without_220739.csv"
+    smaller.write_text("".join(line for line in lines if ",220739," not in line))
+    other = MedModMIMIC4Dataset(
+        ehr_root=ehr, cxr_root=cxr, cache_dir=cache, num_workers=1, itemid_map=smaller
+    )
+    assert other.cache_dir != make_dataset(roots).cache_dir
+    df = other.global_event_df.collect()
+    items = df.filter(pl.col("event_type") == "chartevents")["chartevents/itemid"]
+    assert set(items.unique().to_list()) == {"220045"}
+    default = MedModMIMIC4Dataset(ehr_root=ehr, cxr_root=cxr, cache_dir=cache)
+    assert default.dataset_name == "medmod_mimic4"  # pinned map, no digest
 
 
 def _lists(tmp_path, test=(), val=()):

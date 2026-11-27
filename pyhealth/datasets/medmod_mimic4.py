@@ -117,7 +117,9 @@ class MedModMIMIC4Dataset(MIMIC4Dataset):
 
     ``dataset_name`` is part of PyHealth's cache key
     (``BaseDataset._init_cache_dir``), so this cache never mixes with an
-    unfiltered ``MIMIC4Dataset`` cache.
+    unfiltered ``MIMIC4Dataset`` cache. The key does not cover the item map,
+    so a custom ``itemid_map`` adds a digest of its file to ``dataset_name``:
+    each map gets its own cache.
 
     Args:
         ehr_root: folder holding ``core/``, ``hosp/``, ``icu/`` (MIMIC-IV v1.0).
@@ -125,7 +127,8 @@ class MedModMIMIC4Dataset(MIMIC4Dataset):
         cache_dir: where PyHealth writes its processed copy of the data. Put it
             next to the data; without it PyHealth uses its default cache folder.
         itemid_map: MedMod's ``itemid_to_variable_map.csv``. Without it, the
-            file is downloaded from MedMod's GitHub on first use.
+            file is downloaded from MedMod's GitHub on first use. A custom map
+            gets its own cache.
 
     Examples:
         >>> from pyhealth.datasets import MedModMIMIC4Dataset
@@ -148,13 +151,17 @@ class MedModMIMIC4Dataset(MIMIC4Dataset):
     ):
         ehr_root, cxr_root = os.fspath(ehr_root), os.fspath(cxr_root)
         cfg = os.fspath(ehr_config_path)
+        # The default map is pinned and SHA-256 checked, so it needs no digest.
+        dataset_name = "medmod_mimic4"
+        if itemid_map is not None:
+            dataset_name += f"_{_digest(itemid_map)}"
         super().__init__(
             ehr_root=ehr_root,
             cxr_root=cxr_root,
             ehr_tables=list(EHR_TABLES),
             cxr_tables=list(CXR_TABLES),
             ehr_config_path=cfg,
-            dataset_name="medmod_mimic4",
+            dataset_name=dataset_name,
             dev=dev,
             cache_dir=None if cache_dir is None else os.fspath(cache_dir),
             num_workers=num_workers,
