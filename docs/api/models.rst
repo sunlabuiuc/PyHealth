@@ -323,6 +323,7 @@ API Reference
     models/pyhealth.models.Delphi
     models/pyhealth.models.JambaEHR
     models/pyhealth.models.ContraWR
+    models/pyhealth.models.CLIPStress
     models/pyhealth.models.EEGNet
     models/pyhealth.models.DeepSleepNet
     models/pyhealth.models.SleepKD
