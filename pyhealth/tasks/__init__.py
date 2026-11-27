@@ -329,6 +329,7 @@ from .yaib_eicu import (
     YAIBSepsisEICU as YAIBSepsisEICU,
 )
 from .tcga_survival_prediction import TCGASurvivalPrediction as TCGASurvivalPrediction
+from .query_focused_ehr import QueryFocusedEHRTask as QueryFocusedEHRTask
 
 def __getattr__(name: str):
     if name == "MPFClinicalPredictionTask":
