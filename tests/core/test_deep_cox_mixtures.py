@@ -32,8 +32,13 @@ def synthetic(n=24, dim=3, seed=0):
 
 def fitted_model(k=2, hidden=(4,), seed=0):
     torch.manual_seed(seed)
-    model = DeepCoxMixtures(None, input_dim=3, num_components=k,
-                            hidden_dims=hidden, time_grid=[0.5, 1.0, 2.0])
+    model = DeepCoxMixtures(
+        None,
+        input_dim=3,
+        num_components=k,
+        hidden_dims=hidden,
+        time_grid=[0.5, 1.0, 2.0],
+    )
     x, t, e = synthetic()
     model.fit_baselines(x, t, e, generator=torch.Generator().manual_seed(seed))
     return model, (x, t, e)
@@ -42,8 +47,12 @@ def fitted_model(k=2, hidden=(4,), seed=0):
 class TestInstantiation(unittest.TestCase):
     def test_from_sample_dataset(self):
         samples = [
-            {"patient_id": f"p{i}", "features": [float(i), 1.0, -1.0, 0.5],
-             "duration": [1.0 + i], "event": [float(i % 2)]}
+            {
+                "patient_id": f"p{i}",
+                "features": [float(i), 1.0, -1.0, 0.5],
+                "duration": [1.0 + i],
+                "event": [float(i % 2)],
+            }
             for i in range(4)
         ]
         dataset = create_sample_dataset(
@@ -65,25 +74,31 @@ class TestInstantiation(unittest.TestCase):
         self.assertTrue(torch.isfinite(out["loss"]))
 
     def test_configurations(self):
-        linear = DeepCoxMixtures(None, input_dim=3, num_components=1,
-                                 hidden_dims=())
+        linear = DeepCoxMixtures(None, input_dim=3, num_components=1, hidden_dims=())
         self.assertEqual(len(linear.encoder), 0)
-        deep = DeepCoxMixtures(None, input_dim=3, num_components=4,
-                               hidden_dims=(5, 6), activation="relu",
-                               use_bias=True, log_risk_bound=None)
+        deep = DeepCoxMixtures(
+            None,
+            input_dim=3,
+            num_components=4,
+            hidden_dims=(5, 6),
+            activation="relu",
+            use_bias=True,
+            log_risk_bound=None,
+        )
         self.assertEqual(deep.risk.out_features, 4)
         self.assertIsNotNone(deep.encoder[0].bias)
         self.assertIsNone(deep.risk.bias)
 
     def test_invalid_configuration(self):
         bad = [
-            dict(input_dim=None), dict(input_dim=0), dict(input_dim=3,
-                                                          num_components=0),
-            dict(input_dim=3, hidden_dims=(0,)), dict(input_dim=3,
-                                                      activation="gelu"),
-            dict(input_dim=3, log_risk_bound=-1.0), dict(input_dim=3,
-                                                         time_grid=[-1.0]),
-            dict(input_dim=True),
+            {"input_dim": None},
+            {"input_dim": 0},
+            {"input_dim": 3, "num_components": 0},
+            {"input_dim": 3, "hidden_dims": (0,)},
+            {"input_dim": 3, "activation": "gelu"},
+            {"input_dim": 3, "log_risk_bound": -1.0},
+            {"input_dim": 3, "time_grid": [-1.0]},
+            {"input_dim": True},
         ]
         for kwargs in bad:
             with self.assertRaises(ValueError, msg=str(kwargs)):
@@ -91,8 +106,14 @@ class TestInstantiation(unittest.TestCase):
 
     def test_dataset_keys_are_checked(self):
         dataset = create_sample_dataset(
-            samples=[{"patient_id": "p", "features": [1.0], "duration": [1.0],
-                      "event": [1.0]}],
+            samples=[
+                {
+                    "patient_id": "p",
+                    "features": [1.0],
+                    "duration": [1.0],
+                    "event": [1.0],
+                }
+            ],
             input_schema={"features": "tensor"},
             output_schema={"duration": "tensor", "event": "tensor"},
             dataset_name="dcm_keys",
@@ -125,8 +146,9 @@ class TestForward(unittest.TestCase):
             self.assertGreater(float(param.grad.abs().sum()), 0.0, name)
 
     def test_singleton_batch_and_unfitted_forward(self):
-        model = DeepCoxMixtures(None, input_dim=3, num_components=2,
-                                hidden_dims=(4,), time_grid=[1.0])
+        model = DeepCoxMixtures(
+            None, input_dim=3, num_components=2, hidden_dims=(4,), time_grid=[1.0]
+        )
         out = model(features=torch.zeros(1, 3), duration=[2.0], event=[1.0])
         self.assertNotIn("y_prob", out)  # no baselines yet
         self.assertEqual(out["mixture_weights"].shape, (1, 2))
@@ -152,10 +174,13 @@ class TestForward(unittest.TestCase):
         pi = model.predict_latent(x)
         f = model.predict_log_risk(x).double()
         cumulative, _ = model._baseline_at(times)  # (T, K)
-        manual = (pi.double().unsqueeze(1) * torch.exp(
-            -cumulative.unsqueeze(0) * f.exp().unsqueeze(1))).sum(-1)
-        torch.testing.assert_close(model.predict_survival(x, times).double(),
-                                   manual, atol=1e-6, rtol=1e-5)
+        manual = (
+            pi.double().unsqueeze(1)
+            * torch.exp(-cumulative.unsqueeze(0) * f.exp().unsqueeze(1))
+        ).sum(-1)
+        torch.testing.assert_close(
+            model.predict_survival(x, times).double(), manual, atol=1e-6, rtol=1e-5
+        )
 
 
 class TestCoxAndBreslow(unittest.TestCase):
@@ -177,12 +202,22 @@ class TestCoxAndBreslow(unittest.TestCase):
         self.assertAlmostEqual(float(got), expected, places=10)
         # order of the rows does not matter
         perm = torch.tensor([4, 2, 0, 3, 1])
-        self.assertAlmostEqual(float(cox_partial_log_likelihood(
-            self.f[perm], self.t[perm], self.e[perm])), expected, places=10)
-        self.assertEqual(float(cox_partial_log_likelihood(
-            self.f, self.t, torch.zeros(5))), 0.0)
-        self.assertEqual(float(cox_partial_log_likelihood(
-            torch.zeros(0), torch.zeros(0), torch.zeros(0))), 0.0)
+        self.assertAlmostEqual(
+            float(cox_partial_log_likelihood(self.f[perm], self.t[perm], self.e[perm])),
+            expected,
+            places=10,
+        )
+        self.assertEqual(
+            float(cox_partial_log_likelihood(self.f, self.t, torch.zeros(5))), 0.0
+        )
+        self.assertEqual(
+            float(
+                cox_partial_log_likelihood(
+                    torch.zeros(0), torch.zeros(0), torch.zeros(0)
+                )
+            ),
+            0.0,
+        )
 
     def test_breslow_hand_computed(self):
         r = self.f.exp()
@@ -192,29 +227,29 @@ class TestCoxAndBreslow(unittest.TestCase):
         h3 = h2 + 1 / r[3:].sum()
         self.assertEqual(times.tolist(), [1.0, 2.0, 3.0])
         torch.testing.assert_close(hazard, torch.stack([h1, h2, h3]))
-        empty_t, empty_h = breslow_cumulative_hazard(self.f, self.t,
-                                                     torch.zeros(5))
+        empty_t, empty_h = breslow_cumulative_hazard(self.f, self.t, torch.zeros(5))
         self.assertEqual(len(empty_t), 0)
         self.assertEqual(len(empty_h), 0)
 
     def test_single_component_is_neural_cox(self):
         torch.manual_seed(1)
-        model = DeepCoxMixtures(None, input_dim=3, num_components=1,
-                                hidden_dims=(4,))
+        model = DeepCoxMixtures(None, input_dim=3, num_components=1, hidden_dims=(4,))
         x, t, e = synthetic()
         model.fit_baselines(x, t, e)
         out = model(features=x, duration=t, event=e)
         torch.testing.assert_close(out["mixture_weights"], torch.ones(len(x), 1))
         expected = -cox_partial_log_likelihood(out["log_risk"][:, 0], t, e)
-        torch.testing.assert_close(out["loss"].double(),
-                                   expected.double() / len(x))
+        torch.testing.assert_close(out["loss"].double(), expected.double() / len(x))
         # baseline is the Breslow estimate with the network's hazard ratios
         times, hazard = breslow_cumulative_hazard(out["log_risk"][:, 0], t, e)
         f = model.predict_log_risk(x)[:, 0].double()
         surv = model.predict_survival(x, times).double()
         torch.testing.assert_close(
-            surv, torch.exp(-hazard.unsqueeze(0) * f.exp().unsqueeze(1)),
-            atol=1e-6, rtol=1e-5)
+            surv,
+            torch.exp(-hazard.unsqueeze(0) * f.exp().unsqueeze(1)),
+            atol=1e-6,
+            rtol=1e-5,
+        )
 
 
 class TestEStep(unittest.TestCase):
@@ -225,37 +260,43 @@ class TestEStep(unittest.TestCase):
         f = log_risk.double()
         log_s = -cumulative * f.exp()
         log_d = f + rate.log() + log_s
-        ll = torch.where(e.bool().unsqueeze(1), log_d, log_s).clamp_min(
-            math.log(1e-10))
+        ll = torch.where(e.bool().unsqueeze(1), log_d, log_s).clamp_min(math.log(1e-10))
         manual = torch.softmax(log_gate.double() + ll, dim=-1)
-        got = model._log_posterior(log_gate, log_risk, t.double(),
-                                   e.double()).exp()
+        got = model._log_posterior(log_gate, log_risk, t.double(), e.double()).exp()
         torch.testing.assert_close(got, manual)
         # The same row gets a different posterior as an event or censored.
-        as_event = model._log_posterior(log_gate[:1], log_risk[:1],
-                                        t[:1].double(), torch.ones(1))
-        as_censored = model._log_posterior(log_gate[:1], log_risk[:1],
-                                           t[:1].double(), torch.zeros(1))
+        as_event = model._log_posterior(
+            log_gate[:1], log_risk[:1], t[:1].double(), torch.ones(1)
+        )
+        as_censored = model._log_posterior(
+            log_gate[:1], log_risk[:1], t[:1].double(), torch.zeros(1)
+        )
         self.assertFalse(torch.allclose(as_event, as_censored))
 
     def test_interpolation_and_support(self):
-        model = DeepCoxMixtures(None, input_dim=1, num_components=1,
-                                hidden_dims=())
-        model._set_baselines([(torch.tensor([1.0, 3.0], dtype=torch.float64),
-                               torch.tensor([0.2, 0.6], dtype=torch.float64))])
-        cumulative, rate = model._baseline_at(torch.tensor([0.0, 0.5, 2.0, 3.0,
-                                                            9.0]))
-        torch.testing.assert_close(cumulative[:, 0], torch.tensor(
-            [0.0, 0.1, 0.4, 0.6, 0.6], dtype=torch.float64))
-        torch.testing.assert_close(rate[:, 0], torch.tensor(
-            [0.2, 0.2, 0.2, 0.2, 0.0], dtype=torch.float64))
+        model = DeepCoxMixtures(None, input_dim=1, num_components=1, hidden_dims=())
+        model._set_baselines(
+            [
+                (
+                    torch.tensor([1.0, 3.0], dtype=torch.float64),
+                    torch.tensor([0.2, 0.6], dtype=torch.float64),
+                )
+            ]
+        )
+        cumulative, rate = model._baseline_at(torch.tensor([0.0, 0.5, 2.0, 3.0, 9.0]))
+        torch.testing.assert_close(
+            cumulative[:, 0],
+            torch.tensor([0.0, 0.1, 0.4, 0.6, 0.6], dtype=torch.float64),
+        )
+        torch.testing.assert_close(
+            rate[:, 0], torch.tensor([0.2, 0.2, 0.2, 0.2, 0.0], dtype=torch.float64)
+        )
 
 
 class TestEdgeCases(unittest.TestCase):
     def test_zero_event_and_empty_components(self):
         torch.manual_seed(0)
-        model = DeepCoxMixtures(None, input_dim=3, num_components=3,
-                                hidden_dims=())
+        model = DeepCoxMixtures(None, input_dim=3, num_components=3, hidden_dims=())
         x, t, _ = synthetic()
         model.fit_baselines(x, t, torch.zeros(len(t)))  # nobody has an event
         surv = model.predict_survival(x, [1.0, 4.0])
@@ -279,8 +320,7 @@ class TestEdgeCases(unittest.TestCase):
         self.assertTrue(torch.isfinite(model.predict_survival(x, [2.0])).all())
 
     def test_first_fit_with_empty_component_uses_everyone(self):
-        model = DeepCoxMixtures(None, input_dim=2, num_components=2,
-                                hidden_dims=())
+        model = DeepCoxMixtures(None, input_dim=2, num_components=2, hidden_dims=())
         with torch.no_grad():
             model.gate.weight.copy_(torch.tensor([[50.0, 0.0], [0.0, 0.0]]))
         x = torch.ones(6, 2)
@@ -294,20 +334,24 @@ class TestPersistenceAndValidation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             path = os.path.join(root, "dcm.pt")
             torch.save(model.state_dict(), path)
-            restored = DeepCoxMixtures(None, input_dim=3, num_components=2,
-                                       hidden_dims=(4,))
+            restored = DeepCoxMixtures(
+                None, input_dim=3, num_components=2, hidden_dims=(4,)
+            )
             self.assertFalse(restored.is_fitted)
             restored.load_state_dict(torch.load(path))
         self.assertFalse(os.path.exists(root))
-        torch.testing.assert_close(restored.predict_survival(x, [0.5, 2.0]),
-                                   model.predict_survival(x, [0.5, 2.0]))
+        torch.testing.assert_close(
+            restored.predict_survival(x, [0.5, 2.0]),
+            model.predict_survival(x, [0.5, 2.0]),
+        )
         torch.testing.assert_close(restored.time_grid, model.time_grid)
-        torch.testing.assert_close(restored(features=x)["y_prob"],
-                                   model(features=x)["y_prob"])
+        torch.testing.assert_close(
+            restored(features=x)["y_prob"], model(features=x)["y_prob"]
+        )
         with self.assertRaises(ValueError):
-            DeepCoxMixtures(None, input_dim=3, num_components=3,
-                            hidden_dims=(4,)).set_extra_state(
-                model.get_extra_state())
+            DeepCoxMixtures(
+                None, input_dim=3, num_components=3, hidden_dims=(4,)
+            ).set_extra_state(model.get_extra_state())
 
     def test_invalid_inputs(self):
         model, (x, t, e) = fitted_model(k=2)
@@ -343,11 +387,13 @@ class TestPersistenceAndValidation(unittest.TestCase):
 class TestFit(unittest.TestCase):
     def test_fit_tuple_with_validation(self):
         torch.manual_seed(0)
-        model = DeepCoxMixtures(None, input_dim=3, num_components=2,
-                                hidden_dims=(4,), time_grid=[1.0, 2.0])
+        model = DeepCoxMixtures(
+            None, input_dim=3, num_components=2, hidden_dims=(4,), time_grid=[1.0, 2.0]
+        )
         x, t, e = synthetic(n=32)
-        history = model.fit((x, t, e), (x[:8], t[:8], e[:8]), epochs=3,
-                            batch_size=8, patience=1, seed=0)
+        history = model.fit(
+            (x, t, e), (x[:8], t[:8], e[:8]), epochs=3, batch_size=8, patience=1, seed=0
+        )
         self.assertLessEqual(len(history["train_loss"]), 3)
         self.assertEqual(len(history["val_nll"]), len(history["train_loss"]))
         self.assertTrue(all(math.isfinite(v) for v in history["val_nll"]))
@@ -361,20 +407,32 @@ class TestFit(unittest.TestCase):
         preds = []
         for _ in range(2):
             torch.manual_seed(3)
-            model = DeepCoxMixtures(None, input_dim=3, num_components=2,
-                                    hidden_dims=(4,))
-            model.fit({"features": x, "duration": t, "event": e}, epochs=2,
-                      batch_size=10, seed=11)
+            model = DeepCoxMixtures(
+                None, input_dim=3, num_components=2, hidden_dims=(4,)
+            )
+            model.fit(
+                {"features": x, "duration": t, "event": e},
+                epochs=2,
+                batch_size=10,
+                seed=11,
+            )
             preds.append(model.predict_survival(x, [1.0, 3.0]))
         torch.testing.assert_close(preds[0], preds[1])
 
     def test_fit_sample_dataset(self):
         x, t, e = synthetic(n=12)
-        samples = [{"patient_id": str(i), "features": x[i].tolist(),
-                    "duration": [float(t[i])], "event": [float(e[i])]}
-                   for i in range(12)]
+        samples = [
+            {
+                "patient_id": str(i),
+                "features": x[i].tolist(),
+                "duration": [float(t[i])],
+                "event": [float(e[i])],
+            }
+            for i in range(12)
+        ]
         dataset = create_sample_dataset(
-            samples=samples, input_schema={"features": "tensor"},
+            samples=samples,
+            input_schema={"features": "tensor"},
             output_schema={"duration": "tensor", "event": "tensor"},
             dataset_name="dcm_fit",
         )

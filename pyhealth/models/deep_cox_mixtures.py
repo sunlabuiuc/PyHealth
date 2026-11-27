@@ -271,14 +271,15 @@ class DeepCoxMixtures(BaseModel):
                 input_dim = self._infer_input_dim(dataset, feature_key)
         if input_dim is None:
             raise ValueError("input_dim is required when dataset is None")
-        for name, value in (("input_dim", input_dim), ("num_components",
-                                                       num_components)):
+        for name, value in (
+            ("input_dim", input_dim),
+            ("num_components", num_components),
+        ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise ValueError(f"{name} must be a positive integer")
         hidden_dims = tuple(hidden_dims)
         if any(
-            isinstance(h, bool) or not isinstance(h, int) or h < 1
-            for h in hidden_dims
+            isinstance(h, bool) or not isinstance(h, int) or h < 1 for h in hidden_dims
         ):
             raise ValueError("hidden_dims must contain positive integers")
         if activation not in _ACTIVATIONS:
@@ -297,8 +298,10 @@ class DeepCoxMixtures(BaseModel):
         layers: list[nn.Module] = []
         width = input_dim
         for hidden in hidden_dims:
-            layers += [nn.Linear(width, hidden, bias=use_bias),
-                       _ACTIVATIONS[activation]()]
+            layers += [
+                nn.Linear(width, hidden, bias=use_bias),
+                _ACTIVATIONS[activation](),
+            ]
             width = hidden
         self.encoder = nn.Sequential(*layers)
         self.gate = nn.Linear(width, num_components, bias=False)
@@ -438,16 +441,18 @@ class DeepCoxMixtures(BaseModel):
         """Pack per-group ``(event_times, cumulative_hazard)`` into (K, M)."""
         width = 2 + max(len(times) for times, _ in curves)
         knots = torch.full(
-            (self.num_components, width), math.inf, dtype=torch.float64,
+            (self.num_components, width),
+            math.inf,
+            dtype=torch.float64,
             device=self.device,
         )
         hazard = torch.zeros_like(knots)
         knots[:, 0] = 0.0
         for k, (times, cumulative) in enumerate(curves):
             m = len(times)
-            knots[k, 1:m + 1] = times
-            hazard[k, 1:m + 1] = cumulative
-            hazard[k, m + 1:] = cumulative[-1] if m else 0.0
+            knots[k, 1 : m + 1] = times
+            hazard[k, 1 : m + 1] = cumulative
+            hazard[k, m + 1 :] = cumulative[-1] if m else 0.0
         self._knots, self._cumulative_hazard = knots, hazard
 
     # ------------------------------------------------------------- EM pieces
@@ -585,10 +590,15 @@ class DeepCoxMixtures(BaseModel):
     def _collect(self, data: Any) -> tuple[Tensor, Tensor, Tensor]:
         """Turn ``(x, t, e)``, a mapping or a dataset of samples into tensors."""
         if isinstance(data, Mapping):
-            parts = (data[self.feature_key], data[self.duration_key],
-                     data[self.event_key])
-        elif isinstance(data, (tuple, list)) and len(data) == 3 and not (
-            isinstance(data[0], Mapping)
+            parts = (
+                data[self.feature_key],
+                data[self.duration_key],
+                data[self.event_key],
+            )
+        elif (
+            isinstance(data, (tuple, list))
+            and len(data) == 3
+            and not (isinstance(data[0], Mapping))
         ):
             parts = tuple(data)
         else:
@@ -605,8 +615,11 @@ class DeepCoxMixtures(BaseModel):
                     values.append(torch.as_tensor(value, dtype=torch.float64))
                 return torch.stack(values)
 
-            parts = (stack(self.feature_key), stack(self.duration_key),
-                     stack(self.event_key))
+            parts = (
+                stack(self.feature_key),
+                stack(self.duration_key),
+                stack(self.event_key),
+            )
         x = self._features(parts[0])
         duration = _as_vector(parts[1], "duration", self.device)
         event = _as_vector(parts[2], "event", self.device)
@@ -668,9 +681,11 @@ class DeepCoxMixtures(BaseModel):
                 continue
             if not members.any():
                 members = torch.ones_like(members)
-            curves.append(breslow_cumulative_hazard(
-                log_risk[members, k], duration[members], event[members]
-            ))
+            curves.append(
+                breslow_cumulative_hazard(
+                    log_risk[members, k], duration[members], event[members]
+                )
+            )
         self._set_baselines(curves)
 
     @torch.no_grad()
@@ -761,13 +776,15 @@ class DeepCoxMixtures(BaseModel):
             >>> sorted(model.fit(data, data, epochs=1, seed=0))
             ['train_loss', 'val_nll']
         """
-        for name, value in (("epochs", epochs), ("batch_size", batch_size),
-                            ("baseline_update_every", baseline_update_every)):
+        for name, value in (
+            ("epochs", epochs),
+            ("batch_size", batch_size),
+            ("baseline_update_every", baseline_update_every),
+        ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise ValueError(f"{name} must be a positive integer")
         if patience is not None and (
-            isinstance(patience, bool) or not isinstance(patience, int)
-            or patience < 1
+            isinstance(patience, bool) or not isinstance(patience, int) or patience < 1
         ):
             raise ValueError("patience must be a positive integer or None")
         x, duration, event = self._collect(train_data)
@@ -790,7 +807,7 @@ class DeepCoxMixtures(BaseModel):
             order = torch.randperm(n, generator=generator).to(self.device)
             total = 0.0
             for batch, start in enumerate(range(0, n, batch_size)):
-                index = order[start:start + batch_size]
+                index = order[start : start + batch_size]
                 xb, tb, eb = x[index], duration[index], event[index]
                 log_gate, log_risk = self._network(xb)
                 log_posterior = self._log_posterior(log_gate, log_risk, tb, eb)

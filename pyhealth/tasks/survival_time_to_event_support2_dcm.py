@@ -21,18 +21,43 @@ from .base_task import BaseTask
 
 #: Numeric covariates, in the paper's order. Missing values become NaN.
 SUPPORT2_DCM_NUMERIC: tuple[str, ...] = (
-    "age", "num.co", "meanbp", "wblc", "hrt", "resp", "temp", "pafi", "alb",
-    "bili", "crea", "sod", "ph", "glucose", "bun", "urine", "adlp", "adls",
+    "age",
+    "num.co",
+    "meanbp",
+    "wblc",
+    "hrt",
+    "resp",
+    "temp",
+    "pafi",
+    "alb",
+    "bili",
+    "crea",
+    "sod",
+    "ph",
+    "glucose",
+    "bun",
+    "urine",
+    "adlp",
+    "adls",
 )
 #: Categorical covariates and their levels. Every level gets a column (no
 #: reference level is dropped) and a missing value gets all zeros, which is
 #: what ``pandas.get_dummies`` produces in the paper's code.
 SUPPORT2_DCM_CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("sex", ("female", "male")),
-    ("dzgroup", (
-        "ARF/MOSF w/Sepsis", "CHF", "COPD", "Cirrhosis", "Colon Cancer", "Coma",
-        "Lung Cancer", "MOSF w/Malig",
-    )),
+    (
+        "dzgroup",
+        (
+            "ARF/MOSF w/Sepsis",
+            "CHF",
+            "COPD",
+            "Cirrhosis",
+            "Colon Cancer",
+            "Coma",
+            "Lung Cancer",
+            "MOSF w/Malig",
+        ),
+    ),
     ("dzclass", ("ARF/MOSF", "COPD/CHF/Cirrhosis", "Cancer", "Coma")),
     ("income", ("$11-$25k", "$25-$50k", ">$50k", "under $11k")),
     ("race", ("asian", "black", "hispanic", "other", "white")),
@@ -40,8 +65,7 @@ SUPPORT2_DCM_CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 #: Names of the 44 entries of the ``features`` vector, in order.
 SUPPORT2_DCM_FEATURES: tuple[str, ...] = SUPPORT2_DCM_NUMERIC + tuple(
-    f"{name}={level}" for name, levels in SUPPORT2_DCM_CATEGORIES
-    for level in levels
+    f"{name}={level}" for name, levels in SUPPORT2_DCM_CATEGORIES for level in levels
 )
 
 
@@ -138,9 +162,7 @@ class SurvivalTimeToEventSupport2DCM(BaseTask):
             raw = record.get(name)
             level = None if _blank(raw) else str(raw).strip()
             if level is not None and level not in levels:
-                raise ValueError(
-                    f"SUPPORT2 record {source_id}: unknown {name} {raw!r}"
-                )
+                raise ValueError(f"SUPPORT2 record {source_id}: unknown {name} {raw!r}")
             features.extend(1.0 if level == option else 0.0 for option in levels)
             if name == "race" and level is not None:
                 race = level
