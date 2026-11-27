@@ -166,7 +166,7 @@ bounty:
     priority: 1
     category: model
     title: EviCare (KDD 2026)
-    description: "Implement EviCare, a deep-model-guided LLM in-context reasoning framework for diagnosis prediction on MIMIC-III and MIMIC-IV. [code](https://github.com/zhyccc/EviCare), [paper](https://arxiv.org/abs/2604.10455)"
+    description: "Implement EviCare, a deep-model-guided LLM in-context reasoning framework for diagnosis prediction on MIMIC-III and MIMIC-IV. [code](https://github.com/zhyccc/EviCare), [paper](https://arxiv.org/abs/2604.10455) — Merged in #1599: EviCare(R), with a RETAIN guide, on MIMIC-III and MIMIC-IV. Remaining: the BoxLM guide (EviCare(B))."
     complete: ~
   - id: 29
     priority: 1
