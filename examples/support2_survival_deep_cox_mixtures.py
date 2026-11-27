@@ -34,6 +34,9 @@ the given number of percentage points.
 
 Usage
 -----
+The paper's metrics use scikit-survival (``pip install scikit-survival``),
+which this example needs in both modes.
+
 Synthetic data (a two-group population with crossing survival curves, so a
 mixture should help; under a minute on a CPU)::
 
@@ -42,7 +45,6 @@ mixture should help; under a minute on a CPU)::
 SUPPORT2 (``root`` holds ``support2.csv`` with an ``sno`` column; the UCI file
 https://archive.ics.uci.edu/dataset/880/support2 calls it ``id``)::
 
-    pip install scikit-survival
     python examples/support2_survival_deep_cox_mixtures.py --root data/support2
     python examples/support2_survival_deep_cox_mixtures.py --root data/support2 \
         --components 1,3 --train-censoring 0,10,20,30

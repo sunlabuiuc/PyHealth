@@ -419,6 +419,36 @@ class TestFit(unittest.TestCase):
             preds.append(model.predict_survival(x, [1.0, 3.0]))
         torch.testing.assert_close(preds[0], preds[1])
 
+    def test_trainer_inference_after_fit(self):
+        from pyhealth.trainer import Trainer
+
+        x, t, e = synthetic(n=12)
+        samples = [
+            {
+                "patient_id": str(i),
+                "features": x[i].tolist(),
+                "duration": [float(t[i])],
+                "event": [float(e[i])],
+            }
+            for i in range(12)
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"features": "tensor"},
+            output_schema={"duration": "tensor", "event": "tensor"},
+            dataset_name="dcm_trainer",
+        )
+        model = DeepCoxMixtures(
+            dataset, num_components=2, hidden_dims=(4,), time_grid=[1.0, 2.0]
+        )
+        model.fit(dataset, epochs=1, batch_size=6, seed=0)
+        trainer = Trainer(model=model, enable_logging=False)
+        loader = get_dataloader(dataset, batch_size=6, shuffle=False)
+        y_true, y_prob, loss = trainer.inference(loader)
+        self.assertEqual(y_true.shape, (12, 2))
+        self.assertEqual(y_prob.shape, (12, 2))
+        self.assertTrue(math.isfinite(loss))
+
     def test_fit_sample_dataset(self):
         x, t, e = synthetic(n=12)
         samples = [
