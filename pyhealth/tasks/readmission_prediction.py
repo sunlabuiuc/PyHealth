@@ -516,7 +516,11 @@ class ReadmissionPredictionOMOP(BaseTask):
     Set ``check_observation_period=True`` to drop a non-readmitted visit
     whose observation period ends before ``discharge + window``. Readmitted
     visits stay, as long as the visit itself is inside an observation period.
-    The check is off by default and keyword-only.
+    With the check on, a patient's last visit is labeled too: it is a
+    non-readmitted visit, kept when its period reaches ``discharge + window``.
+    Without the check, the last visit is skipped because nothing shows
+    whether a readmission went unrecorded. The check is off by default and
+    keyword-only.
 
     ``observation_period`` is not in
     :class:`~pyhealth.datasets.OMOPDataset`'s default tables. With the check
@@ -606,7 +610,13 @@ class ReadmissionPredictionOMOP(BaseTask):
             dob = datetime.strptime(f"{year:04d}-{month:02d}-{day:02d}", "%Y-%m-%d")
 
         admissions: List[Event] = patient.get_events(event_type="visit_occurrence")
-        if len(admissions) < 2:
+        # Without the observation-period check, a visit needs a next visit to
+        # get a label, so the last visit is skipped.
+        if self.check_observation_period:
+            labeled_admissions = len(admissions)
+        else:
+            labeled_admissions = len(admissions) - 1
+        if labeled_admissions < 1:
             return []
 
         observation_periods: list[Event] = []
@@ -622,8 +632,7 @@ class ReadmissionPredictionOMOP(BaseTask):
                 self._warned_missing_observation_period = True
 
         samples = []
-        # Skip the last admission since we need a "next" admission
-        for i in range(len(admissions) - 1):
+        for i in range(labeled_admissions):
             if self.exclude_minors:
                 age = admissions[i].timestamp.year - dob.year
                 if (admissions[i].timestamp.month, admissions[i].timestamp.day) < (dob.month, dob.day):
@@ -657,7 +666,8 @@ class ReadmissionPredictionOMOP(BaseTask):
             )
 
             readmission = int(
-                (admissions[i + 1].timestamp - discharge_time) < self.window
+                i + 1 < len(admissions)
+                and (admissions[i + 1].timestamp - discharge_time) < self.window
             )
 
             if self.check_observation_period:
