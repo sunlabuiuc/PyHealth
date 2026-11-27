@@ -66,16 +66,38 @@ Results:
     the F1 under the paper's protocol (0.44 -> 0.96 here), while the
     threshold-free score AUROC is unaffected.
 
-    Real data. With the authors' code on our preprocessing of the same split
-    (Llama-2-7B, paper configuration, Colab A100, run 2026-11-03-03-12-40):
-    F1 95.81, AUROC 98.36 (paper: 94.70 / 98.52). MedTsLLMAnomaly and
-    anomaly_detection_metrics compute exactly what the authors' model and
-    evaluation compute: given the same weights and inputs, outputs,
-    gradients and metrics are identical (checked with tiny Llama and GPT-2
-    backbones, with and without patient prompts). The task's signals and
-    labels match the files of that run (signals within 3e-6, no label
-    mismatches); the only difference is that the authors' loader cuts windows
-    from the concatenated records, while this task windows each record.
+    Real data, this script with ``--root <mitdb> --llm gpt2 --epochs 10
+    --device cuda`` (Colab GPU, seed 0)::
+
+        threshold  point adjust   F1     AUROC   score AUROC
+        auto       yes            0.959  0.984   0.801   <- paper protocol
+        auto       no             0.452  0.643   0.801
+        train      yes            0.062  0.516   0.801
+        train      no             0.002  0.500   0.801
+
+        half_window_ms   F1     AUROC   score AUROC   (auto, point adjust)
+        50               0.895  0.953   0.877
+        150              0.959  0.984   0.801         <- paper labels
+        300              0.967  0.962   0.739
+
+    Findings on real data: under the paper's protocol GPT-2 matches the
+    paper's Llama-2-7B result (F1 94.70, AUROC 98.52). Point adjustment again
+    makes up most of the F1. A threshold from the training labels flags
+    almost nothing, because the paper's split trains on the least abnormal
+    records, so the "auto" threshold depends on the test labels' anomaly
+    rate. The threshold-free score AUROC (0.80) is the fairer summary.
+
+    Llama-2-7B. With the authors' code on our preprocessing of the same split
+    (paper configuration, Colab A100, run 2026-11-03-03-12-40): F1 95.81,
+    AUROC 98.36. Loading those trained weights into MedTsLLMAnomaly and
+    evaluating with this task and anomaly_detection_metrics gives F1 95.83,
+    AUROC 98.38 (0.448 without point adjustment, score AUROC 0.782). Given
+    the same weights and inputs, outputs, gradients and metrics are identical
+    to the authors' code (checked with tiny Llama and GPT-2 backbones, with
+    and without patient prompts). The task's signals and labels match the
+    files of that run (signals within 3e-6, no label mismatches); the only
+    difference is that the authors' loader cuts windows from the
+    concatenated records, while this task windows each record.
 """
 
 import argparse
