@@ -1,6 +1,7 @@
 """Tests for pyhealth.metrics.group_fairness."""
 
 import unittest
+import warnings
 
 import numpy as np
 from sklearn.metrics import log_loss
@@ -96,6 +97,23 @@ class TestGroupFairnessMetrics(unittest.TestCase):
             )
         self.assertTrue(np.isnan(s["auc_a"]))
         self.assertAlmostEqual(s["worst_auc"], s["auc_b"])
+
+    def test_single_class_group_warns_for_rates(self):
+        groups = np.array(["a", "a", "b", "b", "b", "b", "b", "b"])
+        with self.assertWarnsRegex(UserWarning, r"\['a'\]"):
+            s = group_fairness_metrics_fn(
+                self.y_true, self.y_prob, groups, metrics=["eqodd"], threshold=0.5
+            )
+        self.assertTrue(np.isnan(s["eqodd"]))
+
+    def test_no_warning_without_class_dependent_metrics(self):
+        groups = np.array(["a", "a", "b", "b", "b", "b", "b", "b"])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            s = group_fairness_metrics_fn(
+                self.y_true, self.y_prob, groups, metrics=["acc"], threshold=0.5
+            )
+        self.assertIn("acc_a", s)
 
     def test_integer_groups(self):
         groups = np.array([0] * 4 + [1] * 4)

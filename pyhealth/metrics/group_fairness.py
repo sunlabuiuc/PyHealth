@@ -96,8 +96,10 @@ def group_fairness_metrics_fn(
         - ``eqodd``: equalized odds, ``1 - (|dFPR| + |dTPR|) / 2`` between
           the two subgroups of a binary attribute.
 
-    A subgroup with a single class has no AUC; it gets NaN with a warning and
-    is left out of ``worst_auc`` and ``auc_gap``.
+    A subgroup with a single class gets NaN, with a warning, for AUC and
+    ``tpr_at_tnr80``, for FPR when it has no negatives or FNR when it has no
+    positives, and so for ``eqodd``. NaN AUCs are left out of ``worst_auc``
+    and ``auc_gap``; the selection functions reject NaN scores.
 
     Unlike :func:`~pyhealth.metrics.subgroup_metrics`, this reports error
     rates and equalized odds at a chosen operating point, with MEDFAIR's
@@ -164,6 +166,16 @@ def group_fairness_metrics_fn(
     if "eqodd" in needed:
         needed |= {"fpr", "fnr"}
 
+    affected = needed & {"auc", "tpr_at_tnr80", "fpr", "fnr"}
+    one_class = [str(g) for g in names if len(np.unique(y_true[groups == g])) < 2]
+    if affected and one_class:
+        warnings.warn(
+            f"Groups {one_class} have a single class: their AUC and TPR at 80% "
+            "TNR are NaN, as is FPR without negatives or FNR without positives, "
+            "and eqodd with them.",
+            stacklevel=2,
+        )
+
     scores: dict[str, float] = {}
     for name in (m for m in _PER_GROUP if m in needed):
         scores[name] = _score(name, y_true, y_prob, y_pred)
@@ -175,11 +187,6 @@ def group_fairness_metrics_fn(
 
     if "auc" in needed:
         aucs = np.array([scores[f"auc_{g}"] for g in names])
-        undefined = [str(g) for g, a in zip(names, aucs) if np.isnan(a)]
-        if undefined:
-            warnings.warn(
-                f"AUC undefined for single-class groups {undefined}.", stacklevel=2
-            )
         defined = aucs[~np.isnan(aucs)]
         scores["worst_auc"] = float(defined.min()) if len(defined) else float("nan")
         scores["auc_gap"] = (
