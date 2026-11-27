@@ -187,4 +187,11 @@ from .game import (
     load_game_embeddings as load_game_embeddings,
     normalize_game_code as normalize_game_code,
 )
+from .medtok import (
+    MedTokEmbedding as MedTokEmbedding,
+    apply_medtok as apply_medtok,
+    convert_medtok_embeddings as convert_medtok_embeddings,
+    load_medtok as load_medtok,
+    medtok_keys as medtok_keys,
+)
 from .query_focused_ehr import QueryFocusedEHRModel as QueryFocusedEHRModel
