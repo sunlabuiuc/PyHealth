@@ -100,14 +100,16 @@ class EHRCXREarlyFusion(BaseModel):
     Args:
         dataset: Sample dataset used for model configuration.
         ehr_feature_key: Input key of the EHR tensor ``[batch, time, dim]``.
-            All samples must have the same number of time steps (e.g. the
-            48 hourly bins of MedMod's in-hospital mortality task): the LSTM
-            reads the last step, so zero padding is not skipped.
+            All samples must have the same number of time steps, e.g. 24 for
+            :class:`~pyhealth.tasks.EHRCXRMortalityMIMIC4` with its default
+            2-hour bins over 48 hours, or 48 with 1-hour bins (``bin_hours=1``,
+            MedMod's setting). The LSTM reads the last step, so zero padding
+            is not skipped.
         cxr_feature_key: Key of the image tensor ``[batch, 3, H, W]`` in the
-            batch. It need not be a dataset input: a training loop can load
-            and augment the images of each batch and add them under this key.
-            None gives an EHR-only model, whose classifier reads the EHR
-            feature alone. It is used to pretrain the LSTM.
+            batch. It need not be a dataset input: a training loop can add the
+            images of each batch under this key. With ``None`` the model is
+            EHR-only: with ``freeze_encoders=False``, only the LSTM and the
+            classifier are trained, e.g. to pretrain the LSTM on EHR alone.
         ehr_hidden_dim: Hidden size of the LSTM.
         ehr_num_layers: Number of LSTM layers.
         dropout: Dropout between the LSTM layers.

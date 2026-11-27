@@ -185,6 +185,12 @@ class ConVIRT(BaseModel):
     on the loss alone and reports the validation loss. Follow it with
     :class:`ConVIRTLinearProbe`.
 
+    The loss compares each pair with the other pairs of its batch, so a batch
+    of one sample has no negatives: its loss is zero and it changes nothing.
+    Use ``get_dataloader(..., drop_last=True)`` for pretraining, as MedMod
+    does, so every batch has the full set of negatives; a last batch of one
+    sample in validation would also lower the mean validation loss.
+
     Paper:
         Zhang et al. (2022). Contrastive Learning of Medical Visual
         Representations from Paired Images and Text. MLHC 2022. Setup as in
@@ -193,6 +199,12 @@ class ConVIRT(BaseModel):
     Args:
         dataset: Sample dataset used for model configuration.
         ehr_feature_key: Input key of the EHR tensor ``[batch, time, dim]``.
+            Stays of different lengths may come zero-padded with their
+            lengths, when the key's processor schema is
+            ``("value", "lengths")``; the LSTM then packs them and stops at
+            each stay's last step. MedMod's ConVIRT pretraining on whole ICU
+            stays gets its EHR this way, from the ``MedModEHRSequenceProcessor``
+            of the MedMod dataset PR (#1637).
         cxr_feature_key: Key of the image input in the batch: an image tensor
             ``[batch, 3, H, W]`` for a ResNet, or ``[batch, cxr_feature_dim]``
             embeddings with ``cxr_backbone=nn.Identity()``. It need not be a
@@ -211,7 +223,9 @@ class ConVIRT(BaseModel):
         cxr_feature_dim: Output size of ``cxr_backbone`` when it is a module.
             Leave it unset for a ResNet name, which sets its own size.
         augment_cxr: Whether to augment images in training mode, with the
-            SimCLRv2-style transforms of MedMod.
+            SimCLRv2-style transforms of MedMod. They expect pixels in
+            ``[0, 1]`` (the colour jitter clamps to that range), so for
+            ImageNet-normalized images also pass ``cxr_mean`` and ``cxr_std``.
         cxr_mean: Mean the images were normalized with, to undo before
             encoding, as MedMod feeds ConVIRT pixel values in ``[0, 1]``.
             Default None for images that are not normalized. For
@@ -325,7 +339,12 @@ class ConVIRT(BaseModel):
             ehr.to(self.device).float(), cxr.to(self.device).float(), lengths
         )
         z_ehr, z_cxr = self.ehr_head(v_ehr), self.cxr_head(v_cxr)
-        loss = info_nce_loss(z_ehr, z_cxr, self.temperature)
+        if z_ehr.size(0) < 2:
+            # A single pair has no negatives. A zero loss that keeps the graph
+            # lets backward() run, so a last batch of one sample is a no-op.
+            loss = (z_ehr.sum() + z_cxr.sum()) * 0.0
+        else:
+            loss = info_nce_loss(z_ehr, z_cxr, self.temperature)
         return {"loss": loss, "z_ehr": z_ehr, "z_cxr": z_cxr}
 
 

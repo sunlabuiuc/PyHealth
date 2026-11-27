@@ -200,6 +200,56 @@ class TestConVIRTPacking(unittest.TestCase):
         self.assertTrue(torch.allclose(batched[0], alone[0], atol=1e-6))
 
 
+class TestConVIRTSingleSampleBatch(unittest.TestCase):
+    """A last batch of one sample (dataset size mod batch size == 1)."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        # 64 x 64 images: in train mode, the ResNet's last BatchNorm needs more
+        # than one value per channel, which a 32 x 32 image of one sample lacks.
+        generator = torch.Generator().manual_seed(5)
+        cls.dataset = create_sample_dataset(
+            samples=[
+                {
+                    "patient_id": f"p{i}",
+                    "visit_id": f"v{i}",
+                    "ehr": torch.randn(5, EHR_DIM, generator=generator).tolist(),
+                    "cxr": torch.randn(3, 64, 64, generator=generator).tolist(),
+                    "label": i % 2,
+                }
+                for i in range(9)
+            ],
+            input_schema={"ehr": "tensor", "cxr": "tensor"},
+            output_schema={"label": "binary"},
+            dataset_name="convirt_single_sample_test",
+        )
+
+    def test_one_sample_batch_has_zero_loss_that_backpropagates(self) -> None:
+        model = _convirt(self.dataset)
+        model.train()
+        batch = next(iter(get_dataloader(self.dataset, batch_size=1)))
+        loss = model(**batch)["loss"]
+        self.assertEqual(loss.item(), 0.0)
+        loss.backward()
+        grads = [p.grad for n, p in model.named_parameters() if n != "_dummy_param"]
+        self.assertTrue(all(g is not None and not g.any() for g in grads))
+
+    def test_trainer_epoch_ending_in_one_sample_batch(self) -> None:
+        # 9 samples, batch 4: batches of 4, 4 and 1, in training and validation.
+        loader = get_dataloader(self.dataset, batch_size=4)
+        trainer = Trainer(
+            model=_convirt(self.dataset), device="cpu", enable_logging=False
+        )
+        trainer.train(
+            train_dataloader=loader,
+            val_dataloader=loader,
+            epochs=1,
+            monitor="loss",
+            monitor_criterion="min",
+        )
+        self.assertTrue(torch.isfinite(torch.tensor(trainer.evaluate(loader)["loss"])))
+
+
 class TestConVIRTLinearProbe(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
