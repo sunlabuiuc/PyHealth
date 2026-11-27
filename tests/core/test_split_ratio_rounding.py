@@ -87,6 +87,8 @@ class TestCutIndex(unittest.TestCase):
             (0.6, 0.1, 0.3),
             (0.58, 0.21, 0.21),
             (0.6, 0.1, 0.1, 0.2),
+            (0.4999999, 0.25, 0.2500001),
+            (0.3333333, 0.3333333, 0.3333334),
         )
         for ratios in ratio_sets:
             for n in range(501):
@@ -109,6 +111,34 @@ class TestCutIndex(unittest.TestCase):
         self.assertEqual(_cut_index(3, 2 / 3), 2)
         self.assertEqual(_cut_index(0, 0.7), 0)
         self.assertEqual(_cut_index(10, 1.0), 10)
+
+    def test_ratios_with_more_than_six_decimals_are_not_rounded_up(self):
+        # Only float error is corrected: 2 * 0.4999999 is 0.9999998, not 1.
+        self.assertEqual(_cut_index(2, 0.4999999), 0)
+        self.assertEqual(_cut_index(10**6, 0.4999999), 499999)
+        self.assertEqual(_cut_index(10**7, 0.4999999), 4999999)
+
+    def test_decimal_ratios_closest_to_an_integer_are_not_snapped(self):
+        # With 7 decimals and n * 10**7 < 10**12, choose the ratio that puts
+        # n * ratio exactly 1e-7 below an integer: it must still round down.
+        for n in (99999, 99991, 12347):
+            k = -pow(n, -1, 10**7) % 10**7
+            ratio = float(f"0.{k:07d}")
+            with self.subTest(n=n, ratio=ratio):
+                exact = n * Fraction(k, 10**7)
+                self.assertEqual(exact - floor(exact), Fraction(10**7 - 1, 10**7))
+                self.assertEqual(_cut_index(n, ratio), floor(exact))
+
+    def test_large_sizes_match_exact_arithmetic(self):
+        for n in (10**6 - 1, 10**6, 10**8, 10**9 + 7):
+            for ratios in ((0.7, 0.1, 0.2), (0.6, 0.1, 0.1, 0.2)):
+                cumulated, total = [], 0.0
+                for ratio in ratios[:-1]:
+                    total += ratio
+                    cumulated.append(_cut_index(n, total))
+                edges = [0, *cumulated, n]
+                got = [stop - start for start, stop in itertools.pairwise(edges)]
+                self.assertEqual(got, exact_sizes(n, ratios), (n, ratios))
 
 
 class TestSplitSizes(unittest.TestCase):
@@ -156,7 +186,6 @@ class TestSplitSizes(unittest.TestCase):
                 "cuts": _CUT_RULE,
             },
         )
-        self.assertIn("rounded", _CUT_RULE)
 
     def test_only_one_item_moves_between_adjacent_parts(self):
         # Same shuffle as before the fix: the second cut moves by one, so one

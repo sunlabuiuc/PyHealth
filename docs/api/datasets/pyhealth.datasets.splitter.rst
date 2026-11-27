@@ -24,7 +24,9 @@ training patients only, let ``set_task`` do the split:
     train, val, test = dataset.set_task(
         task, split=PatientSplit(ratios=(0.7, 0.1, 0.2), seed=42)
     )
-    train.fit_split   # {'kind': 'patient', 'ratios': [0.7, 0.1, 0.2], 'seed': 42}
+    train.fit_split
+    # {'kind': 'patient', 'ratios': [0.7, 0.1, 0.2], 'seed': 42,
+    #  'cuts': 'floor of n * fraction, snapped to an integer within 1e-12 relative'}
 
 - Every processor is fitted on the training patients; validation and test samples
   are processed with those frozen processors, so a code seen only in test maps to

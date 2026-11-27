@@ -115,11 +115,8 @@ class PatientSplit(Split):
     def to_dict(self) -> dict:
         """JSON-serialisable description, used in cache keys and metadata.
 
-        ``cuts`` names the rule that turns ratios into part sizes. Before the
-        float error described in :func:`_cut_index` was fixed, some sizes
-        differed by one patient, and the description had no ``cuts`` entry:
-        processed caches built with those sizes get a different key and are
-        not reused.
+        ``cuts`` names the rule that turns ratios into part sizes, so a change
+        of rule changes the cache key.
         """
         return {
             "kind": "patient",
@@ -268,16 +265,25 @@ class SubjectSplit(Split):
 
 # Name of the rule below, stored in ``PatientSplit.to_dict``. Change it
 # whenever the rule changes, so that cached splits are rebuilt.
-_CUT_RULE = "floor of n * fraction rounded to 6 decimals"
+_CUT_RULE = "floor of n * fraction, snapped to an integer within 1e-12 relative"
+
+# Relative distance to an integer below which n * fraction is taken as that
+# integer. The float error of a sum of a few ratios times n is about 1e-15
+# relative at most. A ratio written with d decimals puts n * fraction at
+# least 10**-d away from any integer it does not reach, so it is never
+# snapped while n * 10**d < 10**12.
+_CUT_SNAP = 1e-12
 
 
 def _cut_index(n: int, fraction: float) -> int:
     """Return how many of ``n`` items fall in the first ``fraction``.
 
-    The count is ``n * fraction`` rounded down. The product is first rounded
-    to 6 decimals, because sums and products of decimal ratios are not exact
-    in floating point: ``0.7 + 0.1`` is ``0.7999999999999999``, so truncating
-    ``10 * (0.7 + 0.1)`` directly gives 7 instead of 8.
+    The count is ``n * fraction`` rounded down. A product within a relative
+    ``1e-12`` of an integer is first taken as that integer, because sums and
+    products of decimal ratios are not exact in floating point: ``0.7 + 0.1``
+    is ``0.7999999999999999``, so truncating ``10 * (0.7 + 0.1)`` directly
+    gives 7 instead of 8. Products further from an integer are only rounded
+    down, so ``_cut_index(2, 0.4999999)`` is 0.
 
     Args:
         n: Number of items to split.
@@ -286,7 +292,11 @@ def _cut_index(n: int, fraction: float) -> int:
     Returns:
         The index of the cut, between 0 and ``n``.
     """
-    return int(round(n * fraction, 6))
+    product = n * fraction
+    nearest = round(product)
+    if abs(product - nearest) <= _CUT_SNAP * max(1.0, abs(product)):
+        return int(nearest)
+    return math.floor(product)
 
 
 def _validate_ratios(ratios: object, expected_length: int) -> None:
