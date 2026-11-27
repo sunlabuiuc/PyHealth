@@ -4,11 +4,11 @@
 # Description: Note cleaning, automatic phrase mining, labeling-function generation,
 # categorical weak-label aggregation, and confident-sample selection.
 
+import math
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
-import math
-import re
 from typing import Any, Protocol
 
 import numpy as np
@@ -24,7 +24,15 @@ _TOKEN = re.compile(r"\w\w+")
 
 
 class TextEncoder(Protocol):
-    """Any object that embeds texts, such as :class:`ClinicalTextEncoder`."""
+    """Any object that embeds texts, such as :class:`ClinicalTextEncoder`.
+
+    Example:
+        >>> class LengthEncoder:
+        ...     def encode(self, texts):
+        ...         return np.array([[len(t), 1.0] for t in texts])
+        >>> LengthEncoder().encode(["sepsis", "pneumonia"]).shape
+        (2, 2)
+    """
 
     def encode(self, texts: list[str]) -> np.ndarray:
         """Embeds texts.
@@ -53,6 +61,11 @@ def nltk_english_stopwords() -> tuple[str, ...]:
     Raises:
         ImportError: If NLTK is not installed.
         LookupError: If the NLTK stopwords corpus has not been downloaded.
+
+    Example:
+        >>> words = nltk_english_stopwords()
+        >>> "not" in words, "don't" in words
+        (True, False)
     """
     try:
         from nltk.corpus import stopwords
@@ -102,6 +115,10 @@ class LabelingFunction:
             ``KeywordLabeler.category_ids_`` order.
         similarity: Cosine similarity between the phrase and the category
             description embeddings.
+
+    Example:
+        >>> LabelingFunction("heart failure", category_index=0, similarity=0.82)
+        LabelingFunction(phrase='heart failure', category_index=0, similarity=0.82)
     """
 
     phrase: str
@@ -147,9 +164,25 @@ class KeywordLabeler:
         ValueError: If ``top_k`` is not a positive integer.
 
     Example:
-        >>> labeler = KeywordLabeler(encoder, top_k=300, min_df=0.001)
-        >>> labeler.fit(train_notes, {"circulatory": "heart cardiac ..."})
-        >>> votes = labeler.transform(train_notes)  # [notes, rules], -1 abstains
+        >>> from sklearn.feature_extraction.text import HashingVectorizer
+        >>> class CharEncoder:
+        ...     def encode(self, texts):
+        ...         vectorizer = HashingVectorizer(
+        ...             analyzer="char_wb", ngram_range=(3, 4), n_features=256,
+        ...             alternate_sign=False,
+        ...         )
+        ...         return vectorizer.transform(texts).toarray() + 1e-3
+        >>> notes = ["heart failure noted", "pneumonia on chest film",
+        ...          "heart failure, pneumonia"]
+        >>> descriptions = {"cardiac": "heart cardiac", "resp": "pneumonia lung"}
+        >>> labeler = KeywordLabeler(CharEncoder(), top_k=2, min_df=1)
+        >>> labeler = labeler.fit(notes, descriptions)
+        >>> [(lf.phrase, lf.category_index) for lf in labeler.lfs_]
+        [('heart', 0), ('heart failure', 0), ('pneumonia', 1), ('pneumonia chest', 1)]
+        >>> labeler.transform(notes)  # one column per rule; -1 means abstain
+        array([[ 0,  0, -1, -1],
+               [-1, -1,  1,  1],
+               [ 0,  0,  1, -1]])
     """
 
     def __init__(
@@ -157,7 +190,7 @@ class KeywordLabeler:
         encoder: TextEncoder,
         top_k: int = 300,
         ngram_range: tuple[int, int] = (1, 3),
-        min_df: float | int = 0.001,
+        min_df: float = 0.001,
         equalize_top_k: bool = False,
         max_candidates: int | None = None,
     ) -> None:
@@ -430,6 +463,11 @@ def confident_balanced_mask(
     Raises:
         ValueError: If the shapes do not match or ``max_num`` is smaller than
             the number of categories.
+
+    Example:
+        >>> p = np.array([[0.9, 0.1], [0.6, 0.4], [0.2, 0.8]])
+        >>> confident_balanced_mask(p, np.array([True, True, True]), max_num=2)
+        array([ True, False,  True])
     """
     probabilities = np.asarray(probabilities)
     covered = np.asarray(covered, dtype=bool)
@@ -460,6 +498,11 @@ def vote_diagnostics(votes: np.ndarray, n_classes: int) -> dict[str, Any]:
         A dict with ``"coverage"`` (share of notes with any vote),
         ``"cross_category_fraction"`` (share voted for by more than one
         category) and ``"lf_coverage"`` (per-rule share of notes it fires on).
+
+    Example:
+        >>> d = vote_diagnostics(np.array([[0, 1], [-1, -1], [0, -1]]), 2)
+        >>> round(d["coverage"], 2), round(d["cross_category_fraction"], 2)
+        (0.67, 0.33)
     """
     votes = _validate_votes(votes, n_classes)
     present = np.stack([(votes == c).any(axis=1) for c in range(n_classes)], axis=1)
