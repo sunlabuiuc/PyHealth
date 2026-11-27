@@ -41,7 +41,6 @@ import gzip
 import json
 import random
 import tempfile
-from collections import defaultdict
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -81,7 +80,7 @@ def load_diagnosis_groups(path):
         if not isinstance(group_id, str) or not group_id.strip():
             raise ValueError("Diagnosis group identifiers must be nonempty strings.")
         if not isinstance(config, dict):
-            raise ValueError(f"Diagnosis group {group_id!r} must be an object.")
+            raise TypeError(f"Diagnosis group {group_id!r} must be an object.")
         if not isinstance(config.get("description"), str) or not config["description"].strip():
             raise ValueError(f"Diagnosis group {group_id!r} requires a description.")
         codes = config.get("codes")
