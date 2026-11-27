@@ -72,6 +72,12 @@ class VariantClassificationClinVar(BaseTask):
 
         value_lower = str(raw_value).lower()
 
+        # "Conflicting classifications of pathogenicity" (in older releases,
+        # "Conflicting interpretations of pathogenicity") contains
+        # "pathogenic" but has no agreed class.
+        if "conflicting" in value_lower:
+            return None
+
         # Check for exact or partial matches
         if "likely pathogenic" in value_lower:
             return self.CLINICAL_SIGNIFICANCE_CATEGORIES["likely pathogenic"]

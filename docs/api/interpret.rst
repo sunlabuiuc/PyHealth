@@ -66,6 +66,10 @@ New to interpretability in PyHealth? Check out these complete examples:
   - Test various distance kernels (cosine vs euclidean) and sample sizes
   - Decode attributions to human-readable medical codes and lab measurements
 
+**Uni-ACS Clinical Scoring Example:**
+
+- ``examples/mimic4_mortality_uni_acs.py`` - Demonstrates Unified Auto Clinical Scoring (Uni-ACS) with a runnable ablation over feature count (``top_k``), discretization method (``quantile`` vs ``novel``), and score-level isotonic calibration on synthetic data (and optional MIMIC-IV CSV input).
+
 These examples provide end-to-end workflows from loading data to interpreting and evaluating attributions.
 
 Attribution Methods
@@ -90,6 +94,17 @@ Attribution Methods
     interpret/pyhealth.interpret.methods.baseline
     interpret/pyhealth.interpret.methods.base_interpreter
 
+Clinical Scoring
+----------------
+
+The ``pyhealth.interpret.uni_acs`` module converts SHAP feature attributions
+into transparent, additive integer clinical scoring tables.
+
+.. toctree::
+    :maxdepth: 4
+
+    interpret/pyhealth.interpret.uni_acs
+
 Visualization Utilities
 -----------------------
 
@@ -101,4 +116,3 @@ Includes specialized support for Vision Transformer (ViT) attribution visualizat
     :maxdepth: 4
 
     interpret/pyhealth.interpret.utils
- 

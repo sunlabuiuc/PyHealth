@@ -109,8 +109,10 @@ def sample_on_grid(
 ) -> np.ndarray:
     """Places values on a uniform time grid starting at the first timestamp.
 
-    Each value goes to the step of its timestamp (see :func:`grid_steps`);
-    when several values fall into the same step, the last one is kept.
+    Each value goes to the step of its timestamp (see :func:`grid_steps`).
+    When several rows fall into the same step, each feature keeps its last
+    observed (non-NaN) value, so a row that is missing a feature does not
+    erase an earlier value of it in the same step.
 
     Args:
         timestamps: Time of each row of ``values``.
@@ -137,5 +139,6 @@ def sample_on_grid(
     sampled_values = np.full((total_steps, values.shape[1]), np.nan)
     for step, value in zip(steps, values):
         if 0 <= step < total_steps:
-            sampled_values[step] = value
+            observed = ~np.isnan(value)
+            sampled_values[step, observed] = value[observed]
     return sampled_values
