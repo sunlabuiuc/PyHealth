@@ -11,7 +11,11 @@ import unittest
 import numpy as np
 
 from pyhealth.datasets import NSRRSleepDataset
-from pyhealth.tasks import SleepStagingCardioRespiratory
+from pyhealth.tasks import (
+    SleepStagingCardioRespiratory,
+    SleepStagingIBIMESA,
+    SleepStagingIBISHHS,
+)
 from pyhealth.tasks.sleep_staging_nsrr import (
     POINTS_PER_EPOCH,
     _read_edf_channels,
@@ -77,6 +81,55 @@ def write_xml(path, stages):
 def make_recording(folder, stem, channels, stages=STAGES):
     write_edf(os.path.join(folder, f"{stem}.edf"), channels, 30 * len(stages))
     write_xml(os.path.join(folder, f"{stem}-profusion.xml"), stages)
+
+
+def periodic_signal(n_seconds, rate, period_samples):
+    """Deterministic pulsatile waveform with a beat every ``period_samples``."""
+    t = np.arange(n_seconds * rate)
+    wave = np.sin(2 * np.pi * t / period_samples)
+    wave += 0.5 * np.sin(4 * np.pi * t / period_samples)
+    wave[::period_samples] += 2.0
+    return (np.clip(wave, -3.0, 3.0) * 10000).astype("<i2").reshape(
+        n_seconds, rate
+    )
+
+
+def write_edf_array(path, channels, signals):
+    """Writes an EDF from precomputed ``{label: (n_seconds, rate)}`` arrays."""
+    ns = len(channels)
+    n_seconds = next(iter(signals.values())).shape[0]
+
+    def field(value, width):
+        return str(value).ljust(width)[:width].encode("ascii")
+
+    header = (
+        field("0", 8)
+        + field("synthetic", 80)
+        + field("synthetic", 80)
+        + field("01.01.00", 8)
+        + field("00.00.00", 8)
+        + field(256 * (ns + 1), 8)
+        + field("", 44)
+        + field(n_seconds, 8)
+        + field(1, 8)
+        + field(ns, 4)
+    )
+    signal_header = b"".join(
+        [field(label, 16) for label, _ in channels]
+        + [field("", 80) for _ in channels]
+        + [field("uV", 8) for _ in channels]
+        + [field(-100, 8) for _ in channels]
+        + [field(100, 8) for _ in channels]
+        + [field(-32768, 8) for _ in channels]
+        + [field(32767, 8) for _ in channels]
+        + [field("", 80) for _ in channels]
+        + [field(rate, 8) for _, rate in channels]
+        + [field("", 32) for _ in channels]
+    )
+    columns = [np.asarray(signals[label], dtype="<i2") for label, _ in channels]
+    with open(path, "wb") as f:
+        f.write(header + signal_header)
+        f.write(np.concatenate(columns, axis=1).astype("<i2").tobytes())
 
 
 SHHS_CHANNELS = [("EEG", 125), ("ECG", 125), ("THOR RES", 10), ("ABDO RES", 10)]
@@ -262,6 +315,103 @@ class TestSleepStagingCardioRespiratory(NSRRTestCase):
         ):
             with self.assertRaises(ValueError):
                 SleepStagingCardioRespiratory(**kwargs)
+
+
+class TestSleepStagingIBI(unittest.TestCase):
+    """Checks SHHS/MESA IBI tasks on deterministic synthetic EDF/XML files."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        root = cls.tmp.name
+        cls.shhs_root = os.path.join(root, "shhs_ibi")
+        cls.mesa_root = os.path.join(root, "mesa_ibi")
+        shhs_edfs = os.path.join(cls.shhs_root, "edfs")
+        mesa_edfs = os.path.join(cls.mesa_root, "edfs")
+        os.makedirs(shhs_edfs)
+        os.makedirs(mesa_edfs)
+
+        n_seconds = 30 * len(STAGES)
+        write_edf_array(
+            os.path.join(shhs_edfs, "shhs1-300001.edf"),
+            [("ECG", 125)],
+            {"ECG": periodic_signal(n_seconds, 125, 125)},
+        )
+        write_xml(
+            os.path.join(shhs_edfs, "shhs1-300001-profusion.xml"), STAGES
+        )
+        write_edf_array(
+            os.path.join(mesa_edfs, "mesa-sleep-0002.edf"),
+            [("Pleth", 256)],
+            {"Pleth": periodic_signal(n_seconds, 256, 256)},
+        )
+        write_xml(
+            os.path.join(mesa_edfs, "mesa-sleep-0002-profusion.xml"), STAGES
+        )
+
+        cache = os.path.join(root, "ibi_cache")
+        cls.shhs_ds = NSRRSleepDataset(
+            cls.shhs_root, cohort="shhs", cache_dir=cache
+        )
+        cls.mesa_ds = NSRRSleepDataset(
+            cls.mesa_root, cohort="mesa", cache_dir=cache
+        )
+        cls.shhs_patient = cls.shhs_ds.get_patient("300001")
+        cls.mesa_patient = cls.mesa_ds.get_patient("0002")
+        cls.expected_labels = [0, 0, 1, 1, 1, 1, 1, 2, 2, -1]
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_shhs_samples(self):
+        samples = SleepStagingIBISHHS(peak_backend="scipy")(self.shhs_patient)
+        self.assertEqual(len(samples), 1)
+        sample = samples[0]
+        self.assertEqual(sample["signal"].shape, (len(STAGES), 750))
+        self.assertEqual(sample["signal"].dtype, np.float32)
+        self.assertEqual(sample["label"].tolist(), self.expected_labels)
+        self.assertEqual(sample["lengths"], len(STAGES))
+        self.assertEqual(sample["record_id"], "shhs1-300001")
+
+    def test_mesa_samples(self):
+        samples = SleepStagingIBIMESA(peak_backend="scipy")(self.mesa_patient)
+        self.assertEqual(len(samples), 1)
+        sample = samples[0]
+        self.assertEqual(sample["signal"].shape, (len(STAGES), 750))
+        self.assertEqual(sample["signal"].dtype, np.float32)
+        self.assertEqual(sample["label"].tolist(), self.expected_labels)
+        self.assertEqual(sample["lengths"], len(STAGES))
+
+    def test_pooled_schemas_match(self):
+        shhs = SleepStagingIBISHHS(peak_backend="scipy")
+        mesa = SleepStagingIBIMESA(peak_backend="scipy")
+        self.assertEqual(shhs.input_schema, mesa.input_schema)
+        self.assertEqual(shhs.output_schema, mesa.output_schema)
+        shhs_sample = shhs(self.shhs_patient)[0]
+        mesa_sample = mesa(self.mesa_patient)[0]
+        self.assertEqual(shhs_sample["signal"].shape, mesa_sample["signal"].shape)
+        self.assertEqual(shhs_sample["label"].dtype, mesa_sample["label"].dtype)
+
+    def test_max_epochs_truncates(self):
+        task = SleepStagingIBISHHS(peak_backend="scipy", max_epochs=4)
+        sample = task(self.shhs_patient)[0]
+        self.assertEqual(sample["signal"].shape, (4, 750))
+        self.assertEqual(sample["label"].tolist(), self.expected_labels[:4])
+        self.assertEqual(sample["lengths"], 4)
+
+    def test_set_task_integration(self):
+        import torch
+
+        task = SleepStagingIBISHHS(peak_backend="scipy", max_epochs=4)
+        samples = self.shhs_ds.set_task(task, num_workers=1)
+        self.assertEqual(len(samples), 1)
+        sample = samples[0]
+        self.assertEqual(tuple(sample["signal"].shape), (4, 750))
+        self.assertEqual(sample["signal"].dtype, torch.float32)
+        self.assertEqual(tuple(sample["label"].shape), (4,))
+        self.assertEqual(sample["label"].dtype, torch.long)
+        self.assertEqual(sample["lengths"], 4)
 
 
 if __name__ == "__main__":
