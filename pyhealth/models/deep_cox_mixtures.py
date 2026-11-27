@@ -792,7 +792,6 @@ class DeepCoxMixtures(BaseModel):
         generator = torch.Generator()
         if seed is not None:
             generator.manual_seed(seed)
-            torch.manual_seed(seed)
         optimizer = torch.optim.Adam(
             self.parameters(), lr=learning_rate, weight_decay=weight_decay
         )
