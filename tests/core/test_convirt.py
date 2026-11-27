@@ -225,6 +225,16 @@ class TestConVIRTLinearProbe(unittest.TestCase):
         self.assertEqual(set(output), {"logit", "y_prob", "loss", "y_true"})
         self.assertEqual(output["logit"].shape, (8, 1))
 
+    def test_fresh_probe_keeps_encoders_in_eval_mode(self) -> None:
+        # No train() or eval() call before the forward pass.
+        probe = self._probe()
+        self.assertFalse(probe.encoders.training)
+        before = probe.encoders.cxr_encoder.bn1.running_mean.clone()
+        probe(**self.batch)
+        self.assertTrue(
+            torch.equal(before, probe.encoders.cxr_encoder.bn1.running_mean)
+        )
+
     def test_encoders_are_frozen_and_stay_in_eval_mode(self) -> None:
         probe = self._probe()
         before = probe.encoders.cxr_encoder.bn1.running_mean.clone()

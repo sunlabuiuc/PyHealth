@@ -75,15 +75,18 @@ class EHRCXREarlyFusion(BaseModel):
     The EHR time series goes through an LSTM and the image through a ResNet.
     The image feature is projected to the size of the EHR feature, the two are
     concatenated and a linear layer gives the logit. This is the Early Fusion
-    baseline of MedMod (Elsharief et al., 2025), which builds on the fusion
-    code of MedFuse (Hayat et al., 2022). With ``freeze_encoders=True`` the
-    two encoders are not trained: only the projection and the classifier are.
-    With ``freeze_encoders=False`` all parts are trained.
+    baseline of MedMod (Elsharief et al., 2025), which builds on the original
+    MedFuse code (Hayat et al., 2022, https://github.com/nyuad-cai/MedFuse),
+    not on PyHealth's :class:`~pyhealth.models.MedFuse`. With
+    ``freeze_encoders=True`` the two encoders are not trained: only the
+    projection and the classifier are. With ``freeze_encoders=False`` all
+    parts are trained.
 
-    Frozen encoders stay in eval mode during training, so the ResNet's
-    BatchNorm statistics do not change and the LSTM applies no dropout.
-    MedFuse instead sets the whole model to train mode, frozen encoders
-    included, so results can differ slightly from its code.
+    Frozen encoders are in eval mode from construction on and stay in it when
+    the model is set to train mode, so the ResNet's BatchNorm statistics do
+    not change and the LSTM applies no dropout. The original MedFuse code
+    instead sets the whole model to train mode, frozen encoders included, so
+    results can differ slightly from it.
 
     The model expects samples that have an image. With
     :class:`~pyhealth.tasks.EHRCXRMortalityMIMIC4` use ``paired_only=True``,
@@ -97,6 +100,9 @@ class EHRCXREarlyFusion(BaseModel):
     Args:
         dataset: Sample dataset used for model configuration.
         ehr_feature_key: Input key of the EHR tensor ``[batch, time, dim]``.
+            All samples must have the same number of time steps (e.g. the
+            48 hourly bins of MedMod's in-hospital mortality task): the LSTM
+            reads the last step, so zero padding is not skipped.
         cxr_feature_key: Key of the image tensor ``[batch, 3, H, W]`` in the
             batch. It need not be a dataset input: a training loop can load
             and augment the images of each batch and add them under this key.
@@ -116,7 +122,8 @@ class EHRCXREarlyFusion(BaseModel):
         ehr_state_dict: Optional weights of :attr:`ehr_encoder`.
         cxr_state_dict: Optional weights of :attr:`cxr_encoder`.
         augment_cxr: Whether to augment images in training mode: horizontal
-            flip and a random affine transform, as in MedFuse.
+            flip and a random affine transform, as in MedFuse. Only for a
+            ResNet backbone, which reads images.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
@@ -201,6 +208,8 @@ class EHRCXREarlyFusion(BaseModel):
             else:
                 if cxr_feature_dim is None:
                     raise ValueError("cxr_feature_dim is required for a module.")
+                if augment_cxr:
+                    raise ValueError("Augmentation needs images (a ResNet backbone).")
                 self.cxr_encoder, cxr_dim = cxr_backbone, cxr_feature_dim
             if cxr_state_dict is not None:
                 self.cxr_encoder.load_state_dict(cxr_state_dict)
@@ -216,6 +225,9 @@ class EHRCXREarlyFusion(BaseModel):
 
         self.classifier = nn.Linear(classifier_in, self.label_processor.output_size())
         self.augmentation = self._build_augmentation() if augment_cxr else None
+        # A new module is in train mode; this puts frozen encoders in eval mode
+        # now, not only on the first train() or eval() call.
+        self.train(self.training)
 
     @staticmethod
     def _build_augmentation() -> nn.Module:

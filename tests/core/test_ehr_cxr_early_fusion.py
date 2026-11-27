@@ -88,6 +88,19 @@ class TestEHRCXREarlyFusion(unittest.TestCase):
         model(**self.batch)
         self.assertTrue(torch.equal(before, model.cxr_encoder.bn1.running_mean))
 
+    def test_fresh_model_keeps_frozen_encoders_in_eval_mode(self) -> None:
+        # No train() or eval() call before the forward passes.
+        model = _model(self.dataset)
+        self.assertTrue(model.training)
+        self.assertFalse(model.ehr_encoder.training)
+        self.assertFalse(model.cxr_encoder.training)
+        before = model.cxr_encoder.bn1.running_mean.clone()
+        first = model(**self.batch)["logit"]
+        second = model(**self.batch)["logit"]
+        self.assertTrue(torch.equal(before, model.cxr_encoder.bn1.running_mean))
+        # The 2-layer LSTM's dropout would make the two passes differ.
+        self.assertTrue(torch.equal(first, second))
+
     def test_unfrozen_encoders_are_trained(self) -> None:
         model = _model(self.dataset, freeze_encoders=False)
         model.train()
@@ -129,6 +142,13 @@ class TestEHRCXREarlyFusion(unittest.TestCase):
             _model(self.dataset, cxr_backbone=backbone)
         with self.assertRaises(ValueError):
             _model(self.dataset, cxr_backbone="resnet18", cxr_feature_dim=10)
+        with self.assertRaises(ValueError):
+            _model(
+                self.dataset,
+                cxr_backbone=nn.Identity(),
+                cxr_feature_dim=10,
+                augment_cxr=True,
+            )
 
     def test_augmentation_only_in_training_mode(self) -> None:
         model = _model(self.dataset, augment_cxr=True)
