@@ -431,3 +431,15 @@ def test_zero_removal_baseline_and_completed_extensions():
         decay,
         [[1.0, 0.0]],
     )
+
+
+def test_output_timeline_with_optional_decay():
+    """Ensure temporal features use the correct prediction timeline."""
+    with_decay = TPCLengthOfStayEICU(include_decay=True)
+    without_decay = TPCLengthOfStayEICU(include_decay=False)
+
+    assert with_decay.output_schema["los"][1]["timeline"] == [
+        "dynamic",
+        "decay",
+    ]
+    assert without_decay.output_schema["los"][1]["timeline"] == ["dynamic"]

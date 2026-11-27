@@ -89,8 +89,8 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
         self.missing_rate = missing_rate
         self.seed = seed
         self.include_decay = include_decay
-
         self.input_schema = deepcopy(type(self).input_schema)
+        self.output_schema = deepcopy(type(self).output_schema)
 
         if include_decay:
             self.input_schema["decay"] = (
@@ -104,6 +104,7 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
                     ]
                 },
             )
+            self.output_schema["los"][1]["timeline"].append("decay")
 
     def _base_cohort(
         self,
@@ -307,7 +308,7 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
                 "patient_id": patient.patient_id,
                 "stay_id": stay_id,
                 "dynamic": dynamic,
-                "static": self._static_series(static[stay_id]),
+                "static": self._static_record(static[stay_id]),
                 "los": self._labels(
                     prediction_hours,
                     remaining,
