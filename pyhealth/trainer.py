@@ -23,6 +23,77 @@ from pyhealth.utils import create_directory
 
 logger = logging.getLogger(__name__)
 
+_AMP_DTYPES = {
+    "bf16": torch.bfloat16,
+    "bfloat16": torch.bfloat16,
+    "fp16": torch.float16,
+    "float16": torch.float16,
+}
+
+
+def resolve_amp_dtype(amp_dtype: str, use_amp: bool = False) -> torch.dtype:
+    """Validate the mixed-precision dtype and return it.
+
+    The previous expression was ``bfloat16 if amp_dtype == "bf16" else
+    float16``, so every other spelling silently selected fp16 and, through
+    GradScaler, changed gradient behaviour too.
+
+    Args:
+        amp_dtype: Dtype name, one of ``"bf16"``, ``"bfloat16"``,
+            ``"fp16"`` or ``"float16"`` (case-insensitive).
+        use_amp: Whether mixed precision will be used. When True and the
+            resolved dtype is bf16, a CUDA device without bf16 support
+            raises instead of silently running an unsupported mode.
+
+    Returns:
+        The matching ``torch.dtype``.
+
+    Examples:
+        >>> from pyhealth.trainer import resolve_amp_dtype
+        >>> import torch
+        >>> resolve_amp_dtype("bfloat16") is torch.bfloat16
+        True
+    """
+    name = str(amp_dtype).lower()
+    if name not in _AMP_DTYPES:
+        raise ValueError(
+            f"amp_dtype must be one of {sorted(_AMP_DTYPES)}, got {amp_dtype!r}."
+        )
+    dtype = _AMP_DTYPES[name]
+    if (
+        use_amp
+        and dtype == torch.bfloat16
+        and torch.cuda.is_available()
+        and not torch.cuda.is_bf16_supported()
+    ):
+        raise RuntimeError(
+            "bf16 mixed precision was requested, but this CUDA device does "
+            "not support bf16."
+        )
+    return dtype
+
+
+def autocast_device_type(device) -> str:
+    """Device type string for ``torch.autocast``, from the trainer device.
+
+    Args:
+        device: Device or device string used by the trainer, e.g.
+            ``"cuda:0"``, ``"cpu"`` or ``"mps"``.
+
+    Returns:
+        One of ``"cuda"``, ``"cpu"`` or ``"mps"``; anything else falls
+        back to ``"cpu"``.
+
+    Examples:
+        >>> from pyhealth.trainer import autocast_device_type
+        >>> autocast_device_type("cuda:0")
+        'cuda'
+    """
+    name = str(device).split(":", 1)[0].lower()
+    if name in ("cuda", "cpu", "mps"):
+        return name
+    return "cpu"
+
 
 def _cpu_state_dict(model: nn.Module) -> dict:
     """A detached CPU copy of the model's state, safe from later updates."""
@@ -211,6 +282,9 @@ class Trainer:
         load_best_model_at_last: bool = True,
         patience=None,
         keep_best_in_memory: bool = True,
+        accumulation_steps: int = 1,
+        use_amp: bool = False,
+        amp_dtype: str = "bf16",
     ):
         """Trains the model.
 
@@ -238,6 +312,12 @@ class Trainer:
                 last epoch's weights are kept (with a warning). With an output
                 directory the best weights are saved to ``best.ckpt`` instead.
                 Default is True.
+            accumulation_steps: Gradient accumulation steps to simulate a larger
+                effective batch size. Default is 1 (no accumulation).
+            use_amp: Whether to use automatic mixed precision. Default is False.
+            amp_dtype: AMP dtype — "bf16" (stable, recommended) or "fp16".
+                Unknown spellings raise instead of silently using fp16.
+                Default is "bf16".
 
         Raises:
             TypeError: If the model is fit outside the trainer (it sets
@@ -253,10 +333,24 @@ class Trainer:
             )
         if optimizer_params is None:
             optimizer_params = {"lr": 1e-3}
+        if accumulation_steps < 1:
+            raise ValueError(
+                f"accumulation_steps must be at least 1, got {accumulation_steps}."
+            )
+
+        _amp_dtype = resolve_amp_dtype(amp_dtype, use_amp=use_amp)
+        # GradScaler only needed for fp16; bf16 has fp32 dynamic range
+        scaler = (
+            torch.amp.GradScaler("cuda")
+            if (use_amp and _amp_dtype == torch.float16)
+            else None
+        )
 
         # logging
         logger.info("Training:")
         logger.info(f"Batch size: {train_dataloader.batch_size}")
+        logger.info(f"Accumulation steps: {accumulation_steps}")
+        logger.info(f"AMP: {use_amp} (dtype={amp_dtype})")
         logger.info(f"Optimizer: {optimizer_class}")
         logger.info(f"Optimizer params: {optimizer_params}")
         logger.info(f"Weight decay: {weight_decay}")
@@ -310,7 +404,7 @@ class Trainer:
             self.model.train()
             # batch training loop
             logger.info("")
-            for _ in trange(
+            for step_idx in trange(
                 steps_per_epoch,
                 desc=f"Epoch {epoch} / {epochs}",
                 smoothing=0.05,
@@ -320,20 +414,46 @@ class Trainer:
                 except StopIteration:
                     data_iterator = iter(train_dataloader)
                     data = next(data_iterator)
-                # forward
-                output = self.model(**data)
-                loss = output["loss"]
+                # forward (with optional AMP)
+                if use_amp:
+                    with torch.autocast(
+                        device_type=autocast_device_type(self.device),
+                        dtype=_amp_dtype,
+                    ):
+                        output = self.model(**data)
+                        loss = output["loss"] / accumulation_steps
+                else:
+                    output = self.model(**data)
+                    loss = output["loss"] / accumulation_steps
                 # backward
-                loss.backward()
-                if max_grad_norm is not None:
-                    torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(), max_grad_norm
-                    )
-                # update
-                optimizer.step()
-                optimizer.zero_grad()
-                training_loss.append(loss.item())
-                global_step += 1
+                if scaler is not None:
+                    scaler.scale(loss).backward()
+                else:
+                    loss.backward()
+                training_loss.append(loss.item() * accumulation_steps)
+                # optimizer step every accumulation_steps batches or epoch end
+                is_update_step = (
+                    (step_idx + 1) % accumulation_steps == 0
+                    or (step_idx + 1) == steps_per_epoch
+                )
+                if is_update_step:
+                    if scaler is not None:
+                        # Unscale before clipping; step() then skips
+                        # non-finite gradients itself.
+                        scaler.unscale_(optimizer)
+                    # Clip only when configured: the default path matches
+                    # upstream exactly (no unconditional grad-norm pass).
+                    if max_grad_norm is not None:
+                        torch.nn.utils.clip_grad_norm_(
+                            self.model.parameters(), max_grad_norm
+                        )
+                    if scaler is not None:
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
+                        optimizer.step()
+                    optimizer.zero_grad()
+                    global_step += 1
             # log and save
             logger.info(f"--- Train epoch-{epoch}, step-{global_step} ---")
             logger.info(f"loss: {sum(training_loss) / len(training_loss):.4f}")

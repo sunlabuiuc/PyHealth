@@ -516,6 +516,7 @@ class BaseDataset(ABC):
         cache_dir: str | Path | None = None,
         num_workers: int = 1,
         dev: bool = False,
+        use_dask_distributed: bool = True,
     ):
         """Initializes the BaseDataset.
 
@@ -533,6 +534,10 @@ class BaseDataset(ABC):
                   is appended to the provided path to capture dataset configuration.
             num_workers (int): Number of worker processes for parallel operations.
             dev (bool): Whether to run in dev mode (limits to 1000 patients).
+            use_dask_distributed (bool): Whether event caching uses the Dask
+                distributed cluster. ``False`` writes the cache with the local
+                Dask scheduler instead, for sandboxes where the cluster cannot
+                start. Defaults to ``True``. It does not affect the cache key.
         """
         if len(set(tables)) != len(tables):
             logger.warning("Duplicate table names in tables list. Removing duplicates.")
@@ -542,6 +547,7 @@ class BaseDataset(ABC):
         self.dataset_name = dataset_name or self.__class__.__name__
         self.num_workers = num_workers
         self.dev = dev
+        self.use_dask_distributed = use_dask_distributed
         self.config = load_yaml_config(config_path) if config_path else None
 
         logger.info(
@@ -861,17 +867,43 @@ class BaseDataset(ABC):
         compute_ok = False
         try:
             df = self.load_data()
-            with DaskCluster(
-                n_workers=self.num_workers,
-                threads_per_worker=1,
-                processes=not in_notebook(),
-                # Use cache_dir for Dask's scratch space to avoid filling up /tmp or home directory
-                local_directory=str(self.create_tmpdir()),
-                # No dashboard: its bokeh server fails to stop on cluster close and
-                # leaks sockets, hitting "Too many open files" after repeated builds.
-                dashboard_address=None,
-            ) as cluster:
-                with DaskClient(cluster) as client:
+            if not self.use_dask_distributed:
+                logger.info(
+                    "use_dask_distributed=False; caching "
+                    "with the local Dask scheduler."
+                )
+                if self.dev:
+                    logger.info("Dev mode enabled: limiting to 1000 patients")
+                    # head() reads only the first partition unless told
+                    # otherwise, which gave far fewer than 1000 patients.
+                    unique = df["patient_id"].unique()
+                    patients = unique.head(1000, npartitions=-1).tolist()
+                    patient_filter = df["patient_id"].isin(patients)
+                    df = df[patient_filter]
+                logger.info(f"Caching event dataframe to {output_dir}...")
+                df.sort_values("patient_id").to_parquet(
+                    output_dir,
+                    write_index=False,
+                    compute=True,
+                    **_event_parquet_options(df.dtypes),
+                )
+                compute_ok = True
+            else:
+                with (
+                    DaskCluster(
+                        n_workers=self.num_workers,
+                        threads_per_worker=1,
+                        processes=not in_notebook(),
+                        # Use cache_dir for Dask's scratch space to avoid
+                        # filling up /tmp or home directory
+                        local_directory=str(self.create_tmpdir()),
+                        # No dashboard: its bokeh server fails to stop on
+                        # cluster close and leaks sockets, hitting "Too many
+                        # open files" after repeated builds.
+                        dashboard_address=None,
+                    ) as cluster,
+                    DaskClient(cluster) as client,
+                ):
                     if self.dev:
                         logger.info("Dev mode enabled: limiting to 1000 patients")
                         # head() reads only the first partition unless told

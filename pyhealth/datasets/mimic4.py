@@ -373,6 +373,9 @@ class MIMIC4Dataset(BaseDataset):
         ed_config_path: Path to the ED config file
         dataset_name: Name of the dataset
         dev: Whether to enable dev mode (limit to 1000 patients)
+        use_dask_distributed: Whether event caching uses the Dask
+            distributed cluster. ``False`` takes the local-scheduler path.
+            It does not affect the cache key.
 
     Examples:
         >>> from pyhealth.datasets import MIMIC4Dataset
@@ -422,6 +425,7 @@ class MIMIC4Dataset(BaseDataset):
         ed_root: str | None = None,
         ed_tables: list[str] | None = None,
         ed_config_path: str | None = None,
+        use_dask_distributed: bool = True,
     ):
         log_memory_usage("Starting MIMIC4Dataset init")
 
@@ -451,6 +455,7 @@ class MIMIC4Dataset(BaseDataset):
             dev=dev,
             cache_dir=cache_dir,
             num_workers=num_workers,
+            use_dask_distributed=use_dask_distributed,
         )
 
         # Initialize child datasets
@@ -468,6 +473,7 @@ class MIMIC4Dataset(BaseDataset):
                 cache_dir=str(self.cache_dir),
                 dev=dev,
                 num_workers=num_workers,
+                use_dask_distributed=use_dask_distributed,
             )
             log_memory_usage("After EHR dataset initialization")
 
@@ -483,6 +489,7 @@ class MIMIC4Dataset(BaseDataset):
                 cache_dir=str(self.cache_dir),
                 dev=dev,
                 num_workers=num_workers,
+                use_dask_distributed=use_dask_distributed,
             )
             log_memory_usage("After Note dataset initialization")
 
@@ -498,6 +505,7 @@ class MIMIC4Dataset(BaseDataset):
                 cache_dir=str(self.cache_dir),
                 dev=dev,
                 num_workers=num_workers,
+                use_dask_distributed=use_dask_distributed,
             )
             log_memory_usage("After CXR dataset initialization")
 
@@ -512,6 +520,7 @@ class MIMIC4Dataset(BaseDataset):
                 cache_dir=str(self.cache_dir),
                 dev=dev,
                 num_workers=num_workers,
+                use_dask_distributed=use_dask_distributed,
             )
             log_memory_usage("After ED dataset initialization")
 

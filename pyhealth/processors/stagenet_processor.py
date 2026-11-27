@@ -76,7 +76,9 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
             samples: List of sample dictionaries
             key: The key in samples that contains tuple (time, values)
         """
-        # Examine first non-None sample to determine structure
+        # Scan for the first sample that determines the structure. Empty
+        # samples (e.g. a stay with no codes) carry no structural
+        # information, so they are skipped, not stopping the scan.
         for sample in samples:
             if field in sample and sample[field] is not None:
                 # Unpack tuple: (time, values)
@@ -89,11 +91,12 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
                     if isinstance(first_elem, str):
                         # Case 1: ["code1", "code2", ...]
                         self._is_nested = False
+                        break
                     elif isinstance(first_elem, list):
                         if len(first_elem) > 0 and isinstance(first_elem[0], str):
                             # Case 2: [["A", "B"], ["C"], ...]
                             self._is_nested = True
-                break
+                            break
 
         # Build vocabulary for codes and find max nested length
         max_inner_len = 0
@@ -188,9 +191,9 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
 
     def _encode_codes(self, codes: List[str]) -> torch.Tensor:
         """Encode flat code list to indices."""
-        # Handle empty code list - return single padding token
+        # Handle empty code list — zero events, not a fake pad token.
         if len(codes) == 0:
-            return torch.tensor([self.code_vocab["<pad>"]], dtype=torch.long)
+            return torch.zeros((0,), dtype=torch.long)
 
         indices = []
         for code in codes:
@@ -208,11 +211,10 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
         """
         assert self._max_nested_len is not None, "Max nested length must be set during fit()"
         
-        # Handle empty nested codes (no visits/events)
-        # Return single padding token with shape (1, max_len)
+        # Handle empty nested codes (no visits/events) — zero events.
         if len(nested_codes) == 0:
-            pad_token = self.code_vocab["<pad>"]
-            return torch.tensor([[pad_token] * self._max_nested_len], dtype=torch.long)
+            max_len = self._max_nested_len if self._max_nested_len is not None else 1
+            return torch.zeros((0, max_len), dtype=torch.long)
 
         encoded_sequences = []
         # Use global max length determined during fit
@@ -339,8 +341,13 @@ class StageNetTensorProcessor(TemporalFeatureProcessor):
     - List of lists of numbers -> nested numeric sequences (feature vectors)
 
     Imputation Strategy:
-    - Forward-fill: Missing values (NaN/None) are filled with the last observed
-      value for that feature dimension. If no prior value exists, 0.0 is used.
+    - Forward-fill (default, ``forward_fill=True``): Missing values (NaN/None)
+      are filled with the last observed value for that feature dimension.
+      If no prior value exists, 0.0 is used.
+    - No fill (``forward_fill=False``): Missing values are set to 0.0 in
+      place and never propagate earlier rows. Use this for observation-mask
+      fields, where forward-filling a 0/1 mask would turn later missing
+      values into observed ones.
     - Applied per feature dimension independently
 
     Returns:
@@ -359,9 +366,10 @@ class StageNetTensorProcessor(TemporalFeatureProcessor):
         >>> time.shape    # (3,)
     """
 
-    def __init__(self):
+    def __init__(self, forward_fill: bool = True):
         self._size = None  # Feature dimension (set during fit)
         self._is_nested = None
+        self.forward_fill = forward_fill
 
     def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Determine input structure.
@@ -370,7 +378,9 @@ class StageNetTensorProcessor(TemporalFeatureProcessor):
             samples: List of sample dictionaries
             key: The key in samples that contains tuple (time, values)
         """
-        # Examine first non-None sample to determine structure
+        # Scan for the first sample that determines the structure. Empty
+        # samples (e.g. a stay with no lab events) carry no structural
+        # information, so they are skipped, not stopping the scan.
         for sample in samples:
             if field in sample and sample[field] is not None:
                 # Unpack tuple: (time, values)
@@ -384,20 +394,23 @@ class StageNetTensorProcessor(TemporalFeatureProcessor):
                         # Flat numeric: [1.5, 2.0, ...]
                         self._is_nested = False
                         self._size = 1
+                        break
                     elif isinstance(first_elem, list):
                         if len(first_elem) > 0:
                             if isinstance(first_elem[0], (int, float)):
                                 # Nested numerics: [[1.0, 2.0], [3.0, 4.0]]
                                 self._is_nested = True
                                 self._size = len(first_elem)
-                break
+                                break
 
     def process(
         self, value: Tuple[Optional[List], List]
     ) -> Tuple[Optional[torch.Tensor], torch.Tensor]:
         """Process tuple format numeric data into tensors.
 
-        Applies forward-fill imputation to handle NaN/None values.
+        Applies forward-fill imputation to handle NaN/None values, unless
+        the processor was built with ``forward_fill=False`` (observation
+        masks), in which case missing values become 0.0 in place.
         For each feature dimension, missing values are filled with the
         last observed value (or 0.0 if no prior value exists).
 
@@ -409,14 +422,32 @@ class StageNetTensorProcessor(TemporalFeatureProcessor):
         """
         # Unpack tuple: (time, values)
         time_data, value_data = value
+        value_data = list(value_data or [])
 
-        # Convert to numpy for easier imputation handling
         import numpy as np
 
+        if len(value_data) == 0:
+            n_feat = self._size if self._size is not None else 1
+            nested = True if self._is_nested is None else self._is_nested
+            if nested:
+                value_tensor = torch.zeros((0, n_feat), dtype=torch.float)
+            else:
+                value_tensor = torch.zeros((0,), dtype=torch.float)
+            time_tensor = (
+                torch.zeros((0,), dtype=torch.float) if time_data is not None else None
+            )
+            return time_tensor, value_tensor
+
+        # Convert to numpy for easier imputation handling
         value_array = np.array(value_data, dtype=float)
 
+        # Observation-mask fields must preserve false after a true observation;
+        # forward-filling a 0/1 mask would turn later missing labs into observed
+        # values. Ordinary numeric time-series retain the historical behaviour.
+        if not self.forward_fill:
+            value_array = np.nan_to_num(value_array, nan=0.0, posinf=0.0, neginf=0.0)
         # Apply forward-fill imputation
-        if value_array.ndim == 1:
+        elif value_array.ndim == 1:
             # Flat numeric: [1.5, 2.0, nan, 3.0, ...]
             last_value = 0.0
             for i in range(len(value_array)):

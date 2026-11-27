@@ -7,6 +7,7 @@ import warnings
 from typing import Any, Dict, Optional, Tuple, Union, cast
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 from pyhealth.datasets import SampleDataset
@@ -18,7 +19,19 @@ from pyhealth.interpret.api import CheferInterpretable
 
 
 class Attention(nn.Module):
-    """Scaled dot-product attention helper."""
+    """Scaled dot-product attention helper.
+
+    Example:
+        Called inside :class:`MultiHeadedAttention` for each head.
+
+        >>> import torch
+        >>> from pyhealth.models.transformer import Attention
+        >>> attn = Attention()
+        >>> q = k = torch.zeros(1, 1, 2, 4)
+        >>> out, weights = attn(q, k, torch.ones(1, 1, 2, 4))
+        >>> out.shape
+        torch.Size([1, 1, 2, 4])
+    """
 
     def __init__(self):
         super().__init__()
@@ -51,11 +64,13 @@ class Attention(nn.Module):
 
         scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(query.size(-1))
         if mask is not None:
-            # Use -inf so softmax produces exact zeros on padded positions,
-            # avoiding a second masked_fill after softmax (saves one full
-            # [B, H, S, S] boolean allocation and an extra copy).
-            pad_mask = (mask == 0)
-            scores = scores.masked_fill(pad_mask, -1e9)
+            # Fill with the dtype minimum (not -1e9, which is outside the
+            # fp16 range and overflows under AMP) so softmax produces exact
+            # zeros on padded positions, avoiding a second masked_fill
+            # after softmax (saves one full [B, H, S, S] boolean allocation
+            # and an extra copy).
+            pad_mask = mask == 0
+            scores = scores.masked_fill(pad_mask, torch.finfo(scores.dtype).min)
         p_attn = self.softmax(scores)
         if dropout is not None:
             p_attn = dropout(p_attn)
@@ -64,7 +79,15 @@ class Attention(nn.Module):
 
 
 class MultiHeadedAttention(nn.Module):
-    """Multi-head attention wrapper used by the Transformer block."""
+    """Multi-head attention wrapper used by the Transformer block.
+
+    Example:
+        >>> import torch
+        >>> from pyhealth.models.transformer import MultiHeadedAttention
+        >>> mha = MultiHeadedAttention(h=2, d_model=8)
+        >>> mha(torch.zeros(2, 5, 8), torch.zeros(2, 5, 8), torch.zeros(2, 5, 8)).shape
+        torch.Size([2, 5, 8])
+    """
 
     def __init__(self, h: int, d_model: int, dropout: float = 0.1):
         """Initialize the attention module.
@@ -149,19 +172,45 @@ class MultiHeadedAttention(nn.Module):
         ]
 
         # 2) Apply attention on all the projected vectors in batch.
-        if mask is not None:
-            mask = mask.unsqueeze(1)
-        x, attn = self.attention(query, key, value, mask=mask, dropout=self.dropout)
-
-        if register_hook:
-            # Only store attn_map and hook during interpretability passes.
-            # Using .detach() gives an independent copy whose storage
-            # is NOT shared with the live graph, so the graph can be freed
-            # normally after .backward() without leaking GPU memory.
+        # Ordinary training uses fused SDPA. The explicit path stays behind
+        # register_hook=True for interpretability.
+        if not register_hook:
+            query_mask = None
+            attn_mask = None
+            if mask is not None:
+                valid = mask.bool()
+                if mask.dim() == 2:
+                    query_mask = valid[:, None, :, None]
+                    attn_mask = valid[:, None, None, :]
+                else:
+                    query_mask = valid.any(dim=-1)[:, None, :, None]
+                    attn_mask = valid.unsqueeze(1)
+                # A fully-masked query row attends to nothing, which is NaN
+                # or garbage depending on backend and dtype. Let such rows
+                # attend uniformly, then zero their outputs below.
+                attn_mask = attn_mask | ~attn_mask.any(dim=-1, keepdim=True)
+            x = F.scaled_dot_product_attention(
+                query,
+                key,
+                value,
+                attn_mask=attn_mask,
+                dropout_p=self.dropout.p if self.training else 0.0,
+            )
+            if query_mask is not None:
+                x = x * query_mask.to(x.dtype)
+            self.attn_map = None
+            self.attn_gradients = None
+        else:
+            if mask is not None:
+                mask = mask.unsqueeze(1)
+            x, attn = self.attention(
+                query, key, value, mask=mask, dropout=self.dropout
+            )
+            # .detach() gives a copy whose storage is NOT shared with the
+            # live graph, so the graph can be freed normally after
+            # .backward() without leaking GPU memory.
             self.attn_map = attn.detach()
             attn.register_hook(self.save_attn_grad)
-        else:
-            self.attn_map = None
         # 3) "Concat" using a view and apply a final linear.
         x = x.transpose(1, 2).contiguous().view(batch_size, -1, self.h * self.d_k)
   

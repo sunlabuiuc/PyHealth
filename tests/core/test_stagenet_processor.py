@@ -199,9 +199,8 @@ class TestStageNetProcessor(unittest.TestCase):
 
         time, values = processor.process((None, []))
 
-        # Should return single padding token
-        self.assertEqual(values.shape, (1,))
-        self.assertEqual(values[0].item(), processor.code_vocab["<pad>"])
+        # Empty codes are zero events, not a fake pad token
+        self.assertEqual(values.shape, (0,))
 
     def test_empty_codes_nested(self):
         """Test processing empty nested codes."""
@@ -211,10 +210,8 @@ class TestStageNetProcessor(unittest.TestCase):
 
         time, values = processor.process((None, []))
 
-        # Should return single row of padding tokens
-        self.assertEqual(values.shape, (1, 2))
-        self.assertEqual(values[0, 0].item(), processor.code_vocab["<pad>"])
-        self.assertEqual(values[0, 1].item(), processor.code_vocab["<pad>"])
+        # Empty nested codes are zero events
+        self.assertEqual(values.shape, (0, 2))
 
     def test_vocab_size_method(self):
         """Test vocab_size() returns correct size."""
@@ -370,6 +367,16 @@ class TestStageNetTensorProcessor(unittest.TestCase):
         self.assertIsNone(time)
         self.assertEqual(values.shape, (2, 2))
 
+    def test_empty_values_returns_zero_length(self):
+        """Empty values are zero events, not imputed rows."""
+        processor = StageNetTensorProcessor()
+        samples = [{"data": ([0.0], [[1.0, 2.0]])}]
+        processor.fit(samples, "data")
+
+        time, values = processor.process(([0.0], []))
+        self.assertEqual(values.shape, (0, 2))
+        self.assertEqual(time.shape, (0,))
+
     def test_repr_tensor(self):
         """Test string representation for tensor processor."""
         processor = StageNetTensorProcessor()
@@ -459,6 +466,104 @@ class TestStageNetProcessorIntegration(unittest.TestCase):
         # Verify max index is within bounds
         max_idx = values.max().item()
         self.assertLess(max_idx, vocab_size)
+
+
+class TestStageNetTensorProcessorForwardFill(unittest.TestCase):
+    """Tests for the ``forward_fill`` switch (observation masks).
+
+    Regression tests: the multimodal MIMIC-IV tasks declare
+    ``"labs_mask": ("stagenet_tensor", {"forward_fill": False})``, which
+    raised ``TypeError`` before ``StageNetTensorProcessor`` accepted the
+    kwarg, and would silently corrupt masks if the flag were ignored.
+    """
+
+    def test_spec_instantiation_with_forward_fill_kwarg(self):
+        """The task schema spec instantiates through the processor registry."""
+        from pyhealth.processors import get_processor
+
+        default = get_processor("stagenet_tensor")()
+        self.assertTrue(default.forward_fill)
+        no_fill = get_processor("stagenet_tensor")(forward_fill=False)
+        self.assertFalse(no_fill.forward_fill)
+
+    def test_default_still_forward_fills(self):
+        """Default construction keeps the historical forward-fill behaviour."""
+        processor = StageNetTensorProcessor()
+        samples = [{"data": ([0.0], [1.0, 2.0])}]
+        processor.fit(samples, "data")
+        _, values = processor.process(([0.0, 1.0, 2.0], [1.0, None, 3.0]))
+        self.assertEqual(values.tolist(), [1.0, 1.0, 3.0])
+
+    def test_no_forward_fill_keeps_missing_as_zero(self):
+        """With ``forward_fill=False`` missing values never propagate."""
+        processor = StageNetTensorProcessor(forward_fill=False)
+        samples = [{"data": ([0.0], [[1.0, 2.0]])}]
+        processor.fit(samples, "data")
+        _, values = processor.process(
+            ([0.0, 1.0, 2.0], [[1.0, None, 3.0], [None, 5.0, 6.0], [7.0, 8.0, None]])
+        )
+        self.assertEqual(
+            values.tolist(),
+            [[1.0, 0.0, 3.0], [0.0, 5.0, 6.0], [7.0, 8.0, 0.0]],
+        )
+
+    def test_no_forward_fill_preserves_observation_mask(self):
+        """A mask with gaps round-trips instead of filling gaps with 1s."""
+        observed = [[True, None], [None, True], [True, True]]
+        filled = StageNetTensorProcessor()  # default: forward_fill=True
+        samples = [{"data": ([0.0], observed)}]
+        filled.fit(samples, "data")
+        _, filled_values = filled.process(([0.0, 1.0, 2.0], observed))
+        # Forward-filling the mask corrupts it: the gap at [1, 0] becomes
+        # the earlier observed True.
+        self.assertEqual(filled_values.tolist(), [[1.0, 0.0], [1.0, 1.0], [1.0, 1.0]])
+
+        masked = StageNetTensorProcessor(forward_fill=False)
+        masked.fit(samples, "data")
+        _, masked_values = masked.process(([0.0, 1.0, 2.0], observed))
+        self.assertEqual(masked_values.tolist(), [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+
+
+class TestStageNetFitSkipsEmptySamples(unittest.TestCase):
+    """``fit`` must scan past samples with no structural information.
+
+    Regression tests: real task streams start with whatever patient sorts
+    first, and empty-lab stays are legitimate records (the series emits no
+    placeholder rows). The old ``fit`` stopped after the first non-None
+    sample even when it was empty, leaving ``_size``/``_is_nested`` unset;
+    downstream ``value_dim()`` then reported 1 and the unified numeric
+    encoder was built with the wrong input width.
+    """
+
+    def test_tensor_fit_skips_empty_first_sample(self):
+        processor = StageNetTensorProcessor()
+        processor.fit(
+            [
+                {"data": ([], [])},
+                {"data": ([0.0, 1.0], [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])},
+            ],
+            "data",
+        )
+        self.assertTrue(processor._is_nested)
+        self.assertEqual(processor.size(), 3)
+        self.assertEqual(processor.value_dim(), 3)
+
+    def test_tensor_fit_all_empty_stays_unfitted(self):
+        processor = StageNetTensorProcessor()
+        processor.fit([{"data": ([], [])}, {"data": ([], [])}], "data")
+        self.assertIsNone(processor._size)
+        self.assertEqual(processor.value_dim(), 1)
+
+    def test_code_fit_skips_empty_first_sample(self):
+        processor = StageNetProcessor()
+        processor.fit(
+            [
+                {"data": ([], [])},
+                {"data": ([0.0], [["A", "B"], ["C"]])},
+            ],
+            "data",
+        )
+        self.assertTrue(processor._is_nested)
 
 
 if __name__ == "__main__":
