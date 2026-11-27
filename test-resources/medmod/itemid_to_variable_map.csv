@@ -1,0 +1,11 @@
+LEVEL2,LEVEL1,ALTERNATIVE,STATUS,STATUS NOTE,ITEMID,MIMIC LABEL,UNITNAME,LINKSTO,COUNT,CATEGORY,CONCEPTID,FLUID,LOINC_CODE,DBSOURCE,,PARAM_TYPE,NOTE
+Capillary refill rate,Capillary refill rate,CRR,ready,,3348,Capillary Refill,,chartevents,440467,,,,,carevue,,Binary,
+Fraction inspired oxygen,Fraction inspired oxygen,FiO2,ready,requires unit conversion or checking,223835,Inspired O2 Fraction,None,chartevents,558061,Respiratory,,,,metavision,,Numeric,
+Glascow coma scale eye opening,Glascow coma scale eye opening,GCS eye,ready,should we just add these up?,220739,GCS - Eye Opening,,chartevents,571383,Neurological,,,,metavision,,Text,
+Glucose,Glucose,,ready,,50931,GLUCOSE,,labevents,748981,CHEMISTRY,,BLOOD,7/1/2345,,,,
+Heart Rate,Heart Rate,HR,ready,,220045,Heart Rate,bpm,chartevents,2762225,Routine Vital Signs,,,,metavision,,Numeric,
+Height,Height,Height,ready,requires unit conversion or checking,226707,Height,Inch,chartevents,12015,General,,,,metavision,,Numeric,
+Mean blood pressure,Mean blood pressure (arterial),ABPm,ready,,224,IABP Mean,,chartevents,30020,,,,,carevue,,,
+Oxygen saturation,Pulse oximetry,SpO2,ready,,220277,O2 saturation pulseoxymetry,%,chartevents,2671816,Respiratory,,,,metavision,,Numeric,
+pH,pH,,ready,,50820,PH,,labevents,530795,BLOOD GAS,,BLOOD,11558-4,,,,
+Temperature,Temperature (F),,ready,requires unit conversion or checking,223761,Temperature Fahrenheit,?F,chartevents,522143,Routine Vital Signs,,,,metavision,,Numeric,

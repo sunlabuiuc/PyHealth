@@ -1,0 +1,36 @@
+pyhealth.datasets.medmod: MedMod in-hospital mortality for PyHealth
+
+This package reproduces the data processing of MedMod and contains material
+derived from the following projects.
+
+MedMod (Elsharief et al., 2025), https://github.com/nyuad-cai/MedMod
+  Licensed under the Apache License, Version 2.0 (files/MEDMOD_LICENSE).
+  Pinned commit: files/MEDMOD_COMMIT.
+  - Bundled unmodified: files/discretizer_config.json and
+    files/ph_ts1.0.normalizer. The latter is MedMod's
+    ph_ts1.0.input_str:previous.start_time:zero.normalizer, renamed because
+    Windows does not allow colons in file names; its content is unchanged.
+  - Not bundled: the split lists testset_iv.csv and valset_iv.csv and the item
+    map itemid_to_variable_map.csv are downloaded from this repository (or
+    MedFuse's byte-identical copy) at a pinned commit on first use, checked by
+    SHA-256 (downloads.py). The tests use 10 of the item map's rows,
+    unmodified, in test-resources/medmod/itemid_to_variable_map.csv.
+  - Ported with changes (cited by file and line in the code): the Discretizer
+    and Normalizer (discretizer.py: statistics counters dropped, restricted
+    unpickler instead of pickle.load); the cohort, cleaning, time-series and
+    split rules of mimic4extract (extraction.py, re-implemented on pandas for a
+    PyHealth task); the training loaders' time-window and CXR-pairing rules
+    (extraction.py); the simclrv2 transforms (image_presets.py).
+
+MedFuse (Hayat et al., 2022), https://github.com/nyuad-cai/MedFuse
+  The repository has no license file. No MedFuse code is bundled. Settings and
+  behaviours are re-implemented and cited by file and line: the image resize
+  step (resize_cxr.py), the image transforms (image_presets.py) and the EHR
+  loader's time window (extraction.py).
+
+PyHealth, https://github.com/sunlabuiuc/PyHealth, MIT License.
+  configs/mimic4_ehr_v1.0.yaml is adapted from PyHealth's
+  pyhealth/datasets/configs/mimic4_ehr.yaml (v2.2).
+
+pandas: the set of strings pandas 1.1.5 reads as NA (extraction.PANDAS_115_NA)
+  is taken from pandas/_libs/parsers.pyx at tag v1.1.5 (BSD-3-Clause).

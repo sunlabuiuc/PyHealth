@@ -1,0 +1,154 @@
+{
+  "id_to_channel": [
+    "Capillary refill rate",
+    "Diastolic blood pressure",
+    "Fraction inspired oxygen",
+    "Glascow coma scale eye opening",
+    "Glascow coma scale motor response",
+    "Glascow coma scale total",
+    "Glascow coma scale verbal response",
+    "Glucose",
+    "Heart Rate",
+    "Height",
+    "Mean blood pressure",
+    "Oxygen saturation",
+    "Respiratory rate",
+    "Systolic blood pressure",
+    "Temperature",
+    "Weight",
+    "pH"
+  ],
+  "is_categorical_channel": {
+    "Capillary refill rate": true,
+    "Diastolic blood pressure": false,
+    "Fraction inspired oxygen": false,
+    "Glascow coma scale eye opening": true,
+    "Glascow coma scale motor response": true,
+    "Glascow coma scale total": true,
+    "Glascow coma scale verbal response": true,
+    "Glucose": false,
+    "Heart Rate": false,
+    "Height": false,
+    "Mean blood pressure": false,
+    "Oxygen saturation": false,
+    "Respiratory rate": false,
+    "Systolic blood pressure": false,
+    "Temperature": false,
+    "Weight": false,
+    "pH": false
+  },
+  "possible_values": {
+    "Capillary refill rate": [
+      "0.0",
+      "1.0"
+    ],
+    "Diastolic blood pressure": [
+
+    ],
+    "Fraction inspired oxygen": [
+
+    ],
+    "Glascow coma scale eye opening": [
+      "To Pain",
+      "3 To speech",
+      "1 No Response",
+      "4 Spontaneously",
+      "None",
+      "To Speech",
+      "Spontaneously",
+      "2 To pain"
+    ],
+    "Glascow coma scale motor response": [
+      "1 No Response",
+      "3 Abnorm flexion",
+      "Abnormal extension",
+      "No response",
+      "4 Flex-withdraws",
+      "Localizes Pain",
+      "Flex-withdraws",
+      "Obeys Commands",
+      "Abnormal Flexion",
+      "6 Obeys Commands",
+      "5 Localizes Pain",
+      "2 Abnorm extensn"
+    ],
+    "Glascow coma scale total": [
+      "11",
+      "10",
+      "13",
+      "12",
+      "15",
+      "14",
+      "3",
+      "5",
+      "4",
+      "7",
+      "6",
+      "9",
+      "8"
+    ],
+    "Glascow coma scale verbal response": [
+      "1 No Response",
+      "No Response",
+      "Confused",
+      "Inappropriate Words",
+      "Oriented",
+      "No Response-ETT",
+      "5 Oriented",
+      "Incomprehensible sounds",
+      "1.0 ET/Trach",
+      "4 Confused",
+      "2 Incomp sounds",
+      "3 Inapprop words"
+    ],
+    "Glucose": [
+
+    ],
+    "Heart Rate": [
+
+    ],
+    "Height": [
+
+    ],
+    "Mean blood pressure": [
+
+    ],
+    "Oxygen saturation": [
+
+    ],
+    "Respiratory rate": [
+
+    ],
+    "Systolic blood pressure": [
+
+    ],
+    "Temperature": [
+
+    ],
+    "Weight": [
+
+    ],
+    "pH": [
+
+    ]
+  },
+  "normal_values": {
+    "Capillary refill rate": "0.0",
+    "Diastolic blood pressure": "59.0",
+    "Fraction inspired oxygen": "0.21",
+    "Glascow coma scale eye opening": "4 Spontaneously",
+    "Glascow coma scale motor response": "6 Obeys Commands",
+    "Glascow coma scale total": "15",
+    "Glascow coma scale verbal response": "5 Oriented",
+    "Glucose": "128.0",
+    "Heart Rate": "86",
+    "Height": "170.0",
+    "Mean blood pressure": "77.0",
+    "Oxygen saturation": "98.0",
+    "Respiratory rate": "19",
+    "Systolic blood pressure": "118.0",
+    "Temperature": "36.6",
+    "Weight": "81.0",
+    "pH": "7.4"
+  }
+}
