@@ -48,6 +48,9 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.UNet`
      - Your task is pixel/voxel-level segmentation with an image and a mask
      - ``UNet2D``/``UNet3D``; pair with ``PatchDataset``, ``PatchSampler`` and Dice/IoU metrics
+   * - :doc:`models/pyhealth.models.WatchSleepNet`
+     - You have whole-night IBI sequences and want one sleep-stage label per 30 s epoch
+     - CNN + TCN + BiLSTM + attention; masks padded and unknown epochs from loss/metrics
    * - :doc:`models/pyhealth.models.GNN`
      - Features include graph-structured data
      - Works with ``GraphProcessor``; see :doc:`graph` for setup
@@ -325,6 +328,7 @@ API Reference
     models/pyhealth.models.ContraWR
     models/pyhealth.models.EEGNet
     models/pyhealth.models.DeepSleepNet
+    models/pyhealth.models.WatchSleepNet
     models/pyhealth.models.SleepKD
     models/pyhealth.models.SparcNet
     models/pyhealth.models.StageNet
