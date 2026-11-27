@@ -1,4 +1,3 @@
-
 """Synthetic tests for diagnosis-focused evidence retrieval.
 
 These tests reuse the temporal eligibility and deduplication
@@ -15,13 +14,12 @@ import polars as pl
 from pyhealth.data import Patient
 from pyhealth.tasks import DiagnosisEvidenceRetrievalMIMIC3
 from pyhealth.tasks._diagnosis_evidence_utils import (
-    eligible_history,
-    deduplicate_history,
     choose_history,
-    make_samples,
+    deduplicate_history,
     digest,
+    eligible_history,
+    make_samples,
 )
-
 
 REPORT = {
     "report_id": "100",
@@ -90,9 +88,7 @@ def make_patient(
         charttime_missing = not note.get("charttime")
 
         timestamp = datetime.fromisoformat(
-            note["chartdate"]
-            if charttime_missing
-            else note["charttime"]
+            note["chartdate"] if charttime_missing else note["charttime"]
         )
 
         row = {
@@ -214,9 +210,7 @@ class TestDiagnosisEvidenceUtilities(unittest.TestCase):
                 self.assertEqual(note_ids(result), expected)
 
                 if policy == "retain":
-                    self.assertTrue(
-                        result[-1]["availability_unknown"]
-                    )
+                    self.assertTrue(result[-1]["availability_unknown"])
 
     def test_identical_and_conflicting_note_ids(self):
         note = make_note()
@@ -429,12 +423,8 @@ class TestDiagnosisEvidenceRetrievalMIMIC3(unittest.TestCase):
         sample = make_task()(make_patient(notes))[0]
 
         self.assertEqual(sample["note_ids"], ["1"])
-        self.assertTrue(
-            sample["note_metadata"][0]["date_only"]
-        )
-        self.assertIsNone(
-            sample["note_metadata"][0]["charttime"]
-        )
+        self.assertTrue(sample["note_metadata"][0]["date_only"])
+        self.assertIsNone(sample["note_metadata"][0]["charttime"])
 
     def test_deduplication_before_history_limit(self):
         notes = [
@@ -607,9 +597,8 @@ class TestDiagnosisEvidenceRetrievalMIMIC3(unittest.TestCase):
         ]
 
         for kwargs in cases:
-            with self.subTest(kwargs=kwargs):
-                with self.assertRaises(ValueError):
-                    make_task(**kwargs)
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                make_task(**kwargs)
 
 
 if __name__ == "__main__":

@@ -1,12 +1,22 @@
 """Dependency-free time and history rules, shared by cohort and PyHealth adapter."""
 
 from __future__ import annotations
-from datetime import datetime
-import re
+
 import hashlib
 import json
+import re
+from datetime import datetime
+
 
 def clean_id(value):
+    """Normalize an identifier and handle missing values.
+
+    Examples:
+        >>> clean_id("105.0")
+        '105'
+        >>> clean_id(None)
+        ''
+    """
     text = "" if value is None else str(value).strip()
     if text.lower() in {"nan", "none", "nat", "<na>"}:
         return ""
@@ -14,6 +24,14 @@ def clean_id(value):
 
 
 def parse_time(value):
+    """Parse a timestamp into a timezone-naive datetime.
+
+    Examples:
+        >>> parse_time("2150-01-01 09:00:00")
+        datetime.datetime(2150, 1, 1, 9, 0)
+        >>> parse_time("invalid") is None
+        True
+    """
     if value is None or str(value).strip().lower() in {
         "",
         "none",
@@ -30,12 +48,35 @@ def parse_time(value):
         return None
 
 
-def eligible_history(notes, report, strict_availability=True, unknown_availability="retain"):
-    """CHARTTIME < report; date-only notes must be from a previous calendar day.
+def eligible_history(
+    notes, report, strict_availability=True, unknown_availability="retain"
+):
+    """Select historical notes available before the index report.
 
-    STORETIME after the report is excluded in the primary analysis. Missing
-    STORETIME is retained and flagged: retrospective availability is then unknown.
-    Notes without HADM_ID are retained through patient-level linkage.
+    Exact chart timestamps must precede the report timestamp.
+    Date-only notes must be from a previous calendar day.
+    Strict availability excludes notes stored at or after the report.
+    Missing storage timestamps are retained or excluded according
+    to the unknown availability policy.
+
+    Notes without HADM_ID can be retained through patient linkage.
+
+    Examples:
+        >>> report = {
+        ...     "subject_id": "1",
+        ...     "report_id": "20",
+        ...     "report_time": "2150-01-02 12:00:00",
+        ... }
+        >>> notes = [{
+        ...     "subject_id": "1",
+        ...     "row_id": "10",
+        ...     "text": "History of hypertension.",
+        ...     "charttime": "2150-01-01 09:00:00",
+        ...     "storetime": "2150-01-01 10:00:00",
+        ... }]
+        >>> history = eligible_history(notes, report)
+        >>> [note["row_id"] for note in history]
+        ['10']
     """
     if unknown_availability not in {"retain", "exclude"}:
         raise ValueError("unknown_availability must be retain or exclude")
@@ -87,18 +128,45 @@ def eligible_history(notes, report, strict_availability=True, unknown_availabili
 
 
 def deduplicate_history(notes, policy="exact"):
-    """Collapse exact whitespace-normalized copies; optionally known report versions.
+    """Collapse exact copies and optionally known report versions.
 
-    Similar progress notes remain distinct. Examination grouping requires an exact
-    chart timestamp, description and explicit Clip identifier within one patient.
-    Unknown-availability versions are flagged and retained, never silently replaced.
+    Similar progress notes remain distinct. Examination grouping
+    requires an exact chart timestamp, description and explicit
+    Clip identifier within one patient.
+
+    Unknown-availability report versions are flagged and retained.
+
+    Examples:
+        >>> notes = [
+        ...     {
+        ...         "subject_id": "1",
+        ...         "row_id": "10",
+        ...         "text": "Hypertension",
+        ...         "note_time": "2150-01-01",
+        ...     },
+        ...     {
+        ...         "subject_id": "1",
+        ...         "row_id": "11",
+        ...         "text": "Hypertension",
+        ...         "note_time": "2150-01-02",
+        ...     },
+        ... ]
+        >>> retained, audit = deduplicate_history(notes)
+        >>> len(retained)
+        1
+        >>> audit["exact_duplicates_removed"]
+        1
     """
     if policy not in {"none", "exact", "report_versions"}:
         raise ValueError("Invalid history deduplication policy")
     notes = [dict(n) for n in notes]
-    audit = {"input_notes": len(notes), "exact_duplicates_removed": 0,
-             "report_versions_removed": 0, "report_version_groups": 0,
-             "unresolved_report_version_groups": 0}
+    audit = {
+        "input_notes": len(notes),
+        "exact_duplicates_removed": 0,
+        "report_versions_removed": 0,
+        "report_version_groups": 0,
+        "unresolved_report_version_groups": 0,
+    }
     if policy != "none":
         groups = {}
         for n in notes:
@@ -106,8 +174,13 @@ def deduplicate_history(notes, policy="exact"):
             groups.setdefault(key, []).append(n)
         notes = []
         for group in groups.values():
-            group.sort(key=lambda n: (n.get("availability_unknown", True),
-                                      n["note_time"], clean_id(n["row_id"])))
+            group.sort(
+                key=lambda n: (
+                    n.get("availability_unknown", True),
+                    n["note_time"],
+                    clean_id(n["row_id"]),
+                )
+            )
             kept = group[0]
             if len(group) > 1:
                 kept["duplicate_note_ids"] = [clean_id(n["row_id"]) for n in group[1:]]
@@ -117,11 +190,17 @@ def deduplicate_history(notes, policy="exact"):
     for n in notes:
         if str(n.get("category", "")).strip().casefold() != "radiology":
             continue
-        clip = re.search(r"Clip\s*#\s*(\[\*\*[^\r\n]+?\*\*\]|\d+)", n["text"], re.I)
+        clip = re.search(
+            r"Clip\s*#\s*(\[\*\*[^\r\n]+?\*\*\]|\d+)", n["text"], re.IGNORECASE
+        )
         when = parse_time(n.get("charttime"))
         if clip and when:
-            key = (clean_id(n["subject_id"]), when.isoformat(),
-                   str(n.get("description", "")).strip().casefold(), clip.group(1))
+            key = (
+                clean_id(n["subject_id"]),
+                when.isoformat(),
+                str(n.get("description", "")).strip().casefold(),
+                clip.group(1),
+            )
             exams.setdefault(key, []).append(n)
     removed = set()
     for group in exams.values():
@@ -131,24 +210,51 @@ def deduplicate_history(notes, policy="exact"):
         ids = sorted(clean_id(n["row_id"]) for n in group)
         for n in group:
             n["report_version_note_ids"] = ids
-        finals = [n for n in group if re.search(r"\bFINAL REPORT\b", n["text"], re.I)]
-        prelims = [n for n in group if re.search(r"\bPFI REPORT\b", n["text"], re.I)
-                   and n not in finals]
+        finals = [
+            n for n in group if re.search(r"\bFINAL REPORT\b", n["text"], re.IGNORECASE)
+        ]
+        prelims = [
+            n
+            for n in group
+            if re.search(r"\bPFI REPORT\b", n["text"], re.IGNORECASE)
+            and n not in finals
+        ]
         known = all(not n.get("availability_unknown", True) for n in group)
-        if policy == "report_versions" and known and len(finals) == 1 and len(prelims) == len(group) - 1:
+        if (
+            policy == "report_versions"
+            and known
+            and len(finals) == 1
+            and len(prelims) == len(group) - 1
+        ):
             final = finals[0]
             final["superseded_note_ids"] = [clean_id(n["row_id"]) for n in prelims]
             removed.update(final["superseded_note_ids"])
             audit["report_versions_removed"] += len(prelims)
         else:
             audit["unresolved_report_version_groups"] += 1
-    notes = sorted([n for n in notes if clean_id(n["row_id"]) not in removed],
-                   key=lambda n: (n["note_time"], clean_id(n["row_id"])))
+    notes = sorted(
+        [n for n in notes if clean_id(n["row_id"]) not in removed],
+        key=lambda n: (n["note_time"], clean_id(n["row_id"])),
+    )
     audit["retained_notes"] = len(notes)
     return notes, audit
 
 
 def choose_history(notes, max_notes=0, order="recent"):
+    """Select a limited number of chronologically ordered notes.
+
+    A max_notes value of zero retains all available notes.
+
+    Examples:
+        >>> notes = [
+        ...     {"row_id": "1", "note_time": "2150-01-01"},
+        ...     {"row_id": "2", "note_time": "2150-01-02"},
+        ... ]
+        >>> choose_history(notes, max_notes=1)[0]["row_id"]
+        '2'
+        >>> choose_history(notes, max_notes=1, order="earliest")[0]["row_id"]
+        '1'
+    """
     if max_notes < 0 or order not in {"recent", "earliest"}:
         raise ValueError("Invalid history selection")
     notes = sorted(notes, key=lambda n: (n["note_time"], clean_id(n["row_id"])))
@@ -157,9 +263,42 @@ def choose_history(notes, max_notes=0, order="recent"):
     return notes[-max_notes:] if order == "recent" else notes[:max_notes]
 
 
-def make_samples(reviews, notes, min_prior_notes=10, strict_availability=True,
-                 unknown_availability="retain", deduplication="none"):
-    """One earliest eligible sample per patient/canonical diagnosis; no gold labels."""
+def make_samples(
+    reviews,
+    notes,
+    min_prior_notes=10,
+    strict_availability=True,
+    unknown_availability="retain",
+    deduplication="none",
+):
+    """Construct the earliest eligible sample per patient and diagnosis.
+
+    Apply temporal filtering and deduplication before checking the
+    minimum historical note requirement. The resulting samples do
+    not contain ground-truth relevance labels.
+
+    Examples:
+        >>> reviews = [{
+        ...     "subject_id": "1",
+        ...     "report_id": "20",
+        ...     "report_time": "2150-01-02 12:00:00",
+        ...     "diagnosis": "Stroke",
+        ... }]
+        >>> notes = [{
+        ...     "subject_id": "1",
+        ...     "row_id": "10",
+        ...     "text": "History of hypertension.",
+        ...     "charttime": "2150-01-01 09:00:00",
+        ...     "storetime": "2150-01-01 10:00:00",
+        ... }]
+        >>> samples = make_samples(reviews, notes, min_prior_notes=1)
+        >>> len(samples)
+        1
+        >>> samples[0]["diagnosis"]
+        'stroke'
+        >>> samples[0]["prior_note_count"]
+        1
+    """
     samples, seen = [], set()
     for r in sorted(
         reviews, key=lambda x: (x["report_time"], x["report_id"], x["diagnosis"])
@@ -168,11 +307,19 @@ def make_samples(reviews, notes, min_prior_notes=10, strict_availability=True,
         if pair in seen:
             continue
         history = eligible_history(notes, r, strict_availability, unknown_availability)
-        excluded_unknown = (len(eligible_history(notes, r, strict_availability, "retain"))
-                            - len(history)) if unknown_availability == "exclude" else 0
+        excluded_unknown = (
+            (
+                len(eligible_history(notes, r, strict_availability, "retain"))
+                - len(history)
+            )
+            if unknown_availability == "exclude"
+            else 0
+        )
         history, audit = deduplicate_history(history, deduplication)
         audit["unknown_availability_excluded"] = excluded_unknown
-        audit["unknown_availability_retained"] = sum(n["availability_unknown"] for n in history)
+        audit["unknown_availability_retained"] = sum(
+            n["availability_unknown"] for n in history
+        )
         if len(history) < min_prior_notes:
             continue
         seen.add(pair)
@@ -182,12 +329,15 @@ def make_samples(reviews, notes, min_prior_notes=10, strict_availability=True,
                 "diagnosis": pair[1],
                 "notes": history,
                 "prior_note_count": len(history),
-                "history_policy": {"unknown_availability": unknown_availability,
-                                   "deduplication": deduplication},
+                "history_policy": {
+                    "unknown_availability": unknown_availability,
+                    "deduplication": deduplication,
+                },
                 "history_audit": audit,
             }
         )
     return samples
+
 
 def digest(value):
     return hashlib.sha256(

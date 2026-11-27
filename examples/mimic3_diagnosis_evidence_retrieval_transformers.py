@@ -1,4 +1,3 @@
-
 """Diagnosis evidence retrieval using an existing PyHealth model.
 
 This example demonstrates how historical note deduplication affects
@@ -61,7 +60,6 @@ from pyhealth.data import Patient
 from pyhealth.datasets import create_sample_dataset
 from pyhealth.models import TransformersModel
 from pyhealth.tasks import DiagnosisEvidenceRetrievalMIMIC3
-
 
 MODEL_NAME = "emilyalsentzer/Bio_ClinicalBERT"
 TOP_K = 3
@@ -271,11 +269,7 @@ def rank_notes(
     texts = [query] + sample["historical_notes"]
 
     # Reuse embeddings across deduplication configurations.
-    missing = list(
-        dict.fromkeys(
-            text for text in texts if text not in embedding_cache
-        )
-    )
+    missing = list(dict.fromkeys(text for text in texts if text not in embedding_cache))
 
     if missing:
         embeddings = model.encode(missing)
@@ -285,9 +279,7 @@ def rank_notes(
 
     query_embedding = embedding_cache[query]
 
-    note_embeddings = torch.stack(
-        [embedding_cache[text] for text in texts[1:]]
-    )
+    note_embeddings = torch.stack([embedding_cache[text] for text in texts[1:]])
 
     scores = F.cosine_similarity(
         query_embedding.unsqueeze(0),
@@ -384,10 +376,7 @@ def main() -> None:
 
             audit = sample["history_audit"]
 
-            print(
-                f"  Patient {patient.patient_id}: "
-                f"{sample['diagnosis']}"
-            )
+            print(f"  Patient {patient.patient_id}: {sample['diagnosis']}")
             print(f"    Notes retained: {sample['note_ids']}")
             print(f"    Top-{TOP_K}: {ranked_ids[:TOP_K]}")
             print(
@@ -409,8 +398,7 @@ def main() -> None:
             {
                 "policy": policy,
                 **{
-                    key: sum(row[key] for row in patient_results)
-                    / len(patient_results)
+                    key: sum(row[key] for row in patient_results) / len(patient_results)
                     for key in (
                         "notes",
                         "precision",
@@ -424,11 +412,7 @@ def main() -> None:
     print("\nABLATION RESULTS")
     print("-" * 76)
     print(
-        f"{'Policy':<20}"
-        f"{'Avg notes':>10}"
-        f"{'P@3':>12}"
-        f"{'Recall@3':>14}"
-        f"{'Redundancy':>14}"
+        f"{'Policy':<20}{'Avg notes':>10}{'P@3':>12}{'Recall@3':>14}{'Redundancy':>14}"
     )
     print("-" * 76)
 

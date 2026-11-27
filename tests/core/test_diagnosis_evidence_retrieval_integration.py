@@ -1,4 +1,3 @@
-
 """End-to-end tests for MIMIC-III diagnosis evidence retrieval.
 
 All clinical records are synthetic. These tests require no protected
@@ -6,19 +5,18 @@ MIMIC-III data, external model downloads or GPU resources.
 """
 
 import csv
+import gc
 import gzip
+import os
 import tempfile
 import unittest
-import os
 from pathlib import Path
-import gc
 
 import yaml
 
 from pyhealth.datasets import MIMIC3Dataset
 from pyhealth.tasks import DiagnosisEvidenceRetrievalMIMIC3
 from pyhealth.tasks._diagnosis_evidence_utils import digest
-
 
 REPORT_TEXT = "FINAL REPORT: Findings consistent with stroke."
 
@@ -91,7 +89,9 @@ def create_synthetic_mimic3(root):
         ],
         [
             [
-                i, subject, hadm,
+                i,
+                subject,
+                hadm,
                 "2150-01-02 08:00:00",
                 "2150-01-10 12:00:00",
                 "",
@@ -106,7 +106,8 @@ def create_synthetic_mimic3(root):
                 "2150-01-02 08:00:00",
                 "2150-01-02 09:00:00",
                 "STROKE",
-                0, 1,
+                0,
+                1,
             ]
             for i, subject, hadm in [
                 (1, 100, 200),
@@ -134,11 +135,15 @@ def create_synthetic_mimic3(root):
         ],
         [
             [
-                i, subject, hadm, icu,
+                i,
+                subject,
+                hadm,
+                icu,
                 "metavision",
                 "MICU",
                 "MICU",
-                50, 50,
+                50,
+                50,
                 "2150-01-02 09:00:00",
                 "2150-01-04 09:00:00",
                 2.0,
@@ -169,81 +174,114 @@ def create_synthetic_mimic3(root):
         [
             # Patient 100: eligible linked historical note.
             [
-                101, 100, 200,
+                101,
+                100,
+                200,
                 "2150-01-01",
                 "2150-01-01 09:00:00",
                 "2150-01-01 10:00:00",
-                "Nursing", "Synthetic", 1, "",
+                "Nursing",
+                "Synthetic",
+                1,
+                "",
                 "History of hypertension.",
             ],
-
             # Eligible admission-less, date-only historical note.
             [
-                102, 100, "",
+                102,
+                100,
+                "",
                 "2150-01-01",
                 "",
                 "2150-01-01 11:00:00",
-                "Nursing", "Synthetic", 1, "",
+                "Nursing",
+                "Synthetic",
+                1,
+                "",
                 "History of smoking.",
             ],
-
             # Genuine midnight timestamp, not an imputed time.
             [
-                103, 100, 200,
+                103,
+                100,
+                200,
                 "2150-01-02",
                 "2150-01-02 00:00:00",
                 "2150-01-02 01:00:00",
-                "Nursing", "Synthetic", 1, "",
+                "Nursing",
+                "Synthetic",
+                1,
+                "",
                 "Patient reports headache.",
             ],
-
             # Charted before imaging but stored afterward.
             [
-                104, 100, 200,
+                104,
+                100,
+                200,
                 "2150-01-02",
                 "2150-01-02 10:00:00",
                 "2150-01-02 13:00:00",
-                "Nursing", "Synthetic", 1, "",
+                "Nursing",
+                "Synthetic",
+                1,
+                "",
                 "Late stored clinical note.",
             ],
-
             # Reviewed index radiology report.
             [
-                105, 100, 200,
+                105,
+                100,
+                200,
                 "2150-01-02",
                 "2150-01-02 12:00:00",
                 "2150-01-02 12:00:00",
-                "Radiology", "CT HEAD", 1, "",
+                "Radiology",
+                "CT HEAD",
+                1,
+                "",
                 REPORT_TEXT,
             ],
-
             # Same-day date-only note: temporally ambiguous.
             [
-                106, 100, 200,
+                106,
+                100,
+                200,
                 "2150-01-02",
                 "",
                 "2150-01-02 09:00:00",
-                "Nursing", "Synthetic", 1, "",
+                "Nursing",
+                "Synthetic",
+                1,
+                "",
                 "Ambiguous same-day clinical note.",
             ],
-
             # Patient 101: one eligible historical note.
             [
-                201, 101, 201,
+                201,
+                101,
+                201,
                 "2150-01-01",
                 "2150-01-01 09:00:00",
                 "2150-01-01 10:00:00",
-                "Nursing", "Synthetic", 1, "",
+                "Nursing",
+                "Synthetic",
+                1,
+                "",
                 "History of atrial fibrillation.",
             ],
-
             # Patient 101: reviewed index report.
             [
-                205, 101, 201,
+                205,
+                101,
+                201,
                 "2150-01-02",
                 "2150-01-02 12:00:00",
                 "2150-01-02 12:00:00",
-                "Radiology", "CT HEAD", 1, "",
+                "Radiology",
+                "CT HEAD",
+                1,
+                "",
                 REPORT_TEXT,
             ],
         ],
@@ -303,9 +341,7 @@ class TestDiagnosisEvidenceRetrievalIntegration(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.tmp = tempfile.TemporaryDirectory(
-            ignore_cleanup_errors=(os.name == "nt")
-        )
+        cls.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=(os.name == "nt"))
         cls.addClassCleanup(cls.tmp.cleanup)
 
         base = Path(cls.tmp.name)
@@ -334,7 +370,6 @@ class TestDiagnosisEvidenceRetrievalIntegration(unittest.TestCase):
             cache_dir=cls.cache,
             num_workers=1,
         )
-
 
     @classmethod
     def tearDownClass(cls):
@@ -367,13 +402,11 @@ class TestDiagnosisEvidenceRetrievalIntegration(unittest.TestCase):
         longitudinal_patient = self.longitudinal.get_patient("100")
 
         standard_ids = {
-            str(event.row_id)
-            for event in standard_patient.get_events("noteevents")
+            str(event.row_id) for event in standard_patient.get_events("noteevents")
         }
 
         longitudinal_ids = {
-            str(event.row_id)
-            for event in longitudinal_patient.get_events("noteevents")
+            str(event.row_id) for event in longitudinal_patient.get_events("noteevents")
         }
 
         self.assertNotIn("102", standard_ids)
@@ -389,19 +422,12 @@ class TestDiagnosisEvidenceRetrievalIntegration(unittest.TestCase):
         patient = self.longitudinal.get_patient("100")
 
         events = {
-            str(event.row_id): event
-            for event in patient.get_events("noteevents")
+            str(event.row_id): event for event in patient.get_events("noteevents")
         }
 
-        self.assertEqual(
-            events["102"].charttime_missing, "true"
-        )
-        self.assertEqual(
-            events["103"].charttime_missing, "false"
-        )
-        self.assertEqual(
-            events["106"].charttime_missing, "true"
-        )
+        self.assertEqual(events["102"].charttime_missing, "true")
+        self.assertEqual(events["103"].charttime_missing, "false")
+        self.assertEqual(events["106"].charttime_missing, "true")
 
         self.assertEqual(events["103"].timestamp.hour, 0)
         self.assertEqual(events["106"].timestamp.hour, 0)
@@ -434,10 +460,7 @@ class TestDiagnosisEvidenceRetrievalIntegration(unittest.TestCase):
         self.assertEqual(sample["prior_note_count"], 3)
 
         # Note 102 must retain its original missing chart time.
-        metadata = {
-            note["row_id"]: note
-            for note in sample["note_metadata"]
-        }
+        metadata = {note["row_id"]: note for note in sample["note_metadata"]}
 
         self.assertTrue(metadata["102"]["date_only"])
         self.assertIsNone(metadata["102"]["charttime"])
@@ -449,13 +472,9 @@ class TestDiagnosisEvidenceRetrievalIntegration(unittest.TestCase):
         """Verify the practical impact of retaining unlinked notes."""
         task = make_task()
 
-        standard_sample = task(
-            self.standard.get_patient("100")
-        )[0]
+        standard_sample = task(self.standard.get_patient("100"))[0]
 
-        longitudinal_sample = task(
-            self.longitudinal.get_patient("100")
-        )[0]
+        longitudinal_sample = task(self.longitudinal.get_patient("100"))[0]
 
         self.assertEqual(
             set(standard_sample["note_ids"]),
@@ -488,16 +507,14 @@ class TestDiagnosisEvidenceRetrievalIntegration(unittest.TestCase):
         self.assertEqual(task.output_schema, {})
 
         observed = {
-            str(samples[i]["patient_id"]): samples[i]
-            for i in range(len(samples))
+            str(samples[i]["patient_id"]): samples[i] for i in range(len(samples))
         }
 
         self.assertEqual(set(observed), {"100", "101"})
 
-        for patient_id in expected:
+        for patient_id, reference in expected.items():
             with self.subTest(patient_id=patient_id):
                 sample = observed[patient_id]
-                reference = expected[patient_id]
 
                 for field in task.input_schema:
                     self.assertEqual(
@@ -532,7 +549,6 @@ class TestDiagnosisEvidenceRetrievalIntegration(unittest.TestCase):
                 sample["historical_notes"],
                 expected[patient_id]["historical_notes"],
             )
-
 
         # Explicitly release LitData resources.
         samples.close()

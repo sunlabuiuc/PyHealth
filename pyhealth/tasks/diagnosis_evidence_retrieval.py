@@ -1,20 +1,18 @@
-
 """Diagnosis-focused evidence retrieval from longitudinal MIMIC-III notes."""
 
 from datetime import timedelta
-from typing import Any, Dict, List, Optional
-
+from typing import Any, ClassVar
 
 from pyhealth.data import Patient
 
-from .base_task import BaseTask
 from ._diagnosis_evidence_utils import (
-    clean_id,
-    parse_time,
-    make_samples,
     choose_history,
+    clean_id,
     digest,
+    make_samples,
+    parse_time,
 )
+from .base_task import BaseTask
 
 
 class DiagnosisEvidenceRetrievalMIMIC3(BaseTask):
@@ -59,7 +57,7 @@ class DiagnosisEvidenceRetrievalMIMIC3(BaseTask):
 
     task_name = "diagnosis_evidence_retrieval_mimic3"
 
-    input_schema = {
+    input_schema: ClassVar[dict[str, str]] = {
         "diagnosis": "text",
         "evidence_type": "raw",
         "historical_notes": "raw",
@@ -71,13 +69,14 @@ class DiagnosisEvidenceRetrievalMIMIC3(BaseTask):
         "prior_note_count": "raw",
     }
 
+    output_schema: ClassVar[dict[str, str]] = {}
     output_schema = {}
 
     def __init__(
         self,
-        reviewed_queries: List[Dict[str, Any]],
+        reviewed_queries: list[dict[str, Any]],
         min_prior_notes: int = 10,
-        max_notes: Optional[int] = None,
+        max_notes: int | None = None,
         window_hours: int = 48,
         strict_availability: bool = True,
         unknown_availability: str = "exclude",
@@ -91,16 +90,12 @@ class DiagnosisEvidenceRetrievalMIMIC3(BaseTask):
             raise ValueError("Invalid cohort thresholds.")
 
         if max_notes is not None and max_notes < min_prior_notes:
-            raise ValueError(
-                "max_notes cannot be smaller than min_prior_notes."
-            )
+            raise ValueError("max_notes cannot be smaller than min_prior_notes.")
 
         if unknown_availability not in {"retain", "exclude"}:
             raise ValueError("Invalid unknown availability policy.")
 
-        if deduplication not in {
-            "none", "exact", "report_versions"
-        }:
+        if deduplication not in {"none", "exact", "report_versions"}:
             raise ValueError("Invalid deduplication policy.")
 
         if history_order not in {"recent", "earliest"}:
@@ -119,23 +114,15 @@ class DiagnosisEvidenceRetrievalMIMIC3(BaseTask):
         self.evidence_type = evidence_type
 
         # Accept both PyHealth-style and original research query fields.
-        self.queries_by_patient: Dict[str, List[Dict]] = {}
+        self.queries_by_patient: dict[str, list[dict]] = {}
 
         for query in reviewed_queries:
-            subject = clean_id(
-                query.get("patient_id", query.get("subject_id"))
-            )
-            report_id = clean_id(
-                query.get("index_note_id", query.get("report_id"))
-            )
-            diagnosis = str(
-                query.get("diagnosis") or ""
-            ).strip()
+            subject = clean_id(query.get("patient_id", query.get("subject_id")))
+            report_id = clean_id(query.get("index_note_id", query.get("report_id")))
+            diagnosis = str(query.get("diagnosis") or "").strip()
 
             if not subject or not report_id or not diagnosis:
-                raise ValueError(
-                    "Each query requires a patient, report and diagnosis."
-                )
+                raise ValueError("Each query requires a patient, report and diagnosis.")
 
             record = dict(query)
             record.update(
@@ -144,11 +131,9 @@ class DiagnosisEvidenceRetrievalMIMIC3(BaseTask):
                 diagnosis=diagnosis,
             )
 
-            self.queries_by_patient.setdefault(
-                subject, []
-            ).append(record)
+            self.queries_by_patient.setdefault(subject, []).append(record)
 
-    def _patient_notes(self, patient: Patient) -> List[Dict]:
+    def _patient_notes(self, patient: Patient) -> list[dict]:
         """Convert PyHealth note events to the research note schema."""
         notes = []
 
@@ -185,28 +170,20 @@ class DiagnosisEvidenceRetrievalMIMIC3(BaseTask):
                     missing = False
 
             if not isinstance(missing, bool):
-                raise ValueError(
-                    "Missing or invalid chart-time provenance."
-                )
+                raise TypeError("Missing or invalid chart-time provenance.")
 
             # Restore the original timestamp before midnight imputation.
             charttime = None if missing else event.timestamp
 
             note = {
-                key: attrs.get(key)
-                for key in required
-                if key != "charttime_missing"
+                key: attrs.get(key) for key in required if key != "charttime_missing"
             }
 
             note.update(
                 subject_id=clean_id(patient.patient_id),
                 row_id=clean_id(attrs["row_id"]),
                 hadm_id=clean_id(attrs["hadm_id"]) or None,
-                charttime=(
-                    charttime.isoformat()
-                    if charttime is not None
-                    else None
-                ),
+                charttime=(charttime.isoformat() if charttime is not None else None),
             )
 
             # Normalize boolean error flags for the original utilities.
@@ -219,19 +196,18 @@ class DiagnosisEvidenceRetrievalMIMIC3(BaseTask):
 
     def _accepted_queries(
         self,
-        queries: List[Dict],
-        notes: List[Dict],
-        admissions: Dict,
-    ) -> List[Dict]:
+        queries: list[dict],
+        notes: list[dict],
+        admissions: dict,
+    ) -> list[dict]:
         """Validate reviewed reports and ED timing eligibility."""
         notes_by_id = {}
 
         for note in notes:
             note_id = note["row_id"]
 
-            if note_id in notes_by_id:
-                if notes_by_id[note_id] != note:
-                    raise ValueError("Conflicting duplicate note ROW_ID.")
+            if note_id in notes_by_id and notes_by_id[note_id] != note:
+                raise ValueError("Conflicting duplicate note ROW_ID.")
 
             notes_by_id[note_id] = note
 
@@ -253,14 +229,10 @@ class DiagnosisEvidenceRetrievalMIMIC3(BaseTask):
             # Verify that the reviewed report has not changed.
             if has_hash:
                 if not isinstance(report.get("text"), str):
-                    raise ValueError(
-                        "Reviewed target report text is missing."
-                    )
+                    raise ValueError("Reviewed target report text is missing.")
 
                 if digest(report["text"]) != expected_hash:
-                    raise ValueError(
-                        "Reviewed target report text hash mismatch."
-                    )
+                    raise ValueError("Reviewed target report text hash mismatch.")
 
             if str(report["category"]).strip().lower() != "radiology":
                 continue
@@ -281,35 +253,34 @@ class DiagnosisEvidenceRetrievalMIMIC3(BaseTask):
             if target is None or admission is None:
                 continue
 
-            admission_type = str(
-                admission.attr_dict.get("admission_type") or ""
-            ).strip().upper()
+            admission_type = (
+                str(admission.attr_dict.get("admission_type") or "").strip().upper()
+            )
 
             if admission_type not in {"EMERGENCY", "URGENT"}:
                 continue
 
-            anchor = parse_time(
-                admission.attr_dict.get("edregtime")
-            )
+            anchor = parse_time(admission.attr_dict.get("edregtime"))
 
             if anchor is None:
                 continue
 
             if not (
-                timedelta(0)
-                <= target - anchor
-                <= timedelta(hours=self.window_hours)
+                timedelta(0) <= target - anchor <= timedelta(hours=self.window_hours)
             ):
                 continue
 
             # Validate supplied research metadata when available.
-            if query.get("hadm_id") is not None:
-                if clean_id(query["hadm_id"]) != hadm_id:
-                    raise ValueError("Reviewed admission ID mismatch.")
-
-            if query.get("report_time") is not None:
-                if parse_time(query["report_time"]) != target:
-                    raise ValueError("Reviewed report timestamp mismatch.")
+            if (
+                query.get("hadm_id") is not None
+                and clean_id(query["hadm_id"]) != hadm_id
+            ):
+                raise ValueError("Reviewed admission ID mismatch.")
+            if (
+                query.get("report_time") is not None
+                and parse_time(query["report_time"]) != target
+            ):
+                raise ValueError("Reviewed report timestamp mismatch.")
 
             accepted.append(
                 {
@@ -323,7 +294,7 @@ class DiagnosisEvidenceRetrievalMIMIC3(BaseTask):
 
         return accepted
 
-    def __call__(self, patient: Patient) -> List[Dict[str, Any]]:
+    def __call__(self, patient: Patient) -> list[dict[str, Any]]:
         """Generate retrieval samples using the original research rules."""
         subject = clean_id(patient.patient_id)
         queries = self.queries_by_patient.get(subject, [])
@@ -338,9 +309,7 @@ class DiagnosisEvidenceRetrievalMIMIC3(BaseTask):
             for event in patient.get_events(event_type="admissions")
         }
 
-        accepted = self._accepted_queries(
-            queries, notes, admissions
-        )
+        accepted = self._accepted_queries(queries, notes, admissions)
 
         # Reuse the original research implementation.
         research_samples = make_samples(
@@ -355,7 +324,6 @@ class DiagnosisEvidenceRetrievalMIMIC3(BaseTask):
         samples = []
 
         for sample in research_samples:
-
             # Apply inference history limits after cohort eligibility.
             history = choose_history(
                 sample["notes"],
@@ -376,12 +344,8 @@ class DiagnosisEvidenceRetrievalMIMIC3(BaseTask):
                     "evidence_type": self.evidence_type,
                     "index_note_id": sample["report_id"],
                     "index_time": sample["report_time"],
-                    "historical_notes": [
-                        note["text"] for note in history
-                    ],
-                    "note_ids": [
-                        clean_id(note["row_id"]) for note in history
-                    ],
+                    "historical_notes": [note["text"] for note in history],
+                    "note_ids": [clean_id(note["row_id"]) for note in history],
                     "note_metadata": history,
                     "prior_note_count": sample["prior_note_count"],
                     "history_audit": sample["history_audit"],
