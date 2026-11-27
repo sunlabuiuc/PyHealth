@@ -1,6 +1,5 @@
 Tasks
-===============
-
+========
 We support various real-world healthcare predictive tasks defined by **function calls**. The following example tasks are collected from top AI/Medical venues, such as:
 
 (i) Drug Recommendation [Yang et al. IJCAI 2021a, Yang et al. IJCAI 2021b, Shang et al. AAAI 2020]
@@ -240,6 +239,7 @@ Available Tasks
     Chapman-Shaoxing ECG Classification <tasks/pyhealth.tasks.ChapmanShaoxingSuperclassClassification>
     CLIMB ECG Classification <tasks/pyhealth.tasks.CLIMBECGClassification>
     PhysioNet 2012 Forecasting <tasks/pyhealth.tasks.PhysioNet2012Forecasting>
+    PhysioNet 2012 In-Hospital Mortality <tasks/pyhealth.tasks.PhysioNet2012InHospitalMortality>
     PhysioNet 2012 Mortality <tasks/pyhealth.tasks.PhysioNet2012Mortality>
     Disease Progression (MIMIC-IV + Chest ImaGenome) <tasks/pyhealth.tasks.DiseaseProgressionMIMIC4>
     DKA Prediction (MIMIC-IV) <tasks/pyhealth.tasks.dka>
