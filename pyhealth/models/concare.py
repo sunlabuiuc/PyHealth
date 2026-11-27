@@ -21,7 +21,6 @@ Description:
 """
 
 import math
-import warnings
 from typing import Callable, Dict, Optional, Tuple
 
 import torch
@@ -32,6 +31,7 @@ from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
 
 from pyhealth.processors import NestedSequenceProcessor, SequenceProcessor
+from pyhealth.utils import _warn_user
 
 
 class FinalAttentionQKV(nn.Module):
@@ -948,7 +948,7 @@ class ConCare(BaseModel):
                 )
                 input_dim = 1
                 self._proc_types[feature_key] = "nested_sequence"
-                warnings.warn(
+                _warn_user(
                     f"ConCare: feature '{feature_key}' uses nested_sequence "
                     f"(vocab_size={vocab_size}). Codes will be embedded (dim=1) "
                     "and sum-pooled per visit for memory efficiency. This reduces "

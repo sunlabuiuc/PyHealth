@@ -1,7 +1,10 @@
-from datetime import datetime
+import logging
+from datetime import date, datetime, time, timedelta
 from typing import Any, Dict, List, Optional
 
 from .base_task import BaseTask
+
+logger = logging.getLogger(__name__)
 
 
 class MortalityPredictionMIMIC3(BaseTask):
@@ -1073,6 +1076,41 @@ class MortalityPredictionEICU2(BaseTask):
         return samples
 
 
+def _calendar_day(value: Any) -> date | None:
+    """Calendar day of an OMOP date, datetime, or ``YYYY-MM-DD`` string.
+
+    Unparseable values return None, and that observation period is skipped.
+    """
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return datetime.strptime(value, fmt).date()
+            except ValueError:
+                continue
+    return None
+
+
+def _observation_period_bounds(
+    event: Any,
+) -> tuple[datetime, datetime] | None:
+    """Inclusive bounds of one ``observation_period`` row.
+
+    ``observation_period_end_date`` is an inclusive calendar day, so a visit
+    that ends at noon on that date is still inside the period.
+    """
+    start_day = _calendar_day(getattr(event, "observation_period_start_date", None))
+    end_day = _calendar_day(getattr(event, "observation_period_end_date", None))
+    if start_day is None or end_day is None:
+        return None
+    op_start = datetime(start_day.year, start_day.month, start_day.day, 0, 0, 0)
+    op_end = datetime.combine(end_day, time.max)
+    return op_start, op_end
+
+
 class MortalityPredictionOMOP(BaseTask):
     """Task for predicting mortality using OMOP CDM dataset.
 
@@ -1117,9 +1155,30 @@ class MortalityPredictionOMOP(BaseTask):
             - drugs: List of drug_concept_id codes
             - mortality: Binary label (0 or 1)
 
+    ``check_observation_period`` and ``min_followup`` are keyword-only.
+    ``code_mapping`` may still be passed positionally, as on
+    :class:`~pyhealth.tasks.BaseTask`.
+
+    ``check_observation_period`` is off by default, so patients with no
+    observation period loaded keep the historical patient-level death label.
+    Turn it on, or pass ``min_followup``, to drop visits that leave
+    observation before the follow-up horizon. A death inside that horizon
+    and inside the same observation period is kept as mortality 1. A death
+    after the horizon is mortality 0 when the period reaches the horizon.
+    That holds whether the horizon is the next visit or
+    ``discharge + min_followup``.
+
+    ``observation_period`` is not in
+    :class:`~pyhealth.datasets.OMOPDataset`'s default tables. With the check
+    on, include it in ``tables``. Otherwise every visit is dropped.
+
     Examples:
-        >>> from pyhealth.datasets import OMOPDataset
+        >>> from datetime import timedelta
         >>> from pyhealth.tasks import MortalityPredictionOMOP
+        >>> task = MortalityPredictionOMOP(min_followup=timedelta(days=30))
+        >>> task.check_observation_period
+        True
+        >>> from pyhealth.datasets import OMOPDataset
         >>>
         >>> # Load OMOP dataset
         >>> dataset = OMOPDataset(
@@ -1142,7 +1201,8 @@ class MortalityPredictionOMOP(BaseTask):
         - Visits without any clinical codes (conditions, procedures, or
           drugs) are excluded
         - The last visit is excluded as there is no "next visit" to
-          predict for
+          predict for, unless ``min_followup`` is set: its horizon is
+          ``discharge + min_followup``, so every visit can be a sample
         - Clinical events are filtered by visit_occurrence_id, not by
           timestamp ranges, following OMOP best practices
     """
@@ -1154,6 +1214,77 @@ class MortalityPredictionOMOP(BaseTask):
         "drugs": "sequence",
     }
     output_schema: Dict[str, str] = {"mortality": "binary"}
+
+    def __init__(
+        self,
+        code_mapping: dict[str, Any] | None = None,
+        *,
+        check_observation_period: bool = False,
+        min_followup: timedelta | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Create the task.
+
+        Args:
+            code_mapping: Optional feature-to-vocabulary mapping. This is the
+                first positional argument, matching
+                :class:`~pyhealth.tasks.BaseTask`.
+            check_observation_period: Keyword-only. When True, keep a visit
+                only when one observation period contains it and, unless a
+                death was observed inside the follow-up horizon, also reaches
+                that horizon. Defaults to False.
+            min_followup: Keyword-only follow-up required after discharge.
+                Non-negative. When set, the horizon is
+                ``visit_end + min_followup`` and the observation-period check
+                is turned on. When omitted, the horizon is the next visit.
+            **kwargs: Passed to :class:`~pyhealth.tasks.BaseTask`.
+        """
+        super().__init__(code_mapping=code_mapping, **kwargs)
+        if min_followup is not None and min_followup.total_seconds() < 0:
+            raise ValueError("min_followup must be non-negative")
+        self.min_followup = min_followup
+        self.check_observation_period = check_observation_period or (
+            min_followup is not None
+        )
+        self._warned_missing_observation_period = False
+
+    def _label_if_observed(
+        self,
+        patient: Any,
+        visit_start: datetime,
+        visit_end: datetime,
+        horizon: datetime,
+        death_datetime: datetime | None,
+    ) -> int | None:
+        """Mortality label, or None when the visit is right-censored.
+
+        A death is label 1 only when it falls inside
+        ``[visit_start, horizon]`` and inside an observation period that
+        contains the visit. When a period reaches ``horizon`` and no such
+        death was seen, the label is 0. The horizon is the next visit, or
+        ``visit_end + min_followup`` when that is set.
+        """
+        contained: list[datetime] = []
+        for period in patient.get_events(event_type="observation_period"):
+            bounds = _observation_period_bounds(period)
+            if bounds is None:
+                continue
+            op_start, op_end = bounds
+            if op_start <= visit_start and visit_end <= op_end:
+                contained.append(op_end)
+        if not contained:
+            return None
+
+        death_in_window = (
+            death_datetime is not None
+            and visit_start <= death_datetime <= horizon
+            and any(death_datetime <= op_end for op_end in contained)
+        )
+        if death_in_window:
+            return 1
+        if any(op_end >= horizon for op_end in contained):
+            return 0
+        return None
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Processes a single patient for the mortality prediction task.
@@ -1167,12 +1298,29 @@ class MortalityPredictionOMOP(BaseTask):
                 drugs and mortality.
         """
         samples = []
+        if (
+            self.check_observation_period
+            and not self._warned_missing_observation_period
+            and not patient.get_events(event_type="observation_period")
+        ):
+            logger.warning(
+                "MortalityPredictionOMOP check_observation_period is on, "
+                "but this patient has no observation_period events. "
+                "Include observation_period in OMOPDataset tables, or "
+                "every visit is dropped."
+            )
+            self._warned_missing_observation_period = True
 
         # Get visits and death events
         visits = patient.get_events(event_type="visit_occurrence")
         death_events = patient.get_events(event_type="death")
 
-        if len(visits) <= 1:
+        # The next-visit horizon needs a next visit, so the last visit is
+        # skipped. A min_followup horizon does not, so it is kept.
+        n_candidates = len(visits)
+        if self.min_followup is None:
+            n_candidates -= 1
+        if n_candidates < 1:
             return []
 
         # Get death datetime if exists
@@ -1180,9 +1328,9 @@ class MortalityPredictionOMOP(BaseTask):
         if len(death_events) > 0:
             death_datetime = death_events[0].timestamp
 
-        for i in range(len(visits) - 1):
+        for i in range(n_candidates):
             visit = visits[i]
-            next_visit = visits[i + 1]
+            next_visit = visits[i + 1] if i + 1 < len(visits) else None
 
             # Determine mortality label
             # Check if patient has death record (died at some point)
@@ -1207,6 +1355,8 @@ class MortalityPredictionOMOP(BaseTask):
 
             # Fallback to next visit start if visit_end not available
             if visit_end is None:
+                if next_visit is None:
+                    continue
                 visit_end = next_visit.timestamp
 
             # Get visit_occurrence_id for filtering
@@ -1250,6 +1400,22 @@ class MortalityPredictionOMOP(BaseTask):
             total_codes = len(condition_codes) + len(procedure_codes) + len(drug_codes)
             if total_codes == 0:
                 continue
+
+            if self.check_observation_period:
+                horizon = (
+                    visit_end + self.min_followup
+                    if self.min_followup is not None
+                    else next_visit.timestamp
+                )
+                mortality_label = self._label_if_observed(
+                    patient,
+                    visit.timestamp,
+                    visit_end,
+                    horizon,
+                    death_datetime,
+                )
+                if mortality_label is None:
+                    continue
 
             samples.append(
                 {

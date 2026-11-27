@@ -1,0 +1,18 @@
+version: "1.0.0"
+tables:
+  shhs:
+    file_path: "nsrr-shhs-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "visit"
+    - "signal_file"
+    - "label_file"
+  mesa:
+    file_path: "nsrr-mesa-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "visit"
+    - "signal_file"
+    - "label_file"
