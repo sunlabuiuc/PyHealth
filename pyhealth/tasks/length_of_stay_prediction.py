@@ -36,6 +36,8 @@ def categorize_los(days: int):
 class LengthOfStayPredictionMIMIC3(BaseTask):
     """Task for predicting length of stay using MIMIC-III dataset.
 
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
+
     Length of stay prediction aims at predicting the length of stay (in days) of the
     current hospital visit based on the clinical information from the visit
     (e.g., conditions and procedures).
@@ -133,6 +135,8 @@ class LengthOfStayPredictionMIMIC3(BaseTask):
 
 class LengthOfStayPredictionMIMIC4(BaseTask):
     """Task for predicting length of stay using MIMIC-IV dataset.
+
+    Works with :class:`~pyhealth.datasets.MIMIC4Dataset`.
 
     Length of stay prediction aims at predicting the length of stay (in days) of the
     current hospital visit based on the clinical information from the visit
@@ -236,6 +240,8 @@ class LengthOfStayPredictionMIMIC4(BaseTask):
 
 class LengthOfStayPredictioneICU(BaseTask):
     """Task for predicting length of stay using eICU dataset.
+
+    Works with :class:`~pyhealth.datasets.eICUDataset`.
 
     Length of stay prediction aims at predicting the length of stay (in days) of the
     current ICU stay based on the clinical information from the stay
@@ -365,6 +371,8 @@ class LengthOfStayPredictioneICU(BaseTask):
 class LengthOfStayPredictionOMOP(BaseTask):
     """Task for predicting length of stay using OMOP dataset.
 
+    Works with :class:`~pyhealth.datasets.OMOPDataset`.
+
     Length of stay prediction aims at predicting the length of stay (in days) of the
     current hospital visit based on the clinical information from the visit
     (e.g., conditions and procedures).
@@ -383,15 +391,12 @@ class LengthOfStayPredictionOMOP(BaseTask):
     Examples:
         >>> from pyhealth.datasets import OMOPDataset
         >>> omop_base = OMOPDataset(
-        ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
+        ...     root="/path/to/omop/data",
         ...     tables=["condition_occurrence", "procedure_occurrence", "drug_exposure"],
-        ...     code_mapping={},
         ... )
         >>> from pyhealth.tasks import LengthOfStayPredictionOMOP
         >>> task = LengthOfStayPredictionOMOP()
         >>> omop_sample = omop_base.set_task(task)
-        >>> omop_sample.samples[0]
-        [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51']], 'procedures': [['1']], 'drugs': [['...']], 'los': 7}]
     """
 
     task_name: str = "LengthOfStayPredictionOMOP"

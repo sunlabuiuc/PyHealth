@@ -1,0 +1,24 @@
+version: "1.0"
+tables:
+  valuesets:
+    file_path: "vsac-valuesets.csv"
+    patient_id: "oid"
+    timestamp: null
+    attributes:
+      - "title"
+      - "description"
+      - "publisher"
+      - "type"
+      - "version"
+      - "status"
+      - "split"
+
+  codes:
+    file_path: "vsac-codes.csv"
+    patient_id: "oid"
+    timestamp: null
+    attributes:
+      - "code"
+      - "system"
+      - "display"
+      - "rank"

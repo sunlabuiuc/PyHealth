@@ -1,4 +1,21 @@
+"""Readmission prediction on MIMIC-IV with an RNN.
+
+Loads diagnoses, procedures and prescriptions, applies
+``ReadmissionPredictionMIMIC4`` (binary readmission label per admission),
+and trains/evaluates an ``RNN`` for one epoch.
+
+Data: by default ``ehr_root`` points at the open-access MIMIC-IV demo on
+PhysioNet (https://physionet.org/content/mimic-iv-demo/2.2/, downloaded on
+the fly, no credentials). For full MIMIC-IV (credentialed) set ``ehr_root``
+to your local ``mimiciv/2.2`` folder (the one containing ``hosp/``) and set
+``dev=False``.
+
+Run: ``python examples/readmission/readmission_mimic4_rnn.py`` (CPU).
+Offline: set ``ehr_root`` to ``test-resources/core/mimic4demo`` and
+``dev=False``.
+"""
 import tempfile
+from datetime import timedelta
 
 from pyhealth.datasets import MIMIC4Dataset
 from pyhealth.datasets import split_by_patient, get_dataloader
@@ -18,7 +35,9 @@ if __name__ == "__main__":
     base_dataset.stats()
 
     # STEP 2: Set task
-    task = ReadmissionPredictionMIMIC4()
+    task = ReadmissionPredictionMIMIC4(
+        min_gap=timedelta(hours=3),
+    )
     sample_dataset = base_dataset.set_task(task)
 
     # STEP 3: Split and create dataloaders

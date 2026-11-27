@@ -81,6 +81,8 @@ def _has_scoring(event: Any) -> bool:
 class SleepStagingEarEEG(BaseTask):
     """Multi-class sleep staging on EESM23 ear-EEG.
 
+    Works with :class:`~pyhealth.datasets.EESM23Dataset`.
+
     For each scored night this task:
 
     1. reads the EEGLAB ``.set`` file and keeps RB, RT, LB and LT (ELE is

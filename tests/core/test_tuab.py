@@ -6,11 +6,16 @@ from pathlib import Path
 from typing import List
 import pandas as pd
 import numpy as np
+import torch
 from unittest.mock import patch
 
 
+from pyhealth.datasets.base_dataset import BaseDataset
 from pyhealth.datasets.tuab import TUABDataset
-from pyhealth.tasks.temple_university_EEG_tasks import EEGAbnormalTUAB
+from pyhealth.tasks.temple_university_EEG_tasks import (
+    _TUAB_ELECTRODES,
+    EEGAbnormalTUAB,
+)
 
 
 @dataclass
@@ -536,6 +541,229 @@ class TestEEGAbnormalTUAB(unittest.TestCase):
     def test_task_schema_no_stft(self):
         task = EEGAbnormalTUAB(compute_stft=False)
         self.assertEqual(task.input_schema, {"signal": "tensor"})
+
+
+class TestEEGAbnormalTUABRobustness(unittest.TestCase):
+    """Float sampling rates and skipped recordings."""
+
+    ELECTRODES = (
+        "FP1", "F7", "T3", "T5", "O1", "FP2", "F8", "T4",
+        "T6", "O2", "F3", "C3", "P3", "F4", "C4", "P4",
+    )
+    CH_NAMES = tuple(f"EEG {c}-REF" for c in ELECTRODES)
+
+    def _patient(self) -> _DummyPatient:
+        return _DummyPatient(
+            patient_id="patient-0",
+            events=[_DummyEvent(signal_file="/dummy/path.edf", label="normal")],
+        )
+
+    def test_call_accepts_float_resample_rate(self):
+        # resample_rate is typed float; it used to raise TypeError when
+        # the window bounds were used as slice indices.
+        for rate in (200.0, 256.0):
+            with self.subTest(rate=rate):
+                task = EEGAbnormalTUAB(resample_rate=rate, compute_stft=False)
+                raw = np.random.randn(len(self.CH_NAMES), int(rate) * 25)
+                with patch.object(
+                    EEGAbnormalTUAB,
+                    "read_and_process_edf",
+                    return_value=(raw, list(self.CH_NAMES)),
+                ):
+                    samples = task(self._patient())
+                self.assertEqual(len(samples), 2)
+                self.assertEqual(samples[0]["signal"].shape, (16, int(rate) * 10))
+                self.assertEqual(samples[1]["start_time"], int(rate) * 10)
+
+    def test_unreadable_recording_is_skipped_with_a_warning(self):
+        task = EEGAbnormalTUAB(compute_stft=False)
+        with (
+            patch.object(
+                EEGAbnormalTUAB,
+                "read_and_process_edf",
+                side_effect=ValueError("bad EDF header"),
+            ),
+            self.assertLogs(
+                "pyhealth.tasks.temple_university_EEG_tasks", level="WARNING"
+            ) as logs,
+        ):
+            samples = task(self._patient())
+        self.assertEqual(samples, [])
+        self.assertIn("/dummy/path.edf", logs.output[0])
+        self.assertIn("bad EDF header", logs.output[0])
+
+    def test_recording_missing_an_electrode_is_skipped_with_a_warning(self):
+        # The bipolar montage needs all 16 electrodes; a recording without
+        # one used to raise from convert_to_bipolar and stop set_task.
+        task = EEGAbnormalTUAB(compute_stft=False)
+        ch_names = [c for c in self.CH_NAMES if c != "EEG T5-REF"]
+        raw = np.random.randn(len(ch_names), 200 * 25)
+        patient = _DummyPatient(
+            patient_id="patient-0",
+            events=[
+                _DummyEvent(signal_file="/dummy/path.edf", label="normal"),
+                _DummyEvent(signal_file="/dummy/full.edf", label="abnormal"),
+            ],
+        )
+        full = (np.random.randn(len(self.CH_NAMES), 200 * 25), list(self.CH_NAMES))
+        with (
+            patch.object(
+                EEGAbnormalTUAB,
+                "read_and_process_edf",
+                side_effect=[(raw, ch_names), full],
+            ),
+            self.assertLogs(
+                "pyhealth.tasks.temple_university_EEG_tasks", level="WARNING"
+            ) as logs,
+        ):
+            samples = task(patient)
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("/dummy/path.edf", logs.output[0])
+        self.assertIn("no EEG T5-REF channel", logs.output[0])
+        self.assertEqual({s["signal_file"] for s in samples}, {"/dummy/full.edf"})
+        self.assertEqual(len(samples), 2)
+
+    def test_warning_names_every_missing_electrode(self):
+        task = EEGAbnormalTUAB(compute_stft=False)
+        absent = {"EEG T5-REF", "EEG O1-REF"}
+        ch_names = [c for c in self.CH_NAMES if c not in absent]
+        raw = np.random.randn(len(ch_names), 200 * 25)
+        with (
+            patch.object(
+                EEGAbnormalTUAB,
+                "read_and_process_edf",
+                return_value=(raw, ch_names),
+            ),
+            self.assertLogs(
+                "pyhealth.tasks.temple_university_EEG_tasks", level="WARNING"
+            ) as logs,
+        ):
+            samples = task(self._patient())
+        self.assertEqual(samples, [])
+        self.assertIn("no EEG T5-REF, EEG O1-REF channels,", logs.output[0])
+
+
+class TestTUABMetadataCachePerRoot(unittest.TestCase):
+    """Two dataset roots must never share cached metadata.
+
+    When ``root`` is not writable, the metadata CSVs are written to a home
+    cache. That cache used to be one folder for every root, so a second root
+    silently loaded the first root's recordings.
+    """
+
+    def _make_root(self, root: Path, subject: str) -> None:
+        for split, label in (("train", "normal"), ("eval", "abnormal")):
+            edf = root / split / label / "01_tcp_ar" / f"{subject}_s001_t000.edf"
+            edf.parent.mkdir(parents=True, exist_ok=True)
+            edf.write_bytes(b"")
+
+    def _metadata_root(self, root: Path) -> Path:
+        """Run ``__init__`` up to ``BaseDataset`` and return the root it picks."""
+        captured = {}
+
+        def fake_base_init(dataset, root, **kwargs):
+            captured["root"] = root
+
+        with patch.object(BaseDataset, "__init__", fake_base_init):
+            TUABDataset(root=str(root))
+        return Path(captured["root"])
+
+    @staticmethod
+    def _train_patients(metadata_root: Path) -> list[str]:
+        csv = metadata_root / "tuab-train-pyhealth.csv"
+        return sorted(pd.read_csv(csv, dtype=str)["patient_id"])
+
+    @staticmethod
+    def _read_only(*roots: Path):
+        """Make ``DataFrame.to_csv`` fail under ``roots``.
+
+        This stands in for a read-only directory. ``chmod`` cannot be used:
+        it has no effect on Windows or when the tests run as root.
+        """
+        real_to_csv = pd.DataFrame.to_csv
+
+        def to_csv(df, path_or_buf=None, *args, **kwargs):
+            if any(str(path_or_buf).startswith(str(r)) for r in roots):
+                raise PermissionError(f"read-only: {path_or_buf}")
+            return real_to_csv(df, path_or_buf, *args, **kwargs)
+
+        return patch.object(pd.DataFrame, "to_csv", to_csv)
+
+    def test_read_only_root_does_not_leak_into_writable_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            home, root_a, root_b = tmp / "home", tmp / "a", tmp / "b"
+            self._make_root(root_a, "aaaaaaaa")
+            self._make_root(root_b, "bbbbbbbb")
+            with patch.object(Path, "home", return_value=home):
+                with self._read_only(root_a):
+                    meta_a = self._metadata_root(root_a)
+                meta_b = self._metadata_root(root_b)
+
+            self.assertTrue(meta_a.is_relative_to(home))
+            self.assertEqual(self._train_patients(meta_a), ["aaaaaaaa"])
+            self.assertEqual(meta_b, root_b)
+            self.assertEqual(self._train_patients(meta_b), ["bbbbbbbb"])
+
+    def test_two_read_only_roots_get_separate_caches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            home, root_a, root_b = tmp / "home", tmp / "a", tmp / "b"
+            self._make_root(root_a, "aaaaaaaa")
+            self._make_root(root_b, "bbbbbbbb")
+            with (
+                patch.object(Path, "home", return_value=home),
+                self._read_only(root_a, root_b),
+            ):
+                meta_a = self._metadata_root(root_a)
+                meta_b = self._metadata_root(root_b)
+
+            self.assertNotEqual(meta_a, meta_b)
+            self.assertEqual(self._train_patients(meta_a), ["aaaaaaaa"])
+            self.assertEqual(self._train_patients(meta_b), ["bbbbbbbb"])
+
+
+class TestEEGAbnormalTUABStftRate(unittest.TestCase):
+    """The stft field is built for 200 Hz signals (#1521)."""
+
+    def test_stft_at_200_hz_is_allowed(self):
+        for rate in (200, 200.0):
+            with self.subTest(rate=rate):
+                task = EEGAbnormalTUAB(resample_rate=rate, compute_stft=True)
+                self.assertIn("stft", task.input_schema)
+
+    def test_stft_at_another_rate_raises(self):
+        for rate in (100, 256, 200.5):
+            with (
+                self.subTest(rate=rate),
+                self.assertRaisesRegex(ValueError, "compute_stft=False"),
+            ):
+                EEGAbnormalTUAB(resample_rate=rate, compute_stft=True)
+
+    def test_another_rate_without_stft_is_allowed(self):
+        task = EEGAbnormalTUAB(resample_rate=256, compute_stft=False)
+        self.assertEqual(task.input_schema, {"signal": "tensor"})
+
+    def test_stft_field_at_200_hz(self):
+        # 1 s windows with a 0.5 s hop and 100 one-hertz bins: a 10 s window
+        # gives 19 frames.
+        from pyhealth.models.tfm_tokenizer import get_stft_torch
+
+        fs = 200
+        ch_names = list(_TUAB_ELECTRODES)
+        raw_data = np.random.randn(len(ch_names), 10 * fs)
+        patient = _DummyPatient(
+            patient_id="patient-0",
+            events=[_DummyEvent(signal_file="/dummy/path.edf", label="normal")],
+        )
+        task = EEGAbnormalTUAB(resample_rate=fs, compute_stft=True)
+        with patch.object(
+            EEGAbnormalTUAB, "read_and_process_edf", return_value=(raw_data, ch_names)
+        ):
+            (sample,) = task(patient)
+        self.assertEqual(tuple(sample["stft"].shape), (16, 100, 19))
+        expected = get_stft_torch(sample["signal"].unsqueeze(0)).squeeze(0)
+        torch.testing.assert_close(sample["stft"], expected)
 
 
 if __name__ == "__main__":

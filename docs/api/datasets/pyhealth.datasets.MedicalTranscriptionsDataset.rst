@@ -1,7 +1,7 @@
 ﻿pyhealth.datasets.MedicalTranscriptionsDataset
 ===================================
 
-The Medical Transcriptions dataset, refer to `doc <https://www.kaggle.com/datasets/codebasics/medical-transcriptions-for-speech-recognition>`_.
+The Medical Transcriptions dataset, transcribed medical reports scraped from mtsamples.com, available on `Kaggle <https://www.kaggle.com/datasets/tboyle10/medicaltranscriptions>`_.
 
 .. autoclass:: pyhealth.datasets.MedicalTranscriptionsDataset
     :members:

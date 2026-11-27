@@ -35,6 +35,8 @@ on a CPU (04 and 07 with smaller settings). The same notebooks are listed on
      - Fine-tuning language models for specialty classification and ICD coding, label distributions, and checks against simple baselines. Opens on a T4 GPU.
    * - `08. Contributing a dataset or task <https://colab.research.google.com/drive/1tuiooZgK-rR50NdCG9Ylq5HNgqSUBwvE>`_
      - Dataset classes, file-based data, tests and the pull request checklist.
+   * - `09. AutoImprove: letting agents improve your pipeline <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/09_autoimprove.ipynb>`_
+     - Agents propose models and settings from your starting pipeline; patient-grouped cross-validation, the one-SE selection rule, what each change contributed, a single test comparison, the run's report and a null-label control. Installs PyHealth from GitHub; about 5 minutes on a CPU.
 
 What's new in PyHealth 2.1
 --------------------------
@@ -136,8 +138,15 @@ These examples demonstrate PyHealth's unified multimodal architecture using
 Additional Examples
 ===================
 
-.. warning::
-   **Compatibility Notice**: Not all examples below have been updated to PyHealth 2.0. However, they remain useful references for understanding workflows and implementation patterns. If you encounter compatibility issues, please refer to the tutorials above or consult the updated API documentation.
+.. note::
+   The examples below were updated for PyHealth 2.1 in the examples cleanup
+   (November 2026) and smoke-run on demo or synthetic data. Each header says
+   which dataset the example needs and how to try it without credentials
+   (usually by pointing it at the demo data in ``test-resources/core/``). The
+   few examples with a step that doesn't run yet say so here and in their
+   header. Examples added later may not follow this yet. Older examples that
+   no longer run, or that duplicate a maintained one, are archived in
+   ``examples/old/`` and are not listed here.
 
 The ``examples/`` directory contains additional code examples demonstrating various tasks, models, and techniques. These examples show how to use PyHealth in real-world scenarios.
 
@@ -170,8 +179,6 @@ These examples are located in ``examples/mortality_prediction/``.
      - Temporal Convolutional Network for mortality prediction
    * - ``mortality_prediction/mortality_mimic4_stagenet_v2.py``
      - StageNet for mortality prediction on MIMIC-IV (v2)
-   * - ``mortality_prediction/timeseries_mimic4.py``
-     - Time series analysis on MIMIC-IV
 
 Readmission Prediction
 ----------------------
@@ -228,7 +235,7 @@ These examples are located in ``examples/drug_recommendation/``.
      - GAMENet for drug recommendation on MIMIC-IV
    * - ``drug_recommendation/drug_recommendation_mimic4_retain.py``
      - RETAIN for drug recommendation on MIMIC-IV
-   * - ``drug_recommendation/drug_recommendation_eICU_transformer.py``
+   * - ``drug_recommendation/drug_recommendation_eicu_transformer.py``
      - Transformer for drug recommendation on eICU
 
 EEG and Sleep Analysis
@@ -240,18 +247,15 @@ EEG and Sleep Analysis
 
    * - Example File
      - Description
-   * - ``sleep_staging_sleepEDF_contrawr.py``
-     - ContraWR for sleep staging on SleepEDF
-   * - ``sleep_staging_shhs_contrawr.py``
-     - ContraWR for sleep staging on SHHS
-   * - ``sleep_staging_ISRUC_SparcNet.py``
-     - SparcNet for sleep staging on ISRUC
-   * - ``EEG_events_SparcNet.py``
-     - SparcNet for EEG event detection
-   * - ``EEG_isAbnormal_SparcNet.py``
-     - SparcNet for EEG abnormality detection
-   * - ``cardiology_detection_isAR_SparcNet.py``
-     - SparcNet for cardiology arrhythmia detection
+   * - ``eeg/sleep_staging/sleep_staging_sleepEDF_contrawr.py``
+     - SparcNet for sleep staging on SleepEDF (despite the file name;
+       ContraWR is a drop-in swap)
+   * - ``eeg/sleep_staging/contrawr_sleepedf.ipynb``
+     - ContraWR for sleep staging on SleepEDF (notebook)
+   * - ``eeg/eeg_models/SparcNet_eeg_events_classification.py``
+     - SparcNet for EEG event classification on TUEV
+   * - ``eeg/eeg_models/SparcNet_eeg_abnormal_classification.py``
+     - SparcNet for EEG abnormality detection on TUAB
 
 Image Analysis (Chest X-Ray)
 ----------------------------
@@ -265,7 +269,8 @@ These examples are located in ``examples/cxr/``.
    * - Example File
      - Description
    * - ``cxr/covid19cxr_tutorial.py``
-     - ViT training, conformal prediction & interpretability for COVID-19 CXR
+     - ViT training and conformal prediction for COVID-19 CXR (its Chefer
+       interpretability step currently fails; see the file's header)
    * - ``cxr/covid19cxr_conformal.py``
      - Conformal prediction for COVID-19 CXR classification
    * - ``cxr/cnn_cxr.ipynb``
@@ -278,6 +283,12 @@ These examples are located in ``examples/cxr/``.
      - Chest X-ray classification with saliency maps (notebook)
    * - ``cxr/chextXray_image_generation_VAE.py``
      - VAE for chest X-ray image generation
+   * - ``cxr/vae_cxr_synthetic.ipynb``
+     - Synthetic image VAE (no download needed)
+   * - ``cxr/vae_cxr_chestxray14.ipynb``
+     - ChestXray14 conditional image VAE
+   * - ``mortality_prediction/vae_ehr_sequences.ipynb``
+     - EHR code-sequence VAE
    * - ``cxr/ChestXray-image-generation-GAN.ipynb``
      - GAN for chest X-ray image generation (notebook)
 
@@ -292,7 +303,7 @@ These examples are located in ``examples/interpretability/``.
 
    * - Example File
      - Description
-   * - ``integrated_gradients_mortality_mimic4_stagenet.py``
+   * - ``interpretability/integrated_gradients_mortality_mimic4_stagenet.py``
      - Integrated Gradients for StageNet interpretability
    * - ``interpretability/deeplift_stagenet_mimic4.py``
      - DeepLift attributions for StageNet on MIMIC-IV
@@ -304,10 +315,6 @@ These examples are located in ``examples/interpretability/``.
      - SHAP attributions for StageNet on MIMIC-IV
    * - ``interpretability/interpretability_metrics.py``
      - Evaluating attribution methods with metrics
-   * - ``interpretability/interpret_demo.ipynb``
-     - Interactive interpretability demonstrations (notebook)
-   * - ``interpretability/shap_stagenet_mimic4.ipynb``
-     - SHAP attributions for StageNet (notebook)
 
 Patient Linkage
 ---------------
@@ -364,8 +371,6 @@ Notebooks (Interactive)
      - Description
    * - ``tutorial_stagenet_comprehensive.ipynb``
      - Comprehensive StageNet tutorial
-   * - ``mimic3_mortality_prediction_cached.ipynb``
-     - Cached mortality prediction workflow
    * - ``mortality_prediction/timeseries_mimic4.ipynb``
      - Time series analysis on MIMIC-IV
    * - ``transformer_mimic4.ipynb``
@@ -376,22 +381,10 @@ Notebooks (Interactive)
      - Graph Attention Networks on MIMIC-IV
    * - ``gcn_mimic4.ipynb``
      - Graph Convolutional Networks on MIMIC-IV
-   * - ``safedrug_mimic3.ipynb``
+   * - ``drug_recommendation/safedrug_mimic3.ipynb``
      - SafeDrug interactive notebook
    * - ``molerec_mimic3.ipynb``
      - MoleRec interactive notebook
-   * - ``drug_recommendation/drug_recommendation_mimic3_micron.ipynb``
-     - MICRON interactive notebook
-   * - ``kg_embedding.ipynb``
-     - Knowledge graph embeddings
-   * - ``lm_embedding_huggingface.ipynb``
-     - Language model embeddings with HuggingFace
-   * - ``lm_embedding_openai.ipynb``
-     - Language model embeddings with OpenAI
-   * - ``prepare_mapping.ipynb``
-     - Data preprocessing and mapping utilities
-   * - ``graph_torchvision_model.ipynb``
-     - Using Torchvision models with graph data
 
 
 ----------

@@ -9,6 +9,7 @@ from pyhealth.models.utils import get_last_visit
 from pyhealth.interpret.api import Interpretable
 
 from .embedding import EmbeddingModel
+from pyhealth.utils import _warn_user
 
 
 class StageNetLayer(nn.Module):
@@ -431,8 +432,7 @@ class StageNet(BaseModel, Interpretable):
                 value = value.to(self.device)
                 
             if time is None:
-                import warnings
-                warnings.warn(
+                _warn_user(
                     f"Feature '{feature_key}' does not have time "
                     f"intervals. StageNet's temporal modeling "
                     f"capabilities will be limited. Consider using "
@@ -447,8 +447,7 @@ class StageNet(BaseModel, Interpretable):
                     time = time.unsqueeze(0)
             
             if mask is None:
-                import warnings
-                warnings.warn(
+                _warn_user(
                     f"Feature '{feature_key}' does not have mask "
                     f"information. Default mask will be created from "
                     f"embedded values. But it may not be accurate.",
@@ -461,10 +460,16 @@ class StageNet(BaseModel, Interpretable):
             else:
                 mask = mask.to(self.device)
             
-            if value.dim() == 4:
-                # Nested sequences: [batch, seq_len, inner_len, embedding_dim]
-                value = value.sum(dim=2)        # Sum pool over inner dimension
-                mask = mask.any(dim=2).int()    # Update mask for nested sequences
+            # Nested sequences: [batch, seq_len, inner..., embedding_dim].
+            # Sum pool over the inner dimensions.
+            while value.dim() > 3:
+                value = value.sum(dim=2)
+            while mask.dim() > 2:
+                mask = mask.any(dim=-1).int()
+            if value.dim() == 2:
+                # One vector per patient (multi_hot, tensor): a single step.
+                value = value.unsqueeze(1)
+                mask = mask.reshape(-1, 1)
 
             # Pass through StageNet layer with embedded features
             last_output, _, cur_dis = self.stagenet[feature_key](

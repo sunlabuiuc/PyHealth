@@ -67,6 +67,7 @@ extensions = [
     "sphinxcontrib.httpdomain",
     "sphinx_copybutton",
     "sphinx_toggleprompt",
+    "dataset_tasks",  # local: docs/extensions/dataset_tasks.py
     # "bokeh.sphinxext.bokeh_plot",
 ]
 

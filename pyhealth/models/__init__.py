@@ -7,12 +7,38 @@ from .apn import (
     masked_mse as masked_mse,
 )
 from .base_model import BaseModel
+from .behrt import (
+    BEHRT as BEHRT,
+    BEHRTEmbedding as BEHRTEmbedding,
+    BEHRTLayer as BEHRTLayer,
+)
+from .bitenet import (
+    AttentionPooling as AttentionPooling,
+    BiteNet as BiteNet,
+    BiteNetEncoder as BiteNetEncoder,
+    BiteNetTemporalEncoding as BiteNetTemporalEncoding,
+)
+from .neural_fine_gray import NeuralFineGray as NeuralFineGray
+from .unet import (
+    DiceLoss as DiceLoss,
+    SegmentationLoss as SegmentationLoss,
+    UNet as UNet,
+    UNet2D as UNet2D,
+    UNet3D as UNet3D,
+    evaluate_segmentation as evaluate_segmentation,
+    sliding_window_inference as sliding_window_inference,
+)
+from .clip_stress import CLIPStress as CLIPStress
 from .transformer_deid import TransformerDeID
 from .biot import BIOT
 from .cnn import CNN, CNNLayer
 from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D
+from .deepsleepnet import DeepSleepNet as DeepSleepNet
 from .deepr import Deepr, DeeprLayer
+from .delphi import Delphi as Delphi
+from .ecg_jepa import ECGJEPA as ECGJEPA, ECGJEPAEncoder as ECGJEPAEncoder
+from .eegnet import EEGNet as EEGNet
 from .embedding import EmbeddingModel
 from .sequence_embedding import (
     LevelEmbedding as LevelEmbedding,
@@ -22,6 +48,9 @@ from .sequence_embedding import (
 from .armr import ARMR as ARMR
 from .gamenet import GAMENet, GAMENetLayer
 from .jamba_ehr import JambaEHR, JambaLayer
+from .joint_seq_image import (
+    JointSeqImage as JointSeqImage,
+)
 from .keyclass import KeyClass as KeyClass
 from .logistic_regression import LogisticRegression
 from .gan import GAN
@@ -29,6 +58,9 @@ from .gnn import GAT, GCN
 from .graph_torchvision_model import Graph_TorchvisionModel
 from .graphcare import GraphCare
 from .grasp import GRASP, GRASPLayer
+from .dipro import DiPro as DiPro
+from .daft import DAFT as DAFT, DAFTBlock as DAFTBlock, DAFTLayer as DAFTLayer
+from .maestro import MAESTRO as MAESTRO
 from .medfuse import MedFuse, MedFuseLayer
 from .medlink import MedLink
 from .micron import MICRON, MICRONLayer
@@ -38,6 +70,8 @@ from .retain import MultimodalRETAIN, RETAIN, RETAINLayer
 from .rnn import MultimodalRNN, RNN, RNNLayer
 from .rnn import RNN_V2 as RNN_V2
 from .safedrug import SafeDrug, SafeDrugLayer
+from .shy import SHy as SHy
+from .sleepkd import SleepKD as SleepKD
 from .sparcnet import DenseBlock, DenseLayer, SparcNet, TransitionLayer
 from .stagenet import StageNet, StageNetLayer
 from .stagenet_mha import StageAttentionNet, StageNetAttentionLayer
@@ -53,7 +87,19 @@ from .tfm_tokenizer import (
 from .torchvision_model import TorchvisionModel
 from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
+from .rasc import RASCCrossEncoder as RASCCrossEncoder
 from .llm_ehr_encoder import LLMEHREncoder as LLMEHREncoder
+from .ehr_fm import (
+    EHRFoundationModelBase as EHRFoundationModelBase,
+    HFEHRFoundationModel as HFEHRFoundationModel,
+    HFEHRTokenizer as HFEHRTokenizer,
+)
+from .clmbr import (
+    CLMBR as CLMBR,
+    CLMBRConfig as CLMBRConfig,
+    CLMBRTokenizer as CLMBRTokenizer,
+    CLMBRTransformer as CLMBRTransformer,
+)
 from .ehrmamba import EHRMamba, MambaBlock
 from .ehrmamba_cehr import EHRMambaCEHR
 from .vae import VAE
@@ -73,14 +119,28 @@ from .protoecgnet import (
     ResNet1dBackbone as ResNet1dBackbone,
     ResNet2dBackbone as ResNet2dBackbone,
 )
+from .td_cnn_lstm import TDCNNLSTM as TDCNNLSTM
 from .generators.halo import HALO
 from .generators.gpt2 import GPT2
 from .generators.promptehr import PromptEHR
 from .generators.medgan import MedGAN
 from .generators.synthea import Synthea as Synthea
 from .generators.corgan import CorGAN as CorGAN
+from .generators.tardiff import TarDiff as TarDiff
 from .survival_mdn import SurvivalMDN as SurvivalMDN
+from .personalized_survival_moe import PersonalizedSurvivalMoE as PersonalizedSurvivalMoE
+from .cet import CET as CET
 from .trajsurv import TrajSurv as TrajSurv
+from .knowrare import KnowRare as KnowRare
+from .trace import (
+    TRACE as TRACE,
+    TRACEAttention as TRACEAttention,
+    TRACELayer as TRACELayer,
+    TRACETimeEmbedding as TRACETimeEmbedding,
+)
+from .apricotm import APRICOTM as APRICOTM
+from .selective_ssm import SelectiveSSM as SelectiveSSM
+from .ethos import ETHOS as ETHOS
 from .heartlang import (
     HeartLang as HeartLang,
     HeartLangBackbone as HeartLangBackbone,
@@ -88,3 +148,51 @@ from .heartlang import (
 )
 from .meme import MEME as MEME
 from .meme import DomainSelfAttention as DomainSelfAttention
+from .mira import (
+    MIRA as MIRA,
+    MIRABackbone as MIRABackbone,
+    MIRAConfig as MIRAConfig,
+    load_mira_checkpoint as load_mira_checkpoint,
+)
+from .udc import (
+    UDC as UDC,
+    DiscreteClueEncoder as DiscreteClueEncoder,
+    ResidualVectorQuantizer as ResidualVectorQuantizer,
+)
+from .descemb import (
+    DescEmb as DescEmb,
+    DescEmbCodeEncoder as DescEmbCodeEncoder,
+    simple_subword_tokenize as simple_subword_tokenize,
+    simple_word_tokenize as simple_word_tokenize,
+)
+from .bulk_rna_bert import BulkRNABert as BulkRNABert
+from .evicare import (
+    CooccurrenceGraph as CooccurrenceGraph,
+    EviCare as EviCare,
+    EviCarePrediction as EviCarePrediction,
+)
+from .dearllm import (
+    DearLLM as DearLLM,
+    DearLLMGraphEncoder as DearLLMGraphEncoder,
+)
+from .chet import (
+    CHET as CHET,
+    DotProductAttention as DotProductAttention,
+    SingleHeadAttentionLayer as SingleHeadAttentionLayer,
+    compute_cooccurrence_adj as compute_cooccurrence_adj,
+)
+from .game import (
+    GAME as GAME,
+    GAMEEmbedding as GAMEEmbedding,
+    init_embedding_with_game as init_embedding_with_game,
+    load_game_embeddings as load_game_embeddings,
+    normalize_game_code as normalize_game_code,
+)
+from .medtok import (
+    MedTokEmbedding as MedTokEmbedding,
+    apply_medtok as apply_medtok,
+    convert_medtok_embeddings as convert_medtok_embeddings,
+    load_medtok as load_medtok,
+    medtok_keys as medtok_keys,
+)
+from .query_focused_ehr import QueryFocusedEHRModel as QueryFocusedEHRModel

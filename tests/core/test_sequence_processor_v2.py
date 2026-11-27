@@ -1,7 +1,7 @@
 import pickle
 import unittest
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import patch
 
 import torch
@@ -11,19 +11,22 @@ from pyhealth.processors import (
     LevelConfig,
     Records,
     Resample,
-    SequenceProcessorV2,
+    JaggedFeatureProcessor,
     get_processor,
 )
+from pyhealth.tasks import BaseTask
 
 NAN = float("nan")
 CODES: LevelConfig = {"tokens": 1}
 SCALARS: LevelConfig = {"values": [1]}
 NESTED: list[LevelConfig] = [{"ordering": "set", "tokens": 1}, {"ordering": "sequence"}]
 LAST: Resample = {"step": 1.0, "method": "last"}
+# A patient's (sex, insurance) and age: one record per sample.
+STATIC: LevelConfig = {"ordering": "single", "tokens": 2, "values": [1]}
 
 
-def _fit(levels: Sequence[LevelConfig], *records: Any) -> SequenceProcessorV2:
-    proc = SequenceProcessorV2(levels=levels)
+def _fit(levels: Sequence[LevelConfig], *records: Any) -> JaggedFeatureProcessor:
+    proc = JaggedFeatureProcessor(levels=levels)
     proc.fit([{"x": r} for r in records], "x")
     return proc
 
@@ -45,19 +48,19 @@ class _FakeMap:
 class TestConfiguration(unittest.TestCase):
     def test_levels_are_required(self):
         with self.assertRaises(TypeError):
-            SequenceProcessorV2()  # type: ignore[call-arg]  # the missing argument is the test
+            JaggedFeatureProcessor()  # type: ignore[call-arg]  # the missing argument is the test
 
     def test_registered(self):
-        self.assertIs(get_processor("sequence_v2"), SequenceProcessorV2)
+        self.assertIs(get_processor("jagged"), JaggedFeatureProcessor)
 
     def test_repr_shows_levels(self):
         self.assertEqual(
-            repr(SequenceProcessorV2(levels=[CODES])),
-            "SequenceProcessorV2(levels=[{'tokens': 1}])",
+            repr(JaggedFeatureProcessor(levels=[CODES])),
+            "JaggedFeatureProcessor(levels=[{'tokens': 1}])",
         )
 
     def test_subclass_is_configuration_only(self):
-        class NestedCodes(SequenceProcessorV2):
+        class NestedCodes(JaggedFeatureProcessor):
             def __init__(self):
                 super().__init__(levels=NESTED)
 
@@ -123,10 +126,10 @@ class TestConfiguration(unittest.TestCase):
                 self.subTest(levels=levels),
                 self.assertRaises((ValueError, TypeError)),
             ):
-                SequenceProcessorV2(levels=levels)
+                JaggedFeatureProcessor(levels=levels)
 
     def test_only_vocabulary_needs_fit(self):
-        proc = SequenceProcessorV2(levels=[{"tokens": 2, "values": [3]}])
+        proc = JaggedFeatureProcessor(levels=[{"tokens": 2, "values": [3]}])
         self.assertEqual(proc.schema(), ((0, "tokens"), (0, "values")))
         self.assertEqual(proc.value_dim(), {0: (3,)})
         self.assertEqual(proc.spatial(), {0: (False,)})
@@ -435,10 +438,11 @@ class TestCodeMapping(unittest.TestCase):
             [{"ordering": "set", "tokens": 1, "values": [1], "code_mapping": mapping}],
             [CODES, {"ordering": "set", "tokens": 1, "code_mapping": mapping}],
             [{"ordering": "set", "tokens": 2, "code_mapping": [mapping, None]}],
+            [{"ordering": "single", "tokens": 1, "code_mapping": mapping}],
         ]
         for levels in cases:
             with self.subTest(levels=levels), self.assertRaises(ValueError):
-                SequenceProcessorV2(levels=levels)
+                JaggedFeatureProcessor(levels=levels)
 
     def test_single_target_mapping_is_allowed_anywhere(self):
         self.use_table({"250.00": ["49"], "401.9": ["98"]})
@@ -484,7 +488,7 @@ class TestResample(unittest.TestCase):
         ]
         for levels in cases:
             with self.subTest(levels=levels), self.assertRaises(ValueError):
-                SequenceProcessorV2(levels=levels)
+                JaggedFeatureProcessor(levels=levels)
 
     def test_first_and_last_keep_one_record_per_step(self):
         raw: Records = {
@@ -714,11 +718,11 @@ class TestImpute(unittest.TestCase):
                 self.subTest(levels=levels),
                 self.assertRaises((ValueError, TypeError)),
             ):
-                SequenceProcessorV2(levels=levels)
+                JaggedFeatureProcessor(levels=levels)
 
     def test_learns_statistics_only_with_statistics(self):
-        zero = SequenceProcessorV2(levels=[self.level({"method": "zero"}, values=[1])])
-        mean = SequenceProcessorV2(levels=[self.level({"method": "mean"}, values=[1])])
+        zero = JaggedFeatureProcessor(levels=[self.level({"method": "zero"}, values=[1])])
+        mean = JaggedFeatureProcessor(levels=[self.level({"method": "mean"}, values=[1])])
         self.assertFalse(zero.learns_statistics)
         self.assertTrue(mean.learns_statistics)
 
@@ -901,10 +905,10 @@ class TestNormalize(unittest.TestCase):
         ]
         for levels in bad:
             with self.subTest(levels=levels), self.assertRaises(ValueError):
-                SequenceProcessorV2(levels=levels)
+                JaggedFeatureProcessor(levels=levels)
 
     def test_learns_statistics(self):
-        proc = SequenceProcessorV2(
+        proc = JaggedFeatureProcessor(
             levels=[self.level({"method": "minmax"}, values=[1])]
         )
         self.assertTrue(proc.learns_statistics)
@@ -1034,7 +1038,7 @@ class TestMissingIndicator(unittest.TestCase):
                 self.subTest(levels=levels),
                 self.assertRaises((ValueError, TypeError)),
             ):
-                SequenceProcessorV2(levels=levels)
+                JaggedFeatureProcessor(levels=levels)
 
     def test_mask_follows_values_in_the_schema(self):
         level: LevelConfig = {
@@ -1044,7 +1048,7 @@ class TestMissingIndicator(unittest.TestCase):
             "impute": {"method": "zero"},
             "missing_indicator": True,
         }
-        proc = SequenceProcessorV2(levels=[level])
+        proc = JaggedFeatureProcessor(levels=[level])
         self.assertEqual(
             proc.schema(), ((0, "tokens"), (0, "values"), (0, "mask"), (0, "time"))
         )
@@ -1180,6 +1184,122 @@ class TestCollateAndValidate(unittest.TestCase):
                 proc.validate(output)
 
 
+class TestSingle(unittest.TestCase):
+    """A ``single`` outermost level: exactly one record, the sample's own."""
+
+    def test_rejects_bad_configurations(self):
+        # Deliberately invalid, so typed Any rather than LevelConfig.
+        cases: list[tuple[str, list[Any], str]] = [
+            (
+                "below the outermost level",
+                [{"ordering": "single", "tokens": 1}, {"ordering": "sequence"}],
+                "only the outermost level",
+            ),
+            ("nothing at level 0", [{"ordering": "single"}], "needs 'tokens' or"),
+            ("nothing above level 0", [CODES, {"ordering": "single"}], "needs 'tokens' or"),
+            (
+                "resampled",
+                [{"ordering": "single", "values": [1], "resample": LAST}],
+                "resample requires ordering 'series'",
+            ),
+        ]
+        for method in ("forward_fill", "backward_fill", "linear"):
+            impute = {"method": method}
+            levels = [{"ordering": "single", "values": [1], "impute": impute}]
+            cases.append((method, levels, "works along time"))
+        for name, levels, message in cases:
+            with self.subTest(name), self.assertRaisesRegex(ValueError, message):
+                JaggedFeatureProcessor(levels=levels)
+
+    def test_metadata(self):
+        proc = JaggedFeatureProcessor(levels=[STATIC])
+        self.assertEqual(proc.schema(), ((0, "tokens"), (0, "values")))
+        self.assertEqual(
+            proc.batch_schema(), ((0, "tokens"), (0, "values"), (0, "offsets"))
+        )
+        self.assertEqual(proc.ordering(), {0: "single"})
+        nested = JaggedFeatureProcessor(levels=[*NESTED, {"ordering": "single", "values": [2]}])
+        self.assertEqual(
+            nested.schema(),
+            ((0, "tokens"), (0, "offsets"), (1, "offsets"), (2, "values")),
+        )
+        self.assertEqual(nested.ordering(), {0: "set", 1: "sequence", 2: "single"})
+
+    def test_process_reads_a_list_of_one_record(self):
+        raw: Records = {"tokens": [("F", "Medicare")], "values": [71.0]}  # a flat scalar
+        proc = _fit([STATIC], raw)
+        tokens, values = proc.process(raw)
+        self.assertEqual(tokens.tolist(), [[2, 2]])
+        self.assertEqual(values.tolist(), [[71.0]])
+        proc.validate((tokens, values))
+
+        proc = _fit([{"ordering": "single", "tokens": 1}], {"tokens": ["F"]})
+        (tokens,) = proc.process({"tokens": ["F"]})
+        self.assertEqual(tokens.tolist(), [2])
+
+    def test_process_needs_exactly_one_record(self):
+        proc = _fit([STATIC], {"tokens": [("F", "Medicare")], "values": [[71.0]]})
+        for n in (0, 2):
+            raw: Records = {"tokens": [("F", "Medicare")] * n, "values": [[71.0]] * n}
+            with (
+                self.subTest(records=n),
+                self.assertRaisesRegex(ValueError, f"length 1, got {n}"),
+            ):
+                proc.process(raw)
+
+        levels: list[LevelConfig] = [*NESTED, {"ordering": "single", "values": [1]}]
+        nested = _fit(levels, {"values": [[1.0]], "children": [_visits(["A"])]})
+        with self.assertRaisesRegex(ValueError, "different lengths"):
+            nested.process(
+                {"values": [[1.0]], "children": [_visits(["A"]), _visits(["B"])]}
+            )
+
+    def test_collate_has_one_record_per_sample(self):
+        visits = [_visits(["A", "B"], ["C"]), _visits(["C"])]
+        a: Records = {"values": [[1.0]], "children": [visits[0]]}
+        b: Records = {"values": [[2.0]], "children": [visits[1]]}
+        proc = _fit([*NESTED, {"ordering": "single", "values": [1]}], a, b)
+        batch = proc.collate([proc.process(a), proc.process(b)])
+        tokens, visit_offsets, patient_offsets, values, batch_offsets = batch
+        self.assertEqual(tokens.tolist(), [2, 3, 4, 4])
+        self.assertEqual(visit_offsets.tolist(), [0, 2, 3, 4])
+        self.assertEqual(patient_offsets.tolist(), [0, 2, 3])
+        self.assertEqual(values.tolist(), [[1.0], [2.0]])
+        self.assertEqual(batch_offsets.tolist(), [0, 1, 2])
+        proc.validate(batch, batched=True)
+
+        # The levels below are packed as without the single level, whose
+        # (1, "offsets") are that processor's batch offsets.
+        flat = _fit(NESTED, *visits)
+        for got, want in zip(batch, flat.collate([flat.process(v) for v in visits])):
+            torch.testing.assert_close(got, want)
+
+    def test_statistics_come_from_all_samples(self):
+        level: LevelConfig = {
+            "ordering": "single",
+            "values": [2],
+            "impute": {"method": "mean"},
+            "missing_indicator": True,
+            "normalize": {"method": "zscore"},
+        }
+        proc = _fit([level], {"values": [[60.0, 60.0]]}, {"values": [[80.0, 80.0]]})
+        self.assertTrue(proc.learns_statistics)
+        values, mask = proc.process({"values": [[75.0, NAN]]})
+        torch.testing.assert_close(values, torch.tensor([[0.5, 0.0]]))
+        self.assertEqual(mask.tolist(), [[False, True]])
+
+    def test_validate_needs_one_record_per_sample(self):
+        raw: Records = {"tokens": [("F", "Medicare")], "values": [[71.0]]}
+        proc = _fit([STATIC], raw)
+        tokens, values = proc.process(raw)
+        with self.assertRaisesRegex(ValueError, "exactly one record per sample"):
+            proc.validate((tokens.repeat(2, 1), values.repeat(2, 1)))
+        batch = proc.collate([(tokens, values)] * 2)
+        proc.validate(batch, batched=True)
+        with self.assertRaisesRegex(ValueError, "exactly one record per sample"):
+            proc.validate((*batch[:2], torch.tensor([0, 2, 2])), batched=True)
+
+
 class TestStorage(unittest.TestCase):
     def test_dataloader_uses_the_processor_collate(self):
         from pyhealth.datasets import create_sample_dataset, get_dataloader
@@ -1202,21 +1322,47 @@ class TestStorage(unittest.TestCase):
         dataset = create_sample_dataset(
             samples=samples,
             input_schema={
-                "visits": ("sequence_v2", {"levels": NESTED}),  # two tensors
-                "stays": ("sequence_v2", {"levels": deep}),  # three tensors
+                "visits": ("jagged", {"levels": NESTED}),  # two tensors
+                "stays": ("jagged", {"levels": deep}),  # three tensors
             },
             output_schema={"label": "binary"},
         )
         batch = next(iter(get_dataloader(dataset, batch_size=2)))
         for key in ("visits", "stays"):
             proc = dataset.input_processors[key]
-            assert isinstance(proc, SequenceProcessorV2)
+            assert isinstance(proc, JaggedFeatureProcessor)
             expected = proc.collate([dataset[0][key], dataset[1][key]])
             self.assertEqual(len(batch[key]), len(expected))
             for got, want in zip(batch[key], expected):
                 torch.testing.assert_close(got, want)
             proc.validate(batch[key], batched=True)
         self.assertEqual(batch["label"].shape[0], 2)  # other fields as before
+
+    def test_dataloader_stacks_a_single_level(self):
+        from pyhealth.datasets import create_sample_dataset, get_dataloader
+
+        samples = [
+            {
+                "patient_id": "p0",
+                "static": {"tokens": [("F", "Medicare")], "values": [[71.0]]},
+                "label": 0,
+            },
+            {
+                "patient_id": "p1",
+                "static": {"tokens": [("M", "Private")], "values": [[64.0]]},
+                "label": 1,
+            },
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"static": ("jagged", {"levels": [STATIC]})},
+            output_schema={"label": "binary"},
+        )
+        batch = next(iter(get_dataloader(dataset, batch_size=2)))
+        tokens, values, batch_offsets = batch["static"]
+        self.assertEqual(tokens.tolist(), [[2, 2], [3, 3]])
+        self.assertEqual(values.tolist(), [[71.0], [64.0]])
+        self.assertEqual(batch_offsets.tolist(), [0, 1, 2])
 
     def test_pickle_round_trip(self):
         raw = _visits(["A", "B"], ["C"])
@@ -1232,7 +1378,7 @@ class TestStorage(unittest.TestCase):
         ]
         dataset = create_sample_dataset(
             samples=samples,
-            input_schema={"visits": ("sequence_v2", {"levels": NESTED})},
+            input_schema={"visits": ("jagged", {"levels": NESTED})},
             output_schema={"label": "binary"},
         )
         proc = dataset.input_processors["visits"]
@@ -1241,6 +1387,142 @@ class TestStorage(unittest.TestCase):
             self.assertIsInstance(sample["visits"], tuple)
             for got, want in zip(sample["visits"], expected):
                 torch.testing.assert_close(got, want)
+
+
+class TestOldName(unittest.TestCase):
+    """SequenceProcessorV2 and "sequence_v2" are a deprecated subclass of the new names."""
+
+    def test_is_an_empty_subclass_with_its_own_registration(self):
+        from pyhealth.processors import SequenceProcessorV2
+        from pyhealth.processors.sequence_processor_v2 import (
+            SequenceProcessorV2 as OldModuleName,
+        )
+
+        self.assertIs(OldModuleName, SequenceProcessorV2)
+        self.assertTrue(issubclass(SequenceProcessorV2, JaggedFeatureProcessor))
+        self.assertIsNot(SequenceProcessorV2, JaggedFeatureProcessor)
+        # Nothing but the warning: it must keep behaving like the base class.
+        defined = vars(SequenceProcessorV2)
+        self.assertEqual([k for k, v in defined.items() if callable(v)], ["__init__"])
+        self.assertEqual(
+            [k for k in defined if not (k.startswith("__") and k.endswith("__"))],
+            ["_abc_impl"],  # every ABC class has it
+        )
+        self.assertIs(get_processor("sequence_v2"), SequenceProcessorV2)
+        self.assertIs(get_processor("jagged"), JaggedFeatureProcessor)
+
+    def test_constructing_it_warns(self):
+        from pyhealth.processors import SequenceProcessorV2
+
+        with self.assertWarnsRegex(FutureWarning, "deprecated.*JaggedFeatureProcessor"):
+            proc = SequenceProcessorV2(levels=NESTED)
+        self.assertEqual(repr(proc), f"SequenceProcessorV2(levels={NESTED})")
+        new = JaggedFeatureProcessor(levels=NESTED)
+        records = [{"x": {"children": [{"tokens": ["A", "B"]}, {"tokens": ["C"]}]}}]
+        proc.fit(records, "x")
+        new.fit(records, "x")
+        for got, want in zip(proc.process(records[0]["x"]), new.process(records[0]["x"])):
+            torch.testing.assert_close(got, want)
+
+    def test_schema_name_warns(self):
+        from pyhealth.datasets import create_sample_dataset
+        from pyhealth.processors import SequenceProcessorV2
+
+        samples = [
+            {"patient_id": f"p{i}", "x": {"tokens": ["A"]}, "y": i % 2} for i in range(2)
+        ]
+        with self.assertWarns(FutureWarning):
+            dataset = create_sample_dataset(
+                samples, {"x": ("sequence_v2", {"levels": [CODES]})}, {"y": "binary"}
+            )
+        self.assertIsInstance(dataset.input_processors["x"], SequenceProcessorV2)
+
+    def test_pickles_under_the_old_module_load_without_warning(self):
+        import warnings
+
+        from pyhealth.processors import SequenceProcessorV2
+
+        # Caches written before the rename refer to the class by its old path.
+        old = b"cpyhealth.processors.sequence_processor_v2\nSequenceProcessorV2\n."
+        self.assertIs(pickle.loads(old), SequenceProcessorV2)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            proc = JaggedFeatureProcessor(levels=[CODES])
+            proc.__class__ = SequenceProcessorV2
+            loaded = pickle.loads(pickle.dumps(proc))
+        self.assertIsInstance(loaded, SequenceProcessorV2)
+        self.assertEqual(caught, [])
+
+
+
+class _CodesTask(BaseTask):
+    task_name = "old_name_cache_key"
+    input_schema: ClassVar[dict[str, Any]] = {"x": ("jagged", {"levels": [CODES]})}
+    output_schema: ClassVar[dict[str, Any]] = {"y": "binary"}
+
+    def __call__(self, patient):
+        codes = [event.code for event in patient.get_events("events")]
+        k = int(patient.patient_id[1:])
+        return [{"patient_id": patient.patient_id, "x": {"tokens": codes}, "y": k % 2}]
+
+
+class TestOldNameCacheKey(unittest.TestCase):
+    """The processed-sample cache key of a pre-fitted processor names its class."""
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name) / "data"
+        root.mkdir()
+        rows = ["patient_id,time,code"] + [
+            f"p{k},2020-01-0{1 + v} 00:00:00,c{(k + v) % 3}" for k in range(4) for v in range(2)
+        ]
+        (root / "events.csv").write_text("\n".join(rows) + "\n")
+        (root / "config.yaml").write_text(
+            'version: "1.0"\ntables:\n  events:\n    file_path: "events.csv"\n'
+            '    patient_id: "patient_id"\n    timestamp: "time"\n    attributes:\n      - "code"\n'
+        )
+        self.root = root
+
+    def samples_dir(self, processor) -> str:
+        from pathlib import Path
+
+        from pyhealth.datasets import BaseDataset
+
+        processor.fit([{"x": {"tokens": ["c0", "c1", "c2"]}}], "x")
+        dataset = BaseDataset(
+            root=str(self.root),
+            tables=["events"],
+            dataset_name="OldNameCacheKey",
+            config_path=str(self.root / "config.yaml"),
+            cache_dir=str(Path(self.tmp.name) / "cache"),
+            num_workers=1,
+        )
+        samples = dataset.set_task(
+            _CodesTask(), num_workers=1, input_processors={"x": processor}
+        )
+        return Path(samples.path).name
+
+    def test_a_pre_fitted_old_processor_keeps_its_key(self):
+        import warnings
+
+        from pyhealth.processors import SequenceProcessorV2
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", FutureWarning)
+            old = SequenceProcessorV2(levels=[CODES])
+            again = SequenceProcessorV2(levels=[CODES])
+        new = JaggedFeatureProcessor(levels=[CODES])
+        # The key hashes the class name and vars(): the subclass keeps the
+        # name it had before the rename and adds no state, so its key is
+        # the one it had then, and a new run finds the same cache.
+        self.assertEqual(vars(old).keys(), vars(new).keys())
+        first = self.samples_dir(old)
+        self.assertEqual(self.samples_dir(again), first)
+        self.assertNotEqual(self.samples_dir(new), first)
 
 
 if __name__ == "__main__":

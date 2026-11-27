@@ -21,7 +21,6 @@ Description:
 """
 
 import math
-import warnings
 from typing import Callable, Dict, Optional, Tuple
 
 import torch
@@ -32,6 +31,7 @@ from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
 
 from pyhealth.processors import NestedSequenceProcessor, SequenceProcessor
+from pyhealth.utils import _warn_user
 
 
 class FinalAttentionQKV(nn.Module):
@@ -948,7 +948,7 @@ class ConCare(BaseModel):
                 )
                 input_dim = 1
                 self._proc_types[feature_key] = "nested_sequence"
-                warnings.warn(
+                _warn_user(
                     f"ConCare: feature '{feature_key}' uses nested_sequence "
                     f"(vocab_size={vocab_size}). Codes will be embedded (dim=1) "
                     "and sum-pooled per visit for memory efficiency. This reduces "
@@ -1024,17 +1024,14 @@ class ConCare(BaseModel):
         logits = self.fc(patient_emb)
 
         # Compute loss and predictions
-        y_true = kwargs[self.label_key].to(self.device)
-        loss_task = self.label_processor.loss(logits, y_true)
-        loss = decov_loss + loss_task
         y_prob = self.label_processor.activation(logits)
-
-        results = {
-            "loss": loss,
-            "y_prob": y_prob,
-            "y_true": y_true,
-            "logit": logits,
-        }
+        results = {"y_prob": y_prob, "logit": logits}
+        # The label is optional, so the model can predict without it.
+        if self.label_key in kwargs:
+            y_true = kwargs[self.label_key].to(self.device)
+            loss_task = self.label_processor.loss(logits, y_true)
+            results["loss"] = decov_loss + loss_task
+            results["y_true"] = y_true
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results

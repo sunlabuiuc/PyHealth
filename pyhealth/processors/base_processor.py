@@ -71,8 +71,8 @@ class FeatureProcessor(Processor):
     (``set_task(task, split=PatientSplit(...))``).
 
     Set ``stores_tensor = True`` only if ``process()`` always returns a
-    ``torch.Tensor``, or a tuple with one tensor per :meth:`schema` entry
-    (each tensor may change shape between samples). Such fields are written
+    ``torch.Tensor``, or a tuple with the same number of tensors in every
+    sample (each tensor may change shape between samples). Such fields are written
     to the disk cache as tensors; every other output (lists, other tuples,
     dicts, strings, None, objects) is stored as one pickled value per sample,
     so it may vary freely in length and shape between samples.
@@ -119,7 +119,39 @@ class FeatureProcessor(Processor):
             Processed value.
         """
         pass
-    
+
+
+class LegacyFeatureProcessor(FeatureProcessor):
+    """Feature processor that describes its output to the legacy models.
+
+    Models built on :class:`~pyhealth.models.EmbeddingModel` (RNN,
+    Transformer, StageNet, ...) and the interpretability methods read
+    :meth:`schema`, :meth:`is_token`, :meth:`dim` and :meth:`spatial` to
+    decide how to embed and attribute a field.
+    :class:`~pyhealth.processors.JaggedFeatureProcessor` describes its output
+    in its own format instead, and label processors need none of these.
+
+    Examples:
+        >>> import torch
+        >>> from pyhealth.processors import LegacyFeatureProcessor
+        >>> class Codes(LegacyFeatureProcessor):
+        ...     def process(self, value):
+        ...         return torch.tensor(value)
+        ...     def is_token(self):
+        ...         return True
+        ...     def schema(self):
+        ...         return ("value",)
+        ...     def dim(self):
+        ...         return (1,)
+        ...     def spatial(self):
+        ...         return (True,)
+        >>> p = Codes()
+        >>> p.process([3, 1, 2])
+        tensor([3, 1, 2])
+        >>> p.schema(), p.is_token(), p.dim(), p.spatial()
+        (('value',), True, (1,), (True,))
+    """
+
     def is_token(self) -> bool:
         """Returns whether the output (in particular, the value tensor) of the processor 
         represents discrete token indices (True) or continuous values (False). This is used to 
@@ -247,7 +279,7 @@ class TokenProcessorInterface(ABC):
         pass
 
 
-class TemporalFeatureProcessor(FeatureProcessor):
+class TemporalFeatureProcessor(LegacyFeatureProcessor):
     """Abstract base class for processors whose features are paired with timestamps.
 
     **Contract** — every subclass must implement:
@@ -258,11 +290,10 @@ class TemporalFeatureProcessor(FeatureProcessor):
     - ``process(value) -> dict[str, torch.Tensor]``  — must return a dict with at
       least the keys ``"value"`` and ``"time"``, and optionally ``"mask"``.
 
-    **Backward compatibility** — the existing ``FeatureProcessor`` API
-    (``is_token``, ``schema``, ``dim``, ``spatial``) is *kept* on the parent class
-    and continues to work for all non-temporal processors.  Subclasses of
-    ``TemporalFeatureProcessor`` should still implement those methods if they want
-    to remain compatible with the existing ``EmbeddingModel`` / ``MultimodalRNN``
+    **Backward compatibility** — the :class:`LegacyFeatureProcessor` API
+    (``is_token``, ``schema``, ``dim``, ``spatial``) is inherited from the parent
+    class.  Subclasses should still implement those methods if they want to
+    remain compatible with the existing ``EmbeddingModel`` / ``MultimodalRNN``
     pipeline.  The new ``modality()`` / ``value_dim()`` API is *additive* — used
     exclusively by ``UnifiedMultimodalEmbeddingModel``.
 
@@ -276,6 +307,19 @@ class TemporalFeatureProcessor(FeatureProcessor):
     Schema           Positional, fragile      Named keys, self-documenting
     Extensibility    Adding field = new arity Adding key = backward-compat
     ================ ======================== ==================================
+
+    Examples:
+        >>> from pyhealth.processors import (
+        ...     TemporalFeatureProcessor,
+        ...     TemporalTimeseriesProcessor,
+        ... )
+        >>> proc = TemporalTimeseriesProcessor()
+        >>> isinstance(proc, TemporalFeatureProcessor)
+        True
+        >>> proc.modality()
+        <ModalityType.NUMERIC: 'numeric'>
+        >>> proc.schema()
+        ('value', 'time')
     """
 
     # ── New API (required by UnifiedMultimodalEmbeddingModel) ─────────────────

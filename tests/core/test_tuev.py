@@ -6,9 +6,11 @@ from pathlib import Path
 from typing import List
 import pandas as pd
 import numpy as np
+import torch
 from unittest.mock import patch
 
 
+from pyhealth.datasets.base_dataset import BaseDataset
 from pyhealth.datasets.tuev import TUEVDataset
 from pyhealth.tasks.temple_university_EEG_tasks import EEGEventsTUEV
 
@@ -193,6 +195,258 @@ class TestEEGEventsTUEV(unittest.TestCase):
     def test_task_schema_no_stft(self):
         task = EEGEventsTUEV(compute_stft=False)
         self.assertEqual(task.input_schema, {"signal": "tensor"})
+
+
+class TestEEGEventsTUEVFloatResampleRate(unittest.TestCase):
+    """BuildEvents must work when resample_rate is not a whole number (#1522)."""
+
+    @staticmethod
+    def _build(fs, event_start=10.0, num_chan=16, duration=30.0):
+        num_points = round(duration * fs)
+        signals = np.random.randn(num_chan, num_points)
+        times = np.arange(num_points) / fs
+        event = np.array([4, event_start, event_start + 1.0, 2])
+        return signals, times, EEGEventsTUEV.BuildEvents(signals, times, event, fs)
+
+    def test_non_integer_rates_give_round_5s_windows(self):
+        for fs in (200.5, 256.5, 250.25):
+            with self.subTest(fs=fs):
+                _, _, (feats, offending, labels) = self._build(fs)
+                self.assertEqual(feats.shape, (1, 16, round(5 * fs)))
+                self.assertEqual(int(offending.squeeze()), 4)
+                self.assertEqual(int(labels.squeeze()), 2)
+
+    def test_window_starts_two_seconds_before_the_event(self):
+        for fs in (200, 200.5, 256.5):
+            with self.subTest(fs=fs):
+                signals, times, (feats, _, _) = self._build(fs)
+                start = np.where(times >= 10.0)[0][0]
+                first = start - round(2 * fs)
+                np.testing.assert_array_equal(
+                    feats[0], signals[:, first : first + round(5 * fs)]
+                )
+
+    def test_window_length_does_not_depend_on_the_event_end(self):
+        # Only the onset is used: a 2 s event still gives a 5 s window that
+        # starts 2 s before the onset.
+        fs = 200
+        num_points = 30 * fs
+        signals = np.random.randn(16, num_points)
+        times = np.arange(num_points) / fs
+        event = np.array([4, 10.0, 12.0, 2])
+        feats, _, _ = EEGEventsTUEV.BuildEvents(signals, times, event, fs)
+        first = 10 * fs - 2 * fs
+        np.testing.assert_array_equal(feats[0], signals[:, first : first + 5 * fs])
+
+    def test_integer_rate_matches_the_previous_slicing(self):
+        # At an integer rate the window is the one the old code produced:
+        # [start - 2 fs, end + 2 fs) for a 1 s event.
+        fs = 200
+        signals, times, (feats, _, _) = self._build(fs)
+        start = np.where(times >= 10.0)[0][0]
+        end = np.where(times >= 11.0)[0][0]
+        np.testing.assert_array_equal(
+            feats[0], signals[:, start - 2 * fs : end + 2 * fs]
+        )
+
+    def test_call_runs_at_a_non_integer_rate(self):
+        fs = 256.5
+        task = EEGEventsTUEV(resample_rate=fs, compute_stft=False)
+        num_points = round(30 * fs)
+        signals = np.random.randn(16, num_points)
+        times = np.arange(num_points) / fs
+        rec = np.array([[4, 10.0, 11.0, 2], [7, 20.0, 21.0, 6]])
+        patient = _DummyPatient("patient-0", [_DummyEvent(signal_file="dummy.edf")])
+        with (
+            patch.object(
+                EEGEventsTUEV, "readEDF", return_value=(signals, times, rec, None)
+            ),
+            patch.object(EEGEventsTUEV, "convert_signals", return_value=signals),
+        ):
+            samples = task(patient)
+        self.assertEqual(len(samples), 2)
+        for sample in samples:
+            self.assertEqual(tuple(sample["signal"].shape), (16, round(5 * fs)))
+        self.assertEqual([s["label"] for s in samples], [1, 5])
+
+
+class TestEEGEventsTUEVSkippedRecordings(unittest.TestCase):
+    """Recordings the task cannot use must be reported, not dropped silently."""
+
+    @staticmethod
+    def _read_edf_with_suffix(suffix: str):
+        class _Raw:
+            def __init__(self, ch_names):
+                self.info = {"ch_names": ch_names}
+
+        electrodes = (
+            "FP1", "F7", "T3", "T5", "O1", "FP2", "F8", "T4",
+            "T6", "O2", "F3", "C3", "P3", "F4", "C4", "P4",
+        )
+        names = [f"EEG {c}-{suffix}" for c in electrodes]
+        fs = 200
+        signals = np.zeros((len(names), fs * 20))
+        times = np.arange(fs * 20) / fs
+        rec = np.array([[0, 8.0, 9.0, 1]])
+        return signals, times, rec, _Raw(names)
+
+    def _patient(self) -> _DummyPatient:
+        return _DummyPatient(
+            patient_id="patient-0",
+            events=[_DummyEvent(signal_file="/dummy/le_recording.edf")],
+        )
+
+    def test_reference_montage_recording_is_used(self):
+        task = EEGEventsTUEV(compute_stft=False)
+        with patch.object(
+            EEGEventsTUEV, "readEDF", return_value=self._read_edf_with_suffix("REF")
+        ):
+            samples = task(self._patient())
+        self.assertEqual(len(samples), 1)
+
+    def test_linked_ear_recording_is_skipped_with_a_warning(self):
+        task = EEGEventsTUEV(compute_stft=False)
+        with (
+            patch.object(
+                EEGEventsTUEV,
+                "readEDF",
+                return_value=self._read_edf_with_suffix("LE"),
+            ),
+            self.assertLogs(
+                "pyhealth.tasks.temple_university_EEG_tasks", level="WARNING"
+            ) as logs,
+        ):
+            samples = task(self._patient())
+        self.assertEqual(samples, [])
+        self.assertIn("/dummy/le_recording.edf", logs.output[0])
+        self.assertIn("EEG FP1-REF", logs.output[0])
+
+
+class TestTUEVMetadataCachePerRoot(unittest.TestCase):
+    """Two dataset roots must never share cached metadata.
+
+    When ``root`` is not writable, the metadata CSVs are written to a home
+    cache. That cache used to be one folder for every root, so a second root
+    silently loaded the first root's recordings.
+    """
+
+    def _make_root(self, root: Path, subject: str) -> None:
+        for split, name in (
+            ("train", f"{subject}_00000001.edf"),
+            ("eval", "bckg_001_a_.edf"),
+        ):
+            edf = root / split / subject / name
+            edf.parent.mkdir(parents=True, exist_ok=True)
+            edf.write_bytes(b"")
+
+    def _metadata_root(self, root: Path) -> Path:
+        """Run ``__init__`` up to ``BaseDataset`` and return the root it picks."""
+        captured = {}
+
+        def fake_base_init(dataset, root, **kwargs):
+            captured["root"] = root
+
+        with patch.object(BaseDataset, "__init__", fake_base_init):
+            TUEVDataset(root=str(root))
+        return Path(captured["root"])
+
+    @staticmethod
+    def _train_patients(metadata_root: Path) -> list[str]:
+        csv = metadata_root / "tuev-train-pyhealth.csv"
+        return sorted(pd.read_csv(csv, dtype=str)["patient_id"])
+
+    @staticmethod
+    def _read_only(*roots: Path):
+        """Make ``DataFrame.to_csv`` fail under ``roots``.
+
+        This stands in for a read-only directory. ``chmod`` cannot be used:
+        it has no effect on Windows or when the tests run as root.
+        """
+        real_to_csv = pd.DataFrame.to_csv
+
+        def to_csv(df, path_or_buf=None, *args, **kwargs):
+            if any(str(path_or_buf).startswith(str(r)) for r in roots):
+                raise PermissionError(f"read-only: {path_or_buf}")
+            return real_to_csv(df, path_or_buf, *args, **kwargs)
+
+        return patch.object(pd.DataFrame, "to_csv", to_csv)
+
+    def test_read_only_root_does_not_leak_into_writable_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            home, root_a, root_b = tmp / "home", tmp / "a", tmp / "b"
+            self._make_root(root_a, "00000001")
+            self._make_root(root_b, "00000002")
+            with patch.object(Path, "home", return_value=home):
+                with self._read_only(root_a):
+                    meta_a = self._metadata_root(root_a)
+                meta_b = self._metadata_root(root_b)
+
+            self.assertTrue(meta_a.is_relative_to(home))
+            self.assertEqual(self._train_patients(meta_a), ["00000001"])
+            self.assertEqual(meta_b, root_b)
+            self.assertEqual(self._train_patients(meta_b), ["00000002"])
+
+    def test_two_read_only_roots_get_separate_caches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            home, root_a, root_b = tmp / "home", tmp / "a", tmp / "b"
+            self._make_root(root_a, "00000001")
+            self._make_root(root_b, "00000002")
+            with (
+                patch.object(Path, "home", return_value=home),
+                self._read_only(root_a, root_b),
+            ):
+                meta_a = self._metadata_root(root_a)
+                meta_b = self._metadata_root(root_b)
+
+            self.assertNotEqual(meta_a, meta_b)
+            self.assertEqual(self._train_patients(meta_a), ["00000001"])
+            self.assertEqual(self._train_patients(meta_b), ["00000002"])
+
+
+class TestEEGEventsTUEVStftRate(unittest.TestCase):
+    """The stft field is built for 200 Hz signals (#1521)."""
+
+    def test_stft_at_200_hz_is_allowed(self):
+        for rate in (200, 200.0):
+            with self.subTest(rate=rate):
+                task = EEGEventsTUEV(resample_rate=rate, compute_stft=True)
+                self.assertIn("stft", task.input_schema)
+
+    def test_stft_at_another_rate_raises(self):
+        for rate in (100, 256, 200.5):
+            with (
+                self.subTest(rate=rate),
+                self.assertRaisesRegex(ValueError, "compute_stft=False"),
+            ):
+                EEGEventsTUEV(resample_rate=rate, compute_stft=True)
+
+    def test_another_rate_without_stft_is_allowed(self):
+        task = EEGEventsTUEV(resample_rate=256, compute_stft=False)
+        self.assertEqual(task.input_schema, {"signal": "tensor"})
+
+    def test_stft_field_at_200_hz(self):
+        # 1 s windows with a 0.5 s hop and 100 one-hertz bins: a 5 s event
+        # window gives 9 frames.
+        from pyhealth.models.tfm_tokenizer import get_stft_torch
+
+        fs = 200
+        signals = np.random.randn(16, 30 * fs)
+        times = np.arange(30 * fs) / fs
+        rec = np.array([[4, 10.0, 11.0, 2]])
+        patient = _DummyPatient("patient-0", [_DummyEvent(signal_file="dummy.edf")])
+        task = EEGEventsTUEV(resample_rate=fs, compute_stft=True)
+        with (
+            patch.object(
+                EEGEventsTUEV, "readEDF", return_value=(signals, times, rec, None)
+            ),
+            patch.object(EEGEventsTUEV, "convert_signals", return_value=signals),
+        ):
+            (sample,) = task(patient)
+        self.assertEqual(tuple(sample["stft"].shape), (16, 100, 9))
+        expected = get_stft_torch(sample["signal"].unsqueeze(0)).squeeze(0)
+        torch.testing.assert_close(sample["stft"], expected)
 
 
 if __name__ == "__main__":

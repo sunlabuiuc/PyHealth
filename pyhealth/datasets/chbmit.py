@@ -261,6 +261,12 @@ class CHBMITDataset(BaseDataset):
     is the same person as ``chb01``, that split is not fully
     subject-independent.
 
+    Getting the data:
+        - Source: https://physionet.org/content/chbmit/1.0.0/
+        - Access: open, no account needed (about 43 GB).
+        - Download: ``wget -r -N -c -np https://physionet.org/files/chbmit/1.0.0/``
+        - ``root``: the folder holding ``chb01/`` ... ``chb24/``.
+
     Args:
         root: Directory that contains the ``chb01`` ... ``chb24`` folders.
         dataset_name: Name stored on the dataset. Defaults to ``"chbmit"``.

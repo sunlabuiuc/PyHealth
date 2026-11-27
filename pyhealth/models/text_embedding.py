@@ -22,11 +22,11 @@ Example:
 
 from typing import List, Optional, Tuple, Union
 import logging
-import warnings
 
 import torch
 import torch.nn as nn
 from transformers import AutoModel, AutoTokenizer
+from pyhealth.utils import _warn_user
 
 
 logger = logging.getLogger(__name__)
@@ -240,7 +240,7 @@ class TextEmbedding(nn.Module):
         if self.max_chunks is not None and len(chunks) > self.max_chunks:
             original_chunks = len(chunks)
             chunks = chunks[: self.max_chunks]
-            warnings.warn(
+            _warn_user(
                 f"Text produced {original_chunks} chunks, truncated to {self.max_chunks}. "
                 f"Consider increasing max_chunks or summarizing input.",
                 UserWarning,

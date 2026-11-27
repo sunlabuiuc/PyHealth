@@ -1,3 +1,21 @@
+"""GIM (Gradient Interaction Modifications) attributions for a StageNet on MIMIC-IV.
+
+Explains one held-out patient's ``MortalityPredictionStageNetMIMIC4``
+prediction with ``pyhealth.interpret.methods.GIM`` and prints the top-10
+attributed ICD codes and lab values. Written as ``# %%`` cells, so it can also
+be stepped through in VS Code / Jupyter.
+
+Data: the open-access MIMIC-IV demo
+(https://physionet.org/content/mimic-iv-demo/2.2/, no credentials) or full
+MIMIC-IV; a copy of the demo ships in ``test-resources/core/mimic4demo``. Set
+MIMIC4_ROOT below. RESOURCES_DIR may hold a trained model
+(``input_processors.pkl``, ``output_processors.pkl``, ``best.ckpt``); if the
+checkpoint is missing, the model is trained for 5 epochs.
+
+Run from this folder (CPU is fine; about a minute on the demo):
+    cd examples/interpretability && python gim_stagenet_mimic4.py
+"""
+
 # %% Loading MIMIC-IV dataset
 from pathlib import Path
 
@@ -13,28 +31,38 @@ from pyhealth.datasets import (
 from pyhealth.interpret.methods import GIM
 from pyhealth.models import StageNet
 from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
+from pyhealth.trainer import Trainer
+
+# Paths: edit before running.
+MIMIC4_ROOT = "~/physionet.org/files/mimic-iv-demo/2.2/"
+RESOURCES_DIR = Path("../resources/")  # optional pre-trained model
 
 # Configure dataset location and load cached processors
-dataset = MIMIC4EHRDataset(
-    root="/home/logic/physionet.org/files/mimic-iv-demo/2.2/",
-    tables=[
-        "patients",
-        "admissions",
-        "diagnoses_icd",
-        "procedures_icd",
-        "labevents",
-    ],
-)
+if __name__ == "__main__":  # set_task spawns workers that re-import this file
+    dataset = MIMIC4EHRDataset(
+        root=MIMIC4_ROOT,
+        tables=[
+            "patients",
+            "admissions",
+            "diagnoses_icd",
+            "procedures_icd",
+            "labevents",
+        ],
+    )
 
 # %% Setting StageNet Mortality Prediction Task
-input_processors, output_processors = load_processors("../resources/")
+if __name__ == "__main__":  # set_task spawns workers that re-import this file
+    input_processors = output_processors = None
+    if (RESOURCES_DIR / "input_processors.pkl").exists():
+        input_processors, output_processors = load_processors(str(RESOURCES_DIR))
 
-sample_dataset = dataset.set_task(
-    MortalityPredictionStageNetMIMIC4(),
-    input_processors=input_processors,
-    output_processors=output_processors,
-)
-print(f"Total samples: {len(sample_dataset)}")
+    sample_dataset = dataset.set_task(
+        MortalityPredictionStageNetMIMIC4(),
+        input_processors=input_processors,
+        output_processors=output_processors,
+    )
+    print(f"Total samples: {len(sample_dataset)}")
+    input_processors = sample_dataset.input_processors
 
 
 def load_icd_description_map(dataset_root: str) -> dict:
@@ -69,27 +97,39 @@ def load_icd_description_map(dataset_root: str) -> dict:
     return mapping
 
 
-ICD_CODE_TO_DESC = load_icd_description_map(dataset.root)
+if __name__ == "__main__":  # set_task spawns workers that re-import this file
+    ICD_CODE_TO_DESC = load_icd_description_map(dataset.root)
 
 # %% Loading Pretrained StageNet model
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-model = StageNet(
-    dataset=sample_dataset,
-    embedding_dim=128,
-    chunk_size=128,
-    levels=3,
-    dropout=0.3,
-)
+if __name__ == "__main__":  # set_task spawns workers that re-import this file
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model = StageNet(
+        dataset=sample_dataset,
+        embedding_dim=128,
+        chunk_size=128,
+        levels=3,
+        dropout=0.3,
+    )
 
-state_dict = torch.load("../resources/best.ckpt", map_location=device)
-model.load_state_dict(state_dict)
-model = model.to(device)
-model.eval()
-print(model)
+    ckpt_path = RESOURCES_DIR / "best.ckpt"
+    if ckpt_path.exists():
+        state_dict = torch.load(ckpt_path, map_location=device)
+        model.load_state_dict(state_dict)
+    else:
+        print(f"No checkpoint at {ckpt_path}; training the model for 5 epochs.")
+        train_data, _, _ = split_by_patient(sample_dataset, [0.7, 0.1, 0.2], seed=42)
+        Trainer(model=model, device=str(device), enable_logging=False).train(
+            train_dataloader=get_dataloader(train_data, batch_size=32, shuffle=True),
+            epochs=5,
+        )
+    model = model.to(device)
+    model.eval()
+    print(model)
 
 # %% Preparing dataloaders
-_, _, test_data = split_by_patient(sample_dataset, [0.7, 0.1, 0.2], seed=42)
-test_loader = get_dataloader(test_data, batch_size=1, shuffle=False)
+if __name__ == "__main__":  # set_task spawns workers that re-import this file
+    _, _, test_data = split_by_patient(sample_dataset, [0.7, 0.1, 0.2], seed=42)
+    test_loader = get_dataloader(test_data, batch_size=1, shuffle=False)
 
 
 def move_batch_to_device(batch, target_device):
@@ -181,24 +221,27 @@ def print_top_attributions(
 
 
 # %% Run GIM on a held-out sample
-gim = GIM(model, temperature=2.0)
+if __name__ == "__main__":  # set_task spawns workers that re-import this file
+    gim = GIM(model, temperature=2.0)
 
-sample_batch = next(iter(test_loader))
-sample_batch_device = move_batch_to_device(sample_batch, device)
+    sample_batch = next(iter(test_loader))
+    sample_batch_device = move_batch_to_device(sample_batch, device)
 
-with torch.no_grad():
-    output = model(**sample_batch_device)
-    probs = output["y_prob"]
-    preds = torch.argmax(probs, dim=-1)
-    label_key = model.label_key
-    true_label = sample_batch_device[label_key]
+    with torch.no_grad():
+        output = model(**sample_batch_device)
+        probs = output["y_prob"]
+        preds = torch.argmax(probs, dim=-1)
+        label_key = model.label_key
+        true_label = sample_batch_device[label_key]
 
-    print("\nModel prediction for the sampled patient:")
-    print(f"  True label: {int(true_label.item())}")
-    print(f"  Predicted class: {int(preds.item())}")
-    print(f"  Probabilities: {probs[0].cpu().numpy()}")
+        print("\nModel prediction for the sampled patient:")
+        print(f"  True label: {int(true_label.item())}")
+        print(f"  Predicted class: {int(preds.item())}")
+        print(f"  Probabilities: {probs[0].cpu().numpy()}")
 
-attributions = gim.attribute(**sample_batch_device)
-print_top_attributions(attributions, sample_batch_device, input_processors, top_k=10)
+    attributions = gim.attribute(**sample_batch_device)
+    print_top_attributions(
+        attributions, sample_batch_device, input_processors, top_k=10
+    )
 
 # %%

@@ -1,13 +1,71 @@
-from datetime import datetime, timedelta
-from typing import Dict, List
+import logging
+from datetime import date, datetime, time, timedelta
+from itertools import pairwise
+from typing import Any, Dict, List  # noqa: UP035
 
 from pyhealth.data import Event, Patient
 from pyhealth.tasks import BaseTask
+
+logger = logging.getLogger(__name__)
+
+
+def _calendar_day(value: Any) -> date | None:
+    """Calendar day of an OMOP date, datetime, or ``YYYY-MM-DD`` string.
+
+    Unparseable values return None, and that observation period is skipped.
+    """
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return datetime.strptime(value, fmt).date()
+            except ValueError:
+                continue
+    return None
+
+
+def _observation_period_bounds(
+    event: Any,
+) -> tuple[datetime, datetime] | None:
+    """Inclusive bounds of one ``observation_period`` row.
+
+    ``observation_period_end_date`` is an inclusive calendar day, so a
+    discharge at noon on that date is still inside the period.
+    """
+    start_day = _calendar_day(getattr(event, "observation_period_start_date", None))
+    end_day = _calendar_day(getattr(event, "observation_period_end_date", None))
+    if start_day is None or end_day is None:
+        return None
+    op_start = datetime(start_day.year, start_day.month, start_day.day, 0, 0, 0)
+    op_end = datetime.combine(end_day, time.max)
+    return op_start, op_end
+
+
+def _observation_covers(
+    periods: list[Event],
+    visit_start: datetime,
+    visit_end: datetime,
+    required_end: datetime,
+) -> bool:
+    """True when one period contains the visit and reaches ``required_end``."""
+    for period in periods:
+        bounds = _observation_period_bounds(period)
+        if bounds is None:
+            continue
+        op_start, op_end = bounds
+        if op_start <= visit_start and visit_end <= op_end and required_end <= op_end:
+            return True
+    return False
 
 
 class ReadmissionPredictionMIMIC3(BaseTask):
     """
     Readmission prediction on the MIMIC3 dataset.
+
+    Works with :class:`~pyhealth.datasets.MIMIC3Dataset`.
 
     This task aims at predicting whether the patient will be readmitted into hospital within
     a specified number of days based on clinical information from the current visit.
@@ -147,6 +205,8 @@ class ReadmissionPredictionMIMIC4(BaseTask):
     """
     Readmission prediction on the MIMIC4 dataset.
 
+    Works with :class:`~pyhealth.datasets.MIMIC4EHRDataset`.
+
     This task aims at predicting whether the patient will be readmitted into hospital within
     a specified number of days based on clinical information from the current visit.
 
@@ -175,7 +235,11 @@ class ReadmissionPredictionMIMIC4(BaseTask):
     output_schema: Dict[str, str] = {"readmission": "binary"}
 
     def __init__(
-        self, window: timedelta = timedelta(days=15), exclude_minors: bool = True, **kwargs
+        self,
+        window: timedelta = timedelta(days=15),
+        exclude_minors: bool = True,
+        min_gap: timedelta | None = None,
+        **kwargs,
     ) -> None:
         """Initializes the task object.
 
@@ -184,11 +248,18 @@ class ReadmissionPredictionMIMIC4(BaseTask):
                 considered a readmission. Defaults to 15 days.
             exclude_minors: Whether to exclude patients whose
                 ``anchor_age`` is less than 18. Defaults to True.
+            min_gap: Admissions that start at most ``min_gap`` after the
+                previous discharge (e.g. internal transfers) are merged into
+                one stay: the stay gives one sample, with the codes of all its
+                admissions, labelled from its last discharge. Defaults to
+                None, which merges nothing, so a transfer counts as a
+                readmission. Consider setting it, e.g. to a few hours.
             **kwargs: Passed to :class:`~pyhealth.tasks.BaseTask`, e.g.
                 ``code_mapping``.
         """
         super().__init__(**kwargs)
         self.window = window
+        self.min_gap = min_gap
         self.exclude_minors = exclude_minors
 
     def __call__(self, patient: Patient) -> List[Dict]:
@@ -201,8 +272,9 @@ class ReadmissionPredictionMIMIC4(BaseTask):
             patient (Patient): A patient object.
 
         Returns:
-            List[Dict]: A list containing a dictionary for each patient visit with:
-                - 'visit_id': MIMIC4 hadm_id.
+            List[Dict]: A list containing a dictionary for each stay (one
+            admission, or several merged by ``min_gap``) with:
+                - 'visit_id': MIMIC4 hadm_id of the stay's first admission.
                 - 'patient_id': MIMIC4 subject_id.
                 - 'conditions': MIMIC4 diagnoses_icd table ICD-9 or ICD-10 codes.
                 - 'procedures': MIMIC4 procedures_icd table ICD-9 or ICD-10 codes.
@@ -223,55 +295,51 @@ class ReadmissionPredictionMIMIC4(BaseTask):
         if len(admissions) < 2:
             return []
 
+        # Group consecutive admissions into stays: an admission that starts at
+        # most min_gap after the previous discharge continues that stay.
+        stays = [[admissions[0]]]
+        for admission in admissions[1:]:
+            gap = admission.timestamp - _discharge_time(stays[-1][-1])
+            if self.min_gap is not None and gap <= self.min_gap:
+                stays[-1].append(admission)
+            else:
+                stays.append([admission])
+
         samples = []
-        # Skip the last admission since we need a "next" admission
-        for i in range(len(admissions) - 1):
-            filter = ("hadm_id", "==", admissions[i].hadm_id)
-
-            diagnoses = []
-            for event in patient.get_events(
-                event_type="diagnoses_icd", filters=[filter]
-            ):
-                assert event.icd_version in ("9", "10")
-                diagnoses.append(f"{event.icd_version}_{event.icd_code}")
-            if len(diagnoses) == 0:
+        # Skip the last stay since we need a "next" admission
+        for stay, next_stay in pairwise(stays):
+            diagnoses, procedures, prescriptions = [], [], []
+            for admission in stay:
+                filter = ("hadm_id", "==", admission.hadm_id)
+                for event in patient.get_events(
+                    event_type="diagnoses_icd", filters=[filter]
+                ):
+                    assert event.icd_version in ("9", "10")
+                    diagnoses.append(f"{event.icd_version}_{event.icd_code}")
+                for event in patient.get_events(
+                    event_type="procedures_icd", filters=[filter]
+                ):
+                    assert event.icd_version in ("9", "10")
+                    procedures.append(f"{event.icd_version}_{event.icd_code}")
+                prescriptions += [
+                    event.ndc
+                    for event in patient.get_events(
+                        event_type="prescriptions", filters=[filter]
+                    )
+                    if event.ndc
+                ]
+            if not diagnoses or not procedures or not prescriptions:
                 continue
 
-            procedures = []
-            for event in patient.get_events(
-                event_type="procedures_icd", filters=[filter]
-            ):
-                assert event.icd_version in ("9", "10")
-                procedures.append(f"{event.icd_version}_{event.icd_code}")
-            if len(procedures) == 0:
-                continue
-
-            prescriptions = patient.get_events(
-                event_type="prescriptions", filters=[filter]
-            )
-            prescriptions = [event.ndc for event in prescriptions if event.ndc]
-            if len(prescriptions) == 0:
-                continue
-
-            try:
-                discharge_time = datetime.strptime(
-                    admissions[i].dischtime, "%Y-%m-%d %H:%M:%S"
-                )
-            except ValueError:
-                discharge_time = datetime.strptime(admissions[i].dischtime, "%Y-%m-%d")
-
-            readmission = int(
-                (admissions[i + 1].timestamp - discharge_time) < self.window
-            )
-
+            gap = next_stay[0].timestamp - _discharge_time(stay[-1])
             samples.append(
                 {
-                    "visit_id": admissions[i].hadm_id,
+                    "visit_id": stay[0].hadm_id,
                     "patient_id": patient.patient_id,
                     "conditions": diagnoses,
                     "procedures": procedures,
                     "drugs": prescriptions,
-                    "readmission": readmission,
+                    "readmission": int(gap < self.window),
                 }
             )
 
@@ -281,6 +349,8 @@ class ReadmissionPredictionMIMIC4(BaseTask):
 class ReadmissionPredictionEICU(BaseTask):
     """
     Readmission prediction on the eICU dataset.
+
+    Works with :class:`~pyhealth.datasets.eICUDataset`.
 
     This task aims at predicting whether the patient will be readmitted into the ICU
     during the same hospital stay based on clinical information from the current ICU
@@ -433,6 +503,8 @@ class ReadmissionPredictionOMOP(BaseTask):
     """
     Readmission prediction on the OMOP dataset.
 
+    Works with :class:`~pyhealth.datasets.OMOPDataset`.
+
     This task aims at predicting whether the patient will be readmitted into hospital within
     a specified number of days based on clinical information from the current visit.
 
@@ -441,9 +513,29 @@ class ReadmissionPredictionOMOP(BaseTask):
         input_schema (Dict[str, str]): The schema for the task input.
         output_schema (Dict[str, str]): The schema for the task output.
 
+    Set ``check_observation_period=True`` to drop a non-readmitted visit
+    whose observation period ends before ``discharge + window``. Readmitted
+    visits stay, as long as the visit itself is inside an observation period.
+    With the check on, a patient's last visit is labeled too: it is a
+    non-readmitted visit, kept when its period reaches ``discharge + window``.
+    Without the check, the last visit is skipped because nothing shows
+    whether a readmission went unrecorded. The check is off by default and
+    keyword-only.
+
+    ``observation_period`` is not in
+    :class:`~pyhealth.datasets.OMOPDataset`'s default tables. With the check
+    on, include it in ``tables``. Otherwise every visit is dropped.
+
     Examples:
-        >>> from pyhealth.datasets import OMOPDataset
+        >>> from datetime import timedelta
         >>> from pyhealth.tasks import ReadmissionPredictionOMOP
+        >>> task = ReadmissionPredictionOMOP(
+        ...     window=timedelta(days=15),
+        ...     check_observation_period=True,
+        ... )
+        >>> task.check_observation_period
+        True
+        >>> from pyhealth.datasets import OMOPDataset
         >>> dataset = OMOPDataset(
         ...     root="/path/to/omop/data",
         ...     tables=["condition_occurrence", "procedure_occurrence",
@@ -462,7 +554,12 @@ class ReadmissionPredictionOMOP(BaseTask):
     output_schema: Dict[str, str] = {"readmission": "binary"}
 
     def __init__(
-        self, window: timedelta = timedelta(days=15), exclude_minors: bool = True, **kwargs
+        self,
+        window: timedelta = timedelta(days=15),
+        exclude_minors: bool = True,
+        *,
+        check_observation_period: bool = False,
+        **kwargs,
     ) -> None:
         """Initializes the task object.
 
@@ -471,12 +568,18 @@ class ReadmissionPredictionOMOP(BaseTask):
                 considered a readmission. Defaults to 15 days.
             exclude_minors: Whether to exclude visits where the patient
                 was under 18 years old. Defaults to True.
+            check_observation_period: Keyword-only. When True, require one
+                observation period to cover the visit. A visit that is not a
+                readmission also needs that period to reach
+                ``discharge + window``. Defaults to False.
             **kwargs: Passed to :class:`~pyhealth.tasks.BaseTask`, e.g.
                 ``code_mapping``.
         """
         super().__init__(**kwargs)
         self.window = window
         self.exclude_minors = exclude_minors
+        self.check_observation_period = check_observation_period
+        self._warned_missing_observation_period = False
 
     def __call__(self, patient: Patient) -> List[Dict]:
         """
@@ -507,12 +610,29 @@ class ReadmissionPredictionOMOP(BaseTask):
             dob = datetime.strptime(f"{year:04d}-{month:02d}-{day:02d}", "%Y-%m-%d")
 
         admissions: List[Event] = patient.get_events(event_type="visit_occurrence")
-        if len(admissions) < 2:
+        # Without the observation-period check, a visit needs a next visit to
+        # get a label, so the last visit is skipped.
+        if self.check_observation_period:
+            labeled_admissions = len(admissions)
+        else:
+            labeled_admissions = len(admissions) - 1
+        if labeled_admissions < 1:
             return []
 
+        observation_periods: list[Event] = []
+        if self.check_observation_period:
+            observation_periods = patient.get_events(event_type="observation_period")
+            if not observation_periods and not self._warned_missing_observation_period:
+                logger.warning(
+                    "ReadmissionPredictionOMOP check_observation_period is on, "
+                    "but this patient has no observation_period events. "
+                    "Include observation_period in OMOPDataset tables, or "
+                    "every visit is dropped."
+                )
+                self._warned_missing_observation_period = True
+
         samples = []
-        # Skip the last admission since we need a "next" admission
-        for i in range(len(admissions) - 1):
+        for i in range(labeled_admissions):
             if self.exclude_minors:
                 age = admissions[i].timestamp.year - dob.year
                 if (admissions[i].timestamp.month, admissions[i].timestamp.day) < (dob.month, dob.day):
@@ -546,8 +666,21 @@ class ReadmissionPredictionOMOP(BaseTask):
             )
 
             readmission = int(
-                (admissions[i + 1].timestamp - discharge_time) < self.window
+                i + 1 < len(admissions)
+                and (admissions[i + 1].timestamp - discharge_time) < self.window
             )
+
+            if self.check_observation_period:
+                required_end = discharge_time
+                if readmission == 0:
+                    required_end = discharge_time + self.window
+                if not _observation_covers(
+                    observation_periods,
+                    admissions[i].timestamp,
+                    discharge_time,
+                    required_end,
+                ):
+                    continue
 
             samples.append(
                 {
@@ -561,3 +694,15 @@ class ReadmissionPredictionOMOP(BaseTask):
             )
 
         return samples
+
+
+def _discharge_time(admission: Event) -> datetime:
+    """An admission's discharge time, from a timestamp or a date.
+
+    MIMIC-IV times have no time zone, like the admission timestamps they
+    are compared with, so the result is naive too.
+    """
+    try:
+        return datetime.strptime(admission.dischtime, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return datetime.strptime(admission.dischtime, "%Y-%m-%d")

@@ -1,0 +1,14 @@
+icd_code,icd_version,ccs_code,ccs_name,icd_name
+4280,9,108,Congestive heart failure; nonhypertensive,"Congestive heart failure, unspecified"
+4019,9,98,Essential hypertension,Unspecified essential hypertension
+40291,9,99,Hypertension with complications and secondary hypertension,Unspecified hypertensive heart disease with heart failure
+250.00,9,49,Diabetes mellitus without complication,"Diabetes mellitus without mention of complication, type II or unspecified type, not stated as uncontrolled"
+42731,9,106,Cardiac dysrhythmias,Atrial fibrillation
+4269,9,105,Conduction disorders,"Conduction disorder, unspecified"
+5849,9,157,Acute and unspecified renal failure,"Acute kidney failure, unspecified"
+41401,9,101,Coronary atherosclerosis and other heart disease,Coronary atherosclerosis of native coronary artery
+4168,9,103,Pulmonary heart disease,Other chronic pulmonary heart diseases
+I50.9,10,108,Congestive heart failure; nonhypertensive,"Heart failure, unspecified"
+I10,10,98,Essential hypertension,Essential (primary) hypertension
+E119,10,49,Diabetes mellitus without complication,Type 2 diabetes mellitus without complications
+I480,10,106,Cardiac dysrhythmias,Paroxysmal atrial fibrillation

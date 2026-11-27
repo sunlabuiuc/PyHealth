@@ -23,8 +23,13 @@ class ClinVarDataset(BaseDataset):
     among human variations and phenotypes, with supporting evidence. This dataset
     enables variant pathogenicity prediction tasks.
 
-    Dataset is available at:
-    https://ftp.ncbi.nlm.nih.gov/pub/clinvar/
+    Getting the data:
+        - Source: https://ftp.ncbi.nlm.nih.gov/pub/clinvar/
+        - Access: open, no account needed.
+        - Download: ``wget
+          https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz``
+        - ``root``: the folder holding ``variant_summary.txt(.gz)``. The class
+          writes ``clinvar-pyhealth.csv`` there on first load.
 
     Args:
         root: Root directory of the raw data containing the ClinVar files.
