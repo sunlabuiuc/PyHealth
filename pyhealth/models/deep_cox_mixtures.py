@@ -12,7 +12,7 @@ from collections.abc import Sequence
 
 import numpy as np
 import torch
-import torch.nn as nn
+from torch import nn
 import torch.nn.functional as F
 from scipy.interpolate import PchipInterpolator
 
@@ -38,6 +38,15 @@ def cox_partial_loss(
 
     Returns:
         Scalar negative partial log-likelihood.
+
+        Examples:
+        >>> import torch
+        >>> log_risk = torch.zeros(3)
+        >>> duration = torch.tensor([1.0, 2.0, 3.0])
+        >>> event = torch.ones(3)
+        >>> loss = cox_partial_loss(log_risk, duration, event)
+        >>> round(loss.item(), 4)
+        0.5973
     """
     log_risk = log_risk.reshape(-1)
     duration = duration.reshape(-1)
@@ -83,6 +92,18 @@ class DeepCoxMixtures(BaseModel):
         num_components: Number of latent Cox components.
         hidden_dims: Hidden dimensions of the shared encoder.
         dropout: Dropout probability.
+
+        Examples:
+        >>> import torch
+        >>> model = DeepCoxMixtures(
+        ...     dataset=None,
+        ...     input_dim=4,
+        ...     num_components=3,
+        ... )
+        >>> features = torch.randn(5, 4)
+        >>> output = model(features)
+        >>> output["mixture_probs"].shape
+        torch.Size([5, 3])
     """
 
     def __init__(
@@ -699,7 +720,18 @@ class BreslowBaseline:
 
     Args:
         epsilon: Small positive constant for numerical stability.
+        Examples:
+        >>> import numpy as np
+        >>> baseline = BreslowBaseline()
+        >>> _ = baseline.fit(
+        ...     duration=np.array([10, 20, 30]),
+        ...     event=np.array([1, 0, 1]),
+        ...     log_risk=np.zeros(3),
+        ... )
+        >>> baseline.predict_survival(np.array([0.0]))
+        array([1.])
     """
+    
 
     def __init__(self, epsilon: float = 1e-12) -> None:
         self.epsilon = epsilon
