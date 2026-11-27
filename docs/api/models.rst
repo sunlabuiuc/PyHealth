@@ -321,8 +321,10 @@ API Reference
     models/pyhealth.models.EHRMambaCEHR
     models/pyhealth.models.ETHOS
     models/pyhealth.models.Delphi
+    models/pyhealth.models.ECGJEPA
     models/pyhealth.models.JambaEHR
     models/pyhealth.models.ContraWR
+    models/pyhealth.models.CLIPStress
     models/pyhealth.models.EEGNet
     models/pyhealth.models.DeepSleepNet
     models/pyhealth.models.SleepKD
@@ -374,5 +376,7 @@ API Reference
     models/pyhealth.models.DescEmb
     models/pyhealth.models.bulk_rna_bert
     models/pyhealth.models.DearLLM
+    models/pyhealth.models.CHET
     models/pyhealth.models.GAME
+    models/pyhealth.models.QueryFocusedEHRModel
 

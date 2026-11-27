@@ -28,6 +28,7 @@ from .unet import (
     evaluate_segmentation as evaluate_segmentation,
     sliding_window_inference as sliding_window_inference,
 )
+from .clip_stress import CLIPStress as CLIPStress
 from .transformer_deid import TransformerDeID
 from .biot import BIOT
 from .cnn import CNN, CNNLayer
@@ -36,6 +37,7 @@ from .contrawr import ContraWR, ResBlock2D
 from .deepsleepnet import DeepSleepNet as DeepSleepNet
 from .deepr import Deepr, DeeprLayer
 from .delphi import Delphi as Delphi
+from .ecg_jepa import ECGJEPA as ECGJEPA, ECGJEPAEncoder as ECGJEPAEncoder
 from .eegnet import EEGNet as EEGNet
 from .embedding import EmbeddingModel
 from .sequence_embedding import (
@@ -167,6 +169,12 @@ from .dearllm import (
     DearLLM as DearLLM,
     DearLLMGraphEncoder as DearLLMGraphEncoder,
 )
+from .chet import (
+    CHET as CHET,
+    DotProductAttention as DotProductAttention,
+    SingleHeadAttentionLayer as SingleHeadAttentionLayer,
+    compute_cooccurrence_adj as compute_cooccurrence_adj,
+)
 from .game import (
     GAME as GAME,
     GAMEEmbedding as GAMEEmbedding,
@@ -174,3 +182,4 @@ from .game import (
     load_game_embeddings as load_game_embeddings,
     normalize_game_code as normalize_game_code,
 )
+from .query_focused_ehr import QueryFocusedEHRModel as QueryFocusedEHRModel
