@@ -92,8 +92,8 @@ class MedModInHospitalMortality(BaseTask):
             checkpoints were trained with; its statistics are over 1-hour
             bins). ``None``: means and stds fitted on the train split by
             ``MedModEHRProcessor``.
-        image_dir: folder of resized images (``resized/<dicom_id>.jpg``,
-            MedFuse's 512-px resize). If set,
+        image_dir: folder of resized images (``resized/<dicom_id>.jpg``, as
+            written by ``pyhealth.datasets.medmod.resize_cxr``). If set,
             ``image_path`` points
             there and stays whose file is missing are dropped (funnel stage
             ``resized_image_found``). If None, ``image_path`` is PyHealth's

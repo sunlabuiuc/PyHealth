@@ -311,7 +311,8 @@ def split_by_medmod(
     """Split a MedMod ``SampleDataset`` by its ``split`` field.
 
     Args:
-        samples: a ``SampleDataset`` from ``set_task`` without ``split``.
+        samples: a ``SampleDataset`` from ``create_synthetic_samples(...)`` (or
+            ``set_task`` without ``split``).
 
     Returns:
         train, val, test: ``SampleDataset`` views (``samples.subset``), as
@@ -319,7 +320,8 @@ def split_by_medmod(
 
     Examples:
         >>> from pyhealth.datasets import split_by_medmod
-        >>> samples = dataset.set_task(task)  # doctest: +SKIP
+        >>> from pyhealth.datasets.medmod.synthetic import create_synthetic_samples
+        >>> samples = create_synthetic_samples("keep", n_stays=50)  # doctest: +SKIP
         >>> train, val, test = split_by_medmod(samples)  # doctest: +SKIP
     """
     positions = split_positions(samples[i]["split"] for i in range(len(samples)))

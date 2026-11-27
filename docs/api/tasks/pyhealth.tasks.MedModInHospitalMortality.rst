@@ -34,16 +34,19 @@ what the model's own image loader applies.
      - Why
    * - Early Fusion
      - ``"keep"``
-     - ImageNet-normalized
+     - ``get_preset("early_fusion", ...)`` (ImageNet-normalized)
      - MedMod's supervised ``fusion_main.py:13-16`` imports ``datasets.*`` and
        ``ehr_utils.*``, which exist only in MedFuse; MedFuse's
        ``datasets/ehr_dataset.py`` keeps every row and
        ``datasets/cxr_dataset.py`` normalizes.
    * - ConVIRT (pretraining, linear evaluation)
      - ``"drop"``
-     - pixels in [0, 1]
+     - ``get_preset("convirt", ...)`` (pixels in [0, 1])
      - MedMod's ``src/data/datasets.py:137-163`` keeps 0 < t only; the ConVIRT
        scripts pass ``--transforms_cxr simclrv2``.
+
+``get_preset`` and ``load_cxr`` are in ``pyhealth.datasets.medmod.image_presets``;
+``train=True`` adds the training augmentation.
 
 Paper vs code
 -------------

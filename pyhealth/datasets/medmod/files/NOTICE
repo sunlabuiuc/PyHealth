@@ -20,12 +20,13 @@ MedMod (Elsharief et al., 2025), https://github.com/nyuad-cai/MedMod
     unpickler instead of pickle.load); the cohort, cleaning, time-series and
     split rules of mimic4extract (extraction.py, re-implemented on pandas for a
     PyHealth task); the training loaders' time-window and CXR-pairing rules
-    (extraction.py).
+    (extraction.py); the simclrv2 transforms (image_presets.py).
 
 MedFuse (Hayat et al., 2022), https://github.com/nyuad-cai/MedFuse
   The repository has no license file. No MedFuse code is bundled. Settings and
-  behaviours are re-implemented and cited by file and line: the EHR loader's
-  time window (extraction.py).
+  behaviours are re-implemented and cited by file and line: the image resize
+  step (resize_cxr.py), the image transforms (image_presets.py) and the EHR
+  loader's time window (extraction.py).
 
 PyHealth, https://github.com/sunlabuiuc/PyHealth, MIT License.
   configs/mimic4_ehr_v1.0.yaml is adapted from PyHealth's
