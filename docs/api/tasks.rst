@@ -324,5 +324,6 @@ Available Tasks
     Value Set Completion (VSAC) <tasks/pyhealth.tasks.ValueSetCompletion>
     Value Set Pair Classification (VSAC) <tasks/pyhealth.tasks.ValueSetPairClassification>
     Time-to-event survival (GBSG and SUPPORT) <tasks/pyhealth.tasks.survival_time_to_event>
+    Time-to-event survival (SUPPORT2, Deep Cox Mixtures protocol) <tasks/pyhealth.tasks.survival_time_to_event_support2_dcm>
     TCGA RNA-seq Survival Prediction <tasks/pyhealth.tasks.TCGASurvivalPrediction>
     Query-Focused EHR Summarization (MIMIC-III) <tasks/pyhealth.tasks.QueryFocusedEHRTask>

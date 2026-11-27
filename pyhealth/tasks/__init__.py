@@ -197,6 +197,9 @@ from .survival_time_to_event import (
 from .survival_time_to_event import (
     SurvivalTimeToEventSupport2 as SurvivalTimeToEventSupport2,
 )
+from .survival_time_to_event_support2_dcm import (
+    SurvivalTimeToEventSupport2DCM as SurvivalTimeToEventSupport2DCM,
+)
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
