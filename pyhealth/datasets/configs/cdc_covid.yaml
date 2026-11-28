@@ -1,0 +1,28 @@
+version: "1.0"
+tables:
+  cases:
+    file_path: "n8mc-b4w4.csv"
+    # The public-use data has deidentified case rows, not patient identifiers.
+    # BaseDataset therefore assigns one generated identifier to every CSV row.
+    patient_id: null
+    timestamp: "case_month"
+    timestamp_format: "%Y-%m"
+    attributes:
+      - "res_state"
+      - "state_fips_code"
+      - "res_county"
+      - "county_fips_code"
+      - "age_group"
+      - "sex"
+      - "race"
+      - "ethnicity"
+      - "case_positive_specimen"
+      - "case_onset_interval"
+      - "process"
+      - "exposure_yn"
+      - "current_status"
+      - "symptom_status"
+      - "hosp_yn"
+      - "icu_yn"
+      - "death_yn"
+      - "underlying_conditions_yn"

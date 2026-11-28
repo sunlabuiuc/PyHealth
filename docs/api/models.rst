@@ -324,8 +324,10 @@ API Reference
     models/pyhealth.models.EHRMambaCEHR
     models/pyhealth.models.ETHOS
     models/pyhealth.models.Delphi
+    models/pyhealth.models.ECGJEPA
     models/pyhealth.models.JambaEHR
     models/pyhealth.models.ContraWR
+    models/pyhealth.models.CLIPStress
     models/pyhealth.models.EEGNet
     models/pyhealth.models.DeepSleepNet
     models/pyhealth.models.WatchSleepNet
@@ -338,6 +340,8 @@ API Reference
     models/pyhealth.models.Agent
     models/pyhealth.models.GRASP
     models/pyhealth.models.MedFuse
+    models/pyhealth.models.EHRCXREarlyFusion
+    models/pyhealth.models.ConVIRT
     models/pyhealth.models.MAESTRO
     models/pyhealth.models.DAFT
     models/pyhealth.models.DiPro
@@ -380,4 +384,7 @@ API Reference
     models/pyhealth.models.DearLLM
     models/pyhealth.models.CHET
     models/pyhealth.models.GAME
+    models/pyhealth.models.MedTok
+    models/pyhealth.models.EviCare
+    models/pyhealth.models.QueryFocusedEHRModel
 

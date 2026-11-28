@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List
 import pandas as pd
 import numpy as np
+import torch
 from unittest.mock import patch
 
 
@@ -196,6 +197,79 @@ class TestEEGEventsTUEV(unittest.TestCase):
         self.assertEqual(task.input_schema, {"signal": "tensor"})
 
 
+class TestEEGEventsTUEVFloatResampleRate(unittest.TestCase):
+    """BuildEvents must work when resample_rate is not a whole number (#1522)."""
+
+    @staticmethod
+    def _build(fs, event_start=10.0, num_chan=16, duration=30.0):
+        num_points = round(duration * fs)
+        signals = np.random.randn(num_chan, num_points)
+        times = np.arange(num_points) / fs
+        event = np.array([4, event_start, event_start + 1.0, 2])
+        return signals, times, EEGEventsTUEV.BuildEvents(signals, times, event, fs)
+
+    def test_non_integer_rates_give_round_5s_windows(self):
+        for fs in (200.5, 256.5, 250.25):
+            with self.subTest(fs=fs):
+                _, _, (feats, offending, labels) = self._build(fs)
+                self.assertEqual(feats.shape, (1, 16, round(5 * fs)))
+                self.assertEqual(int(offending.squeeze()), 4)
+                self.assertEqual(int(labels.squeeze()), 2)
+
+    def test_window_starts_two_seconds_before_the_event(self):
+        for fs in (200, 200.5, 256.5):
+            with self.subTest(fs=fs):
+                signals, times, (feats, _, _) = self._build(fs)
+                start = np.where(times >= 10.0)[0][0]
+                first = start - round(2 * fs)
+                np.testing.assert_array_equal(
+                    feats[0], signals[:, first : first + round(5 * fs)]
+                )
+
+    def test_window_length_does_not_depend_on_the_event_end(self):
+        # Only the onset is used: a 2 s event still gives a 5 s window that
+        # starts 2 s before the onset.
+        fs = 200
+        num_points = 30 * fs
+        signals = np.random.randn(16, num_points)
+        times = np.arange(num_points) / fs
+        event = np.array([4, 10.0, 12.0, 2])
+        feats, _, _ = EEGEventsTUEV.BuildEvents(signals, times, event, fs)
+        first = 10 * fs - 2 * fs
+        np.testing.assert_array_equal(feats[0], signals[:, first : first + 5 * fs])
+
+    def test_integer_rate_matches_the_previous_slicing(self):
+        # At an integer rate the window is the one the old code produced:
+        # [start - 2 fs, end + 2 fs) for a 1 s event.
+        fs = 200
+        signals, times, (feats, _, _) = self._build(fs)
+        start = np.where(times >= 10.0)[0][0]
+        end = np.where(times >= 11.0)[0][0]
+        np.testing.assert_array_equal(
+            feats[0], signals[:, start - 2 * fs : end + 2 * fs]
+        )
+
+    def test_call_runs_at_a_non_integer_rate(self):
+        fs = 256.5
+        task = EEGEventsTUEV(resample_rate=fs, compute_stft=False)
+        num_points = round(30 * fs)
+        signals = np.random.randn(16, num_points)
+        times = np.arange(num_points) / fs
+        rec = np.array([[4, 10.0, 11.0, 2], [7, 20.0, 21.0, 6]])
+        patient = _DummyPatient("patient-0", [_DummyEvent(signal_file="dummy.edf")])
+        with (
+            patch.object(
+                EEGEventsTUEV, "readEDF", return_value=(signals, times, rec, None)
+            ),
+            patch.object(EEGEventsTUEV, "convert_signals", return_value=signals),
+        ):
+            samples = task(patient)
+        self.assertEqual(len(samples), 2)
+        for sample in samples:
+            self.assertEqual(tuple(sample["signal"].shape), (16, round(5 * fs)))
+        self.assertEqual([s["label"] for s in samples], [1, 5])
+
+
 class TestEEGEventsTUEVSkippedRecordings(unittest.TestCase):
     """Recordings the task cannot use must be reported, not dropped silently."""
 
@@ -329,6 +403,50 @@ class TestTUEVMetadataCachePerRoot(unittest.TestCase):
             self.assertNotEqual(meta_a, meta_b)
             self.assertEqual(self._train_patients(meta_a), ["00000001"])
             self.assertEqual(self._train_patients(meta_b), ["00000002"])
+
+
+class TestEEGEventsTUEVStftRate(unittest.TestCase):
+    """The stft field is built for 200 Hz signals (#1521)."""
+
+    def test_stft_at_200_hz_is_allowed(self):
+        for rate in (200, 200.0):
+            with self.subTest(rate=rate):
+                task = EEGEventsTUEV(resample_rate=rate, compute_stft=True)
+                self.assertIn("stft", task.input_schema)
+
+    def test_stft_at_another_rate_raises(self):
+        for rate in (100, 256, 200.5):
+            with (
+                self.subTest(rate=rate),
+                self.assertRaisesRegex(ValueError, "compute_stft=False"),
+            ):
+                EEGEventsTUEV(resample_rate=rate, compute_stft=True)
+
+    def test_another_rate_without_stft_is_allowed(self):
+        task = EEGEventsTUEV(resample_rate=256, compute_stft=False)
+        self.assertEqual(task.input_schema, {"signal": "tensor"})
+
+    def test_stft_field_at_200_hz(self):
+        # 1 s windows with a 0.5 s hop and 100 one-hertz bins: a 5 s event
+        # window gives 9 frames.
+        from pyhealth.models.tfm_tokenizer import get_stft_torch
+
+        fs = 200
+        signals = np.random.randn(16, 30 * fs)
+        times = np.arange(30 * fs) / fs
+        rec = np.array([[4, 10.0, 11.0, 2]])
+        patient = _DummyPatient("patient-0", [_DummyEvent(signal_file="dummy.edf")])
+        task = EEGEventsTUEV(resample_rate=fs, compute_stft=True)
+        with (
+            patch.object(
+                EEGEventsTUEV, "readEDF", return_value=(signals, times, rec, None)
+            ),
+            patch.object(EEGEventsTUEV, "convert_signals", return_value=signals),
+        ):
+            (sample,) = task(patient)
+        self.assertEqual(tuple(sample["stft"].shape), (16, 100, 9))
+        expected = get_stft_torch(sample["signal"].unsqueeze(0)).squeeze(0)
+        torch.testing.assert_close(sample["stft"], expected)
 
 
 if __name__ == "__main__":
