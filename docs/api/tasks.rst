@@ -333,3 +333,5 @@ Available Tasks
     TCGA RNA-seq Survival Prediction <tasks/pyhealth.tasks.TCGASurvivalPrediction>
     Query-Focused EHR Summarization (MIMIC-III) <tasks/pyhealth.tasks.QueryFocusedEHRTask>
     Multi-event survival (Rotterdam) <tasks/pyhealth.tasks.multi_event_survival_rotterdam>
+    Vasopressor Onset (MIMIC-III) <tasks/pyhealth.tasks.VasopressorOnsetMIMIC3>
+    Vasopressor Onset (MIMIC-IV) <tasks/pyhealth.tasks.VasopressorOnsetMIMIC4>

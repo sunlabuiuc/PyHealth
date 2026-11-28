@@ -294,6 +294,10 @@ API Reference
     models/pyhealth.models.NeuralFineGray
     models/pyhealth.models.LogisticRegression
     models/pyhealth.models.GA2M
+    models/pyhealth.models.ConceptBottleneckModel
+    models/pyhealth.models.SummaryEncoder
+    models/pyhealth.models.LogisticRegressionWithSummaries
+    models/pyhealth.models.LSTMNextStateBaseline
     models/pyhealth.models.MLP
     models/pyhealth.models.CNN
     models/pyhealth.models.UNet
