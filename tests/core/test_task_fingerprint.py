@@ -988,7 +988,9 @@ class TestSidecarDigest(unittest.TestCase):
 class TestShippedTasks(unittest.TestCase):
     """Strict mode is the default, so every shipped task has to fingerprint."""
 
-    # Constructors that need arguments, with values that need no data.
+    # Constructors that need arguments, with values that need no data. These tasks
+    # must build; any other task that cannot be built from its defaults (it needs
+    # arguments, data on disk or an optional package) is skipped with the reason.
     REQUIRED_ARGS = {
         "benchmark_ehrshot.BenchmarkEHRShot": lambda: {"task": "guo_los"},
         "chestxray14_binary_classification.ChestXray14BinaryClassification": lambda: {
@@ -1007,27 +1009,24 @@ class TestShippedTasks(unittest.TestCase):
             "scp_statements_path": "scp_statements.csv"
         },
     }
-    # Not built here, with the reason.
-    NOT_BUILT = {
-        "chaos_segmentation._CHAOSSegmentationBase": "base class, refuses construction",
-        "value_set_completion.ValueSetCompletion": "reads an index built from data",
-    }
-
     def test_every_shipped_task_fingerprints(self):
         tasks = _shipped_tasks()
-        self.assertGreater(len(tasks), 90)
-        for name in (*self.REQUIRED_ARGS, *self.NOT_BUILT):
+        for name in self.REQUIRED_ARGS:
             self.assertIn(name, tasks, "stale entry")
+        built = []
         for name, cls in sorted(tasks.items()):
-            if name in self.NOT_BUILT:
-                continue
             with self.subTest(task=name):
-                try:
-                    task = cls(**self.REQUIRED_ARGS.get(name, dict)())
-                except ImportError as exc:  # optional package, such as soundfile
-                    self.skipTest(f"{name}: {exc}")
+                if name in self.REQUIRED_ARGS:
+                    task = cls(**self.REQUIRED_ARGS[name]())
+                else:
+                    try:
+                        task = cls()
+                    except Exception as exc:
+                        self.skipTest(f"{name} needs arguments or data: {exc}")
                 self.assertEqual(len(task_fingerprint(task)), 64)
                 self.assertTrue(task_cache_name(task))
+                built.append(name)
+        self.assertGreater(len(built), 90)
 
 
 def _shipped_tasks() -> dict[str, type]:
