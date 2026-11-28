@@ -139,12 +139,14 @@ class RC3P(LABEL):
     :param alpha: Target mis-coverage rate, a float in (0, 1).
     :type alpha: float
     :param score_type: Nonconformity score to use: "threshold" (default,
-        the LAC score, NC score = 1 - p(true class)) or "aps"
-        (Adaptive Prediction Sets, Romano, Sesia, and Candes 2020). See
+        the LAC score, NC score = 1 - p(true class)), "aps"
+        (Adaptive Prediction Sets, Romano, Sesia, and Candes 2020), or
+        "saps" (Sorted Adaptive Prediction Sets, Huang et al. 2024). See
         :mod:`pyhealth.calib.predictionset.scores` for the exact formulas.
     :type score_type: str
     :param random_state: Optional int seed for the RNG used for the
-        internal calibration split and by score_type="aps".
+        internal calibration split and by score_type="aps" and
+        score_type="saps".
     :type random_state: int | None
     :param rank_fraction: Fraction of each class's calibration samples
         used for rank calibration when no separate rank dataset is
@@ -178,6 +180,7 @@ class RC3P(LABEL):
         random_state: int | None = None,
         rank_fraction: float = 0.5,
         debug=False,
+        saps_lambda: float = 0.1,
         **kwargs,
     ) -> None:
         # RC3P needs a single scalar alpha, unlike LABEL which also
@@ -195,6 +198,7 @@ class RC3P(LABEL):
             score_type=score_type,
             random_state=random_state,
             debug=debug,
+            saps_lambda=saps_lambda,
             **kwargs,
         )
         self.rank_fraction = rank_fraction
@@ -270,6 +274,7 @@ class RC3P(LABEL):
             score_y_true,
             score_type=self.score_type,
             rng=self.rng,
+            saps_lambda=self.saps_lambda,
         )
         thresholds = np.full(num_classes, np.inf, dtype=np.float64)
         for y in range(num_classes):

@@ -48,13 +48,20 @@ class LABEL(SetPredictor):
     :type alpha: float | np.ndarray
     :param score_type: Nonconformity score to use: "threshold" (default,
         the LAC score from Sadinle, Lei, and Wasserman 2019, NC score
-        = 1 - p(true class)) or "aps" (Adaptive Prediction Sets, Romano,
-        Sesia, and Candes 2020). See
+        = 1 - p(true class)), "aps" (Adaptive Prediction Sets, Romano,
+        Sesia, and Candes 2020), or "saps" (Sorted Adaptive Prediction
+        Sets, Huang et al. 2024). See
         :mod:`pyhealth.calib.predictionset.scores` for the exact formulas.
     :type score_type: str
     :param random_state: Optional int seed for the RNG used by
-        score_type="aps". Ignored for score_type="threshold".
+        score_type="aps" and score_type="saps". Ignored for
+        score_type="threshold".
     :type random_state: int | None
+    :param saps_lambda: Ranking-weight hyperparameter for
+        score_type="saps" (Huang et al. 2024); default 0.1. Ignored for
+        other score types. Placed after the pre-existing parameters so
+        positional constructor calls keep working.
+    :type saps_lambda: float
 
     Examples:
         >>> from pyhealth.datasets import ISRUCDataset, split_by_patient, get_dataloader
@@ -95,6 +102,7 @@ class LABEL(SetPredictor):
         score_type: str = "threshold",
         random_state: int | None = None,
         debug=False,
+        saps_lambda: float = 0.1,
         **kwargs,
     ) -> None:
         super().__init__(model, **kwargs)
@@ -112,6 +120,7 @@ class LABEL(SetPredictor):
         self.device = model.device
         self.debug = debug
         self.score_type = score_type
+        self.saps_lambda = saps_lambda
         self.rng = np.random.default_rng(random_state)
 
         if not isinstance(alpha, float):
@@ -135,7 +144,11 @@ class LABEL(SetPredictor):
         N, K = cal_dataset["y_prob"].shape
         # NC scores: higher = less conforming
         nc_scores = true_class_nc_scores(
-            y_prob, y_true, score_type=self.score_type, rng=self.rng
+            y_prob,
+            y_true,
+            score_type=self.score_type,
+            rng=self.rng,
+            saps_lambda=self.saps_lambda,
         )
         if isinstance(self.alpha, float):
             t = _query_quantile(nc_scores, self.alpha)
@@ -157,7 +170,10 @@ class LABEL(SetPredictor):
         pred = self.model(**kwargs)
         y_prob = pred["y_prob"].detach().cpu().numpy()
         nc_scores = all_class_nc_scores(
-            y_prob, score_type=self.score_type, rng=self.rng
+            y_prob,
+            score_type=self.score_type,
+            rng=self.rng,
+            saps_lambda=self.saps_lambda,
         )
         nc_scores = torch.as_tensor(
             nc_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype
