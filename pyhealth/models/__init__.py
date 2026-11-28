@@ -120,6 +120,7 @@ from .protoecgnet import (
     ResNet1dBackbone as ResNet1dBackbone,
     ResNet2dBackbone as ResNet2dBackbone,
 )
+from .protoecgnet_h1 import ProtoECGNetH1 as ProtoECGNetH1
 from .td_cnn_lstm import TDCNNLSTM as TDCNNLSTM
 from .generators.halo import HALO
 from .generators.gpt2 import GPT2
