@@ -300,6 +300,9 @@ from .dementia_classification_ahepa import (
 from .soz_localization_hup import (
     SOZLocalizationHUP as SOZLocalizationHUP,
 )
+from .sleep_staging_dreamt import (
+    SleepStagingDREAMT as SleepStagingDREAMT
+)
 from .eegbci import (
     EEGBCIPatternDiscovery as EEGBCIPatternDiscovery,
     EEGMotorImageryEEGBCI as EEGMotorImageryEEGBCI,
