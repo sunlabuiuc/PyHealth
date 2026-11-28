@@ -1,6 +1,6 @@
 """SHHS+MESA WatchSleepNet pretraining on real cohorts.
 
-The script requires real SHHS and MESA roots, builds the migrated three-class
+The script requires real SHHS and MESA roots, builds the three-class
 IBI tasks, pools the recordings, splits by patient, trains
 :class:`~pyhealth.models.WatchSleepNet` with ``Trainer.train``, and saves a
 self-describing checkpoint plus ``training_history.csv``. There is no

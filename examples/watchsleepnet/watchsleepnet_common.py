@@ -1,8 +1,9 @@
 """Shared helpers for the WatchSleepNet real-data examples.
 
-Every training example requires an explicit root to a real DREAMT, SHHS, or
-MESA cohort; there is no synthetic-data fallback. The same functions build
-datasets, tasks, models, checkpoints, and report tables for those cohorts.
+Every training example requires an explicit root to a real dataset directory;
+there is no synthetic-data fallback. The same functions build datasets, tasks,
+models, checkpoints, and report tables for DREAMT, SHHS, MESA, ISRUC and
+Sleep-Accel cohorts.
 
 Examples:
     >>> from watchsleepnet_common import CLASS_NAMES, LOSS_MODES
@@ -32,7 +33,9 @@ from sklearn.metrics import accuracy_score, f1_score
 
 from pyhealth.datasets import (
     DREAMTDataset,
+    ISRUCDataset,
     NSRRSleepDataset,
+    SleepAccelDataset,
     create_sample_dataset,
     get_dataloader,
     split_by_patient,
@@ -40,8 +43,10 @@ from pyhealth.datasets import (
 from pyhealth.models import WatchSleepNet
 from pyhealth.tasks import (
     SleepStagingIBIDREAMT,
+    SleepStagingIBIISRUC,
     SleepStagingIBIMESA,
     SleepStagingIBISHHS,
+    SleepStagingIBISleepAccel,
 )
 from pyhealth.trainer import Trainer
 
@@ -63,14 +68,6 @@ DEFAULT_MODEL_KWARGS = {
 }
 TRAINER_METRICS = ["accuracy", "f1_macro", "cohen_kappa"]
 CHECKPOINT_FORMAT = "watchsleepnet-pyhealth-v1"
-
-
-def _not_migrated(name: str) -> NotImplementedError:
-    return NotImplementedError(
-        f"{name!r} is not part of this PR's PyHealth migration; use "
-        "'dreamt', 'shhs', or 'mesa'. Its IBI task and dataset will be "
-        "added in a later milestone."
-    )
 
 
 def existing_dir(value: str) -> Path:
@@ -103,27 +100,25 @@ def build_dataset(
     cohort: str | None = None,
     cache_dir: str | None = None,
 ) -> Any:
-    """Builds a PyHealth dataset for one of the migrated IBI sources.
+    """Builds a PyHealth dataset for one of the supported IBI sources.
 
     Args:
-        name: ``"dreamt"``, ``"shhs"``, or ``"mesa"``.
+        name: ``"dreamt"``, ``"shhs"``, ``"mesa"``, ``"isruc"`` or
+            ``"sleep_accel"``.
         root: Dataset directory.
         cohort: NSRR cohort; defaults to ``name``.
-        cache_dir: Optional writable cache for NSRR metadata.
+        cache_dir: Optional writable cache for PyHealth metadata.
 
     Returns:
         A fitted PyHealth dataset.
 
     Raises:
-        NotImplementedError: For datasets that are not migrated yet.
         ValueError: For an unknown name.
 
     Examples:
         >>> build_dataset("dreamt", "unused-root") if False else "ready"
         'ready'
     """
-    if name in ("slpdb", "isruc", "sleep_accel"):
-        raise _not_migrated(name)
     if name == "dreamt":
         return DREAMTDataset(root=str(root))
     if name in ("shhs", "mesa"):
@@ -132,6 +127,10 @@ def build_dataset(
             cohort=cohort or name,
             cache_dir=cache_dir,
         )
+    if name == "isruc":
+        return ISRUCDataset(root=str(root), cache_dir=cache_dir)
+    if name == "sleep_accel":
+        return SleepAccelDataset(root=str(root), cache_dir=cache_dir)
     raise ValueError(f"unknown dataset {name!r}")
 
 
@@ -142,31 +141,33 @@ def build_task(
     signal_source: str = "psg_100hz",
     signal_channel: str | None = None,
     peak_backend: str = "auto",
+    scorer: str = "expert1",
 ) -> Any:
-    """Builds the migrated three-class IBI task for a dataset.
+    """Builds the three-class IBI task for a dataset.
 
     Args:
-        name: ``"dreamt"``, ``"shhs"``, or ``"mesa"``.
+        name: ``"dreamt"``, ``"shhs"``, ``"mesa"``, ``"isruc"`` or
+            ``"sleep_accel"``.
         points_per_epoch: IBI samples per 30 s epoch.
         max_epochs: Maximum epochs per recording.
         signal_source: ``"psg_100hz"`` or ``"wearable_64hz"`` for DREAMT.
         signal_channel: Waveform column or EDF channel.
         peak_backend: Beat detector. ``"auto"`` prefers the reference
             biosppy/neurokit backends with a scipy fallback.
+        scorer: ``"expert1"`` or ``"expert2"`` hypnogram for ISRUC.
 
     Returns:
         A task whose samples use the shared signal/lengths/label contract.
 
     Raises:
-        NotImplementedError: For datasets that are not migrated yet.
         ValueError: For an unknown name.
 
     Examples:
         >>> build_task("dreamt", points_per_epoch=375).points_per_epoch
         375
+        >>> build_task("isruc", scorer="expert2").scorer
+        'expert2'
     """
-    if name in ("slpdb", "isruc", "sleep_accel"):
-        raise _not_migrated(name)
     if name == "dreamt":
         return SleepStagingIBIDREAMT(
             signal_source=signal_source,
@@ -188,6 +189,19 @@ def build_task(
             points_per_epoch=points_per_epoch,
             max_epochs=max_epochs,
             peak_backend=peak_backend,
+        )
+    if name == "isruc":
+        return SleepStagingIBIISRUC(
+            scorer=scorer,
+            channel=signal_channel,
+            points_per_epoch=points_per_epoch,
+            max_epochs=max_epochs,
+            peak_backend=peak_backend,
+        )
+    if name == "sleep_accel":
+        return SleepStagingIBISleepAccel(
+            points_per_epoch=points_per_epoch,
+            max_epochs=max_epochs,
         )
     raise ValueError(f"unknown dataset {name!r}")
 
@@ -222,7 +236,7 @@ def _rebuild(samples: list[dict[str, Any]], source: Any, name: str = "") -> Any:
 
 
 def pool_datasets(datasets: Sequence[Any]) -> Any:
-    """Pools migrated sample datasets into one ``SampleDataset``.
+    """Pools sample datasets into one ``SampleDataset``.
 
     Patient IDs are prefixed with the source index when more than one dataset
     is pooled, so SHHS and MESA IDs cannot collide.

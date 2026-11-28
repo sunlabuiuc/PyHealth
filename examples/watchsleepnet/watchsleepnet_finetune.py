@@ -3,9 +3,9 @@
 The script requires a real dataset root, optionally loads an existing ``.pt``
 checkpoint, fine-tunes with ``Trainer.train``, evaluates with
 ``Trainer.evaluate``, and saves a self-describing fine-tuned checkpoint.
-``slpdb``, ``isruc``, and ``sleep_accel`` fail clearly and lazily until their
-PyHealth ports land. There is no synthetic-data fallback. ``--loss`` selects
-the training objective; ``ce`` is the reference default.
+DREAMT, SHHS, MESA, ISRUC and Sleep-Accel roots are supported. There is no
+synthetic-data fallback. ``--loss`` selects the training objective; ``ce`` is
+the reference default.
 
 Command:
     python examples/watchsleepnet/watchsleepnet_pretrain_shhs_mesa.py \
@@ -114,7 +114,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--dataset",
-        choices=("dreamt", "shhs", "mesa", "slpdb", "isruc", "sleep_accel"),
+        choices=("dreamt", "shhs", "mesa", "isruc", "sleep_accel"),
         default="dreamt",
     )
     parser.add_argument(
@@ -127,6 +127,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--signal-source",
         choices=("psg_100hz", "wearable_64hz"),
         default="psg_100hz",
+    )
+    parser.add_argument(
+        "--scorer", choices=("expert1", "expert2"), default="expert1"
     )
     add_training_args(parser)
     add_model_args(parser)
@@ -142,9 +145,6 @@ def main(argv: list[str] | None = None) -> int:
 
     Returns:
         Zero after a completed run.
-
-    Raises:
-        NotImplementedError: For datasets whose PyHealth port is not available.
 
     Examples:
         >>> main(["--root", ".", "--epochs", "0"]) if False else "ready"
@@ -167,6 +167,7 @@ def main(argv: list[str] | None = None) -> int:
         max_epochs=args.task_max_epochs or 1100,
         signal_source=args.signal_source,
         peak_backend="auto",
+        scorer=args.scorer,
     )
     samples = build_samples(dataset, task, num_workers=args.num_workers)
     parts = split_dataset(samples, seed=args.seed)
@@ -232,6 +233,7 @@ def main(argv: list[str] | None = None) -> int:
                 "signal_source": args.signal_source,
                 "points_per_epoch": args.points_per_epoch,
                 "max_epochs": args.task_max_epochs or 1100,
+                "scorer": args.scorer,
             },
             "model": model_kwargs,
             "quantization": quantization,
