@@ -377,7 +377,7 @@ bounty:
     category: model
     title: MIU-VL Medical Image VLMs (ICLR 2023)
     description: "Add prompt-based pretrained vision-language model baselines for medical image detection in PyHealth. [code](https://github.com/MembrAI/MIU-VL)"
-    complete: ~
+    complete: "@irvifa (#1655)"
   - id: 64
     priority: 2
     category: model
