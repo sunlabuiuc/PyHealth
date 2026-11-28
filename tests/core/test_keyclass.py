@@ -1,5 +1,8 @@
 import importlib.util
+import tempfile
+import types
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import numpy as np
@@ -8,6 +11,7 @@ import torch
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import KeyClass
 from pyhealth.weak_supervision import (
+    ClinicalTextEncoder,
     KeywordLabeler,
     aggregate_votes,
     clean_note,
@@ -123,11 +127,13 @@ class TestKeyClass(unittest.TestCase):
         self.addCleanup(nltk_english_stopwords.cache_clear)
         corpus = mock.Mock()
         corpus.words.side_effect = LookupError
-        with mock.patch.dict(
-            "sys.modules", {"nltk.corpus": mock.Mock(stopwords=corpus)}
+        with (
+            mock.patch.dict(
+                "sys.modules", {"nltk.corpus": mock.Mock(stopwords=corpus)}
+            ),
+            self.assertRaisesRegex(LookupError, "nltk.downloader stopwords"),
         ):
-            with self.assertRaisesRegex(LookupError, "nltk.downloader stopwords"):
-                nltk_english_stopwords()
+            nltk_english_stopwords()
 
     @unittest.skipUnless(corpus_available(), "NLTK stopwords corpus not installed")
     def test_real_nltk_stopwords(self):
@@ -227,3 +233,209 @@ class TestKeyClass(unittest.TestCase):
         np.testing.assert_allclose(p.sum(axis=1), 1, atol=1e-6)
         self.assertFalse(covered[-1])
         np.testing.assert_allclose(p[-1], [0.5, 0.5])
+
+
+def tiny_dataset():
+    """A two-sample dataset with 2-dimensional embeddings and 2 categories."""
+    samples = [
+        {"patient_id": str(i), "embedding": [1.0, float(i)], "weak_labels": [0.5, 0.5]}
+        for i in range(2)
+    ]
+    return create_sample_dataset(
+        samples=samples,
+        input_schema={"embedding": "tensor"},
+        output_schema={"weak_labels": "tensor"},
+    )
+
+
+class FakeLabelModel:
+    """Stands in for Snorkel's LabelModel so its code path runs without Snorkel."""
+
+    normalize = True
+
+    def __init__(self, cardinality, device, verbose):
+        self.cardinality, self.device = cardinality, device
+
+    def fit(self, L_train, seed, **kwargs):
+        self.fit_rows, self.fit_kwargs = len(L_train), kwargs
+
+    def predict_proba(self, L):
+        scores = np.arange(1, len(L) * self.cardinality + 1, dtype=float)
+        scores = scores.reshape(len(L), self.cardinality)
+        return scores / scores.sum(1, keepdims=True) if self.normalize else scores
+
+
+def fake_snorkel(label_model):
+    """sys.modules entries that make ``snorkel.labeling.model`` importable."""
+    module = types.ModuleType("snorkel.labeling.model")
+    module.LabelModel = label_model
+    return {
+        "snorkel": types.ModuleType("snorkel"),
+        "snorkel.labeling": types.ModuleType("snorkel.labeling"),
+        "snorkel.labeling.model": module,
+    }
+
+
+class TestValidationAndOptionalPaths(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch(
+            "pyhealth.weak_supervision.keyclass.nltk_english_stopwords",
+            return_value=STOPWORDS,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_model_rejects_bad_configuration_and_inputs(self):
+        dataset = tiny_dataset()
+        with self.assertRaises(ValueError):
+            KeyClass(dataset, 2, ["cardiac"])
+        with self.assertRaises(ValueError):
+            KeyClass(dataset, 2, ["cardiac", "cardiac"])
+        with self.assertRaises(ValueError):
+            KeyClass(dataset, 2, ["cardiac", "resp"], hidden_dims=(4, 0))
+        model = KeyClass(dataset, 2, ["cardiac", "resp"], hidden_dims=(4,))
+        with self.assertRaises(ValueError):
+            model.fit_input_standardization(torch.ones(3, 5))
+        with self.assertRaises(ValueError):
+            model.fit_input_standardization(torch.ones(1, 2))
+        with self.assertRaises(ValueError):
+            model.fit_input_standardization([[1.0, float("nan")], [2.0, 3.0]])
+        with self.assertRaises(ValueError):
+            model(embedding=torch.ones(2))
+
+    def test_labeler_rejects_bad_settings_and_inputs(self):
+        descriptions = {"cardiac": "heart", "resp": "lung"}
+        with self.assertRaises(ValueError):
+            KeywordLabeler(MockEncoder(), top_k=0)
+        with self.assertRaises(ValueError):
+            KeywordLabeler(MockEncoder(), min_df=1.5).fit(["heart"], descriptions)
+        with self.assertRaises(ValueError):
+            KeywordLabeler(MockEncoder(), min_df=0).fit(["heart"], descriptions)
+        labeler = KeywordLabeler(MockEncoder(), min_df=1)
+        with self.assertRaises(ValueError):
+            labeler.fit([], descriptions)
+        with self.assertRaises(ValueError):
+            labeler.fit(["heart"], {"cardiac": "heart"})
+        with self.assertRaises(ValueError):
+            labeler.fit(["heart"], {"cardiac": "heart", "resp": " "})
+        with self.assertRaises(RuntimeError):
+            KeywordLabeler(MockEncoder()).transform(["heart"])
+
+        class ZeroEncoder:
+            def encode(self, texts):
+                return np.zeros((len(texts), 2))
+
+        with self.assertRaises(ValueError):
+            KeywordLabeler(ZeroEncoder(), min_df=1).fit(["heart"], descriptions)
+
+    def test_vote_and_mask_validation(self):
+        with self.assertRaises(ValueError):
+            aggregate_votes(np.array([[0.5, 1.0]]), 2)
+        with self.assertRaises(ValueError):
+            aggregate_votes(np.array([[0, 1]]), 2, method="vote")
+        with self.assertRaises(ValueError):
+            confident_balanced_mask(np.ones((3, 2)), np.ones(2, dtype=bool), 4)
+        with self.assertRaises(ValueError):
+            confident_balanced_mask(np.ones((3, 2)), np.ones(3, dtype=bool), 1)
+
+    def test_snorkel_path_without_snorkel_installed(self):
+        votes = np.array([[0, 0, -1], [1, -1, 1], [-1, -1, -1]])
+        with mock.patch.dict("sys.modules", fake_snorkel(FakeLabelModel)):
+            p, covered = aggregate_votes(votes, 2, method="snorkel", n_epochs=5)
+            self.assertEqual(covered.tolist(), [True, True, False])
+            np.testing.assert_allclose(p.sum(axis=1), 1, atol=1e-6)
+            np.testing.assert_allclose(p[-1], [0.5, 0.5])  # uncovered: uniform
+            with self.assertRaises(ValueError):  # fewer than 3 rules
+                aggregate_votes(votes[:, :2], 2, method="snorkel")
+
+        class UnnormalizedLabelModel(FakeLabelModel):
+            normalize = False
+
+        with (
+            mock.patch.dict("sys.modules", fake_snorkel(UnnormalizedLabelModel)),
+            self.assertRaisesRegex(ValueError, "sum to one"),
+        ):
+            aggregate_votes(votes, 2, method="snorkel")
+        with (
+            mock.patch.dict("sys.modules", {"snorkel.labeling.model": None}),
+            self.assertRaisesRegex(ImportError, "Snorkel is not installed"),
+        ):
+            aggregate_votes(votes, 2, method="snorkel")
+
+    def test_nltk_stopwords_filtering_and_missing_package(self):
+        nltk_english_stopwords.cache_clear()
+        self.addCleanup(nltk_english_stopwords.cache_clear)
+        corpus = mock.Mock()
+        corpus.words.return_value = ["the", "a", "don't", "not", "the"]
+        with mock.patch.dict(
+            "sys.modules", {"nltk.corpus": mock.Mock(stopwords=corpus)}
+        ):
+            self.assertEqual(nltk_english_stopwords(), ("not", "the"))
+        nltk_english_stopwords.cache_clear()
+        with (
+            mock.patch.dict("sys.modules", {"nltk": None, "nltk.corpus": None}),
+            self.assertRaisesRegex(ImportError, "pip install"),
+        ):
+            nltk_english_stopwords()
+
+
+class TestClinicalTextEncoder(unittest.TestCase):
+    """Runs the encoder on a tiny randomly initialized BERT; nothing is downloaded."""
+
+    VOCAB = (
+        "[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]", "heart", "failure", "renal",
+        "sepsis", "pneumonia", "acute", "chronic", "the", "patient", "with",
+    )  # fmt: skip
+
+    @classmethod
+    def setUpClass(cls):
+        from transformers import BertConfig, BertModel, BertTokenizer
+
+        cls._tmp = tempfile.TemporaryDirectory()
+        path = Path(cls._tmp.name)
+        (path / "vocab.txt").write_text("\n".join(cls.VOCAB) + "\n")
+        BertTokenizer(str(path / "vocab.txt")).save_pretrained(path)
+        torch.manual_seed(0)
+        config = BertConfig(
+            vocab_size=len(cls.VOCAB),
+            hidden_size=8,
+            num_hidden_layers=1,
+            num_attention_heads=2,
+            intermediate_size=16,
+            max_position_embeddings=32,
+        )
+        BertModel(config).save_pretrained(path)
+        cls.model_dir = str(path)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def test_output_shape_and_empty_input(self):
+        encoder = ClinicalTextEncoder(self.model_dir, batch_size=2)
+        out = encoder.encode(["heart failure", "sepsis", "acute renal failure"])
+        self.assertEqual(out.shape, (3, 8))
+        self.assertEqual(out.dtype, np.float32)
+        self.assertTrue(np.isfinite(out).all())
+        self.assertEqual(encoder.encode([]).shape, (0, 8))
+
+    def test_padding_does_not_change_embeddings(self):
+        texts = ["sepsis", "the patient with acute chronic renal failure", "heart"]
+        one_at_a_time = ClinicalTextEncoder(self.model_dir, batch_size=1)
+        padded_batch = ClinicalTextEncoder(self.model_dir, batch_size=3)
+        np.testing.assert_allclose(
+            one_at_a_time.encode(texts), padded_batch.encode(texts), atol=1e-5
+        )
+
+    def test_truncation_ignores_text_past_max_length(self):
+        texts = ["heart failure sepsis", "heart failure pneumonia acute"]
+        short = ClinicalTextEncoder(self.model_dir, max_length=4).encode(texts)
+        np.testing.assert_allclose(short[0], short[1], atol=1e-6)
+        full = ClinicalTextEncoder(self.model_dir, max_length=32).encode(texts)
+        self.assertFalse(np.allclose(full[0], full[1]))
+
+    def test_rejects_invalid_arguments(self):
+        with self.assertRaises(ValueError):
+            ClinicalTextEncoder(self.model_dir, batch_size=0)
+        with self.assertRaises(ValueError):
+            ClinicalTextEncoder(self.model_dir, max_length=1)
