@@ -18,7 +18,7 @@ from scipy.signal import butter, filtfilt
 
 EXAMPLE_PATH = (
     Path(__file__).resolve().parents[2]
-    / "examples/ptbxl_multilabel_classification_protoecgnet_h1.py"
+    / "examples/ecg/ptbxl/ptbxl_multilabel_classification_protoecgnet_h1.py"
 )
 spec = importlib.util.spec_from_file_location("protoecgnet_h1_example", EXAMPLE_PATH)
 example = importlib.util.module_from_spec(spec)

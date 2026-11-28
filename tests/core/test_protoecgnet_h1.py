@@ -10,11 +10,12 @@ https://proceedings.mlr.press/v298/sethi25a.html
 import pytest
 import torch
 import torch.nn.functional as F
+from torch import nn
+
 from pyhealth.models.protoecgnet_h1 import (
     MorphologyPrototypeBranch,
     paired_similarity_objective,
 )
-from torch import nn
 
 
 def test_known_answer_and_analytic_two_sided_gradients():
@@ -213,6 +214,41 @@ def test_reference_scale_and_epsilon_have_known_answers(morphology):
     torch.testing.assert_close(
         morphology.similarity_windows(windows), torch.full((1, 2, 4), expected)
     )
+
+
+@pytest.mark.parametrize(
+    "window_magnitude,prototype_magnitude",
+    [(1.0, 1.0), (1e-5, 1.0), (1.0, 1e-5), (1e-5, 1e-5)],
+)
+def test_research_width_scale_and_epsilon_have_known_answers(
+    monkeypatch, window_magnitude, prototype_magnitude
+):
+    """Check scale 13 and both normalization epsilons at width 512 cheaply."""
+    from pyhealth.models import protoecgnet
+
+    monkeypatch.setattr(protoecgnet, "ResNet2dBackbone", TinyMorphologyBackbone)
+    with torch.random.fork_rng():
+        branch = MorphologyPrototypeBranch(2, 2, proto_dim=512, prototypes_per_label=1)
+    # Only latent windows are evaluated; no ResNet forward or ECG data is needed.
+    ones = torch.ones(512 * 3)
+    alternating = ones.clone()
+    alternating[1::2] = -1.0
+    with torch.no_grad():
+        branch.prototype_vectors.copy_(
+            torch.stack((ones, alternating)).reshape(2, 512, 3) * prototype_magnitude
+        )
+        windows = torch.stack((ones, -ones, alternating)).unsqueeze(0)
+        actual = branch.similarity_windows(windows * window_magnitude)
+
+    # Independent known answer: aligned/opposed cosines +/-1 and orthogonal 0.
+    # The research factor is int(sqrt(1536)) / 3 = 39 / 3 = 13.
+    numerator = 13.0 * 1536 * window_magnitude * prototype_magnitude
+    denominator = (
+        (1536 * window_magnitude**2 + 1e-4) * (1536 * prototype_magnitude**2 + 1e-4)
+    ) ** 0.5
+    expected = torch.tensor([[[1.0, 0.0], [-1.0, 0.0], [0.0, 1.0]]])
+    expected *= numerator / denominator
+    torch.testing.assert_close(actual, expected, rtol=2e-6, atol=2e-7)
 
 
 def test_zero_vectors_are_finite_and_keep_gradients(morphology):

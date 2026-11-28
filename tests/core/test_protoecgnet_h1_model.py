@@ -11,11 +11,12 @@ import copy
 
 import pytest
 import torch
+from torch import nn
+
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import BaseModel, ProtoECGNet, ProtoECGNetH1
 from pyhealth.models.protoecgnet_h1 import MorphologyPrototypeBranch
 from pyhealth.trainer import Trainer
-from torch import nn
 
 
 class TinyBNBackbone(nn.Module):
@@ -72,14 +73,14 @@ def model_factory(monkeypatch, dataset):
     monkeypatch.setattr(protoecgnet, "ResNet2dBackbone", TinyBNBackbone)
 
     def make(**kwargs):
-        options = dict(
-            dataset=dataset,
-            in_channels=2,
-            proto_dim=4,
-            prototypes_per_label=2,
-            class_weights=torch.tensor([2.0, 3.0]),
-            label_cooccurrence=torch.tensor([[1.0, 0.2], [0.2, 1.0]]),
-        )
+        options = {
+            "dataset": dataset,
+            "in_channels": 2,
+            "proto_dim": 4,
+            "prototypes_per_label": 2,
+            "class_weights": torch.tensor([2.0, 3.0]),
+            "label_cooccurrence": torch.tensor([[1.0, 0.2], [0.2, 1.0]]),
+        }
         options.update(kwargs)
         with torch.random.fork_rng():
             torch.manual_seed(681)
@@ -199,11 +200,26 @@ def test_consistency_keeps_both_input_and_prototype_gradients(model_factory, bat
 
 
 def test_identical_views_have_zero_consistency(model_factory, batch):
+    """Identical inputs agree within a small FP32 score-roundoff budget."""
     model = model_factory(lambda_cons=117608.0)
     result = model(
         signal=batch["signal"], noisy_signal=batch["signal"], labels=batch["labels"]
     )
-    assert result["consistency_loss"].item() == 0
+    clean, noisy = result["similarity"], result["noisy_similarity"]
+    # Batched FP32 kernels need not produce bitwise-identical duplicate rows.
+    # Four machine epsilons at the bounded score scale is the absolute budget;
+    # this bound is independent of any observed platform-specific residual.
+    score_atol = (
+        4 * torch.finfo(clean.dtype).eps * max(1.0, model.branches["morphology"].scale)
+    )
+    torch.testing.assert_close(clean, noisy, rtol=0, atol=score_atol)
+    # A componentwise score bound also bounds its mean squared difference.
+    assert 0 <= result["consistency_loss"].item() <= score_atol**2
+    assert (
+        0
+        <= result["weighted_consistency_loss"].item()
+        <= model.lambda_cons * score_atol**2
+    )
 
 
 def test_classifier_stage_clears_stale_gradients_and_freezes_buffers(

@@ -80,9 +80,10 @@ Validation uses a separate clean loader. Split declarations enforce folds 1-8,
 9 and 10 for train, validation and test respectively.
 
 The runnable example reuses native :class:`pyhealth.datasets.PTBXLDataset` for
-real metadata/events. Its narrow morphology adapter filters the original WFDB
-float64 samples before casting to float32, with no extra z-scoring, and retains
-all-zero targets. The existing general multilabel task has different defaults
+real metadata/events from `PTB-XL v1.0.3 on PhysioNet
+<https://physionet.org/content/ptb-xl/1.0.3/>`_. Its narrow morphology adapter
+filters the original WFDB float64 samples before casting to float32, with no
+extra z-scoring, and retains all-zero targets. The existing general multilabel task has different defaults
 and skips unlabeled rows; its output is not a drop-in replacement for historical
 checkpoint parity. No dataset or general task is reimplemented in the library.
 
@@ -94,7 +95,7 @@ Install from the repository, then run the default CPU synthetic example:
 .. code-block:: bash
 
    pip install -e ".[ptbxl]"
-   python examples/ptbxl_multilabel_classification_protoecgnet_h1.py \
+   python examples/ecg/ptbxl/ptbxl_multilabel_classification_protoecgnet_h1.py \
        --output-dir /tmp/h1_synthetic_example
 
 The output directory must be new. The example runs lambda 0 and 117608 from the
@@ -110,7 +111,7 @@ To explicitly start a NEW training example on a local PTB-XL v1.0.3 download:
 
 .. code-block:: bash
 
-   python examples/ptbxl_multilabel_classification_protoecgnet_h1.py \
+   python examples/ecg/ptbxl/ptbxl_multilabel_classification_protoecgnet_h1.py \
        --root /data/ptb-xl/1.0.3 --train-limit 128 --validation-limit 64 \
        --joint-epochs 2 --refit-epochs 1 --output-dir /tmp/h1_ptbxl_example
 
@@ -151,44 +152,28 @@ sources are attached only after every patch has been reconstructed and checked.
 Numerical verification and research attribution
 -----------------------------------------------
 
-The selected historical models were trained with the custom Colab reference
-pipeline, not PyHealth Trainer. On fixed training probes in the same CPU runtime,
-reference/port features, similarities, top-5, logits, individual contributions,
-losses and refit classifier gradients met the declared compatibility checks;
-all 1,872 saved patches were reconstructed and native reload preserved behavior.
-This is scoped compatibility evidence, not a full-cohort metric recomputation or
-proof of all joint gradients for the selected models. Separate nondegenerate
-synthetic tests cover both-branch gradients and the complete H1 objective.
+Historical research models were trained with a separate custom reference
+pipeline, not PyHealth Trainer. A scoped checkpoint-import audit passed the
+recorded-source reconstruction checks within declared numerical tolerances,
+and native strict reload preserved behavior. This did not repeat the global
+projection search, recompute full-cohort metrics, or establish bitwise equivalence.
+The public synthetic tests separately cover the paired objective, both-view
+gradients, stage behavior, provenance and checkpoint conversion.
 
-The original FP32 contribution-sum/GEMM comparison failed. The reference's own
-sum also fails that fixed bound under cancellation. The documented post-failure
-v2 audit retains these failures, preserves model and research arithmetic, and
-checks the algebraic reconstruction with high precision accumulation of existing
-FP32 inputs/terms. It does not claim bitwise equivalence or raw FP32 sum/GEMM
-conformance at the original bound. Never change scaling/normalization or formal
-metric arithmetic to hide these residuals.
+The original raw FP32 contribution-sum/GEMM comparison failed, including in the
+reference implementation under the same bound. The documented post-failure
+follow-up retained those failures and separately checked high-precision algebraic
+reconstruction without changing model, prediction or research-metric arithmetic.
+Raw FP32 agreement at the original bound is not claimed.
 
-Recorded research findings (custom pipeline, one fixed training seed):
-
-.. list-table:: Fixed held-out model pair
-   :header-rows: 1
-
-   * - Metric
-     - Paired lambda 0
-     - H1
-   * - Clean macro AUROC
-     - 0.689971
-     - 0.707543
-   * - Clean macro AP
-     - 0.056895
-     - 0.062018
-
-These recorded findings are separate from the runnable example and the CPU port
-audit. Not all labels/cases improved; no multi-seed, universal robustness or
-clinical-effectiveness claim follows. The main 52-label patient bootstrap had
-346/2000 valid resamples and no CI was reported under the locked rule. Five noise
-draws are not five independent training runs. The research execution manifest
-SHA256 is ``524958b9b1223db6f4ef098859118d3f0297b99dc4975a1fc4c9fbb964136d6b``.
+The `PR numerical record and research attribution
+<https://github.com/sunlabuiuc/PyHealth/pull/1620>`_ retain the historical audit
+counts, residuals, tolerance rules and research results. These are separate from
+the runnable synthetic example; the example does not reproduce the historical
+training schedule or establish research effectiveness. The historical study used
+one fixed training seed and model pair, and its primary confidence interval was
+withheld under the predeclared validity rule. No statistical significance,
+multi-seed robustness or clinical-effectiveness claim follows.
 
 API
 ---

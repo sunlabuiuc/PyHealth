@@ -15,9 +15,13 @@ training through Trainer on folds 1-8 and validation on fold 9. Fold 10 waveform
 are never loaded. This example does not reproduce the historical custom-Colab
 training run, select new held-out models, or overwrite its checkpoints.
 
+Dataset source: Wagner et al., PTB-XL v1.0.3, PhysioNet:
+https://physionet.org/content/ptb-xl/1.0.3/
+Dataset DOI: https://doi.org/10.13026/kfzx-aw45
+
 Examples:
-    python examples/ptbxl_multilabel_classification_protoecgnet_h1.py
-    python examples/ptbxl_multilabel_classification_protoecgnet_h1.py \
+    python examples/ecg/ptbxl/ptbxl_multilabel_classification_protoecgnet_h1.py
+    python examples/ecg/ptbxl/ptbxl_multilabel_classification_protoecgnet_h1.py \
         --root /data/ptb-xl/1.0.3 --train-limit 128 --validation-limit 64 \
         --output-dir /tmp/protoecgnet_h1_demo
 """
@@ -33,6 +37,9 @@ from typing import Any
 
 import numpy as np
 import torch
+from sklearn.metrics import average_precision_score, roc_auc_score
+from torch import Tensor
+
 from pyhealth.datasets import PTBXLDataset, SampleDataset, get_dataloader
 from pyhealth.datasets.ptbxl import parse_scp_codes
 from pyhealth.models import ProtoECGNet, ProtoECGNetH1
@@ -43,8 +50,6 @@ from pyhealth.models.protoecgnet_h1_data import (
     create_h1_ptbxl_dataset,
 )
 from pyhealth.trainer import Trainer
-from sklearn.metrics import average_precision_score, roc_auc_score
-from torch import Tensor
 
 TRAIN_NOISE_STREAM = 2026111801
 LEADS = ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"]
