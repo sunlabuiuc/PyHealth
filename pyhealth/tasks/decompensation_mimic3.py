@@ -6,7 +6,7 @@ Contributors:
 
 Related paper:
     Dynamic Survival Analysis for Early Event Prediction
-    https://arxiv.org/abs/2401.08983
+    https://proceedings.mlr.press/v248/yeche24a.html
 
 This module implements hourly MIMIC-III decompensation sample generation and
 survival targets for DSA-style early event prediction.
@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 from datetime import datetime
 from typing import Any, ClassVar
+
 import numpy as np
 
 from .base_task import BaseTask
@@ -46,6 +47,17 @@ class DecompensationMIMIC3(BaseTask):
             When provided, event-time survival targets are smoothed using the
             paper's released-code formulation. For MIMIC-III decompensation,
             the paper uses a lengthscale of 8. Defaults to None.
+
+    Examples:
+        >>> from pyhealth.tasks import DecompensationMIMIC3
+        >>> task = DecompensationMIMIC3(horizon_hours=24, survtls_lengthscale=8.0)
+        >>> task.horizon_hours
+        24
+        >>> sorted(task.output_schema)
+        ['hazard_label', 'hazard_mask', 'y_true']
+
+    Apply the configured task to a MIMIC-III patient to generate hourly
+    samples, or pass it to the dataset's task-processing interface.
 
     Returns:
         Samples containing dynamic continuous, categorical, and observation
@@ -515,8 +527,7 @@ class DecompensationMIMIC3(BaseTask):
         for timestamp, channel, value in observations:
             hours = (timestamp - intime).total_seconds() / 3600.0
             bin_id = int(hours - 1e-6)
-            if bin_id < 0:
-                bin_id = 0
+            bin_id = max(bin_id, 0)
             hourly.setdefault(bin_id, {})[channel] = value
 
         return hourly
@@ -799,7 +810,7 @@ class DecompensationMIMIC3(BaseTask):
                 outtime,
             )
 
-            last_prediction_hour = int(math.floor(observed_hours))
+            last_prediction_hour = math.floor(observed_hours)
 
             for t in range(
                 self.min_observation_hours,
@@ -811,7 +822,7 @@ class DecompensationMIMIC3(BaseTask):
 
                 observed_bins = min(
                     self.horizon_hours,
-                    int(math.ceil(remaining_observed)),
+                    math.ceil(remaining_observed),
                 )
 
                 hazard_label = [0.0] * self.horizon_hours
@@ -830,7 +841,7 @@ class DecompensationMIMIC3(BaseTask):
                     # MIMIC benchmark uses death within strictly < 24 hours.
                     if 0.0 < delta < self.horizon_hours:
                         y_true = 1
-                        event_bin = int(math.ceil(delta))
+                        event_bin = math.ceil(delta)
                         event_index = event_bin - 1
 
                         if self.survtls_lengthscale is not None:

@@ -20,19 +20,19 @@ def _record(steps, width, seed):
     }
 
 
-def _dataset():
-    task = DecompensationMIMIC3()
+def _dataset(horizon=MAX_HORIZON):
+    task = DecompensationMIMIC3(horizon_hours=horizon)
     samples = []
 
     for i, steps in enumerate([5, 7, 6, 9]):
-        hazard_label = [0.0] * MAX_HORIZON
-        hazard_mask = [1.0] * MAX_HORIZON
+        hazard_label = [0.0] * horizon
+        hazard_mask = [1.0] * horizon
         y_true = i % 2
 
         if y_true:
             event_index = 4 + i
             hazard_label[event_index] = 1.0
-            for k in range(event_index + 1, MAX_HORIZON):
+            for k in range(event_index + 1, horizon):
                 hazard_mask[k] = 0.0
 
         samples.append(
@@ -72,6 +72,18 @@ def _dataset():
 
 
 class TestDSA(unittest.TestCase):
+    def test_default_model_matches_default_task_horizon(self):
+        dataset = _dataset(horizon=24)
+        model = DSA(dataset, hidden_dim=8)
+        batch = next(iter(get_dataloader(dataset, batch_size=4)))
+        output = model(**batch)
+        self.assertEqual(model.max_horizon, 24)
+        self.assertEqual(model.prediction_horizon, 23)
+        self.assertEqual(output["hazard"].shape, (4, 24))
+        torch.testing.assert_close(
+            output["y_prob"], output["cumulative_risk"][:, 23:24]
+        )
+
     def test_forward_backward_and_shapes(self):
         dataset = _dataset()
         model = DSA(

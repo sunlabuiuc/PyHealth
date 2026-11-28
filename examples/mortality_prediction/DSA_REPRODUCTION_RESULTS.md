@@ -23,13 +23,20 @@
 
 EEP uses its corresponding fixed-horizon prediction score.
 
+These full-test-cohort metrics were recalculated from stored predictions.
+They are distinct from the compute-constrained subset training results
+reported in `mimic3_decompensation_dsa.py`. The synthetic PyHealth examples
+validate the contributed implementation and do not independently reproduce
+these MIMIC-III numbers.
+
 ## Reproduction Findings
 
 - Bias initialization produced the largest improvement.
 - Truncated likelihood further improved AuPRC.
 - survTLS performed similarly to Truncated.
 - EEP slightly outperformed survTLS at the fixed 24-hour horizon.
-- The ablation ordering is consistent with our earlier subset experiments.
+- The DSA-only ablation ordering is consistent with our earlier subset
+  experiments; the relative ordering of EEP and survTLS differs.
 
 ## Evaluation Validation
 

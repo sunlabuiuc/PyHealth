@@ -6,17 +6,18 @@ Contributors:
 
 Related paper:
     Dynamic Survival Analysis for Early Event Prediction
-    https://arxiv.org/abs/2401.08983
+    https://proceedings.mlr.press/v248/yeche24a.html
 
 This module implements the DSA model and discrete-time survival outputs for
 integration with PyHealth.
 """
 
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_sequence
 
 from pyhealth.datasets import SampleDataset
@@ -54,6 +55,33 @@ class DSA(BaseModel):
         l1_reg_embedding: Weight applied to the mean absolute value of the
             timestep-embedding parameters.
 
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
+        >>> from pyhealth.models import DSA
+        >>> from pyhealth.tasks import DecompensationMIMIC3
+        >>> task = DecompensationMIMIC3()
+        >>> sample = {
+        ...     "patient_id": "synthetic-0",
+        ...     "dynamic_continuous": {"time": [1.0], "values": [[0.0] * 12]},
+        ...     "dynamic_categorical": {"time": [1.0], "values": [[0.0] * 47]},
+        ...     "dynamic_mask": {"time": [1.0], "values": [[1.0] * 17]},
+        ...     "hazard_label": [0.0] * 24,
+        ...     "hazard_mask": [1.0] * 24,
+        ...     "y_true": 0,
+        ... }
+        >>> positive = dict(sample, patient_id="synthetic-1", y_true=1)
+        >>> positive["hazard_label"] = [0.0] * 23 + [1.0]
+        >>> dataset = create_sample_dataset(
+        ...     samples=[sample, positive],
+        ...     input_schema=task.input_schema,
+        ...     output_schema=task.output_schema,
+        ...     dataset_name="dsa_example",
+        ... )
+        >>> model = DSA(dataset, hidden_dim=8)
+        >>> batch = next(iter(get_dataloader(dataset, batch_size=2)))
+        >>> model(**batch)["hazard"].shape
+        torch.Size([2, 24])
+
     Raises:
         ValueError: If a model hyperparameter is invalid or the dataset is
             missing required inputs or outputs.
@@ -68,8 +96,8 @@ class DSA(BaseModel):
         self,
         dataset: SampleDataset,
         hidden_dim: int = 128,
-        max_horizon: int = 25,
-        prediction_horizon: int = 24,
+        max_horizon: int = 24,
+        prediction_horizon: int = 23,
         num_layers: int = 1,
         dropout: float = 0.0,
         hazard_prevalence: Sequence[float] | torch.Tensor | None = None,
