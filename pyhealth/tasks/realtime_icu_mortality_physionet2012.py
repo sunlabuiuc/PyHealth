@@ -54,6 +54,10 @@ class RealTimeICUMortalityPhysioNet2012(RealTimeICUMortalityMIMIC4):
 
     Works with :class:`~pyhealth.datasets.PhysioNet2012Dataset`.
 
+    The lab event kind (``_LAB``) and the value parser (``_to_float``) are
+    imported from the MIMIC-IV task module on purpose, so that the three
+    real-time tasks build identical tuples and share one feature vocabulary.
+
     Args:
         **kwargs: Any argument of
             :class:`~pyhealth.tasks.RealTimeICUMortalityMIMIC4`;

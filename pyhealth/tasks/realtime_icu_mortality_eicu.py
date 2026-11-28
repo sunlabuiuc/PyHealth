@@ -66,6 +66,10 @@ class RealTimeICUMortalityEICU(RealTimeICUMortalityMIMIC4):
     Works with :class:`~pyhealth.datasets.eICUDataset` loaded with the
     ``lab`` table (``patient`` is always loaded).
 
+    The lab event kind (``_LAB``) and the value parser (``_to_float``) are
+    imported from the MIMIC-IV task module on purpose, so that the three
+    real-time tasks build identical tuples and share one feature vocabulary.
+
     Args:
         **kwargs: Any argument of
             :class:`~pyhealth.tasks.RealTimeICUMortalityMIMIC4` except

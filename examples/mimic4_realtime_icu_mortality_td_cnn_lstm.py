@@ -12,8 +12,10 @@ This script runs the full pipeline of the PyHealth reproduction of Frost et al.
 
 and an ablation study over model and task settings.
 
-Data (any of):
-    * ``--synthetic`` (default when no ``--root``): writes a small synthetic
+Data (exactly one of ``--synthetic``, ``--root`` or ``--physionet2012``;
+the three flags are mutually exclusive):
+    * ``--synthetic`` (the default when neither ``--root`` nor
+      ``--physionet2012`` is given): writes a small synthetic
       MIMIC-IV-like folder (latent-severity patients) to a temporary directory.
       Runs anywhere, no credentials needed.
     * ``--root /path/to/mimic-iv-demo/2.2``: the open MIMIC-IV demo (100
@@ -26,7 +28,8 @@ Data (any of):
 
 Ablations (``--ablations``, comma-separated; all by default):
     * ``target``: TD vs supervised baselines (28-day and 1-day labels, both
-      class-balanced), the paper's main comparison (Tables 2-3).
+      class-balanced, chosen with the model's ``label_horizon_index``), the
+      paper's main comparison (Tables 2-3).
     * ``tau``: target-network soft-update rate tau in {0.005, 0.01, 0.05}
       (the paper fixes tau = 0.01, i.e. alpha = 0.99). Model hyperparameter.
     * ``lambda``: our extension, targets ``lambda * label + (1 - lambda) *
@@ -37,7 +40,8 @@ Ablations (``--ablations``, comma-separated; all by default):
       configuration.
     * ``features``: labs + drugs vs labs only. Task configuration.
 
-Setup: patients are split 60/20/20 (train/val/test) with ``PatientSplit``;
+Setup: patients are split 60/20/20 (train/val/test) with ``PatientSplit``
+by default (``--split``, ``--split-seed``);
 the processors and the model's standardisation statistics are fitted on the
 training split only. Every model uses the authors' CNN-LSTM, AdamW with the
 paper's learning rate 1/sqrt(n_params), batch size 64, and the epoch with
@@ -81,9 +85,20 @@ real-data results follow below):
       lambda = 0.5 mixing, and to halving the embedding size.
 
 Results on real ICU data: :class:`RealTimeICUMortalityPhysioNet2012` (open
-access) with all features, 5 seeds, an 80/10/10 patient split, 10 epochs and
-the paper's weight decay, run with this task and model by our project's
-experiment script. Test AUROC by horizon and 28-day AUPRC:
+access) with all features. The settings are an 80/10/10 patient split (seed
+42), half of the state markers, 10 epochs, the paper's weight decay and 5
+seeds. This command runs that configuration::
+
+    python examples/mimic4_realtime_icu_mortality_td_cnn_lstm.py \
+        --physionet2012 /path/to/physionet2012 --ablations target \
+        --split 0.8,0.1,0.1 --split-seed 42 --state-sample-prob 0.5 \
+        --epochs 10 --paper-weight-decay --seeds 0,1,2,3,4 --loader-workers 8
+
+The table below was produced by our project's experiment runner, which calls
+the same task, model and ``Trainer`` with these settings and adds bootstrap
+CIs and significance tests. Reruns are not bit-for-bit identical: GPU
+training is not deterministic, and the shuffle order depends on the PyHealth
+version. Test AUROC by horizon and 28-day AUPRC, mean of 5 seeds:
 
     =============== ===== ===== ===== ===== ===== =====
     model           1d    3d    7d    14d   28d   AUPRC
@@ -371,8 +386,10 @@ def build_splits(
     task: RealTimeICUMortalityMIMIC4,
     workers: int,
     physionet2012: bool = False,
+    ratios: tuple[float, float, float] = (0.6, 0.2, 0.2),
+    split_seed: int = 0,
 ) -> tuple[Any, Any, Any]:
-    """Loads the dataset, applies the task and splits patients 60/20/20.
+    """Loads the dataset, applies the task and splits patients.
 
     Args:
         root: MIMIC-IV root (with ``hosp/`` and ``icu/``), or the PhysioNet
@@ -382,6 +399,8 @@ def build_splits(
         workers: Number of worker processes for ``set_task``.
         physionet2012: Load the open PhysioNet 2012 data (downloaded into
             ``root`` if missing) instead of MIMIC-IV.
+        ratios: Train/val/test patient ratios.
+        split_seed: Seed of the patient split.
 
     Returns:
         ``(train, val, test)`` sample datasets; processors are fitted on
@@ -399,7 +418,9 @@ def build_splits(
             num_workers=workers,
         )
     return dataset.set_task(
-        task, split=PatientSplit(ratios=(0.6, 0.2, 0.2), seed=0), num_workers=workers
+        task,
+        split=PatientSplit(ratios=ratios, seed=split_seed),
+        num_workers=workers,
     )
 
 
@@ -463,9 +484,12 @@ def run_config(
     random.seed(seed)
     np.random.seed(seed)
     model = RealTimeTDCNNLSTM(train, seed=seed, **model_kwargs)
-    train_loader = get_dataloader(train, batch_size=args.batch_size, shuffle=True)
-    val_loader = get_dataloader(val, batch_size=256)
-    test_loader = get_dataloader(test, batch_size=256)
+    workers = {"num_workers": args.loader_workers}
+    train_loader = get_dataloader(
+        train, batch_size=args.batch_size, shuffle=True, **workers
+    )
+    val_loader = get_dataloader(val, batch_size=256, **workers)
+    test_loader = get_dataloader(test, batch_size=256, **workers)
     paper = model.paper_optimizer_params(len(train_loader))
     weight_decay = (
         paper["weight_decay"] if args.paper_weight_decay else args.weight_decay
@@ -502,13 +526,21 @@ def ablation_grid(
             ("TD (tau=0.01)", {}, td),
             (
                 "supervised 28d+",
-                {"label_horizon_days": 28},
-                {"training_target": "supervised", "class_balanced": True},
+                {},
+                {
+                    "training_target": "supervised",
+                    "class_balanced": True,
+                    "label_horizon_index": HORIZONS.index(28),
+                },
             ),
             (
                 "supervised 1d+",
-                {"label_horizon_days": 1},
-                {"training_target": "supervised", "class_balanced": True},
+                {},
+                {
+                    "training_target": "supervised",
+                    "class_balanced": True,
+                    "label_horizon_index": HORIZONS.index(1),
+                },
             ),
         ]
     if "tau" in selected:
@@ -529,22 +561,30 @@ def ablation_grid(
 def main() -> None:
     """Parses arguments, runs the ablation grid and prints a results table."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--root", default=None, help="MIMIC-IV root folder")
-    parser.add_argument(
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--root", default=None, help="MIMIC-IV root folder")
+    source.add_argument(
         "--physionet2012",
         default=None,
         help="folder for the open PhysioNet 2012 data (downloaded if missing)",
     )
-    parser.add_argument(
+    source.add_argument(
         "--synthetic",
         action="store_true",
-        help="use generated synthetic data (default if no --root)",
+        help="use generated synthetic data (the default if neither --root "
+        "nor --physionet2012 is given)",
     )
     parser.add_argument("--synthetic-patients", type=int, default=400)
     parser.add_argument("--cache-dir", default=None)
     parser.add_argument(
         "--ablations", default="target,tau,lambda,hidden,delay,features"
     )
+    parser.add_argument(
+        "--split",
+        default="0.6,0.2,0.2",
+        help="train,val,test patient ratios",
+    )
+    parser.add_argument("--split-seed", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
@@ -558,19 +598,31 @@ def main() -> None:
     parser.add_argument("--seeds", default="0")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument(
+        "--loader-workers",
+        type=int,
+        default=0,
+        help="DataLoader worker processes",
+    )
+    parser.add_argument(
         "--device", default="cuda" if torch.cuda.is_available() else "cpu"
     )
     parser.add_argument("--output", default=None, help="optional JSON results file")
     args = parser.parse_args()
 
+    ratios = tuple(float(r) for r in args.split.split(","))
+    if len(ratios) != 3 or abs(sum(ratios) - 1.0) > 1e-6:
+        parser.error("--split needs three ratios that sum to 1, e.g. 0.8,0.1,0.1")
+
     tmp = tempfile.TemporaryDirectory()
-    root = args.physionet2012 or args.root
+    # The data-source flags are mutually exclusive (enforced by argparse).
+    physionet2012 = args.physionet2012 is not None
+    root = args.physionet2012 if physionet2012 else args.root
     task_cls = (
         RealTimeICUMortalityPhysioNet2012
-        if args.physionet2012
+        if physionet2012
         else RealTimeICUMortalityMIMIC4
     )
-    if root is None or args.synthetic:
+    if root is None:
         root = make_synthetic_mimic4(
             os.path.join(tmp.name, "mimic4"), n_patients=args.synthetic_patients
         )
@@ -585,7 +637,13 @@ def main() -> None:
         key = json.dumps(task_kwargs, sort_keys=True)
         if key not in split_cache:
             split_cache[key] = build_splits(
-                root, cache_dir, task, args.workers, bool(args.physionet2012)
+                root,
+                cache_dir,
+                task,
+                args.workers,
+                physionet2012,
+                ratios=ratios,
+                split_seed=args.split_seed,
             )
         runs = [
             run_config(

@@ -5,7 +5,13 @@
 # Description: CNN-LSTM over irregular measurement tuples, trained either with
 #   temporal-difference (TD) learning against a soft-updated target network or with
 #   ordinary supervised targets. Written from scratch for PyHealth.
-"""CNN-LSTM over measurement tuples with temporal-difference training."""
+"""CNN-LSTM over measurement tuples with temporal-difference training.
+
+An independent implementation of the network that
+:class:`pyhealth.models.TDCNNLSTM` also implements. This one works with the
+``RealTimeICUMortality*`` tasks and the stock ``Trainer``; see
+:class:`RealTimeTDCNNLSTM` for when to use which.
+"""
 
 from __future__ import annotations
 
@@ -247,6 +253,20 @@ class RealTimeTDCNNLSTMEncoder(nn.Module):
 class RealTimeTDCNNLSTM(BaseModel):
     """CNN-LSTM mortality model trained with temporal-difference learning.
 
+    Relation to :class:`~pyhealth.models.TDCNNLSTM`: both implement the
+    network of the same paper, independently. Choose this class to
+
+    * train on the samples of the ``RealTimeICUMortality*`` tasks (MIMIC-IV,
+      eICU, PhysioNet 2012), which hold measurement tuples and next states;
+    * train with the stock :class:`~pyhealth.trainer.Trainer`: the
+      target-network update runs inside ``forward``, so no custom loop is
+      needed;
+    * get the paper's class-balanced supervised baselines and λ-mixed
+      targets from the same class.
+
+    Choose :class:`~pyhealth.models.TDCNNLSTM` for its separate event-channel
+    inputs and explicit ``update_target()`` training loop.
+
     Implements the method of Frost, Li & Harris, "Robust Real-Time Mortality
     Prediction in the Intensive Care Unit using Temporal Difference
     Learning" (ML4H 2024). A value network :math:`V(O_t)` reads the
@@ -270,13 +290,6 @@ class RealTimeTDCNNLSTM(BaseModel):
     (for the previous optimiser step), so the model trains with the stock
     :class:`~pyhealth.trainer.Trainer`, which calls ``forward`` exactly once
     per optimiser step and offers no post-step hook.
-
-    :class:`~pyhealth.models.TDCNNLSTM` is an independent implementation of
-    the same paper's network. It expects separate event channels and a
-    custom training loop that calls ``update_target()``. This class instead
-    reads the tuple samples of the ``RealTimeICUMortality*`` tasks, trains
-    with the stock ``Trainer``, and also covers the paper's class-balanced
-    supervised baselines and λ-mixed targets.
 
     Per-feature standardisation (values, delta values and delta times) and
     global time standardisation use statistics computed from ``dataset``;
