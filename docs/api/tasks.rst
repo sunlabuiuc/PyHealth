@@ -327,3 +327,4 @@ Available Tasks
     Time-to-event survival (GBSG and SUPPORT) <tasks/pyhealth.tasks.survival_time_to_event>
     TCGA RNA-seq Survival Prediction <tasks/pyhealth.tasks.TCGASurvivalPrediction>
     Query-Focused EHR Summarization (MIMIC-III) <tasks/pyhealth.tasks.QueryFocusedEHRTask>
+    Multi-event survival (Rotterdam) <tasks/pyhealth.tasks.multi_event_survival_rotterdam>

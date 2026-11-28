@@ -555,6 +555,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `GitHub <https://github.com/neheller/kits23>`__ + `Hugging Face <https://huggingface.co/datasets/neheller/KiTS-Challenge-Imaging>`__
      - No (``kits23_download_data``)
      - Single CTs by URL (``wget``)
+   * - :doc:`Rotterdam <datasets/pyhealth.datasets.RotterdamDataset>`
+     - Open
+     - `R survival <https://stat.ethz.ch/R-manual/R-devel/library/survival/html/rotterdam.html>`__
+     - No
+     - —
    * - :doc:`TCGA-PRAD <datasets/pyhealth.datasets.TCGAPRADDataset>`
      - Open
      - `GDC <https://portal.gdc.cancer.gov/projects/TCGA-PRAD>`__
@@ -665,6 +670,7 @@ Available Datasets
     datasets/pyhealth.datasets.Support2Dataset
     datasets/pyhealth.datasets.MetabricDataset
     datasets/pyhealth.datasets.GBSGDataset
+    datasets/pyhealth.datasets.RotterdamDataset
     datasets/pyhealth.datasets.BMDHSDataset
     datasets/pyhealth.datasets.COVID19CXRDataset
     datasets/pyhealth.datasets.ISIC2019Dataset

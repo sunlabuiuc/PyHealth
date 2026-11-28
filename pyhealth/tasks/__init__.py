@@ -200,6 +200,9 @@ from .survival_time_to_event import (
 from .survival_time_to_event import (
     SurvivalTimeToEventSupport2 as SurvivalTimeToEventSupport2,
 )
+from .multi_event_survival_rotterdam import (
+    MultiEventSurvivalRotterdam as MultiEventSurvivalRotterdam,
+)
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
