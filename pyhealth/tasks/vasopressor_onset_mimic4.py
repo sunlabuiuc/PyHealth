@@ -171,8 +171,16 @@ class VasopressorOnsetMIMIC4(_VasopressorOnsetTask):
       ``is_micu`` and ``is_sicu``, the neuro SICU counts as a SICU and
       the CVICU stands in for the CSRU.
 
+    The admission-type and care-unit mappings and the item ids were
+    checked only against the open MIMIC-IV demo (v2.2, 100 patients);
+    they are not verified on full MIMIC-IV, where a value absent from
+    the demo sets no flag.
+
     Scaling, carry-forward and unit conversions are those of the
-    MIMIC-III task.
+    MIMIC-III task. As there, the ``Weight`` static and the no-weight
+    exclusion look at the whole ICU stay by default and can use a weight
+    charted after the input window (possible leakage);
+    ``weight_within_window=True`` restricts both to the window.
 
     Args:
         normalization: ``"zscore"`` or ``None`` (raw values, NaN where
@@ -185,6 +193,11 @@ class VasopressorOnsetMIMIC4(_VasopressorOnsetTask):
             Default is True.
         require_weight: drop patients with no weight measurement.
             Default is True.
+        weight_within_window: use only weights charted in the first
+            ``time_len`` hours for the ``Weight`` static and for
+            ``require_weight``. Default is False, which follows the
+            original code (first weight of the whole stay) and can
+            read a weight charted after the input window.
         itemid_map: variable name to itemids, replacing
             ``MIMIC4_ITEMIDS``. Default is None.
         vasopressor_itemids: ``inputevents`` itemids that count as a
@@ -206,6 +219,8 @@ class VasopressorOnsetMIMIC4(_VasopressorOnsetTask):
         {'vasopressor_onset': 'binary'}
         >>> task._unit_flags("Trauma SICU (TSICU)")
         (0.0, 1.0, 0.0, 0.0)
+        >>> VasopressorOnsetMIMIC4(weight_within_window=True).time_len
+        6
         >>> train, val, test = dataset.set_task(  # doctest: +SKIP
         ...     task, split=PatientSplit(ratios=(0.68, 0.17, 0.15), seed=1)
         ... )
@@ -230,6 +245,7 @@ class VasopressorOnsetMIMIC4(_VasopressorOnsetTask):
         max_los_hours: float = 600.0,
         forward_fill: bool = True,
         require_weight: bool = True,
+        weight_within_window: bool = False,
         itemid_map: dict[str, Sequence[int]] | None = None,
         vasopressor_itemids: Sequence[int] | None = None,
         careunit_flags: dict[str, Sequence[str]] | None = None,
@@ -241,6 +257,7 @@ class VasopressorOnsetMIMIC4(_VasopressorOnsetTask):
             max_los_hours=max_los_hours,
             forward_fill=forward_fill,
             require_weight=require_weight,
+            weight_within_window=weight_within_window,
             itemid_map=itemid_map,
             vasopressor_itemids=vasopressor_itemids,
         )

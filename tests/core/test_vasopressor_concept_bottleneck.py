@@ -295,6 +295,41 @@ class TestVasopressorOnsetTask(unittest.TestCase):
             narrow(_patient(vasopressor_hour=10))[0]["vasopressor_onset"], 0
         )
 
+    def test_weight_window_static(self):
+        """``Weight`` is the stay's first weight unless limited to the window."""
+        late = [_event("chartevents", 30.0, itemid=226512, valuenum=82.0)]
+        patient = _patient(weight=None, extra=late)
+        statics = dict(zip(STATIC_VARS, self.task(patient)[0]["statics"]))
+        # Default (original behaviour): a weight charted at hour 30 is read.
+        self.assertEqual(statics["Weight"], 82.0)
+        self.assertEqual(statics["weight"], 82.0)
+        strict = VasopressorOnsetMIMIC3(
+            normalization=None, weight_within_window=True, require_weight=False
+        )
+        statics = dict(zip(STATIC_VARS, strict(patient)[0]["statics"]))
+        self.assertTrue(np.isnan(statics["Weight"]))
+        self.assertTrue(np.isnan(statics["weight"]))
+        # A weight inside the window is used either way, not the later one.
+        both = _patient(weight=70.0, extra=late)
+        for task in (self.task, strict):
+            statics = dict(zip(STATIC_VARS, task(both)[0]["statics"]))
+            self.assertEqual(statics["Weight"], 70.0)
+            self.assertEqual(statics["weight"], 70.0)
+
+    def test_weight_window_cohort_gate(self):
+        """``require_weight`` looks at the window under the option."""
+        late = [_event("chartevents", 6.5, itemid=226512, valuenum=82.0)]
+        patient = _patient(weight=None, extra=late)
+        self.assertEqual(len(self.task(patient)), 1)
+        self.assertIsNone(self.task.exclusion_reason(patient))
+        strict = VasopressorOnsetMIMIC3(
+            normalization=None, weight_within_window=True
+        )
+        self.assertEqual(strict(patient), [])
+        self.assertEqual(strict.exclusion_reason(patient), "no_weight")
+        self.assertEqual(len(strict(_patient())), 1)
+        self.assertIsNone(strict.exclusion_reason(_patient()))
+
     def test_samples_load_with_default_processors(self):
         """Four synthetic patients become a z-scored, NaN-free dataset."""
         task = VasopressorOnsetMIMIC3()
@@ -430,6 +465,26 @@ class TestVasopressorOnsetMIMIC4Task(unittest.TestCase):
             mimic3.exclusion_reason(_patient(dbsource="carevue")),
             "stay_not_allowed",
         )
+
+    def test_weight_within_window(self):
+        """The window option limits the ``Weight`` static and the gate."""
+        late = [
+            _event("chartevents", 12.0, itemid=226531, valuenum=200.0, stay_id=100)
+        ]
+        patient = _patient4(weight=None, extra=late)
+        statics = dict(zip(STATIC_VARS, self.task(patient)[0]["statics"]))
+        self.assertAlmostEqual(statics["Weight"], 200.0 * 0.45359237)
+        strict = VasopressorOnsetMIMIC4(
+            normalization=None, weight_within_window=True
+        )
+        self.assertEqual(strict(patient), [])
+        self.assertEqual(strict.exclusion_reason(patient), "no_weight")
+        relaxed = VasopressorOnsetMIMIC4(
+            normalization=None, weight_within_window=True, require_weight=False
+        )
+        self.assertTrue(np.isnan(relaxed(patient)[0]["statics"][-1]))
+        statics = dict(zip(STATIC_VARS, strict(_patient4())[0]["statics"]))
+        self.assertEqual(statics["Weight"], 70.0)
 
     def test_events_in_the_admission_minute_count(self):
         """Chart times have no seconds: the window starts at the minute."""

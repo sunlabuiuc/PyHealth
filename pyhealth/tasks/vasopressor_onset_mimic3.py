@@ -399,6 +399,13 @@ class _VasopressorOnsetTask(BaseTask):
     attributes below and override the four hooks ``_stay_allowed``,
     ``_age``, ``_admission_flags`` and ``_unit_flags``.
 
+    Weight and the input window: by default the ``Weight`` static and
+    the ``require_weight`` cohort rule use the first weight charted
+    anywhere in the ICU stay, as the original code does, so they can
+    read a weight charted after the ``time_len``-hour input window
+    (possible leakage). ``weight_within_window=True`` restricts both to
+    weights charted inside the window.
+
     Attributes:
         _INPUT_TABLE: event type holding the vasopressor infusions.
         _STAY_ID_KEY: ICU stay identifier (attribute and sample key).
@@ -432,6 +439,7 @@ class _VasopressorOnsetTask(BaseTask):
         max_los_hours: float = 600.0,
         forward_fill: bool = True,
         require_weight: bool = True,
+        weight_within_window: bool = False,
         itemid_map: dict[str, Sequence[int]] | None = None,
         vasopressor_itemids: Sequence[int] | None = None,
     ) -> None:
@@ -446,6 +454,7 @@ class _VasopressorOnsetTask(BaseTask):
         self.max_los_hours = max_los_hours
         self.forward_fill = forward_fill
         self.require_weight = require_weight
+        self.weight_within_window = weight_within_window
         self.itemid_map = {
             name: tuple(int(i) for i in itemids)
             for name, itemids in (itemid_map or self._DEFAULT_ITEMIDS).items()
@@ -586,6 +595,7 @@ class _VasopressorOnsetTask(BaseTask):
         if label is None:
             return []
         measured, weights = self._measurements(patient, stay)
+        weights = self._usable_weights(weights)
         statics = self._static_features(patient, stay, weights)
         if statics is None:
             return []
@@ -662,7 +672,9 @@ class _VasopressorOnsetTask(BaseTask):
             None for a patient in the cohort, otherwise one of
             ``"no_icu_stay"``, ``"stay_not_allowed"``,
             ``"los_out_of_range"``, ``"early_vasopressor"`` (started in
-            the first ``time_len`` hours) and ``"no_weight"``.
+            the first ``time_len`` hours) and ``"no_weight"`` (no weight
+            in the stay, or none in the first ``time_len`` hours under
+            ``weight_within_window``).
         """
         stay, reason = self._stay_status(patient)
         if reason:
@@ -670,7 +682,7 @@ class _VasopressorOnsetTask(BaseTask):
         if self._label_onset(patient, stay) is None:
             return "early_vasopressor"
         _, weights = self._measurements(patient, stay)
-        if self.require_weight and len(weights) == 0:
+        if self.require_weight and len(self._usable_weights(weights)) == 0:
             return "no_weight"
         return None
 
@@ -770,6 +782,23 @@ class _VasopressorOnsetTask(BaseTask):
         values[urine_measured > 0] = urine[urine_measured > 0]
         return values, np.array(sorted(weights), dtype=float).reshape(-1, 2)
 
+    def _usable_weights(self, weights: np.ndarray) -> np.ndarray:
+        """Selects the weights the statics and the cohort rule may use.
+
+        Args:
+            weights: ``(n, 2)`` array of ``(hours, kg)`` weight
+                measurements of the stay, sorted by time.
+
+        Returns:
+            All of them by default (the original's behaviour, which can
+            include weights charted after the input window); only those
+            charted in the first ``time_len`` hours when
+            ``weight_within_window`` is set.
+        """
+        if not self.weight_within_window:
+            return weights
+        return weights[weights[:, 0] < self.time_len]
+
     def _assemble(self, measured: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Arranges the binned columns into the 28 variables.
 
@@ -804,11 +833,12 @@ class _VasopressorOnsetTask(BaseTask):
             patient: the patient object.
             stay: the ICU stay event.
             weights: ``(n, 2)`` array of ``(hours, kg)`` weight
-                measurements of the stay, sorted by time.
+                measurements the task may use (see
+                :meth:`_usable_weights`), sorted by time.
 
         Returns:
             Array of shape ``(10,)``, NaN where a value is unknown, or
-            None when ``require_weight`` is set and the stay has no
+            None when ``require_weight`` is set and there is no usable
             weight measurement.
         """
         if len(weights) == 0 and self.require_weight:
@@ -886,6 +916,13 @@ class VasopressorOnsetMIMIC3(_VasopressorOnsetTask):
     variance and uses full-cohort statistics. To reproduce that scaling,
     use ``normalization=None`` with :func:`fit_standardizer`.
 
+    Possible leakage, kept by default for fidelity: as in the original
+    notebooks, the ``Weight`` static is the first weight charted anywhere
+    in the ICU stay and the no-weight exclusion looks at the whole stay,
+    so both can use a weight charted after the 6-hour input window. Pass
+    ``weight_within_window=True`` to restrict both to the window (the
+    ``weight`` static already only reads the window when it can).
+
     Args:
         normalization: ``"zscore"`` or ``None`` (raw values, NaN where
             unmeasured). Default is ``"zscore"``.
@@ -899,6 +936,11 @@ class VasopressorOnsetMIMIC3(_VasopressorOnsetTask):
             Default is True.
         require_weight: drop patients with no weight measurement.
             Default is True.
+        weight_within_window: use only weights charted in the first
+            ``time_len`` hours for the ``Weight`` static and for
+            ``require_weight``. Default is False, which follows the
+            original code (first weight of the whole stay) and can
+            read a weight charted after the input window.
         itemid_map: variable name to itemids, replacing
             ``DEFAULT_ITEMIDS``. Default is None.
         vasopressor_itemids: ``inputevents_mv`` itemids that count as a
@@ -916,6 +958,9 @@ class VasopressorOnsetMIMIC3(_VasopressorOnsetTask):
         >>> task = VasopressorOnsetMIMIC3()
         >>> task.output_schema
         {'vasopressor_onset': 'binary'}
+        >>> strict = VasopressorOnsetMIMIC3(weight_within_window=True)
+        >>> strict.weight_within_window
+        True
         >>> train, val, test = dataset.set_task(  # doctest: +SKIP
         ...     task, split=PatientSplit(ratios=(0.68, 0.17, 0.15), seed=1)
         ... )
@@ -932,6 +977,7 @@ class VasopressorOnsetMIMIC3(_VasopressorOnsetTask):
         forward_fill: bool = True,
         metavision_only: bool = True,
         require_weight: bool = True,
+        weight_within_window: bool = False,
         itemid_map: dict[str, Sequence[int]] | None = None,
         vasopressor_itemids: Sequence[int] | None = None,
     ) -> None:
@@ -942,6 +988,7 @@ class VasopressorOnsetMIMIC3(_VasopressorOnsetTask):
             max_los_hours=max_los_hours,
             forward_fill=forward_fill,
             require_weight=require_weight,
+            weight_within_window=weight_within_window,
             itemid_map=itemid_map,
             vasopressor_itemids=vasopressor_itemids,
         )

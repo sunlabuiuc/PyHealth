@@ -34,12 +34,18 @@ positive. The script runs end to end, but the metrics it prints on the
 demo are noise and are not comparable to the paper.
 """
 
-import os
-import sys
+import importlib.util
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from mimic3_vasopressor_onset_concept_bottleneck import main
+# The pipeline lives in the MIMIC-III example next to this file. Load it by
+# its path, so this script runs from any working directory without editing
+# ``sys.path``.
+_PIPELINE = Path(__file__).resolve().with_name(
+    "mimic3_vasopressor_onset_concept_bottleneck.py"
+)
+_spec = importlib.util.spec_from_file_location(_PIPELINE.stem, _PIPELINE)
+_pipeline = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_pipeline)
 
 if __name__ == "__main__":
-    main(default_dataset="mimic4")
+    _pipeline.main(default_dataset="mimic4")
