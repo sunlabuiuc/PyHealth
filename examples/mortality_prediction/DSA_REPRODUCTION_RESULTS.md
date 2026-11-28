@@ -86,3 +86,60 @@ detected events, and mean lead time.
 
 This establishes consistency at the tested operating points,
 not universal equivalence across all thresholds or datasets.
+
+## PMF-Based Patient-Specific Urgency Extension
+
+The proposed extension combines cumulative event risk with
+the predicted temporal distribution of the event.
+
+Configuration:
+
+- Prediction horizon: 24 hours
+- Near-term horizon: 6 hours
+- Alpha: 0.5
+- Numerical stability threshold: 1e-8
+- Event-level evaluation threshold points: 201
+- Alarm silence: 1 hourly step
+
+### Full-Cohort Event-Level Results
+
+| Alarm strategy | Event-level AuPRC |
+|---|---:|
+| EEP fixed horizon | 0.412300 |
+| survTLS fixed horizon | 0.421205 |
+| Reproduced paper imminent priority | 0.432762 |
+| Proposed PMF urgency | 0.429362 |
+
+The proposed extension outperformed both fixed-horizon
+strategies but did not exceed the reproduced imminent
+priority strategy. These are reproduction experiment
+results, not values reported in the original paper.
+
+### Numerical Consistency Validation
+
+The reusable `pmf_urgency_score` function was compared
+against saved scores from the original experiments.
+
+| Check | Validation | Test |
+|---|---:|---:|
+| Timesteps | 284,959 | 523,208 |
+| Record alignment | PASS | PASS |
+| Maximum absolute error | 3.33e-16 | 3.33e-16 |
+| Score consistency | PASS | PASS |
+
+All 808,167 timestep scores agreed within numerical
+tolerance (rtol=1e-7, atol=1e-10).
+
+This validates the scoring function against the original
+experiment outputs. It does not constitute independent
+retraining or recomputation of the complete event-level
+evaluation.
+
+### Reusable Implementation
+
+- `pmf_urgency.py`: PMF-based urgency scoring and synthetic
+  usage example.
+- `tests/core/test_pmf_urgency.py`: Six synthetic unit tests.
+
+No patient-level predictions or restricted MIMIC-III
+records are distributed with this contribution.
