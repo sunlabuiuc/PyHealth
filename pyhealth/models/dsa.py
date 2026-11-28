@@ -208,7 +208,7 @@ class DSA(BaseModel):
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if len(field) != 3:
             raise ValueError(
-                "DSA expects sequence_v2 fields as "
+                "DSA expects jagged fields as "
                 "(values, time, offsets)."
             )
         return field
@@ -241,7 +241,7 @@ class DSA(BaseModel):
 
         Args:
             **batch: Batched PyHealth fields. The three dynamic inputs must be
-                ``sequence_v2`` tuples of ``(values, time, offsets)``.
+                ``jagged`` tuples of ``(values, time, offsets)``.
                 ``hazard_label`` and ``hazard_mask`` must have shape
                 ``(batch_size, max_horizon)``.
 

@@ -301,7 +301,7 @@ class DecompensationMIMIC3(BaseTask):
 
     input_schema: ClassVar[dict[str, Any]] = {
     "dynamic_continuous": (
-        "sequence_v2",
+        "jagged",
         {
             "levels": [
                 {
@@ -312,7 +312,7 @@ class DecompensationMIMIC3(BaseTask):
         },
     ),
     "dynamic_categorical": (
-        "sequence_v2",
+        "jagged",
         {
             "levels": [
                 {
@@ -323,7 +323,7 @@ class DecompensationMIMIC3(BaseTask):
         },
     ),
     "dynamic_mask": (
-        "sequence_v2",
+        "jagged",
         {
             "levels": [
                 {
