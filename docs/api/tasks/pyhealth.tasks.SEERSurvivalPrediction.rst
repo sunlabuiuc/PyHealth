@@ -15,10 +15,11 @@ metastases. The site cohort filter, survival outcomes, follow-up fields,
 and treatment variables are outside that list.
 
 Use ``encoding="one_hot"`` to one-hot encode categorical values. Diagnosis
-year and ordinary tumor sizes (1–988 mm) are standardized. Blank values,
-previously unseen categories, and observed special size codes have distinct
-indicator columns within their field. A missing or special size has zero in
-its standardized measurement column.
+year and ordinary tumor sizes (1–988 mm) are standardized. Blank values and
+observed special size codes have their own indicator columns within their
+field, and all previously unseen categories of a field share one indicator
+column. A missing or special size has zero in its standardized measurement
+column.
 
 Use ``encoding="numeric"`` for the standardized numeric baseline. The
 processor uses the numeric diagnosis year, size, and verified exported codes

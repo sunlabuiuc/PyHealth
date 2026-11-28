@@ -109,6 +109,13 @@ def test_reduced_task_encodes_without_extent(seer_dataset: SEERDataset) -> None:
         test.close()
 
 
+def test_processor_reports_flat_vector_shape() -> None:
+    processor = SEERFeatureProcessor(("stage",), "one_hot")
+    processor.fit([{"x": {"stage": "I"}}], "x")
+    assert processor.dim() == (1,)
+    assert processor.spatial() == (False,)
+
+
 @pytest.mark.parametrize("horizon", [0, -1, 12.5, True])
 def test_requires_a_positive_whole_month_horizon(horizon: int) -> None:
     with pytest.raises(ValueError, match="positive integer"):

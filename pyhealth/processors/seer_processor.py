@@ -125,6 +125,7 @@ class SEERFeatureProcessor(TensorProcessor):
             self.field_slices[name] = slice(offset, offset + width)
             offset += width
         self._feature_dim = offset
+        self._n_dim = 1  # one flat feature vector per sample
 
     def _numeric_value(self, field: str, value: str) -> float:
         if not value:
