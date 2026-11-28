@@ -1,0 +1,108 @@
+.. Contributors: Manling Tan, Yining Jin, Xiao Luo
+.. NetIDs: manling4, yining34, xiaoluo6
+..
+.. Paper Title:
+.. Temporal Pointwise Convolutional Networks for
+.. Length of Stay Prediction in the Intensive Care Unit
+..
+.. Paper Authors:
+.. Emma Rocheteau, Pietro Liò, and Stephanie Hyland (2021)
+..
+.. Paper URL:
+.. https://arxiv.org/abs/2007.09483
+
+
+Hourly remaining ICU length of stay
+===================================
+
+.. automodule:: pyhealth.tasks.tpc_eicu
+   :members:
+   :show-inheritance:
+
+Implementation status
+---------------------
+
+The task implements adult cohort selection, hourly dynamic feature
+extraction, admission static features, and hourly remaining-LOS labels.
+The observation horizon is capped at 336 hours.
+
+Observation removal is controlled by ``missing_rate`` (0.0 to 1.0).
+Removal uses one deterministic mask per stay for a given seed and stay
+identifier, so repeated training epochs over the same dataset see the same
+masked observations. A rate of 0.0 preserves all observed values, while a rate
+of 1.0 removes all observed feature cells.
+
+When ``include_decay=True``, decay features are calculated after
+observation removal. Observed values reset to 1.0, and unobserved
+values decay by a factor of 0.75 per hour.
+
+Missing dynamic values remain NaN in the task output. Forward filling
+and normalization are handled by the configured YAIB preprocessing
+pipeline.
+
+
+Implementation summary
+----------------------
+
+* ``pyhealth/tasks/tpc_eicu.py`` implements hourly remaining-LOS
+  preprocessing, deterministic observation removal, and optional
+  decay features.
+* ``tests/core/test_tpc_eicu.py`` covers cohort selection, static
+  features, LOS labels, observation removal, decay, forward-fill
+  integration, and temporal consistency using synthetic patients.
+* ``examples/eicu_hourly_los_lstm.py`` implements end-to-end
+  ``RNN_V2(rnn_type="LSTM")`` training, all six paper metrics
+  (MAD, MAPE, MSE, MSLE, R^2, and Cohen's linear weighted Kappa),
+  and the 2x3 missingness robustness ablation study.
+* ``tests/integration/test_tpc_checkpoint.py`` provides an opt-in
+  synthetic CSV-to-task loader check.
+
+Usage and validation
+--------------------
+
+From a repository checkout in Python 3.12 or 3.13::
+
+    python -m pip install -e . pytest
+    python examples/tpc_support/generate_synthetic.py /tmp/tpc_synthetic
+    python -m examples.tpc_support.checkpoint --output /tmp/tpc_checkpoint.json
+    python -m pytest tests/core/test_tpc_eicu.py -q --durations=5
+    PYHEALTH_RUN_TPC_INTEGRATION=1 python -m pytest \
+        tests/integration/test_tpc_checkpoint.py -q
+    python examples/eicu_hourly_los_lstm.py --synthetic --epochs 2
+
+The synthetic CSV generator produces invented records across five patients.
+The checkpoint script validates cohort selection, static values, aggregated
+measurements, and remaining-LOS labels against independent numerical
+expectations without training a model. The CSV integration test is opt-in to
+keep routine unit test runs fast.
+
+Input and output specification
+------------------------------
+
+Load ``lab``, ``vitalperiodic``, ``vitalaperiodic``, ``intakeoutput``,
+``respiratorycharting``, and ``nursecharting`` using :class:`~pyhealth.datasets.eICUDataset`.
+One sample is produced per eligible stay:
+
+* Adults have known age >=18 and total ICU stay >=5 hours; ``> 89`` maps to 90.
+  Unknown age excludes the stay. Unknown sex or invalid height/weight is NaN.
+* Static features are age, sex (male=1, female=0), admission height and weight.
+* Dynamic uses 48 YAIB features. For H=min(floor(total LOS hours),336), its
+  values have shape (H,48), with missing values retained as NaN.
+* Bin [b,b+1) becomes available at timestamp b+1. At hour 5 the model may
+  consume bins 0–4 only.
+* Labels at hours 5..H have shape (H-4,1) and equal total LOS hours minus h.
+  Exact-discharge labels may be zero. The observation horizon is capped;
+  remaining LOS is not capped.
+* ``missing_rate`` controls deterministic per-stay removal of observed hourly
+  feature cells prior to forward-fill. A rate of 0.0 preserves observations;
+  1.0 removes all observed cells.
+* ``include_decay=True`` adds decay features matching the dynamic
+  feature dimensions. Decay resets to 1.0 upon observation and
+  decreases by a factor of 0.75 per unobserved hour.
+* Split by ``patient_id`` rather than ``stay_id``, and fit learned processors
+  on training patients only. Existing YAIB label processors min-max scale
+  training targets, while inference returns unscaled predictions in hours.
+
+This task reproduces the hourly remaining-LOS prediction formulation from the
+paper using YAIB feature extraction and PyHealth's existing preprocessing
+pipeline, rather than re-implementing the TPC model architecture.
