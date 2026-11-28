@@ -120,6 +120,8 @@ class EEGEventsTUEV(BaseTask):
         It indexes the 22-channel TCP montage (0-21), not a row of
         ``signal``.
       - "label": int
+      - "split": str, "train" or "eval", the dataset's official partition.
+        Used by pyhealth.datasets.split_by_predefined.
       - "stft": the STFT of "signal", when ``compute_stft`` is True. It is
         built for 200 Hz signals (1 s windows, 1 Hz bins, first 100 bins),
         as TFM-Tokenizer expects, so ``compute_stft=True`` requires
@@ -255,7 +257,8 @@ class EEGEventsTUEV(BaseTask):
         Iterates over both 'train' and 'eval' splits.
         Each sample includes a 'split' field and a precomputed 'stft' tensor.
 
-        Expected patient events to include a `signal_file` attribute pointing to an .edf file.
+        Expected patient events to include a `signal_file` attribute pointing to
+        an .edf file.
         """
         pid = patient.patient_id
         samples: List[Dict[str, Any]] = []
@@ -339,6 +342,8 @@ class EEGAbnormalTUAB(BaseTask):
         integer rate. Otherwise the window holds round(10 * resample_rate)
         samples, close to but not exactly 10 s.
       - "label": int (0 = normal, 1 = abnormal)
+      - "split": str, "train" or "eval", the dataset's official partition.
+        Used by pyhealth.datasets.split_by_predefined.
       - "stft": the STFT of "signal", when ``compute_stft`` is True. It is
         built for 200 Hz signals (1 s windows, 1 Hz bins, first 100 bins),
         as TFM-Tokenizer expects, so ``compute_stft=True`` requires
@@ -475,8 +480,9 @@ class EEGAbnormalTUAB(BaseTask):
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Processes one patient. Creates one 10-second window sample per segment.
 
-        Iterates over both 'train' and 'eval' splits. 
-        Each sample includes a 'split' field and, when compute_stft=True, a precomputed 'stft' tensor.
+        Iterates over both 'train' and 'eval' splits.
+        Each sample includes a 'split' field and, when compute_stft=True, a
+        precomputed 'stft' tensor.
         """
         pid = patient.patient_id
         samples: List[Dict[str, Any]] = []
@@ -550,7 +556,3 @@ class EEGAbnormalTUAB(BaseTask):
                     )
 
         return samples
-            
-    
-    
-    
