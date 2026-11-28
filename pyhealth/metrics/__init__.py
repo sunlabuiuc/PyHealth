@@ -16,6 +16,7 @@ from .competing_risks import (
 from .detection import box_iou, detection_metrics_fn
 from .drug_recommendation import ddi_rate_score
 from .fairness import fairness_metrics_fn
+from .group_fairness import group_fairness_metrics_fn
 from .generative import (
     calc_membership_inference,
     calc_nnaar,
@@ -89,6 +90,7 @@ __all__ = [
     "evaluate_attribution",
     "evaluate_synthetic_ehr",
     "fairness_metrics_fn",
+    "group_fairness_metrics_fn",
     "integrated_binomial_loglik_td",
     "integrated_brier_score_td",
     "iou_score",

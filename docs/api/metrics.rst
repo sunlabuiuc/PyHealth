@@ -32,6 +32,8 @@ reference includes the ECE definition and formula used by these helpers.
     metrics/pyhealth.metrics.competing_risks
     metrics/pyhealth.metrics.prediction_set
     metrics/pyhealth.metrics.fairness
+    metrics/pyhealth.metrics.group_fairness
+    metrics/pyhealth.metrics.fairness_selection
     metrics/pyhealth.metrics.interpretability
     metrics/pyhealth.metrics.generative
     metrics/pyhealth.metrics.survival

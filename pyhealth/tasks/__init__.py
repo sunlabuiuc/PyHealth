@@ -33,6 +33,9 @@ from .chestxray14_multilabel_classification import ChestXray14MultilabelClassifi
 from .ham10000_classification import (
     HAM10000Classification as HAM10000Classification,
 )
+from .ham10000_malignancy import (
+    HAM10000MalignancyClassification as HAM10000MalignancyClassification,
+)
 from .ph2_artifact_classification import (
     PH2ArtifactClassification as PH2ArtifactClassification,
 )

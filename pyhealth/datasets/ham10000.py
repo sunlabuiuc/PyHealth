@@ -50,6 +50,13 @@ class HAM10000Dataset(BaseDataset):
     in one part. The images do not identify patients, so a patient with
     several lesions can still appear in more than one part.
 
+    Age, sex and body site of the training images are only in the Harvard
+    Dataverse ``HAM10000_metadata.csv``. When it is in ``root`` they are
+    added as ``age``, ``sex`` and ``localization``, which subgroup analyses
+    such as :class:`~pyhealth.tasks.HAM10000MalignancyClassification` need;
+    without it these attributes are empty. Metadata cached by earlier
+    versions lacks these columns and is rebuilt once.
+
     The official validation (193) and test (1,512) images are indexed too
     when ``splits`` asks for them. Their lesion ids were not released, so
     each of those images is its own patient. Every event has a ``split``
@@ -89,15 +96,23 @@ class HAM10000Dataset(BaseDataset):
           Or pass ``download=True``, which downloads and unzips the missing
           files of the requested ``splits`` into ``root``.
         - Unpack: each zip extracts to a folder of the same name; the zips
-          can then be deleted. Instead of the lesion groupings CSV, the
-          Dataverse ``HAM10000_metadata`` file is accepted, saved as
-          ``HAM10000_metadata.csv`` (``wget -O HAM10000_metadata.csv
+          can then be deleted.
+        - Demographics (optional): save the Dataverse ``HAM10000_metadata``
+          file as ``HAM10000_metadata.csv`` in ``root`` (``wget -O
+          HAM10000_metadata.csv
           "https://dataverse.harvard.edu/api/access/datafile/4338392?format=original"``).
+          It covers the training images only, so the validation and test
+          splits have no age, sex or body site. It also replaces the lesion
+          groupings CSV if that is missing.
+          A tab-separated copy (the default download) is rejected when it
+          stands in for the groupings CSV; otherwise it is ignored with a
+          warning.
         - ``root`` layout (validation and test folders only when
           ``splits`` asks for them)::
 
               isic2018_task3/                                <- root
                   ISIC2018_Task3_Training_LesionGroupings.csv
+                  HAM10000_metadata.csv                      (optional)
                   ISIC2018_Task3_Training_Input/ISIC_0024306.jpg ...
                   ISIC2018_Task3_Training_GroundTruth/
                       ISIC2018_Task3_Training_GroundTruth.csv
@@ -183,7 +198,16 @@ class HAM10000Dataset(BaseDataset):
         )
         self.metadata_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_path = self.metadata_dir / _METADATA_FILE
-        self._source_key = f"root={self.source_root}|splits={','.join(self.splits)}"
+        dataverse = self.source_root / _DATAVERSE_METADATA
+        demographics = (
+            f"{dataverse.stat().st_size}:{dataverse.stat().st_mtime_ns}"
+            if dataverse.exists()
+            else None
+        )
+        self._source_key = (
+            f"root={self.source_root}|splits={','.join(self.splits)}"
+            f"|demographics={demographics}"
+        )
         marker = self.metadata_dir / "ham10000-source.txt"
         with FileLock(str(self.metadata_path) + ".lock"):
             current = marker.read_text().strip() if marker.exists() else None
@@ -232,6 +256,20 @@ class HAM10000Dataset(BaseDataset):
                     f"(first line: {first_line[:80]!r})."
                 )
 
+    def _dataverse_metadata(self) -> pd.DataFrame | None:
+        """Return the Dataverse metadata table, or None if it is not in root."""
+        path = self.source_root / _DATAVERSE_METADATA
+        if not path.exists():
+            return None
+        meta = pd.read_csv(path)
+        if "image_id" not in meta.columns:
+            raise ValueError(
+                f"{path} has no image_id column. Download the CSV with "
+                "?format=original; the default Dataverse download is "
+                "tab-separated."
+            )
+        return meta
+
     def _lesion_ids(self) -> pd.DataFrame:
         """Return ``image``, ``lesion_id``, ``diagnosis_confirm_type``."""
         groupings = self.source_root / _GROUPINGS_FILE
@@ -239,9 +277,8 @@ class HAM10000Dataset(BaseDataset):
             return pd.read_csv(groupings)[
                 ["image", "lesion_id", "diagnosis_confirm_type"]
             ]
-        dataverse = self.source_root / _DATAVERSE_METADATA
-        if dataverse.exists():
-            meta = pd.read_csv(dataverse)
+        meta = self._dataverse_metadata()
+        if meta is not None:
             return meta.rename(
                 columns={"image_id": "image", "dx_type": "diagnosis_confirm_type"}
             )[["image", "lesion_id", "diagnosis_confirm_type"]]
@@ -251,6 +288,36 @@ class HAM10000Dataset(BaseDataset):
             f"training set by lesion; download {_GROUPINGS_FILE} from "
             f"{HAM10000_BASE_URL}."
         )
+
+    def _demographics(self) -> pd.DataFrame | None:
+        """Return ``image``, ``age``, ``sex``, ``localization``, or None."""
+        try:
+            meta = self._dataverse_metadata()
+        except ValueError as err:
+            logger.warning("%s Age and sex stay empty.", err)
+            return None
+        if meta is None:
+            logger.info("No %s; age and sex are empty.", _DATAVERSE_METADATA)
+            return None
+        if not {"age", "sex"} <= set(meta.columns):
+            logger.warning(
+                "%s has no age/sex columns; they stay empty.", _DATAVERSE_METADATA
+            )
+            return None
+        duplicated = meta["image_id"].duplicated()
+        if duplicated.any():
+            logger.warning(
+                "%s lists %d images more than once; keeping the first row.",
+                _DATAVERSE_METADATA,
+                int(duplicated.sum()),
+            )
+            meta = meta[~duplicated]
+        if "localization" not in meta.columns:
+            meta = meta.assign(localization=None)
+        meta = meta.assign(sex=meta["sex"].map({"male": "M", "female": "F"}))
+        return meta.rename(columns={"image_id": "image"})[
+            ["image", "age", "sex", "localization"]
+        ]
 
     def prepare_metadata(self) -> None:
         """Write the metadata CSV, one row per image, to ``metadata_dir``.
@@ -291,9 +358,23 @@ class HAM10000Dataset(BaseDataset):
                         "patient.",
                         n_missing,
                     )
+                demographics = self._demographics()
+                if demographics is not None:
+                    unlisted = int((~gt["image"].isin(demographics["image"])).sum())
+                    if unlisted:
+                        logger.warning(
+                            "%d training images are not in %s; their age and "
+                            "sex stay empty.",
+                            unlisted,
+                            _DATAVERSE_METADATA,
+                        )
+                    gt = gt.merge(demographics, on="image", how="left")
             else:
                 gt["lesion_id"] = None
                 gt["diagnosis_confirm_type"] = None
+            for column in ("age", "sex", "localization"):
+                if column not in gt.columns:
+                    gt[column] = None
             image_dir = self.source_root / _input_dir(split)
             gt["path"] = [str(image_dir / f"{i}.jpg") for i in gt["image"]]
             exists = gt["path"].map(lambda p: Path(p).is_file())
@@ -321,6 +402,9 @@ class HAM10000Dataset(BaseDataset):
                         "split": split,
                         "diagnosis": gt["diagnosis"],
                         "diagnosis_confirm_type": gt["diagnosis_confirm_type"],
+                        "age": gt["age"],
+                        "sex": gt["sex"],
+                        "localization": gt["localization"],
                     }
                 )
             )
