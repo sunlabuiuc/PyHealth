@@ -124,7 +124,16 @@ jobs:
                 const v = s === null ? null : stats(s);
                 if (v !== undefined) modified_files[p] = v;
               }
-              return { total, modified_files };
+              // which tests ran (tools/coverage_report.py); optional, as older
+              // runs don't print it
+              let tests = null;
+              const t = raw?.tests;
+              if (t && typeof t === 'object' && ['none', 'some', 'all'].includes(t.mode) &&
+                  isCount(t.selected) && isCount(t.suite_total) && t.selected <= t.suite_total &&
+                  (t.baseline_sha === null || /^[0-9a-f]{40}$/.test(t.baseline_sha))) {
+                tests = { mode: t.mode, selected: t.selected, suite_total: t.suite_total, baseline_sha: t.baseline_sha };
+              }
+              return { total, modified_files, tests };
             }
 
             let body = `${marker}\n## Test Coverage\n\n`;
@@ -148,6 +157,13 @@ jobs:
                 body += `> [!WARNING]\n> Tests ${run.conclusion}; coverage may be incomplete.\n\n`;
               }
               body += `**Total:** ${pct(summary.total)} (${count(summary.total)} lines)\n\n`;
+              const t = summary.tests;
+              if (t && t.mode !== 'all') {
+                body += `Ran ${t.selected} of ${t.suite_total} test modules (the ones this PR can affect); `
+                  + (t.baseline_sha
+                    ? `the total merges them with master's full run at ${t.baseline_sha.slice(0, 7)}.\n\n`
+                    : 'the total covers only those.\n\n');
+              }
               body += rows.length
                 ? `| Modified file | Coverage | Lines |\n| --- | --- | --- |\n${rows.join('\n')}\n`
                 : '_No modified files under `pyhealth/`._\n';

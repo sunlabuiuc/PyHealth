@@ -48,6 +48,12 @@ testnlp:
 .PHONY:		testall
 testall:	test testnlp
 
+# run only the tests affected by changes since BASE, as PR CI does
+BASE ?=		origin/master
+.PHONY:		testaffected
+testaffected:
+		@python3 tools/select_tests.py --base $(BASE) --run
+
 # build the wheel (clean first to ensure fresh build)
 .PHONY:		wheel
 wheel:		clean $(DIST_DIR)
