@@ -67,6 +67,10 @@ from .chest_imagenome import ChestImaGenomeDataset as ChestImaGenomeDataset
 from .chestxray14 import ChestXray14Dataset
 from .ham10000 import HAM10000Dataset as HAM10000Dataset
 from .ph2 import PH2Dataset as PH2Dataset
+from .polyp import (
+    POLYP_TEST_SETS as POLYP_TEST_SETS,
+    PolypDataset as PolypDataset,
+)
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
 from .covid19_cxr import COVID19CXRDataset

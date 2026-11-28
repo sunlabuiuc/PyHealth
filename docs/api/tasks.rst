@@ -292,6 +292,7 @@ Available Tasks
     ChestX-ray14 Multilabel Classification <tasks/pyhealth.tasks.ChestXray14MultilabelClassification>
     HAM10000 Skin Lesion Classification <tasks/pyhealth.tasks.HAM10000Classification>
     PH2 Artifact Sensitivity Classification <tasks/pyhealth.tasks.PH2ArtifactClassification>
+    Polyp Detection <tasks/pyhealth.tasks.PolypDetection>
     MSD Segmentation <tasks/pyhealth.tasks.MSDSegmentationTask>
     CHAOS Segmentation Tasks <tasks/pyhealth.tasks.CHAOSSegmentation>
     RSNA Pneumonia Classification <tasks/pyhealth.tasks.RSNAPneumoniaClassification>

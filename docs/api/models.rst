@@ -375,6 +375,7 @@ API Reference
     models/pyhealth.models.td_cnn_lstm
     models/pyhealth.models.TRACE
     models/pyhealth.models.MIRA
+    models/pyhealth.models.GLIP
     models/pyhealth.models.UDC
     models/pyhealth.models.DescEmb
     models/pyhealth.models.bulk_rna_bert
