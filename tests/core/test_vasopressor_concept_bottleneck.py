@@ -715,6 +715,32 @@ class TestConceptBottleneckModel(unittest.TestCase):
         self.assertEqual(extra(**self.batch)["concepts"].shape, (4, 5))
         self.assertEqual(float(extra.bottleneck.weight[4].abs().sum()), 0.0)
 
+    def test_zero_weight_concept_stays_frozen(self):
+        """The extra zero_weight concept stays at zero through training."""
+        torch.manual_seed(0)
+        model = ConceptBottleneckModel(
+            dataset=self.dataset,
+            zero_weight=True,
+            l1_lambda=0.01,
+            cos_sim_lambda=0.01,
+            changing_dim=2,
+            static_dim=1,
+        )
+        before = model.bottleneck.weight[:4].detach().clone()
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.1)
+        for _ in range(3):
+            optimizer.zero_grad()
+            model(**self.batch)["loss"].backward()
+            optimizer.step()
+        self.assertEqual(float(model.bottleneck.weight[4].abs().sum()), 0.0)
+        self.assertEqual(float(model.bottleneck.bias[4]), 0.0)
+        self.assertEqual(float(model.head.weight[:, 4].abs().sum()), 0.0)
+        self.assertGreater(
+            float((model.bottleneck.weight[:4] - before).abs().sum()), 0.0
+        )
+        concepts = model(**self.batch)["concepts"]
+        self.assertTrue(torch.allclose(concepts[:, 4], torch.full((4,), 0.5)))
+
     def test_save_and_load(self):
         """A saved state dict restores identical predictions."""
         with tempfile.TemporaryDirectory() as tmp_dir:

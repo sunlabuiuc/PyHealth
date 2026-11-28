@@ -466,9 +466,12 @@ class ConceptBottleneckModel(BaseModel):
         pos_weight: scalar positive-class weight for the BCE loss
             (``(1 - p) / p`` with ``p`` the training prevalence).
             Default is None (unweighted).
-        zero_weight: if True, adds an extra all-zero concept (k + 1
-            total, last concept frozen at zero), as in the original.
-            Default is False.
+        zero_weight: if True, adds an extra uninformative concept
+            (k + 1 total), as in the original. Its bottleneck row,
+            bias and head weight start at zero and gradient hooks
+            keep them there during training, so its score is the
+            constant ``sigmoid(0) = 0.5`` and it adds nothing to the
+            logit. Default is False.
         **kwargs: passed to :class:`SummaryEncoder`.
 
     Examples:
@@ -537,6 +540,32 @@ class ConceptBottleneckModel(BaseModel):
                 self.bottleneck.weight[self.num_concepts - 1].fill_(0.0)
                 self.bottleneck.bias[self.num_concepts - 1].fill_(0.0)
                 self.head.weight[:, self.num_concepts - 1].fill_(0.0)
+            # Keep the extra concept at zero while training (the
+            # original re-zeroes these gradients each step in ``fit``).
+            self.bottleneck.weight.register_hook(self._zero_last_row_grad)
+            self.bottleneck.bias.register_hook(self._zero_last_entry_grad)
+            self.head.weight.register_hook(self._zero_last_column_grad)
+
+    @staticmethod
+    def _zero_last_row_grad(grad: torch.Tensor) -> torch.Tensor:
+        """Returns ``grad`` with its last row set to zero."""
+        grad = grad.clone()
+        grad[-1] = 0.0
+        return grad
+
+    @staticmethod
+    def _zero_last_entry_grad(grad: torch.Tensor) -> torch.Tensor:
+        """Returns ``grad`` with its last entry set to zero."""
+        grad = grad.clone()
+        grad[-1] = 0.0
+        return grad
+
+    @staticmethod
+    def _zero_last_column_grad(grad: torch.Tensor) -> torch.Tensor:
+        """Returns ``grad`` with its last column set to zero."""
+        grad = grad.clone()
+        grad[:, -1] = 0.0
+        return grad
 
     def forward(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward pass; returns ``logit``, ``y_prob`` and, when the

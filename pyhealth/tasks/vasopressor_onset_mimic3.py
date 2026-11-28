@@ -115,6 +115,10 @@ DEFAULT_ITEMIDS: dict[str, tuple[int, ...]] = {
     "inr": (51237, 227467, 815, 1530),
     "hgb": (51222, 220228, 814),
     "bilirubin_total": (50885, 225690, 1538, 848),
+    # All four weight items are charted in kg per D_ITEMS: 3580
+    # "Present Weight (kg)", 3693 "Weight Kg", 224639 "Daily Weight"
+    # (kg), 226512 "Admission Weight (Kg)". The pound items (3581,
+    # 226531) are not read on MIMIC-III.
     "weight": (3580, 3693, 224639, 226512),
 }
 
