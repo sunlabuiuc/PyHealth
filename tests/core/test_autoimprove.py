@@ -23,6 +23,7 @@ from pyhealth.autoimprove import (
     Param,
     PipelineConfig,
     RandomProposer,
+    RunConfig,
     SearchSpace,
     Trial,
     build_report,
@@ -36,11 +37,19 @@ from pyhealth.autoimprove import (
     unverified_numbers,
     with_xgboost,
 )
-from pyhealth.autoimprove import space as space_module
-from pyhealth.autoimprove.evaluate import chance_fold_scores, patient_folds
-from pyhealth.autoimprove.explain import _effect_bins, attributions, summarize
-from pyhealth.autoimprove.proposers import ProposalContext, parse_json
-from pyhealth.autoimprove.report import flags_for, has_intervals
+from pyhealth.autoimprove.search import space as space_module
+from pyhealth.autoimprove.evaluation.training import (
+    chance_fold_scores,
+    patient_folds,
+)
+from pyhealth.autoimprove.evaluation.explain import (
+    _effect_bins,
+    attributions,
+    summarize,
+)
+from pyhealth.autoimprove.search.proposers import ProposalContext
+from pyhealth.autoimprove.search.prompts import parse_json
+from pyhealth.autoimprove.evaluation.report import flags_for, has_intervals
 from pyhealth.datasets import create_sample_dataset
 from pyhealth.models import LogisticRegression
 from pyhealth.processors import BinaryLabelProcessor
@@ -203,9 +212,13 @@ class TestAutoImprover(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             lessons_path = os.path.join(tmp, "lessons.json")
             improver = AutoImprover(
-                self.train, self.val, LLMProposer(llm), baseline=baseline,
-                space=SPACE, report_metrics=["roc_auc"], n_agents=2, n_cycles=1,
-                run_dir=os.path.join(tmp, "run"), lessons_path=lessons_path,
+                self.train, self.val, RunConfig(
+                    search={"report_metrics": ["roc_auc"], "proposals_per_round": 2},
+                    budget={"rounds": 1},
+                    output={"run_dir": os.path.join(tmp, "run"), "lessons_path": lessons_path},
+                    baseline=baseline,
+                ),
+                proposer=LLMProposer(llm), space=SPACE,
             )
             result = improver.run()
 
@@ -230,9 +243,13 @@ class TestAutoImprover(unittest.TestCase):
             llm.replies = [_reply({"model": "RNN", "model_params": {
                 "hidden_dim": 32, "embedding_dim": 16}})]
             again = AutoImprover(
-                self.train, self.val, LLMProposer(llm), baseline=baseline,
-                space=SPACE, n_agents=1, n_cycles=2,
-                run_dir=os.path.join(tmp, "run"),
+                self.train, self.val, RunConfig(
+                    search={"proposals_per_round": 1},
+                    budget={"rounds": 2},
+                    output={"run_dir": os.path.join(tmp, "run")},
+                    baseline=baseline,
+                ),
+                proposer=LLMProposer(llm), space=SPACE,
             )
             result2 = again.run()
             self.assertEqual(len(result2.trials), 4)
@@ -244,9 +261,12 @@ class TestAutoImprover(unittest.TestCase):
                        "model_params": {"embedding_dim": 16}})
         llm = ScriptedLLM([same, same])
         improver = AutoImprover(
-            self.train, self.val, LLMProposer(llm),
-            baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
-            space=SPACE, n_agents=1, n_cycles=1,
+            self.train, self.val, RunConfig(
+                search={"proposals_per_round": 1},
+                budget={"rounds": 1},
+                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+            ),
+            proposer=LLMProposer(llm), space=SPACE,
         )
         result = improver.run()
         self.assertEqual(len(result.trials), 1)
@@ -256,8 +276,11 @@ class TestAutoImprover(unittest.TestCase):
         llm = ScriptedLLM([_reply({"model": "RNN", "train_params": {
             "epochs": 1}, "model_params": {"embedding_dim": 16}})])
         improver = AutoImprover(
-            self.train, self.val, LLMProposer(llm), space=SPACE,
-            metric="no_such_metric", n_agents=1, n_cycles=1,
+            self.train, self.val, RunConfig(
+                search={"metric": "no_such_metric", "proposals_per_round": 1},
+                budget={"rounds": 1},
+            ),
+            proposer=LLMProposer(llm), space=SPACE,
         )
         result = improver.run()
         self.assertIsNotNone(result.trials[0].error)
@@ -285,9 +308,13 @@ class TestAutoImprover(unittest.TestCase):
         llm = ScriptedLLM([_reply({"model": "MLP", "model_params": {
             "hidden_dim": 16, "embedding_dim": 16}})])
         improver = AutoImprover(
-            self.train, self.val, LLMProposer(llm),
-            baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
-            space=SPACE, n_agents=1, n_cycles=1, cv_folds=3,
+            self.train, self.val, RunConfig(
+                search={"proposals_per_round": 1},
+                budget={"rounds": 1},
+                evaluation={"cv_folds": 3},
+                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+            ),
+            proposer=LLMProposer(llm), space=SPACE,
         )
         result = improver.run()
         self.assertTrue(all(t.error is None for t in result.trials))
@@ -304,15 +331,19 @@ class TestAutoImprover(unittest.TestCase):
     def test_few_events_per_fold_warn_and_flag(self):
         with tempfile.TemporaryDirectory() as tmp:
             improver = AutoImprover(
-                self.train, self.val, RandomProposer(seed=0),
-                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
-                space=SPACE, n_agents=1, n_cycles=1, cv_folds=3, run_dir=tmp,
-                min_events_per_fold=1000,
+                self.train, self.val, RunConfig(
+                    search={"proposals_per_round": 1},
+                    budget={"rounds": 1},
+                    evaluation={"cv_folds": 3, "min_events_per_fold": 1000},
+                    output={"run_dir": tmp},
+                    baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+                ),
+                proposer=RandomProposer(seed=0), space=SPACE,
             )
-            with self.assertLogs("pyhealth.autoimprove.improver", "WARNING") as logs:
+            with self.assertLogs("pyhealth.autoimprove.state", "WARNING") as logs:
                 improver.run()
             self.assertTrue(any("positive samples" in m for m in logs.output))
-            events = improver._fold_events()
+            events = improver.state._fold_events()
             labels = [float(self.train[i]["label"]) for i in range(len(self.train))]
             self.assertEqual(len(events), 3)
             self.assertEqual(sum(events), int(sum(labels)))
@@ -324,12 +355,17 @@ class TestAutoImprover(unittest.TestCase):
             with open(os.path.join(tmp, "run.json")) as f:
                 self.assertEqual(json.load(f)["fold_events"], events)
             self.assertIn("few_events", load_run(tmp, space=SPACE).to_markdown())
-        improver.min_events_per_fold = 0
+        improver.state.min_events_per_fold = 0
         self.assertNotIn("few_events", [f["id"] for f in improver.flags()])
         # without cross-validation there are no folds to count
-        plain = AutoImprover(self.train, self.val, RandomProposer(seed=0),
-                             space=SPACE, n_agents=1, n_cycles=1)
-        self.assertIsNone(plain._fold_events())
+        plain = AutoImprover(
+            self.train, self.val, RunConfig(
+                search={"proposals_per_round": 1},
+                budget={"rounds": 1},
+            ),
+            proposer=RandomProposer(seed=0), space=SPACE,
+        )
+        self.assertIsNone(plain.state._fold_events())
 
     def test_clipped_repeat_names_the_clipping(self):
         llm = ScriptedLLM([
@@ -339,9 +375,12 @@ class TestAutoImprover(unittest.TestCase):
                     "embedding_dim": 16}}),
         ])
         improver = AutoImprover(
-            self.train, self.val, LLMProposer(llm),
-            baseline=PipelineConfig("RNN", {"hidden_dim": 256, "embedding_dim": 16}),
-            space=SPACE, n_agents=1, n_cycles=1,
+            self.train, self.val, RunConfig(
+                search={"proposals_per_round": 1},
+                budget={"rounds": 1},
+                baseline=PipelineConfig("RNN", {"hidden_dim": 256, "embedding_dim": 16}),
+            ),
+            proposer=LLMProposer(llm), space=SPACE,
         )
         result = improver.run()
         self.assertEqual([t.config.model for t in result.trials], ["RNN", "MLP"])
@@ -355,16 +394,28 @@ class TestAutoImprover(unittest.TestCase):
                 json.dump(["an unscoped lesson"], f)  # older format: set aside
             first = ScriptedLLM([_reply({"model": "MLP", "model_params": {
                 "hidden_dim": 16, "embedding_dim": 16}})])
-            AutoImprover(self.train, self.val, LLMProposer(first), space=SPACE,
-                         n_agents=1, n_cycles=1, lessons_path=path).run()
+            AutoImprover(
+                self.train, self.val, RunConfig(
+                    search={"proposals_per_round": 1},
+                    budget={"rounds": 1},
+                    output={"lessons_path": path},
+                ),
+                proposer=LLMProposer(first), space=SPACE,
+            ).run()
             self.assertNotIn("an unscoped lesson", first.prompts[0])
 
             linear = SearchSpace({"LogisticRegression": SPACE.models["LogisticRegression"]},
                                  SPACE.train_params)
             second = ScriptedLLM([_reply({"model": "LogisticRegression",
                                           "model_params": {"embedding_dim": 16}})])
-            AutoImprover(self.train, self.val, LLMProposer(second), space=linear,
-                         n_agents=1, n_cycles=1, lessons_path=path).run()
+            AutoImprover(
+                self.train, self.val, RunConfig(
+                    search={"proposals_per_round": 1},
+                    budget={"rounds": 1},
+                    output={"lessons_path": path},
+                ),
+                proposer=LLMProposer(second), space=linear,
+            ).run()
             # lessons learned with RNN/MLP available do not reach a linear-only search
             self.assertNotIn("RNN beats LogisticRegression", second.prompts[0])
             with open(path) as f:
@@ -374,8 +425,14 @@ class TestAutoImprover(unittest.TestCase):
 
             third = ScriptedLLM([_reply({"model": "RNN", "model_params": {
                 "hidden_dim": 32, "embedding_dim": 16}})])
-            AutoImprover(self.train, self.val, LLMProposer(third), space=SPACE,
-                         n_agents=1, n_cycles=1, lessons_path=path).run()
+            AutoImprover(
+                self.train, self.val, RunConfig(
+                    search={"proposals_per_round": 1},
+                    budget={"rounds": 1},
+                    output={"lessons_path": path},
+                ),
+                proposer=LLMProposer(third), space=SPACE,
+            ).run()
             self.assertIn("RNN beats LogisticRegression", third.prompts[0])
 
     def test_patience_counts_new_best_scores(self):
@@ -394,11 +451,15 @@ class TestAutoImprover(unittest.TestCase):
         llm = ScriptedLLM([_reply({"model": "MLP", "model_params": {
             "hidden_dim": d, "embedding_dim": 16}}) for d in dims])
         improver = AutoImprover(
-            self.train, self.val, LLMProposer(llm),
-            baseline=PipelineConfig("MLP", {"hidden_dim": 16, "embedding_dim": 16}),
-            space=SPACE, n_agents=1, n_cycles=5, patience=1, cv_folds=3,
+            self.train, self.val, RunConfig(
+                search={"proposals_per_round": 1},
+                budget={"rounds": 5, "patience": 1},
+                evaluation={"cv_folds": 3},
+                baseline=PipelineConfig("MLP", {"hidden_dim": 16, "embedding_dim": 16}),
+            ),
+            proposer=LLMProposer(llm), space=SPACE,
         )
-        with mock.patch("pyhealth.autoimprove.improver.run_config_cv", fake_cv):
+        with mock.patch("pyhealth.autoimprove.state.run_config_cv", fake_cv):
             result = improver.run()
         self.assertEqual(result.best.agent, "baseline")
         # baseline, 32, 64, 128, then 100 makes no progress and the run stops
@@ -417,11 +478,18 @@ class TestAutoImprover(unittest.TestCase):
 
         llm = ScriptedLLM([_reply({"model": "MLP", "model_params": {
             "hidden_dim": d, "embedding_dim": 16}}) for d in (16, 32, 64)])
-        with self.assertLogs("pyhealth.autoimprove.improver", "WARNING") as logs:
-            improver = AutoImprover(self.train, self.val, LLMProposer(llm), space=SPACE,
-                                    n_agents=3, n_cycles=1, cv_folds=3, check=False)
+        with self.assertLogs("pyhealth.autoimprove.state", "WARNING") as logs:
+            improver = AutoImprover(
+                self.train, self.val, RunConfig(
+                    # the second agent sees the first one's trial in its prompt
+                    search={"proposals_per_round": 3, "mode": "sequential"},
+                    budget={"rounds": 1},
+                    evaluation={"cv_folds": 3, "check": False},
+                ),
+                proposer=LLMProposer(llm), space=SPACE,
+            )
         self.assertIn("no baseline", logs.output[0])
-        with mock.patch("pyhealth.autoimprove.improver.run_config_cv", fake_cv):
+        with mock.patch("pyhealth.autoimprove.state.run_config_cv", fake_cv):
             result = improver.run()
         # the best mean, not the trial with the steadiest gain over the first one
         self.assertEqual(result.best.config.model_params["hidden_dim"], 32)
@@ -432,27 +500,30 @@ class TestAutoImprover(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             run = os.path.join(tmp, "run")
 
-            def improver(**kwargs):
-                settings = {"baseline": baseline, "space": SPACE, "n_agents": 1,
-                            "n_cycles": 1, "run_dir": run, "check": False, **kwargs}
-                return AutoImprover(self.train, self.val, RandomProposer(seed=0),
-                                    **settings)
+            def improver(baseline=baseline, **sections):
+                config = {"search": {"proposals_per_round": 1}, "budget": {"rounds": 1},
+                          "evaluation": {"check": False}, "output": {"run_dir": run}}
+                for name, values in sections.items():
+                    config[name] = {**config.get(name, {}), **values}
+                return AutoImprover(self.train, self.val,
+                                    RunConfig(baseline=baseline, **config),
+                                    proposer=RandomProposer(seed=0), space=SPACE)
 
             improver().run()
             with open(os.path.join(run, "meta.json")) as f:
                 self.assertEqual(json.load(f)["metric"], "pr_auc")
             with self.assertRaisesRegex(ValueError, "different metric"):
-                improver(metric="roc_auc").run()
+                improver(search={"metric": "roc_auc"}).run()
             with self.assertRaisesRegex(ValueError, "different baseline"):
                 improver(baseline=PipelineConfig("MLP", {"embedding_dim": 16})).run()
             with self.assertRaisesRegex(ValueError, "different cv_folds, promote_se"):
-                improver(cv_folds=3).run()
+                improver(evaluation={"cv_folds": 3}).run()
             # a larger budget is not a different setting
-            self.assertEqual(len(improver(n_cycles=2).run().trials), 3)
+            self.assertEqual(len(improver(budget={"rounds": 2}).run().trials), 3)
             # a run saved before meta.json existed is resumed, with a warning
             os.remove(os.path.join(run, "meta.json"))
-            with self.assertLogs("pyhealth.autoimprove.improver", "WARNING"):
-                improver(n_cycles=2).run()
+            with self.assertLogs("pyhealth.autoimprove.utils.store", "WARNING"):
+                improver(budget={"rounds": 2}).run()
             self.assertTrue(os.path.exists(os.path.join(run, "meta.json")))
 
     def test_error_messages_stay_out_of_prompts(self):
@@ -463,9 +534,15 @@ class TestAutoImprover(unittest.TestCase):
 
         llm = ScriptedLLM([_reply({"model": "MLP", "model_params": {
             "hidden_dim": d, "embedding_dim": 16}}) for d in (16, 32)])
-        improver = AutoImprover(self.train, self.val, LLMProposer(llm), space=SPACE,
-                                n_agents=1, n_cycles=2, check=False)
-        with mock.patch("pyhealth.autoimprove.improver.run_config", failing):
+        improver = AutoImprover(
+            self.train, self.val, RunConfig(
+                search={"proposals_per_round": 1},
+                budget={"rounds": 2},
+                evaluation={"check": False},
+            ),
+            proposer=LLMProposer(llm), space=SPACE,
+        )
+        with mock.patch("pyhealth.autoimprove.state.run_config", failing):
             result = improver.run()
         self.assertIn(secret, result.trials[0].error)  # kept for the user
         self.assertIn("error: ValueError at", llm.prompts[1])
@@ -483,16 +560,28 @@ class TestAutoImprover(unittest.TestCase):
 
         llm = FlakyLLM([_reply({"model": "MLP", "model_params": {
             "hidden_dim": 16, "embedding_dim": 16}})])
-        improver = AutoImprover(self.train, self.val, LLMProposer(llm), space=SPACE,
-                                n_agents=2, n_cycles=1, check=False)
-        with self.assertLogs("pyhealth.autoimprove.improver", "WARNING") as logs:
+        improver = AutoImprover(
+            self.train, self.val, RunConfig(
+                search={"proposals_per_round": 2},
+                budget={"rounds": 1},
+                evaluation={"check": False},
+            ),
+            proposer=LLMProposer(llm), space=SPACE,
+        )
+        with self.assertLogs("pyhealth.autoimprove.search.turns", "WARNING") as logs:
             result = improver.run()
         self.assertEqual([t.agent for t in result.trials], ["agent1"])
         self.assertTrue(any("turn skipped" in line for line in logs.output))
 
         llm.failures = 10  # a broken backend stops the run
-        improver = AutoImprover(self.train, self.val, LLMProposer(llm), space=SPACE,
-                                n_agents=3, n_cycles=1, check=False)
+        improver = AutoImprover(
+            self.train, self.val, RunConfig(
+                search={"proposals_per_round": 3},
+                budget={"rounds": 1},
+                evaluation={"check": False},
+            ),
+            proposer=LLMProposer(llm), space=SPACE,
+        )
         with self.assertRaisesRegex(RuntimeError, "failed 3 turns in a row"):
             improver.run()
 
@@ -508,11 +597,11 @@ class TestAutoImprover(unittest.TestCase):
             self.assertEqual([sum(int(data[int(i)]["label"]) for i in f) for f in folds],
                              [1] * 5)
             self.assertEqual([len(f) for f in folds], [8] * 5)
-        with self.assertLogs("pyhealth.autoimprove.evaluate", "WARNING"):
+        with self.assertLogs("pyhealth.autoimprove.evaluation.training", "WARNING"):
             patient_folds(data, 8)
 
-        with (mock.patch("pyhealth.autoimprove.evaluate.MAX_LABEL_SCAN", 10),
-              self.assertLogs("pyhealth.autoimprove.evaluate", "INFO") as logs):
+        with (mock.patch("pyhealth.autoimprove.utils.data.MAX_LABEL_SCAN", 10),
+              self.assertLogs("pyhealth.autoimprove.evaluation.training", "INFO") as logs):
             folds = patient_folds(data, 5)
         self.assertIn("not stratified", logs.output[0])
         self.assertEqual(sorted(int(i) for f in folds for i in f), list(range(40)))
@@ -523,9 +612,12 @@ class TestAutoImprover(unittest.TestCase):
             SPACE.train_params,
         )
         improver = AutoImprover(
-            self.train, self.val, RandomProposer(seed=0),
-            baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
-            space=space, n_agents=2, n_cycles=1,
+            self.train, self.val, RunConfig(
+                search={"proposals_per_round": 2},
+                budget={"rounds": 1},
+                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+            ),
+            proposer=RandomProposer(seed=0), space=space,
         )
         result = improver.run()
         self.assertEqual(list(result.dropped_models), ["Unreadable"])
@@ -535,11 +627,18 @@ class TestAutoImprover(unittest.TestCase):
         self.assertIn("Not searched: Unreadable", result.summary())
 
         with self.assertRaisesRegex(ValueError, "baseline model Unreadable"):
-            AutoImprover(self.train, self.val, RandomProposer(), space=space,
-                         baseline=PipelineConfig("Unreadable")).run()
+            AutoImprover(
+                self.train, self.val, RunConfig(
+                    baseline=PipelineConfig("Unreadable"),
+                ),
+                proposer=RandomProposer(), space=space,
+            ).run()
         only = SearchSpace({"Unreadable": space.models["Unreadable"]}, SPACE.train_params)
         with self.assertRaisesRegex(ValueError, "No model in the search space runs"):
-            AutoImprover(self.train, self.val, RandomProposer(), space=only).run()
+            AutoImprover(
+                self.train, self.val, RunConfig(),
+                proposer=RandomProposer(), space=only,
+            ).run()
 
     @unittest.skipUnless(importlib.util.find_spec("xgboost"), "needs xgboost")
     def test_models_that_cannot_read_the_inputs_are_removed(self):
@@ -550,9 +649,12 @@ class TestAutoImprover(unittest.TestCase):
         self.assertIn("bag_of_codes", problems["XGBoost"])
 
         improver = AutoImprover(
-            self.train, self.val, RandomProposer(seed=0),
-            baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
-            space=space, n_agents=3, n_cycles=1,
+            self.train, self.val, RunConfig(
+                search={"proposals_per_round": 3},
+                budget={"rounds": 1},
+                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+            ),
+            proposer=RandomProposer(seed=0), space=space,
         )
         result = improver.run()
         self.assertEqual(list(result.dropped_models), ["XGBoost"])
@@ -561,14 +663,21 @@ class TestAutoImprover(unittest.TestCase):
         self.assertIn("Not searched: XGBoost", result.summary())
 
         with self.assertRaisesRegex(ValueError, "baseline model XGBoost"):
-            AutoImprover(self.train, self.val, RandomProposer(), space=space,
-                         baseline=PipelineConfig("XGBoost")).run()
+            AutoImprover(
+                self.train, self.val, RunConfig(
+                    baseline=PipelineConfig("XGBoost"),
+                ),
+                proposer=RandomProposer(), space=space,
+            ).run()
 
     def test_random_search_budget_and_test_comparison(self):
         improver = AutoImprover(
-            self.train, self.val, RandomProposer(seed=1),
-            baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
-            space=SPACE, n_agents=2, n_cycles=5, max_trials=3,
+            self.train, self.val, RunConfig(
+                search={"proposals_per_round": 2},
+                budget={"rounds": 5, "max_trials": 3},
+                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+            ),
+            proposer=RandomProposer(seed=1), space=SPACE,
         )
         result = improver.run()
         self.assertEqual(len(result.trials), 3)
@@ -641,13 +750,16 @@ class TestSignalCheck(unittest.TestCase):
         self.assertIn("No signal?", report.to_markdown())
         self.assertEqual(report.data["signal"], weak)
 
-    def _run(self, label, run_dir, **kwargs):
+    def _run(self, label, run_dir, confirm=False):
         train, val, _ = _datasets(label=label)
         improver = AutoImprover(
-            train, val, RandomProposer(0),
-            baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
-            space=SPACE, n_agents=1, n_cycles=1, cv_folds=3, run_dir=run_dir,
-            check=False, **kwargs,
+            train, val, RunConfig(
+                search={"proposals_per_round": 1}, budget={"rounds": 1},
+                evaluation={"cv_folds": 3, "check": False},
+                confirm={"enabled": confirm}, output={"run_dir": run_dir},
+                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+            ),
+            proposer=RandomProposer(0), space=SPACE,
         )
         improver.run()
         return improver
@@ -674,23 +786,23 @@ class TestSignalCheck(unittest.TestCase):
             return signal_check(chance, selected, baseline, metric)
 
         with (tempfile.TemporaryDirectory() as tmp,
-              mock.patch("pyhealth.autoimprove.improver.signal_check", spy)):
+              mock.patch("pyhealth.autoimprove.state.signal_check", spy)):
             improver = self._run(None, tmp, confirm=True)
-        self.assertTrue(improver.confirmed)
+        self.assertTrue(improver.state.confirmed)
         chance, selected, baseline = calls[-1]
         best = improver.result().best
         base = next(t for t in improver.trials if t.agent == "baseline")
-        folds = patient_folds(improver.train_dataset, 3, improver.seed + 1)
-        expected = chance_fold_scores(improver._labels(), folds, improver.metric)
+        folds = patient_folds(improver.state.train_dataset, 3, improver.state.seed + 1)
+        expected = chance_fold_scores(improver.state._labels(), folds, improver.metric)
         np.testing.assert_allclose(chance, expected)
-        self.assertEqual(list(selected), list(improver.confirmed[best.trial_id]))
-        self.assertEqual(baseline, improver.confirmed.get(base.trial_id))
+        self.assertEqual(list(selected), list(improver.state.confirmed[best.trial_id]))
+        self.assertEqual(baseline, improver.state.confirmed.get(base.trial_id))
 
     def test_a_stale_signal_file_is_removed(self):
         with tempfile.TemporaryDirectory() as tmp:
             with open(os.path.join(tmp, "signal.json"), "w") as f:
                 json.dump({"no_signal": True, "detail": "old run"}, f)
-            with mock.patch("pyhealth.autoimprove.improver.MAX_LABEL_SCAN", 10):
+            with mock.patch("pyhealth.autoimprove.utils.data.MAX_LABEL_SCAN", 10):
                 improver = self._run(None, tmp)
             self.assertFalse(os.path.exists(os.path.join(tmp, "signal.json")))
             self.assertNotIn("no_signal", [f["id"] for f in improver.flags()])
@@ -698,8 +810,8 @@ class TestSignalCheck(unittest.TestCase):
     def test_large_datasets_skip_the_check(self):
         # Above MAX_LABEL_SCAN the check would read every training sample.
         with (tempfile.TemporaryDirectory() as tmp,
-              mock.patch("pyhealth.autoimprove.improver.MAX_LABEL_SCAN", 10),
-              self.assertLogs("pyhealth.autoimprove.improver", "INFO") as logs):
+              mock.patch("pyhealth.autoimprove.utils.data.MAX_LABEL_SCAN", 10),
+              self.assertLogs("pyhealth.autoimprove.state", "INFO") as logs):
             improver = self._run(None, tmp)
             self.assertFalse(os.path.exists(os.path.join(tmp, "signal.json")))
             self.assertNotIn("no_signal", [f["id"] for f in improver.flags()])
@@ -731,16 +843,23 @@ class TestLabelTypes(unittest.TestCase):
                 data = create_sample_dataset(
                     samples, {"conditions": "sequence"}, {"label": label_type}
                 )
-                improver = AutoImprover(data, data, RandomProposer(), space=SPACE,
-                                        check=False)
+                improver = AutoImprover(
+                    data, data, RunConfig(
+                        evaluation={"check": False},
+                    ),
+                    proposer=RandomProposer(), space=SPACE,
+                )
                 self.assertEqual(improver.metric, metric)
 
     def test_multiclass_search_and_test_scores(self):
         train, val, test = _datasets("multiclass", _three_classes)
         improver = AutoImprover(
-            train, val, RandomProposer(seed=0),
-            baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
-            space=SPACE, n_agents=2, n_cycles=1,
+            train, val, RunConfig(
+                search={"proposals_per_round": 2},
+                budget={"rounds": 1},
+                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+            ),
+            proposer=RandomProposer(seed=0), space=SPACE,
         )
         result = improver.run()
         self.assertTrue(all(t.error is None for t in result.trials))
@@ -891,9 +1010,13 @@ class TestExplainedRuns(unittest.TestCase):
         ])
         with tempfile.TemporaryDirectory() as tmp:
             improver = AutoImprover(
-                self.train, self.val, LLMProposer(llm),
-                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
-                space=SPACE, n_agents=1, n_cycles=2, patience=5, run_dir=tmp,
+                self.train, self.val, RunConfig(
+                    search={"proposals_per_round": 1},
+                    budget={"rounds": 2, "patience": 5},
+                    output={"run_dir": tmp},
+                    baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+                ),
+                proposer=LLMProposer(llm), space=SPACE,
             )
             result = improver.run()
             first, second = result.trials[1], result.trials[2]
@@ -924,13 +1047,17 @@ class TestExplainedRuns(unittest.TestCase):
         target = {"max_depth": 2, "n_estimators": 600}
         llm = ScriptedLLM([_reply({"model": "XGBoost", "model_params": target})])
         with tempfile.TemporaryDirectory() as tmp, mock.patch(
-            "pyhealth.autoimprove.improver.run_config_cv", fake_cv
+            "pyhealth.autoimprove.state.run_config_cv", fake_cv
         ):
             improver = AutoImprover(
-                self.train, self.val, LLMProposer(llm),
-                baseline=PipelineConfig("XGBoost", {"max_depth": 4}),
-                space=with_xgboost(SPACE), n_agents=1, n_cycles=1, cv_folds=3,
-                run_dir=tmp, check=False,
+                self.train, self.val, RunConfig(
+                    search={"proposals_per_round": 1},
+                    budget={"rounds": 1},
+                    evaluation={"cv_folds": 3, "check": False},
+                    output={"run_dir": tmp},
+                    baseline=PipelineConfig("XGBoost", {"max_depth": 4}),
+                ),
+                proposer=LLMProposer(llm), space=with_xgboost(SPACE),
             )
             result = improver.run()
             self.assertEqual(result.best.trial_id, 1)
@@ -954,9 +1081,14 @@ class TestExplainedRuns(unittest.TestCase):
     def test_report_from_a_real_run(self):
         with tempfile.TemporaryDirectory() as tmp:
             improver = AutoImprover(
-                self.train, self.val, RandomProposer(seed=1),
-                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
-                space=SPACE, n_agents=2, n_cycles=2, cv_folds=3, run_dir=tmp,
+                self.train, self.val, RunConfig(
+                    search={"proposals_per_round": 2},
+                    budget={"rounds": 2},
+                    evaluation={"cv_folds": 3},
+                    output={"run_dir": tmp},
+                    baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+                ),
+                proposer=RandomProposer(seed=1), space=SPACE,
             )
             result = improver.run()
             test = improver.evaluate_on_test(self.test, n_boot=50, return_predictions=True)
@@ -981,7 +1113,7 @@ class TestExplainedRuns(unittest.TestCase):
             self.assertEqual(len(verdicts), len(result.trials))
 
     def test_baseline_kept_after_confirmation(self):
-        from pyhealth.autoimprove.report import build_report
+        from pyhealth.autoimprove.evaluation.report import build_report
 
         folds = [0.40, 0.41, 0.42, 0.43, 0.44]
         trials = [Trial(0, -1, "baseline", "baseline", PipelineConfig("MLP"),
@@ -1006,13 +1138,17 @@ class TestExplainedRuns(unittest.TestCase):
         llm = ScriptedLLM([_reply({"model": "XGBoost",
                                    "model_params": {"max_depth": 2}})])
         with tempfile.TemporaryDirectory() as tmp, mock.patch(
-            "pyhealth.autoimprove.improver.run_config_cv", fake_cv
+            "pyhealth.autoimprove.state.run_config_cv", fake_cv
         ):
             improver = AutoImprover(
-                self.train, self.val, LLMProposer(llm),
-                baseline=PipelineConfig("XGBoost", {"max_depth": 4}),
-                space=with_xgboost(SPACE), n_agents=1, n_cycles=1, cv_folds=3,
-                run_dir=tmp, check=False,
+                self.train, self.val, RunConfig(
+                    search={"proposals_per_round": 1},
+                    budget={"rounds": 1},
+                    evaluation={"cv_folds": 3, "check": False},
+                    output={"run_dir": tmp},
+                    baseline=PipelineConfig("XGBoost", {"max_depth": 4}),
+                ),
+                proposer=LLMProposer(llm), space=with_xgboost(SPACE),
             )
             improver.run()
             self.assertIsNotNone(improver.trials[0].error)
@@ -1026,11 +1162,15 @@ class TestExplainedRuns(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             def improver(n_cycles):
                 return AutoImprover(
-                    self.train, self.val, RandomProposer(seed=0),
-                    baseline=PipelineConfig("LogisticRegression",
+                    self.train, self.val, RunConfig(
+                        search={"proposals_per_round": 1},
+                        budget={"rounds": n_cycles},
+                        evaluation={"check": False},
+                        output={"run_dir": tmp},
+                        baseline=PipelineConfig("LogisticRegression",
                                             {"embedding_dim": 16}),
-                    space=SPACE, n_agents=1, n_cycles=n_cycles, run_dir=tmp,
-                    check=False,
+                    ),
+                    proposer=RandomProposer(seed=0), space=SPACE,
                 )
 
             improver(1).run()
@@ -1045,7 +1185,7 @@ class TestExplainedRuns(unittest.TestCase):
             meta["space"] = meta["space"].replace("[16, 256]", "[8, 256]")
             with open(path, "w") as f:
                 json.dump(meta, f)
-            with self.assertLogs("pyhealth.autoimprove.improver", "WARNING") as logs:
+            with self.assertLogs("pyhealth.autoimprove", "WARNING") as logs:
                 result = improver(2).run()
             self.assertIn("different search space", "\n".join(logs.output))
             self.assertEqual(len(result.trials), 3)
@@ -1064,12 +1204,15 @@ class TestExplainedRuns(unittest.TestCase):
 
         llm = ScriptedLLM([_reply({"model": "XGBoost",
                                    "model_params": {"max_depth": 2}})])
-        with mock.patch("pyhealth.autoimprove.improver.run_config_cv", fake_cv):
+        with mock.patch("pyhealth.autoimprove.state.run_config_cv", fake_cv):
             improver = AutoImprover(
-                self.train, self.val, LLMProposer(llm),
-                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
-                space=with_xgboost(SPACE), n_agents=1, n_cycles=1, cv_folds=3,
-                check=False,
+                self.train, self.val, RunConfig(
+                    search={"proposals_per_round": 1},
+                    budget={"rounds": 1},
+                    evaluation={"cv_folds": 3, "check": False},
+                    baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+                ),
+                proposer=LLMProposer(llm), space=with_xgboost(SPACE),
             )
             self.assertEqual(improver.run().best.trial_id, 1)
             out = improver.attribute()
@@ -1133,11 +1276,15 @@ class TestClinicalReport(unittest.TestCase):
     def test_explain_flags_review_and_privacy(self):
         with tempfile.TemporaryDirectory() as tmp:
             improver = AutoImprover(
-                self.train, self.val, RandomProposer(seed=0),
-                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16},
+                self.train, self.val, RunConfig(
+                    search={"proposals_per_round": 1},
+                    budget={"rounds": 1},
+                    evaluation={"cv_folds": 3},
+                    output={"run_dir": tmp},
+                    baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16},
                                         {"epochs": 2}),
-                space=SPACE, n_agents=1, n_cycles=1, cv_folds=3, run_dir=tmp,
-                task_card=CARD,
+                ),
+                proposer=RandomProposer(seed=0), space=SPACE, task=CARD,
             )
             improver.run()
             explanation = improver.explain(top_k=3)
@@ -1186,7 +1333,7 @@ class TestClinicalReport(unittest.TestCase):
             self.assertTrue(all(b["n"] >= 11 for b in clinical["calibration_bins"]))
 
     def test_calibration_and_subgroup_gap_flags(self):
-        from pyhealth.autoimprove.report import flags_for
+        from pyhealth.autoimprove.evaluation.report import flags_for
 
         def test(slope, oe, gap):
             return {"best": {"clinical": {
@@ -1210,17 +1357,21 @@ class TestClinicalReport(unittest.TestCase):
     def test_stability_refits_use_fold_parts(self):
         # Each stability fold model goes through fold_parts, so engineered
         # columns would be refitted on the fold, as in cross-validation.
-        from pyhealth.autoimprove import evaluate
+        from pyhealth.autoimprove.evaluation import training
 
         improver = AutoImprover(
-            self.train, self.val, RandomProposer(seed=0),
-            baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16},
+            self.train, self.val, RunConfig(
+                search={"proposals_per_round": 1},
+                budget={"rounds": 1},
+                evaluation={"cv_folds": 3},
+                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16},
                                     {"epochs": 2}),
-            space=SPACE, n_agents=1, n_cycles=1, cv_folds=3, task_card=CARD,
+            ),
+            proposer=RandomProposer(seed=0), space=SPACE, task=CARD,
         )
         improver.run()
-        with mock.patch("pyhealth.autoimprove.improver.fold_parts",
-                        side_effect=evaluate.fold_parts) as spy:
+        with mock.patch("pyhealth.autoimprove.evaluation.explain.fold_parts",
+                        side_effect=training.fold_parts) as spy:
             out = improver.explain(top_k=3)
         self.assertEqual(spy.call_count, 3)
         self.assertEqual(out["stability"]["models"], 3)
@@ -1230,10 +1381,13 @@ class TestClinicalReport(unittest.TestCase):
         # output has `best` and no `baseline` or `difference`, and the
         # report still renders the clinical section.
         improver = AutoImprover(
-            self.train, self.val, RandomProposer(seed=0),
-            baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16},
+            self.train, self.val, RunConfig(
+                search={"proposals_per_round": 1},
+                budget={"rounds": 1, "max_trials": 1},
+                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16},
                                     {"epochs": 2}),
-            space=SPACE, n_agents=1, n_cycles=1, max_trials=1, task_card=CARD,
+            ),
+            proposer=RandomProposer(seed=0), space=SPACE, task=CARD,
         )
         result = improver.run()
         self.assertIs(result.best, result.baseline)
@@ -1250,10 +1404,13 @@ class TestClinicalReport(unittest.TestCase):
     def test_flags_and_report_without_run_dir(self):
         # Results are kept in memory, so flags and the report still see them.
         improver = AutoImprover(
-            self.train, self.val, RandomProposer(seed=0),
-            baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16},
+            self.train, self.val, RunConfig(
+                search={"proposals_per_round": 1},
+                budget={"rounds": 1},
+                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16},
                                     {"epochs": 2}),
-            space=SPACE, n_agents=1, n_cycles=1, task_card=CARD,
+            ),
+            proposer=RandomProposer(seed=0), space=SPACE, task=CARD,
         )
         improver.run()
         improver.explain(top_k=3)

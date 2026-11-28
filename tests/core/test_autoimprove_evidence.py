@@ -1,4 +1,4 @@
-"""pyhealth.autoimprove.evidence: evidence in feature prompts, literature in reports."""
+"""pyhealth.autoimprove.search.literature: evidence in feature prompts, literature in reports."""
 
 import json
 import os
@@ -17,15 +17,13 @@ from pyhealth.autoimprove import (  # noqa: E402
     EvidenceProposer,
     FeatureSpace,
     KnowledgeBase,
+    RunConfig,
     add_literature,
     evidence_lines,
     literature_section,
 )
-from pyhealth.autoimprove.proposers import (  # noqa: E402
-    FEATURE_SYSTEM_PROMPT,
-    SYSTEM_PROMPT,
-    ProposalContext,
-)
+from pyhealth.autoimprove.search.prompts import FEATURE_SYSTEM_PROMPT, SYSTEM_PROMPT
+from pyhealth.autoimprove.search.proposers import ProposalContext
 from pyhealth.tasks import TaskCard  # noqa: E402
 
 CARD = TaskCard(population="test patients", outcome="the label")
@@ -106,10 +104,14 @@ class TestEvidence(unittest.TestCase):
     def test_feature_prompts_list_untried_evidence_only(self):
         llm = ScriptedLLM([VISITS, LABS])
         improver = AutoImprover(
-            self.world.train, self.world.val, EvidenceProposer(llm, self.kb),
-            baseline=BASELINE, space=SPACE, cv_folds=5,
-            features=FeatureSpace(self.world, time_key="t", min_patients=5),
-            check=False, n_agents=1, n_cycles=3, feature_cycles=(1, 0))
+            self.world.train, self.world.val, RunConfig(
+                search={"proposals_per_round": 1, "plan": ['features']},
+                budget={"rounds": 3},
+                evaluation={"cv_folds": 5, "check": False},
+                baseline=BASELINE,
+            ),
+            proposer=EvidenceProposer(llm, self.kb), space=SPACE, features=FeatureSpace(self.world, time_key="t", min_patients=5),
+        )
         improver.run()
         feature_prompts = [p for s, p in llm.calls if s == FEATURE_SYSTEM_PROMPT]
         self.assertGreaterEqual(len(feature_prompts), 3)
@@ -145,7 +147,7 @@ class TestEvidence(unittest.TestCase):
         self.assertIn("count_90d__labs", second.split("not tried yet")[1])
 
     def test_variants_are_matched_on_the_whole_selection(self):
-        from pyhealth.autoimprove.evidence import _adapts
+        from pyhealth.autoimprove.search.literature import _adapts
 
         listed = {"name": "count_90d__labs", "op": "count", "window": 90,
                   "select": {"event_type": "labs", "where": {"code": ["eos"]}},
@@ -184,9 +186,14 @@ class TestEvidence(unittest.TestCase):
         self.assertIn("This model on test: 0.810 (roc_auc).", with_test)
 
         improver = AutoImprover(
-            self.world.train, self.world.val, EvidenceProposer(ScriptedLLM([]), self.kb),
-            baseline=BASELINE, space=SPACE, cv_folds=5, check=False, n_agents=1,
-            n_cycles=1)
+            self.world.train, self.world.val, RunConfig(
+                search={"proposals_per_round": 1},
+                budget={"rounds": 1},
+                evaluation={"cv_folds": 5, "check": False},
+                baseline=BASELINE,
+            ),
+            proposer=EvidenceProposer(ScriptedLLM([]), self.kb), space=SPACE,
+        )
         improver.run()
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "report.html")

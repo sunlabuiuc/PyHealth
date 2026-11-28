@@ -13,13 +13,18 @@ report can say what a configuration does in words a clinician can check.
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import math
 import random
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
+
+from pyhealth.datasets import SampleDataset
+
+from ..utils.data import _schema_names
 
 
 @dataclass(frozen=True)
@@ -134,6 +139,10 @@ class ModelSpec:
         return getattr(importlib.import_module(module), name)
 
 
+CODE_MODEL = "Code"
+"""The model name of a config whose model is generated code."""
+
+
 @dataclass
 class PipelineConfig:
     """One pipeline to try: a model, its arguments and how to train it.
@@ -148,11 +157,16 @@ class PipelineConfig:
             ``expected`` (e.g. "PR-AUC up, smaller spread between folds"),
             ``kind`` (``"clinical"`` or ``"technical"``) and ``based_on``
             (the id of the trial it changes, if any).
+        code: For a code turn, the generated module that builds and trains
+            the model (:mod:`~pyhealth.autoimprove.search.prompts`); ``model`` is
+            then :data:`CODE_MODEL` and the parameters are empty.
 
     Examples:
         >>> config = PipelineConfig("RNN", {"hidden_dim": 64}, {"lr": 1e-3})
         >>> config.key()
         '{"model": "RNN", "model_params": {"hidden_dim": 64}, "train_params": {"lr": 0.001}}'
+        >>> PipelineConfig("Code", code="def build_and_train(): ...").key()
+        '{"model": "Code", "model_params": {}, "train_params": {}, "code_sha": "05e1183ccc29"}'
     """
 
     model: str
@@ -160,18 +174,36 @@ class PipelineConfig:
     train_params: dict[str, Any] = field(default_factory=dict)
     rationale: str = ""
     hypothesis: dict[str, Any] = field(default_factory=dict)
+    code: str = ""
+
+    @property
+    def code_sha(self) -> str:
+        """A short hash of ``code``, empty for a config from the search space."""
+        if not self.code:
+            return ""
+        return hashlib.sha256(self.code.encode()).hexdigest()[:12]
 
     def to_dict(self) -> dict[str, Any]:
         """The configuration without its rationale, as plain JSON types."""
-        return {
+        out = {
             "model": self.model,
             "model_params": dict(sorted(self.model_params.items())),
             "train_params": dict(sorted(self.train_params.items())),
         }
+        if self.code:
+            out["code"] = self.code
+        return out
 
     def key(self) -> str:
-        """A canonical string, so that repeated proposals are recognised."""
-        return json.dumps(self.to_dict(), sort_keys=False, default=str)
+        """A canonical string, so that repeated proposals are recognised.
+
+        Generated code is represented by its hash, so the key stays short
+        enough for prompts.
+        """
+        data = self.to_dict()
+        if data.pop("code", None) is not None:
+            data["code_sha"] = self.code_sha
+        return json.dumps(data, sort_keys=False, default=str)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PipelineConfig:
@@ -196,6 +228,7 @@ class PipelineConfig:
         return cls(
             model=str(data.get("model", "")),
             rationale=str(data.get("rationale", "")),
+            code=str(data.get("code") or ""),
             **params,
         )
 
@@ -212,6 +245,9 @@ def config_diff(old: PipelineConfig, new: PipelineConfig) -> dict[str, str]:
         {'max_depth': '4 → 2'}
     """
     out: dict[str, str] = {}
+    if old.code_sha != new.code_sha and old.code and new.code:
+        out["code"] = f"{old.code_sha} → {new.code_sha}"
+        return out
     if old.model != new.model:
         out["model"] = f"{old.model} → {new.model}"
         shared = set(old.train_params) & set(new.train_params)
@@ -369,15 +405,41 @@ class SearchSpace:
         self.models = dict(DEFAULT_MODELS if models is None else models)
         self.train_params = dict(TRAIN_PARAMS if train_params is None else train_params)
 
+    def for_training(self) -> SearchSpace:
+        """A copy without what only prompts and selection read (``meaning``
+        texts, ``rung`` functions), so it can be sent to another process."""
+
+        def plain(params):
+            return {k: replace(v, meaning="") for k, v in params.items()}
+
+        models = {name: replace(spec, params=plain(spec.params),
+                                rung=spec.rung if isinstance(spec.rung, int) else 0)
+                  for name, spec in self.models.items()}
+        return SearchSpace(models, plain(self.train_params))
+
     def validate(self, config: PipelineConfig) -> tuple[PipelineConfig, list[str]]:
         """Makes a proposal valid, listing every change that was needed.
 
         Unknown arguments are dropped, numbers outside their range are
         clipped, and invalid choices fall back to the default.
 
+        A code config (``config.code``) is checked by
+        :func:`~pyhealth.autoimprove.utils.sandbox.static_check` instead: it owns
+        its model and training, so it has no parameters to clip.
+
         Raises:
-            ValueError: If the model is not in the space.
+            ValueError: If the model is not in the space, or generated code
+                fails the static check.
         """
+        if config.code or config.model == CODE_MODEL:
+            from ..utils.sandbox import check_or_raise
+            from .prompts import ENTRY
+
+            if not config.code:
+                raise ValueError(f"a {CODE_MODEL} config needs its code")
+            check_or_raise(config.code, ENTRY)
+            return PipelineConfig(CODE_MODEL, {}, {}, config.rationale,
+                                  dict(config.hypothesis), config.code), []
         if config.model not in self.models:
             raise ValueError(
                 f"Unknown model {config.model!r}; choose one of {sorted(self.models)}"
@@ -423,7 +485,7 @@ class SearchSpace:
     def rung(self, config: PipelineConfig) -> int:
         """The config's rung on the interpretability ladder (:data:`LADDER`).
 
-        Models not in the space get the top rung.
+        Models not in the space, including generated code, get the top rung.
 
         Examples:
             >>> space = with_xgboost(SearchSpace())
@@ -445,6 +507,10 @@ class SearchSpace:
             >>> space.explain(PipelineConfig("XGBoost", {"max_depth": 2}))[:2]
             ['XGBoost: gradient-boosted decision trees', 'max_depth = 2: each tree combines at most 2 inputs']
         """
+        if config.code:
+            return [f"generated code {config.code_sha}: "
+                    + (config.rationale or "a model and training loop written by the "
+                                           "proposer")]
         spec = self.models.get(config.model)
         if spec is None:
             return [config.model] + [
@@ -550,3 +616,45 @@ def with_xgboost(space: SearchSpace) -> SearchSpace:
         True
     """
     return SearchSpace({**space.models, "XGBoost": XGBOOST}, space.train_params)
+
+
+def _derived(
+    config: PipelineConfig, rationale: str, hypothesis: dict[str, Any] | None = None
+) -> PipelineConfig:
+    """A copy of a config (generated code included) with a new rationale."""
+    return PipelineConfig(config.model, dict(config.model_params),
+                          dict(config.train_params), rationale,
+                          dict(hypothesis or {}), config.code)
+
+
+def _key(config: PipelineConfig, features: Sequence[dict[str, Any]]) -> str:
+    """A trial's identity: its config and the names of its features."""
+    names = sorted(str(s.get("name", "")) for s in features)
+    return config.key() + ("|" + ",".join(names) if names else "")
+
+
+def describe_search(space: SearchSpace, dataset: SampleDataset) -> str:
+    """The search a set of lessons belongs to: inputs, label and models.
+
+    Examples:
+        >>> describe_search(SearchSpace(), train_ds)  # doctest: +SKIP
+        'inputs: conditions (sequence) | label: label (binary) | models: CNN(...), ...'
+    """
+    models = ", ".join(
+        f"{name}({','.join(sorted(spec.params))})"
+        for name, spec in sorted(space.models.items())
+    )
+    return (
+        f"inputs: {_schema_names(dataset.input_schema)} | "
+        f"label: {_schema_names(dataset.output_schema)} | models: {models}"
+    )
+
+
+def space_fingerprint(space: SearchSpace, dataset: SampleDataset) -> str:
+    """A short stable id for :func:`describe_search`.
+
+    Examples:
+        >>> space_fingerprint(SearchSpace(), train_ds)  # doctest: +SKIP
+        '3f9a1c0be27d'
+    """
+    return hashlib.sha256(describe_search(space, dataset).encode()).hexdigest()[:12]

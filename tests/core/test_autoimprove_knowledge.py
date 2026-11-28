@@ -1,4 +1,4 @@
-"""pyhealth.autoimprove.knowledge: citation checks, curated tables, privacy, mapping."""
+"""pyhealth.autoimprove.search.literature: citation checks, curated tables, privacy, mapping."""
 
 import json
 import os
@@ -18,10 +18,11 @@ from pyhealth.autoimprove import (  # noqa: E402
     FeatureSpace,
     KnowledgeBase,
     QueueProposer,
+    RunConfig,
     parse_effect,
     pubmed_query,
 )
-from pyhealth.autoimprove.knowledge import _numbers  # noqa: E402
+from pyhealth.autoimprove.search.literature import _numbers  # noqa: E402
 from pyhealth.tasks import TaskCard  # noqa: E402
 
 ABSTRACT = ("Children with two or more ED visits in the prior year had a higher "
@@ -392,9 +393,15 @@ class TestMapping(unittest.TestCase):
             self.assertEqual(again.gap_report(), gap)
 
             improver = AutoImprover(
-                self.world.train, self.world.val, QueueProposer(ranked),
-                baseline=BASELINE, space=SPACE, cv_folds=5, features=fs,
-                run_dir=tmp, check=False, n_agents=1, n_cycles=2)
+                self.world.train, self.world.val, RunConfig(
+                    search={"proposals_per_round": 1},
+                    budget={"rounds": 2},
+                    evaluation={"cv_folds": 5, "check": False},
+                    output={"run_dir": tmp},
+                    baseline=BASELINE,
+                ),
+                proposer=QueueProposer(ranked), space=SPACE, features=fs,
+            )
             result = improver.run()
             self.assertEqual([s["name"] for s in result.best.features],
                              ["count_90d__visits"])

@@ -1,4 +1,4 @@
-"""pyhealth.autoimprove.features: operators, definitions, refusals and the future-blind test."""
+"""pyhealth.autoimprove.search.features: operators, definitions, refusals and the future-blind test."""
 
 import math
 import unittest
@@ -7,10 +7,13 @@ from unittest import mock
 
 import numpy as np
 import polars as pl
-import torch
 
-from pyhealth.autoimprove.evaluate import fold_parts, run_config_cv
-from pyhealth.autoimprove.features import EngineeredDataset, FeatureSpace, FeatureSpec
+from pyhealth.autoimprove.evaluation.training import fold_parts, run_config_cv
+from pyhealth.autoimprove.search.features import (
+    EngineeredDataset,
+    FeatureSpace,
+    FeatureSpec,
+)
 from pyhealth.data import Patient
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import LogisticRegression
@@ -318,7 +321,7 @@ class TestFutureBlind(unittest.TestCase):
                             "select": {"event_type": "admissions"}, "rationale": "r"})
         safe = fs.validate({"op": "count", "window": 365, "select": SABA,
                             "rationale": "r"})
-        with mock.patch("pyhealth.autoimprove.features._name", return_value="same"):
+        with mock.patch("pyhealth.autoimprove.search.features._name", return_value="same"):
             for call in (
                 lambda: fs.augment(_samples(), [leak, safe]),
                 lambda: fs.augment(_samples(), [safe, leak]),
@@ -419,16 +422,19 @@ class TestEngineeredDataset(unittest.TestCase):
         folds = [np.array([0, 1, 2]), np.array([3, 4, 5])]
         seen = []
 
-        def fake_train(config, space, fit_part, val_part, *args):
-            seen.append({"fit": fit_part, "val": val_part})
-            return torch.nn.Linear(1, 1)
+        def fake_fit_predict(config, space, fit_part, val_part, predict_on, *args,
+                             **kwargs):
+            held_part = predict_on[0]
+            seen.append({"fit": fit_part, "val": val_part, "held": held_part})
+            n = len(held_part)
+            return {"predictions": [(np.zeros((n, 1)), np.full((n, 1), 0.5), [])],
+                    "mode": "binary", "n_params": 0, "metric_kwargs": {}}
 
-        def fake_score(model, held_part, names):
-            seen[-1]["held"] = held_part
+        def fake_score(y_true, y_prob, mode, names, **kwargs):
             return {name: 0.5 for name in names}
 
-        with mock.patch("pyhealth.autoimprove.evaluate.train_pipeline", fake_train), \
-                mock.patch("pyhealth.autoimprove.evaluate.score", fake_score):
+        with mock.patch("pyhealth.autoimprove.evaluation.training.fit_predict", fake_fit_predict), \
+                mock.patch("pyhealth.autoimprove.evaluation.training.score_predictions", fake_score):
             result = run_config_cv(None, None, fe, fe, "pr_auc", folds)
         self.assertEqual(result["fold_scores"], [0.5, 0.5])
         for held_out, parts in zip(folds, seen):

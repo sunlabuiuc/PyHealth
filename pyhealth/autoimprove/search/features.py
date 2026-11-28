@@ -905,6 +905,8 @@ Event types and their attributes:"""
 
 
 # --------------------------------------------------------------- event view
+
+
 class _EventView:
     """One patient's events as seen at time t, with windows ending before t."""
 
@@ -1003,6 +1005,8 @@ class _EventView:
 
 
 # ------------------------------------------------------------------ helpers
+
+
 def _event_types_of(node: dict[str, Any]) -> set[str]:
     out = set()
     if "select" in node:

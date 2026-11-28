@@ -8,47 +8,54 @@ selects the most interpretable one within noise of the best, and its report
 (:meth:`AutoImprover.report`) explains the choice and how the search got there.
 """
 
-from .evaluate import (
-    chance_fold_scores,
-    check_models,
-    describe_error,
-    fold_parts,
-    patient_folds,
-    predict,
-    run_config,
-    run_config_cv,
-    score,
-    train_pipeline,
-)
-from .evidence import (
-    EvidenceProposer,
-    add_literature,
-    evidence_lines,
-    literature_section,
-)
-from .features import EngineeredDataset, FeatureSpace, FeatureSpec
-from .improver import (
-    DEFAULT_METRIC,
-    AutoImprover,
-    ImproveResult,
-    Trial,
+from .config import RunConfig
+from .evaluation.guardrails import EvaluationSpec, clearly_worse, metrics_menu
+from .evaluation.records import ImproveResult, Trial
+from .evaluation.report import Report, build_report, load_run, unverified_numbers
+from .evaluation.selection import (
     paired_gain,
     select_simplest,
     select_trial,
     signal_check,
 )
-from .knowledge import Document, Evidence, KnowledgeBase, parse_effect, pubmed_query
-from .llm import LLM, ClaudeLLM, GeminiLLM, OpenAILLM
-from .proposers import (
-    STRATEGIES,
+from .evaluation.training import (
+    chance_fold_scores,
+    check_models,
+    fit_predict,
+    fold_parts,
+    out_of_fold,
+    patient_folds,
+    predict,
+    run_config,
+    run_config_cv,
+    score,
+    score_predictions,
+    train_pipeline,
+)
+from .improver import DEFAULT_METRIC, AutoImprover
+from .search.analysis import AnalysisSpec, sample_columns
+from .search.features import EngineeredDataset, FeatureSpace, FeatureSpec
+from .search.literature import (
+    Document,
+    Evidence,
+    EvidenceProposer,
+    KnowledgeBase,
+    add_literature,
+    evidence_lines,
+    literature_section,
+    parse_effect,
+    pubmed_query,
+)
+from .search.prompts import CODE_CONTRACT, STRATEGIES, task_context
+from .search.proposers import (
     LLMProposer,
     Proposer,
     ProposerExhausted,
     QueueProposer,
     RandomProposer,
 )
-from .report import Report, build_report, load_run, unverified_numbers
-from .space import (
+from .search.space import (
+    CODE_MODEL,
     DEFAULT_MODELS,
     LADDER,
     TRAIN_PARAMS,
@@ -59,15 +66,33 @@ from .space import (
     config_diff,
     with_xgboost,
 )
+from .search.turns import PLAN_KINDS
+from .utils.data import describe_error
+from .utils.llm import LLM, ClaudeLLM, GeminiLLM, OpenAILLM
+from .utils.sandbox import SandboxError, run_sandboxed, static_check
 
 __all__ = [
+    "CODE_CONTRACT",
+    "CODE_MODEL",
     "DEFAULT_METRIC",
     "DEFAULT_MODELS",
     "LADDER",
     "LLM",
     "STRATEGIES",
     "TRAIN_PARAMS",
+    "AnalysisSpec",
     "AutoImprover",
+    "EvaluationSpec",
+    "SandboxError",
+    "clearly_worse",
+    "fit_predict",
+    "metrics_menu",
+    "out_of_fold",
+    "run_sandboxed",
+    "sample_columns",
+    "score_predictions",
+    "static_check",
+    "task_context",
     "ClaudeLLM",
     "Document",
     "EngineeredDataset",
@@ -84,7 +109,9 @@ __all__ = [
     "Param",
     "PipelineConfig",
     "Proposer",
+    "PLAN_KINDS",
     "ProposerExhausted",
+    "RunConfig",
     "QueueProposer",
     "RandomProposer",
     "Report",

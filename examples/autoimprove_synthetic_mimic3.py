@@ -5,7 +5,9 @@ configurations (model, arguments, training settings), scores each one on the
 validation patients, and finally compares the best one with the starting
 pipeline on the test patients.
 
-With ``--llm claude`` the proposals come from Claude (``pip install anthropic``
+Settings come from ``examples/configs/autoimprove/synthetic_mimic3.yaml``
+(rounds, agents, baseline...); edit it or pass ``--config``. With
+``--llm claude`` the proposals come from Claude (``pip install anthropic``
 and set ANTHROPIC_API_KEY). Prompts hold the search space, dataset sizes,
 aggregate label counts and validation scores, never patient records. Without
 it, random search is used, which needs no API key.
@@ -17,33 +19,26 @@ loop works, not how much it gains. Point it at your own data and task for that.
 
 Usage:
     python examples/autoimprove_synthetic_mimic3.py
-    python examples/autoimprove_synthetic_mimic3.py --llm claude --cycles 4
+    python examples/autoimprove_synthetic_mimic3.py --llm claude
+    python examples/autoimprove_synthetic_mimic3.py --config my_run.yaml
 """
 
 import argparse
+from pathlib import Path
 
-from pyhealth.autoimprove import (
-    AutoImprover,
-    ClaudeLLM,
-    GeminiLLM,
-    LLMProposer,
-    OpenAILLM,
-    PipelineConfig,
-    RandomProposer,
-)
+from pyhealth.autoimprove import AutoImprover, RunConfig
 from pyhealth.datasets import MIMIC3Dataset, PatientSplit
 from pyhealth.tasks import MortalityPredictionMIMIC3
 
 SYNTHETIC_ROOT = "https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III"
+CONFIG = Path(__file__).parent / "configs" / "autoimprove" / "synthetic_mimic3.yaml"
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--llm", choices=["none", "claude", "openai", "gemini"], default="none"
-    )
-    parser.add_argument("--agents", type=int, default=2)
-    parser.add_argument("--cycles", type=int, default=3)
+    parser.add_argument("--config", default=str(CONFIG), help="the run's YAML settings")
+    parser.add_argument("--llm", choices=["claude", "openai", "gemini"], default=None,
+                        help="propose with this LLM instead of the config's proposer")
     parser.add_argument("--run-dir", default=None,
                         help="save trials here; rerun with it to resume")
     parser.add_argument("--cache-dir", default=None)
@@ -59,18 +54,12 @@ def main():
         split=PatientSplit(ratios=(0.6, 0.2, 0.2), seed=0),
     )
 
-    llms = {"claude": ClaudeLLM, "openai": OpenAILLM, "gemini": GeminiLLM}
-    proposer = (
-        LLMProposer(llms[args.llm]()) if args.llm != "none" else RandomProposer(0)
-    )
-    improver = AutoImprover(
-        train, val, proposer,
-        baseline=PipelineConfig("RNN", {"hidden_dim": 128}, {"epochs": 5}),
-        metric="roc_auc",
-        n_agents=args.agents,
-        n_cycles=args.cycles,
-        run_dir=args.run_dir,
-    )
+    config = RunConfig.from_yaml(args.config)
+    if args.llm:
+        config = config.with_overrides(proposer={"type": "llm", "backend": args.llm})
+    if args.run_dir:
+        config = config.with_overrides(output={"run_dir": args.run_dir})
+    improver = AutoImprover(train, val, config)
     result = improver.run()
     print(result.summary())
     print("lessons:", result.lessons)

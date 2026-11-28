@@ -2,11 +2,22 @@ AutoImprove
 ===========
 
 :mod:`pyhealth.autoimprove` improves a pipeline for you. You give it training
-and validation splits and your current configuration. A few agents then take
-turns proposing changes: the model, its arguments and the training settings.
-Each proposal is trained on the training split and scored on the validation
-split. The agents see each other's results and work through four strategies
-in turn: explore, refine, crossover and contrast. The design follows
+and validation splits, your current configuration (the *baseline*) and a
+budget. It then repeats one loop:
+
+1. **Propose.** A few agents each propose an attempt: a model with its
+   arguments and training settings, new input features, or a model they write
+   themselves. Each agent follows a strategy (explore, refine, crossover,
+   contrastive), plus any instructions you give in plain text.
+2. **Run and score.** Every attempt is trained and scored on the same
+   patient-grouped folds of the training split (or on the validation split).
+   A round's attempts can run in parallel.
+3. **Review.** The proposer rewrites a short list of *lessons* from the
+   results, which the next round's prompts build on, and the current
+   selection is updated.
+
+The loop stops when the rounds, the trial or time budget, or the patience
+(rounds without progress) run out. The design follows
 `codegen-classroom <https://github.com/google-research/codegen-classroom>`_.
 
 Proposals come from an LLM (:class:`~pyhealth.autoimprove.LLMProposer`, with
@@ -15,26 +26,33 @@ Proposals come from an LLM (:class:`~pyhealth.autoimprove.LLMProposer`, with
 :class:`~pyhealth.autoimprove.GeminiLLM`, or any ``llm(system, prompt) -> str``
 callable), or from random search
 (:class:`~pyhealth.autoimprove.RandomProposer`), which needs no API key.
+Lessons can also carry over to later runs (``output.lessons_path``), so the
+search improves the guidance it runs on as well as the pipeline.
 
-After each cycle, the LLM proposer rewrites a short list of *lessons* from the
-results. Later prompts build on those lessons, and so do later runs that pass
-``lessons_path``. The search therefore improves the guidance it runs on, as
-well as the pipeline.
+A run's settings live in a YAML file (:class:`~pyhealth.autoimprove.RunConfig`;
+every key is checked, so a typo is an error):
+
+.. code-block:: yaml
+
+    # runs/mortality.yaml
+    search:
+      proposals_per_round: 3          # agents, so attempts per round
+      mode: batched                   # all propose, then all are scored
+      workers: 3                      # trials trained at once
+      instructions: Prefer models a clinician can read.
+    budget:   {rounds: 5, patience: 2}
+    baseline: {model: RNN, model_params: {hidden_dim: 128}, train_params: {epochs: 10}}
+    proposer: {type: llm, backend: claude}
+    evaluation: {cv_folds: 5}         # score by patient-grouped CV
+    output:   {run_dir: runs/mortality}
 
 .. code-block:: python
 
-    from pyhealth.autoimprove import (
-        AutoImprover, ClaudeLLM, LLMProposer, PipelineConfig,
-    )
+    from pyhealth.autoimprove import AutoImprover
     from pyhealth.datasets import PatientSplit
 
     train, val, test = dataset.set_task(task, split=PatientSplit((0.7, 0.1, 0.2)))
-    improver = AutoImprover(
-        train, val, LLMProposer(ClaudeLLM()),
-        baseline=PipelineConfig("RNN", {"hidden_dim": 128}, {"epochs": 10}),
-        n_agents=3, n_cycles=5, run_dir="runs/mortality",
-        cv_folds=5,                  # score by patient-grouped CV
-    )
+    improver = AutoImprover(train, val, "runs/mortality.yaml", task=task)
     result = improver.run()          # resumes if runs/mortality has trials
     print(result.summary())          # validation leaderboard
     improver.attribute()             # what each changed setting contributed
@@ -48,11 +66,11 @@ A search ranks many configs on the same data, so the top score is partly
 luck. On a small validation split this luck can dominate: the winner looks
 best on validation and does worse on test. Three settings guard against it.
 
-- ``cv_folds=5`` scores every trial by patient-grouped cross-validation over
+- ``evaluation.cv_folds: 5`` scores every trial by patient-grouped cross-validation over
   the training split (:func:`~pyhealth.autoimprove.patient_folds`). The
   validation split is then used only for early stopping. Each trial trains
   ``cv_folds`` models.
-- ``promote_se=1.0`` (the default with ``cv_folds``) decides which trials
+- ``evaluation.promote_se: 1.0`` (the default with ``cv_folds``) decides which trials
   are *candidates*. All trials share the same folds, so each is compared
   with the baseline fold by fold. A trial is a candidate if its gain has a
   lower bound above 0: the mean minus one standard error of the per-fold
@@ -116,7 +134,7 @@ features: meaning, clinical group and expected direction of effect. Then:
 
 .. code-block:: python
 
-    improver = AutoImprover(train, val, proposer, ..., task_card=task.task_card())
+    improver = AutoImprover(train, val, config, task=task)  # or task=task.task_card()
     result = improver.run()
     improver.attribute()       # what each changed setting contributed
     improver.explain()         # how the selected model decides
@@ -170,7 +188,7 @@ Reports and saved files hold aggregates only. Every bin and subgroup count
 below 11 patients is suppressed, and effect-bin cut points are midpoints, not
 patient values.
 
-Lessons saved to ``lessons_path`` are stored per search, keyed by the inputs,
+Lessons saved to ``output.lessons_path`` are stored per search, keyed by the inputs,
 the label and the models in the search space. A run reads only the lessons
 learned on the same kind of search, and the lessons may mention only models
 that the space allows.
@@ -261,15 +279,16 @@ Give the improver a FeatureSpace to search inputs as well as settings:
 
 .. code-block:: python
 
-    improver = AutoImprover(
-        train, val, LLMProposer(ClaudeLLM()), baseline=..., space=...,
-        features=fs, cv_folds=5, confirm=True, task_card=task.task_card(),
-    )
+    config = RunConfig.from_yaml("runs/features.yaml")  # evaluation.cv_folds and
+    improver = AutoImprover(train, val, config,       # confirm.enabled set there
+                            features=fs, task=task)
     result = improver.run()
 
-- **Alternating cycles** (``feature_cycles=(2, 1)``). Feature cycles hold
-  the model at the current selection, and each agent proposes a group of
-  specs with its rationale and expected direction. Model cycles hold the
+- **Alternating rounds** (``search.plan: [features, features, model]``, the
+  default with a FeatureSpace). Feature rounds hold the model at the
+  current selection, and each agent proposes a group of specs with its
+  rationale and expected direction; they run one agent after another, since
+  each accepted group is the next one's reference. Model rounds hold the
   accepted features and propose configs. With one side fixed, every accepted
   change has a measured gain of its own.
 - **Forward selection.** A group joins the accepted set only if its paired
@@ -285,7 +304,7 @@ Give the improver a FeatureSpace to search inputs as well as settings:
     clinician's approval to stay.
   - :class:`~pyhealth.autoimprove.QueueProposer` tries a given ranked list
     in order, with no LLM.
-- **Confirmation** (``confirm=True``). After the search, the leading
+- **Confirmation** (``confirm.enabled: true``). After the search, the leading
   candidates are scored again on new folds with several training seeds
   (:meth:`~pyhealth.autoimprove.AutoImprover.confirm`), and the selection must
   clear a stricter bound (``confirm_se=2``). Candidates picked as the best of
@@ -361,6 +380,112 @@ ranked, justified candidate features. It reads two kinds of source:
   use only the task card's text, and every query is kept in ``kb.queries``.
   Mapping sees only the names of event types, groups and columns.
 
+Code rounds, guardrails and analyses
+------------------------------------
+
+By default nothing a proposer returns is run: configs and feature specs are
+data. Three settings opt in to Python the LLM writes. ``code`` rounds are a
+kind of round in ``search.plan``, scored on the same leaderboard as model and
+feature rounds. Guardrails and analyses are tools around the rounds: they
+add no trials, but change what is selected and what later prompts know.
+
+.. code-block:: yaml
+
+    search:     {plan: [model, code]}
+    baseline:   {model: RNN, model_params: {hidden_dim: 128}}
+    proposer:   {type: llm, backend: claude}
+    evaluation: {cv_folds: 5}
+    analysis:   {enabled: true, every: 2}     # before rounds 1, 3, ...
+    guardrails: {enabled: true, every: 2}     # after rounds 2, 4, ...
+    output:     {run_dir: runs/agentic}
+
+.. code-block:: python
+
+    improver = AutoImprover(train, val, "runs/agentic.yaml",
+                            task=task)  # its source goes into code prompts
+
+``code`` rounds
+    The LLM writes ``build_and_train(train_dataset, val_dataset, *, metric,
+    seed, device, time_limit)``, returning a trained
+    :class:`~pyhealth.models.BaseModel`. Any architecture, feature transforms
+    (inside the model's ``forward``) and training loop are allowed. The
+    prompt holds the task's source code, the batch layout of every input and
+    the label, and the best code so far. The harness predicts held-out data
+    itself, so a code attempt is scored exactly like a listed model, on the
+    same folds and seed. After training it checks the outputs, that the
+    model doesn't give every sample the same prediction, and that
+    predictions don't change when the labels in the batch are shuffled (a
+    model that reads the answer fails). Code attempts sit on the top rung of the
+    interpretability ladder, so a listed model wins a tie.
+
+Guardrails (``guardrails.enabled``)
+    The LLM writes ``evaluate(y_true, y_prob, info)``, usually with
+    :mod:`pyhealth.metrics` (the prompt lists the functions for the label
+    type). Every trial keeps its out-of-fold predictions
+    (``run_dir/preds/``), so the evaluation scores all of them, old and new,
+    without retraining. It becomes an **active guardrail** automatically if
+    it runs, is deterministic, is defined on every fold, points the way it
+    says (perfect predictions beat a constant guess), varies between trials,
+    would not remove more than half of the candidates, and fewer than
+    ``max_guardrails`` are active. Otherwise it is kept for the report only,
+    or rejected. An active guardrail removes from the candidates every trial
+    clearly worse than the baseline on it, by the same fold-by-fold
+    comparison the main metric uses (``guardrail_se`` paired standard
+    errors). It never replaces the main metric, and the baseline always
+    passes. ``evaluate_on_test`` reports each active guardrail on test.
+    Guardrails need ``evaluation.cv_folds``.
+
+Analyses (``analysis.enabled``)
+    The LLM writes ``analyze(data, out)`` over the training split: sample
+    columns, the label, the fold and the selection's out-of-fold prediction.
+    Results leave only through ``out.table``, ``out.value`` and ``out.note``:
+    the harness groups and counts patients itself and withholds every group
+    under 11 patients, plus the next smallest when only one would be
+    withheld. The proposer turns the results into short findings, which every
+    later prompt includes.
+
+How generated code runs
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Generated code runs in the same Python environment as the improver, in a
+child process (:mod:`~pyhealth.autoimprove.utils.sandbox`):
+
+- a static check rejects imports outside an allowlist (torch, numpy, scipy,
+  sklearn, pandas, polars, pyhealth and the standard library's maths and
+  collections modules), file and shell access (``open``, ``os``,
+  ``torch.save``...), ``exec``-like builtins and dunder attributes;
+- the child has no network (a new user and network namespace, where Linux
+  allows it), no credentials in its environment, a wall-clock limit
+  (``code.timeout``, ``guardrails.timeout``), a 64 MB cap on files it writes and
+  optionally a memory cap;
+- its output goes to ``run_dir/logs/``, never to the LLM; only predictions,
+  numbers and suppressed tables come back, and errors reach the LLM without
+  their messages (which can quote raw values).
+
+Every piece of generated code is logged for inspection, also attempts
+rejected before they ran (a failed static check, a repeat, an unknown
+column): ``run_dir/generated/NNNN_<kind>.json`` holds the code, the round,
+agent, strategy and rationale, its status (``scored``, ``failed``,
+``rejected``, ``active``, ``ok``...), the reason and full error, and its
+scores or findings; ``generated/index.json`` lists them all, one line each.
+:meth:`~pyhealth.autoimprove.AutoImprover.generated_code` returns the same
+records in Python, with or without a ``run_dir``:
+
+.. code-block:: python
+
+    for r in improver.generated_code("code"):
+        print(r["number"], r["status"], r["score"], r["reason"])
+
+This keeps a buggy proposal from crashing or stalling the search and stops
+accidental file, network or credential use. It runs as your user, though,
+so it is not a security boundary against deliberately hostile code: with an
+LLM you don't trust, run the whole improver in a container or a job with no
+access to data you would not expose. Scripts that use these turns need an
+``if __name__ == "__main__":`` guard. :meth:`~AutoImprover.explain` is not
+available when the selected trial is generated code.
+
+See ``examples/autoimprove_agentic_synthetic_mimic3.py``.
+
 Safety and data
 ---------------
 
@@ -383,6 +508,55 @@ Safety and data
   ``return_predictions=True`` also returns the test predictions, for other
   metrics without training again.
 
+Package layout
+--------------
+
+Three files at the top hold a run together:
+
+``improver.py``
+    :class:`~pyhealth.autoimprove.AutoImprover`, the one entry point: the
+    loop in ``run()`` (start, then rounds of propose, score and review, then
+    finish) and the public methods, each a line into the module that does
+    the work.
+``config.py``
+    :class:`~pyhealth.autoimprove.RunConfig`: every setting, read from YAML.
+``state.py``
+    :class:`~pyhealth.autoimprove.state.RunState`: what a run holds (data,
+    folds, trials, lessons, guardrails, findings, its store) and the steps
+    that change it, such as scoring a round's proposals. The functions below
+    receive it as their first argument, so none of them needs the improver.
+
+The logic lives in three compartments below them:
+
+``search/``: what to try next
+    ``space`` (configs, the search space, rungs), ``proposers`` (who
+    proposes, and what they know), ``prompts`` (the text an LLM sees, how
+    replies are parsed, and the code-round contract), ``turns`` (a round:
+    each agent's proposal, batched or one after another, and the analysis and
+    guardrail tools around it), ``features``, ``analysis`` and ``literature``
+    (published evidence).
+
+``evaluation/``: how good an attempt is
+    ``training`` (train and predict a config or generated code, score it with
+    :mod:`pyhealth.metrics`, patient-grouped folds), ``selection`` (paired
+    comparison with the baseline, the one-SE rule, confirming and pruning),
+    ``guardrails``, ``holdout`` (the one test evaluation), ``explain``,
+    ``report`` and ``records`` (``Trial``, ``ImproveResult``).
+
+``utils/``: infrastructure both use
+    ``sandbox`` (running generated code, and trials in parallel), ``llm``
+    (Claude, OpenAI and Gemini clients), ``store``
+    (:class:`~pyhealth.autoimprove.utils.store.RunStore`, every file under
+    ``run_dir``) and ``data`` (dataset facts, errors as text).
+
+Dependencies point one way: ``utils`` imports neither compartment;
+``evaluation`` uses only the config and proposal types from ``search``;
+``search`` uses only records, the selection rule, guardrail specs and report
+sections from ``evaluation``; only ``improver`` imports ``state``, only the
+top level imports ``config``, and only the package ``__init__`` imports
+``improver``. ``tests/core/test_autoimprove_layout.py`` checks this and that
+there are no import cycles.
+
 API Reference
 -------------
 
@@ -392,17 +566,52 @@ API Reference
         ProposerExhausted, ClaudeLLM, OpenAILLM, GeminiLLM,
         with_xgboost, patient_folds, run_config_cv, select_trial, paired_gain,
         check_models, describe_error, select_simplest, config_diff, Report,
-        build_report, load_run, unverified_numbers, fold_parts
+        build_report, load_run, unverified_numbers, fold_parts, fit_predict,
+        score_predictions, out_of_fold, chance_fold_scores, signal_check
     :show-inheritance:
 
-.. automodule:: pyhealth.autoimprove.explain
+.. automodule:: pyhealth.autoimprove.state
+    :members: RunState
+
+.. automodule:: pyhealth.autoimprove.config
+    :members: RunConfig, SearchConfig, BudgetConfig, BaselineConfig, SpaceConfig,
+        ParamConfig, ProposerConfig, EvaluationConfig, ConfirmConfig, CodeConfig,
+        GuardrailConfig, AnalysisConfig, OutputConfig
+
+.. automodule:: pyhealth.autoimprove.evaluation.explain
     :members: attributions, summarize, top_overlap
 
-.. automodule:: pyhealth.autoimprove.features
+.. automodule:: pyhealth.autoimprove.search.features
     :members: FeatureSpace, FeatureSpec, EngineeredDataset, WINDOWS, BLOCKS, AGGS
 
-.. automodule:: pyhealth.autoimprove.knowledge
-    :members: KnowledgeBase, Evidence, Document, parse_effect, pubmed_query
+.. automodule:: pyhealth.autoimprove.search.literature
+    :members: KnowledgeBase, Evidence, Document, parse_effect, pubmed_query,
+        EvidenceProposer, evidence_lines, literature_section, add_literature
 
-.. automodule:: pyhealth.autoimprove.evidence
-    :members: EvidenceProposer, evidence_lines, literature_section, add_literature
+.. automodule:: pyhealth.autoimprove.utils.sandbox
+    :members: static_check, run_sandboxed, SandboxError, ContractError, warm_up
+
+.. automodule:: pyhealth.autoimprove.search.prompts
+    :members: task_context, CODE_CONTRACT, TEMPLATE
+
+.. automodule:: pyhealth.autoimprove.evaluation.training
+    :members: fit_predict_code, check_model, patient_folds, fold_parts,
+        run_config_cv, score_predictions, out_of_fold
+
+.. automodule:: pyhealth.autoimprove.evaluation.guardrails
+    :members: EvaluationSpec, run_evaluations, decide, clearly_worse, failing,
+        metrics_menu
+
+.. automodule:: pyhealth.autoimprove.search.analysis
+    :members: AnalysisSpec, Out, Data, sample_columns, run_analysis_job,
+        format_results
+
+.. automodule:: pyhealth.autoimprove.search.turns
+    :members: play_round, propose_config, model_turn, feature_turn, before_round,
+        after_round, evaluation_turn, analysis_turn, build_context
+
+.. automodule:: pyhealth.autoimprove.evaluation.selection
+    :members: paired_gain, select_trial, select_simplest
+
+.. automodule:: pyhealth.autoimprove.utils.store
+    :members: RunStore

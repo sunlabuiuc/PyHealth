@@ -1,0 +1,15 @@
+# Settings for examples/autoimprove_eicu_ihm48.py. The baseline and the search
+# space depend on --view, and the run directory on --run-dir and the proposer,
+# so the script sets them.
+search:
+  metric: pr_auc
+  report_metrics: [roc_auc]
+  proposals_per_round: 3
+  seed: 0
+  device: cpu
+budget:
+  rounds: 6
+  patience: 3
+  time_budget: 5400           # seconds
+evaluation:
+  cv_folds: 5
