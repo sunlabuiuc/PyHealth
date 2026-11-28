@@ -14,8 +14,8 @@ Thank you to the 56 people whose pull requests were merged since 2.1.0:
 
 Bounties completed in this period, listed with credit on
 [pyhealth.dev/bounties](https://pyhealth.dev/bounties.html) and in `bounty.yaml`:
-BTY-24, 25, 26, 32, 38, 39, 49 and 57 (@irvifa); BTY-46, 50, 65, 66, 68, 74 and 75
-(@Alhibb); BTY-64 (@irvifa and @samehaisaa); BTY-44 and part of BTY-28
+BTY-24, 25, 26, 32, 38, 39, 49, 57 and 63 (@irvifa); BTY-46, 50, 65, 66, 68, 74
+and 75 (@Alhibb); BTY-64 (@irvifa and @samehaisaa); BTY-44 and part of BTY-28
 (@thekavishshah); BTY-41 (@rayrayowo); BTY-36 (@Chinmaykatpatal); BTY-34
 (@etikhonov-dev).
 
