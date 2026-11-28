@@ -42,6 +42,9 @@ routes each feature type automatically.
    * - ``RNN_V2``
      - Features are ``jagged`` fields (nested codes, values and timestamps); static values are a ``single`` level, one record per sample
      - Encodes each field bottom-up over packed records, without padding the hierarchy
+   * - :doc:`models/pyhealth.models.SequenceTransformerNetwork`
+     - Clinical time series with differences in timing, pace, or baseline values
+     - Includes patient time warp and value shift or scale
    * - :doc:`models/pyhealth.models.StageNet`
      - You have time-stamped vital signs with irregular measurement intervals
      - Requires ``StageNetProcessor`` or ``StageNetTensorProcessor`` in the task schema
@@ -343,6 +346,7 @@ API Reference
     models/pyhealth.models.DiPro
     models/pyhealth.models.MedLink
     models/pyhealth.models.TCN
+    models/pyhealth.models.SequenceTransformerNetwork
     models/pyhealth.models.TFMTokenizer
     models/pyhealth.models.GAN
     models/pyhealth.models.VAE

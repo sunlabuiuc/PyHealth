@@ -1,0 +1,904 @@
+{
+  "status": "complete",
+  "created_utc": "2026-11-27T23:18:30.475555+00:00",
+  "example_sha256": "27607d4dd9a0f8349d980d232580cebb8d567c0c95cfd8eda7bd179cbf7c2700",
+  "task": "SequenceTransformerDynamicOnlyMortalityMIMIC3",
+  "outcome": "ICU mortality, not the paper's in-hospital mortality",
+  "input": "dynamic only; 25 hourly bins numbered 0 through 24",
+  "cohort_caveat": "YAIB retrospective whole-stay measurement-gap eligibility retained",
+  "split_ratios": [
+    0.6,
+    0.2,
+    0.2
+  ],
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "epochs": 10,
+  "batch_size": 15,
+  "optimizer": "Adam",
+  "learning_rate": 0.001,
+  "checkpoint": "minimum validation loss; restored from memory",
+  "paired_initial_classifier": true,
+  "aupr_definition": "sklearn average_precision_score",
+  "configs": {
+    "baseline CNN": {
+      "temporal": false,
+      "magnitude": false,
+      "dropout": 0.3
+    },
+    "temporal only": {
+      "temporal": true,
+      "magnitude": false,
+      "dropout": 0.2
+    },
+    "magnitude only": {
+      "temporal": false,
+      "magnitude": true,
+      "dropout": 0.2
+    },
+    "STN (both)": {
+      "temporal": true,
+      "magnitude": true,
+      "dropout": 0.2
+    },
+    "STN, dropout 0": {
+      "temporal": true,
+      "magnitude": true,
+      "dropout": 0.0
+    },
+    "STN, dropout 0.5": {
+      "temporal": true,
+      "magnitude": true,
+      "dropout": 0.5
+    }
+  },
+  "versions": {
+    "pyhealth": "2.1.0",
+    "torch": "2.15.0",
+    "numpy": "2.5.5",
+    "scikit-learn": "1.9.1"
+  },
+  "splits": [
+    {
+      "seed": 0,
+      "train": {
+        "stays": 53,
+        "patients": 42,
+        "positive_labels": 12,
+        "negative_labels": 41
+      },
+      "val": {
+        "stays": 29,
+        "patients": 14,
+        "positive_labels": 4,
+        "negative_labels": 25
+      },
+      "test": {
+        "stays": 17,
+        "patients": 14,
+        "positive_labels": 5,
+        "negative_labels": 12
+      }
+    },
+    {
+      "seed": 1,
+      "train": {
+        "stays": 63,
+        "patients": 42,
+        "positive_labels": 11,
+        "negative_labels": 52
+      },
+      "val": {
+        "stays": 16,
+        "patients": 14,
+        "positive_labels": 6,
+        "negative_labels": 10
+      },
+      "test": {
+        "stays": 20,
+        "patients": 14,
+        "positive_labels": 4,
+        "negative_labels": 16
+      }
+    },
+    {
+      "seed": 2,
+      "train": {
+        "stays": 66,
+        "patients": 42,
+        "positive_labels": 11,
+        "negative_labels": 55
+      },
+      "val": {
+        "stays": 15,
+        "patients": 14,
+        "positive_labels": 6,
+        "negative_labels": 9
+      },
+      "test": {
+        "stays": 18,
+        "patients": 14,
+        "positive_labels": 4,
+        "negative_labels": 14
+      }
+    },
+    {
+      "seed": 3,
+      "train": {
+        "stays": 63,
+        "patients": 42,
+        "positive_labels": 11,
+        "negative_labels": 52
+      },
+      "val": {
+        "stays": 17,
+        "patients": 14,
+        "positive_labels": 5,
+        "negative_labels": 12
+      },
+      "test": {
+        "stays": 19,
+        "patients": 14,
+        "positive_labels": 5,
+        "negative_labels": 14
+      }
+    },
+    {
+      "seed": 4,
+      "train": {
+        "stays": 65,
+        "patients": 42,
+        "positive_labels": 10,
+        "negative_labels": 55
+      },
+      "val": {
+        "stays": 17,
+        "patients": 14,
+        "positive_labels": 4,
+        "negative_labels": 13
+      },
+      "test": {
+        "stays": 17,
+        "patients": 14,
+        "positive_labels": 7,
+        "negative_labels": 10
+      }
+    },
+    {
+      "seed": 5,
+      "train": {
+        "stays": 55,
+        "patients": 42,
+        "positive_labels": 13,
+        "negative_labels": 42
+      },
+      "val": {
+        "stays": 26,
+        "patients": 14,
+        "positive_labels": 4,
+        "negative_labels": 22
+      },
+      "test": {
+        "stays": 18,
+        "patients": 14,
+        "positive_labels": 4,
+        "negative_labels": 14
+      }
+    },
+    {
+      "seed": 6,
+      "train": {
+        "stays": 51,
+        "patients": 42,
+        "positive_labels": 13,
+        "negative_labels": 38
+      },
+      "val": {
+        "stays": 28,
+        "patients": 14,
+        "positive_labels": 2,
+        "negative_labels": 26
+      },
+      "test": {
+        "stays": 20,
+        "patients": 14,
+        "positive_labels": 6,
+        "negative_labels": 14
+      }
+    },
+    {
+      "seed": 7,
+      "train": {
+        "stays": 50,
+        "patients": 42,
+        "positive_labels": 13,
+        "negative_labels": 37
+      },
+      "val": {
+        "stays": 20,
+        "patients": 14,
+        "positive_labels": 3,
+        "negative_labels": 17
+      },
+      "test": {
+        "stays": 29,
+        "patients": 14,
+        "positive_labels": 5,
+        "negative_labels": 24
+      }
+    },
+    {
+      "seed": 8,
+      "train": {
+        "stays": 62,
+        "patients": 42,
+        "positive_labels": 12,
+        "negative_labels": 50
+      },
+      "val": {
+        "stays": 18,
+        "patients": 14,
+        "positive_labels": 5,
+        "negative_labels": 13
+      },
+      "test": {
+        "stays": 19,
+        "patients": 14,
+        "positive_labels": 4,
+        "negative_labels": 15
+      }
+    },
+    {
+      "seed": 9,
+      "train": {
+        "stays": 54,
+        "patients": 42,
+        "positive_labels": 15,
+        "negative_labels": 39
+      },
+      "val": {
+        "stays": 27,
+        "patients": 14,
+        "positive_labels": 2,
+        "negative_labels": 25
+      },
+      "test": {
+        "stays": 18,
+        "patients": 14,
+        "positive_labels": 4,
+        "negative_labels": 14
+      }
+    }
+  ],
+  "runs": [
+    {
+      "seed": 0,
+      "configuration": "baseline CNN",
+      "auroc": 0.55,
+      "aupr_ap": 0.492967032967033,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 0,
+      "configuration": "temporal only",
+      "auroc": 0.6166666666666667,
+      "aupr_ap": 0.5477272727272727,
+      "theta_minus_I": 0.005756098311394453,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 0,
+      "configuration": "magnitude only",
+      "auroc": 0.5666666666666667,
+      "aupr_ap": 0.5323717948717949,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0713549330830574
+    },
+    {
+      "seed": 0,
+      "configuration": "STN (both)",
+      "auroc": 0.6166666666666667,
+      "aupr_ap": 0.5216666666666667,
+      "theta_minus_I": 0.012657277286052704,
+      "phi_minus_I": 0.13391584157943726
+    },
+    {
+      "seed": 0,
+      "configuration": "STN, dropout 0",
+      "auroc": 0.5666666666666667,
+      "aupr_ap": 0.5018939393939394,
+      "theta_minus_I": 0.00935671478509903,
+      "phi_minus_I": 0.10033384710550308
+    },
+    {
+      "seed": 0,
+      "configuration": "STN, dropout 0.5",
+      "auroc": 0.6166666666666667,
+      "aupr_ap": 0.532967032967033,
+      "theta_minus_I": 0.008766954764723778,
+      "phi_minus_I": 0.07275601476430893
+    },
+    {
+      "seed": 1,
+      "configuration": "baseline CNN",
+      "auroc": 0.671875,
+      "aupr_ap": 0.5025735294117647,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 1,
+      "configuration": "temporal only",
+      "auroc": 0.59375,
+      "aupr_ap": 0.4513888888888889,
+      "theta_minus_I": 0.002166544087231159,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 1,
+      "configuration": "magnitude only",
+      "auroc": 0.578125,
+      "aupr_ap": 0.43472222222222223,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.13927927613258362
+    },
+    {
+      "seed": 1,
+      "configuration": "STN (both)",
+      "auroc": 0.609375,
+      "aupr_ap": 0.45465686274509803,
+      "theta_minus_I": 0.0008614202961325645,
+      "phi_minus_I": 0.039710115641355515
+    },
+    {
+      "seed": 1,
+      "configuration": "STN, dropout 0",
+      "auroc": 0.578125,
+      "aupr_ap": 0.43937908496732025,
+      "theta_minus_I": 0.0016627585282549262,
+      "phi_minus_I": 0.05610685423016548
+    },
+    {
+      "seed": 1,
+      "configuration": "STN, dropout 0.5",
+      "auroc": 0.578125,
+      "aupr_ap": 0.4416208791208791,
+      "theta_minus_I": 0.004254271741956472,
+      "phi_minus_I": 0.08943448215723038
+    },
+    {
+      "seed": 2,
+      "configuration": "baseline CNN",
+      "auroc": 0.46428571428571425,
+      "aupr_ap": 0.45243055555555556,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 2,
+      "configuration": "temporal only",
+      "auroc": 0.5357142857142857,
+      "aupr_ap": 0.5257936507936508,
+      "theta_minus_I": 0.0005358775379136205,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 2,
+      "configuration": "magnitude only",
+      "auroc": 0.5357142857142857,
+      "aupr_ap": 0.5257936507936508,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.016550682485103607
+    },
+    {
+      "seed": 2,
+      "configuration": "STN (both)",
+      "auroc": 0.5357142857142857,
+      "aupr_ap": 0.5257936507936508,
+      "theta_minus_I": 0.001701816450804472,
+      "phi_minus_I": 0.01436061691492796
+    },
+    {
+      "seed": 2,
+      "configuration": "STN, dropout 0",
+      "auroc": 0.48214285714285715,
+      "aupr_ap": 0.4774305555555556,
+      "theta_minus_I": 0.001781764905899763,
+      "phi_minus_I": 0.016219906508922577
+    },
+    {
+      "seed": 2,
+      "configuration": "STN, dropout 0.5",
+      "auroc": 0.5535714285714286,
+      "aupr_ap": 0.4097222222222222,
+      "theta_minus_I": 0.006403634790331125,
+      "phi_minus_I": 0.03198233246803284
+    },
+    {
+      "seed": 3,
+      "configuration": "baseline CNN",
+      "auroc": 0.4285714285714286,
+      "aupr_ap": 0.3209025236889014,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 3,
+      "configuration": "temporal only",
+      "auroc": 0.3571428571428572,
+      "aupr_ap": 0.2609025236889014,
+      "theta_minus_I": 0.00637282058596611,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 3,
+      "configuration": "magnitude only",
+      "auroc": 0.42857142857142855,
+      "aupr_ap": 0.28302373581011353,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.032242096960544586
+    },
+    {
+      "seed": 3,
+      "configuration": "STN (both)",
+      "auroc": 0.41428571428571426,
+      "aupr_ap": 0.2681077694235589,
+      "theta_minus_I": 0.01338238175958395,
+      "phi_minus_I": 0.030565151944756508
+    },
+    {
+      "seed": 3,
+      "configuration": "STN, dropout 0",
+      "auroc": 0.47142857142857136,
+      "aupr_ap": 0.3413570691434469,
+      "theta_minus_I": 0.041788630187511444,
+      "phi_minus_I": 0.05590350553393364
+    },
+    {
+      "seed": 3,
+      "configuration": "STN, dropout 0.5",
+      "auroc": 0.4571428571428571,
+      "aupr_ap": 0.3318332596196373,
+      "theta_minus_I": 0.010030939243733883,
+      "phi_minus_I": 0.05737987905740738
+    },
+    {
+      "seed": 4,
+      "configuration": "baseline CNN",
+      "auroc": 0.3,
+      "aupr_ap": 0.35379998153107395,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 4,
+      "configuration": "temporal only",
+      "auroc": 0.3,
+      "aupr_ap": 0.3740380767691692,
+      "theta_minus_I": 0.029671652242541313,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 4,
+      "configuration": "magnitude only",
+      "auroc": 0.27142857142857146,
+      "aupr_ap": 0.36213331486440725,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.1615608185529709
+    },
+    {
+      "seed": 4,
+      "configuration": "STN (both)",
+      "auroc": 0.2285714285714286,
+      "aupr_ap": 0.35000179559003086,
+      "theta_minus_I": 0.036055270582437515,
+      "phi_minus_I": 0.14864884316921234
+    },
+    {
+      "seed": 4,
+      "configuration": "STN, dropout 0",
+      "auroc": 0.22857142857142856,
+      "aupr_ap": 0.3270208083233293,
+      "theta_minus_I": 0.01268130075186491,
+      "phi_minus_I": 0.06339003145694733
+    },
+    {
+      "seed": 4,
+      "configuration": "STN, dropout 0.5",
+      "auroc": 0.2857142857142857,
+      "aupr_ap": 0.36604487949025766,
+      "theta_minus_I": 0.027514994144439697,
+      "phi_minus_I": 0.14851674437522888
+    },
+    {
+      "seed": 5,
+      "configuration": "baseline CNN",
+      "auroc": 0.625,
+      "aupr_ap": 0.3701048951048951,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 5,
+      "configuration": "temporal only",
+      "auroc": 0.5892857142857143,
+      "aupr_ap": 0.34318181818181814,
+      "theta_minus_I": 0.001620376599021256,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 5,
+      "configuration": "magnitude only",
+      "auroc": 0.5357142857142858,
+      "aupr_ap": 0.2931818181818182,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.048541195690631866
+    },
+    {
+      "seed": 5,
+      "configuration": "STN (both)",
+      "auroc": 0.5892857142857143,
+      "aupr_ap": 0.34318181818181814,
+      "theta_minus_I": 0.0009006561012938619,
+      "phi_minus_I": 0.0405142568051815
+    },
+    {
+      "seed": 5,
+      "configuration": "STN, dropout 0",
+      "auroc": 0.5535714285714286,
+      "aupr_ap": 0.34935897435897434,
+      "theta_minus_I": 0.0020073438063263893,
+      "phi_minus_I": 0.03308344632387161
+    },
+    {
+      "seed": 5,
+      "configuration": "STN, dropout 0.5",
+      "auroc": 0.5178571428571428,
+      "aupr_ap": 0.291025641025641,
+      "theta_minus_I": 0.006337368860840797,
+      "phi_minus_I": 0.0663185864686966
+    },
+    {
+      "seed": 6,
+      "configuration": "baseline CNN",
+      "auroc": 0.44047619047619047,
+      "aupr_ap": 0.3572115384615384,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 6,
+      "configuration": "temporal only",
+      "auroc": 0.5119047619047619,
+      "aupr_ap": 0.3525717338217338,
+      "theta_minus_I": 0.005507609806954861,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 6,
+      "configuration": "magnitude only",
+      "auroc": 0.36904761904761907,
+      "aupr_ap": 0.26618867243867245,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.14697399735450745
+    },
+    {
+      "seed": 6,
+      "configuration": "STN (both)",
+      "auroc": 0.5238095238095237,
+      "aupr_ap": 0.3692384004884005,
+      "theta_minus_I": 0.007957303896546364,
+      "phi_minus_I": 0.11461816728115082
+    },
+    {
+      "seed": 6,
+      "configuration": "STN, dropout 0",
+      "auroc": 0.44047619047619047,
+      "aupr_ap": 0.335906862745098,
+      "theta_minus_I": 0.014870901592075825,
+      "phi_minus_I": 0.14178767800331116
+    },
+    {
+      "seed": 6,
+      "configuration": "STN, dropout 0.5",
+      "auroc": 0.6666666666666666,
+      "aupr_ap": 0.526984126984127,
+      "theta_minus_I": 0.009559649042785168,
+      "phi_minus_I": 0.052060067653656006
+    },
+    {
+      "seed": 7,
+      "configuration": "baseline CNN",
+      "auroc": 0.5416666666666666,
+      "aupr_ap": 0.45313077726870826,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 7,
+      "configuration": "temporal only",
+      "auroc": 0.55,
+      "aupr_ap": 0.4170002411381722,
+      "theta_minus_I": 0.0023712310940027237,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 7,
+      "configuration": "magnitude only",
+      "auroc": 0.25,
+      "aupr_ap": 0.15818876276147642,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.24759513139724731
+    },
+    {
+      "seed": 7,
+      "configuration": "STN (both)",
+      "auroc": 0.25833333333333336,
+      "aupr_ap": 0.15937453351246456,
+      "theta_minus_I": 0.017559971660375595,
+      "phi_minus_I": 0.211791530251503
+    },
+    {
+      "seed": 7,
+      "configuration": "STN, dropout 0",
+      "auroc": 0.23333333333333336,
+      "aupr_ap": 0.1561018062397373,
+      "theta_minus_I": 0.008282585069537163,
+      "phi_minus_I": 0.18733735382556915
+    },
+    {
+      "seed": 7,
+      "configuration": "STN, dropout 0.5",
+      "auroc": 0.3,
+      "aupr_ap": 0.18051450465243568,
+      "theta_minus_I": 0.015638938173651695,
+      "phi_minus_I": 0.11098405718803406
+    },
+    {
+      "seed": 8,
+      "configuration": "baseline CNN",
+      "auroc": 0.5,
+      "aupr_ap": 0.43903186274509803,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 8,
+      "configuration": "temporal only",
+      "auroc": 0.4666666666666666,
+      "aupr_ap": 0.41437908496732023,
+      "theta_minus_I": 0.0024291269946843386,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 8,
+      "configuration": "magnitude only",
+      "auroc": 0.5833333333333334,
+      "aupr_ap": 0.4552521008403361,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.1364520639181137
+    },
+    {
+      "seed": 8,
+      "configuration": "STN (both)",
+      "auroc": 0.5333333333333333,
+      "aupr_ap": 0.4361111111111111,
+      "theta_minus_I": 0.012081322260200977,
+      "phi_minus_I": 0.04825124144554138
+    },
+    {
+      "seed": 8,
+      "configuration": "STN, dropout 0",
+      "auroc": 0.5833333333333333,
+      "aupr_ap": 0.4583333333333333,
+      "theta_minus_I": 0.0021501965820789337,
+      "phi_minus_I": 0.05132673308253288
+    },
+    {
+      "seed": 8,
+      "configuration": "STN, dropout 0.5",
+      "auroc": 0.55,
+      "aupr_ap": 0.44984917043740574,
+      "theta_minus_I": 0.009164317511022091,
+      "phi_minus_I": 0.08659052103757858
+    },
+    {
+      "seed": 9,
+      "configuration": "baseline CNN",
+      "auroc": 0.41071428571428575,
+      "aupr_ap": 0.2513888888888889,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 9,
+      "configuration": "temporal only",
+      "auroc": 0.4285714285714286,
+      "aupr_ap": 0.26805555555555555,
+      "theta_minus_I": 0.006288914941251278,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 9,
+      "configuration": "magnitude only",
+      "auroc": 0.41071428571428575,
+      "aupr_ap": 0.2513888888888889,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.07359949499368668
+    },
+    {
+      "seed": 9,
+      "configuration": "STN (both)",
+      "auroc": 0.41071428571428575,
+      "aupr_ap": 0.2513888888888889,
+      "theta_minus_I": 0.010013948194682598,
+      "phi_minus_I": 0.04181685671210289
+    },
+    {
+      "seed": 9,
+      "configuration": "STN, dropout 0",
+      "auroc": 0.4821428571428571,
+      "aupr_ap": 0.314484126984127,
+      "theta_minus_I": 0.005451308563351631,
+      "phi_minus_I": 0.05689121037721634
+    },
+    {
+      "seed": 9,
+      "configuration": "STN, dropout 0.5",
+      "auroc": 0.4464285714285714,
+      "aupr_ap": 0.27162698412698416,
+      "theta_minus_I": 0.022644467651844025,
+      "phi_minus_I": 0.07496576756238937
+    }
+  ],
+  "summary": {
+    "baseline CNN": {
+      "auroc": {
+        "n": 10,
+        "mean": 0.4932589285714285,
+        "sd": 0.10895477144832223
+      },
+      "aupr_ap": {
+        "n": 10,
+        "mean": 0.3993541585623457,
+        "sd": 0.08127869787203215
+      },
+      "theta_minus_I": {
+        "n": 10,
+        "mean": 0.0,
+        "sd": 0.0
+      },
+      "phi_minus_I": {
+        "n": 10,
+        "mean": 0.0,
+        "sd": 0.0
+      }
+    },
+    "temporal only": {
+      "auroc": {
+        "n": 10,
+        "mean": 0.4949702380952381,
+        "sd": 0.10575531302191543
+      },
+      "aupr_ap": {
+        "n": 10,
+        "mean": 0.39550388465324826,
+        "sd": 0.0963160511322096
+      },
+      "theta_minus_I": {
+        "n": 10,
+        "mean": 0.006272025220096111,
+        "sd": 0.008496952154874794
+      },
+      "phi_minus_I": {
+        "n": 10,
+        "mean": 0.0,
+        "sd": 0.0
+      }
+    },
+    "magnitude only": {
+      "auroc": {
+        "n": 10,
+        "mean": 0.4529315476190476,
+        "sd": 0.12598784617519893
+      },
+      "aupr_ap": {
+        "n": 10,
+        "mean": 0.3562244961673381,
+        "sd": 0.12624169017361253
+      },
+      "theta_minus_I": {
+        "n": 10,
+        "mean": 0.0,
+        "sd": 0.0
+      },
+      "phi_minus_I": {
+        "n": 10,
+        "mean": 0.10741496905684471,
+        "sd": 0.07135425513981061
+      }
+    },
+    "STN (both)": {
+      "auroc": {
+        "n": 10,
+        "mean": 0.4720089285714285,
+        "sd": 0.1398648471323536
+      },
+      "aupr_ap": {
+        "n": 10,
+        "mean": 0.3679521497401689,
+        "sd": 0.11958418627994621
+      },
+      "theta_minus_I": {
+        "n": 10,
+        "mean": 0.01131713684881106,
+        "sd": 0.010439559822927295
+      },
+      "phi_minus_I": {
+        "n": 10,
+        "mean": 0.08241926217451692,
+        "sd": 0.06542947510389889
+      }
+    },
+    "STN, dropout 0": {
+      "auroc": {
+        "n": 10,
+        "mean": 0.4619791666666666,
+        "sd": 0.1315244847636986
+      },
+      "aupr_ap": {
+        "n": 10,
+        "mean": 0.37012665610448614,
+        "sd": 0.10254748607897905
+      },
+      "theta_minus_I": {
+        "n": 10,
+        "mean": 0.010003350477200001,
+        "sd": 0.012147413198932124
+      },
+      "phi_minus_I": {
+        "n": 10,
+        "mean": 0.07623805664479733,
+        "sd": 0.052348849167874266
+      }
+    },
+    "STN, dropout 0.5": {
+      "auroc": {
+        "n": 10,
+        "mean": 0.4972172619047619,
+        "sd": 0.126371913067486
+      },
+      "aupr_ap": {
+        "n": 10,
+        "mean": 0.3802188700646623,
+        "sd": 0.1137895756858573
+      },
+      "theta_minus_I": {
+        "n": 10,
+        "mean": 0.012031553592532874,
+        "sd": 0.007593556044336399
+      },
+      "phi_minus_I": {
+        "n": 10,
+        "mean": 0.07909884527325631,
+        "sd": 0.03273103464951545
+      }
+    }
+  },
+  "comment_only_revision": {
+    "example_sha256": "18bfb5ad167d6d3c9acad157fc528697ff9000e93dd8d40aa453857bea0241cd",
+    "executable_ast_unchanged": true,
+    "note": "Comments and docstrings shortened after the run; model and experiment code unchanged."
+  }
+}
