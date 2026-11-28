@@ -217,6 +217,11 @@ class TestSleepStagingDREAMT(unittest.TestCase):
 
     def test_actual_bvp_to_ibi_extraction(self):
         """Test IBI extraction on a synthetic periodic BVP signal."""
+        try:
+            import neurokit2  # noqa: F401
+        except ImportError:
+            self.skipTest("NeuroKit2 is an optional DREAMT dependency.")
+
         task = SleepStagingDREAMT()
         time = np.arange(1920) / 64
         bvp = np.sin(2 * np.pi * time)

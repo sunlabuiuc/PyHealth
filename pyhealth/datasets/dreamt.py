@@ -1,7 +1,6 @@
 import logging
 import os
 from pathlib import Path
-from typing import Optional, Union
 
 import pandas as pd
 from pyhealth.datasets import BaseDataset
@@ -90,9 +89,9 @@ class DREAMTDataset(BaseDataset):
     def __init__(
         self,
         root: str,
-        dataset_name: Optional[str] = None,
-        config_path: Optional[str] = None,
-        cache_dir: Optional[str] = None,
+        dataset_name: str | None = None,
+        config_path: str | None = None,
+        cache_dir: str | None = None,
     ) -> None:
         if config_path is None:
             logger.info("No config provided, using default config")
@@ -116,7 +115,7 @@ class DREAMTDataset(BaseDataset):
 
     def get_patient_file(
         self, patient_id: str, root: str, file_path: str
-    ) -> Union[str | None]:
+    ) -> Path | None:
         """
         Returns file path of 64Hz and 100Hz data for a patient, or None if no file found
 

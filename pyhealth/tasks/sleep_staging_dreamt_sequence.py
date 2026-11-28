@@ -3,7 +3,7 @@
 import logging
 import warnings
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
@@ -47,8 +47,8 @@ class SleepStagingDREAMTSequence(BaseTask):
     """
 
     task_name = "SleepStagingDREAMTSequence"
-    input_schema = {"signal": "tensor"}
-    output_schema = {
+    input_schema: ClassVar[dict[str, str]] = {"signal": "tensor"}
+    output_schema: ClassVar[dict[str, Any]] = {
         "label": (
             "timeseries_multiclass",
             {"labels": 3, "timeline": ["signal"]},
@@ -197,7 +197,7 @@ class SleepStagingDREAMTSequence(BaseTask):
 
         except ImportError:
             raise
-        except Exception:
+        except Exception:  # noqa: BLE001
             return epochwise_ibi
 
         if not (
@@ -240,7 +240,7 @@ class SleepStagingDREAMTSequence(BaseTask):
 
                     data = pd.read_csv(
                         file_path,
-                        usecols=lambda name: name in requested,
+                        usecols=lambda name, requested=requested: name in requested,
                     )
 
                     if not set(columns).issubset(data.columns):
@@ -314,7 +314,7 @@ class SleepStagingDREAMTSequence(BaseTask):
                         ibi = self._extract_ibi(epoch_bvp)
                     except ImportError:
                         raise
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001
                         logger.warning(
                             "IBI extraction failed for patient %s, "
                             "recording sample %s: %s",

@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
@@ -52,8 +52,8 @@ class SleepStagingDREAMT(BaseTask):
     """
 
     task_name = "SleepStagingDREAMT"
-    input_schema: Dict[str, str] = {"signal": "tensor"}
-    output_schema: Dict[str, str] = {"label": "multiclass"}
+    input_schema: ClassVar[dict[str, str]] = {"signal": "tensor"}
+    output_schema: ClassVar[dict[str, str]] = {"label": "multiclass"}
 
     def __init__(
         self,
@@ -119,7 +119,8 @@ class SleepStagingDREAMT(BaseTask):
         if not isinstance(stage_column, str) or not stage_column.strip():
             raise ValueError("stage_column must be a non-empty string.")
         if not isinstance(sequence_first, bool):
-            raise ValueError("sequence_first must be a boolean.")
+            # Preserve the existing validation exception contract.
+            raise ValueError("sequence_first must be a boolean.")  # noqa: TRY004
 
         self.sampling_rate = sampling_rate
         self.chunk_duration = chunk_duration
@@ -298,7 +299,7 @@ class SleepStagingDREAMT(BaseTask):
                         continue
                     try:
                         signal = self._extract_ibi(epoch_signal)
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001
                         logger.warning(
                             "Failed to extract IBI for patient %s, epoch %s: %s",
                             patient.patient_id,
