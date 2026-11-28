@@ -257,6 +257,13 @@ class TestHiCu(unittest.TestCase):
         out = self.model(embed=True, **self.batch)
         self.assertEqual(out["embed"].shape, (4, self.model.encoder.output_dim))
 
+    def test_baseline_bce_loss(self) -> None:
+        """The baseline with loss='bce' scores the codes with binary cross-entropy."""
+        model = HiCu(self.dataset, use_curriculum=False, loss="bce", **SMALL)
+        out = model(**self.batch)
+        bce = F.binary_cross_entropy_with_logits(out["logit"], out["y_true"])
+        self.assertTrue(torch.allclose(out["loss"], bce))
+
 
 if __name__ == "__main__":
     unittest.main()
