@@ -73,6 +73,12 @@ from .physionet2012_forecasting import (
     physionet2012_benchmark_split as physionet2012_benchmark_split,
     physionet2012_statistics as physionet2012_statistics,
 )
+from .signal_forecasting import (
+    PTBXL_LEADS as PTBXL_LEADS,
+    SLEEPEDF_CHANNELS as SLEEPEDF_CHANNELS,
+    PTBXLForecasting as PTBXLForecasting,
+    SleepEDFForecasting as SleepEDFForecasting,
+)
 from .physionet2012_inhospital_mortality import (
     PhysioNet2012InHospitalMortality as PhysioNet2012InHospitalMortality,
     build_mortality_sample as build_mortality_sample,
