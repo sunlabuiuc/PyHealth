@@ -1,5 +1,5 @@
 pyhealth.models.WatchSleepNet
-===================================
+=============================
 
 Implementation of WatchSleepNet sleep staging model from Wang et al., "WatchSleepNet: A Novel Model and Pretraining Approach for
 Advancing Sleep Staging with Smartwatches" CHIL 2025 (PMLR 287). 
@@ -9,7 +9,7 @@ Advancing Sleep Staging with Smartwatches" CHIL 2025 (PMLR 287).
     :undoc-members:
     :show-inheritance:
 
-.. autoclass:: pyhealth.models.CasualTemporalBlock
+.. autoclass:: pyhealth.models.CausalTemporalBlock
     :members:
     :undoc-members:
     :show-inheritance:

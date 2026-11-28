@@ -58,13 +58,12 @@ preprocessing          mask_channel 0.659 +/- 0.018 0.455 +/- 0.013 0.361 +/- 0.
       hparams  dropout=0.4,lr=0.001 0.644 +/- 0.086 0.398 +/- 0.120 0.289 +/- 0.205
       hparams dropout=0.4,lr=0.0003 0.709 +/- 0.012 0.489 +/- 0.006 0.448 +/- 0.019
 
-    The baseline model parameters from the paper outperformed most alternate 
-    configurations in terms of accuracy and Cohen's Kappa. The main changes  
-    that led to better performance than the baseline were preprocessing 
-    parameter adjustments. For example, normalizing IBI values per night lead 
-    to a higher accuracy score of 0.729, compared to the baseline accuracy 
-    0.708. Additionally, increasing the number of epochs passed into the model 
-    at a time also increased the accuracy score to 0.710. 
+    The baseline model parameters from the paper (ran using --full-size, rest default)
+    outperformed most alternate configurations in terms of accuracy and Cohen's Kappa.
+    The main changes that led to better performance than the baseline were
+    preprocessing parameter adjustments. For example, normalizing IBI values per
+    night lead to a higher accuracy score of 0.729, compared to the baseline accuracy
+    0.708.
 """
 
 import argparse

@@ -1,5 +1,5 @@
 pyhealth.tasks.SleepStagingDREAMT
-==============================
+=================================
 
 Sleep staging preprocessing on DREAMT dataset, as described in Wang et al. 
 
