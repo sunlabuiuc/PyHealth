@@ -661,6 +661,7 @@ Available Datasets
     datasets/pyhealth.datasets.CardiologyDataset
     datasets/pyhealth.datasets.ChapmanShaoxingDataset
     datasets/pyhealth.datasets.eICUDataset
+    datasets/pyhealth.datasets.SEERDataset
     datasets/pyhealth.datasets.ISRUCDataset
     datasets/pyhealth.datasets.HMCDataset
     datasets/pyhealth.datasets.HUPiEEGDataset
