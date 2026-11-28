@@ -342,6 +342,7 @@ from .yaib_eicu import (
     YAIBMortalityEICU as YAIBMortalityEICU,
     YAIBSepsisEICU as YAIBSepsisEICU,
 )
+from .ptbxl_71_scp import PTBXLAllDiagnosticClassification as PTBXLAllDiagnosticClassification
 from .tcga_survival_prediction import TCGASurvivalPrediction as TCGASurvivalPrediction
 from .query_focused_ehr import QueryFocusedEHRTask as QueryFocusedEHRTask
 

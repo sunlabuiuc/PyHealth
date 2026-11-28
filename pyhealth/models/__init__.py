@@ -155,6 +155,7 @@ from .mira import (
     MIRAConfig as MIRAConfig,
     load_mira_checkpoint as load_mira_checkpoint,
 )
+from .taskaug import TaskAug as TaskAug
 from .udc import (
     UDC as UDC,
     DiscreteClueEncoder as DiscreteClueEncoder,
