@@ -22,9 +22,15 @@ Coverage includes cohort eligibility, hourly LOS labels, truncation,
 missingness, decay, temporal leakage prevention, and stay isolation.
 """
 
+import math
+
 import numpy as np
 import pytest
 
+from examples.eicu_hourly_los_lstm import (
+    compute_constant_baselines,
+    compute_los_metrics,
+)
 from pyhealth.tasks import TPCLengthOfStayEICU
 from tests.core.tpc_fixtures import _lab, _labels, _patient
 
@@ -443,3 +449,62 @@ def test_output_timeline_with_optional_decay():
         "decay",
     ]
     assert without_decay.output_schema["los"][1]["timeline"] == ["dynamic"]
+
+
+def test_compute_los_metrics_conventions():
+    """Verify day conversion, 4h MAPE floor, MSLE clipping, R^2, and Kappa."""
+    # Targets: [0h, 24h, 48h] -> [0, 1, 2] days;
+    # Preds:   [2h, 24h, 72h] -> [1/12, 1, 3] days.
+    metrics = compute_los_metrics(
+        np.array([0.0, 24.0, 48.0]),
+        np.array([2.0, 24.0, 72.0]),
+    )
+
+    expected_mad = (2.0 / 24.0 + 0.0 + 1.0) / 3.0
+    expected_mape = ((2.0 / 24.0) / (4.0 / 24.0) + 0.0 + 1.0 / 2.0) / 3.0 * 100.0
+    expected_mse = ((2.0 / 24.0) ** 2 + 0.0 + 1.0) / 3.0
+    expected_msle = (
+        (math.log(2.0 / 24.0) - math.log(1.0 / 48.0)) ** 2
+        + 0.0
+        + (math.log(3.0) - math.log(2.0)) ** 2
+    ) / 3.0
+
+    assert math.isclose(metrics["mad"], expected_mad, rel_tol=1e-9)
+    assert math.isclose(metrics["mape"], expected_mape, rel_tol=1e-9)
+    assert math.isclose(metrics["mse"], expected_mse, rel_tol=1e-9)
+    assert math.isclose(metrics["msle"], expected_msle, rel_tol=1e-9)
+    assert math.isclose(metrics["r2"], 1.0 - (3.0 * expected_mse) / 2.0, rel_tol=1e-9)
+    assert 0.0 <= metrics["kappa"] <= 1.0
+
+    # Negative predictions must be safely clipped for MSLE without NaNs.
+    neg_metrics = compute_los_metrics(
+        np.array([24.0, 48.0]),
+        np.array([-5.0, 48.0]),
+    )
+    assert np.isfinite(neg_metrics["msle"])
+
+
+def test_compute_los_metrics_single_bin_and_validation():
+    """Verify degenerate single-bin Kappa fallback and input validation."""
+    single_bin = compute_los_metrics(
+        np.array([1.0, 2.0, 3.0]),
+        np.array([4.0, 5.0, 6.0]),
+    )
+    assert single_bin["kappa"] == 0.0
+
+    with pytest.raises(ValueError):
+        compute_los_metrics(np.array([1.0, 2.0]), np.array([1.0]))
+    with pytest.raises(ValueError):
+        compute_los_metrics(np.array([]), np.array([]))
+
+
+def test_compute_constant_baselines():
+    """Verify training-set mean and median baselines score test targets."""
+    baselines = compute_constant_baselines(
+        np.array([24.0, 24.0, 72.0]),
+        np.array([24.0, 72.0]),
+    )
+    # Train mean = 40h (5/3 days), train median = 24h (1 day).
+    assert math.isclose(baselines["mean_baseline"]["mad"], 1.0, rel_tol=1e-9)
+    assert math.isclose(baselines["median_baseline"]["mad"], 1.0, rel_tol=1e-9)
+    assert baselines["mean_baseline"]["mse"] < baselines["median_baseline"]["mse"]

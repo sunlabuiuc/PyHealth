@@ -40,7 +40,9 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
     Inherited sequence_v2 processors handle normalization and
     forward-fill downstream.
 
-    Missingness is applied to observed values before processing.
+    Missingness is applied to observed values before processing using one
+    deterministic mask per stay (derived from ``seed`` and ``stay_id``),
+    so every training epoch sees the same masked matrix for a given stay.
     Decay is computed from the post-masking, pre-forward-fill
     observation matrix.
 

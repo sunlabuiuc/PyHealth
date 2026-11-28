@@ -41,7 +41,10 @@ Metric conventions (Section 5.3.1 & Appendix A/D of Rocheteau et al.):
     * Cohen's linear weighted Kappa discretizes days into 10 ordered bins:
       ``[0-1, 1-2, 2-3, 3-4, 4-5, 5-6, 6-7, 7-8, 8-14, 14+]``.
 
-Experimental Setup & Measured Results (15,000-patient eICU-CRD subset):
+Pre-Rebase Experimental Setup & Results (15,000-patient eICU-CRD subset):
+    * Note: These single-seed (``seed=42``) numerical results were measured
+      prior to rebasing onto upstream PyHealth ``master`` and have not been
+      rerun after the rebase.
     * Subset & split: 15,000 unique patients sampled uniformly at random
       (seed=42), split 70% / 15% / 15% by ``patient_id``.
     * Model & training: ``RNN_V2(rnn_type="LSTM")``, ``embedding_dim=64``,
@@ -49,7 +52,7 @@ Experimental Setup & Measured Results (15,000-patient eICU-CRD subset):
       ``include_decay=True``, ``lr=0.00129``, ``batch_size=128``, ``epochs=8``,
       MSE loss on min-max normalized hours (PyHealth default for
       ``timeseries_regression``).
-    * Results (in days):
+    * Results (in days, pre-rebase, ``seed=42``):
 
       +-----------------------+------------+-----------+-------+----------+-------+-------+--------+---------+
       | Model / Condition     | Train Drop | Test Drop | MAD ↓ | MAPE (%) | MSE ↓ | MSLE  | R^2 ↑  | Kappa ↑ |
@@ -79,10 +82,11 @@ Experimental Setup & Measured Results (15,000-patient eICU-CRD subset):
          24.5, Kappa 0.253 vs 0.28). Remaining gaps reflect using ~10% of
          patients, 48 YAIB dynamic + 4 static features (vs 87 + 17), and
          MSE loss rather than log-space MSLE loss.
-      2. Robustness ablation: as test missingness increases from 0% to 20%,
-         Model A (0% train drop) degrades by +0.12 MSE and -0.005 R^2, whereas
-         Model B (10% train drop) degrades by only +0.03 MSE and -0.001 R^2,
-         outperforming Model A on MSE, R^2, and MSLE under 10% and 20%
+      2. Robustness ablation: in this single-seed (``seed=42``) evaluation, as
+         test missingness increases from 0% to 20%, Model A (0% train drop)
+         degrades by +0.12 MSE and -0.005 R^2, whereas Model B (10% train drop)
+         degrades by only +0.03 MSE and -0.001 R^2, achieving lower MSE and
+         MSLE and slightly higher R^2 than Model A under 10% and 20%
          missingness.
 
 Examples:
@@ -101,22 +105,19 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 # Bound native thread pools on Windows before importing torch/polars.
 for _var in ("POLARS_MAX_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_var, "4")
 
 import numpy as np
-import torch
 from sklearn.metrics import cohen_kappa_score, r2_score
 
-from examples.tpc_support.generate_synthetic import TABLES, generate
-from pyhealth.datasets import PatientSplit, eICUDataset, get_dataloader
-from pyhealth.models import RNN_V2
-from pyhealth.tasks import TPCLengthOfStayEICU
-from pyhealth.trainer import Trainer
-from pyhealth.utils import set_seed
+if TYPE_CHECKING:
+    from pyhealth.datasets import PatientSplit, eICUDataset
+    from pyhealth.models import RNN_V2
+    from pyhealth.trainer import Trainer
 
 HOURS_PER_DAY = 24.0
 MAPE_FLOOR_DAYS = 4.0 / 24.0
@@ -190,6 +191,8 @@ def compute_los_metrics(
 
 def _extract_target_hours(dataset: Any, batch_size: int) -> np.ndarray:
     """Extract unscaled ground-truth hourly targets from a SampleDataset."""
+    from pyhealth.datasets import get_dataloader
+
     label_proc = dataset.output_processors["los"]
     loader = get_dataloader(
         dataset,
@@ -237,11 +240,11 @@ def _build_embedding_dim(
 
 
 def _train_single_model(
-    base_dataset: eICUDataset,
+    base_dataset: "eICUDataset",
     *,
     train_missing_rate: float,
     include_decay: bool,
-    split: PatientSplit,
+    split: "PatientSplit",
     epochs: int,
     batch_size: int,
     lr: float,
@@ -252,8 +255,14 @@ def _train_single_model(
     seed: int,
     num_workers: int,
     device: str,
-) -> tuple[RNN_V2, Trainer, Any, Any, dict[int, Any], np.ndarray, dict[str, int]]:
+) -> tuple["RNN_V2", "Trainer", Any, Any, dict[int, Any], np.ndarray, dict[str, int]]:
     """Train one LSTM model at ``train_missing_rate`` using training-only stats."""
+    from pyhealth.datasets import get_dataloader
+    from pyhealth.models import RNN_V2
+    from pyhealth.tasks import TPCLengthOfStayEICU
+    from pyhealth.trainer import Trainer
+    from pyhealth.utils import set_seed
+
     set_seed(seed)
     train_task = TPCLengthOfStayEICU(
         missing_rate=train_missing_rate,
@@ -368,6 +377,12 @@ def train_and_evaluate(
     """Run the 2x3 missingness ablation study and return all metric rows."""
     if not synthetic and root is None:
         raise ValueError("Provide --root <eicu_dir> or pass --synthetic.")
+
+    import torch
+
+    from examples.tpc_support.generate_synthetic import TABLES, generate
+    from pyhealth.datasets import PatientSplit, eICUDataset, get_dataloader
+    from pyhealth.tasks import TPCLengthOfStayEICU
 
     chosen_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 

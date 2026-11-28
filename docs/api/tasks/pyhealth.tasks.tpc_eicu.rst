@@ -27,9 +27,10 @@ extraction, admission static features, and hourly remaining-LOS labels.
 The observation horizon is capped at 336 hours.
 
 Observation removal is controlled by ``missing_rate`` (0.0 to 1.0).
-Removal is deterministic for a given seed and stay identifier.
-A rate of 0.0 preserves all observed values, while a rate of 1.0
-removes all observed feature cells.
+Removal uses one deterministic mask per stay for a given seed and stay
+identifier, so repeated training epochs over the same dataset see the same
+masked observations. A rate of 0.0 preserves all observed values, while a rate
+of 1.0 removes all observed feature cells.
 
 When ``include_decay=True``, decay features are calculated after
 observation removal. Observed values reset to 1.0, and unobserved
@@ -56,8 +57,8 @@ Implementation summary
 * ``tests/integration/test_tpc_checkpoint.py`` provides an opt-in
   synthetic CSV-to-task loader check.
 
-Runnable validation
--------------------
+Usage and validation
+--------------------
 
 From a repository checkout in Python 3.12 or 3.13::
 
@@ -69,17 +70,18 @@ From a repository checkout in Python 3.12 or 3.13::
         tests/integration/test_tpc_checkpoint.py -q
     python examples/eicu_hourly_los_lstm.py --synthetic --epochs 2
 
-All seven generated CSVs use invented records across five patients. The
-checkpoint verifies cohort selection, static values, aggregated measurements
-and remaining-LOS labels against independent numerical expectations. It does
-not train a model. The real loader check starts a local processing server and
-is opt-in. Core assertion execution is fast; imports still add startup time.
+The synthetic CSV generator produces invented records across five patients.
+The checkpoint script validates cohort selection, static values, aggregated
+measurements, and remaining-LOS labels against independent numerical
+expectations without training a model. The CSV integration test is opt-in to
+keep routine unit test runs fast.
 
-Input/output contract to review
+Input and output specification
 ------------------------------
 
-Load lab, vitalperiodic, vitalaperiodic, intakeoutput, respiratorycharting and
-nursecharting using eICUDataset. One sample is produced per eligible stay:
+Load ``lab``, ``vitalperiodic``, ``vitalaperiodic``, ``intakeoutput``,
+``respiratorycharting``, and ``nursecharting`` using :class:`~pyhealth.datasets.eICUDataset`.
+One sample is produced per eligible stay:
 
 * Adults have known age >=18 and total ICU stay >=5 hours; ``> 89`` maps to 90.
   Unknown age excludes the stay. Unknown sex or invalid height/weight is NaN.
@@ -87,21 +89,20 @@ nursecharting using eICUDataset. One sample is produced per eligible stay:
 * Dynamic uses 48 YAIB features. For H=min(floor(total LOS hours),336), its
   values have shape (H,48), with missing values retained as NaN.
 * Bin [b,b+1) becomes available at timestamp b+1. At hour 5 the model may
-  consume bins 0–4 only. Regenerate older cached samples with start-bin times.
+  consume bins 0–4 only.
 * Labels at hours 5..H have shape (H-4,1) and equal total LOS hours minus h.
   Exact-discharge labels may be zero. The observation horizon is capped;
   remaining LOS is not capped.
-* ``missing_rate`` controls removal of observed hourly feature cells.
-  A rate of 0.0 preserves observations; 1.0 removes all observed cells.
+* ``missing_rate`` controls deterministic per-stay removal of observed hourly
+  feature cells prior to forward-fill. A rate of 0.0 preserves observations;
+  1.0 removes all observed cells.
 * ``include_decay=True`` adds decay features matching the dynamic
   feature dimensions. Decay resets to 1.0 upon observation and
   decreases by a factor of 0.75 per unobserved hour.
-* Split by patient_id rather than stay_id. Fit learned processors on training
-  patients only. Existing YAIB label processors min-max scale training targets;
-  activated predictions return original hours. Avoid double unscaling.
+* Split by ``patient_id`` rather than ``stay_id``, and fit learned processors
+  on training patients only. Existing YAIB label processors min-max scale
+  training targets, while inference returns unscaled predictions in hours.
 
-This reproduces the prediction problem, not the TPC architecture. Existing
-median/floor aggregation and YAIB features differ from the paper. Confirm
-preprocessing, loss and metric conventions before comparing paper results.
-The original paper already ablates decay removal; a decay toggle alone is
-not a novel extension for the assignment.
+This task reproduces the hourly remaining-LOS prediction formulation from the
+paper using YAIB feature extraction and PyHealth's existing preprocessing
+pipeline, rather than re-implementing the TPC model architecture.
