@@ -281,6 +281,10 @@ from .sleep_staging_isruc import (
     SleepStagingSequenceISRUC as SleepStagingSequenceISRUC,
 )
 from .sleep_staging_hmc import SleepStagingHMC as SleepStagingHMC
+from .sleep_staging_dreamt import SleepStagingDREAMT as SleepStagingDREAMT
+from .sleep_staging_dreamt_sequence import (
+    SleepStagingDREAMTSequence as SleepStagingDREAMTSequence,
+)
 from .temple_university_EEG_tasks import (
     EEGEventsTUEV,
     EEGAbnormalTUAB

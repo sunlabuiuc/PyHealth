@@ -36,6 +36,9 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.MLP`
      - Features are static numeric vectors (aggregated lab values, demographics)
      - Fully connected; no notion of sequence order
+   * - :doc:`models/pyhealth.models.WatchSleepNet`
+     - You have wearable IBI sequences and want sequence-level sleep-stage predictions
+     - Residual CNN, TCN, bidirectional LSTM, and multi-head attention
    * - ``MultimodalRNN``
      - Features mix sequential codes with static tensors or multi-hot encodings
      - Auto-routes sequential features to RNN layers and non-sequential features to linear layers; good default for EHR
@@ -384,4 +387,5 @@ API Reference
     models/pyhealth.models.MedTok
     models/pyhealth.models.EviCare
     models/pyhealth.models.QueryFocusedEHRModel
+    models/pyhealth.models.WatchSleepNet
 
