@@ -18,6 +18,7 @@ the returned mapping alongside the checkpoint to recover those windows after
 reloading.
 """
 
+import warnings
 from collections.abc import Sequence
 from itertools import combinations
 
@@ -672,6 +673,8 @@ class ProtoECGNet(BaseModel):
         self._frozen_modules: set[nn.Module] = set()
         # Set by project_prototypes; not in state_dict — persist alongside ckpt.
         self.projection_info: dict[str, list[dict | None]] | None = None
+        # Set by project_prototypes; cleared by the next forward pass.
+        self._stale_classifier = False
 
     def _prepare_groups(
         self, groups: dict[str, list[str]] | None
@@ -909,6 +912,17 @@ class ProtoECGNet(BaseModel):
             ):
                 extra.append(self.lam_l1 * self._l1_penalty())
 
+        if self._stale_classifier and self.stage != "feature_extractor":
+            if not self.training:
+                warnings.warn(
+                    "ProtoECGNet is being evaluated right after "
+                    "project_prototypes(); its outputs are not meaningful "
+                    "until the 'classifier' stage is trained.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            self._stale_classifier = False
+
         result = {"logit": logits, "y_prob": torch.sigmoid(logits), "similarity": sims}
         if y is not None:
             loss = F.binary_cross_entropy_with_logits(
@@ -934,6 +948,14 @@ class ProtoECGNet(BaseModel):
         session. It is **not** part of ``state_dict``; save it separately
         alongside the model checkpoint to support case-based explanations after
         reloading (e.g. ``torch.save(model.projection_info, "proj.pt")``).
+
+        Follow projection with the ``"classifier"`` stage before evaluating.
+        The last layer has not been fitted to the projected prototypes, so right
+        after projection the logits can be far below zero (around -300 on
+        PTB-XL), every ``y_prob`` rounds to exactly 0 in float32, and metrics
+        computed from ``y_prob`` are meaningless. An evaluation-mode forward
+        pass straight after projection, with no training step in between,
+        issues a :class:`UserWarning`.
 
         Args:
             dataloader: Training dataloader (``shuffle=False``) yielding
@@ -1001,6 +1023,7 @@ class ProtoECGNet(BaseModel):
                     branch.prototype_vectors.data[p] = vector
         self.train(was_training)
         self.projection_info = best
+        self._stale_classifier = True
         return best
 
     @torch.no_grad()

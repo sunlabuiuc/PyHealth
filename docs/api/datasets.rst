@@ -465,6 +465,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `PhysioNet <https://physionet.org/content/eegmmidb/1.0.0/>`__
      - Yes
      - —
+   * - :doc:`HMC Sleep Staging <datasets/pyhealth.datasets.HMCDataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/hmc-sleep-staging/1.1/>`__
+     - No
+     - —
    * - :doc:`BCI Competition IV 2a <datasets/pyhealth.datasets.BCICompetitionIV2aDataset>`
      - Open (CC BY-ND)
      - `BNCI Horizon <https://bnci-horizon-2020.eu/database/data-sets>`__
@@ -525,6 +530,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `ISIC <https://challenge.isic-archive.com/data/#2018>`__
      - Yes
      - —
+   * - :doc:`PH2 <datasets/pyhealth.datasets.PH2Dataset>`
+     - Restricted / request (form)
+     - `PH2 <https://www.fc.up.pt/addi/ph2%20database.html>`__
+     - No
+     - —
    * - :doc:`SUPPORT2 <datasets/pyhealth.datasets.Support2Dataset>`
      - Open
      - `UCI <https://archive.ics.uci.edu/dataset/880/support2>`__
@@ -545,6 +555,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `GitHub <https://github.com/neheller/kits23>`__ + `Hugging Face <https://huggingface.co/datasets/neheller/KiTS-Challenge-Imaging>`__
      - No (``kits23_download_data``)
      - Single CTs by URL (``wget``)
+   * - :doc:`Rotterdam <datasets/pyhealth.datasets.RotterdamDataset>`
+     - Open
+     - `R survival <https://stat.ethz.ch/R-manual/R-devel/library/survival/html/rotterdam.html>`__
+     - No
+     - —
    * - :doc:`TCGA-PRAD <datasets/pyhealth.datasets.TCGAPRADDataset>`
      - Open
      - `GDC <https://portal.gdc.cancer.gov/projects/TCGA-PRAD>`__
@@ -590,6 +605,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `GitHub <https://github.com/NinaWie/COVID-BLUES>`__
      - No (``git clone``)
      - —
+   * - :doc:`CDC COVID-19 Case Surveillance <datasets/pyhealth.datasets.CDCCOVIDDataset>`
+     - Open public-use data
+     - `CDC Socrata <https://data.cdc.gov/d/n8mc-b4w4>`__
+     - CSV export
+     - Bounded API samples supported
    * - :doc:`FHIR (format) <datasets/pyhealth.datasets.FHIRDataset>`
      - Depends on source
      - `HL7 <https://www.hl7.org/fhir/>`__
@@ -603,6 +623,7 @@ Available Datasets
     :maxdepth: 3
 
     datasets/pyhealth.datasets.BaseDataset
+    datasets/pyhealth.datasets.CDCCOVIDDataset
     datasets/pyhealth.datasets.PBCDataset
     datasets/pyhealth.datasets.SampleDataset
     datasets/pyhealth.datasets.PatchDataset
@@ -636,6 +657,7 @@ Available Datasets
     datasets/pyhealth.datasets.ChapmanShaoxingDataset
     datasets/pyhealth.datasets.eICUDataset
     datasets/pyhealth.datasets.ISRUCDataset
+    datasets/pyhealth.datasets.HMCDataset
     datasets/pyhealth.datasets.HUPiEEGDataset
     datasets/pyhealth.datasets.MIMICExtractDataset
     datasets/pyhealth.datasets.OMOPDataset
@@ -648,6 +670,7 @@ Available Datasets
     datasets/pyhealth.datasets.Support2Dataset
     datasets/pyhealth.datasets.MetabricDataset
     datasets/pyhealth.datasets.GBSGDataset
+    datasets/pyhealth.datasets.RotterdamDataset
     datasets/pyhealth.datasets.BMDHSDataset
     datasets/pyhealth.datasets.COVID19CXRDataset
     datasets/pyhealth.datasets.ISIC2019Dataset
@@ -655,6 +678,7 @@ Available Datasets
     datasets/pyhealth.datasets.COVIDBLUESDataset
     datasets/pyhealth.datasets.ChestImaGenomeDataset
     datasets/pyhealth.datasets.HAM10000Dataset
+    datasets/pyhealth.datasets.PH2Dataset
     datasets/pyhealth.datasets.PhysioNetDeIDDataset
     datasets/pyhealth.datasets.EEGBCIDataset
     datasets/pyhealth.datasets.AHEPADementiaDataset

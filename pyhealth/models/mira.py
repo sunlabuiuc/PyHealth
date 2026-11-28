@@ -626,6 +626,11 @@ def load_mira_checkpoint(
         ``(config, state_dict)`` for :class:`MIRABackbone`; the weights are
         stored in bfloat16 and cast when loaded into a float32 model.
 
+    Raises:
+        RuntimeError: If ``path`` is None and the download fails, for
+            example because :data:`HF_REPO_ID` is offline or no longer
+            public. The message says how to load a local snapshot instead.
+
     Examples:
         >>> config, state = load_mira_checkpoint()  # doctest: +SKIP
         >>> backbone = MIRABackbone(config)  # doctest: +SKIP
@@ -639,10 +644,22 @@ def load_mira_checkpoint(
     if path is None:
         from huggingface_hub import hf_hub_download
 
-        config_path = hf_hub_download(HF_REPO_ID, "config.json", revision=revision)
-        weights_path = hf_hub_download(
-            HF_REPO_ID, "model.safetensors", revision=revision
-        )
+        try:
+            config_path = hf_hub_download(
+                HF_REPO_ID, "config.json", revision=revision
+            )
+            weights_path = hf_hub_download(
+                HF_REPO_ID, "model.safetensors", revision=revision
+            )
+        except OSError as err:  # every huggingface_hub download error
+            raise RuntimeError(
+                f"Could not download the MIRA checkpoint from {HF_REPO_ID} at "
+                f"revision {revision}: {err}\nIf the repository is offline or "
+                "no longer public, pass the path of a local snapshot holding "
+                "config.json and model.safetensors instead: "
+                "MIRA(dataset, pretrained='/path/to/snapshot') or "
+                "load_mira_checkpoint('/path/to/snapshot')."
+            ) from err
     else:
         config_path = os.path.join(path, "config.json")
         weights_path = os.path.join(path, "model.safetensors")

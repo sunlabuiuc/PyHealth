@@ -1,0 +1,21 @@
+version: "1.0"
+tables:
+  rotterdam:
+    file_path: "rotterdam.csv"
+    patient_id: "pid"
+    timestamp: null
+    attributes:
+      - year
+      - age
+      - meno
+      - size
+      - grade
+      - nodes
+      - pgr
+      - er
+      - hormon
+      - chemo
+      - rtime
+      - recur
+      - dtime
+      - death

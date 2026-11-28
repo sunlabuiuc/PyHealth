@@ -326,8 +326,15 @@ class NestedFloatsProcessor(LegacyFeatureProcessor):
                 if self.forward_fill and last_valid_values is not None:
                     # Forward fill: use last valid visit's values
                     encoded_sequences.append(last_valid_values.copy())
+                elif self.forward_fill:
+                    # No prior visit to fill from yet: use NaN, like every other
+                    # unresolved slot in forward_fill mode, so the column-wise and
+                    # within-visit fill passes below can still resolve it from a
+                    # later visit. A literal 0.0 here would look like a real
+                    # observation to those passes and get propagated forward.
+                    encoded_sequences.append([float("nan")] * self._max_inner_len)
                 else:
-                    # No forward fill or no prior visit, use zeros
+                    # No forward fill, use zeros
                     encoded_sequences.append([0.0] * self._max_inner_len)
                 continue
 

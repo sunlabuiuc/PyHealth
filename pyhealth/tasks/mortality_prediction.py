@@ -1201,7 +1201,8 @@ class MortalityPredictionOMOP(BaseTask):
         - Visits without any clinical codes (conditions, procedures, or
           drugs) are excluded
         - The last visit is excluded as there is no "next visit" to
-          predict for
+          predict for, unless ``min_followup`` is set: its horizon is
+          ``discharge + min_followup``, so every visit can be a sample
         - Clinical events are filtered by visit_occurrence_id, not by
           timestamp ranges, following OMOP best practices
     """
@@ -1314,7 +1315,12 @@ class MortalityPredictionOMOP(BaseTask):
         visits = patient.get_events(event_type="visit_occurrence")
         death_events = patient.get_events(event_type="death")
 
-        if len(visits) <= 1:
+        # The next-visit horizon needs a next visit, so the last visit is
+        # skipped. A min_followup horizon does not, so it is kept.
+        n_candidates = len(visits)
+        if self.min_followup is None:
+            n_candidates -= 1
+        if n_candidates < 1:
             return []
 
         # Get death datetime if exists
@@ -1322,9 +1328,9 @@ class MortalityPredictionOMOP(BaseTask):
         if len(death_events) > 0:
             death_datetime = death_events[0].timestamp
 
-        for i in range(len(visits) - 1):
+        for i in range(n_candidates):
             visit = visits[i]
-            next_visit = visits[i + 1]
+            next_visit = visits[i + 1] if i + 1 < len(visits) else None
 
             # Determine mortality label
             # Check if patient has death record (died at some point)
@@ -1349,6 +1355,8 @@ class MortalityPredictionOMOP(BaseTask):
 
             # Fallback to next visit start if visit_end not available
             if visit_end is None:
+                if next_visit is None:
+                    continue
                 visit_end = next_visit.timestamp
 
             # Get visit_occurrence_id for filtering
