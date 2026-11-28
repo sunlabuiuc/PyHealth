@@ -83,23 +83,36 @@ class MIMIC3Dataset(BaseDataset):
         )
         return
 
+
+
     def preprocess_noteevents(self, df: pl.LazyFrame) -> pl.LazyFrame:
-        """
-        Table-specific preprocess function which will be called by BaseDataset.load_table().
+        """Preprocess clinical notes while preserving timestamp provenance.
 
-        Preprocesses the noteevents table by ensuring that the charttime column
-        is populated. If charttime is null, it uses chartdate with a default
-        time of 00:00:00.
-
-        See: https://mimic.mit.edu/docs/iii/tables/noteevents/#chartdate-charttime-storetime.
+        Missing chart times are replaced with midnight on the chart date,
+        preserving the existing dataset behavior. A separate indicator
+        allows downstream tasks to distinguish recorded timestamps from
+        imputed timestamps and apply conservative temporal filtering.
 
         Args:
-            df (pl.LazyFrame): The input dataframe containing noteevents data.
+            df: Lazy frame containing MIMIC-III clinical notes.
 
         Returns:
-            pl.LazyFrame: The processed dataframe with updated charttime
-            values.
+            The processed frame with chart times and an indicator of
+            whether the original chart time was missing.
         """
+        # Preserve compatibility with note tables that omit ISERROR.
+        if "iserror" not in df.collect_schema().names():
+            df = df.with_columns(
+                pl.lit(None, dtype=pl.String).alias("iserror")
+            )
+
+        df = df.with_columns(
+            pl.when(pl.col("charttime").is_null())
+            .then(pl.lit("true"))
+            .otherwise(pl.lit("false"))
+            .alias("charttime_missing")
+        )
+
         df = df.with_columns(
             pl.when(pl.col("charttime").is_null())
             .then(pl.col("chartdate") + pl.lit(" 00:00:00"))
@@ -107,3 +120,4 @@ class MIMIC3Dataset(BaseDataset):
             .alias("charttime")
         )
         return df
+
