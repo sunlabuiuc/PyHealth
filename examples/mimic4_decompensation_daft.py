@@ -1,4 +1,4 @@
-# Authors: Christopher Perez, Kai Cheung (kaicc2), Sarah Lee
+# Authors: Christopher Perez (cjperez3), Kai Cheung (kaicc2), Sarah Lee (slee537)
 # Paper: MedMod: Multimodal Benchmark for Medical Prediction Tasks with Electronic
 #   Health Records and Chest X-Ray Scans (Elsharief et al., CHIL 2025)
 # Paper link: https://proceedings.mlr.press/v287/elsharief25a.html
