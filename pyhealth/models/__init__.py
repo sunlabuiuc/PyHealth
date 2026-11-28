@@ -53,6 +53,12 @@ from .joint_seq_image import (
     JointSeqImage as JointSeqImage,
 )
 from .logistic_regression import LogisticRegression
+from .concept_bottleneck import (
+    ConceptBottleneckModel as ConceptBottleneckModel,
+    LogisticRegressionWithSummaries as LogisticRegressionWithSummaries,
+    LSTMNextStateBaseline as LSTMNextStateBaseline,
+    SummaryEncoder as SummaryEncoder,
+)
 from .gan import GAN
 from .glip import (
     GLIP as GLIP,
