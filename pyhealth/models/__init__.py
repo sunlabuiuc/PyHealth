@@ -201,5 +201,5 @@ from .query_focused_ehr import QueryFocusedEHRModel as QueryFocusedEHRModel
 from .watchsleepnet import (
     WatchSleepNet as WatchSleepNet,
     ResidualBlock1d as ResidualBlock1d,
-    CausalTemporalBlock as CasualTemporalBlock,
+    CausalTemporalBlock as CausalTemporalBlock,
 )

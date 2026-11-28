@@ -29,6 +29,15 @@ class ResidualBlock1d(nn.Module):
         out_channels: Number of output channels.
         kernel_size: Convolution kernel size.
         stride: Stride of the first convolution.
+
+    Example:
+        >>> import torch
+        >>> block = ResidualBlock1d(
+        ...     in_channels=1, out_channels=8, kernel_size=5, stride=5
+        ... )
+        >>> x = torch.randn(2, 1, 750)  # (batch * epochs, channels, samples)
+        >>> block(x).shape
+        torch.Size([2, 8, 150])
     """
 
     def __init__(
@@ -69,6 +78,19 @@ class CausalTemporalBlock(nn.Module):
         kernel_size: Convolution kernel size.
         dilation: Dilation factor.
         dropout: Dropout probability.
+
+    Example:
+        >>> import torch
+        >>> block = CausalTemporalBlock(
+        ...     channels=8, kernel_size=5, dilation=2, dropout=0.1
+        ... ).eval()
+        >>> x = torch.randn(2, 8, 10)  # (batch, channels, epochs)
+        >>> block(x).shape
+        torch.Size([2, 8, 10])
+        >>> y = x.clone()
+        >>> y[:, :, -1] += 1.0  # change only the last epoch
+        >>> torch.allclose(block(x)[:, :, :-1], block(y)[:, :, :-1])
+        True
     """
 
     def __init__(

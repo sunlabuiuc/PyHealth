@@ -10,7 +10,8 @@ Reference:
 """
 
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any, ClassVar
+from collections.abc import Sequence
 
 import numpy as np
 import pandas as pd
@@ -196,8 +197,8 @@ class SleepStagingDREAMT(BaseTask):
     """
 
     task_name: str = "SleepStagingDREAMT"
-    input_schema: dict[str, str] = {"ibi": "tensor"}
-    output_schema: dict[str, str] = {"label": "tensor"}
+    input_schema: ClassVar[dict[str, str]] = {"ibi": "tensor"}
+    output_schema: ClassVar[dict[str, str]] = {"label": "tensor"}
 
     def __init__(
         self,
@@ -213,7 +214,7 @@ class SleepStagingDREAMT(BaseTask):
         epoch_seconds: int = 30,
         grid_hz: int = 25,
         max_ibi: float = 2.0,
-        patient_ids: Optional[Sequence[str]] = None,
+        patient_ids: Sequence[str] | None = None,
     ) -> None:
         if ibi_source not in ("bvp", "e4"):
             raise ValueError("ibi_source must be 'bvp' or 'e4'.")

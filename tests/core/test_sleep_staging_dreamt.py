@@ -16,11 +16,11 @@ import pandas as pd
 from pyhealth.tasks.sleep_staging_dreamt import (
     IGNORE_INDEX,
     SleepStagingDREAMT,
-    beats_from_bvp,
-    beats_from_ibi_column,
-    epoch_labels,
-    ibi_to_grid,
-    map_stages,
+    _beats_from_bvp,
+    _beats_from_ibi_column,
+    _epoch_labels,
+    _ibi_to_grid,
+    _map_stages,
 )
 
 FS = 64  # DREAMT wearable rate
@@ -65,34 +65,34 @@ class TestHelpers(unittest.TestCase):
 
     def test_map_stages_three_class(self) -> None:
         stages = pd.Series(["W", "N1", "N2", "N3", "R", "P", "Missing"])
-        out = map_stages(stages)
+        out = _map_stages(stages)
         self.assertEqual(out.tolist(), [0, 1, 1, 1, 2, 0, IGNORE_INDEX])
         self.assertEqual(out.dtype, np.int64)
 
     def test_map_stages_other_schemes_and_prep(self) -> None:
         stages = pd.Series(["W", "N1", "N2", "N3", "R", "P"])
         self.assertEqual(
-            map_stages(stages, scheme="4class").tolist(), [0, 1, 1, 2, 3, 0]
+            _map_stages(stages, scheme="4class").tolist(), [0, 1, 1, 2, 3, 0]
         )
         self.assertEqual(
-            map_stages(stages, scheme="5class").tolist(), [0, 1, 2, 3, 4, 0]
+            _map_stages(stages, scheme="5class").tolist(), [0, 1, 2, 3, 4, 0]
         )
-        ignored = map_stages(stages, ignore_prep=True)
+        ignored = _map_stages(stages, ignore_prep=True)
         self.assertEqual(ignored[-1], IGNORE_INDEX)
 
     def test_epoch_labels_majority_and_ignored_epochs(self) -> None:
         ign = IGNORE_INDEX
         rows = np.array([0, 0, 1, 2, 2, 2, 2, 1, ign, ign, ign, 0, 1, 1, ign, ign])
-        labels = epoch_labels(rows, rows_per_epoch=4, n_epochs=4, num_classes=3)
+        labels = _epoch_labels(rows, rows_per_epoch=4, n_epochs=4, num_classes=3)
         # epoch 2 has a single valid row (< half), so it is ignored
         self.assertEqual(labels.tolist(), [0, 2, ign, 1])
         self.assertEqual(
-            epoch_labels(rows, 4, 2, 3).tolist(), [0, 2]
+            _epoch_labels(rows, 4, 2, 3).tolist(), [0, 2]
         )  # truncation to n_epochs
 
     def test_ibi_to_grid_regular_beats(self) -> None:
         times = np.arange(1, 40) * 0.8  # a beat every 0.8 s, up to 31.2 s
-        series = ibi_to_grid(times, np.full(len(times), 0.8), n_epochs=1)
+        series = _ibi_to_grid(times, np.full(len(times), 0.8), n_epochs=1)
         self.assertEqual(series.shape, (POINTS,))
         self.assertTrue(np.isnan(series[:20]).all())
         np.testing.assert_allclose(series[20:], 0.8)
@@ -101,30 +101,30 @@ class TestHelpers(unittest.TestCase):
         times = np.concatenate([np.arange(1, 13) * 0.8, 20 + np.arange(0, 20) * 0.8])
         intervals = np.full(len(times), 0.8)
         intervals[12] = 3.0  # first beat after the gap reports a 3 s interval
-        series = ibi_to_grid(times, intervals, n_epochs=1)
+        series = _ibi_to_grid(times, intervals, n_epochs=1)
         self.assertAlmostEqual(series[int(9.0 * 25)], 0.8)
         self.assertTrue(np.isnan(series[int(14.0 * 25)]))
         self.assertTrue(np.isnan(series[int(20.5 * 25)]))
 
     def test_ibi_to_grid_without_beats_is_all_missing(self) -> None:
-        series = ibi_to_grid(np.array([]), np.array([]), n_epochs=2)
+        series = _ibi_to_grid(np.array([]), np.array([]), n_epochs=2)
         self.assertEqual(series.shape, (2 * POINTS,))
         self.assertTrue(np.isnan(series).all())
 
     def test_beats_from_ibi_column(self) -> None:
         ibi = np.array([np.nan, 0.8, np.nan, np.nan, 0.9])
-        times, intervals = beats_from_ibi_column(ibi, fs=2.0)
+        times, intervals = _beats_from_ibi_column(ibi, fs=2.0)
         np.testing.assert_allclose(times, [0.5, 2.0])
         np.testing.assert_allclose(intervals, [0.8, 0.9])
 
     def test_beats_from_bvp_recovers_heart_rate(self) -> None:
-        times, intervals = beats_from_bvp(_bvp(60 * FS), FS)
+        times, intervals = _beats_from_bvp(_bvp(60 * FS), FS)
         self.assertGreater(len(intervals), 50)
         self.assertEqual(len(times), len(intervals))
         self.assertAlmostEqual(float(np.median(intervals)), 0.8, delta=0.03)
 
     def test_beats_from_bvp_too_short_returns_nothing(self) -> None:
-        times, intervals = beats_from_bvp(_bvp(10 * FS), FS)  # shorter than 30 s
+        times, intervals = _beats_from_bvp(_bvp(10 * FS), FS)  # shorter than 30 s
         self.assertEqual((len(times), len(intervals)), (0, 0))
 
 
