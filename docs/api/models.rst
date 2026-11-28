@@ -60,6 +60,9 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.td_cnn_lstm`
      - You want real-time ICU mortality risk for each measurement-time state of irregular event streams
      - Temporal-difference training needs paired ``next_*`` successor states and a custom loop that calls ``model.update_target()`` after each optimizer step
+   * - :doc:`models/pyhealth.models.HiCu`
+     - You predict ICD codes from clinical notes (e.g. ``MIMIC3ICD9Coding``) and many codes are rare
+     - MultiResCNN with label attention, trained level by level down the ICD tree; call ``set_level`` between training stages
 
 How BaseModel Works
 --------------------
@@ -384,4 +387,5 @@ API Reference
     models/pyhealth.models.MedTok
     models/pyhealth.models.EviCare
     models/pyhealth.models.QueryFocusedEHRModel
+    models/pyhealth.models.HiCu
 
