@@ -1,0 +1,12 @@
+version: "1.0"
+tables:
+  polyp:
+    file_path: "polyp-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "subset"
+      - "path"
+      - "width"
+      - "height"
+      - "boxes"
