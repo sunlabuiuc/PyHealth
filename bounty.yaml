@@ -131,7 +131,7 @@ bounty:
     category: model
     title: VAE PyHealth 2.0 Migration
     description: "Port pyhealth/models/vae.py to the PyHealth 2.0 BaseModel and SampleDataset API so it trains through the standard Trainer, with unit tests and an example notebook. [code](https://github.com/sunlabuiuc/PyHealth/blob/master/pyhealth/models/vae.py)"
-    complete: ~
+    complete: "@dalloliogm (#1358)"
   - id: 23
     priority: 1
     category: dataset
@@ -161,7 +161,7 @@ bounty:
     category: task
     title: Add YAIB Benchmarks into PyHealth
     description: "Port the YAIB (Yet Another ICU Benchmark) cohorts and tasks (mortality, AKI, sepsis, kidney function, and length of stay) so PyHealth models can be scored against YAIB baselines on MIMIC-IV and eICU. [code](https://github.com/rvandewater/yaib)"
-    complete: ~
+    complete: "@Logiquo (#1338, #1417, #1423)"
   - id: 28
     priority: 1
     category: model
@@ -220,7 +220,7 @@ bounty:
     priority: 1
     category: model
     title: MIRA Medical Time-Series Foundation Model (NeurIPS 2025)
-    description: "Integrate MIRA as a medical time-series foundation encoder for PyHealth ICU and biosignal tasks across MIMIC-III/IV, PhysioNet 2012, PTB-XL, and Sleep-EDF. [code](https://github.com/microsoft/MIRA), [paper](https://arxiv.org/abs/2506.07584)"
+    description: "Integrate MIRA as a medical time-series foundation encoder for PyHealth ICU and biosignal tasks across MIMIC-III/IV, PhysioNet 2012, PTB-XL, and Sleep-EDF. [code](https://github.com/microsoft/MIRA), [paper](https://arxiv.org/abs/2506.07584) — Merged in #1420: the MIRA model with a PhysioNet 2012 forecasting example. Remaining: MIMIC-III/IV, PTB-XL and Sleep-EDF tasks."
     complete: ~
   - id: 38
     priority: 1
@@ -239,7 +239,7 @@ bounty:
     category: model
     title: DiPro (NeurIPS 2025)
     description: "Implement DiPro for longitudinal EHR and sequential chest X-ray disease-progression modeling on MIMIC-IV and MIMIC-CXR. [code](https://github.com/Chenliu-svg/DiPro), [paper](https://arxiv.org/abs/2510.11112)"
-    complete: ~
+    complete: "@jhnwu3 (#1398)"
   - id: 41
     priority: 1
     category: model
@@ -250,14 +250,14 @@ bounty:
     priority: 1
     category: model
     title: APN Irregular Time-Series Forecasting (AAAI 2025)
-    description: "Add APN as a simple baseline model alongside an irregular clinical time-series forecasting task on PhysioNet 2012 and MIMIC. [code](https://github.com/decisionintelligence/APN), [paper](https://arxiv.org/abs/2505.11250)"
+    description: "Add APN as a simple baseline model alongside an irregular clinical time-series forecasting task on PhysioNet 2012 and MIMIC. [code](https://github.com/decisionintelligence/APN), [paper](https://arxiv.org/abs/2505.11250) — Merged in #1373: APN with the PhysioNet 2012 dataset and forecasting task. Remaining: the MIMIC task."
     complete: ~
   - id: 43
     priority: 1
     category: model
     title: ARMR (IJCAI 2025)
     description: "Implement ARMR (Adaptively Responsive Network) for PyHealth's MIMIC-III and MIMIC-IV medication-recommendation tasks. [code](https://github.com/seucoin/armr2), [paper](https://arxiv.org/abs/2507.04428)"
-    complete: ~
+    complete: "@solarsys (#1371)"
   - id: 44
     priority: 1
     category: model
@@ -310,32 +310,32 @@ bounty:
     priority: 1
     category: model
     title: APRICOT-M (Nature Communications 2025)
-    description: "Implement the APRICOT-M state-space model and real-time ICU acuity and therapy-requirement prediction tasks on eICU and MIMIC-IV. [code](https://github.com/iheallab/apricotM), [paper](https://doi.org/10.1038/s41467-025-62121-1)"
+    description: "Implement the APRICOT-M state-space model and real-time ICU acuity and therapy-requirement prediction tasks on eICU and MIMIC-IV. [code](https://github.com/iheallab/apricotM), [paper](https://doi.org/10.1038/s41467-025-62121-1) — Merged in #1383: the model with MIMIC-IV acuity and therapy tasks. Remaining: eICU."
     complete: ~
   - id: 53
     priority: 1
     category: model
     title: KnowRare (npj Digital Medicine 2025)
-    description: "Implement the KnowRare domain-adaptation model and rare-condition ICU outcome tasks across MIMIC-III, MIMIC-IV, and eICU. [code](https://github.com/JasonZuu/KnowRare), [paper](https://arxiv.org/abs/2507.06432)"
+    description: "Implement the KnowRare domain-adaptation model and rare-condition ICU outcome tasks across MIMIC-III, MIMIC-IV, and eICU. [code](https://github.com/JasonZuu/KnowRare), [paper](https://arxiv.org/abs/2507.06432) — Merged in #1421: the model with a MIMIC-IV rare-condition mortality task. Remaining: MIMIC-III and eICU."
     complete: ~
   - id: 54
     priority: 1
     category: model
     title: LLMs as EHR Encoders (npj Digital Medicine 2025)
-    description: "Add the LLM-embedding EHR encoder baseline (serialize EHR events, embed with an LLM, and fit a linear head) on EHRSHOT and MIMIC tasks. [code](https://github.com/stefanhgm/ehrshot-benchmark), [paper](https://arxiv.org/abs/2502.17403)"
+    description: "Add the LLM-embedding EHR encoder baseline (serialize EHR events, embed with an LLM, and fit a linear head) on EHRSHOT and MIMIC tasks. [code](https://github.com/stefanhgm/ehrshot-benchmark), [paper](https://arxiv.org/abs/2502.17403) — Merged in #1369: the encoder with a MIMIC-IV example. Remaining: EHRSHOT."
     complete: ~
   - id: 55
     priority: 1
     category: model
     title: MEME Pseudo-Notes EHR Model (npj Digital Medicine 2025)
-    description: "Implement the MEME multiple-embedding model (EHR-to-pseudo-notes) and MIMIC-IV-ED disposition and decompensation tasks on MIMIC-IV and EHRSHOT. [code](https://github.com/Simonlee711/MEME), [paper](https://doi.org/10.1038/s41746-025-01777-x)"
+    description: "Implement the MEME multiple-embedding model (EHR-to-pseudo-notes) and MIMIC-IV-ED disposition and decompensation tasks on MIMIC-IV and EHRSHOT. [code](https://github.com/Simonlee711/MEME), [paper](https://doi.org/10.1038/s41746-025-01777-x) — Merged in #1384: MEME with MIMIC-IV-ED disposition tasks. Remaining: MEME's ED decompensation task and EHRSHOT (medmod_decompensation_mimic4.py is MedMod's ICU + chest X-ray task, not MEME's)."
     complete: ~
   - id: 56
     priority: 1
     category: task
     title: TRACE Intra-Visit Lab Nowcasting (WWW 2025)
     description: "Add the intra-visit lab-value nowcasting task on MIMIC-III and MIMIC-IV along with the TRACE patient-trajectory encoder. [code](https://github.com/Amehi/TRACE), [paper](https://arxiv.org/abs/2503.23072)"
-    complete: ~
+    complete: "@solarsys (#1382)"
   - id: 57
     priority: 2
     category: model
@@ -346,7 +346,7 @@ bounty:
     priority: 2
     category: model
     title: ETHOS-ARES (GigaScience 2025)
-    description: "Implement the ETHOS generative timeline model and MEDS-based hospital outcome tasks (mortality, ICU admission, readmission, and length of stay) on MIMIC-IV using PyHealth's MEDSDataset. [code](https://github.com/ipolharvard/ethos-ares), [paper](https://arxiv.org/abs/2502.06124)"
+    description: "Implement the ETHOS generative timeline model and MEDS-based hospital outcome tasks (mortality, ICU admission, readmission, and length of stay) on MIMIC-IV using PyHealth's MEDSDataset. [code](https://github.com/ipolharvard/ethos-ares), [paper](https://arxiv.org/abs/2502.06124) — Merged in #1397: ETHOS with ICU admission, readmission and prolonged-stay (10+ days) outcomes through EthosOutcomeMEDS. Remaining: mortality (InHospitalMortalityMEDS is not an ETHOS outcome yet) and length of stay as a regression."
     complete: ~
   - id: 59
     priority: 2
@@ -358,7 +358,7 @@ bounty:
     priority: 2
     category: model
     title: TrajSurv (MLHC 2025)
-    description: "Implement the TrajSurv continuous-trajectory survival model and survival prediction tasks on MIMIC-III and eICU. [code](https://github.com/zengsihang/TrajSurv), [paper](https://arxiv.org/abs/2508.00657)"
+    description: "Implement the TrajSurv continuous-trajectory survival model and survival prediction tasks on MIMIC-III and eICU. [code](https://github.com/zengsihang/TrajSurv), [paper](https://arxiv.org/abs/2508.00657) — Merged in #1368: TrajSurv with a MIMIC-IV survival task. Remaining: MIMIC-III and eICU."
     complete: ~
   - id: 61
     priority: 2
