@@ -28,7 +28,7 @@ STAGE_SCHEMES: dict[str, dict[str, int]] = {
 NUM_CLASSES: dict[str, int] = {"3class": 3, "4class": 4, "5class": 5}
 
 
-def map_stages(
+def _map_stages(
     stages: pd.Series, ignore_prep: bool = False, scheme: str = "3class"
 ) -> np.ndarray:
     """Maps DREAMT stage strings to class indices (or -100 to ignore).
@@ -49,7 +49,7 @@ def map_stages(
     return stages.map(mapping).fillna(IGNORE_INDEX).to_numpy(dtype=np.int64)
 
 
-def epoch_labels(
+def _epoch_labels(
     row_labels: np.ndarray, rows_per_epoch: int, n_epochs: int, num_classes: int = 3
 ) -> np.ndarray:
     """Takes the majority class of each epoch.
@@ -71,7 +71,7 @@ def epoch_labels(
     return labels
 
 
-def beats_from_bvp(bvp: np.ndarray, fs: float) -> tuple[np.ndarray, np.ndarray]:
+def _beats_from_bvp(bvp: np.ndarray, fs: float) -> tuple[np.ndarray, np.ndarray]:
     """Detects pulse peaks in a BVP signal and returns the beat intervals.
 
     Uses a band-pass filter and per-epoch standardisation before peak picking
@@ -103,7 +103,7 @@ def beats_from_bvp(bvp: np.ndarray, fs: float) -> tuple[np.ndarray, np.ndarray]:
     return peaks[1:] / fs, np.diff(peaks) / fs
 
 
-def beats_from_ibi_column(ibi: np.ndarray, fs: float) -> tuple[np.ndarray, np.ndarray]:
+def _beats_from_ibi_column(ibi: np.ndarray, fs: float) -> tuple[np.ndarray, np.ndarray]:
     """Reads beats from the device's sparse ``IBI`` column.
 
     Args:
@@ -117,7 +117,7 @@ def beats_from_ibi_column(ibi: np.ndarray, fs: float) -> tuple[np.ndarray, np.nd
     return idx / fs, ibi[idx]
 
 
-def ibi_to_grid(
+def _ibi_to_grid(
     times: np.ndarray,
     intervals: np.ndarray,
     n_epochs: int,
@@ -262,10 +262,10 @@ class SleepStagingDREAMT(BaseTask):
         points = self.epoch_seconds * self.grid_hz
 
         if self.ibi_source == "bvp":
-            times, intervals = beats_from_bvp(bvp, self.sampling_rate)
+            times, intervals = _beats_from_bvp(bvp, self.sampling_rate)
         else:
-            times, intervals = beats_from_ibi_column(ibi, self.sampling_rate)
-        series = ibi_to_grid(
+            times, intervals = _beats_from_ibi_column(ibi, self.sampling_rate)
+        series = _ibi_to_grid(
             times, intervals, n_epochs, self.epoch_seconds, self.grid_hz, self.max_ibi
         )
         valid = ~np.isnan(series)
@@ -293,8 +293,8 @@ class SleepStagingDREAMT(BaseTask):
         if self.add_mask:
             mask = valid.reshape(n_epochs, points).astype(np.float32)
             x = np.stack([x, mask], axis=1)
-        labels = epoch_labels(
-            map_stages(stages, self.ignore_prep, self.label_scheme),
+        labels = _epoch_labels(
+            _map_stages(stages, self.ignore_prep, self.label_scheme),
             rows_per_epoch,
             n_epochs,
             self.num_classes,
