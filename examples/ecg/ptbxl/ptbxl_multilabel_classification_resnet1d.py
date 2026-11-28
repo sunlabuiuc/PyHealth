@@ -64,6 +64,16 @@ and ``pip install 'pyhealth[ptbxl]'``. Examples:
         --root ~/.cache/pyhealth/datasets/ptbxl/1.0.3 \
         --split all --task multiclass --dx AF --depth 18 50
 
+    # no PhysioNet corpus? self-check the whole pipeline on synthetic data
+    python examples/ecg/ptbxl/ptbxl_multilabel_classification_resnet1d.py \
+        --synthetic-root /tmp/ptbxl-synthetic --split 1 --task multilabel \
+        --epochs 1
+
+``--synthetic-root`` writes a small pseudo PTB-XL corpus (deterministic
+ramp waveforms, invented SCP labels, all five fold pairs populated) so
+the script is runnable with synthetic data alone; every score from such a
+run is meaningless by construction.
+
 Note (documented deviations from the released benchmark code):
 
 - Normalization is per lead with train-fold statistics, following the
@@ -127,18 +137,117 @@ from pyhealth.trainer import Trainer
 SAMPLING_RATE = 500
 ALL_FOLDS = tuple(range(1, 11))
 
+# A pseudo PTB-XL corpus for running the pipeline without PhysioNet
+# access (PTB-XL is credentialed). Three label patterns mirror the
+# 3-way multi-class task: NORM-bearing (normal), AFIB-bearing
+# (target for --dx AF), and neither (other); every pattern also
+# carries rhythm codes and most carry a form code so each multilabel
+# --label-set stays non-empty.
+_SYNTHETIC_SCP_STATEMENTS = """\
+,description,diagnostic,form,rhythm,diagnostic_class,diagnostic_subclass
+NORM,normal ECG,1.0,,,NORM,NORM
+IMI,inferior myocardial infarction,1.0,,,MI,IMI
+STTC,non-specific ST-T changes,1.0,,,STTC,STTC
+CD,conduction disturbance,1.0,,,CD,CD
+SR,sinus rhythm,,,1.0,,
+AFIB,atrial fibrillation,,,1.0,,
+PAC,premature atrial contraction,,1.0,,,
+"""
+
+_SYNTHETIC_LABEL_PATTERNS = (
+    {"NORM": 100.0, "SR": 50.0},
+    {"IMI": 90.0, "AFIB": 80.0, "PAC": 40.0},
+    {"STTC": 70.0, "CD": 60.0, "SR": 30.0, "PAC": 20.0},
+)
+_RECORDS_PER_PATTERN = 10
+
 logger = logging.getLogger("ptbxl_ecg_benchmark")
+
+
+def _write_synthetic_wfdb(
+    record_base: Path, n_samples: int, fs: int, offset: int
+) -> None:
+    """Deterministic 12-lead WFDB record (scaled ramp; no real waveform)."""
+    record_base.parent.mkdir(parents=True, exist_ok=True)
+    data = np.zeros((n_samples, 12), dtype=np.int16)
+    for lead in range(12):
+        data[:, lead] = np.arange(n_samples, dtype=np.int64) * 4 + 10 * lead + offset
+    Path(str(record_base) + ".dat").write_bytes(data.tobytes())
+    name = record_base.name
+    lines = [f"{name} 12 {fs} {n_samples}"]
+    for lead in range(12):
+        lines.append(f"{name}.dat 16 1000.0(0)/uV 16 0 0 0 0 {lead}")
+    Path(str(record_base) + ".hea").write_text(
+        "\n".join(lines) + "\n", encoding="utf-8"
+    )
+
+
+def build_synthetic_corpus(root: Path) -> Path:
+    """Write a deterministic pseudo PTB-XL corpus under ``root``.
+
+    The corpus has the pieces :class:`pyhealth.datasets.PTBXLDataset`
+    expects: ``scp_statements.csv`` / ``ptbxl_database.csv`` stubs (fake
+    ids, ages and SCP-likelihood dicts) plus 30 synthesized 12-lead WFDB
+    records, 10 s at both 100 and 500 Hz. Record ``i`` gets fold
+    ``i % 10 + 1`` and pattern ``i // 10``, so every fold contains one
+    record of each pattern: all five ``PTBXL_PAPER_FOLD_SPLITS`` pairs
+    then have non-empty train/val/test sets with every task class
+    present, and per-class metrics stay defined.
+
+    Note:
+        The waveforms are linear ramps and the labels are invented, so
+        all scores are meaningless. This exists to check that the full
+        pipeline (loading, task processing, training, sliding-window
+        inference, bootstrap, significance test) runs without the
+        credentialed PTB-XL download, not to reproduce paper numbers.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "scp_statements.csv").write_text(
+        _SYNTHETIC_SCP_STATEMENTS, encoding="utf-8"
+    )
+    n_records = _RECORDS_PER_PATTERN * len(_SYNTHETIC_LABEL_PATTERNS)
+    header = (
+        "ecg_id,patient_id,age,sex,site,device,recording_date,scp_codes,"
+        "strat_fold,filename_lr,filename_hr"
+    )
+    lines = [header]
+    for i in range(n_records):
+        codes = _SYNTHETIC_LABEL_PATTERNS[i // _RECORDS_PER_PATTERN]
+        fold = i % 10 + 1
+        ecg_id = i + 1
+        lr = f"records100/{i // 100:05d}/{ecg_id:05d}_lr"
+        hr = f"records500/{i // 100:05d}/{ecg_id:05d}_hr"
+        lines.append(
+            f"{ecg_id},{900000 + i % 12},{30 + (i * 7) % 50},{i % 2},{i % 3},"
+            f"CS-12,1990-01-01 10:00:00,\"{codes}\",{fold},{lr},{hr}"
+        )
+    (root / "ptbxl_database.csv").write_text(
+        "\n".join(lines) + "\n", encoding="utf-8"
+    )
+    for i in range(n_records):
+        _write_synthetic_wfdb(root / f"records100/{i // 100:05d}/{i + 1:05d}_lr",
+                              n_samples=1000, fs=100, offset=i * 97)
+        _write_synthetic_wfdb(root / f"records500/{i // 100:05d}/{i + 1:05d}_hr",
+                              n_samples=5000, fs=500, offset=i * 97)
+    return root
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="PTB-XL benchmark (Nonaka & Seita 2021) with ResNet1D"
     )
-    parser.add_argument(
+    corpus = parser.add_mutually_exclusive_group(required=True)
+    corpus.add_argument(
         "--root",
-        required=True,
         help="PTB-XL v1.0.3 version directory (contains ptbxl_database.csv "
         "and scp_statements.csv)",
+    )
+    corpus.add_argument(
+        "--synthetic-root",
+        help="Generate a deterministic pseudo PTB-XL corpus here (synthetic "
+        "ramp waveforms, invented labels) and use it as the data root; a "
+        "pipeline self-check without the credentialed PhysioNet download, "
+        "the scores are meaningless",
     )
     parser.add_argument(
         "--split",
@@ -479,6 +588,11 @@ def print_mean_summary(runs: list[dict]) -> None:
 
 def main() -> None:
     args = parse_args()
+    if args.synthetic_root:
+        args.root = str(
+            build_synthetic_corpus(Path(args.synthetic_root).expanduser())
+        )
+        logger.info("Synthetic self-check corpus written to %s", args.root)
     if args.split == "all":
         splits = sorted(PTBXL_PAPER_FOLD_SPLITS)
     else:
