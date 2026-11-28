@@ -173,6 +173,21 @@ class TestSleepStagingIBISleepAccel(unittest.TestCase):
         self.assertEqual(sample["record_id"], "1")
         np.testing.assert_allclose(sample["signal"][0], 1.0)
 
+    def test_default_keeps_epochs_without_heart_rate(self) -> None:
+        _write_subject(self.root, "1", [0, 1, 5])
+        (
+            self.root / "heart_rate" / "1_heartrate.txt"
+        ).write_text("-15,60\n15,60\n75,60\n105,60\n")
+        patient = _patient("1", [_event(self.root, "1")])
+
+        kept = SleepStagingIBISleepAccel()(patient)[0]
+        dropped = SleepStagingIBISleepAccel(require_signal=True)(patient)[0]
+
+        self.assertEqual(kept["signal"].shape, (3, 750))
+        self.assertEqual(kept["label"].tolist(), [0, 1, 2])
+        self.assertEqual(dropped["signal"].shape, (2, 750))
+        self.assertEqual(dropped["label"].tolist(), [0, 2])
+
     def test_max_epochs_truncates(self) -> None:
         _write_subject(self.root, "1", [0, 5, 0, 5])
 

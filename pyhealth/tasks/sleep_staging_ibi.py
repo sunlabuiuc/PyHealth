@@ -1140,7 +1140,8 @@ class SleepStagingIBISleepAccel(_SleepStagingIBIBase):
         heart_rate_padding: Seconds of neighbouring heart-rate samples
             included on each side of an epoch for edge interpolation.
         require_signal: Drop epochs with no heart-rate sample inside the
-            epoch window.
+            epoch window. Defaults to False so the 30 s grid is preserved
+            with zero IBI rows, matching whole-night reference behavior.
 
     Attributes:
         task_name: ``"SleepStagingIBISleepAccel"``.
@@ -1166,7 +1167,7 @@ class SleepStagingIBISleepAccel(_SleepStagingIBIBase):
         max_ibi: float = 2.0,
         min_ibi: float = 0.3,
         heart_rate_padding: float = 60.0,
-        require_signal: bool = True,
+        require_signal: bool = False,
     ) -> None:
         if max_ibi <= 0 or min_ibi <= 0 or min_ibi >= max_ibi:
             raise ValueError("require 0 < min_ibi < max_ibi")
