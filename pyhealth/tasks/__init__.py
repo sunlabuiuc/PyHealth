@@ -361,6 +361,11 @@ from .yaib_eicu import (
 from .tcga_survival_prediction import TCGASurvivalPrediction as TCGASurvivalPrediction
 from .query_focused_ehr import QueryFocusedEHRTask as QueryFocusedEHRTask
 
+from .nhanes_mortality import (
+    NHANESMortalityPrediction as NHANESMortalityPrediction,
+)
+
+
 def __getattr__(name: str):
     if name == "MPFClinicalPredictionTask":
         from .mpf_clinical_prediction import MPFClinicalPredictionTask

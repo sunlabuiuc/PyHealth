@@ -168,3 +168,5 @@ from .support2 import (
     support2_paper_time_transform as support2_paper_time_transform,
     support2_released_split_ids as support2_released_split_ids,
 )
+
+from .nhanes import NHANESDataset as NHANESDataset

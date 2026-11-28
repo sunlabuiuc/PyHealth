@@ -621,6 +621,13 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - —
      - `MIMIC-IV FHIR demo <https://physionet.org/content/mimic-iv-fhir-demo/2.1.0/>`__
 
+
+   * - :doc:`NHANES <datasets/pyhealth.datasets.NHANESDataset>`
+     - Open
+     - `CDC <https://wwwn.cdc.gov/nchs/nhanes/>`__
+     - No
+     - —
+
 Available Datasets
 ------------------
 
@@ -668,6 +675,7 @@ Available Datasets
     datasets/pyhealth.datasets.OMOPDataset
     datasets/pyhealth.datasets.SyntheaCSVDataset
     datasets/pyhealth.datasets.DREAMTDataset
+    datasets/pyhealth.datasets.NHANESDataset
     datasets/pyhealth.datasets.SHHSDataset
     datasets/pyhealth.datasets.SleepEDFDataset
     datasets/pyhealth.datasets.NSRRSleepDataset

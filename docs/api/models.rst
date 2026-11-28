@@ -344,6 +344,7 @@ API Reference
     models/pyhealth.models.DiPro
     models/pyhealth.models.MedLink
     models/pyhealth.models.TCN
+    models/pyhealth.models.MotionAge
     models/pyhealth.models.TFMTokenizer
     models/pyhealth.models.GAN
     models/pyhealth.models.VAE

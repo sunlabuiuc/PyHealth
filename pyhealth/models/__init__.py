@@ -73,6 +73,8 @@ from .medlink import MedLink
 from .micron import MICRON, MICRONLayer
 from .mlp import MLP
 from .molerec import MoleRec, MoleRecLayer
+from .motionage import MotionAge as MotionAge
+from .motionage import MotionAgeLayer as MotionAgeLayer
 from .retain import MultimodalRETAIN, RETAIN, RETAINLayer
 from .rnn import MultimodalRNN, RNN, RNNLayer
 from .rnn import RNN_V2 as RNN_V2

@@ -1,0 +1,24 @@
+version: "1.0.0"
+
+tables:
+  participants:
+    file_path: "processed/pyhealth/nhanes-metadata.parquet"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "cycle"
+      - "activity_file"
+      - "num_epochs"
+      - "total_wear_minutes"
+      - "age"
+      - "gender"
+      - "race_ethnicity"
+      - "weight"
+      - "height"
+      - "bmi"
+      - "systolic_bp"
+      - "diastolic_bp"
+      - "eligstat"
+      - "mortstat"
+      - "permth_int"
+      - "permth_exm"

@@ -313,6 +313,7 @@ Available Tasks
     BCSS Tile Classification <tasks/pyhealth.tasks.BCSSTileClassification>
     BCSS Tissue Segmentation <tasks/pyhealth.tasks.BCSSTissueSegmentation>
     METABRIC Survival Prediction <tasks/pyhealth.tasks.MetabricSurvivalPrediction>
+    NHANES Mortality Prediction <tasks/pyhealth.tasks.NHANESMortalityPrediction>
     ABIDE Autism Classification <tasks/pyhealth.tasks.ABIDEAutismClassification>
     Rare-Condition ICU Mortality (KnowRare, MIMIC-IV) <tasks/pyhealth.tasks.KnowRareICUMortalityMIMIC4>
     KiTS23 Malignancy Classification <tasks/pyhealth.tasks.KiTS23MalignancyClassification>
