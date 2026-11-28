@@ -238,6 +238,15 @@ from .jichi_davis_grading import JichiDavisGrading as JichiDavisGrading
 from .rsna_pneumonia_classification import (
     RSNAPneumoniaClassification as RSNAPneumoniaClassification,
 )
+from .realtime_icu_mortality_eicu import (
+    RealTimeICUMortalityEICU as RealTimeICUMortalityEICU,
+)
+from .realtime_icu_mortality_mimic4 import (
+    RealTimeICUMortalityMIMIC4 as RealTimeICUMortalityMIMIC4,
+)
+from .realtime_icu_mortality_physionet2012 import (
+    RealTimeICUMortalityPhysioNet2012 as RealTimeICUMortalityPhysioNet2012,
+)
 from .bcss_tile_classification import (
     BCSSTileClassification as BCSSTileClassification,
 )
