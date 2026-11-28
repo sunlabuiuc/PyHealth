@@ -30,6 +30,7 @@ import pytest
 from examples.eicu_hourly_los_lstm import (
     compute_constant_baselines,
     compute_los_metrics,
+    train_and_evaluate,
 )
 from pyhealth.tasks import TPCLengthOfStayEICU
 from tests.core.tpc_fixtures import _lab, _labels, _patient
@@ -508,3 +509,30 @@ def test_compute_constant_baselines():
     assert math.isclose(baselines["mean_baseline"]["mad"], 1.0, rel_tol=1e-9)
     assert math.isclose(baselines["median_baseline"]["mad"], 1.0, rel_tol=1e-9)
     assert baselines["mean_baseline"]["mse"] < baselines["median_baseline"]["mse"]
+
+
+def test_train_and_evaluate_synthetic_smoke():
+    """Verify train_and_evaluate runs end-to-end on synthetic patients."""
+    rows = train_and_evaluate(
+        synthetic=True,
+        epochs=1,
+        test_rates=(0.0, 0.1),
+        batch_size=2,
+        embedding_dim=8,
+        hidden_dim=16,
+        num_layers=1,
+        device="cpu",
+    )
+
+    assert len(rows) == 6
+    labels = [row["label"] for row in rows]
+    assert "Mean Baseline" in labels
+    assert "Median Baseline" in labels
+    assert labels.count("LSTM (Train 0% drop)") == 2
+    assert labels.count("LSTM (Train 10% drop)") == 2
+
+    metric_names = ("mad", "mape", "mse", "msle", "r2", "kappa")
+    for row in rows:
+        assert row["n_test_hours"] > 0
+        for name in metric_names:
+            assert math.isfinite(row["metrics"][name])

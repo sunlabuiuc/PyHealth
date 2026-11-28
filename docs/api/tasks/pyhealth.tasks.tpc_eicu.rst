@@ -13,7 +13,7 @@
 
 
 Hourly remaining ICU length of stay
-==================================
+===================================
 
 .. automodule:: pyhealth.tasks.tpc_eicu
    :members:

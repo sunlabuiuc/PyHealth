@@ -96,7 +96,7 @@ class TPCLengthOfStayEICU(YAIBLengthOfStayEICU):
 
         if include_decay:
             self.input_schema["decay"] = (
-                "sequence_v2",
+                "jagged",
                 {
                     "levels": [
                         {

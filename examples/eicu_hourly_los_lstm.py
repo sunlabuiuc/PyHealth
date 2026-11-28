@@ -103,9 +103,14 @@ import argparse
 import gc
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 # Bound native thread pools on Windows before importing torch/polars.
 for _var in ("POLARS_MAX_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
