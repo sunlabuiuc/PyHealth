@@ -301,10 +301,10 @@ class _YAIBEICUTask(BaseTask):
     need no attribution to stays. Samples are keyed by ``stay_id``, the eICU
     ``patientunitstayid``.
 
-    Each sample holds ``dynamic``, a ``sequence_v2`` series of the hourly
+    Each sample holds ``dynamic``, a ``jagged`` series of the hourly
     bins (``{"time": [0, 1, ..., T], "values": [T + 1, 48]}``, time in hours
     since ICU admission, ``NaN`` for bins without measurement), and
-    ``static``, a ``sequence_v2`` field with a ``single`` level, the stay's
+    ``static``, a ``jagged`` field with a ``single`` level, the stay's
     one record (``{"values": [[age, sex, height, weight]]}``, sex
     encoded as 1 for male and 0 for female, ``NaN`` when
     unavailable). Per-hour labels are ``timeseries_*`` labels on the same
@@ -322,7 +322,7 @@ class _YAIBEICUTask(BaseTask):
     only. Unlike YAIB, which label-encodes sex as a category, sex is
     standardized like the other static features.
 
-    Training needs a model that reads the ``sequence_v2`` input and the
+    Training needs a model that reads the ``jagged`` input and the
     per-hour label records, such as :class:`~pyhealth.models.RNN_V2`;
     :class:`~pyhealth.models.RNN` and :class:`~pyhealth.models.MultimodalRNN`
     do not.
@@ -337,50 +337,79 @@ class _YAIBEICUTask(BaseTask):
     ``intakeoutput``, ``respiratorycharting`` and ``nursecharting`` tables.
     """
 
-    input_schema: ClassVar[dict[str, Any]] = {
-        # Forward fill, then the training mean (0 once standardized) before
-        # the first measurement, then 0 for a feature never seen in training
-        # (normalization leaves it as is): YAIB's preprocessing, with the
-        # missing-value indicators as the mask.
-        "dynamic": (
-            "sequence_v2",
-            {
-                "levels": [
-                    {
-                        "ordering": "series",
-                        "values": [len(_DYNAMIC_FEATURES)],
-                        "impute": [
-                            {"method": "forward_fill"},
-                            {"method": "mean", "by_dims": ()},  # per feature
-                            {"method": "zero"},
-                        ],
-                        "normalize": {"method": "zscore"},
-                        "missing_indicator": True,
-                    }
-                ]
-            },
-        ),
-        # The training mean (0 once standardized), then 0 for a feature never
-        # seen in training: YAIB's standardize-then-zero-fill, with the
-        # missing-value indicators as the mask.
-        "static": (
-            "sequence_v2",
-            {
-                "levels": [
-                    {
-                        "ordering": "single",
-                        "values": [len(_STATIC_FEATURES)],
-                        "impute": [
-                            {"method": "mean", "by_dims": ()},  # per feature
-                            {"method": "zero"},
-                        ],
-                        "normalize": {"method": "zscore"},
-                        "missing_indicator": True,
-                    }
-                ]
-            },
-        ),
+    # The views of the task: each is one input schema over the same samples.
+    # Every view applies YAIB's preprocessing where it imputes or scales:
+    # forward fill, then the training mean (0 once standardized) before the
+    # first measurement, then 0 for a feature never seen in training;
+    # standardization; and missing-value indicators. To change a setting for
+    # one run, pass ``view_overrides`` when creating the task.
+    views: ClassVar[dict[str, dict[str, Any]]] = {
+        # Record structures, read by RNN_V2 (also for the per-hour labels).
+        "jagged": {
+            "dynamic": (
+                "jagged",
+                {
+                    "levels": [
+                        {
+                            "ordering": "series",
+                            "values": [len(_DYNAMIC_FEATURES)],
+                            "impute": [
+                                {"method": "forward_fill"},
+                                {"method": "mean", "by_dims": ()},  # per feature
+                                {"method": "zero"},
+                            ],
+                            "normalize": {"method": "zscore"},
+                            "missing_indicator": True,
+                        }
+                    ]
+                },
+            ),
+            "static": (
+                "jagged",
+                {
+                    "levels": [
+                        {
+                            "ordering": "single",
+                            "values": [len(_STATIC_FEATURES)],
+                            "impute": [
+                                {"method": "mean", "by_dims": ()},  # per feature
+                                {"method": "zero"},
+                            ],
+                            "normalize": {"method": "zscore"},
+                            "missing_indicator": True,
+                        }
+                    ]
+                },
+            ),
+        },
+        # Padded tensors with an explicit step mask, read by the sequence
+        # models built on EmbeddingModel (RNN, Transformer, RETAIN, ...). The
+        # values equal those of "jagged".
+        "dense": {
+            "dynamic": (
+                "dense_series",
+                {"forward_fill": True, "normalize": True, "missing_indicator": True},
+            ),
+            "static": (
+                "dense_static",
+                {"normalize": True, "missing_indicator": True},
+            ),
+        },
+        # One coded event per measured value, nothing imputed or scaled, read
+        # by the EHR foundation models. Codes default to "YAIB/<feature>";
+        # set "codes" to the ones a pretrained vocabulary uses.
+        "events": {
+            "dynamic": (
+                "event_stream",
+                {"names": list(_DYNAMIC_FEATURES), "codes": {}, "units": {}},
+            ),
+            "static": (
+                "event_birth",
+                {"age_index": _STATIC_FEATURES.index("age")},
+            ),
+        },
     }
+    default_view: ClassVar[str] = "jagged"
 
     DYNAMIC_FEATURES: ClassVar[list[str]] = list(_DYNAMIC_FEATURES)
     STATIC_FEATURES: ClassVar[list[str]] = list(_STATIC_FEATURES)
@@ -840,7 +869,7 @@ class YAIBMortalityEICU(_YAIBEICUTask):
     respiratorycharting and nursecharting tables.
 
     Examples:
-        >>> from pyhealth.datasets import eICUDataset
+        >>> from pyhealth.datasets import eICUDataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBMortalityEICU
         >>> dataset = eICUDataset(
         ...     root="/path/to/eicu-crd/2.0",
@@ -848,7 +877,10 @@ class YAIBMortalityEICU(_YAIBEICUTask):
         ...             "intakeoutput", "respiratorycharting",
         ...             "nursecharting"],
         ... )
-        >>> samples = dataset.set_task(YAIBMortalityEICU())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBMortalityEICU(), split=split)
     """
 
     task_name: str = "YAIBMortalityEICU"
@@ -907,7 +939,7 @@ class YAIBKidneyFunctionEICU(_YAIBEICUTask):
     respiratorycharting and nursecharting tables.
 
     Examples:
-        >>> from pyhealth.datasets import eICUDataset
+        >>> from pyhealth.datasets import eICUDataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBKidneyFunctionEICU
         >>> dataset = eICUDataset(
         ...     root="/path/to/eicu-crd/2.0",
@@ -915,7 +947,10 @@ class YAIBKidneyFunctionEICU(_YAIBEICUTask):
         ...             "intakeoutput", "respiratorycharting",
         ...             "nursecharting"],
         ... )
-        >>> samples = dataset.set_task(YAIBKidneyFunctionEICU())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBKidneyFunctionEICU(), split=split)
     """
 
     task_name: str = "YAIBKidneyFunctionEICU"
@@ -982,7 +1017,7 @@ class YAIBLengthOfStayEICU(_YAIBEICUTask):
     respiratorycharting and nursecharting tables.
 
     Examples:
-        >>> from pyhealth.datasets import eICUDataset
+        >>> from pyhealth.datasets import eICUDataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBLengthOfStayEICU
         >>> dataset = eICUDataset(
         ...     root="/path/to/eicu-crd/2.0",
@@ -990,7 +1025,10 @@ class YAIBLengthOfStayEICU(_YAIBEICUTask):
         ...             "intakeoutput", "respiratorycharting",
         ...             "nursecharting"],
         ... )
-        >>> samples = dataset.set_task(YAIBLengthOfStayEICU())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBLengthOfStayEICU(), split=split)
     """
 
     task_name: str = "YAIBLengthOfStayEICU"
@@ -1066,7 +1104,7 @@ class YAIBAKIEICU(_YAIBEICUTask):
     ``intakeoutput``, ``respiratorycharting`` and ``nursecharting`` tables.
 
     Examples:
-        >>> from pyhealth.datasets import eICUDataset
+        >>> from pyhealth.datasets import eICUDataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBAKIEICU
         >>> dataset = eICUDataset(
         ...     root="/path/to/eicu-crd/2.0",
@@ -1074,7 +1112,10 @@ class YAIBAKIEICU(_YAIBEICUTask):
         ...             "intakeoutput", "respiratorycharting",
         ...             "nursecharting"],
         ... )
-        >>> samples = dataset.set_task(YAIBAKIEICU())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBAKIEICU(), split=split)
     """
 
     task_name: str = "YAIBAKIEICU"
@@ -1354,7 +1395,7 @@ class YAIBSepsisEICU(_YAIBEICUTask):
     ``infusiondrug``, ``medication`` and ``respiratorycare`` tables.
 
     Examples:
-        >>> from pyhealth.datasets import eICUDataset
+        >>> from pyhealth.datasets import eICUDataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBSepsisEICU
         >>> dataset = eICUDataset(
         ...     root="/path/to/eicu-crd/2.0",
@@ -1363,7 +1404,10 @@ class YAIBSepsisEICU(_YAIBEICUTask):
         ...             "nursecharting", "infusiondrug", "medication",
         ...             "respiratorycare"],
         ... )
-        >>> samples = dataset.set_task(YAIBSepsisEICU())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBSepsisEICU(), split=split)
     """
 
     task_name: str = "YAIBSepsisEICU"

@@ -516,6 +516,8 @@ class KnowRare(BaseModel):
         ['a', 'b']
     """
 
+    accepted_views = ("dense",)
+
     def __init__(
         self,
         dataset: SampleDataset,

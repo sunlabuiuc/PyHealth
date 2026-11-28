@@ -372,6 +372,8 @@ class Agent(BaseModel):
         >>> output["loss"].backward()
     """
 
+    accepted_views = ("dense",)
+
     def __init__(
         self,
         dataset: SampleDataset,

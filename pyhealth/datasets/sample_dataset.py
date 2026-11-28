@@ -158,6 +158,8 @@ class SampleBuilder:
         self._fitted = False
         self._split = None
         self._split_indices: list[np.ndarray] | None = None
+        #: Name of the task view these samples are built for, if any.
+        self.view: str | None = None
 
     @property
     def input_processors(self) -> Dict[str, FeatureProcessor]:
@@ -229,6 +231,7 @@ class SampleBuilder:
         self,
         samples: Iterable[Dict[str, Any]],
         split: "Split | None" = None,
+        require_split: bool = False,
     ) -> None:
         """Fit processors and build mapping indices from an iterator of samples.
 
@@ -248,6 +251,14 @@ class SampleBuilder:
                 (:meth:`~pyhealth.processors.LabelProcessor.fit_test`), so
                 a class seen only in validation or test still gets a model
                 output.
+            require_split: Raise, instead of warning, when a processor that
+                learns statistics would be fitted on all samples because no
+                ``split`` was given. ``set_task`` sets it for tasks with
+                views, whose results are compared across models.
+
+        Raises:
+            ValueError: With ``require_split``, if a processor learns
+                statistics and ``split`` is None.
 
         Behavior:
             - Validates the samples contain all keys specified by the input
@@ -317,6 +328,14 @@ class SampleBuilder:
                     processors[key] = processor
                     if split is None and getattr(processor, "learns_statistics", False):
                         learned_on_all.append(key)
+        if learned_on_all and require_split:
+            raise ValueError(
+                f"Processors for {', '.join(learned_on_all)} learn statistics "
+                "from the data, and this task offers views that are compared "
+                "across models, so they must be fitted on the training "
+                "patients only. Pass a split: "
+                "set_task(task, split=PatientSplit(...))."
+            )
         if learned_on_all:
             logger.warning(
                 "Processors for %s learn statistics from the data and were fitted "
@@ -446,6 +465,7 @@ class SampleBuilder:
             "record_to_index": self._record_to_index,
             "fit_split": self._split.to_dict() if self._split is not None else None,
             "storage_format": STORAGE_FORMAT,
+            "view": self.view,
         }
         with open(path, "wb") as f:
             pickle.dump(metadata, f)
@@ -557,6 +577,8 @@ class SampleDataset(litdata.StreamingDataset):
         # samples (also None for caches written before this was recorded).
         self.fit_split: dict | None = metadata.get("fit_split")
         self.storage_format: int = metadata.get("storage_format", 1)
+        #: Name of the task view the samples were built for, or None.
+        self.view: str | None = metadata.get("view")
 
     def __getitem__(self, index: Any) -> Any:
         """Returns the sample(s) at ``index`` as the original Python objects.

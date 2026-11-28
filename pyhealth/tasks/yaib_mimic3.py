@@ -254,10 +254,10 @@ class _YAIBMIMIC3Task(BaseTask):
     how ricu maps admission-level data onto ICU stays. Samples are keyed by
     ``stay_id``, the MIMIC-III ``icustay_id``.
 
-    Each sample holds ``dynamic``, a ``sequence_v2`` series of the hourly
+    Each sample holds ``dynamic``, a ``jagged`` series of the hourly
     bins (``{"time": [0, 1, ..., T], "values": [T + 1, 48]}``, time in hours
     since ICU admission, ``NaN`` for bins without measurement), and
-    ``static``, a ``sequence_v2`` field with a ``single`` level, the stay's
+    ``static``, a ``jagged`` field with a ``single`` level, the stay's
     one record (``{"values": [[age, sex, height, weight]]}``, sex
     encoded as 1 for male and 0 for female, ``NaN`` when
     unavailable). Per-hour labels are
@@ -276,7 +276,7 @@ class _YAIBMIMIC3Task(BaseTask):
     only. Unlike YAIB, which label-encodes sex as a category, sex is
     standardized like the other static features.
 
-    Training needs a model that reads the ``sequence_v2`` input and the
+    Training needs a model that reads the ``jagged`` input and the
     per-hour label records, such as :class:`~pyhealth.models.RNN_V2`;
     :class:`~pyhealth.models.RNN` and :class:`~pyhealth.models.MultimodalRNN`
     do not.
@@ -304,50 +304,79 @@ class _YAIBMIMIC3Task(BaseTask):
     Requires the ``labevents``, ``chartevents`` and ``outputevents`` tables.
     """
 
-    input_schema: ClassVar[dict[str, Any]] = {
-        # Forward fill, then the training mean (0 once standardized) before
-        # the first measurement, then 0 for a feature never seen in training
-        # (normalization leaves it as is): YAIB's preprocessing, with the
-        # missing-value indicators as the mask.
-        "dynamic": (
-            "sequence_v2",
-            {
-                "levels": [
-                    {
-                        "ordering": "series",
-                        "values": [len(_DYNAMIC_FEATURES)],
-                        "impute": [
-                            {"method": "forward_fill"},
-                            {"method": "mean", "by_dims": ()},  # per feature
-                            {"method": "zero"},
-                        ],
-                        "normalize": {"method": "zscore"},
-                        "missing_indicator": True,
-                    }
-                ]
-            },
-        ),
-        # The training mean (0 once standardized), then 0 for a feature never
-        # seen in training: YAIB's standardize-then-zero-fill, with the
-        # missing-value indicators as the mask.
-        "static": (
-            "sequence_v2",
-            {
-                "levels": [
-                    {
-                        "ordering": "single",
-                        "values": [len(_STATIC_FEATURES)],
-                        "impute": [
-                            {"method": "mean", "by_dims": ()},  # per feature
-                            {"method": "zero"},
-                        ],
-                        "normalize": {"method": "zscore"},
-                        "missing_indicator": True,
-                    }
-                ]
-            },
-        ),
+    # The views of the task: each is one input schema over the same samples.
+    # Every view applies YAIB's preprocessing where it imputes or scales:
+    # forward fill, then the training mean (0 once standardized) before the
+    # first measurement, then 0 for a feature never seen in training;
+    # standardization; and missing-value indicators. To change a setting for
+    # one run, pass ``view_overrides`` when creating the task.
+    views: ClassVar[dict[str, dict[str, Any]]] = {
+        # Record structures, read by RNN_V2 (also for the per-hour labels).
+        "jagged": {
+            "dynamic": (
+                "jagged",
+                {
+                    "levels": [
+                        {
+                            "ordering": "series",
+                            "values": [len(_DYNAMIC_FEATURES)],
+                            "impute": [
+                                {"method": "forward_fill"},
+                                {"method": "mean", "by_dims": ()},  # per feature
+                                {"method": "zero"},
+                            ],
+                            "normalize": {"method": "zscore"},
+                            "missing_indicator": True,
+                        }
+                    ]
+                },
+            ),
+            "static": (
+                "jagged",
+                {
+                    "levels": [
+                        {
+                            "ordering": "single",
+                            "values": [len(_STATIC_FEATURES)],
+                            "impute": [
+                                {"method": "mean", "by_dims": ()},  # per feature
+                                {"method": "zero"},
+                            ],
+                            "normalize": {"method": "zscore"},
+                            "missing_indicator": True,
+                        }
+                    ]
+                },
+            ),
+        },
+        # Padded tensors with an explicit step mask, read by the sequence
+        # models built on EmbeddingModel (RNN, Transformer, RETAIN, ...). The
+        # values equal those of "jagged".
+        "dense": {
+            "dynamic": (
+                "dense_series",
+                {"forward_fill": True, "normalize": True, "missing_indicator": True},
+            ),
+            "static": (
+                "dense_static",
+                {"normalize": True, "missing_indicator": True},
+            ),
+        },
+        # One coded event per measured value, nothing imputed or scaled, read
+        # by the EHR foundation models. Codes default to "YAIB/<feature>";
+        # set "codes" to the ones a pretrained vocabulary uses.
+        "events": {
+            "dynamic": (
+                "event_stream",
+                {"names": list(_DYNAMIC_FEATURES), "codes": {}, "units": {}},
+            ),
+            "static": (
+                "event_birth",
+                {"age_index": _STATIC_FEATURES.index("age")},
+            ),
+        },
     }
+    default_view: ClassVar[str] = "jagged"
 
     DYNAMIC_FEATURES: ClassVar[list[str]] = list(_DYNAMIC_FEATURES)
     STATIC_FEATURES: ClassVar[list[str]] = list(_STATIC_FEATURES)
@@ -753,13 +782,16 @@ class YAIBMortalityMIMIC3(_YAIBMIMIC3Task):
             that set for MIMIC-III 1.4.
 
     Examples:
-        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.datasets import MIMIC3Dataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBMortalityMIMIC3
         >>> dataset = MIMIC3Dataset(
         ...     root="/path/to/mimic-iii/1.4",
         ...     tables=["labevents", "chartevents", "outputevents", "transfers"],
         ... )
-        >>> samples = dataset.set_task(YAIBMortalityMIMIC3())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBMortalityMIMIC3(), split=split)
     """
 
     task_name: str = "YAIBMortalityMIMIC3"
@@ -770,8 +802,10 @@ class YAIBMortalityMIMIC3(_YAIBMIMIC3Task):
     # ICU death needs the last ward before hospital discharge.
     _EXTRA_TABLES: ClassVar[tuple[str, ...]] = ("transfers",)
 
-    def __init__(self, icu_wards: Sequence[str] | None = None) -> None:
-        super().__init__()
+    def __init__(
+        self, icu_wards: Sequence[str] | None = None, **kwargs: Any
+    ) -> None:
+        super().__init__(**kwargs)
         self.icu_wards = list(self.ICU_WARDS if icu_wards is None else icu_wards)
 
     def __call__(self, patient: Any) -> list[dict[str, Any]]:
@@ -827,13 +861,16 @@ class YAIBKidneyFunctionMIMIC3(_YAIBMIMIC3Task):
     Requires the ``labevents``, ``chartevents`` and ``outputevents`` tables.
 
     Examples:
-        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.datasets import MIMIC3Dataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBKidneyFunctionMIMIC3
         >>> dataset = MIMIC3Dataset(
         ...     root="/path/to/mimic-iii/1.4",
         ...     tables=["labevents", "chartevents", "outputevents"],
         ... )
-        >>> samples = dataset.set_task(YAIBKidneyFunctionMIMIC3())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBKidneyFunctionMIMIC3(), split=split)
     """
 
     task_name: str = "YAIBKidneyFunctionMIMIC3"
@@ -902,13 +939,16 @@ class YAIBLengthOfStayMIMIC3(_YAIBMIMIC3Task):
     Requires the ``labevents``, ``chartevents`` and ``outputevents`` tables.
 
     Examples:
-        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.datasets import MIMIC3Dataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBLengthOfStayMIMIC3
         >>> dataset = MIMIC3Dataset(
         ...     root="/path/to/mimic-iii/1.4",
         ...     tables=["labevents", "chartevents", "outputevents"],
         ... )
-        >>> samples = dataset.set_task(YAIBLengthOfStayMIMIC3())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBLengthOfStayMIMIC3(), split=split)
     """
 
     task_name: str = "YAIBLengthOfStayMIMIC3"
@@ -982,13 +1022,16 @@ class YAIBAKIMIMIC3(_YAIBMIMIC3Task):
     Requires the ``labevents``, ``chartevents`` and ``outputevents`` tables.
 
     Examples:
-        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.datasets import MIMIC3Dataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBAKIMIMIC3
         >>> dataset = MIMIC3Dataset(
         ...     root="/path/to/mimic-iii/1.4",
         ...     tables=["labevents", "chartevents", "outputevents"],
         ... )
-        >>> samples = dataset.set_task(YAIBAKIMIMIC3())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBAKIMIMIC3(), split=split)
     """
 
     task_name: str = "YAIBAKIMIMIC3"
@@ -1175,7 +1218,7 @@ class YAIBSepsisMIMIC3(_YAIBMIMIC3Task):
             the antibiotic window; see :class:`YAIBMortalityMIMIC3`.
 
     Examples:
-        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.datasets import MIMIC3Dataset, PatientSplit, SubjectSplit
         >>> from pyhealth.tasks import YAIBSepsisMIMIC3
         >>> dataset = MIMIC3Dataset(
         ...     root="/path/to/mimic-iii/1.4",
@@ -1183,7 +1226,10 @@ class YAIBSepsisMIMIC3(_YAIBMIMIC3Task):
         ...             "inputevents_cv", "inputevents_mv", "procedureevents_mv",
         ...             "microbiologyevents", "transfers"],
         ... )
-        >>> samples = dataset.set_task(YAIBSepsisMIMIC3())
+        >>> split = SubjectSplit.load_or_draw(
+        ...     dataset, "seed0", PatientSplit((0.8, 0.1, 0.1))
+        ... )
+        >>> train, val, test = dataset.set_task(YAIBSepsisMIMIC3(), split=split)
     """
 
     task_name: str = "YAIBSepsisMIMIC3"
@@ -1285,8 +1331,10 @@ class YAIBSepsisMIMIC3(_YAIBMIMIC3Task):
         "transfers",
     )
 
-    def __init__(self, icu_wards: Sequence[str] | None = None) -> None:
-        super().__init__()
+    def __init__(
+        self, icu_wards: Sequence[str] | None = None, **kwargs: Any
+    ) -> None:
+        super().__init__(**kwargs)
         self.icu_wards = list(self.ICU_WARDS if icu_wards is None else icu_wards)
 
     # Event times ------------------------------------------------------------

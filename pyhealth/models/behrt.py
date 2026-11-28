@@ -317,6 +317,8 @@ class BEHRT(BaseModel):
         ['logit', 'loss', 'y_prob', 'y_true']
     """
 
+    accepted_views = ("dense",)
+
     def __init__(
         self,
         dataset: SampleDataset,

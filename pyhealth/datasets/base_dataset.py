@@ -581,7 +581,7 @@ class BaseDataset(ABC):
                                                     # behind only by a killed job
                 tasks/                              # Cached task-specific data
                     {task_name}_{task_uuid}/        # Cached data for specific task based on task name, schema, and args
-                        task_df.ld/                 # Intermediate task dataframe based on schema
+                        task_df.ld/                 # Intermediate task dataframe, shared by the task's views
                         samples_{proc_uuid}.ld/     # Final processed samples after applying processors
 
         Returns:
@@ -626,16 +626,16 @@ class BaseDataset(ABC):
 
         The name holds the task name and a hash of the task's attributes and
         schemas, so tasks that differ in any argument get their own cache.
+        The views of a task share it: their input schemas key the processed
+        samples instead (see :meth:`set_task`).
         """
-        task_params = json.dumps(
-            {
-                **vars(task),
-                "input_schema": task.input_schema,
-                "output_schema": task.output_schema,
-            },
-            sort_keys=True,
-            default=str,
-        )
+        params = {**vars(task), "output_schema": task.output_schema}
+        if task.views:
+            params.pop("input_schema", None)
+            params.pop("view", None)
+        else:
+            params["input_schema"] = task.input_schema
+        task_params = json.dumps(params, sort_keys=True, default=str)
         return (
             self.cache_dir
             / "tasks"
@@ -1379,7 +1379,7 @@ class BaseDataset(ABC):
         The cache structure is as follows::
 
             {task_name}_{task_uuid}/        # Cached data for specific task based on task name, schema, and args
-                task_df.ld/                 # Intermediate task dataframe based on schema
+                task_df.ld/                 # Intermediate task dataframe, shared by the task's views
                 samples_{proc_uuid}.ld/     # Final processed samples after applying processors
                     schema.pkl              # Saved SampleBuilder schema
                     split.npz               # Sample indices per split part (with split= only)
@@ -1453,6 +1453,14 @@ class BaseDataset(ABC):
                 ),
                 # Layout of processed samples on disk; a new layout gets a new cache.
                 "storage_format": STORAGE_FORMAT,
+                # The views of a task share its task cache, so each view's input
+                # schema keys its processed samples. A task without views has
+                # its schema in the task cache key already.
+                **(
+                    {"view": task.view, "input_schema": task.input_schema}
+                    if task.views
+                    else {}
+                ),
                 # Only present with a split, so existing unsplit caches keep their key.
                 **({"split": split.to_dict()} if split is not None else {}),
             },
@@ -1515,7 +1523,10 @@ class BaseDataset(ABC):
                         input_processors=input_processors,
                         output_processors=output_processors,
                     )
-                    builder.fit(dataset, split=split)
+                    builder.view = task.view
+                    # A task with views is compared across models, so its
+                    # processors may only learn from the training part.
+                    builder.fit(dataset, split=split, require_split=bool(task.views))
                     builder.save(str(samples_path / "schema.pkl"))
                     if split is not None:
                         # Written before the samples, whose index.json marks the

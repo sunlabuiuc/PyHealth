@@ -1,10 +1,13 @@
+import json
 import logging
 import math
+import os
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from itertools import chain
 from numbers import Real
+from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 import numpy as np
@@ -214,6 +217,91 @@ class SubjectSplit(Split):
                 seen[subject] = index
         object.__setattr__(self, "subjects", tuple(parts))
 
+    @classmethod
+    def draw(cls, patient_ids: Sequence[str], split: "PatientSplit") -> "SubjectSplit":
+        """Fixes a seeded split as explicit patient lists.
+
+        A seeded split shuffles the patients that have samples, so tasks
+        with different cohorts can put one patient in different parts.
+        Drawn once over every patient of a dataset (and saved), the lists
+        put each patient in the same part for every task and every view.
+
+        Args:
+            patient_ids: The patients to assign, usually all of a dataset.
+            split: The seeded split to apply, training ratio first.
+
+        Returns:
+            One part per ratio; each patient is in exactly one.
+
+        Examples:
+            >>> from pyhealth.datasets import PatientSplit, SubjectSplit
+            >>> split = SubjectSplit.draw(["a", "b", "c", "d"], PatientSplit((0.5, 0.5)))
+            >>> sorted(pid for part in split.subjects for pid in part)
+            ['a', 'b', 'c', 'd']
+        """
+        ids = sorted({str(pid) for pid in patient_ids})
+        parts = split.split_indices({pid: [i] for i, pid in enumerate(ids)})
+        return cls(tuple([ids[i] for i in part] for part in parts))
+
+    def save(self, path: str | Path, drawn_with: dict | None = None) -> None:
+        """Writes the patient lists to ``path`` as JSON.
+
+        The file is written next to ``path`` and then renamed into place, so
+        a run reading it concurrently never sees a partly written split.
+
+        Args:
+            path: Where to write.
+            drawn_with: The ``to_dict()`` of the split the lists were drawn
+                with, kept so :meth:`load_or_draw` can check it.
+        """
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"subjects": [list(part) for part in self.subjects], "drawn_with": drawn_with}
+        partial = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        partial.write_text(json.dumps(payload))
+        os.replace(partial, path)
+
+    @classmethod
+    def load(cls, path: str | Path) -> "SubjectSplit":
+        """Reads patient lists written by :meth:`save`."""
+        return cls(tuple(json.loads(Path(path).read_text())["subjects"]))
+
+    @classmethod
+    def load_or_draw(cls, dataset, name: str, split: "PatientSplit") -> "SubjectSplit":
+        """The dataset's saved split ``name``, drawn with ``split`` if new.
+
+        The lists are kept in ``<dataset cache>/splits/<name>.json`` and drawn
+        over every patient of ``dataset`` (:meth:`draw`). Once saved, the
+        file is used as it is, so patients added to the dataset later are in
+        no part; draw a new split under another name to include them.
+
+        Args:
+            dataset: A :class:`~pyhealth.datasets.BaseDataset`.
+            name: Name of the saved split.
+            split: The seeded split to draw a new one with.
+
+        Returns:
+            The saved split.
+
+        Raises:
+            ValueError: If ``name`` is not a plain file name, or a split of
+                that name was drawn with a different ``split``.
+        """
+        if not name or Path(name).name != name or name in (".", ".."):
+            raise ValueError(f"Split name must be a plain file name, got {name!r}.")
+        path = Path(dataset.cache_dir) / "splits" / f"{name}.json"
+        if path.exists():
+            saved = json.loads(path.read_text())["drawn_with"]
+            if saved != split.to_dict():
+                raise ValueError(
+                    f"The saved split {name!r} was drawn with {saved}, not "
+                    f"{split.to_dict()}. Use another name for a different split."
+                )
+            return cls.load(path)
+        drawn = cls.draw(dataset.unique_patient_ids, split)
+        drawn.save(path, drawn_with=split.to_dict())
+        return drawn
+
     def to_dict(self) -> dict:
         """JSON description used in the processed-sample cache key.
 
@@ -240,9 +328,12 @@ class SubjectSplit(Split):
         for part in self.subjects:
             missing = [subject for subject in part if subject not in lookup]
             if missing:
+                # A split drawn over a whole dataset lists every patient, and
+                # a task's cohort has samples for only some, so keep it short.
                 logger.warning(
-                    "SubjectSplit subjects not in the dataset (skipped): %s",
-                    missing,
+                    "SubjectSplit: %d listed subjects have no samples (skipped), e.g. %s",
+                    len(missing),
+                    missing[:5],
                 )
             present = [subject for subject in part if subject in lookup]
             indices = np.fromiter(

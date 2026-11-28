@@ -231,6 +231,8 @@ class RETAIN(BaseModel):
         }
     """
 
+    accepted_views = ("dense",)
+
     def __init__(
         self,
         dataset: SampleDataset,
@@ -462,6 +464,8 @@ class MultimodalRETAIN(BaseModel):
             'logit': tensor(...)
         }
     """
+
+    accepted_views = ("dense",)
 
     def __init__(self, dataset: SampleDataset, embedding_dim: int = 128, **kwargs):
         super(MultimodalRETAIN, self).__init__(dataset=dataset)

@@ -217,6 +217,8 @@ class RNN(BaseModel):
         }
     """
 
+    accepted_views = ("dense",)
+
     def __init__(
         self,
         dataset: SampleDataset,
@@ -425,6 +427,8 @@ class MultimodalRNN(BaseModel):
             'logit': tensor(...)
         }
     """
+
+    accepted_views = ("dense",)
 
     def __init__(
         self,
@@ -882,6 +886,8 @@ class RNN_V2(BaseModel):
         >>> out["logit"].shape
         torch.Size([4, 1])
     """
+
+    accepted_views = ("jagged",)
 
     def __init__(
         self,
