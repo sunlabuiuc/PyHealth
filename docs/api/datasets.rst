@@ -590,6 +590,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `Synthea <https://synthea.mitre.org/downloads>`__
      - Generate locally
      - —
+   * - :doc:`CMMD <datasets/pyhealth.datasets.CMMDDataset>`
+     - Open
+     - `TCIA <https://www.cancerimagingarchive.net/collection/cmmd/>`__
+     - No (22.86 GB via the NBIA Data Retriever; clinical sheet by ``wget``)
+     - —
    * - :doc:`OMOP CDM (format) <datasets/pyhealth.datasets.OMOPDataset>`
      - Depends on source
      - `OHDSI <https://www.ohdsi.org/data-standardization/>`__
@@ -646,6 +651,7 @@ Available Datasets
     datasets/pyhealth.datasets.MIMIC4Dataset
     datasets/pyhealth.datasets.LNDbDataset
     datasets/pyhealth.datasets.MIMIC4EHRDataset
+    datasets/pyhealth.datasets.CMMDDataset
     datasets/pyhealth.datasets.MIMIC4NoteDataset
     datasets/pyhealth.datasets.BCSSDataset
     datasets/pyhealth.datasets.MIMIC4CXRDataset

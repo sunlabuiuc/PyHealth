@@ -108,6 +108,7 @@ from .jichi import JichiDRDataset as JichiDRDataset
 from .rsna_pneumonia import RSNAPneumoniaDataset as RSNAPneumoniaDataset
 from .cbis_ddsm import CBISDDSMDataset as CBISDDSMDataset
 from .isic2020 import ISIC2020Dataset as ISIC2020Dataset
+from .cmmd import CMMDDataset as CMMDDataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .abide import ABIDEDataset as ABIDEDataset
 from .shhs import SHHSDataset
