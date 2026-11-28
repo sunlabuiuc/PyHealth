@@ -126,6 +126,10 @@ from .protoecgnet import (
     ResNet1dBackbone as ResNet1dBackbone,
     ResNet2dBackbone as ResNet2dBackbone,
 )
+from .ecg_branch_resnet import (
+    ECGBranchResNet as ECGBranchResNet,
+    ResNetBranch as ResNetBranch,
+)
 from .td_cnn_lstm import TDCNNLSTM as TDCNNLSTM
 from .generators.halo import HALO
 from .generators.gpt2 import GPT2
