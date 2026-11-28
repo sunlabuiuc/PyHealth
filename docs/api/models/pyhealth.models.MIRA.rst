@@ -25,6 +25,9 @@ channel-independently on the inputs of
 
 See ``examples/mira_physionet2012_forecasting.ipynb`` for zero-shot MIRA on
 PhysioNet 2012 next to APN and last observation carried forward.
+``examples/mira_signal_forecasting.py`` runs the same comparison on PTB-XL
+(:class:`~pyhealth.tasks.PTBXLForecasting`) and Sleep-EDF
+(:class:`~pyhealth.tasks.SleepEDFForecasting`).
 
 .. autoclass:: pyhealth.models.MIRA
     :members:
