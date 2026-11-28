@@ -35,8 +35,12 @@ _CSV_NAME = "sleep_accel-pyhealth.csv"
 _DATASET_KEY = "sleep_accel"
 
 #: Raw R&K stage codes -> canonical five-class stages.
-# Original 4 -> 3: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/utils.py#L48
-# Original 5 -> 4: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/utils.py#L49
+# https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation
+# /public_datasets/utils.py#L48
+# Original 4 -> 3:
+# https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation
+# /public_datasets/utils.py#L49
+# Original 5 -> 4:
 SLEEP_ACCEL_STAGE_MAP: dict[int, int] = {
     0: 0,
     1: 1,
