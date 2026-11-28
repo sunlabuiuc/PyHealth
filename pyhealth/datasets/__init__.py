@@ -53,6 +53,8 @@ SampleSignalDataset = _removed_1x_class(
 
 
 from .base_dataset import BaseDataset
+from .ludb import LUDBDataset as LUDBDataset
+from .ludb import LUDBManifestSplit as LUDBManifestSplit
 from .cdc_covid import CDCCOVIDDataset as CDCCOVIDDataset
 from .pbc import PBCDataset as PBCDataset
 from .imaging.patches import PatchDataset as PatchDataset
@@ -143,6 +145,8 @@ from .ahepa_dementia import AHEPADementiaDataset as AHEPADementiaDataset
 from .bciiv2a import BCICompetitionIV2aDataset as BCICompetitionIV2aDataset
 from .hup_ieeg import HUPiEEGDataset as HUPiEEGDataset
 from .iiic import IIICDataset as IIICDataset
+from .mitbih import MITBIHAnomalyRatioSplit as MITBIHAnomalyRatioSplit
+from .mitbih import MITBIHDataset as MITBIHDataset
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
 from .chbmit import CHBMITDataset as CHBMITDataset

@@ -1,0 +1,17 @@
+version: "1.0.0"  # PhysioNet MIT-BIH Arrhythmia Database (mitdb) v1.0.0
+tables:
+  records:
+    # Written by MITBIHDataset.prepare_metadata from the WFDB headers and
+    # beat annotations, into metadata_cache_dir (not the data root).
+    file_path: "mitbih-pyhealth.csv"
+    patient_id: "patient_id"
+    # Recordings are de-identified and carry no acquisition dates.
+    timestamp: null
+    attributes:
+    - "record_id"
+    - "signal_file"
+    - "fs"
+    - "n_samples"
+    - "leads"  # comma-separated, e.g. "MLII,V1"
+    - "anomaly_ratio"  # fraction of beat annotations other than "N"
+    - "comments"  # header comments: age, sex, medications, notes

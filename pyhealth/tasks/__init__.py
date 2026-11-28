@@ -1,4 +1,5 @@
 from .base_task import BaseTask
+from .ecg_delineation_ludb import ECGDelineationLUDB as ECGDelineationLUDB
 from .cdc_covid_mortality import (
     CDCCOVIDMortalityPrediction as CDCCOVIDMortalityPrediction,
 )
@@ -363,6 +364,10 @@ def __getattr__(name: str):
         from .mpf_clinical_prediction import MPFClinicalPredictionTask
 
         return MPFClinicalPredictionTask
+    if name == "MITBIHAnomalyDetection":
+        from .mitbih import MITBIHAnomalyDetection
+
+        return MITBIHAnomalyDetection
     if name == "PTBXLSuperclassClassification":
         from .ptbxl import PTBXLSuperclassClassification
 

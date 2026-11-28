@@ -1,3 +1,8 @@
+from .anomaly_detection import (
+    anomaly_detection_metrics,
+    point_adjust,
+    reconstruction_anomaly_scores,
+)
 from .binary import binary_metrics_fn, timeseries_binary_metrics_fn
 from .bootstrap import bootstrap_ci, paired_bootstrap_diff
 from .clinical import (
@@ -15,6 +20,11 @@ from .competing_risks import (
 )
 from .detection import box_iou, detection_metrics_fn
 from .drug_recommendation import ddi_rate_score
+from .ecg_delineation import (
+    assemble_ecg_sequences,
+    ecg_delineation_metrics,
+    segment_mean_iou,
+)
 from .fairness import fairness_metrics_fn
 from .generative import (
     calc_membership_inference,
@@ -59,6 +69,9 @@ from .survival_curve import (
 )
 
 __all__ = [
+    "assemble_ecg_sequences",
+    "ecg_delineation_metrics",
+    "segment_mean_iou",
     "CensoringDistribution",
     "MetricSupportError",
     "competing_risk_brier",
@@ -68,6 +81,7 @@ __all__ = [
     "RemovalBasedMetric",
     "SufficiencyMetric",
     "alert_rate_metrics",
+    "anomaly_detection_metrics",
     "binary_metrics_fn",
     "bootstrap_ci",
     "box_iou",
@@ -100,7 +114,9 @@ __all__ = [
     "paired_bootstrap_diff",
     "per_class_dice_score",
     "per_class_segmentation_metrics",
+    "point_adjust",
     "ranking_metrics_fn",
+    "reconstruction_anomaly_scores",
     "regression_metrics_fn",
     "remap_class_mask",
     "segmentation_metrics_fn",

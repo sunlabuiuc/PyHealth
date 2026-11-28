@@ -381,6 +381,8 @@ API Reference
     models/pyhealth.models.DescEmb
     models/pyhealth.models.bulk_rna_bert
     models/pyhealth.models.DearLLM
+    models/pyhealth.models.MedTsLLMAnomaly
+    models/pyhealth.models.medtsllm
     models/pyhealth.models.CHET
     models/pyhealth.models.GAME
     models/pyhealth.models.MedTok
