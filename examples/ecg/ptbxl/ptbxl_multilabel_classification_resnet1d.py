@@ -20,6 +20,11 @@ benchmark's full protocol:
 - for the 3-way multi-class task, cross-entropy weighted
   ``[1, n_target/n_normal, n_other/n_normal]`` from the train split
   (``compute_multiclass_class_weights``);
+- optional loss extensions beyond the benchmark baseline, off by default:
+  ``--pos-weight`` weights the multi-label BCE by each label's
+  negatives/positives in the training split
+  (``compute_multilabel_pos_weight``), and ``--label-smoothing`` smooths
+  the multi-class cross-entropy targets;
 - Adam with a fixed learning rate, model selection on the best validation
   score (macro ROC-AUC for multi-label, macro F1 for multi-class), early
   stopping, and up to ``--epochs`` 250 epochs, as in the paper;
@@ -111,6 +116,7 @@ from pyhealth.tasks import (
     PTBXLMulticlassClassification,
     PTBXLMultilabelClassification,
     compute_multiclass_class_weights,
+    compute_multilabel_pos_weight,
 )
 from pyhealth.tasks.ptbxl_multiclass_classification import (
     PTBXL_PAPER_FOLD_SPLITS,
@@ -195,6 +201,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--window-sec", type=float, default=2.5,
         help="Evaluation window length in seconds (stride is half)",
+    )
+    parser.add_argument(
+        "--pos-weight", action="store_true",
+        help="Extension beyond the benchmark baseline: weight the "
+        "multi-label BCE by each label's negatives/positives in the "
+        "training split (--task multilabel)",
+    )
+    parser.add_argument(
+        "--label-smoothing", type=float, default=0.0,
+        help="Extension beyond the benchmark baseline: smooth the "
+        "multi-class cross-entropy targets, in [0, 1) "
+        "(--task multiclass)",
     )
     parser.add_argument(
         "--alpha", type=float, default=0.05,
@@ -282,11 +300,25 @@ def run_split(args: argparse.Namespace, split_number: int, depth: int) -> dict:
     )
 
     class_weight = None
+    pos_weight = None
     if args.task == "multiclass":
         # One pass over the training split's labels. The benchmark takes
         # the weights from the train split only.
         class_weight = compute_multiclass_class_weights(train_set)
         logger.info("Multiclass class weights: %s", class_weight)
+        if args.label_smoothing:
+            logger.info(
+                "Multiclass label smoothing: %.3f (baseline extension)",
+                args.label_smoothing,
+            )
+    elif args.pos_weight:
+        # Baseline extension, not the benchmark protocol: per-label
+        # negatives/positives, counted on the training split only.
+        pos_weight = compute_multilabel_pos_weight(train_set)
+        logger.info(
+            "Multilabel pos_weight (%d labels): min %.2f max %.2f",
+            len(pos_weight), min(pos_weight), max(pos_weight),
+        )
 
     model = ResNet1D(
         dataset=train_set,
@@ -295,6 +327,8 @@ def run_split(args: argparse.Namespace, split_number: int, depth: int) -> dict:
         eval_window_len=int(args.window_sec * SAMPLING_RATE),
         eval_window_stride=int(args.window_sec * SAMPLING_RATE) // 2,
         class_weight=class_weight,
+        pos_weight=pos_weight,
+        label_smoothing=args.label_smoothing,
     )
 
     trainer = Trainer(
@@ -480,6 +514,8 @@ def main() -> None:
             "depths": depths,
             "baseline_depth": baseline_depth,
             "alpha": args.alpha,
+            "pos_weight": args.pos_weight,
+            "label_smoothing": args.label_smoothing,
             "runs": runs,
             "comparison": comparison,
         }

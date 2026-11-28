@@ -189,6 +189,16 @@ class ResNet1D(BaseModel):
             training split, see
             :func:`~pyhealth.tasks.compute_multiclass_class_weights`).
             Only valid when the dataset's label processor is multiclass.
+        pos_weight: Per-class positive weight for the multilabel BCE loss,
+            in label-vocabulary order (e.g. negatives/positives of the
+            training split, see
+            :func:`~pyhealth.tasks.compute_multilabel_pos_weight`). Not
+            part of the benchmark baseline; only valid when the dataset's
+            label processor is multilabel.
+        label_smoothing: Smoothing of the multiclass cross-entropy
+            targets, in ``[0, 1)``; ``0.0`` (default) is the benchmark
+            behavior. Not part of the benchmark baseline; only valid for
+            multiclass label processors.
 
     Attributes:
         mode (str): Label kind inherited from
@@ -253,6 +263,8 @@ class ResNet1D(BaseModel):
         eval_window_len: int | None = None,
         eval_window_stride: int | None = None,
         class_weight: Sequence[float] | None = None,
+        pos_weight: Sequence[float] | None = None,
+        label_smoothing: float = 0.0,
     ) -> None:
         if depth not in self.DEPTHS:
             raise ValueError(
@@ -296,6 +308,29 @@ class ResNet1D(BaseModel):
             self.register_buffer("class_weight", weights)
         else:
             self.register_buffer("class_weight", None)
+        if pos_weight is not None:
+            if self.mode != "multilabel":
+                raise ValueError(
+                    "pos_weight weights the multilabel BCE loss; this "
+                    f"dataset's label mode is {self.mode!r}."
+                )
+            weights = torch.as_tensor(pos_weight, dtype=torch.float32)
+            if weights.numel() != self.label_processor.output_size():
+                raise ValueError(
+                    "pos_weight must have one entry per label; expected "
+                    f"{self.label_processor.output_size()}, got "
+                    f"{weights.numel()}."
+                )
+            self.register_buffer("pos_weight", weights)
+        else:
+            self.register_buffer("pos_weight", None)
+        if not 0.0 <= float(label_smoothing) < 1.0:
+            raise ValueError("label_smoothing must be in [0.0, 1.0)")
+        if label_smoothing and self.mode != "multiclass":
+            raise ValueError(
+                "label_smoothing smooths the multiclass cross-entropy; "
+                f"this dataset's label mode is {self.mode!r}."
+            )
         self.signal_key = "signal"
         self.label_key = self.label_keys[0]
         self.depth = depth
@@ -304,6 +339,7 @@ class ResNet1D(BaseModel):
         self.training_crop_len = training_crop_len
         self.eval_window_len = eval_window_len
         self.eval_window_stride = eval_window_stride
+        self.label_smoothing = float(label_smoothing)
 
         layers, block = self.DEPTHS[depth]
         self._planes = 64
@@ -487,12 +523,16 @@ class ResNet1D(BaseModel):
         # The label is optional, so the model can predict without it.
         if self.label_key in kwargs:
             y_true = kwargs[self.label_key].to(self.device)
+            loss_kwargs: dict[str, Any] = {}
             if self.class_weight is not None:
-                results["loss"] = self.label_processor.loss(
-                    logits, y_true, weight=self.class_weight
-                )
-            else:
-                results["loss"] = self.label_processor.loss(logits, y_true)
+                loss_kwargs["weight"] = self.class_weight
+            if self.pos_weight is not None:
+                loss_kwargs["pos_weight"] = self.pos_weight
+            if self.label_smoothing:
+                loss_kwargs["label_smoothing"] = self.label_smoothing
+            results["loss"] = self.label_processor.loss(
+                logits, y_true, **loss_kwargs
+            )
             results["y_true"] = y_true
         if kwargs.get("embed", False):
             results["embed"] = feature

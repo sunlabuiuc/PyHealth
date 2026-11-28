@@ -63,7 +63,9 @@ def _aggregate_labels(
             continue
         likelihood = float(likelihood)
         row = scp_statements.loc[code]
-        if label_set == "all" or (label_set == "diagnostic" and row.get("diagnostic") == 1):
+        if label_set == "all" or (
+            label_set == "diagnostic" and row.get("diagnostic") == 1
+        ):
             per_class[code] = max(per_class.get(code, float("-inf")), likelihood)
         elif label_set == "subdiagnostic" and row.get("diagnostic") == 1:
             sub = row.get("diagnostic_subclass")
@@ -78,6 +80,83 @@ def _aggregate_labels(
         ):
             per_class[code] = max(per_class.get(code, float("-inf")), likelihood)
     return sorted(k for k, v in per_class.items() if v >= min_likelihood)
+
+
+def compute_multilabel_pos_weight(
+    samples: Any,
+    label_key: str = "labels",
+) -> list[float]:
+    """Per-label positive weights for the multilabel BCE loss.
+
+    Each label gets ``n_negative / n_positive`` counted over the given
+    (training) samples only — the standard re-weighting for the severe
+    class imbalance of PTB-XL SCP statements. This is an extension beyond
+    the Nonaka & Seita benchmark baseline, which uses unweighted
+    ``BCEWithLogitsLoss``; pass the result to
+    ``ResNet1D(pos_weight=...)``.
+
+    Accepts both raw task samples (``label_key`` holds a list of label
+    names) and processor-encoded samples (``label_key`` holds a multi-hot
+    vector). For raw samples the vocabulary is the sorted union of the
+    observed labels, matching the learned
+    :class:`~pyhealth.processors.MultiLabelProcessor` vocabulary order.
+
+    Note:
+        A label that never occurs in these samples cannot get a weight
+        from them; the model's length check then reports the mismatch if
+        the dataset's vocabulary contains it (e.g. a label that appears
+        only outside the training folds). Labels with zero negatives get
+        weight 0.0 (nothing down-weights their negatives); labels encoded
+        but never positive get 1.0.
+
+    Args:
+        samples: Iterable of samples (dict-like) with ``label_key``.
+        label_key: Sample key holding the label list or multi-hot vector.
+
+    Returns:
+        list[float]: one weight per label, in label-vocabulary order.
+
+    Raises:
+        ValueError: If ``samples`` is empty or labels are malformed.
+
+    Examples:
+        >>> samples = [
+        ...     {"labels": ["NORM", "ST_"]}, {"labels": ["NORM"]},
+        ...     {"labels": ["NORM"]}, {"labels": ["ST_"]},
+        ...     {"labels": ["CD_"]}, {"labels": ["CD_", "NORM"]},
+        ... ]
+        >>> compute_multilabel_pos_weight(samples)
+        [2.0, 0.5, 2.0]
+    """
+    label_values = [sample[label_key] for sample in samples]
+    if not label_values:
+        raise ValueError("samples must not be empty")
+    n = len(label_values)
+
+    first = label_values[0]
+    if isinstance(first, (list, tuple)) and (
+        len(first) == 0 or isinstance(first[0], str)
+    ):
+        counts: dict[str, int] = {}
+        for labels in label_values:
+            for label in labels:
+                if not isinstance(label, str):
+                    raise ValueError(
+                        "mixed label formats; expected label-name lists"
+                    )
+                counts[label] = counts.get(label, 0) + 1
+        if not counts:
+            raise ValueError("no labels found in the samples")
+        return [(n - counts[label]) / counts[label] for label in sorted(counts)]
+
+    matrix = np.stack(
+        [np.asarray(value, dtype=np.float64).ravel() for value in label_values]
+    )
+    positives = (matrix != 0).sum(axis=0)
+    return [
+        1.0 if count == 0 else (n - count) / count
+        for count in positives.tolist()
+    ]
 
 
 class PTBXLMultilabelClassification(BaseTask):

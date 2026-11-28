@@ -12,6 +12,10 @@ protocol is configured on the model: ``training_crop_len=1250`` (random
 2.5 s crop while training) and ``eval_window_len=1250`` /
 ``eval_window_stride=625`` (sliding-window evaluation with per-class max
 aggregation) at 500 Hz; ``class_weight`` sets the multi-class loss weights.
+``pos_weight`` (multi-label BCE) and ``label_smoothing`` (multi-class
+cross-entropy) are extensions beyond the benchmark baseline, which uses
+unweighted losses; ``pos_weight`` typically comes from
+:func:`pyhealth.tasks.compute_multilabel_pos_weight`.
 See
 ``examples/ecg/ptbxl/ptbxl_multilabel_classification_resnet1d.py``.
 

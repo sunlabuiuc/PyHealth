@@ -362,6 +362,91 @@ class TestResNet1DClassWeight(unittest.TestCase):
         self.assertIsNotNone(model_w.projection.weight.grad)
 
 
+class TestResNet1DPosWeight(unittest.TestCase):
+    """pos_weight extends the multilabel BCE baseline (not the paper)."""
+
+    def _multilabel_dataset(self, n=6):
+        return _signal_dataset(
+            {"labels": "multilabel"}, n=n,
+            labels_fn=lambda i: [["x"], ["y"], ["x", "y"]][i % 3],
+        )
+
+    def test_pos_weight_rejected_for_non_multilabel(self):
+        dataset = _signal_dataset(
+            {"label": "binary"}, n=4, labels_fn=lambda i: i % 2
+        )
+        with self.assertRaisesRegex(ValueError, "label mode is 'binary'"):
+            ResNet1D(dataset=dataset, pos_weight=[1.0, 2.0])
+
+    def test_pos_weight_length_must_match_labels(self):
+        dataset = self._multilabel_dataset()
+        with self.assertRaisesRegex(ValueError, "one entry per label"):
+            ResNet1D(dataset=dataset, pos_weight=[3.0])
+
+    def test_weighted_loss_differs_from_unweighted(self):
+        dataset = self._multilabel_dataset()
+        torch.manual_seed(0)
+        model_w = ResNet1D(dataset=dataset, pos_weight=[3.0, 3.0])
+        torch.manual_seed(0)
+        model_0 = ResNet1D(dataset=dataset)
+        self.assertEqual(model_w.pos_weight.tolist(), [3.0, 3.0])
+        self.assertIsNone(model_0.pos_weight)
+        x, y = _batch(dataset, "labels")
+        model_w.train()
+        model_0.train()
+        loss_w = model_w(signal=x, labels=y)["loss"]
+        loss_0 = model_0(signal=x, labels=y)["loss"]
+        self.assertTrue(torch.isfinite(loss_w))
+        self.assertFalse(torch.allclose(loss_w, loss_0))
+        loss_w.backward()
+        self.assertIsNotNone(model_w.projection.weight.grad)
+
+
+class TestResNet1DLabelSmoothing(unittest.TestCase):
+    """label_smoothing extends the multiclass CE baseline (not the paper)."""
+
+    def _multiclass_dataset(self, n=6):
+        schema = {
+            "label": (
+                "multiclass",
+                {"labels": ["normal", "target", "other"]},
+            )
+        }
+        return _signal_dataset(
+            schema, n=n, labels_fn=lambda i: ["normal", "target", "other"][i % 3]
+        )
+
+    def test_label_smoothing_out_of_range_raises(self):
+        dataset = self._multiclass_dataset()
+        for bad in (-0.1, 1.0):
+            with self.assertRaisesRegex(ValueError, r"\[0\.0, 1\.0\)"):
+                ResNet1D(dataset=dataset, label_smoothing=bad)
+
+    def test_label_smoothing_rejected_for_non_multiclass(self):
+        dataset = _signal_dataset(
+            {"label": "binary"}, n=4, labels_fn=lambda i: i % 2
+        )
+        with self.assertRaisesRegex(ValueError, "label mode is 'binary'"):
+            ResNet1D(dataset=dataset, label_smoothing=0.1)
+
+    def test_smoothed_loss_differs_from_unsmoothed(self):
+        dataset = self._multiclass_dataset()
+        torch.manual_seed(0)
+        model_s = ResNet1D(dataset=dataset, label_smoothing=0.2)
+        torch.manual_seed(0)
+        model_0 = ResNet1D(dataset=dataset)
+        self.assertEqual(model_s.label_smoothing, 0.2)
+        x, y = _batch(dataset, "label")
+        model_s.train()
+        model_0.train()
+        loss_s = model_s(signal=x, label=y)["loss"]
+        loss_0 = model_0(signal=x, label=y)["loss"]
+        self.assertTrue(torch.isfinite(loss_s))
+        self.assertFalse(torch.allclose(loss_s, loss_0))
+        loss_s.backward()
+        self.assertIsNotNone(model_s.projection.weight.grad)
+
+
 class TestResNet1DErrors(unittest.TestCase):
     def setUp(self):
         self.dataset = _signal_dataset(

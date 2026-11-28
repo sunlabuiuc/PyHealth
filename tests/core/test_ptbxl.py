@@ -56,6 +56,7 @@ from pyhealth.tasks.ptbxl_multiclass_classification import (
 )
 from pyhealth.tasks.ptbxl_multilabel_classification import (
     PTBXLMultilabelClassification,
+    compute_multilabel_pos_weight,
 )
 
 FIXTURE_ROOT = (
@@ -1215,6 +1216,53 @@ class TestComputeMulticlassClassWeights(unittest.TestCase):
             compute_multiclass_class_weights([{"label": "NORM"}])
         with self.assertRaisesRegex(ValueError, "outside"):
             compute_multiclass_class_weights([{"label": 7}])
+
+
+class TestComputeMultilabelPosWeight(unittest.TestCase):
+    """compute_multilabel_pos_weight from label-name lists and vectors."""
+
+    def test_raw_label_lists_sorted_vocab(self):
+        samples = [
+            {"labels": ["NORM", "ST_"]}, {"labels": ["NORM"]},
+            {"labels": ["NORM"]}, {"labels": ["ST_"]},
+            {"labels": ["CD_"]}, {"labels": ["CD_", "NORM"]},
+        ]
+        # Sorted vocab [CD_, NORM, ST_]; n=6: (3/3, 2/4, 3/3).
+        self.assertEqual(
+            compute_multilabel_pos_weight(samples), [2.0, 0.5, 2.0]
+        )
+
+    def test_multi_hot_vectors(self):
+        samples = [
+            {"labels": [1, 0]}, {"labels": [1, 1]},
+            {"labels": [0, 0]}, {"labels": [1, 0]},
+        ]
+        # n=4: column 0 has 3 positives -> 1/3; column 1 has 1 -> 3/1.
+        weights = compute_multilabel_pos_weight(samples)
+        self.assertAlmostEqual(weights[0], 1 / 3)
+        self.assertEqual(weights[1], 3.0)
+
+    def test_always_positive_and_never_positive_columns(self):
+        samples = [
+            {"labels": [1, 0, 1]}, {"labels": [1, 0, 1]},
+            {"labels": [1, 0, 1]},
+        ]
+        # Column 1 has no positives (weight 1.0, cannot be learned from
+        # these samples); column 2 has no negatives (weight 0.0).
+        self.assertEqual(
+            compute_multilabel_pos_weight(samples), [0.0, 1.0, 0.0]
+        )
+
+    def test_empty_or_unlabelled_samples_raise(self):
+        with self.assertRaisesRegex(ValueError, "must not be empty"):
+            compute_multilabel_pos_weight([])
+        with self.assertRaisesRegex(ValueError, "no labels found"):
+            compute_multilabel_pos_weight([{"labels": []}])
+
+    def test_custom_label_key(self):
+        samples = [{"y": ["a"]}, {"y": ["a", "b"]}, {"y": ["b"]}]
+        weights = compute_multilabel_pos_weight(samples, label_key="y")
+        self.assertEqual(weights, [0.5, 0.5])
 
 
 if __name__ == "__main__":
