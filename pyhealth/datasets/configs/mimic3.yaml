@@ -43,6 +43,8 @@ tables:
       - "first_careunit"
       - "dbsource"
       - "last_careunit"
+      - "first_wardid"
+      - "last_wardid"
       - "outtime"
 
   diagnoses_icd:

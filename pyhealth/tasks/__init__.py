@@ -358,3 +358,4 @@ def __getattr__(name: str):
 
         return PTBXLSuperclassClassification
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+from .decompensation_mimic3 import DecompensationMIMIC3 as DecompensationMIMIC3
