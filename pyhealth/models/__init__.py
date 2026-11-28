@@ -52,6 +52,7 @@ from .jamba_ehr import JambaEHR, JambaLayer
 from .joint_seq_image import (
     JointSeqImage as JointSeqImage,
 )
+from .keyclass import KeyClass as KeyClass
 from .logistic_regression import LogisticRegression
 from .gan import GAN
 from .glip import (

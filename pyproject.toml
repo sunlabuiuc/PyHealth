@@ -90,6 +90,10 @@ imaging = [
   "nibabel>=5.0",
   "monai>=1.6.1,<2",
 ]
+keyclass = [
+  "snorkel>=0.10,<0.11",
+  "nltk~=3.9.1",
+]
 graph = [
   "torch-geometric>=2.6.0",
 ]
