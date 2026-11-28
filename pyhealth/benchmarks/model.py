@@ -17,7 +17,9 @@ import shutil
 import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, override
+from typing import Any
+
+from typing_extensions import override
 
 from ._serialization import _resolve
 from .base import Benchmark, Evaluation, Result
