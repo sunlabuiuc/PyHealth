@@ -1,0 +1,13 @@
+version: "1.0.1"  # PhysioNet LUDB v1.0.1
+tables:
+  records:
+    # Written by LUDBDataset.prepare_metadata, one row per WFDB record.
+    file_path: "ludb-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "signal_file"
+    - "sex"
+    - "age"
+    - "rhythm"
+    - "electric_axis"

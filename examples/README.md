@@ -43,7 +43,7 @@ Older examples that no longer run, or that duplicated a maintained one, are in
 | [`cxr/`](cxr/) | Chest X-ray classification (ChestX-ray14, COVID-19), saliency maps, conformal prediction, ViT, VAE and GAN image generation. The COVID-19 ViT tutorial runs except for its Chefer step, which currently fails (see its header) |
 | [`eeg/`](eeg/) | EEG events and abnormality (TUEV, TUAB), sleep staging (Sleep-EDF, ISRUC, HMC), dementia classification (AHEPA), seizure onset zone localization (HUP iEEG), EEGBCI pattern discovery; SparcNet, ContraWR, BIOT, TFM-Tokenizer |
 | [`conformal_eeg/`](conformal_eeg/) | Conformal prediction on TUEV/TUAB: conventional, k-means cluster, neighbourhood (NCP), covariate shift |
-| [`ecg/`](ecg/) | PTB-XL multi-label ECG classification, including ProtoECGNet |
+| [`ecg/`](ecg/) | PTB-XL multi-label ECG classification, including ProtoECGNet. ECG delineation on LUDB is the top-level `ludb_ecg_delineation_unet.py` |
 | [`benchmark_perf/`](benchmark_perf/README.md) | Speed and memory benchmarks against PyHealth 1.x, pandas and meds_reader |
 
 ## Top-level notebooks
@@ -100,5 +100,6 @@ Older examples that no longer run, or that duplicated a maintained one, are in
 | `physionet_deid_ner_transformer_deid.py` | Transformer de-identification (PhysioNet, credentialed) |
 | `mimic4_mortality_medfuse.py` | MedFuse ablation (synthetic data) |
 | `mimic4_decompensation_daft.py` | DAFT on MedMod decompensation and mortality, with ablations (synthetic data by default) |
+| `ludb_ecg_delineation_unet.py` | ECG delineation (P / QRS / T segmentation) on LUDB with UNet2D, with noise-robustness and band-pass filter ablations; `--synthetic` runs without data |
 | `support_survival_survival_mdn.py` (with `survival_mdn_data.py`, `survival_mdn_metrics.py`, results in `survival_mdn_results/`) | Survival mixture density network on SUPPORT |
 | `yaib_mimic4_rnn_v2.py` | RNN_V2 on the five MIMIC-IV YAIB tasks |
