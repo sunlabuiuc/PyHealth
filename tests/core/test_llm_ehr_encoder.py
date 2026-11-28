@@ -1,6 +1,5 @@
 """Tests for the LLM EHR encoder (Hegselmann et al.) and its text serialization."""
 
-import json
 import os
 
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -26,6 +25,7 @@ from pyhealth.tasks import (
     serialize_ehr,
 )
 from pyhealth.tasks.base_task import BaseTask
+from pyhealth.tasks.fingerprint import task_fingerprint
 from pyhealth.trainer import Trainer
 
 DESCRIPTIONS = {
@@ -227,7 +227,7 @@ class TestSerialization(unittest.TestCase):
 
     def test_cache_key_is_stable(self):
         def key(task):
-            return json.dumps(vars(task), sort_keys=True, default=str)
+            return task_fingerprint(task)
 
         a = EHRTextSerializationTask(MortalityPredictionMIMIC4())
         b = EHRTextSerializationTask(MortalityPredictionMIMIC4())
@@ -240,7 +240,7 @@ class TestSerialization(unittest.TestCase):
         def key(describer):
             task = EHRTextSerializationTask(MortalityPredictionMIMIC4(),
                                             describer=describer)
-            return json.dumps(vars(task), sort_keys=True, default=str)
+            return task_fingerprint(task)
 
         first = lambda code, vocabularies: "first"
         second = lambda code, vocabularies: "second"

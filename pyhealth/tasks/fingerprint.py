@@ -852,7 +852,6 @@ def processors_fingerprint(
 def write_task_metadata(
     cache_dir: Path,
     task: Any,
-    extra: dict[str, Any] | None = None,
     overwrite: bool = False,
 ) -> Path:
     """Write a legible sidecar so a cache directory explains itself.
@@ -892,7 +891,6 @@ def write_task_metadata(
         "created_at": _dt.datetime.now(_dt.UTC).isoformat(),
         "pyhealth_version": pyhealth_version,
         "spec": spec,
-        **(extra or {}),
     }
 
     # Unique temp name per writer. This function runs outside the build lock,

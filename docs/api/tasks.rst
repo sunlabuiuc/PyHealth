@@ -233,12 +233,15 @@ which parameter changed. Each cache directory therefore contains a
    renaming a local variable does, and helpers that ``__call__`` calls are not
    covered, so this is off by default.
 
-If a task attribute cannot be fingerprinted deterministically -- an object
-whose ``repr()`` embeds a memory address, for instance -- ``set_task()``
-raises ``UnfingerprintableError`` rather than risk a colliding or unstable
-cache key. Give the class a ``__pyhealth_fingerprint__()`` method returning a
-plain description of its configuration, or exclude the attribute. To get a
-warning and a best-effort key instead of an error, set
+If a task attribute cannot be fingerprinted deterministically (an object
+whose ``repr()`` embeds a memory address, an iterator, a sparse tensor, or a
+function whose source cannot be read, such as one made by ``exec()``),
+``set_task()`` raises ``UnfingerprintableError`` rather than risk a colliding
+or unstable cache key. This is the default, and a change: such tasks used to
+get a key that differed on every run, or that two configurations could share.
+Give the class a ``__pyhealth_fingerprint__()`` method returning a plain
+description of its configuration, or exclude the attribute. To get a warning
+and a best-effort key instead of an error, set
 ``PYHEALTH_FINGERPRINT_STRICT=0`` before importing PyHealth.
 
 A function or bound method is identified by its code and by what it carries:

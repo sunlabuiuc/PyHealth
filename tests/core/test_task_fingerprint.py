@@ -985,6 +985,78 @@ class TestSidecarDigest(unittest.TestCase):
         self.assertEqual(payload["spec"], json.loads(json.dumps(task_spec(Readmission()))))
 
 
+class TestShippedTasks(unittest.TestCase):
+    """Strict mode is the default, so every shipped task has to fingerprint."""
+
+    # Constructors that need arguments, with values that need no data.
+    REQUIRED_ARGS = {
+        "benchmark_ehrshot.BenchmarkEHRShot": lambda: {"task": "guo_los"},
+        "chestxray14_binary_classification.ChestXray14BinaryClassification": lambda: {
+            "disease": "atelectasis"
+        },
+        "ehr_text_serialization.EHRTextSerializationTask": lambda: {
+            "base_task": _shipped("mortality_prediction.MortalityPredictionMIMIC4")()
+        },
+        "ethos_tasks.EthosOutcomeMEDS": lambda: {
+            "outcome_task": _shipped("meds_outcome_tasks.ICUAdmissionMEDS")
+        },
+        "ptbxl_heartlang.PTBXLHeartLangClassification": lambda: {
+            "scp_statements_path": "scp_statements.csv"
+        },
+        "ptbxl_multilabel_classification.PTBXLMultilabelClassification": lambda: {
+            "scp_statements_path": "scp_statements.csv"
+        },
+    }
+    # Not built here, with the reason.
+    NOT_BUILT = {
+        "chaos_segmentation._CHAOSSegmentationBase": "base class, refuses construction",
+        "value_set_completion.ValueSetCompletion": "reads an index built from data",
+    }
+
+    def test_every_shipped_task_fingerprints(self):
+        tasks = _shipped_tasks()
+        self.assertGreater(len(tasks), 90)
+        for name in (*self.REQUIRED_ARGS, *self.NOT_BUILT):
+            self.assertIn(name, tasks, "stale entry")
+        for name, cls in sorted(tasks.items()):
+            if name in self.NOT_BUILT:
+                continue
+            with self.subTest(task=name):
+                try:
+                    task = cls(**self.REQUIRED_ARGS.get(name, dict)())
+                except ImportError as exc:  # optional package, such as soundfile
+                    self.skipTest(f"{name}: {exc}")
+                self.assertEqual(len(task_fingerprint(task)), 64)
+                self.assertTrue(task_cache_name(task))
+
+
+def _shipped_tasks() -> dict[str, type]:
+    """Concrete ``BaseTask`` subclasses of ``pyhealth.tasks``, by module and name."""
+    import inspect
+    import pkgutil
+
+    import pyhealth.tasks as tasks_package
+
+    for module in pkgutil.walk_packages(tasks_package.__path__, "pyhealth.tasks."):
+        importlib.import_module(module.name)  # an import error fails the test
+
+    def subclasses(cls):
+        for sub in cls.__subclasses__():
+            yield sub
+            yield from subclasses(sub)
+
+    prefix = "pyhealth.tasks."
+    return {
+        f"{cls.__module__.removeprefix(prefix)}.{cls.__qualname__}": cls
+        for cls in subclasses(BaseTask)
+        if cls.__module__.startswith(prefix) and not inspect.isabstract(cls)
+    }
+
+
+def _shipped(name: str) -> type:
+    return _shipped_tasks()[name]
+
+
 class TestRealTasks(unittest.TestCase):
     """Smoke test against tasks actually shipped in the package."""
 
