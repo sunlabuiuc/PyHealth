@@ -1,3 +1,10 @@
+# Authors: Shashank Bhagavatula (sbhag3), Aarushi Sharma (sharma90)
+# Paper: Learning Optimal Summaries of Clinical Time-series with Concept
+#   Bottleneck Models (Wu et al., MLHC 2022)
+# Paper link: https://proceedings.mlr.press/v182/wu22a/wu22a.pdf
+# Description: Full pipeline and ablation study on MIMIC-IV (synthetic by
+#   default).
+
 """Concept bottleneck model for vasopressor onset on MIMIC-IV.
 
 Paper: Wu, Parbhoo, Havasi, Doshi-Velez. "Learning Optimal Summaries of

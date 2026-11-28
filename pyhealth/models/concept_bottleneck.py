@@ -1,3 +1,10 @@
+# Authors: Shashank Bhagavatula (sbhag3), Aarushi Sharma (sharma90)
+# Paper: Learning Optimal Summaries of Clinical Time-series with Concept
+#   Bottleneck Models (Wu et al., MLHC 2022)
+# Paper link: https://proceedings.mlr.press/v182/wu22a/wu22a.pdf
+# Description: Concept bottleneck model, summary encoder, baselines and greedy
+#   feature selection for vasopressor-onset prediction.
+
 """Concept bottleneck models for vasopressor onset prediction.
 
 Port of Wu et al. (2022), "Learning Optimal Summaries of Clinical

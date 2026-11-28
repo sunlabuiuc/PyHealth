@@ -1,8 +1,16 @@
+# Authors: Shashank Bhagavatula (sbhag3), Aarushi Sharma (sharma90)
+# Paper: Learning Optimal Summaries of Clinical Time-series with Concept
+#   Bottleneck Models (Wu et al., MLHC 2022)
+# Paper link: https://proceedings.mlr.press/v182/wu22a/wu22a.pdf
+# Description: Synthetic-data tests for the vasopressor-onset tasks and the
+#   concept bottleneck models.
+
 """Tests for the vasopressor concept bottleneck port (Wu et al. 2022).
 
 Covers the ``VasopressorOnsetMIMIC3`` and ``VasopressorOnsetMIMIC4`` tasks
-(on hand-built synthetic patients) and the models in ``pyhealth.models.concept_bottleneck`` (on
-tiny synthetic tensors). No real or demo data is read.
+(on hand-built synthetic patients) and the models in
+``pyhealth.models.concept_bottleneck`` (on tiny synthetic tensors). No real
+or demo data is read.
 """
 
 import os

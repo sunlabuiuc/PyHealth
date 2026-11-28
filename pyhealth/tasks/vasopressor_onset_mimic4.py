@@ -1,3 +1,9 @@
+# Authors: Shashank Bhagavatula (sbhag3), Aarushi Sharma (sharma90)
+# Paper: Learning Optimal Summaries of Clinical Time-series with Concept
+#   Bottleneck Models (Wu et al., MLHC 2022)
+# Paper link: https://proceedings.mlr.press/v182/wu22a/wu22a.pdf
+# Description: Vasopressor-onset prediction task on MIMIC-IV (first 6 ICU hours).
+
 """Vasopressor-onset prediction task on MIMIC-IV (after Wu et al. 2022).
 
 The task of "Learning Optimal Summaries of Clinical Time-series with

@@ -1,3 +1,10 @@
+# Authors: Shashank Bhagavatula (sbhag3), Aarushi Sharma (sharma90)
+# Paper: Learning Optimal Summaries of Clinical Time-series with Concept
+#   Bottleneck Models (Wu et al., MLHC 2022)
+# Paper link: https://proceedings.mlr.press/v182/wu22a/wu22a.pdf
+# Description: Full pipeline and ablation study on MIMIC-III (synthetic by
+#   default).
+
 """Concept bottleneck model for vasopressor onset on MIMIC-III: full
 pipeline and ablation study.
 
@@ -91,9 +98,10 @@ Findings on the synthetic data:
 - LSTM axis order: no measurable difference (0.797 against 0.800).
 - All three models were poorly calibrated (ECE 0.26-0.29) with the
   class-weighted loss, which AUROC alone does not show.
-- Greedy selection (seed 1): fine-tuning on the 1, 2, 4 and 8 selected
-  (concept, feature) pairs gave test AUROC 0.770, 0.784, 0.764 and
-  0.768, against 0.770 with all 402 features per concept.
+- Greedy selection (seed 1) runs end to end. With about 50 test
+  patients its test AUROCs for 1 to 8 selected pairs sit within 0.02 of
+  the full model, inside the seed-to-seed spread, so no ranking is
+  claimed.
 """
 
 import argparse
