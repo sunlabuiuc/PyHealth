@@ -12,7 +12,11 @@ import pandas as pd
 import torch
 
 from pyhealth.datasets import ISRUCDataset
-from pyhealth.tasks import SleepStagingISRUC, SleepStagingSequenceISRUC
+from pyhealth.tasks import (
+    SleepStagingIBIISRUC,
+    SleepStagingISRUC,
+    SleepStagingSequenceISRUC,
+)
 from pyhealth.tasks.sleep_staging_isruc import (
     SLEEP_STAGES,
     base_channel_name,
@@ -24,14 +28,16 @@ SFREQ = 10
 CHANNELS = ["LOC-A2", "F3-A2", "C3-A2", "O1-A2", "F4-A1", "C4-M1", "O2-A1", "X1"]
 
 
-def _write_edf(path: Path, channels: list[str], data: np.ndarray) -> None:
+def _write_edf(
+    path: Path, channels: list[str], data: np.ndarray, fs: int = SFREQ
+) -> None:
     """Write ``data`` (microvolts, one row per channel) as a minimal EDF file.
 
     Each data record is one second. Physical and digital ranges match, so
     a stored integer is the value in microvolts.
     """
     n_channels = len(channels)
-    n_records = data.shape[1] // SFREQ
+    n_records = data.shape[1] // fs
 
     def field(value, width):
         return f"{value:<{width}}"[:width]
@@ -57,20 +63,30 @@ def _write_edf(path: Path, channels: list[str], data: np.ndarray) -> None:
         (8, ["-32768"] * n_channels),
         (8, ["32767"] * n_channels),
         (80, [""] * n_channels),
-        (8, [SFREQ] * n_channels),
+        (8, [fs] * n_channels),
         (32, [""] * n_channels),
     ]:
         header += "".join(field(v, width) for v in values)
-    records = data[:, : n_records * SFREQ].astype("<i2")
-    records = records.reshape(n_channels, n_records, SFREQ).transpose(1, 0, 2)
+    records = data[:, : n_records * fs].astype("<i2")
+    records = records.reshape(n_channels, n_records, fs).transpose(1, 0, 2)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(header.encode("ascii") + records.tobytes())
 
 
-def _signal(seconds: int, channels: list[str] = CHANNELS) -> np.ndarray:
+def _signal(
+    seconds: int, channels: list[str] = CHANNELS, fs: int = SFREQ
+) -> np.ndarray:
     """Channel ``i`` holds ``100 * i`` plus the second the sample is in."""
-    second = np.arange(seconds * SFREQ) // SFREQ
+    second = np.arange(seconds * fs) // fs
     return np.stack([100 * i + second for i in range(len(channels))])
+
+
+def _ecg_signal(seconds: int, fs: int = 200) -> np.ndarray:
+    """A regular ECG-like spike train at 75 beats per minute."""
+    data = np.zeros((1, seconds * fs), dtype=np.float64)
+    spacing = round(0.8 * fs)
+    data[0, ::spacing] = 10.0
+    return data
 
 
 def _write_recording(
@@ -81,10 +97,16 @@ def _write_recording(
     suffix: str = ".rec",
     channels: list[str] = CHANNELS,
     scorings: tuple[int, ...] = (1, 2),
+    fs: int = SFREQ,
 ) -> None:
     """Write an ISRUC style recording and its scoring files in ``folder``."""
     seconds = 30 * len(scores) if seconds is None else seconds
-    _write_edf(folder / f"{stem}{suffix}", channels, _signal(seconds, channels))
+    _write_edf(
+        folder / f"{stem}{suffix}",
+        channels,
+        _signal(seconds, channels, fs),
+        fs=fs,
+    )
     for annotator in scorings:
         (folder / f"{stem}_{annotator}.txt").write_text(
             "".join(f"{s}\n" for s in scores)
@@ -383,6 +405,112 @@ class TestSleepStagingISRUC(unittest.TestCase):
         ):
             with self.subTest(**kwargs), self.assertRaises(ValueError):
                 SleepStagingISRUC(**kwargs)
+
+
+class TestSleepStagingIBIISRUC(unittest.TestCase):
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.folder = Path(tmp.name) / "1"
+
+    def _write(
+        self,
+        scores: list[int],
+        scores2: list[int] | None = None,
+        channels: list[str] | None = None,
+    ) -> None:
+        self.folder.mkdir(parents=True, exist_ok=True)
+        channels = channels or ["X2"]
+        _write_edf(
+            self.folder / "1.edf",
+            channels,
+            _ecg_signal(30 * len(scores)),
+            fs=200,
+        )
+        (self.folder / "1_1.txt").write_text(
+            "".join(f"{score}\n" for score in scores)
+        )
+        second = scores if scores2 is None else scores2
+        (self.folder / "1_2.txt").write_text(
+            "".join(f"{score}\n" for score in second)
+        )
+
+    def test_labels_shape_and_expert_selection(self) -> None:
+        self._write(
+            [0, 1, 2, 3, 5, -1],
+            [2, 2, 2, 2, 2, 2],
+        )
+        patient = _patient("1", [_event(self.folder, "1")])
+
+        first = SleepStagingIBIISRUC(peak_backend="scipy")(patient)
+        second = SleepStagingIBIISRUC(
+            scorer="expert2", peak_backend="scipy"
+        )(patient)
+
+        self.assertEqual(first[0]["label"].tolist(), [0, 1, 1, 1, 2, -1])
+        self.assertEqual(second[0]["label"].tolist(), [1] * 6)
+        self.assertEqual(first[0]["signal"].shape, (6, 750))
+        self.assertEqual(first[0]["signal"].dtype, np.float32)
+        self.assertEqual(first[0]["label"].dtype, np.int64)
+        self.assertEqual(first[0]["lengths"], 6)
+        self.assertEqual(first[0]["record_id"], "1")
+
+    def test_max_epochs_truncates(self) -> None:
+        self._write([0, 2, 5, 0])
+
+        samples = SleepStagingIBIISRUC(
+            max_epochs=2, peak_backend="scipy"
+        )(_patient("1", [_event(self.folder, "1")]))
+
+        self.assertEqual(len(samples), 1)
+        self.assertEqual(samples[0]["signal"].shape, (2, 750))
+        self.assertEqual(samples[0]["label"].tolist(), [0, 1])
+
+    def test_missing_ecg_channel_skips_recording(self) -> None:
+        self._write([0], channels=["C3"])
+
+        with self.assertLogs("pyhealth.tasks.sleep_staging_ibi", "WARNING") as logs:
+            samples = SleepStagingIBIISRUC(peak_backend="scipy")(
+                _patient("1", [_event(self.folder, "1")])
+            )
+
+        self.assertEqual(samples, [])
+        self.assertIn("no ECG channel", logs.output[0])
+
+    def test_invalid_arguments(self) -> None:
+        for kwargs in (
+            {"scorer": "expert3"},
+            {"source_fs": 0},
+            {"downsample_factor": 0},
+            {"peak_backend": "nope"},
+        ):
+            with self.subTest(**kwargs), self.assertRaises(ValueError):
+                SleepStagingIBIISRUC(**kwargs)
+
+    def test_set_task_integration(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp) / "ISRUC-Sleep-I"
+            for subject, scores in (("1", [0, 5]), ("2", [1, 3])):
+                _write_recording(
+                    root / subject,
+                    subject,
+                    scores,
+                    suffix=".rec",
+                    channels=["X2"],
+                    fs=200,
+                )
+            dataset = ISRUCDataset(
+                root=str(root), cache_dir=str(Path(tmp) / "cache"), num_workers=1
+            )
+
+            samples = dataset.set_task(
+                SleepStagingIBIISRUC(peak_backend="scipy"), num_workers=1
+            )
+
+            self.assertEqual(len(samples), 2)
+            for sample in samples:
+                self.assertEqual(sample["signal"].shape, (2, 750))
+                self.assertEqual(sample["label"].dtype, torch.int64)
 
 
 class TestISRUCSetTask(unittest.TestCase):

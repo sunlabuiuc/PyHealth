@@ -9,10 +9,13 @@ import numpy as np
 
 from pyhealth.tasks.sleep_staging_ibi import (
     SleepStagingIBIDREAMT,
+    SleepStagingIBIISRUC,
     SleepStagingIBIMESA,
     SleepStagingIBISHHS,
+    SleepStagingIBISleepAccel,
     _beat_annotations_to_ibi,
     _detect_peaks,
+    _heart_rate_to_grid,
     _heart_rate_to_ibi,
     _ibi_to_epoch_grid,
     _peaks_to_ibi,
@@ -81,6 +84,25 @@ class TestIBIHelpers(unittest.TestCase):
         peaks = _detect_peaks(waveform, 100, "ecg", backend="scipy")
         self.assertEqual(peaks.tolist(), [50, 150, 250])
 
+    def test_heart_rate_grid_zeroes_unobserved_and_outliers(self):
+        row = _heart_rate_to_grid([1.0, 2.0], [60.0, 300.0], 4, 4.0)
+        self.assertEqual(row.dtype, np.float32)
+        self.assertEqual(row[0], 0.0)
+        self.assertEqual(row[1], 1.0)
+        self.assertEqual(row[2], 0.0)
+        self.assertEqual(row[3], 0.0)
+
+    def test_new_task_defaults(self):
+        accel = SleepStagingIBISleepAccel()
+        isruc = SleepStagingIBIISRUC(scorer="expert2")
+        self.assertEqual(accel.task_name, "SleepStagingIBISleepAccel")
+        self.assertEqual(accel.max_epochs, 1100)
+        self.assertEqual(accel.points_per_epoch, 750)
+        self.assertEqual(isruc.task_name, "SleepStagingIBIISRUC")
+        self.assertEqual(isruc.scorer, "expert2")
+        self.assertEqual(isruc.scorer_index, 2)
+        self.assertEqual(isruc.downsample_factor, 8)
+
     def test_invalid_constructor_arguments(self):
         with self.assertRaises(ValueError):
             SleepStagingIBIDREAMT(epoch_seconds=0)
@@ -96,6 +118,22 @@ class TestIBIHelpers(unittest.TestCase):
             SleepStagingIBISHHS(source_fs=0)
         with self.assertRaises(ValueError):
             SleepStagingIBIMESA(downsample_factor=0)
+        with self.assertRaises(ValueError):
+            SleepStagingIBISleepAccel(min_ibi=0)
+        with self.assertRaises(ValueError):
+            SleepStagingIBISleepAccel(min_ibi=2.0)
+        with self.assertRaises(ValueError):
+            SleepStagingIBISleepAccel(heart_rate_padding=-1)
+        with self.assertRaises(ValueError):
+            SleepStagingIBISleepAccel(points_per_epoch=0)
+        with self.assertRaises(ValueError):
+            SleepStagingIBIISRUC(scorer="expert3")
+        with self.assertRaises(ValueError):
+            SleepStagingIBIISRUC(source_fs=0)
+        with self.assertRaises(ValueError):
+            SleepStagingIBIISRUC(downsample_factor=0)
+        with self.assertRaises(ValueError):
+            SleepStagingIBIISRUC(peak_backend="nope")
 
 
 if __name__ == "__main__":
