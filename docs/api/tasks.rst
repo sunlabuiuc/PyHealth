@@ -268,6 +268,11 @@ Available Tasks
     Sleep Staging (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSleepEDF>
     Sleep-EDF Forecasting <tasks/pyhealth.tasks.SleepEDFForecasting>
     Sleep Staging (Cardio-Respiratory, NSRR) <tasks/pyhealth.tasks.SleepStagingCardioRespiratory>
+    IBI Sleep Staging (DREAMT) <tasks/pyhealth.tasks.SleepStagingIBIDREAMT>
+    IBI Sleep Staging (NSRR SHHS) <tasks/pyhealth.tasks.SleepStagingIBISHHS>
+    IBI Sleep Staging (NSRR MESA) <tasks/pyhealth.tasks.SleepStagingIBIMESA>
+    IBI Sleep Staging (ISRUC) <tasks/pyhealth.tasks.SleepStagingIBIISRUC>
+    IBI Sleep Staging (Sleep-Accel) <tasks/pyhealth.tasks.SleepStagingIBISleepAccel>
     Sleep Staging Sequences (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSequenceSleepEDF>
     Sleep Staging (ISRUC) <tasks/pyhealth.tasks.SleepStagingISRUC>
     Sleep Staging Sequences (ISRUC) <tasks/pyhealth.tasks.SleepStagingSequenceISRUC>

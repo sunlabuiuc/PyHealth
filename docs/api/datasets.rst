@@ -485,6 +485,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `ISRUC <https://sleeptight.isr.uc.pt/>`__
      - No
      - —
+   * - :doc:`Sleep-Accel <datasets/pyhealth.datasets.SleepAccelDataset>`
+     - Open
+     - `PhysioNet <https://physionet.org/content/sleep-accel/1.0.0/>`__
+     - No
+     - —
    * - :doc:`EESM23 (ear-EEG) <datasets/pyhealth.datasets.EESM23Dataset>`
      - Open
      - `OpenNeuro <https://openneuro.org/datasets/ds005178>`__
@@ -670,6 +675,7 @@ Available Datasets
     datasets/pyhealth.datasets.DREAMTDataset
     datasets/pyhealth.datasets.SHHSDataset
     datasets/pyhealth.datasets.SleepEDFDataset
+    datasets/pyhealth.datasets.SleepAccelDataset
     datasets/pyhealth.datasets.NSRRSleepDataset
     datasets/pyhealth.datasets.EHRShotDataset
     datasets/pyhealth.datasets.Support2Dataset

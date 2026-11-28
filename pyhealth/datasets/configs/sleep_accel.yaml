@@ -1,0 +1,12 @@
+version: "1.0"
+tables:
+  sleep_accel:
+    file_path: "sleep_accel-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "record_name"
+      - "heart_rate_file"
+      - "label_file"
+      - "motion_file"
+      - "steps_file"

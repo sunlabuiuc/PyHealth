@@ -200,6 +200,7 @@ from .game import (
     load_game_embeddings as load_game_embeddings,
     normalize_game_code as normalize_game_code,
 )
+from .watchsleepnet import WatchSleepNet as WatchSleepNet
 from .medtok import (
     MedTokEmbedding as MedTokEmbedding,
     apply_medtok as apply_medtok,

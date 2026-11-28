@@ -11,7 +11,9 @@ logger = logging.getLogger(__name__)
 
 # EDF file name pattern per cohort; group "visit" is optional, "pid" is required.
 _EDF_PATTERNS: dict[str, "re.Pattern[str]"] = {
+    # Original SHHS EDF layout: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/shhs_extract_ecg.py#L10
     "shhs": re.compile(r"^(?P<visit>shhs[12])-(?P<pid>\d+)\.edf$", re.IGNORECASE),
+    # Original MESA EDF layout: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/mesa_extract_ppg.py#L8
     "mesa": re.compile(r"^mesa-sleep-(?P<pid>\d+)\.edf$", re.IGNORECASE),
 }
 
@@ -110,6 +112,8 @@ class NSRRSleepDataset(BaseDataset):
         for folder, _, names in os.walk(root):
             for name in names:
                 if name.lower().endswith("-profusion.xml"):
+                    # Original SHHS profusion XML: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/shhs_extract_ecg.py#L21
+                    # Original MESA profusion XML: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/mesa_extract_ppg.py#L14
                     xml_files[name.lower()] = os.path.join(folder, name)
                 elif pattern.match(name):
                     edf_files.append(os.path.join(folder, name))

@@ -283,6 +283,13 @@ from .covid_blues_severity import (
 )
 from .sleep_staging_v2 import SleepStagingSleepEDF
 from .sleep_staging_nsrr import SleepStagingCardioRespiratory  # noqa: F401
+from .sleep_staging_ibi import (
+    SleepStagingIBIDREAMT as SleepStagingIBIDREAMT,
+    SleepStagingIBIISRUC as SleepStagingIBIISRUC,
+    SleepStagingIBISHHS as SleepStagingIBISHHS,
+    SleepStagingIBIMESA as SleepStagingIBIMESA,
+    SleepStagingIBISleepAccel as SleepStagingIBISleepAccel,
+)
 from .sleep_staging_isruc import SleepStagingISRUC as SleepStagingISRUC
 from .sleep_staging_isruc import (
     SleepStagingSequenceISRUC as SleepStagingSequenceISRUC,
