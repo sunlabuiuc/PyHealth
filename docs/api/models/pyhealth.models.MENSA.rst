@@ -82,6 +82,29 @@ Usage
     times = torch.linspace(0, 7000, 50)  # days
     curves = model.predict_survival(batch["features"], times)  # [N, 2, 50]
 
+Example and results
+-------------------
+
+``examples/rotterdam_multi_event_survival_mensa.py`` reproduces the paper's
+Rotterdam protocol: the authors' stratified 70/10/20 split, CoxPH and
+DeepSurv baselines, and global/local C-index, AUC, IBS, MAE and
+D-calibration. It also runs a learning curve (E2) and ablations (E3, E4).
+To run the whole pipeline on synthetic data (no download)::
+
+    python examples/rotterdam_multi_event_survival_mensa.py --synthetic
+
+With the real CSV in ``../data``::
+
+    python examples/rotterdam_multi_event_survival_mensa.py --data-root ../data \
+        --experiment main --seeds 0-9 --output-dir ../runs/e1
+
+Over seeds 0-9, MENSA reaches a global C-index of 69.3 and a local C-index of
+90.9 (x100; paper 69.4 and 90.1). Most of the local C-index comes from the
+event order: predicting recurrence before death for every patient, with no
+model, gives 91.0. MENSA equals that on 8 of 10 seeds and is below it on 2.
+This reference is not an upper bound. The example's module docstring records
+all results, including why the default IBS varies widely across splits.
+
 API reference
 -------------
 
