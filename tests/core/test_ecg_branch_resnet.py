@@ -196,17 +196,21 @@ class TestForward(unittest.TestCase):
                 self.assertEqual(model._l1_penalty().item(), 0.0)
 
     def test_random_fusion_init_is_kept(self):
-        model = ECGBranchResNet(
-            DATASET,
-            label_groups=GROUPS,
-            fusion="features",
-            fusion_init="random",
-            **TINY,
-        )
-        before = model.fusion_classifier.weight.clone()
-        model.set_stage("branches")
-        model.set_stage("fusion")
-        torch.testing.assert_close(model.fusion_classifier.weight, before)
+        for fusion in ("logits", "features"):
+            with self.subTest(fusion=fusion):
+                model = ECGBranchResNet(
+                    DATASET,
+                    label_groups=GROUPS,
+                    fusion=fusion,
+                    fusion_init="random",
+                    **TINY,
+                )
+                before = model.fusion_classifier.weight.clone()
+                # PyTorch's default init, not the identity / own-group mask.
+                self.assertFalse(torch.equal(before, model.fusion_mask))
+                model.set_stage("branches")
+                model.set_stage("fusion")
+                torch.testing.assert_close(model.fusion_classifier.weight, before)
         with self.assertRaises(ValueError):
             ECGBranchResNet(DATASET, fusion="logits", fusion_init="zeros", **TINY)
         with self.assertRaises(ValueError):

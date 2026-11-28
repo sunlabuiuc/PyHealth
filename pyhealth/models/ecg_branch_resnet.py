@@ -114,8 +114,9 @@ class ECGBranchResNet(BaseModel):
     the concatenated branch outputs to all labels:
 
     * ``"logits"``: input is the concatenated branch logits
-      (``num_labels``-dim). The head starts as the identity, so it begins
-      exactly at the scattered branch prediction.
+      (``num_labels``-dim). With ``fusion_init="branches"`` the head starts
+      as the identity, so it begins exactly at the scattered branch
+      prediction.
     * ``"features"``: input is the concatenated pooled branch features
       (``512 x num_branches``). This is the black-box analogue of
       ProtoECGNet's fusion over prototype similarities.
@@ -161,10 +162,14 @@ class ECGBranchResNet(BaseModel):
             ``"none"``.
         lam_l1: Weight of the cross-group L1 penalty in the ``"fusion"``
             stage. Defaults to 0.0.
-        fusion_init: ``"branches"`` (warm-start the fusion head from the
-            branch heads when the ``"fusion"`` stage starts) or ``"random"``
-            (keep PyTorch's default initialization, as ProtoECGNet does).
-            Defaults to ``"branches"``.
+        fusion_init: How the fusion head is initialized, for both
+            ``"logits"`` and ``"features"`` fusion. ``"branches"`` starts the
+            head at the branch prediction: the identity for ``"logits"``
+            (set at construction), and a copy of the branch heads for
+            ``"features"`` when the ``"fusion"`` stage starts after
+            ``"branches"`` (:meth:`init_fusion_from_branches`). ``"random"``
+            keeps PyTorch's default ``nn.Linear`` initialization, as
+            ProtoECGNet does. Defaults to ``"branches"``.
         class_weights: Optional positive-class weights ``(num_labels,)``.
             Defaults to the label processor's ``pos_weight``, or ones.
 
@@ -260,7 +265,7 @@ class ECGBranchResNet(BaseModel):
         if fusion != "none":
             fusion_mask = self._build_fusion_mask()
             self.fusion_classifier = nn.Linear(fusion_mask.shape[1], self.num_labels)
-            if fusion == "logits":
+            if fusion == "logits" and fusion_init == "branches":
                 with torch.no_grad():
                     self.fusion_classifier.weight.copy_(fusion_mask)
                     self.fusion_classifier.bias.zero_()

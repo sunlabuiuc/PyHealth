@@ -29,7 +29,11 @@ from typing import Any, ClassVar
 
 import numpy as np
 
-from .ptbxl_multilabel_classification import PTBXLMultilabelClassification
+from .ptbxl_multilabel_classification import (
+    PTBXLMultilabelClassification,
+    _aggregate_labels,
+    _load_scp_statements,
+)
 
 #: Physician-defined grouping of the 71 PTB-XL statements used by ProtoECGNet
 #: (Appendix G of the paper): 16 rhythm, 52 morphology and 3 global labels.
@@ -324,6 +328,14 @@ class PTBXLLabelGroupClassification(PTBXLMultilabelClassification):
 
     Compatible with :class:`~pyhealth.datasets.PTBXLDataset`.
 
+    The task subclasses :class:`~pyhealth.tasks.PTBXLMultilabelClassification`
+    on purpose: it reuses that task's PTB-XL signal pipeline (record loading,
+    crop/pad to 10 s, optional 0.5 Hz high-pass filter and per-lead z-score)
+    and its SCP-statement aggregation with ``label_set="all"``, so there is a
+    single preprocessing implementation for PTB-XL. Only the label selection
+    differs, and labels are checked before a signal is loaded, so ECGs
+    without any kept label cost no I/O.
+
     Args:
         scp_statements_path: Path to ``scp_statements.csv`` (use
             ``dataset.scp_statements_path``).
@@ -421,14 +433,29 @@ class PTBXLLabelGroupClassification(PTBXLMultilabelClassification):
             (float32 ``(12, T)``), ``labels`` (sorted kept SCP codes) and
             ``groups`` (sorted names of the groups present).
         """
+        from pyhealth.datasets.ptbxl import parse_scp_codes
+
+        statements = _load_scp_statements(self.scp_statements_path)
         samples = []
-        for sample in super().__call__(patient):
-            labels = sorted(
-                {code for code in sample["labels"] if code in self._group_of}
+        for event in patient.get_events(event_type="records"):
+            codes = _aggregate_labels(
+                parse_scp_codes(event.scp_codes),
+                statements,
+                self.label_set,
+                self.min_likelihood,
             )
+            labels = sorted({code for code in codes if code in self._group_of})
             if not labels:
+                # Skip before loading the signal: no I/O for unused ECGs.
                 continue
-            sample["labels"] = labels
-            sample["groups"] = sorted({self._group_of[code] for code in labels})
-            samples.append(sample)
+            sampling_rate = int(event.sampling_rate)
+            samples.append(
+                {
+                    "patient_id": patient.patient_id,
+                    "strat_fold": int(float(event.strat_fold)),
+                    "signal": self._prepare_signal(event.signal_file, sampling_rate),
+                    "labels": labels,
+                    "groups": sorted({self._group_of[code] for code in labels}),
+                }
+            )
         return samples

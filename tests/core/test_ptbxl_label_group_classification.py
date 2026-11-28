@@ -255,6 +255,23 @@ class TestPTBXLLabelGroupClassification(unittest.TestCase):
             self.assertTrue(set(sample["labels"]) <= {"SR", "AFIB"})
             self.assertEqual(sample["groups"], ["rhythm"])
 
+    def test_skipped_ecgs_load_no_signal(self):
+        task = PTBXLLabelGroupClassification(
+            str(self.scp_path), label_groups=GROUPS, group="rhythm"
+        )
+        loaded = []
+        original = task._prepare_signal
+
+        def spy(signal_file, sampling_rate):
+            loaded.append(Path(signal_file).name)
+            return original(signal_file, sampling_rate)
+
+        task._prepare_signal = spy
+        samples = [s for patient in self.patients for s in task(patient)]
+        self.assertEqual(len(samples), 2)
+        # Only the two rhythm ECGs are read; EL-only and p2 are skipped first.
+        self.assertEqual(loaded, ["00000_lr", "00001_lr"])
+
     def test_signal_fold_and_dtype(self):
         sample = self._run(label_groups=GROUPS)[0]
         self.assertEqual(sample["signal"].shape, (12, 1000))

@@ -447,9 +447,30 @@ def init_proto_fusion(model: ProtoECGNet) -> None:
     prediction, as ``ECGBranchResNet(fusion_init="branches")`` does, instead of
     from a random layer over hundreds of large similarity scores.
 
+    Note:
+        This helper writes directly into ProtoECGNet internals
+        (``branch_names``, ``branches[name].classifier``, ``branch_index``,
+        ``num_prototypes`` and ``fusion_classifier``) and assumes the fusion
+        input is the branch similarities concatenated in ``branch_names``
+        order. It checks that layout and fails loudly if a future ProtoECGNet
+        changes it.
+
     Args:
         model: A ProtoECGNet with ``fusion="learned"``.
+
+    Raises:
+        ValueError: If the model has no fusion head or its fusion input does
+            not match the concatenated branch prototypes.
     """
+    fusion = getattr(model, "fusion_classifier", None)
+    if fusion is None:
+        raise ValueError("init_proto_fusion requires ProtoECGNet(fusion='learned')")
+    widths = [model.branches[name].num_prototypes for name in model.branch_names]
+    if fusion.weight.shape != (model.num_labels, sum(widths)):
+        raise ValueError(
+            "unexpected ProtoECGNet fusion layout: fusion weight "
+            f"{tuple(fusion.weight.shape)}, branch prototypes {widths}"
+        )
     weight = torch.zeros_like(model.fusion_classifier.weight)
     offset = 0
     for name in model.branch_names:
