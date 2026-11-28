@@ -11,10 +11,12 @@ Alireza Ghiam (`aghiam3`, `aghiam3@gatech.edu`).
 
 These files are additions to PyHealth, not a standalone copy of the library.
 Use Python 3.12 or 3.13. The recorded 60-fit experiment used PyHealth commit
-`454b394340f6c2e078c9f54e09668ad79ae17199`. The final contribution was integrated
-and its targeted tests checked against upstream commit
-`178f09c86029ac3ba5cc3022771d1ad1b33a6164`. These are separate provenance records;
-the stored experiment results are not presented as a new run on the later commit.
+`454b394340f6c2e078c9f54e09668ad79ae17199`; its results and original example
+were published in contribution commit `33776d8ac362d50ea152f55770007fe2c0104f1f`,
+based on upstream `178f09c86029ac3ba5cc3022771d1ad1b33a6164`. The later
+20-fit matched-dropout control used that contribution plus the study-selector
+change. Each JSON records the executed source hash. The new run also records
+its base revision and local changes; the historical 60-fit JSON is unchanged.
 
 Copy the files into a PyHealth checkout, keeping their paths. The two existing
 index files only need the Sequence Transformer entries; keep any newer upstream
@@ -28,6 +30,8 @@ python examples/mimic3_mortality_sequence_transformer.py \
   --root /path/to/mimic-iii-clinical-database-demo-1.4
 ```
 
+Add `--study matched-dropout` to the example command for the two-model control.
+It uses a separate default output, `results/mimic3_stn_matched_dropout.json`.
 The example needs the unzipped [MIMIC-III demo](https://physionet.org/content/mimiciii-demo/1.4/).
 The unit tests use synthetic data and do not need the demo. Do not add dataset
 files or generated patient caches to the PR.
@@ -51,6 +55,14 @@ transformation, and both transformations. It also checks dropout settings
 paper; the dropout comparison is our sensitivity analysis on the demo.
 Patient splits keep all stays from the same patient together, and preprocessing
 is fitted on the training split. Average precision is reported as AP.
+
+The paper already tunes dropout and chooses 0.3 for CNN and 0.2 for STN.
+Our additional matched-dropout control asks whether the transformation helps
+when both models use 0.2. It holds dropout, classifier initialization, patient
+splits, sample order, and training settings fixed. This separates the effect
+of adding the transformer from the original dropout difference. The default
+`--study ablation` retains the original six configurations; `--study
+matched-dropout` runs only this two-model control and saves a separate JSON.
 
 ## Results and checks
 
@@ -79,6 +91,27 @@ All 27 tests passed, including empty-sequence cases and a synthetic check that
 later height/weight measurements do not change this example's model inputs or
 predictions. Ruff lint and formatting checks passed. This feature check leaves
 YAIB's retrospective cohort rules unchanged.
+
+## Matched-dropout control
+
+The additional 20 fits completed with dropout 0.2 for both models, using the
+same ten splits. Their evidence is in `results/mimic3_stn_matched_dropout.json`.
+The ten STN results match the historical STN results, providing a check that
+the new study mode preserved the existing training path.
+
+| Configuration | AUROC | Average precision |
+| --- | ---: | ---: |
+| CNN, dropout 0.2 | 0.478 ± 0.113 | 0.387 ± 0.100 |
+| STN, dropout 0.2 | 0.472 ± 0.140 | 0.368 ± 0.120 |
+
+Across paired splits, STN minus CNN is −0.0062 ± 0.1108 AUROC and
+−0.0191 ± 0.0894 AP (mean ± sample SD). STN has higher AUROC in five splits,
+ties in three, and is lower in two; AP is higher in four, tied in two, and
+lower in four. One split has a relatively large negative difference. Thus
+win counts and average effects tell different parts of the result; the
+control does not show a consistent benefit from the transformer. The
+overlapping splits, small test sets, and task differences still prevent a
+strong conclusion about the paper's claim.
 
 ## Implementation choices
 

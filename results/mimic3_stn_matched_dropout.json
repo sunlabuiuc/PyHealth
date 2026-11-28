@@ -1,0 +1,482 @@
+{
+  "status": "complete",
+  "study": "matched-dropout",
+  "created_utc": "2026-11-28T06:02:29.068386+00:00",
+  "example_sha256": "32bc5d2b40d8dd509c6845838a5c69c640d3d19a254bd27ce3aec67c70a70b37",
+  "task": "SequenceTransformerDynamicOnlyMortalityMIMIC3",
+  "outcome": "ICU mortality, not the paper's in-hospital mortality",
+  "input": "dynamic only; 25 hourly bins numbered 0 through 24",
+  "cohort_caveat": "YAIB retrospective whole-stay measurement-gap eligibility retained",
+  "split_ratios": [
+    0.6,
+    0.2,
+    0.2
+  ],
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "epochs": 10,
+  "batch_size": 15,
+  "optimizer": "Adam",
+  "learning_rate": 0.001,
+  "checkpoint": "minimum validation loss; restored from memory",
+  "paired_initial_classifier": true,
+  "aupr_definition": "sklearn average_precision_score",
+  "configs": {
+    "CNN, dropout 0.2": {
+      "temporal": false,
+      "magnitude": false,
+      "dropout": 0.2
+    },
+    "STN (both)": {
+      "temporal": true,
+      "magnitude": true,
+      "dropout": 0.2
+    }
+  },
+  "versions": {
+    "pyhealth": "2.1.0",
+    "torch": "2.15.0",
+    "numpy": "2.5.5",
+    "scikit-learn": "1.9.1"
+  },
+  "splits": [
+    {
+      "seed": 0,
+      "train": {
+        "stays": 53,
+        "patients": 42,
+        "positive_labels": 12,
+        "negative_labels": 41
+      },
+      "val": {
+        "stays": 29,
+        "patients": 14,
+        "positive_labels": 4,
+        "negative_labels": 25
+      },
+      "test": {
+        "stays": 17,
+        "patients": 14,
+        "positive_labels": 5,
+        "negative_labels": 12
+      }
+    },
+    {
+      "seed": 1,
+      "train": {
+        "stays": 63,
+        "patients": 42,
+        "positive_labels": 11,
+        "negative_labels": 52
+      },
+      "val": {
+        "stays": 16,
+        "patients": 14,
+        "positive_labels": 6,
+        "negative_labels": 10
+      },
+      "test": {
+        "stays": 20,
+        "patients": 14,
+        "positive_labels": 4,
+        "negative_labels": 16
+      }
+    },
+    {
+      "seed": 2,
+      "train": {
+        "stays": 66,
+        "patients": 42,
+        "positive_labels": 11,
+        "negative_labels": 55
+      },
+      "val": {
+        "stays": 15,
+        "patients": 14,
+        "positive_labels": 6,
+        "negative_labels": 9
+      },
+      "test": {
+        "stays": 18,
+        "patients": 14,
+        "positive_labels": 4,
+        "negative_labels": 14
+      }
+    },
+    {
+      "seed": 3,
+      "train": {
+        "stays": 63,
+        "patients": 42,
+        "positive_labels": 11,
+        "negative_labels": 52
+      },
+      "val": {
+        "stays": 17,
+        "patients": 14,
+        "positive_labels": 5,
+        "negative_labels": 12
+      },
+      "test": {
+        "stays": 19,
+        "patients": 14,
+        "positive_labels": 5,
+        "negative_labels": 14
+      }
+    },
+    {
+      "seed": 4,
+      "train": {
+        "stays": 65,
+        "patients": 42,
+        "positive_labels": 10,
+        "negative_labels": 55
+      },
+      "val": {
+        "stays": 17,
+        "patients": 14,
+        "positive_labels": 4,
+        "negative_labels": 13
+      },
+      "test": {
+        "stays": 17,
+        "patients": 14,
+        "positive_labels": 7,
+        "negative_labels": 10
+      }
+    },
+    {
+      "seed": 5,
+      "train": {
+        "stays": 55,
+        "patients": 42,
+        "positive_labels": 13,
+        "negative_labels": 42
+      },
+      "val": {
+        "stays": 26,
+        "patients": 14,
+        "positive_labels": 4,
+        "negative_labels": 22
+      },
+      "test": {
+        "stays": 18,
+        "patients": 14,
+        "positive_labels": 4,
+        "negative_labels": 14
+      }
+    },
+    {
+      "seed": 6,
+      "train": {
+        "stays": 51,
+        "patients": 42,
+        "positive_labels": 13,
+        "negative_labels": 38
+      },
+      "val": {
+        "stays": 28,
+        "patients": 14,
+        "positive_labels": 2,
+        "negative_labels": 26
+      },
+      "test": {
+        "stays": 20,
+        "patients": 14,
+        "positive_labels": 6,
+        "negative_labels": 14
+      }
+    },
+    {
+      "seed": 7,
+      "train": {
+        "stays": 50,
+        "patients": 42,
+        "positive_labels": 13,
+        "negative_labels": 37
+      },
+      "val": {
+        "stays": 20,
+        "patients": 14,
+        "positive_labels": 3,
+        "negative_labels": 17
+      },
+      "test": {
+        "stays": 29,
+        "patients": 14,
+        "positive_labels": 5,
+        "negative_labels": 24
+      }
+    },
+    {
+      "seed": 8,
+      "train": {
+        "stays": 62,
+        "patients": 42,
+        "positive_labels": 12,
+        "negative_labels": 50
+      },
+      "val": {
+        "stays": 18,
+        "patients": 14,
+        "positive_labels": 5,
+        "negative_labels": 13
+      },
+      "test": {
+        "stays": 19,
+        "patients": 14,
+        "positive_labels": 4,
+        "negative_labels": 15
+      }
+    },
+    {
+      "seed": 9,
+      "train": {
+        "stays": 54,
+        "patients": 42,
+        "positive_labels": 15,
+        "negative_labels": 39
+      },
+      "val": {
+        "stays": 27,
+        "patients": 14,
+        "positive_labels": 2,
+        "negative_labels": 25
+      },
+      "test": {
+        "stays": 18,
+        "patients": 14,
+        "positive_labels": 4,
+        "negative_labels": 14
+      }
+    }
+  ],
+  "runs": [
+    {
+      "seed": 0,
+      "configuration": "CNN, dropout 0.2",
+      "auroc": 0.6000000000000001,
+      "aupr_ap": 0.5393939393939393,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 0,
+      "configuration": "STN (both)",
+      "auroc": 0.6166666666666667,
+      "aupr_ap": 0.5216666666666667,
+      "theta_minus_I": 0.012657277286052704,
+      "phi_minus_I": 0.13391584157943726
+    },
+    {
+      "seed": 1,
+      "configuration": "CNN, dropout 0.2",
+      "auroc": 0.59375,
+      "aupr_ap": 0.4513888888888889,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 1,
+      "configuration": "STN (both)",
+      "auroc": 0.609375,
+      "aupr_ap": 0.45465686274509803,
+      "theta_minus_I": 0.0008614202961325645,
+      "phi_minus_I": 0.039710115641355515
+    },
+    {
+      "seed": 2,
+      "configuration": "CNN, dropout 0.2",
+      "auroc": 0.5357142857142857,
+      "aupr_ap": 0.5257936507936508,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 2,
+      "configuration": "STN (both)",
+      "auroc": 0.5357142857142857,
+      "aupr_ap": 0.5257936507936508,
+      "theta_minus_I": 0.001701816450804472,
+      "phi_minus_I": 0.01436061691492796
+    },
+    {
+      "seed": 3,
+      "configuration": "CNN, dropout 0.2",
+      "auroc": 0.37142857142857144,
+      "aupr_ap": 0.29263157894736846,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 3,
+      "configuration": "STN (both)",
+      "auroc": 0.41428571428571426,
+      "aupr_ap": 0.2681077694235589,
+      "theta_minus_I": 0.01338238175958395,
+      "phi_minus_I": 0.030565151944756508
+    },
+    {
+      "seed": 4,
+      "configuration": "CNN, dropout 0.2",
+      "auroc": 0.2714285714285714,
+      "aupr_ap": 0.3624734509188291,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 4,
+      "configuration": "STN (both)",
+      "auroc": 0.2285714285714286,
+      "aupr_ap": 0.35000179559003086,
+      "theta_minus_I": 0.036055270582437515,
+      "phi_minus_I": 0.14864884316921234
+    },
+    {
+      "seed": 5,
+      "configuration": "CNN, dropout 0.2",
+      "auroc": 0.5892857142857142,
+      "aupr_ap": 0.325,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 5,
+      "configuration": "STN (both)",
+      "auroc": 0.5892857142857143,
+      "aupr_ap": 0.34318181818181814,
+      "theta_minus_I": 0.0009006561012938619,
+      "phi_minus_I": 0.0405142568051815
+    },
+    {
+      "seed": 6,
+      "configuration": "CNN, dropout 0.2",
+      "auroc": 0.39285714285714285,
+      "aupr_ap": 0.2910830999066293,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 6,
+      "configuration": "STN (both)",
+      "auroc": 0.5238095238095237,
+      "aupr_ap": 0.3692384004884005,
+      "theta_minus_I": 0.007957303896546364,
+      "phi_minus_I": 0.11461816728115082
+    },
+    {
+      "seed": 7,
+      "configuration": "CNN, dropout 0.2",
+      "auroc": 0.55,
+      "aupr_ap": 0.41926536731634184,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 7,
+      "configuration": "STN (both)",
+      "auroc": 0.25833333333333336,
+      "aupr_ap": 0.15937453351246456,
+      "theta_minus_I": 0.017559971660375595,
+      "phi_minus_I": 0.211791530251503
+    },
+    {
+      "seed": 8,
+      "configuration": "CNN, dropout 0.2",
+      "auroc": 0.4666666666666667,
+      "aupr_ap": 0.41239495798319326,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 8,
+      "configuration": "STN (both)",
+      "auroc": 0.5333333333333333,
+      "aupr_ap": 0.4361111111111111,
+      "theta_minus_I": 0.012081322260200977,
+      "phi_minus_I": 0.04825124144554138
+    },
+    {
+      "seed": 9,
+      "configuration": "CNN, dropout 0.2",
+      "auroc": 0.41071428571428575,
+      "aupr_ap": 0.2513888888888889,
+      "theta_minus_I": 0.0,
+      "phi_minus_I": 0.0
+    },
+    {
+      "seed": 9,
+      "configuration": "STN (both)",
+      "auroc": 0.41071428571428575,
+      "aupr_ap": 0.2513888888888889,
+      "theta_minus_I": 0.010013948194682598,
+      "phi_minus_I": 0.04181685671210289
+    }
+  ],
+  "summary": {
+    "CNN, dropout 0.2": {
+      "auroc": {
+        "n": 10,
+        "mean": 0.47818452380952375,
+        "sd": 0.11309559053829796
+      },
+      "aupr_ap": {
+        "n": 10,
+        "mean": 0.387081382303773,
+        "sd": 0.09958847911241864
+      },
+      "theta_minus_I": {
+        "n": 10,
+        "mean": 0.0,
+        "sd": 0.0
+      },
+      "phi_minus_I": {
+        "n": 10,
+        "mean": 0.0,
+        "sd": 0.0
+      }
+    },
+    "STN (both)": {
+      "auroc": {
+        "n": 10,
+        "mean": 0.4720089285714285,
+        "sd": 0.1398648471323536
+      },
+      "aupr_ap": {
+        "n": 10,
+        "mean": 0.3679521497401689,
+        "sd": 0.11958418627994621
+      },
+      "theta_minus_I": {
+        "n": 10,
+        "mean": 0.01131713684881106,
+        "sd": 0.010439559822927295
+      },
+      "phi_minus_I": {
+        "n": 10,
+        "mean": 0.08241926217451692,
+        "sd": 0.06542947510389889
+      }
+    }
+  },
+  "execution_context": {
+    "source_base_commit": "33776d8ac362d50ea152f55770007fe2c0104f1f",
+    "source_has_local_changes": true,
+    "pyhealth_import": "analysis/final_upstream/pyhealth/__init__.py",
+    "device": "cpu",
+    "torch_threads": 1,
+    "model_sha256": "ec461d1832cb99ca0ed6c308c1f6a402f66d24cbaf800aa3a7b0bd6ba4de7cdd",
+    "harness_sha256": "d11d7f2de3d2ad6eedfa6ba7b70aa6ec5b513be5e941e6db8cf4ccdb23a6db10",
+    "historical_60_fit_results_sha256": "afd1a4f087e5826a0ed34fad9c8a3329f47af3c6ec12239066394a278116919f"
+  }
+}

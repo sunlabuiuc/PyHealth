@@ -26,6 +26,8 @@ magnitude part (value shift/scale and phi).
   with the same CNN weights and training sample order for each split.
 - Ablation: temporal only, magnitude only, and both, as in the paper.
   Also compares dropout 0, 0.2, and 0.5 for the full STN.
+- Matched-dropout study: CNN and full STN both use dropout 0.2, isolating
+  the transformation from the original configurations' dropout difference.
 
 Results:
 Writes each run to JSON and prints the mean and SD. See README_STN.md for
@@ -42,6 +44,8 @@ Usage:
     python examples/mimic3_mortality_sequence_transformer.py \\
         --root /path/to/mimic-iii-clinical-database-demo-1.4
 
+    Add --study matched-dropout for the two-configuration control.
+
 """
 
 import argparse
@@ -55,12 +59,13 @@ from typing import Any, ClassVar
 
 import numpy as np
 import torch
+from sklearn.metrics import average_precision_score, roc_auc_score
+
 from pyhealth.datasets import MIMIC3Dataset, PatientSplit, get_dataloader
 from pyhealth.models import SequenceTransformerNetwork
 from pyhealth.tasks import YAIBMortalityMIMIC3
 from pyhealth.trainer import Trainer
 from pyhealth.utils import set_seed
-from sklearn.metrics import average_precision_score, roc_auc_score
 
 # Folder with the MIMIC-III CSV files (the unzipped demo, or full MIMIC-III).
 # Set it here, or pass --root on the command line.
@@ -75,6 +80,11 @@ CONFIGS = {  # rows 1-4: the paper's Table 2; rows 5-6: dropout of the full mode
     "STN (both)": {"temporal": True, "magnitude": True, "dropout": 0.2},
     "STN, dropout 0": {"temporal": True, "magnitude": True, "dropout": 0.0},
     "STN, dropout 0.5": {"temporal": True, "magnitude": True, "dropout": 0.5},
+}
+
+MATCHED_DROPOUT_CONFIGS = {
+    "CNN, dropout 0.2": {"temporal": False, "magnitude": False, "dropout": 0.2},
+    "STN (both)": {"temporal": True, "magnitude": True, "dropout": 0.2},
 }
 
 
@@ -169,8 +179,9 @@ def main():
     parser.add_argument("--root", default=MIMIC_ROOT, help="MIMIC-III CSV folder")
     parser.add_argument("--seeds", type=int, default=10, help="random splits")
     parser.add_argument(
-        "--output", type=Path, default=Path("results/mimic3_stn_dynamic_only.json")
+        "--study", choices=("ablation", "matched-dropout"), default="ablation"
     )
+    parser.add_argument("--output", type=Path, help="JSON path; defaults by study")
     parser.add_argument("--cache-dir", type=Path, help="optional dataset cache folder")
     args = parser.parse_args()
     if not Path(args.root).expanduser().is_dir():
@@ -178,15 +189,25 @@ def main():
     if args.seeds < 1:
         parser.error("--seeds must be positive")
 
+    configs = CONFIGS if args.study == "ablation" else MATCHED_DROPOUT_CONFIGS
+    if args.output is None:
+        filename = (
+            "mimic3_stn_dynamic_only.json"
+            if args.study == "ablation"
+            else "mimic3_stn_matched_dropout.json"
+        )
+        args.output = Path("results") / filename
+
     kwargs = {"cache_dir": str(args.cache_dir)} if args.cache_dir else {}
     dataset = MIMIC3Dataset(
         root=str(Path(args.root).expanduser()),
         tables=["labevents", "chartevents", "outputevents", "transfers"],
         **kwargs,
     )
-    scores = {name: [] for name in CONFIGS}
+    scores = {name: [] for name in configs}
     output = {
         "status": "running",
+        "study": args.study,
         "created_utc": datetime.now(UTC).isoformat(),
         "example_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "task": DynamicOnlyMortality.task_name,
@@ -202,7 +223,7 @@ def main():
         "checkpoint": "minimum validation loss; restored from memory",
         "paired_initial_classifier": True,
         "aupr_definition": "sklearn average_precision_score",
-        "configs": CONFIGS,
+        "configs": configs,
         "versions": {
             name: version(name)
             for name in ("pyhealth", "torch", "numpy", "scikit-learn")
@@ -225,7 +246,7 @@ def main():
         )
         initial_cnn = deepcopy(reference.cnn.state_dict())
         del reference
-        for name, config in CONFIGS.items():
+        for name, config in configs.items():
             result = run(train, val, test, config, seed, initial_cnn)
             scores[name].append(result)
             output["runs"].append(
