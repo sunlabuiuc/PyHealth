@@ -7,7 +7,6 @@ import numpy as np
 
 from pyhealth.tasks.decompensation_mimic3 import DecompensationMIMIC3
 
-
 T0 = datetime(2020, 1, 1, 0, 0, 0)
 
 
@@ -249,6 +248,48 @@ class TestDecompensationMIMIC3(unittest.TestCase):
             )
         )
 
+
+    def test_same_ward_ids_retains_stay(self):
+        task = DecompensationMIMIC3()
+        patient = _patient()
+        self.assertEqual(len(task(patient)), 25)
+
+    def test_different_ward_ids_excludes_stay(self):
+        task = DecompensationMIMIC3()
+        patient = _patient()
+        stay = patient.get_events("icustays")[0]
+        stay.last_wardid = "2"
+
+        self.assertEqual(task(patient), [])
+
+    def test_missing_both_ward_ids_retains_stay(self):
+        task = DecompensationMIMIC3()
+        patient = _patient()
+        stay = patient.get_events("icustays")[0]
+
+        del stay.first_wardid
+        del stay.last_wardid
+
+        self.assertEqual(len(task(patient)), 25)
+
+    def test_missing_one_ward_id_excludes_stay(self):
+        task = DecompensationMIMIC3()
+
+        for field in ("first_wardid", "last_wardid"):
+            with self.subTest(field=field):
+                patient = _patient()
+                stay = patient.get_events("icustays")[0]
+                delattr(stay, field)
+
+                self.assertEqual(task(patient), [])
+
+    def test_different_careunits_excludes_stay(self):
+        task = DecompensationMIMIC3()
+        patient = _patient()
+        stay = patient.get_events("icustays")[0]
+        stay.last_careunit = "SICU"
+
+        self.assertEqual(task(patient), [])
 
 if __name__ == "__main__":
     unittest.main()
