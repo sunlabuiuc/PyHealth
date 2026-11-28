@@ -98,7 +98,13 @@ The table below was produced by our project's experiment runner, which calls
 the same task, model and ``Trainer`` with these settings and adds bootstrap
 CIs and significance tests. Reruns are not bit-for-bit identical: GPU
 training is not deterministic, and the shuffle order depends on the PyHealth
-version. Test AUROC by horizon and 28-day AUPRC, mean of 5 seeds:
+version. Single runs vary by a few hundredths of AUROC, so compare models over
+several seeds. With the command above, seed 0 gave a 28-day AUROC of 0.750
+for TD, 0.733 for 28d+ and 0.594 for 1d+ (the same ranking as the table), and
+seed 1 gave 0.790 for TD. Rerunning the runner's own seed 0 gave TD 0.780
+instead of 0.790.
+
+Test AUROC by horizon and 28-day AUPRC, mean of 5 seeds:
 
     =============== ===== ===== ===== ===== ===== =====
     model           1d    3d    7d    14d   28d   AUPRC
