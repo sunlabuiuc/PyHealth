@@ -107,7 +107,7 @@ from .clmbr import (
     CLMBRTokenizer as CLMBRTokenizer,
     CLMBRTransformer as CLMBRTransformer,
 )
-from .ehrmamba import EHRMamba, MambaBlock
+from .ehrmamba import EHRMamba, SelectiveSSMBlock, CEHREmbeddings
 from .ehrmamba_cehr import EHRMambaCEHR
 from .vae import VAE
 from .vision_embedding import VisionEmbeddingModel
