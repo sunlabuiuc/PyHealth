@@ -32,3 +32,10 @@ API Reference
     :members:
     :undoc-members:
     :show-inheritance:
+
+Train-fold normalization helpers (per-lead mean/std fitted on training
+folds, as in the Nonaka & Seita 2021 ECG benchmark):
+
+.. autofunction:: pyhealth.datasets.ptbxl.compute_ptbxl_lead_stats
+
+.. autofunction:: pyhealth.datasets.ptbxl.load_ptbxl_lead_stats

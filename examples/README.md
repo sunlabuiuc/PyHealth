@@ -43,7 +43,7 @@ Older examples that no longer run, or that duplicated a maintained one, are in
 | [`cxr/`](cxr/) | Chest X-ray classification (ChestX-ray14, COVID-19), saliency maps, conformal prediction, ViT, VAE and GAN image generation. The COVID-19 ViT tutorial runs except for its Chefer step, which currently fails (see its header) |
 | [`eeg/`](eeg/) | EEG events and abnormality (TUEV, TUAB), sleep staging (Sleep-EDF, ISRUC, HMC), dementia classification (AHEPA), seizure onset zone localization (HUP iEEG), EEGBCI pattern discovery; SparcNet, ContraWR, BIOT, TFM-Tokenizer |
 | [`conformal_eeg/`](conformal_eeg/) | Conformal prediction on TUEV/TUAB: conventional, k-means cluster, neighbourhood (NCP), covariate shift |
-| [`ecg/`](ecg/) | PTB-XL multi-label ECG classification, including ProtoECGNet |
+| [`ecg/`](ecg/) | PTB-XL multi-label and 3-way multi-class ECG classification: ProtoECGNet, and the ResNet-1D reproduction of the Nonaka & Seita (2021) architecture benchmark |
 | [`benchmark_perf/`](benchmark_perf/README.md) | Speed and memory benchmarks against PyHealth 1.x, pandas and meds_reader |
 
 ## Top-level notebooks

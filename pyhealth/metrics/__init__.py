@@ -1,5 +1,9 @@
 from .binary import binary_metrics_fn, timeseries_binary_metrics_fn
-from .bootstrap import bootstrap_ci, paired_bootstrap_diff
+from .bootstrap import (
+    bootstrap_ci,
+    bootstrap_metrics_ci,
+    paired_bootstrap_diff,
+)
 from .clinical import (
     alert_rate_metrics,
     calibration_bins,
@@ -43,6 +47,7 @@ from .segmentation import (
     remap_class_mask,
     segmentation_metrics_fn,
 )
+from .significance import benjamini_hochberg, welch_relative_improvement_test
 from .survival import (
     concordance_index,
     cumulative_dynamic_auc,
@@ -68,7 +73,9 @@ __all__ = [
     "SufficiencyMetric",
     "alert_rate_metrics",
     "binary_metrics_fn",
+    "benjamini_hochberg",
     "bootstrap_ci",
+    "bootstrap_metrics_ci",
     "calc_membership_inference",
     "calc_nnaar",
     "calibration_bins",
@@ -106,4 +113,5 @@ __all__ = [
     "survival_metrics_fn",
     "timeseries_binary_metrics_fn",
     "timeseries_regression_metrics_fn",
+    "welch_relative_improvement_test",
 ]

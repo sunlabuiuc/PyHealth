@@ -28,6 +28,7 @@ import ast
 import hashlib
 import logging
 import os
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -245,6 +246,87 @@ def metadata_filename(
     return f"{name}.csv"
 
 
+def lead_stats_filename(
+    metadata_file_name: str,
+    train_folds: list[int] | tuple[int, ...],
+) -> str:
+    """Return the per-lead train-statistics artifact name for a metadata CSV.
+
+    Derived from the rate-/root-/source-keyed metadata CSV filename so two
+    data roots or source CSVs never share a stats artifact. The sorted train
+    fold set is appended because stats must be refit whenever the training
+    folds change (e.g. the five PTB-XL benchmark fold pairs).
+
+    Args:
+        metadata_file_name (str): Derived metadata CSV name from
+            :meth:`PTBXLDataset.metadata_filename` (e.g.
+            ``ptbxl-pyhealth-500hz-<root>-<source>.csv``).
+        train_folds (list[int] | tuple[int, ...]): Training fold integers.
+
+    Returns:
+        str: Artifact name such as
+        ``ptbxl-lead-stats-500hz-<root>-<source>-folds1-2-3.npz``.
+
+    Examples:
+        >>> name = lead_stats_filename(
+        ...     "ptbxl-pyhealth-100hz-abcd1234ef-0123456789.csv", (1, 9))
+        >>> name.startswith("ptbxl-lead-stats-100hz-")
+        True
+        >>> name.endswith("folds1-9.npz")
+        True
+    """
+    stem = metadata_file_name[: -len(".csv")]
+    stem = stem.replace("ptbxl-pyhealth", "ptbxl-lead-stats", 1)
+    folds = "-".join(str(int(f)) for f in sorted(set(train_folds)))
+    if not folds:
+        raise ValueError("train_folds must not be empty")
+    return f"{stem}-folds{folds}.npz"
+
+
+def load_ptbxl_lead_stats(
+    stats_path: str | Path,
+    n_leads: int = 12,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Load per-lead ``(mean, std)`` from a train-statistics artifact.
+
+    Reader counterpart to :func:`compute_ptbxl_lead_stats`. Validates the
+    stored arrays so a wrong-rate or corrupted artifact fails early.
+
+    Args:
+        stats_path (str | Path): Path to an ``.npz`` written by
+            :func:`compute_ptbxl_lead_stats`.
+        n_leads (int): Expected lead count (PTB-XL is always 12).
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: ``(mean, std)``, float64, shape
+        ``(n_leads,)``.
+
+    Raises:
+        FileNotFoundError: If the artifact does not exist.
+        ValueError: If the stored arrays have the wrong shape.
+
+    Examples:
+        >>> mean, std = load_ptbxl_lead_stats(  # doctest: +SKIP
+        ...     "/data/cache/ptbxl/ptbxl-lead-stats-500hz-....npz")
+    """
+    path = Path(stats_path)
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"PTB-XL lead-stats artifact not found: {path}. Compute it with "
+            "pyhealth.datasets.compute_ptbxl_lead_stats(<PTBXLDataset>, "
+            "train_folds=...) before constructing the task."
+        )
+    with np.load(path, allow_pickle=False) as data:
+        mean = np.asarray(data["mean"], dtype=np.float64)
+        std = np.asarray(data["std"], dtype=np.float64)
+    if mean.shape != (n_leads,) or std.shape != (n_leads,):
+        raise ValueError(
+            f"Lead-stats arrays must have shape ({n_leads},), got "
+            f"mean{mean.shape} std{std.shape}: {path}"
+        )
+    return mean, std
+
+
 def load_ptbxl_record(record_path: str | Path) -> np.ndarray:
     """Load a PTB-XL WFDB record as ``(n_leads, n_samples)``.
 
@@ -270,9 +352,9 @@ def load_ptbxl_record(record_path: str | Path) -> np.ndarray:
         FileNotFoundError: If the ``.hea`` header cannot be found.
 
     Examples:
-        >>> # doctest: +SKIP
-        >>> signal = load_ptbxl_record("/data/ptb-xl/1.0.3/records100/00000/00001_lr")
-        >>> signal.shape[0]
+        >>> signal = load_ptbxl_record(  # doctest: +SKIP
+        ...     "/data/ptb-xl/1.0.3/records100/00000/00001_lr")
+        >>> signal.shape[0]  # doctest: +SKIP
         12
     """
     try:
@@ -296,6 +378,122 @@ def load_ptbxl_record(record_path: str | Path) -> np.ndarray:
     signals, _ = wfdb.rdsamp(str(path))
     # (n_samples, n_leads) → (n_leads, n_samples) to match mne.get_data().
     return np.asarray(signals, dtype=np.float32).T
+
+
+def compute_ptbxl_lead_stats(
+    dataset: PTBXLDataset,
+    train_folds: Sequence[int] = tuple(range(1, 9)),
+    force: bool = False,
+) -> Path:
+    """Fit per-lead mean/std over the training folds of a PTB-XL dataset.
+
+    Implements the normalization protocol of *In-depth Benchmarking of Deep
+    Neural Network Architectures for ECG Diagnosis* (Nonaka & Seita, 2021):
+    scaling statistics are computed **from the training split only** and
+    applied unchanged to validation and test, per lead (Section 3.1). Note
+    the released code for that paper fitted a single scaler over all leads
+    pooled; this follows the paper text. Signals are read streaming
+    record-by-record, so the full corpus is never materialized.
+
+    The artifact is cached in ``dataset.metadata_cache_dir`` with the same
+    rate-/root-/source-keyed name as the derived metadata CSV, plus the
+    sorted train-fold set (see :func:`lead_stats_filename`), so different
+    data roots, source CSVs, sampling rates, or fold sets never collide.
+
+    Args:
+        dataset (PTBXLDataset): An instantiated dataset (its derived metadata
+            CSV supplies record paths, folds, and rate).
+        train_folds (Sequence[int]): Folds whose records define the
+            statistics. Default ``(1..8)``, the paper's main configuration;
+            pass the complement of a benchmark (val, test) fold pair for the
+            five-trial protocol.
+        force (bool): Recompute even when a cached artifact exists.
+            Default is False.
+
+    Returns:
+        Path: The written ``.npz`` artifact; load it with
+        :func:`load_ptbxl_lead_stats` or pass it as ``stats_path`` to
+        :class:`~pyhealth.tasks.PTBXLMultilabelClassification` /
+        :class:`~pyhealth.tasks.PTBXLMulticlassClassification`.
+
+    Raises:
+        ValueError: If ``train_folds`` is empty or matches no records.
+
+    Examples:
+        >>> from pyhealth.datasets import (  # doctest: +SKIP
+        ...     PTBXLDataset, compute_ptbxl_lead_stats)
+        >>> ds = PTBXLDataset(  # doctest: +SKIP
+        ...     root="/data/ptb-xl/1.0.3", sampling_rate=500)
+        >>> stats = compute_ptbxl_lead_stats(  # doctest: +SKIP
+        ...     ds, train_folds=(1, 2, 3, 4, 5, 6, 9, 10))
+    """
+    folds = sorted({int(f) for f in train_folds})
+    if not folds:
+        raise ValueError("train_folds must not be empty")
+
+    csv_path = dataset.metadata_cache_dir / dataset.metadata_file_name
+    meta = pd.read_csv(
+        csv_path, usecols=["record_id", "strat_fold", "signal_file"]
+    )
+    fold_set = set(folds)
+    train_meta = meta[meta["strat_fold"].astype(int).isin(fold_set)]
+    if train_meta.empty:
+        raise ValueError(
+            f"No records with strat_fold in {folds} under {csv_path}; "
+            "available folds: "
+            f"{sorted(int(f) for f in meta['strat_fold'].unique())}"
+        )
+
+    out_path = (
+        dataset.metadata_cache_dir
+        / lead_stats_filename(dataset.metadata_file_name, folds)
+    )
+    if out_path.exists() and not force:
+        return out_path
+
+    lock_path = out_path.with_name(out_path.name + ".lock")
+    with FileLock(str(lock_path)):
+        if out_path.exists() and not force:
+            return out_path
+        n_records = 0
+        n_values = np.zeros(12, dtype=np.int64)
+        lead_sum = np.zeros(12, dtype=np.float64)
+        lead_sumsq = np.zeros(12, dtype=np.float64)
+        for signal_file in train_meta["signal_file"]:
+            signal = load_ptbxl_record(str(signal_file))  # (leads, samples)
+            lead_sum += signal.sum(axis=1, dtype=np.float64)
+            lead_sumsq += np.square(signal, dtype=np.float64).sum(
+                axis=1, dtype=np.float64
+            )
+            n_values += signal.shape[1]
+            n_records += 1
+
+        mean = lead_sum / n_values
+        # Population variance; clip tiny negative FP error.
+        var = np.maximum(lead_sumsq / n_values - np.square(mean), 0.0)
+        std = np.sqrt(var)
+
+        tmp_path = out_path.with_name(out_path.name + ".tmp.npz")
+        with open(tmp_path, "wb") as handle:
+            np.savez(
+                handle,
+                mean=mean,
+                std=std,
+                n_records=np.int64(n_records),
+                n_values=n_values,
+                train_folds=np.asarray(folds, dtype=np.int64),
+                sampling_rate=np.int64(dataset.sampling_rate),
+            )
+        os.replace(tmp_path, out_path)
+    logger.info(
+        "Wrote PTB-XL per-lead train stats (%d records, %d Hz, folds %s) "
+        "to %s",
+        n_records,
+        dataset.sampling_rate,
+        folds,
+        out_path,
+    )
+    return out_path
 
 
 class PTBXLDataset(BaseDataset):
@@ -362,7 +560,8 @@ class PTBXLDataset(BaseDataset):
     Examples:
         >>> dataset = PTBXLDataset(root="/data/ptb-xl/1.0.3")  # doctest: +SKIP
         >>> dataset.stats()  # doctest: +SKIP
-        >>> patient = dataset.get_patient(dataset.unique_patient_ids[0])  # doctest: +SKIP
+        >>> patient = dataset.get_patient(  # doctest: +SKIP
+        ...     dataset.unique_patient_ids[0])
         >>> event = patient.get_events(event_type="records")[0]  # doctest: +SKIP
         >>> signal = load_ptbxl_record(event.signal_file)  # doctest: +SKIP
     """
@@ -505,9 +704,8 @@ class PTBXLDataset(BaseDataset):
             None
 
         Examples:
-            >>> # doctest: +SKIP
-            >>> ds = PTBXLDataset(root="/data/ptb-xl/1.0.3")
-            >>> ds.prepare_metadata()
+            >>> ds = PTBXLDataset(root="/data/ptb-xl/1.0.3")  # doctest: +SKIP
+            >>> ds.prepare_metadata()  # doctest: +SKIP
         """
         csv_path = self.metadata_cache_dir / self.metadata_file_name
         if csv_path.exists() and self._metadata_matches_request(csv_path):

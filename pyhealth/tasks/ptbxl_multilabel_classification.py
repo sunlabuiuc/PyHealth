@@ -63,7 +63,9 @@ def _aggregate_labels(
             continue
         likelihood = float(likelihood)
         row = scp_statements.loc[code]
-        if label_set == "all" or (label_set == "diagnostic" and row.get("diagnostic") == 1):
+        if label_set == "all" or (
+            label_set == "diagnostic" and row.get("diagnostic") == 1
+        ):
             per_class[code] = max(per_class.get(code, float("-inf")), likelihood)
         elif label_set == "subdiagnostic" and row.get("diagnostic") == 1:
             sub = row.get("diagnostic_subclass")
@@ -78,6 +80,83 @@ def _aggregate_labels(
         ):
             per_class[code] = max(per_class.get(code, float("-inf")), likelihood)
     return sorted(k for k, v in per_class.items() if v >= min_likelihood)
+
+
+def compute_multilabel_pos_weight(
+    samples: Any,
+    label_key: str = "labels",
+) -> list[float]:
+    """Per-label positive weights for the multilabel BCE loss.
+
+    Each label gets ``n_negative / n_positive`` counted over the given
+    (training) samples only — the standard re-weighting for the severe
+    class imbalance of PTB-XL SCP statements. This is an extension beyond
+    the Nonaka & Seita benchmark baseline, which uses unweighted
+    ``BCEWithLogitsLoss``; pass the result to
+    ``ResNet1D(pos_weight=...)``.
+
+    Accepts both raw task samples (``label_key`` holds a list of label
+    names) and processor-encoded samples (``label_key`` holds a multi-hot
+    vector). For raw samples the vocabulary is the sorted union of the
+    observed labels, matching the learned
+    :class:`~pyhealth.processors.MultiLabelProcessor` vocabulary order.
+
+    Note:
+        A label that never occurs in these samples cannot get a weight
+        from them; the model's length check then reports the mismatch if
+        the dataset's vocabulary contains it (e.g. a label that appears
+        only outside the training folds). Labels with zero negatives get
+        weight 0.0 (nothing down-weights their negatives); labels encoded
+        but never positive get 1.0.
+
+    Args:
+        samples: Iterable of samples (dict-like) with ``label_key``.
+        label_key: Sample key holding the label list or multi-hot vector.
+
+    Returns:
+        list[float]: one weight per label, in label-vocabulary order.
+
+    Raises:
+        ValueError: If ``samples`` is empty or labels are malformed.
+
+    Examples:
+        >>> samples = [
+        ...     {"labels": ["NORM", "ST_"]}, {"labels": ["NORM"]},
+        ...     {"labels": ["NORM"]}, {"labels": ["ST_"]},
+        ...     {"labels": ["CD_"]}, {"labels": ["CD_", "NORM"]},
+        ... ]
+        >>> compute_multilabel_pos_weight(samples)
+        [2.0, 0.5, 2.0]
+    """
+    label_values = [sample[label_key] for sample in samples]
+    if not label_values:
+        raise ValueError("samples must not be empty")
+    n = len(label_values)
+
+    first = label_values[0]
+    if isinstance(first, (list, tuple)) and (
+        len(first) == 0 or isinstance(first[0], str)
+    ):
+        counts: dict[str, int] = {}
+        for labels in label_values:
+            for label in labels:
+                if not isinstance(label, str):
+                    raise ValueError(
+                        "mixed label formats; expected label-name lists"
+                    )
+                counts[label] = counts.get(label, 0) + 1
+        if not counts:
+            raise ValueError("no labels found in the samples")
+        return [(n - counts[label]) / counts[label] for label in sorted(counts)]
+
+    matrix = np.stack(
+        [np.asarray(value, dtype=np.float64).ravel() for value in label_values]
+    )
+    positives = (matrix != 0).sum(axis=0)
+    return [
+        1.0 if count == 0 else (n - count) / count
+        for count in positives.tolist()
+    ]
 
 
 class PTBXLMultilabelClassification(BaseTask):
@@ -106,7 +185,17 @@ class PTBXLMultilabelClassification(BaseTask):
             least this value (0 keeps everything, including
             unknown-confidence form/rhythm statements). Defaults to 0.0.
         standardize: ``"record"`` applies per-lead z-scoring within each
-            record; ``None`` keeps raw millivolts. Defaults to ``"record"``.
+            record; ``"train_stats"`` applies per-lead z-scoring using mean
+            and std fitted on the training folds only (requires
+            ``stats_path``; see
+            :func:`~pyhealth.datasets.compute_ptbxl_lead_stats`); ``None``
+            keeps raw millivolts. Defaults to ``"record"``.
+        stats_path: Path to a per-lead train-statistics ``.npz`` artifact,
+            required when ``standardize="train_stats"`` and ignored
+            otherwise. Compute it with
+            :func:`~pyhealth.datasets.compute_ptbxl_lead_stats` **before**
+            ``set_task`` so the statistics come only from the training
+            folds. Defaults to None.
         remove_baseline: If True, applies a 0.5 Hz high-pass Butterworth
             filter to remove baseline wander (used in the ProtoECGNet paper).
             Defaults to False.
@@ -145,18 +234,39 @@ class PTBXLMultilabelClassification(BaseTask):
         label_set: str = "diagnostic",
         min_likelihood: float = 0.0,
         standardize: str | None = "record",
+        stats_path: str | os.PathLike | None = None,
         remove_baseline: bool = False,
     ) -> None:
         if label_set not in _LABEL_SETS:
             raise ValueError(f"label_set must be one of {_LABEL_SETS}")
-        if standardize not in ("record", None):
-            raise ValueError("standardize must be 'record' or None")
+        if standardize not in ("record", "train_stats", None):
+            raise ValueError(
+                "standardize must be 'record', 'train_stats', or None"
+            )
         # Resolve to a canonical string so the cache key is stable.
         self.scp_statements_path = str(Path(scp_statements_path).resolve())
         self.label_set = label_set
         self.min_likelihood = min_likelihood
         self.standardize = standardize
         self.remove_baseline = remove_baseline
+        self.stats_path = (
+            str(Path(stats_path).resolve()) if stats_path is not None else None
+        )
+        self._lead_mean: np.ndarray | None = None
+        self._lead_std: np.ndarray | None = None
+        if standardize == "train_stats":
+            if self.stats_path is None:
+                raise ValueError(
+                    "stats_path is required when standardize='train_stats'. "
+                    "Compute it with "
+                    "pyhealth.datasets.compute_ptbxl_lead_stats(dataset, "
+                    "train_folds=...) before constructing the task."
+                )
+            from pyhealth.datasets.ptbxl import load_ptbxl_lead_stats
+
+            self._lead_mean, self._lead_std = load_ptbxl_lead_stats(
+                self.stats_path
+            )
         super().__init__()
 
     def _prepare_signal(self, signal_file: str, sampling_rate: int) -> np.ndarray:
@@ -192,6 +302,10 @@ class PTBXLMultilabelClassification(BaseTask):
             mean = signal.mean(axis=1, keepdims=True)
             std = signal.std(axis=1, keepdims=True)
             signal = (signal - mean) / (std + 1e-6)
+        elif self.standardize == "train_stats":
+            signal = (signal - self._lead_mean[:, None]) / (
+                self._lead_std[:, None] + 1e-6
+            )
         return np.ascontiguousarray(signal, dtype=np.float32)
 
     def __call__(self, patient: Any) -> list[dict[str, Any]]:

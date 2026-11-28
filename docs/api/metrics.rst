@@ -15,6 +15,13 @@ predictions through :func:`pyhealth.metrics.calibration.ece_confidence_binary`
 and :func:`pyhealth.metrics.calibration.ece_confidence_multiclass`. The API
 reference includes the ECE definition and formula used by these helpers.
 
+Confidence intervals for one run's test set come from
+:mod:`pyhealth.metrics.bootstrap`. To compare settings that were each trained
+once per data split, use
+:func:`pyhealth.metrics.significance.welch_relative_improvement_test`:
+Welch's t-test against a baseline with Benjamini-Hochberg correction, the
+protocol of Nonaka & Seita (2021).
+
 
 .. toctree::
     :maxdepth: 3
@@ -26,6 +33,7 @@ reference includes the ECE definition and formula used by these helpers.
     metrics/pyhealth.metrics.segmentation
     metrics/pyhealth.metrics.calibration
     metrics/pyhealth.metrics.bootstrap
+    metrics/pyhealth.metrics.significance
     metrics/pyhealth.metrics.clinical
     metrics/pyhealth.metrics.competing_risks
     metrics/pyhealth.metrics.prediction_set

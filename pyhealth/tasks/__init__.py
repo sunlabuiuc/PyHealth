@@ -50,7 +50,14 @@ from .covid19_cxr_classification import COVID19CXRClassification
 from .covid19_cxr_generation import (
     COVID19CXRImageGeneration as COVID19CXRImageGeneration,
 )
-from .ptbxl_multilabel_classification import PTBXLMultilabelClassification as PTBXLMultilabelClassification
+from .ptbxl_multilabel_classification import (
+    PTBXLMultilabelClassification as PTBXLMultilabelClassification,
+    compute_multilabel_pos_weight as compute_multilabel_pos_weight,
+)
+from .ptbxl_multiclass_classification import (
+    PTBXLMulticlassClassification as PTBXLMulticlassClassification,
+    compute_multiclass_class_weights as compute_multiclass_class_weights,
+)
 from .ptbxl_heartlang import PTBXLHeartLangClassification as PTBXLHeartLangClassification
 from .cpsc2018_heartlang import (
     CPSC2018HeartLangClassification as CPSC2018HeartLangClassification,
