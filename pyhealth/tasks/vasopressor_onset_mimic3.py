@@ -19,6 +19,7 @@ from datetime import datetime
 from typing import Any, ClassVar
 
 import numpy as np
+import polars as pl
 
 from .base_task import BaseTask
 
@@ -381,7 +382,463 @@ def apply_standardizer(
 
 _ZSCORE = {"normalization": "zscore", "impute_strategy": "zero"}
 
-class VasopressorOnsetMIMIC3(BaseTask):
+
+class _VasopressorOnsetTask(BaseTask):
+    """Shared logic of the vasopressor-onset tasks (Wu et al. 2022).
+
+    Holds everything that does not depend on the database version: the
+    cohort rules, the hourly binning, the label and the layout of the
+    sample. :class:`VasopressorOnsetMIMIC3` and
+    :class:`~pyhealth.tasks.VasopressorOnsetMIMIC4` set the class
+    attributes below and override the four hooks ``_stay_allowed``,
+    ``_age``, ``_admission_flags`` and ``_unit_flags``.
+
+    Attributes:
+        _INPUT_TABLE: event type holding the vasopressor infusions.
+        _STAY_ID_KEY: ICU stay identifier (attribute and sample key).
+        _DEFAULT_ITEMIDS: default variable name to itemids map.
+        _DEFAULT_VASOPRESSOR_ITEMIDS: default vasopressor itemids.
+        _FAHRENHEIT_ITEMIDS: temperature itemids charted in Fahrenheit.
+        _POUND_ITEMIDS: weight itemids charted in pounds.
+    """
+
+    input_schema: ClassVar[dict[str, Any]] = {
+        "values": ("tensor", dict(_ZSCORE)),
+        "indicators": "tensor",
+        "statics": ("tensor", dict(_ZSCORE)),
+    }
+    output_schema: ClassVar[dict[str, str]] = {"vasopressor_onset": "binary"}
+
+    _INPUT_TABLE: ClassVar[str] = "inputevents_mv"
+    _STAY_ID_KEY: ClassVar[str] = "icustay_id"
+    _DEFAULT_ITEMIDS: ClassVar[dict[str, tuple[int, ...]]] = DEFAULT_ITEMIDS
+    _DEFAULT_VASOPRESSOR_ITEMIDS: ClassVar[tuple[int, ...]] = (
+        DEFAULT_VASOPRESSOR_ITEMIDS
+    )
+    _FAHRENHEIT_ITEMIDS: ClassVar[tuple[int, ...]] = FAHRENHEIT_ITEMIDS
+    _POUND_ITEMIDS: ClassVar[tuple[int, ...]] = ()
+
+    def __init__(
+        self,
+        normalization: str | None = "zscore",
+        time_len: int = TIME_LEN,
+        min_los_hours: float = 6.0,
+        max_los_hours: float = 600.0,
+        forward_fill: bool = True,
+        require_weight: bool = True,
+        itemid_map: dict[str, Sequence[int]] | None = None,
+        vasopressor_itemids: Sequence[int] | None = None,
+    ) -> None:
+        super().__init__()
+        if normalization not in ("zscore", None):
+            raise ValueError("normalization must be 'zscore' or None")
+        if time_len < 1:
+            raise ValueError("time_len must be at least 1")
+        self.normalization = normalization
+        self.time_len = time_len
+        self.min_los_hours = min_los_hours
+        self.max_los_hours = max_los_hours
+        self.forward_fill = forward_fill
+        self.require_weight = require_weight
+        self.itemid_map = {
+            name: tuple(int(i) for i in itemids)
+            for name, itemids in (itemid_map or self._DEFAULT_ITEMIDS).items()
+        }
+        self.vasopressor_itemids: set[int] = {
+            int(i)
+            for i in (vasopressor_itemids or self._DEFAULT_VASOPRESSOR_ITEMIDS)
+        }
+        if normalization is None:
+            self.input_schema = {
+                "values": "tensor",
+                "indicators": "tensor",
+                "statics": "tensor",
+            }
+        # itemid -> column, for the 27 directly measured variables, the
+        # three GCS sub-scores and the weight.
+        self._columns = (
+            [name for name in CHANGING_VARS if name != "GCS"]
+            + list(GCS_PARTS)
+            + ["weight"]
+        )
+        self._chart_map = {
+            itemid: self._columns.index(name)
+            for name in self._columns
+            if name != "urine"
+            for itemid in self.itemid_map.get(name, ())
+        }
+        self._urine_map = {
+            itemid: self._columns.index("urine")
+            for itemid in self.itemid_map.get("urine", ())
+        }
+
+    def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        """Drops measurement rows whose itemid the task does not read.
+
+        Keeps the patient frames small on the full databases, where
+        ``chartevents`` alone has hundreds of millions of rows. Tables
+        that are not loaded are left alone.
+
+        Args:
+            df: the dataset's global event frame.
+
+        Returns:
+            The frame without the unused chart, lab, output and input
+            rows.
+        """
+        columns = set(df.collect_schema().names())
+        wanted = {
+            "chartevents": set(self._chart_map),
+            "labevents": set(self._chart_map),
+            "outputevents": set(self._urine_map),
+            self._INPUT_TABLE: set(self.vasopressor_itemids),
+        }
+        keep = pl.lit(True)
+        for table, itemids in wanted.items():
+            column = f"{table}/itemid"
+            if column not in columns:
+                continue
+            used = pl.col(column).cast(pl.Float64, strict=False).is_in(
+                [float(i) for i in sorted(itemids)]
+            )
+            keep = keep & ((pl.col("event_type") != table) | used)
+        return df.filter(keep)
+
+    # ------------------------------------------------- version hooks
+    def _stay_allowed(self, stay: Any) -> bool:
+        """Whether the first ICU stay may enter the cohort.
+
+        Args:
+            stay: the ICU stay event.
+
+        Returns:
+            True; subclasses add version-specific rules.
+        """
+        return True
+
+    def _age(self, demographics: Any, stay: Any) -> float:
+        """Age in years at ICU admission, capped at 90 (NaN if unknown).
+
+        Args:
+            demographics: the patient's ``patients`` event, or None.
+            stay: the ICU stay event.
+
+        Returns:
+            The age, from the date of birth.
+        """
+        dob = _to_datetime(getattr(demographics, "dob", None))
+        if dob is None:
+            return float("nan")
+        return min((stay.timestamp - dob).days / 365.25, 90.0)
+
+    def _admission_flags(self, admission_type: str) -> tuple[float, float]:
+        """``(is_urgent, is_emergency)`` of an admission type.
+
+        Args:
+            admission_type: the admission's ``admission_type``.
+
+        Returns:
+            The two 0/1 flags.
+        """
+        kind = admission_type.upper()
+        return float(kind == "URGENT"), float(kind == "EMERGENCY")
+
+    def _unit_flags(self, unit: str) -> tuple[float, float, float, float]:
+        """``(is_sicu, is_tsicu, is_micu, is_csru)`` of a care unit.
+
+        Args:
+            unit: the stay's ``first_careunit``.
+
+        Returns:
+            The four 0/1 flags.
+        """
+        unit = unit.upper()
+        return (
+            float(unit == "SICU"),
+            float(unit == "TSICU"),
+            float(unit == "MICU"),
+            float(unit == "CSRU"),
+        )
+
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
+        """Turns one patient into zero or one vasopressor-onset sample.
+
+        Args:
+            patient: a :class:`~pyhealth.data.Patient` with ``icustays``,
+                ``patients``, ``admissions``, ``chartevents``,
+                ``labevents``, ``outputevents`` and vasopressor input
+                events.
+
+        Returns:
+            A list with one sample dict, or an empty list when the
+            patient is outside the cohort.
+        """
+        stay = self._first_stay(patient)
+        if stay is None:
+            return []
+        label = self._label_onset(patient, stay)
+        if label is None:
+            return []
+        measured, weights = self._measurements(patient, stay)
+        statics = self._static_features(patient, stay, weights)
+        if statics is None:
+            return []
+        values, indicators = self._assemble(measured)
+        if self.forward_fill:
+            values = _forward_fill(values)
+        return [
+            {
+                "patient_id": patient.patient_id,
+                self._STAY_ID_KEY: str(getattr(stay, self._STAY_ID_KEY, "")),
+                "values": values.tolist(),
+                "indicators": indicators.tolist(),
+                "statics": statics.tolist(),
+                "vasopressor_onset": label,
+            }
+        ]
+
+    def _stay_status(self, patient: Any) -> tuple[Any | None, str | None]:
+        """Finds the first ICU stay and why it is excluded, if it is.
+
+        Args:
+            patient: the patient object.
+
+        Returns:
+            Tuple of the first ICU stay event (None without one) and the
+            exclusion reason: ``"no_icu_stay"``, ``"stay_not_allowed"``
+            (see ``_stay_allowed``), ``"los_out_of_range"`` (outside
+            ``[max(min_los_hours, time_len), max_los_hours]`` or no
+            discharge time), or None when the stay passes.
+        """
+        stays = [
+            stay
+            for stay in patient.get_events(event_type="icustays")
+            if stay.timestamp is not None
+        ]
+        if not stays:
+            return None, "no_icu_stay"
+        stay = min(stays, key=lambda s: s.timestamp)
+        if not self._stay_allowed(stay):
+            return stay, "stay_not_allowed"
+        outtime = _to_datetime(getattr(stay, "outtime", None))
+        if outtime is None:
+            return stay, "los_out_of_range"
+        los_hours = (outtime - stay.timestamp).total_seconds() / 3600.0
+        if los_hours < max(self.min_los_hours, self.time_len):
+            return stay, "los_out_of_range"
+        if los_hours > self.max_los_hours:
+            return stay, "los_out_of_range"
+        return stay, None
+
+    def _first_stay(self, patient: Any) -> Any | None:
+        """Returns the first ICU stay if it meets the cohort rules.
+
+        Args:
+            patient: the patient object.
+
+        Returns:
+            The first ICU stay event, or None when
+            :meth:`_stay_status` gives an exclusion reason.
+        """
+        stay, reason = self._stay_status(patient)
+        return None if reason else stay
+
+    def exclusion_reason(self, patient: Any) -> str | None:
+        """Names the cohort rule that excludes a patient, if any.
+
+        The rules are checked in the order the task applies them, so
+        counting the reasons over a dataset gives the cohort flow.
+
+        Args:
+            patient: the patient object.
+
+        Returns:
+            None for a patient in the cohort, otherwise one of
+            ``"no_icu_stay"``, ``"stay_not_allowed"``,
+            ``"los_out_of_range"``, ``"early_vasopressor"`` (started in
+            the first ``time_len`` hours) and ``"no_weight"``.
+        """
+        stay, reason = self._stay_status(patient)
+        if reason:
+            return reason
+        if self._label_onset(patient, stay) is None:
+            return "early_vasopressor"
+        _, weights = self._measurements(patient, stay)
+        if self.require_weight and len(weights) == 0:
+            return "no_weight"
+        return None
+
+    def _label_onset(self, patient: Any, stay: Any) -> int | None:
+        """Labels the stay by its first vasopressor start.
+
+        Args:
+            patient: the patient object.
+            stay: the ICU stay event.
+
+        Returns:
+            1 if the first vasopressor of the stay starts between
+            ``time_len`` and ``max_los_hours`` hours after ICU admission,
+            0 if there is none in the stay, and None (excluded) if it
+            starts within the first ``time_len`` hours.
+        """
+        outtime = _to_datetime(getattr(stay, "outtime", None))
+        onset_hours = None
+        for event in patient.get_events(
+            event_type=self._INPUT_TABLE, start=stay.timestamp, end=outtime
+        ):
+            itemid = _to_int(getattr(event, "itemid", None))
+            if itemid not in self.vasopressor_itemids:
+                continue
+            hours = (event.timestamp - stay.timestamp).total_seconds() / 3600.0
+            if onset_hours is None or hours < onset_hours:
+                onset_hours = hours
+        if onset_hours is None or onset_hours > self.max_los_hours:
+            return 0
+        if onset_hours < self.time_len:
+            return None
+        return 1
+
+    def _measurements(
+        self, patient: Any, stay: Any
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bins the stay's chart, lab and output events by hour.
+
+        Args:
+            patient: the patient object.
+            stay: the ICU stay event.
+
+        Returns:
+            Hours are counted from the admission minute (chart times
+            have no seconds). Tuple of the hourly values of shape
+            ``(time_len, columns)``
+            (27 direct variables, 3 GCS sub-scores, weight; NaN where
+            unmeasured) and the ``(n, 2)`` array of
+            ``(hours since admission, kg)`` weight measurements of the
+            stay, sorted by time.
+        """
+        # Chart times are recorded to the minute while the ICU admission
+        # time has seconds, so events charted in the admission minute
+        # (the admission weight, typically) carry a time just before it.
+        # The window therefore starts at the admission minute.
+        start = stay.timestamp.replace(second=0, microsecond=0)
+        outtime = _to_datetime(getattr(stay, "outtime", None))
+        num_columns = len(self._columns)
+        temp_col = self._columns.index("temp")
+        fio2_col = self._columns.index("fio2")
+        weight_col = self._columns.index("weight")
+        readings = []
+        weights = []
+        for table in ("chartevents", "labevents"):
+            for event in patient.get_events(
+                event_type=table, start=start, end=outtime
+            ):
+                itemid = _to_int(getattr(event, "itemid", None))
+                column = self._chart_map.get(itemid)
+                value = _to_float(getattr(event, "valuenum", None))
+                if column is None or value is None:
+                    continue
+                if column == temp_col and itemid in self._FAHRENHEIT_ITEMIDS:
+                    value = (value - 32.0) * 5.0 / 9.0
+                if column == fio2_col and value <= 1.0:
+                    value = value * 100.0
+                if column == weight_col:
+                    if itemid in self._POUND_ITEMIDS:
+                        value = value * 0.45359237
+                    if value <= 0:
+                        continue
+                    hours = (event.timestamp - start).total_seconds() / 3600.0
+                    weights.append((hours, value))
+                readings.append(_Reading(event.timestamp, itemid, value))
+        values, _ = _hourly_series(
+            readings, self._chart_map, start, num_columns, self.time_len
+        )
+        urine, urine_measured = _hourly_series(
+            patient.get_events(event_type="outputevents", start=start, end=outtime),
+            self._urine_map,
+            start,
+            num_columns,
+            self.time_len,
+            value_attr="value",
+            aggregate="sum",
+        )
+        values[urine_measured > 0] = urine[urine_measured > 0]
+        return values, np.array(sorted(weights), dtype=float).reshape(-1, 2)
+
+    def _assemble(self, measured: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Arranges the binned columns into the 28 variables.
+
+        GCS is the sum of the sub-scores measured in that hour; its
+        indicator is 1 if any sub-score was measured.
+
+        Args:
+            measured: hourly values from :meth:`_measurements`.
+
+        Returns:
+            Tuple of ``(values, indicators)``, each of shape
+            ``(time_len, 28)``, values NaN where unmeasured.
+        """
+        values = np.full((self.time_len, len(CHANGING_VARS)), np.nan)
+        for index, name in enumerate(CHANGING_VARS):
+            if name == "GCS":
+                parts = measured[
+                    :, [self._columns.index(part) for part in GCS_PARTS]
+                ]
+                any_part = ~np.isnan(parts).all(axis=1)
+                values[any_part, index] = np.nansum(parts[any_part], axis=1)
+            else:
+                values[:, index] = measured[:, self._columns.index(name)]
+        return values, (~np.isnan(values)).astype(float)
+
+    def _static_features(
+        self, patient: Any, stay: Any, weights: np.ndarray
+    ) -> np.ndarray | None:
+        """Returns the 10 static variables of ``STATIC_VARS`` for a stay.
+
+        Args:
+            patient: the patient object.
+            stay: the ICU stay event.
+            weights: ``(n, 2)`` array of ``(hours, kg)`` weight
+                measurements of the stay, sorted by time.
+
+        Returns:
+            Array of shape ``(10,)``, NaN where a value is unknown, or
+            None when ``require_weight`` is set and the stay has no
+            weight measurement.
+        """
+        if len(weights) == 0 and self.require_weight:
+            return None
+        demographics = patient.get_events(event_type="patients")
+        gender = getattr(demographics[0], "gender", None) if demographics else None
+        age = self._age(demographics[0] if demographics else None, stay)
+        hadm_id = str(getattr(stay, "hadm_id", ""))
+        admission_type = ""
+        for admission in patient.get_events(event_type="admissions"):
+            if str(getattr(admission, "hadm_id", "")) == hadm_id:
+                admission_type = str(getattr(admission, "admission_type", ""))
+                break
+        unit = str(getattr(stay, "first_careunit", "") or "")
+        first_weight = np.nan
+        last_weight = np.nan
+        if len(weights):
+            first_weight = weights[0, 1]
+            in_window = weights[weights[:, 0] < self.time_len]
+            # Before the first measurement the series has no value to
+            # carry forward; the first measurement stands in for it.
+            last_weight = in_window[-1, 1] if len(in_window) else first_weight
+        return np.array(
+            [
+                age,
+                float(str(gender).upper() == "F") if gender is not None else np.nan,
+                *self._admission_flags(admission_type),
+                *self._unit_flags(unit),
+                last_weight,
+                first_weight,
+            ],
+            dtype=float,
+        )
+
+
+class VasopressorOnsetMIMIC3(_VasopressorOnsetTask):
     """Vasopressor-onset prediction from the first 6 ICU hours (MIMIC-III).
 
     Cohort and inputs of Wu et al., "Learning Optimal Summaries of
@@ -459,12 +916,6 @@ class VasopressorOnsetMIMIC3(BaseTask):
     """
 
     task_name: str = "VasopressorOnsetMIMIC3"
-    input_schema: ClassVar[dict[str, Any]] = {
-        "values": ("tensor", dict(_ZSCORE)),
-        "indicators": "tensor",
-        "statics": ("tensor", dict(_ZSCORE)),
-    }
-    output_schema: ClassVar[dict[str, str]] = {"vasopressor_onset": "binary"}
 
     def __init__(
         self,
@@ -478,285 +929,26 @@ class VasopressorOnsetMIMIC3(BaseTask):
         itemid_map: dict[str, Sequence[int]] | None = None,
         vasopressor_itemids: Sequence[int] | None = None,
     ) -> None:
-        super().__init__()
-        if normalization not in ("zscore", None):
-            raise ValueError("normalization must be 'zscore' or None")
-        if time_len < 1:
-            raise ValueError("time_len must be at least 1")
-        self.normalization = normalization
-        self.time_len = time_len
-        self.min_los_hours = min_los_hours
-        self.max_los_hours = max_los_hours
-        self.forward_fill = forward_fill
+        super().__init__(
+            normalization=normalization,
+            time_len=time_len,
+            min_los_hours=min_los_hours,
+            max_los_hours=max_los_hours,
+            forward_fill=forward_fill,
+            require_weight=require_weight,
+            itemid_map=itemid_map,
+            vasopressor_itemids=vasopressor_itemids,
+        )
         self.metavision_only = metavision_only
-        self.require_weight = require_weight
-        self.itemid_map = {
-            name: tuple(int(i) for i in itemids)
-            for name, itemids in (itemid_map or DEFAULT_ITEMIDS).items()
-        }
-        self.vasopressor_itemids: set[int] = {
-            int(i) for i in (vasopressor_itemids or DEFAULT_VASOPRESSOR_ITEMIDS)
-        }
-        if normalization is None:
-            self.input_schema = {
-                "values": "tensor",
-                "indicators": "tensor",
-                "statics": "tensor",
-            }
-        # itemid -> column, for the 27 directly measured variables, the
-        # three GCS sub-scores and the weight.
-        self._columns = (
-            [name for name in CHANGING_VARS if name != "GCS"]
-            + list(GCS_PARTS)
-            + ["weight"]
-        )
-        self._chart_map = {
-            itemid: self._columns.index(name)
-            for name in self._columns
-            if name != "urine"
-            for itemid in self.itemid_map.get(name, ())
-        }
-        self._urine_map = {
-            itemid: self._columns.index("urine")
-            for itemid in self.itemid_map.get("urine", ())
-        }
 
-    def __call__(self, patient: Any) -> list[dict[str, Any]]:
-        """Turns one patient into zero or one vasopressor-onset sample.
+    def _stay_allowed(self, stay: Any) -> bool:
+        """Keeps MetaVision stays only when ``metavision_only`` is set.
 
         Args:
-            patient: a :class:`~pyhealth.data.Patient` with ``icustays``,
-                ``patients``, ``admissions``, ``chartevents``,
-                ``labevents``, ``outputevents`` and ``inputevents_mv``
-                events.
+            stay: the ICU stay event.
 
         Returns:
-            A list with one sample dict, or an empty list when the
-            patient is outside the cohort.
+            False for a non-MetaVision stay under ``metavision_only``.
         """
-        stay = self._first_stay(patient)
-        if stay is None:
-            return []
-        label = self._label_onset(patient, stay)
-        if label is None:
-            return []
-        measured, weights = self._measurements(patient, stay)
-        statics = self._static_features(patient, stay, weights)
-        if statics is None:
-            return []
-        values, indicators = self._assemble(measured)
-        if self.forward_fill:
-            values = _forward_fill(values)
-        return [
-            {
-                "patient_id": patient.patient_id,
-                "icustay_id": str(getattr(stay, "icustay_id", "")),
-                "values": values.tolist(),
-                "indicators": indicators.tolist(),
-                "statics": statics.tolist(),
-                "vasopressor_onset": label,
-            }
-        ]
-
-    def _first_stay(self, patient: Any) -> Any | None:
-        """Returns the first ICU stay if it meets the cohort rules.
-
-        Args:
-            patient: the patient object.
-
-        Returns:
-            The first ICU stay event, or None when the patient has no ICU
-            stay, the stay is not MetaVision (with ``metavision_only``)
-            or its length is outside
-            ``[max(min_los_hours, time_len), max_los_hours]``.
-        """
-        stays = [
-            stay
-            for stay in patient.get_events(event_type="icustays")
-            if stay.timestamp is not None
-        ]
-        if not stays:
-            return None
-        stay = min(stays, key=lambda s: s.timestamp)
         dbsource = str(getattr(stay, "dbsource", "") or "").lower()
-        if self.metavision_only and dbsource != "metavision":
-            return None
-        outtime = _to_datetime(getattr(stay, "outtime", None))
-        if outtime is None:
-            return None
-        los_hours = (outtime - stay.timestamp).total_seconds() / 3600.0
-        if los_hours < max(self.min_los_hours, self.time_len):
-            return None
-        if los_hours > self.max_los_hours:
-            return None
-        return stay
-
-    def _label_onset(self, patient: Any, stay: Any) -> int | None:
-        """Labels the stay by its first vasopressor start.
-
-        Args:
-            patient: the patient object.
-            stay: the ICU stay event.
-
-        Returns:
-            1 if the first vasopressor of the stay starts between
-            ``time_len`` and ``max_los_hours`` hours after ICU admission,
-            0 if there is none in the stay, and None (excluded) if it
-            starts within the first ``time_len`` hours.
-        """
-        outtime = _to_datetime(getattr(stay, "outtime", None))
-        onset_hours = None
-        for event in patient.get_events(
-            event_type="inputevents_mv", start=stay.timestamp, end=outtime
-        ):
-            itemid = _to_int(getattr(event, "itemid", None))
-            if itemid not in self.vasopressor_itemids:
-                continue
-            hours = (event.timestamp - stay.timestamp).total_seconds() / 3600.0
-            if onset_hours is None or hours < onset_hours:
-                onset_hours = hours
-        if onset_hours is None or onset_hours > self.max_los_hours:
-            return 0
-        if onset_hours < self.time_len:
-            return None
-        return 1
-
-    def _measurements(
-        self, patient: Any, stay: Any
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Bins the stay's chart, lab and output events by hour.
-
-        Args:
-            patient: the patient object.
-            stay: the ICU stay event.
-
-        Returns:
-            Tuple of the hourly values of shape ``(time_len, columns)``
-            (27 direct variables, 3 GCS sub-scores, weight; NaN where
-            unmeasured) and the ``(n, 2)`` array of
-            ``(hours since admission, kg)`` weight measurements of the
-            stay, sorted by time.
-        """
-        start = stay.timestamp
-        outtime = _to_datetime(getattr(stay, "outtime", None))
-        num_columns = len(self._columns)
-        temp_col = self._columns.index("temp")
-        fio2_col = self._columns.index("fio2")
-        weight_col = self._columns.index("weight")
-        readings = []
-        weights = []
-        for table in ("chartevents", "labevents"):
-            for event in patient.get_events(
-                event_type=table, start=start, end=outtime
-            ):
-                itemid = _to_int(getattr(event, "itemid", None))
-                column = self._chart_map.get(itemid)
-                value = _to_float(getattr(event, "valuenum", None))
-                if column is None or value is None:
-                    continue
-                if column == temp_col and itemid in FAHRENHEIT_ITEMIDS:
-                    value = (value - 32.0) * 5.0 / 9.0
-                if column == fio2_col and value <= 1.0:
-                    value = value * 100.0
-                if column == weight_col:
-                    hours = (event.timestamp - start).total_seconds() / 3600.0
-                    weights.append((hours, value))
-                readings.append(_Reading(event.timestamp, itemid, value))
-        values, _ = _hourly_series(
-            readings, self._chart_map, start, num_columns, self.time_len
-        )
-        urine, urine_measured = _hourly_series(
-            patient.get_events(event_type="outputevents", start=start, end=outtime),
-            self._urine_map,
-            start,
-            num_columns,
-            self.time_len,
-            value_attr="value",
-            aggregate="sum",
-        )
-        values[urine_measured > 0] = urine[urine_measured > 0]
-        return values, np.array(sorted(weights), dtype=float).reshape(-1, 2)
-
-    def _assemble(self, measured: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Arranges the binned columns into the 28 variables.
-
-        GCS is the sum of the sub-scores measured in that hour; its
-        indicator is 1 if any sub-score was measured.
-
-        Args:
-            measured: hourly values from :meth:`_measurements`.
-
-        Returns:
-            Tuple of ``(values, indicators)``, each of shape
-            ``(time_len, 28)``, values NaN where unmeasured.
-        """
-        values = np.full((self.time_len, len(CHANGING_VARS)), np.nan)
-        for index, name in enumerate(CHANGING_VARS):
-            if name == "GCS":
-                parts = measured[
-                    :, [self._columns.index(part) for part in GCS_PARTS]
-                ]
-                any_part = ~np.isnan(parts).all(axis=1)
-                values[any_part, index] = np.nansum(parts[any_part], axis=1)
-            else:
-                values[:, index] = measured[:, self._columns.index(name)]
-        return values, (~np.isnan(values)).astype(float)
-
-    def _static_features(
-        self, patient: Any, stay: Any, weights: np.ndarray
-    ) -> np.ndarray | None:
-        """Returns the 10 static variables of ``STATIC_VARS`` for a stay.
-
-        Args:
-            patient: the patient object.
-            stay: the ICU stay event.
-            weights: ``(n, 2)`` array of ``(hours, kg)`` weight
-                measurements of the stay, sorted by time.
-
-        Returns:
-            Array of shape ``(10,)``, NaN where a value is unknown, or
-            None when ``require_weight`` is set and the stay has no
-            weight measurement.
-        """
-        if len(weights) == 0 and self.require_weight:
-            return None
-        demographics = patient.get_events(event_type="patients")
-        gender = getattr(demographics[0], "gender", None) if demographics else None
-        dob = (
-            _to_datetime(getattr(demographics[0], "dob", None))
-            if demographics
-            else None
-        )
-        age = np.nan
-        if dob is not None:
-            age = min((stay.timestamp - dob).days / 365.25, 90.0)
-        hadm_id = str(getattr(stay, "hadm_id", ""))
-        admission_type = ""
-        for admission in patient.get_events(event_type="admissions"):
-            if str(getattr(admission, "hadm_id", "")) == hadm_id:
-                admission_type = str(getattr(admission, "admission_type", ""))
-                break
-        unit = str(getattr(stay, "first_careunit", "") or "").upper()
-        first_weight = np.nan
-        last_weight = np.nan
-        if len(weights):
-            first_weight = weights[0, 1]
-            in_window = weights[weights[:, 0] < self.time_len]
-            # Before the first measurement the series has no value to
-            # carry forward; the first measurement stands in for it.
-            last_weight = in_window[-1, 1] if len(in_window) else first_weight
-        return np.array(
-            [
-                age,
-                float(str(gender).upper() == "F") if gender is not None else np.nan,
-                float(admission_type.upper() == "URGENT"),
-                float(admission_type.upper() == "EMERGENCY"),
-                float(unit == "SICU"),
-                float(unit == "TSICU"),
-                float(unit == "MICU"),
-                float(unit == "CSRU"),
-                last_weight,
-                first_weight,
-            ],
-            dtype=float,
-        )
+        return not self.metavision_only or dbsource == "metavision"

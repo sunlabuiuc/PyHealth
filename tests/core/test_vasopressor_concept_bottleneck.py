@@ -1,7 +1,7 @@
 """Tests for the vasopressor concept bottleneck port (Wu et al. 2022).
 
-Covers the ``VasopressorOnsetMIMIC3`` task (on four hand-built synthetic
-patients) and the models in ``pyhealth.models.concept_bottleneck`` (on
+Covers the ``VasopressorOnsetMIMIC3`` and ``VasopressorOnsetMIMIC4`` tasks
+(on hand-built synthetic patients) and the models in ``pyhealth.models.concept_bottleneck`` (on
 tiny synthetic tensors). No real or demo data is read.
 """
 
@@ -28,7 +28,7 @@ from pyhealth.models.concept_bottleneck import (
     greedy_select_features,
     top_features_by_weight_mass,
 )
-from pyhealth.tasks import VasopressorOnsetMIMIC3
+from pyhealth.tasks import VasopressorOnsetMIMIC3, VasopressorOnsetMIMIC4
 from pyhealth.tasks.vasopressor_onset_mimic3 import (
     CHANGING_VARS,
     STATIC_VARS,
@@ -39,6 +39,7 @@ from pyhealth.tasks.vasopressor_onset_mimic3 import (
 )
 
 T0 = datetime(2150, 1, 1, 8, 0, 0)
+T0_LATE = datetime(2150, 1, 1, 8, 0, 40)  # admission with seconds
 HR, LACTATE, URINE, GCS, TEMP, FIO2 = (
     CHANGING_VARS.index(name)
     for name in ("hr", "lactate", "urine", "GCS", "temp", "fio2")
@@ -88,6 +89,58 @@ def _patient(
     if vasopressor_hour is not None:
         rows.append(
             _event("inputevents_mv", vasopressor_hour, itemid=221906, icustay_id=100)
+        )
+    rows.extend(extra)
+    frame = pl.from_dicts(
+        [{"patient_id": patient_id, **row} for row in rows],
+        infer_schema_length=None,
+    )
+    return Patient(patient_id=patient_id, data_source=frame)
+
+
+MICU4 = "Medical Intensive Care Unit (MICU)"
+
+
+def _patient4(
+    patient_id="q1",
+    los_hours=48,
+    vasopressor_hour=None,
+    vasopressor_itemid=221906,
+    weight=70.0,
+    unit=MICU4,
+    admission_type="EW EMER.",
+    anchor_age=60,
+    extra=(),
+):
+    """Builds a synthetic MIMIC-IV patient with one ICU stay at ``T0``."""
+    outtime = (T0 + timedelta(hours=los_hours)).strftime("%Y-%m-%d %H:%M:%S")
+    rows = [
+        _event("patients", gender="M", anchor_age=anchor_age, anchor_year=2145),
+        _event("admissions", 0, hadm_id=10, admission_type=admission_type),
+        _event(
+            "icustays",
+            0,
+            hadm_id=10,
+            stay_id=100,
+            first_careunit=unit,
+            outtime=outtime,
+        ),
+        _event("chartevents", 0.5, itemid=220045, valuenum=80, stay_id=100),
+        _event("chartevents", 0.75, itemid=220045, valuenum=100, stay_id=100),
+        _event("labevents", 2.0, itemid=50821, valuenum=95.0),
+        _event("outputevents", 1.2, itemid=226559, value=100, stay_id=100),
+        _event("outputevents", 1.7, itemid=226560, value=50, stay_id=100),
+    ]
+    if weight is not None:
+        rows.append(_event("chartevents", 0.6, itemid=226512, valuenum=weight))
+    if vasopressor_hour is not None:
+        rows.append(
+            _event(
+                "inputevents",
+                vasopressor_hour,
+                itemid=vasopressor_itemid,
+                stay_id=100,
+            )
         )
     rows.extend(extra)
     frame = pl.from_dicts(
@@ -256,6 +309,178 @@ class TestVasopressorOnsetTask(unittest.TestCase):
         self.assertFalse(torch.isnan(batch["values"]).any())
         self.assertEqual(sorted(batch["vasopressor_onset"].flatten().tolist()),
                          [0.0, 0.0, 1.0, 1.0])
+
+
+class TestVasopressorOnsetMIMIC4Task(unittest.TestCase):
+    """The MIMIC-IV task: tables, item ids and the static mappings."""
+
+    def setUp(self):
+        self.task = VasopressorOnsetMIMIC4(normalization=None)
+
+    def test_schema_matches_mimic3(self):
+        """Same schema as the MIMIC-III task, under its own name."""
+        default = VasopressorOnsetMIMIC4()
+        self.assertEqual(default.task_name, "VasopressorOnsetMIMIC4")
+        self.assertEqual(default.input_schema, VasopressorOnsetMIMIC3().input_schema)
+        self.assertEqual(default.output_schema, {"vasopressor_onset": "binary"})
+        with self.assertRaises(ValueError):
+            VasopressorOnsetMIMIC4(normalization="minmax")
+        with self.assertRaises(ValueError):
+            VasopressorOnsetMIMIC4(careunit_flags={MICU4: ["is_ccu"]})
+
+    def test_sample_and_features(self):
+        """One sample with (6, 28) inputs read from the MIMIC-IV tables."""
+        sample = self.task(_patient4())[0]
+        self.assertEqual(sample["patient_id"], "q1")
+        self.assertEqual(sample["stay_id"], "100")
+        values = np.array(sample["values"])
+        indicators = np.array(sample["indicators"])
+        self.assertEqual(values.shape, (6, 28))
+        self.assertEqual(indicators.shape, (6, 28))
+        self.assertAlmostEqual(values[0, HR], 90.0)
+        self.assertAlmostEqual(values[5, HR], 90.0)  # carried forward
+        self.assertAlmostEqual(values[1, URINE], 150.0)  # Foley + void
+        po2 = CHANGING_VARS.index("po2")
+        self.assertAlmostEqual(values[2, po2], 95.0)
+        self.assertEqual(indicators[:, po2].tolist(), [0, 0, 1, 0, 0, 0])
+
+    def test_label_generation(self):
+        """Labels read ``inputevents``, incl. the MIMIC-IV-only items."""
+        self.assertEqual(self.task(_patient4())[0]["vasopressor_onset"], 0)
+        for itemid in (221906, 229617, 229632):
+            with self.subTest(itemid):
+                patient = _patient4(vasopressor_hour=10, vasopressor_itemid=itemid)
+                self.assertEqual(self.task(patient)[0]["vasopressor_onset"], 1)
+        fluid = _patient4(vasopressor_hour=10, vasopressor_itemid=225158)
+        self.assertEqual(self.task(fluid)[0]["vasopressor_onset"], 0)
+        # A MIMIC-III-style table name is not read on MIMIC-IV.
+        wrong_table = _patient4(
+            extra=[_event("inputevents_mv", 10, itemid=221906, stay_id=100)]
+        )
+        self.assertEqual(self.task(wrong_table)[0]["vasopressor_onset"], 0)
+
+    def test_static_mappings(self):
+        """Age from the anchors; admission types and units mapped."""
+        statics = dict(zip(STATIC_VARS, self.task(_patient4())[0]["statics"]))
+        self.assertEqual(statics["Age"], 65.0)  # 60 + (2150 - 2145)
+        self.assertEqual(statics["is_F"], 0.0)
+        self.assertEqual(statics["is_emergency"], 1.0)
+        self.assertEqual(statics["is_urgent"], 0.0)
+        self.assertEqual(statics["is_micu"], 1.0)
+        self.assertEqual(statics["weight"], 70.0)
+        cases = {
+            "Medical/Surgical Intensive Care Unit (MICU/SICU)": (1, 0, 1, 0),
+            "Neuro Surgical Intensive Care Unit (Neuro SICU)": (1, 0, 0, 0),
+            "Trauma SICU (TSICU)": (0, 1, 0, 0),
+            "Cardiac Vascular Intensive Care Unit (CVICU)": (0, 0, 0, 1),
+            "Coronary Care Unit (CCU)": (0, 0, 0, 0),
+        }
+        for unit, expected in cases.items():
+            with self.subTest(unit):
+                statics = self.task(_patient4(unit=unit))[0]["statics"]
+                self.assertEqual(tuple(statics[4:8]), expected)
+        for kind, expected in {
+            "URGENT": (1, 0),
+            "DIRECT EMER.": (0, 1),
+            "ELECTIVE": (0, 0),
+            "EU OBSERVATION": (0, 0),
+        }.items():
+            with self.subTest(kind):
+                statics = self.task(_patient4(admission_type=kind))[0]["statics"]
+                self.assertEqual(tuple(statics[2:4]), expected)
+        # Weight in pounds converts to kg; a weight charted in the
+        # admission minute (just before the admission second) counts.
+        pounds = _patient4(
+            weight=None,
+            extra=[_event("chartevents", 0.4, itemid=226531, valuenum=220.0)],
+        )
+        self.assertAlmostEqual(self.task(pounds)[0]["statics"][-1], 99.79, places=2)
+        old = self.task(_patient4(anchor_age=91))[0]["statics"]
+        self.assertEqual(old[0], 90.0)
+        custom = VasopressorOnsetMIMIC4(
+            normalization=None, careunit_flags={"Coronary Care Unit (CCU)": ["is_csru"]}
+        )
+        statics = custom(_patient4(unit="Coronary Care Unit (CCU)"))[0]["statics"]
+        self.assertEqual(tuple(statics[4:8]), (0, 0, 0, 1))
+
+    def test_cohort_exclusions_and_reasons(self):
+        """Edge cases leave the cohort, each with its reason."""
+        cases = {
+            "early_vasopressor": _patient4(vasopressor_hour=2),
+            "los_out_of_range": _patient4(los_hours=5),
+            "no_weight": _patient4(weight=None),
+        }
+        for reason, patient in cases.items():
+            with self.subTest(reason):
+                self.assertEqual(self.task(patient), [])
+                self.assertEqual(self.task.exclusion_reason(patient), reason)
+        self.assertEqual(self.task(_patient4(los_hours=700)), [])
+        self.assertIsNone(self.task.exclusion_reason(_patient4()))
+        # No MetaVision rule on MIMIC-IV; the MIMIC-III task has one.
+        mimic3 = VasopressorOnsetMIMIC3(normalization=None)
+        self.assertEqual(
+            mimic3.exclusion_reason(_patient(dbsource="carevue")),
+            "stay_not_allowed",
+        )
+
+    def test_events_in_the_admission_minute_count(self):
+        """Chart times have no seconds: the window starts at the minute."""
+        rows = [
+            {"event_type": "patients", "timestamp": None,
+             "patients/gender": "F", "patients/anchor_age": "50",
+             "patients/anchor_year": "2150"},
+            {"event_type": "icustays", "timestamp": T0_LATE,
+             "icustays/stay_id": "7", "icustays/hadm_id": "1",
+             "icustays/first_careunit": MICU4,
+             "icustays/outtime": "2150-01-03 08:00:40"},
+            {"event_type": "chartevents", "timestamp": T0,
+             "chartevents/itemid": "226512", "chartevents/valuenum": "81.5"},
+            {"event_type": "chartevents", "timestamp": T0,
+             "chartevents/itemid": "220045", "chartevents/valuenum": "77"},
+        ]
+        frame = pl.from_dicts(
+            [{"patient_id": "q9", **row} for row in rows], infer_schema_length=None
+        )
+        sample = self.task(Patient(patient_id="q9", data_source=frame))[0]
+        self.assertEqual(sample["statics"][-1], 81.5)
+        self.assertEqual(np.array(sample["values"])[0, HR], 77.0)
+
+    def test_pre_filter_drops_unused_items(self):
+        """pre_filter keeps the task's item ids and other tables only."""
+        extra = [
+            _event("chartevents", 1.0, itemid=999999, valuenum=1, stay_id=100),
+            _event("inputevents", 9.0, itemid=225158, stay_id=100),
+        ]
+        patient = _patient4(vasopressor_hour=10, extra=extra)
+        before = patient.data_source
+        after = self.task.pre_filter(before.lazy()).collect()
+        self.assertEqual(before.height - after.height, 2)
+        kept = set(after["chartevents/itemid"].drop_nulls().to_list())
+        self.assertNotIn("999999", kept)
+        self.assertEqual(after.filter(pl.col("event_type") == "icustays").height, 1)
+        filtered = Patient(patient_id="q1", data_source=after)
+        # assert_equal treats the NaN of unmeasured entries as equal.
+        np.testing.assert_equal(self.task(filtered), self.task(patient))
+
+    def test_samples_load_with_default_processors(self):
+        """Four synthetic patients become a z-scored, NaN-free dataset."""
+        task = VasopressorOnsetMIMIC4()
+        samples = []
+        for i, hour in enumerate([None, 10, None, 20]):
+            samples.extend(
+                task(_patient4(f"q{i}", vasopressor_hour=hour, weight=60.0 + i))
+            )
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema=task.input_schema,
+            output_schema=task.output_schema,
+            dataset_name="test",
+            task_name=task.task_name,
+        )
+        batch = next(iter(get_dataloader(dataset, batch_size=4)))
+        self.assertEqual(batch["values"].shape, (4, 6, 28))
+        self.assertEqual(batch["statics"].shape, (4, 10))
+        self.assertFalse(torch.isnan(batch["values"]).any())
 
 
 class TestTaskHelpers(unittest.TestCase):

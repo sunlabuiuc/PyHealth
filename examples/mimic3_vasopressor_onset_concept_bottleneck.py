@@ -7,7 +7,8 @@ https://proceedings.mlr.press/v182/wu22a.html
 Original code: https://github.com/dtak/optimal-summaries-public
 
 Pipeline (all PyHealth): ``MIMIC3Dataset`` -> ``VasopressorOnsetMIMIC3``
-task -> ``ConceptBottleneckModel`` and its two baselines
+task (or, with ``--dataset mimic4``, ``MIMIC4EHRDataset`` ->
+``VasopressorOnsetMIMIC4``) -> ``ConceptBottleneckModel`` and its two baselines
 (``LogisticRegressionWithSummaries``, ``LSTMNextStateBaseline``) ->
 ``Trainer`` -> AUROC / AUPRC / Brier / ECE, then greedy feature selection
 and fine-tuning of the bottleneck.
@@ -23,6 +24,14 @@ Real data: point ``--root`` at MIMIC-III v1.4 (credentialed) or at the
 open 100-patient demo (https://physionet.org/content/mimiciii-demo/1.4/)::
 
     python examples/mimic3_vasopressor_onset_concept_bottleneck.py --root DIR
+
+MIMIC-IV: add ``--dataset mimic4`` (synthetic MIMIC-IV-format data by
+default; ``--root`` for MIMIC-IV or its open 100-patient demo,
+https://physionet.org/content/mimic-iv-demo/2.2/), or run
+``examples/mimic4_vasopressor_onset_concept_bottleneck.py``, which is
+this file with ``mimic4`` as the default. The paper uses MIMIC-III; the
+MIMIC-IV task is this port's extension (see ``VasopressorOnsetMIMIC4``
+for the mapping choices).
 
 Experimental setup
 ------------------
@@ -99,7 +108,12 @@ import numpy as np
 import torch
 from sklearn.model_selection import train_test_split
 
-from pyhealth.datasets import MIMIC3Dataset, create_sample_dataset, get_dataloader
+from pyhealth.datasets import (
+    MIMIC3Dataset,
+    MIMIC4EHRDataset,
+    create_sample_dataset,
+    get_dataloader,
+)
 from pyhealth.metrics import binary_metrics_fn
 from pyhealth.models import (
     ConceptBottleneckModel,
@@ -111,14 +125,17 @@ from pyhealth.models.concept_bottleneck import (
     greedy_select_features,
     top_features_by_weight_mass,
 )
-from pyhealth.tasks import VasopressorOnsetMIMIC3
+from pyhealth.tasks import VasopressorOnsetMIMIC3, VasopressorOnsetMIMIC4
 from pyhealth.tasks.vasopressor_onset_mimic3 import (
     apply_standardizer,
     fit_standardizer,
 )
 from pyhealth.trainer import Trainer
 
-TABLES = ["chartevents", "labevents", "outputevents", "inputevents_mv"]
+TABLES = {
+    "mimic3": ["chartevents", "labevents", "outputevents", "inputevents_mv"],
+    "mimic4": ["chartevents", "labevents", "outputevents", "inputevents"],
+}
 METRICS = ["roc_auc", "pr_auc", "brier", "ECE"]
 SCHEMA = {"values": "tensor", "indicators": "tensor", "statics": "tensor"}
 LABEL = "vasopressor_onset"
@@ -127,8 +144,15 @@ LABEL = "vasopressor_onset"
 # ---------------------------------------------------------------------------
 # Synthetic MIMIC-III-format data (so the example runs without credentials)
 # ---------------------------------------------------------------------------
-def write_synthetic_mimic3(root: str, num_patients: int = 400, seed: int = 0) -> None:
-    """Writes a small synthetic MIMIC-III v1.4-format dataset to ``root``.
+def write_synthetic_mimic(
+    root: str, num_patients: int = 400, seed: int = 0, dataset: str = "mimic3"
+) -> None:
+    """Writes a small synthetic MIMIC-III or MIMIC-IV-format dataset.
+
+    ``dataset="mimic3"`` writes MIMIC-III v1.4 tables to ``root``;
+    ``"mimic4"`` writes the same patients in the MIMIC-IV layout
+    (``hosp/`` and ``icu/``, MIMIC-IV column names, admission types and
+    care unit names; all stays count, as MIMIC-IV has no CareVue).
 
     Every number is random. Each patient has one ICU stay and a hidden
     severity; sicker patients have lower blood pressure, higher heart
@@ -162,6 +186,7 @@ def write_synthetic_mimic3(root: str, num_patients: int = 400, seed: int = 0) ->
         (50931, 120, 10, 20, 0.2), (51265, 220, -20, 50, 0.2),
     ]
     start0 = np.datetime64("2150-01-01T08:00:00")
+    ages: list[int] = []
     for i in range(num_patients):
         sid, hadm, stay = 1000 + i, 20000 + i, 30000 + i
         severity = rng.normal()
@@ -175,6 +200,7 @@ def write_synthetic_mimic3(root: str, num_patients: int = 400, seed: int = 0) ->
 
         age_years = float(rng.uniform(25, 95))
         dob = intime - np.timedelta64(int(age_years * 365.25 * 24 * 3600), "s")
+        ages.append(int(age_years))
         tables["PATIENTS"].append({
             "subject_id": sid, "gender": rng.choice(["F", "M"]),
             "dob": ts(0, dob), "dod": "", "dod_hosp": "", "dod_ssn": "",
@@ -245,24 +271,101 @@ def write_synthetic_mimic3(root: str, num_patients: int = 400, seed: int = 0) ->
         for itemid, *_ in labs
     ]
     tables["D_LABITEMS"] = lab_items
+    if dataset == "mimic4":
+        tables = _to_mimic4_layout(tables, ages)
     for name, rows in tables.items():
-        with open(os.path.join(root, f"{name}.csv"), "w", newline="") as handle:
+        path = os.path.join(root, f"{name}.csv")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
             writer.writeheader()
             writer.writerows(rows)
 
 
+_MIMIC4_ADMISSION_TYPES = {"EMERGENCY": "EW EMER.", "URGENT": "URGENT"}
+_MIMIC4_UNITS = {
+    "MICU": "Medical Intensive Care Unit (MICU)",
+    "SICU": "Surgical Intensive Care Unit (SICU)",
+    "TSICU": "Trauma SICU (TSICU)",
+    "CSRU": "Cardiac Vascular Intensive Care Unit (CVICU)",
+    "CCU": "Coronary Care Unit (CCU)",
+}
+
+
+def _to_mimic4_layout(
+    tables: dict[str, list[dict[str, Any]]], ages: Sequence[int]
+) -> dict[str, list[dict[str, Any]]]:
+    """Re-expresses synthetic MIMIC-III tables in the MIMIC-IV layout."""
+
+    def stay_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [
+            {("stay_id" if key == "icustay_id" else key): value
+             for key, value in row.items()}
+            for row in rows
+        ]
+
+    patients = [
+        {"subject_id": row["subject_id"], "gender": row["gender"],
+         "anchor_age": age, "anchor_year": int(stay["intime"][:4]),
+         "anchor_year_group": "2014 - 2016", "dod": ""}
+        for row, age, stay in zip(tables["PATIENTS"], ages, tables["ICUSTAYS"])
+    ]
+    admissions = [
+        {"subject_id": row["subject_id"], "hadm_id": row["hadm_id"],
+         "admittime": row["admittime"], "dischtime": row["dischtime"],
+         "deathtime": "",
+         "admission_type": _MIMIC4_ADMISSION_TYPES.get(
+             row["admission_type"], row["admission_type"]),
+         "admission_location": "", "discharge_location": "", "insurance": "",
+         "language": "", "marital_status": "", "race": "",
+         "hospital_expire_flag": 0}
+        for row in tables["ADMISSIONS"]
+    ]
+    icustays = [
+        {"subject_id": row["subject_id"], "hadm_id": row["hadm_id"],
+         "stay_id": row["icustay_id"],
+         "first_careunit": _MIMIC4_UNITS[row["first_careunit"]],
+         "last_careunit": _MIMIC4_UNITS[row["last_careunit"]],
+         "intime": row["intime"], "outtime": row["outtime"]}
+        for row in tables["ICUSTAYS"]
+    ]
+    labevents = [
+        {**row, "ref_range_lower": "", "ref_range_upper": "", "storetime": ""}
+        for row in tables["LABEVENTS"]
+    ]
+    return {
+        "hosp/patients": patients,
+        "hosp/admissions": admissions,
+        "hosp/labevents": labevents,
+        "hosp/d_labitems": tables["D_LABITEMS"],
+        "icu/icustays": icustays,
+        "icu/chartevents": stay_rows(tables["CHARTEVENTS"]),
+        "icu/outputevents": stay_rows(tables["OUTPUTEVENTS"]),
+        "icu/inputevents": stay_rows(tables["INPUTEVENTS_MV"]),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Data: load once, then split / scale per seed
 # ---------------------------------------------------------------------------
-def load_raw_samples(root: str, cache_dir: str) -> list[dict[str, Any]]:
-    """MIMIC3Dataset -> VasopressorOnsetMIMIC3 -> list of raw samples.
+def load_raw_samples(
+    root: str, cache_dir: str, dataset_name: str = "mimic3"
+) -> list[dict[str, Any]]:
+    """Dataset -> vasopressor-onset task -> list of raw samples.
 
-    The task runs with ``normalization=None`` so that each seed can fit
-    its own scaling on its own training part.
+    ``MIMIC3Dataset`` with ``VasopressorOnsetMIMIC3``, or
+    ``MIMIC4EHRDataset`` with ``VasopressorOnsetMIMIC4``. The task runs
+    with ``normalization=None`` so that each seed can fit its own
+    scaling on its own training part.
     """
-    dataset = MIMIC3Dataset(root=root, tables=TABLES, cache_dir=cache_dir)
-    raw = dataset.set_task(VasopressorOnsetMIMIC3(normalization=None))
+    tables = TABLES[dataset_name]
+    if dataset_name == "mimic4":
+        dataset = MIMIC4EHRDataset(root=root, tables=tables, cache_dir=cache_dir)
+        task = VasopressorOnsetMIMIC4(normalization=None)
+    else:
+        dataset = MIMIC3Dataset(root=root, tables=tables, cache_dir=cache_dir)
+        task = VasopressorOnsetMIMIC3(normalization=None)
+    raw = dataset.set_task(task)
     samples = []
     for sample in raw:
         samples.append({
@@ -306,8 +409,8 @@ def make_split(
                 samples=scaled,
                 input_schema=SCHEMA,
                 output_schema={LABEL: "binary"},
-                dataset_name="mimic3",
-                task_name="VasopressorOnsetMIMIC3",
+                dataset_name="vasopressor_onset",
+                task_name="VasopressorOnset",
                 input_processors=fitted.input_processors if fitted else None,
                 output_processors=fitted.output_processors if fitted else None,
             )
@@ -484,11 +587,13 @@ def summarize(all_results: list[dict[str, dict[str, float]]]) -> None:
     print(f"\nunstratified test positives per seed: {[int(p) for p in positives]}")
 
 
-def main() -> None:
+def main(default_dataset: str = "mimic3") -> None:
     """Runs the pipeline and the ablations; prints the result tables."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--dataset", choices=sorted(TABLES), default=default_dataset,
+                        help="database layout and task to use")
     parser.add_argument("--root", default=None,
-                        help="MIMIC-III v1.4 (or demo) folder; default: synthetic")
+                        help="MIMIC folder (full or demo); default: synthetic")
     parser.add_argument("--num-synthetic-patients", type=int, default=400)
     parser.add_argument("--seeds", type=int, nargs="+", default=[1, 2, 3, 4, 5, 6])
     parser.add_argument("--epochs", type=int, default=30)
@@ -504,11 +609,15 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as workdir:
         root = args.root
         if root is None:
-            root = os.path.join(workdir, "synthetic_mimic3")
+            root = os.path.join(workdir, f"synthetic_{args.dataset}")
             os.makedirs(root)
-            write_synthetic_mimic3(root, args.num_synthetic_patients)
-            print(f"Synthetic MIMIC-III-format data written to {root}")
-        samples = load_raw_samples(root, os.path.join(workdir, "cache"))
+            write_synthetic_mimic(
+                root, args.num_synthetic_patients, dataset=args.dataset
+            )
+            print(f"Synthetic {args.dataset}-format data written to {root}")
+        samples = load_raw_samples(
+            root, os.path.join(workdir, "cache"), args.dataset
+        )
     labels = np.array([sample[LABEL] for sample in samples])
     print(f"Cohort: {len(samples)} patients, {int(labels.sum())} positive "
           f"({100 * labels.mean():.1f}%)")
