@@ -1,69 +1,181 @@
 import logging
 import os
-from tqdm import tqdm
-import numpy as np
-import pandas as pd
-from pandarallel import pandarallel
-from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import BaseKGDataset
+import shutil
+import uuid
+from pathlib import Path
+
+from pyhealth.datasets.base_dataset import is_url
+
+from .base_kg_dataset import BaseKGDataset
 
 logger = logging.getLogger(__name__)
 
+RAW_FILE = "graph.txt"
+PREPARED_FILE = "umls-pyhealth.tsv"
+HEADER = b"head\trelation\ttail\n"
+
+
 class UMLSDataset(BaseKGDataset):
-    """Base UMLS knowleddge graph dataset
+    """UMLS knowledge graph dataset.
 
     Dataset is available at https://www.nlm.nih.gov/research/umls/index.html
 
+    ``root`` holds ``graph.txt``: one triple per line, ``head``, ``relation``
+    and ``tail`` separated by tabs, without a header. On first use,
+    :meth:`prepare_metadata` writes ``umls-pyhealth.tsv`` next to it, the same
+    rows under a ``head``/``relation``/``tail`` header, which the bundled
+    ``configs/umls.yaml`` reads. ``graph.txt`` itself is never modified. The
+    copy is made again whenever ``graph.txt`` is newer than it or differs from
+    it in size, so replacing ``graph.txt`` gives a new dataset cache. A
+    ``graph.txt`` replaced by an older file of the same size, as ``cp -p`` or
+    ``rsync -t`` can produce, is not detected: delete ``umls-pyhealth.tsv``
+    in that case.
+
+    Entity and relation ids are assigned by sorted name (see
+    :class:`BaseKGDataset`), no longer as in PyHealth 1.x, which numbered
+    entities in the order ``pandas.unique`` returned them from the head and
+    tail columns: embeddings trained with 1.x must be mapped through the
+    ``id2entity`` / ``id2relation`` saved with them.
+
+    Every triple of ``graph_filtered.txt``, the file of the 1.x bucket that
+    PyHealth 1.x read with ``dev=True``, has its exact inverse under one of
+    four pairs of relations, such as ``may_treat`` and ``may_be_treated_by``.
+    A triple-level split therefore leaves the inverse of most test triples in
+    the training part: with that file in ``root`` as ``graph.txt`` and
+    ``PatientSplit(ratios=(0.9, 0.05, 0.05), seed=0)``, 3924 of the 4409 test
+    triples (0.89) have it there, so a rule that only looks the inverse up
+    reaches a filtered tail Hits@1 of at least 0.89, whatever the
+    tie-breaking. ``graph.txt`` itself has not been checked. Report UMLS
+    metrics next to such a baseline, or keep the two triples of each inverse
+    pair on the same side of the split.
+
     Args:
-        dataset_name: name of the dataset.
-        root: root directory of the raw data (should contain many csv files).
-        dev: whether to enable dev mode (only use a small subset of the data).
-            Default is False.
-        refresh_cache: whether to refresh the cache; if true, the dataset will
-            be processed from scratch and the cache will be updated. Default is False.
-    
+        root: Local directory holding ``graph.txt``. URLs are not accepted;
+            the 1.x bucket ``https://storage.googleapis.com/pyhealth/umls/``
+            serves ``graph.txt``, which can be downloaded into ``root``.
+        dataset_name: Name of the dataset. Defaults to ``"umls"``.
+        config_path: Config to use instead of the bundled ``umls.yaml``.
+        **kwargs: Passed to :class:`BaseKGDataset` (``cache_dir``,
+            ``num_workers``, ``dev``). With ``dev=True`` the dataset still
+            reads ``graph.txt`` and keeps 1000 of its triples; PyHealth 1.x
+            read the whole of ``graph_filtered.txt`` instead.
+
+    Raises:
+        ValueError: If ``root`` is a URL.
+        FileNotFoundError: If neither ``graph.txt`` nor
+            ``umls-pyhealth.tsv`` is in ``root``.
+
+    Examples:
+        >>> from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import (
+        ...     BaseKGDataset,
+        ...     UMLSDataset,
+        ... )
+        >>> issubclass(UMLSDataset, BaseKGDataset)
+        True
+        >>> dataset = UMLSDataset(root="/path/to/umls")  # doctest: +SKIP
+        >>> dataset.num_entities  # doctest: +SKIP
     """
 
-    def raw_graph_process(self):
-        pandarallel.initialize(progress_bar=False)
-        if self.dev == False:
-            self.graph_path = os.path.join(self.root, "graph.txt")
-        else:
-            self.graph_path = os.path.join(self.root, "graph_filtered.txt")
-
-        if os.path.exists(self.graph_path):
-            logger.debug("umls knowledge graph exists and load umls")
-        else:
-            logger.debug("umls does not exist")
-
-        print("Loading UMLS knowledge graph...")
-        graph_df = pd.read_csv(
-            self.graph_path, 
-            sep='\t',
-            names=['e1', 'r', 'e2']
+    def __init__(
+        self,
+        root: str,
+        dataset_name: str | None = None,
+        config_path: str | Path | None = None,
+        **kwargs,
+    ) -> None:
+        if is_url(root):
+            # The public bucket used by PyHealth 1.x serves graph.txt only,
+            # and the prepared copy cannot be written next to a URL.
+            raise ValueError(
+                f"UMLSDataset needs a local root; download {root.rstrip('/')}/"
+                f"{RAW_FILE} into a directory and pass that directory."
+            )
+        if config_path is None:
+            config_path = Path(__file__).parent / "configs" / "umls.yaml"
+        if self._needs_preparation(root):
+            self.prepare_metadata(root)
+        super().__init__(
+            root=root,
+            config_path=config_path,
+            dataset_name=dataset_name or "umls",
+            **kwargs,
         )
 
-        print("Processing UMLS knowledge graph...")
-        entity_list = pd.unique(graph_df[['e1', 'e2']].values.ravel('K'))
-        relation_list = pd.unique(graph_df['r'].values)
+    @staticmethod
+    def _needs_preparation(root: str) -> bool:
+        """Whether ``umls-pyhealth.tsv`` is missing or older than ``graph.txt``.
 
-        self.entity2id = {val: i for i, val in enumerate(entity_list)}
-        self.relation2id = {val: i for i, val in enumerate(relation_list)}
-        self.entity_num = len(self.entity2id)
-        self.relation_num = len(self.relation2id)
+        The dataset cache is keyed on the prepared copy, so a ``graph.txt``
+        replaced after the copy was made must trigger a new copy; otherwise
+        the old graph would be reused without notice.
+        """
+        source = os.path.join(root, RAW_FILE)
+        target = os.path.join(root, PREPARED_FILE)
+        if not os.path.exists(target):
+            return True
+        if not os.path.exists(source):
+            # Only the prepared copy was provided; use it as it is.
+            return False
+        src, dst = os.stat(source), os.stat(target)
+        return (
+            dst.st_size != src.st_size + len(HEADER)
+            or src.st_mtime_ns > dst.st_mtime_ns
+        )
 
-        print("Building UMLS knowledge graph...")
-        self.triples = [(self.entity2id[e1], self.relation2id[r], self.entity2id[e2]) 
-                        for e1, r, e2 in tqdm(zip(graph_df['e1'], graph_df['r'], graph_df['e2']), total=graph_df.shape[0])]
+    @staticmethod
+    def prepare_metadata(root: str) -> None:
+        """Writes ``umls-pyhealth.tsv``: ``graph.txt`` under a header line.
 
+        The rows are copied byte for byte; only the header
+        ``head\\trelation\\ttail`` is added, because the table loader reads the
+        column names from the first line.
 
-        return
+        Args:
+            root: Directory holding ``graph.txt``.
+
+        Raises:
+            FileNotFoundError: If ``graph.txt`` is not in ``root``.
+
+        Examples:
+            >>> import tempfile
+            >>> from pathlib import Path
+            >>> root = Path(tempfile.mkdtemp())
+            >>> _ = (root / "graph.txt").write_text("C1\\tPAR\\tC2\\n")
+            >>> UMLSDataset.prepare_metadata(str(root))
+            >>> (root / "umls-pyhealth.tsv").read_text()
+            'head\\trelation\\ttail\\nC1\\tPAR\\tC2\\n'
+        """
+        source = os.path.join(root, RAW_FILE)
+        if not os.path.exists(source):
+            raise FileNotFoundError(f"UMLS graph not found: {source}")
+        target = os.path.join(root, PREPARED_FILE)
+        logger.info(f"Writing {target} from {source}")
+        # Written under a temporary name and renamed when complete: an
+        # interrupted copy must not leave a truncated file that later runs
+        # would take as prepared. The name is unique, so jobs preparing the
+        # same root at once (parallel hyper-parameter runs) never write into
+        # the same file; "xb" keeps the default permissions, which mkstemp
+        # would narrow to the owner. A process killed mid-copy leaves its
+        # partial file behind, which is never taken as prepared.
+        partial = f"{target}.{uuid.uuid4().hex}.partial"
+        try:
+            with open(source, "rb") as src, open(partial, "xb") as dst:
+                dst.write(HEADER)
+                shutil.copyfileobj(src, dst)
+            try:
+                os.replace(partial, target)
+            except PermissionError:
+                # Windows refuses to replace a file that another process is
+                # replacing at the same moment. If that process has just
+                # written an up-to-date copy, there is nothing left to do.
+                if UMLSDataset._needs_preparation(root):
+                    raise
+        finally:
+            if os.path.exists(partial):
+                os.remove(partial)
 
 
 if __name__ == "__main__":
-    dataset = UMLSDataset(
-        root="https://storage.googleapis.com/pyhealth/umls/",
-        dev=True,
-        refresh_cache=True,
-    )
-    dataset.stat()
-    dataset.info()
+    dataset = UMLSDataset(root="/path/to/umls", dev=True)
+    dataset.stats()
+    print(dataset.num_entities, dataset.num_relations)
