@@ -31,6 +31,7 @@ from .unet import (
 from .clip_stress import CLIPStress as CLIPStress
 from .transformer_deid import TransformerDeID
 from .biot import BIOT
+from .cbramod import CBraMod as CBraMod
 from .cnn import CNN, CNNLayer
 from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D

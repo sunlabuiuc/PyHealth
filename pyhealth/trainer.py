@@ -9,6 +9,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch.optim import Optimizer
+from torch.optim.lr_scheduler import LRScheduler
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from tqdm.autonotebook import trange
@@ -211,6 +212,8 @@ class Trainer:
         load_best_model_at_last: bool = True,
         patience=None,
         keep_best_in_memory: bool = True,
+        param_groups: list[dict[str, object]] | None = None,
+        lr_scheduler: Callable[[Optimizer, int], LRScheduler] | None = None,
     ):
         """Trains the model.
 
@@ -224,6 +227,10 @@ class Trainer:
             steps_per_epoch: Number of steps per epoch. Default is None.
             weight_decay: Weight decay. Default is 0.0.
             max_grad_norm: Maximum gradient norm. Default is None.
+            param_groups: Optional optimizer parameter groups. When set, replaces
+                the default decay / no-decay grouping.
+            lr_scheduler: Optional factory ``(optimizer, total_steps) -> scheduler``
+                stepped once after each training iteration.
             monitor: Metric name to monitor. Default is None.
             monitor_criterion: Criterion to monitor. Default is "max".
             load_best_model_at_last: Whether to load the best model at the last.
@@ -266,21 +273,40 @@ class Trainer:
         logger.info(f"Monitor criterion: {monitor_criterion}")
         logger.info(f"Epochs: {epochs}")
         logger.info(f"Patience: {patience}")
+        logger.info(f"Custom param groups: {param_groups is not None}")
+        logger.info(f"LR scheduler factory: {lr_scheduler}")
+
+        n_steps_per_epoch = (
+            steps_per_epoch if steps_per_epoch is not None else len(train_dataloader)
+        )
 
         # set optimizer
-        param = list(self.model.named_parameters())
-        no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
-        optimizer_grouped_parameters = [
-            {
-                "params": [p for n, p in param if not any(nd in n for nd in no_decay)],
-                "weight_decay": weight_decay,
-            },
-            {
-                "params": [p for n, p in param if any(nd in n for nd in no_decay)],
-                "weight_decay": 0.0,
-            },
-        ]
-        optimizer = optimizer_class(optimizer_grouped_parameters, **optimizer_params)
+        if param_groups is not None:
+            optimizer = optimizer_class(param_groups, **optimizer_params)
+        else:
+            param = list(self.model.named_parameters())
+            no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
+            optimizer_grouped_parameters = [
+                {
+                    "params": [p for n, p in param if not any(nd in n for nd in no_decay)],
+                    "weight_decay": weight_decay,
+                },
+                {
+                    "params": [p for n, p in param if any(nd in n for nd in no_decay)],
+                    "weight_decay": 0.0,
+                },
+            ]
+            optimizer = optimizer_class(optimizer_grouped_parameters, **optimizer_params)
+
+        scheduler: LRScheduler | None = None
+        if lr_scheduler is not None:
+            total_steps = epochs * n_steps_per_epoch
+            scheduler = lr_scheduler(optimizer, total_steps)
+            logger.info(
+                "LR scheduler %s with total_steps=%s",
+                type(scheduler).__name__,
+                total_steps,
+            )
 
         # initialize
         data_iterator = iter(train_dataloader)
@@ -298,8 +324,7 @@ class Trainer:
                 "will keep the last epoch's weights, not the best epoch's."
             )
             restore_from_memory = False
-        if steps_per_epoch is None:
-            steps_per_epoch = len(train_dataloader)
+        steps_per_epoch = n_steps_per_epoch
         global_step = 0
         patience_counter = 0
 
@@ -331,6 +356,8 @@ class Trainer:
                     )
                 # update
                 optimizer.step()
+                if scheduler is not None:
+                    scheduler.step()
                 optimizer.zero_grad()
                 training_loss.append(loss.item())
                 global_step += 1
