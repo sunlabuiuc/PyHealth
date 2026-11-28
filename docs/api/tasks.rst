@@ -217,6 +217,7 @@ Available Tasks
     PBC Competing Risks <tasks/pyhealth.tasks.competing_risks_pbc>
     Competing-Risk Preprocessing <tasks/pyhealth.tasks.competing_risks>
     In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
+    Sepsis Prediction (MIMIC-IV) <tasks/pyhealth.tasks.SepsisPredictionMIMIC4>
     In-Hospital Mortality (MEDS) <tasks/pyhealth.tasks.InHospitalMortalityMEDS>
     In-Hospital Mortality 48h (MIMIC-III) <tasks/pyhealth.tasks.InHospitalMortality48hMIMIC3>
     DearLLM Mortality (MIMIC-III/IV) <tasks/pyhealth.tasks.dearllm_mortality>
