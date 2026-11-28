@@ -55,6 +55,7 @@ SampleSignalDataset = _removed_1x_class(
 from .base_dataset import BaseDataset
 from .cdc_covid import CDCCOVIDDataset as CDCCOVIDDataset
 from .pbc import PBCDataset as PBCDataset
+from .framingham import FraminghamDataset as FraminghamDataset
 from .imaging.patches import PatchDataset as PatchDataset
 from .imaging.stats import (
     compute_foreground_intensity_stats as compute_foreground_intensity_stats,
