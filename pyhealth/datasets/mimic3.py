@@ -84,6 +84,7 @@ class MIMIC3Dataset(BaseDataset):
         return
 
 
+
     def preprocess_noteevents(self, df: pl.LazyFrame) -> pl.LazyFrame:
         """Preprocess clinical notes while preserving timestamp provenance.
 
@@ -99,6 +100,12 @@ class MIMIC3Dataset(BaseDataset):
             The processed frame with chart times and an indicator of
             whether the original chart time was missing.
         """
+        # Preserve compatibility with note tables that omit ISERROR.
+        if "iserror" not in df.collect_schema().names():
+            df = df.with_columns(
+                pl.lit(None, dtype=pl.String).alias("iserror")
+            )
+
         df = df.with_columns(
             pl.when(pl.col("charttime").is_null())
             .then(pl.lit("true"))
@@ -113,3 +120,4 @@ class MIMIC3Dataset(BaseDataset):
             .alias("charttime")
         )
         return df
+
