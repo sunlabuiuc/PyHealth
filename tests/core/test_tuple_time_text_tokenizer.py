@@ -113,6 +113,19 @@ def test_tuple_time_text_processor_with_tokenizer():
 
 
 @pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="Transformers not installed")
+def test_processor_with_a_tokenizer_has_a_cache_key():
+    """A pre-fitted processor that holds a tokenizer can key a processed cache."""
+    from pyhealth.tasks.fingerprint import processors_fingerprint
+
+    def key(**kwargs):
+        return processors_fingerprint({"notes": TupleTimeTextProcessor(**kwargs)}, None)
+
+    tiny = key(tokenizer_model="prajjwal1/bert-tiny")
+    assert tiny == key(tokenizer_model="prajjwal1/bert-tiny")
+    assert tiny != key(tokenizer_model="prajjwal1/bert-tiny", max_length=16)
+    assert tiny != key()
+
+
 def test_tokenizer_integration_in_pyhealth_workflow():
     """Smoke test: fit() and process() don't raise for the tokenized path."""
     proc = TupleTimeTextProcessor(tokenizer_model="prajjwal1/bert-tiny")

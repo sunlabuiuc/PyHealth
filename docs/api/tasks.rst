@@ -215,7 +215,9 @@ Attributes that do not affect the output are ignored, so changing
 The fingerprint is a digest, so the directory name alone does not tell you
 which parameter changed. Each cache directory therefore contains a
 ``task_meta.json`` recording the full configuration in readable form, and
-``set_task()`` logs its path at INFO level.
+``set_task()`` logs its path at INFO level. The file holds the task's
+attributes as they are, strings included: exclude an attribute that should not
+be written to a shared cache, such as a credential, with ``fingerprint_exclude``.
 
 .. warning::
 

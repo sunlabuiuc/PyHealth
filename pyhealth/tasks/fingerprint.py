@@ -705,7 +705,7 @@ def task_spec(task: Any, *, include_source: bool | None = None) -> dict[str, Any
         ...     input_schema = {}
         ...     output_schema = {}
         >>> task_spec(T())["task_name"]
-        'toy'
+        ['str', 'toy']
     """
     include_source = _HASH_SOURCE if include_source is None else include_source
     excluded = _ALWAYS_EXCLUDED | frozenset(getattr(task, "fingerprint_exclude", ()) or ())
@@ -718,8 +718,10 @@ def task_spec(task: Any, *, include_source: bool | None = None) -> dict[str, Any
     spec: dict[str, Any] = {
         "fingerprint_version": FINGERPRINT_VERSION,
         "task_class": _qualname(type(task)),
-        "task_name": getattr(task, "task_name", None),
-        "task_version": getattr(task, "version", "1"),
+        # Through _canon like the rest: a numpy integer or a packaging Version
+        # would otherwise make json.dumps fail outside UnfingerprintableError.
+        "task_name": _canon(getattr(task, "task_name", None), "task_name"),
+        "task_version": _canon(getattr(task, "version", "1"), "version"),
         "class_config": _canon(class_config, "class_config"),
         # The task itself encloses its state, so that storing one of its own
         # methods (or a lambda over ``self``) is not a circular reference.

@@ -151,7 +151,7 @@ class TestCachingFunctionality(BaseTestCase):
 
             # The sidecar must explain the cache directory in plain text.
             meta = json.loads((task_cache_dir / "task_meta.json").read_text())
-            self.assertEqual(meta["spec"]["task_name"], self.task.task_name)
+            self.assertEqual(meta["spec"]["task_name"], ["str", self.task.task_name])
             self.assertEqual(meta["fingerprint"], task_fingerprint(self.task))
             self.assertIn("param", json.dumps(meta["spec"]["instance_state"]))
 

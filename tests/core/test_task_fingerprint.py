@@ -941,12 +941,30 @@ class TestMetadataSidecar(unittest.TestCase):
             path = write_task_metadata(Path(tmp), Readmission(window=timedelta(days=30)))
             payload = json.loads(Path(path).read_text())
             self.assertEqual(payload["spec"]["fingerprint_version"], FINGERPRINT_VERSION)
-            self.assertEqual(payload["spec"]["task_name"], "ReadmissionPredictionMIMIC3")
+            self.assertEqual(
+                payload["spec"]["task_name"], ["str", "ReadmissionPredictionMIMIC3"]
+            )
             self.assertIn("30", json.dumps(payload["spec"]["instance_state"]))
             self.assertFalse(list(Path(tmp).glob("*.tmp")), "temp file left behind")
 
     def test_spec_is_json_serialisable(self):
         json.dumps(task_spec(Readmission()))
+
+    def test_version_and_name_are_canonicalised(self):
+        def task(version, name="T"):
+            class T(_Task):
+                task_name = name
+
+            T.version = version
+            return T()
+
+        # A numpy integer used to make json.dumps raise a bare TypeError.
+        self.assertEqual(len(task_fingerprint(task(np.int64(2)))), 64)
+        self.assertNotEqual(task_fingerprint(task(2)), task_fingerprint(task("2")))
+        self.assertNotEqual(
+            task_fingerprint(task(np.int64(2))), task_fingerprint(task(2))
+        )
+        self.assertEqual(task_fingerprint(task("2")), task_fingerprint(task("2")))
 
     def test_second_call_does_not_refresh_created_at(self):
         """created_at must mean created, not last accessed."""
