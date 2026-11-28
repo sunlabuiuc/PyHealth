@@ -138,7 +138,8 @@ SAMPLING_RATE = 500
 ALL_FOLDS = tuple(range(1, 11))
 
 # A pseudo PTB-XL corpus for running the pipeline without PhysioNet
-# access (PTB-XL is credentialed). Three label patterns mirror the
+# access (PTB-XL is CC-BY but the ~2 GB corpus needs a PhysioNet
+# login). Three label patterns mirror the
 # 3-way multi-class task: NORM-bearing (normal), AFIB-bearing
 # (target for --dx AF), and neither (other); every pattern also
 # carries rhythm codes and most carry a form code so each multilabel
@@ -199,7 +200,7 @@ def build_synthetic_corpus(root: Path) -> Path:
         all scores are meaningless. This exists to check that the full
         pipeline (loading, task processing, training, sliding-window
         inference, bootstrap, significance test) runs without the
-        credentialed PTB-XL download, not to reproduce paper numbers.
+        ~2 GB PhysioNet download, not to reproduce paper numbers.
     """
     root.mkdir(parents=True, exist_ok=True)
     (root / "scp_statements.csv").write_text(
@@ -246,7 +247,7 @@ def parse_args() -> argparse.Namespace:
         "--synthetic-root",
         help="Generate a deterministic pseudo PTB-XL corpus here (synthetic "
         "ramp waveforms, invented labels) and use it as the data root; a "
-        "pipeline self-check without the credentialed PhysioNet download, "
+        "pipeline self-check without the ~2 GB PhysioNet download, "
         "the scores are meaningless",
     )
     parser.add_argument(
