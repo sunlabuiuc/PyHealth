@@ -184,11 +184,72 @@ supports ``len()`` and index access, ready for a DataLoader.
 
 If you re-run ``set_task()`` with the same task and processor configuration,
 PyHealth detects the existing cache and skips reprocessing. The cache key holds
-the task's arguments and schemas but not its code, so after you edit a task's
+the task's configuration and schemas but not its code, so after you edit a task's
 ``__call__``, run ``dataset.clear_task_cache(task)`` (see *Task caches and when
 to clear them* in :doc:`datasets`). During
 development it is useful to set ``dev=True`` on the dataset, which limits
 processing to 1 000 patients so iterations are fast.
+
+What counts as the same configuration?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Each task configuration gets its own cache directory, named after a
+fingerprint of everything that determines the generated samples:
+
+- the state your task's ``__init__`` leaves on the instance, rather than the
+  arguments as passed -- ``MyTask()`` and
+  ``MyTask(window=timedelta(days=15))`` share a cache when 15 days is the
+  default, and so do two spellings that ``__init__`` normalises to the same
+  value;
+- public, non-callable class-level attributes, the input schema and the output
+  schema;
+- ``BaseTask.version`` (see below).
+
+Attributes that do not affect the output are ignored, so changing
+``num_workers`` reuses the cache. Add your own via ``fingerprint_exclude``::
+
+    class MyTask(BaseTask):
+        fingerprint_exclude = frozenset({"debug_dir"})
+
+The fingerprint is a digest, so the directory name alone does not tell you
+which parameter changed. Each cache directory therefore contains a
+``task_meta.json`` recording the full configuration in readable form, and
+``set_task()`` logs its path at INFO level. The file holds the task's
+attributes as they are, strings included: exclude an attribute that should not
+be written to a shared cache, such as a credential, with ``fingerprint_exclude``.
+
+.. warning::
+
+   **Editing** ``__call__`` **does not invalidate the cache.** The fingerprint
+   covers configuration, not code, so changing your labelling logic without
+   changing any argument will silently reuse the samples built by the previous
+   version. Bump ``version`` on the task when its logic changes::
+
+       class MyTask(BaseTask):
+           version = "2"   # was "1"; excluded ICU stays under 24h
+
+   Alternatively, set ``PYHEALTH_FINGERPRINT_SOURCE=1`` before importing
+   PyHealth to fold a structural hash of ``__call__`` and ``pre_filter`` into
+   the fingerprint. Comments, whitespace and docstrings do not count, but
+   renaming a local variable does, and helpers that ``__call__`` calls are not
+   covered, so this is off by default.
+
+If a task attribute cannot be fingerprinted deterministically (an object
+whose ``repr()`` embeds a memory address, an iterator, a sparse tensor, or a
+function whose source cannot be read, such as one made by ``exec()``),
+``set_task()`` raises ``UnfingerprintableError`` rather than risk a colliding
+or unstable cache key. This is the default, and a change: such tasks used to
+get a key that differed on every run, or that two configurations could share.
+Give the class a ``__pyhealth_fingerprint__()`` method returning a plain
+description of its configuration, or exclude the attribute. To get a warning
+and a best-effort key instead of an error, set
+``PYHEALTH_FINGERPRINT_STRICT=0`` before importing PyHealth.
+
+A function or bound method is identified by its code and by what it carries:
+captured variables, default values and the object it is bound to. Tables
+(pandas, polars) are identified by their labels, dtypes and values. The
+fingerprint does not follow module-level globals read by a function or the
+contents of a file behind a path.
 
 .. note::
 
@@ -212,6 +273,7 @@ Available Tasks
     :maxdepth: 3
 
     Base Task <tasks/pyhealth.tasks.BaseTask>
+    Task Fingerprint <tasks/pyhealth.tasks.fingerprint>
     Task Card <tasks/pyhealth.tasks.TaskCard>
     CDC COVID-19 Mortality <tasks/pyhealth.tasks.CDCCOVIDMortalityPrediction>
     PBC Competing Risks <tasks/pyhealth.tasks.competing_risks_pbc>

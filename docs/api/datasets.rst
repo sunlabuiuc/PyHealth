@@ -51,9 +51,9 @@ Task caches and when to clear them
 directory, in two layers:
 
 - ``tasks/<task_name>_<hash>/task_df.ld`` holds the raw samples the task
-  returned. The hash covers the task's attributes (its constructor arguments
-  and anything else set on ``self``) and its ``input_schema`` and
-  ``output_schema``.
+  returned. The hash covers the task's attributes (what its constructor leaves
+  on ``self``, and public class attributes), its ``input_schema`` and
+  ``output_schema``, and its ``version`` (see :doc:`tasks`).
 - ``samples_<hash>.ld`` inside it holds the processed samples. This hash also
   covers any processors you passed in, the split (with ``set_task(split=...)``)
   and the storage format.
@@ -61,8 +61,11 @@ directory, in two layers:
 So changing a task argument, a schema, the processors or the split gives a new
 cache automatically. **Editing the task's code does not**: the hash does not see
 the body of ``__call__``. Neither does upgrading PyHealth to a version whose
-task or processor code changed. In those cases the old samples are reused
-without a warning. Clear the cache to rebuild them:
+task or processor code changed, unless the task's ``version`` changed too. In
+those cases the old samples are reused without a warning. Functions stored on
+the task are the exception: their code is part of the hash, so editing one, in
+your code or in PyHealth, gives a new cache. Bump the task's
+``version``, or clear the cache to rebuild them:
 
 .. code-block:: python
 
