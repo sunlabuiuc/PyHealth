@@ -43,6 +43,14 @@ class KeyClass(BaseModel):
     saved model scales new notes the same way. The paper and the authors' code
     feed raw embeddings; this is a documented deviation.
 
+    The loss uses the soft weak labels, but the returned ``"y_true"`` is
+    binary so that :class:`pyhealth.trainer.Trainer` can score it with the
+    multilabel metrics. When the batch has gold labels under ``gold_key``,
+    those are ``"y_true"``, so ``Trainer.evaluate`` reports agreement with the
+    gold labels. Otherwise ``"y_true"`` marks each category whose weak label
+    is at least ``1 / categories``, the paper's prediction threshold for scores
+    that sum to one, and the metrics measure agreement with the weak labels.
+
     Args:
         dataset: The sample dataset the model is trained on.
         input_dim: Dimension of the document embeddings.
@@ -51,6 +59,9 @@ class KeyClass(BaseModel):
         dropout: Dropout probability after each hidden layer.
         feature_key: Batch field holding the embeddings.
         label_key: Batch field holding the soft weak labels.
+        gold_key: Optional batch field holding gold 0/1 labels of shape
+            ``[batch, categories]`` in ``category_ids`` order. They are used
+            only as ``"y_true"`` for evaluation, never in the loss.
 
     Attributes:
         network: The MLP mapping standardized embeddings to logits.
@@ -90,6 +101,7 @@ class KeyClass(BaseModel):
         dropout: float = 0.5,
         feature_key: str = "embedding",
         label_key: str = "weak_labels",
+        gold_key: str | None = None,
     ) -> None:
         super().__init__(dataset)
         self.category_ids = tuple(category_ids)
@@ -101,6 +113,7 @@ class KeyClass(BaseModel):
             raise ValueError("Layer dimensions must be positive")
         self._target_processor = MultiLabelProcessor(labels=self.category_ids)
         self.feature_key, self.label_key = feature_key, label_key
+        self.gold_key = gold_key
         self.feature_keys, self.label_keys = [feature_key], [label_key]
         self.register_buffer("input_mean", torch.zeros(input_dim))
         self.register_buffer("input_scale", torch.ones(input_dim))
@@ -164,16 +177,20 @@ class KeyClass(BaseModel):
                 labels in [0, 1] of shape ``[batch, categories]``. Optional
                 ``kwargs["sample_weight"]`` holds nonnegative per-note weights
                 of shape ``[batch]``; each note's loss is scaled by its weight,
-                as in the authors' noise-aware loss.
+                as in the authors' noise-aware loss. Optional
+                ``kwargs[gold_key]`` holds gold 0/1 labels used as ``"y_true"``.
 
         Returns:
             A dict with ``"logit"`` and ``"y_prob"`` (sigmoid scores), both of
-            shape ``[batch, categories]``. When labels are given it also has
-            ``"y_true"`` and the scalar ``"loss"``.
+            shape ``[batch, categories]``. When soft labels are given it also
+            has the scalar ``"loss"`` and the binary ``"y_true"``: the gold
+            labels if present, otherwise the weak labels thresholded at
+            ``1 / categories``.
 
         Raises:
             ValueError: If embeddings, labels or weights have the wrong shape,
-                or labels are not finite probabilities.
+                soft labels are not finite probabilities, or gold labels are
+                not 0/1.
         """
         embedding = torch.as_tensor(
             kwargs[self.feature_key], dtype=torch.float32, device=self.device
@@ -207,5 +224,17 @@ class KeyClass(BaseModel):
                     logits, targets, reduction="none"
                 ).mean(dim=1)
                 loss = (per_note * weights).mean()
-            result.update(y_true=targets, loss=loss)
+            if self.gold_key is not None and self.gold_key in kwargs:
+                y_true = torch.as_tensor(
+                    kwargs[self.gold_key], dtype=logits.dtype, device=self.device
+                )
+                if (
+                    y_true.shape != logits.shape
+                    or not torch.isin(y_true, y_true.new_tensor([0.0, 1.0])).all()
+                ):
+                    raise ValueError("Gold labels must match logits and be 0 or 1")
+            else:
+                threshold = 1 / len(self.category_ids)
+                y_true = (targets >= threshold).to(logits.dtype)
+            result.update(y_true=y_true, loss=loss)
         return result

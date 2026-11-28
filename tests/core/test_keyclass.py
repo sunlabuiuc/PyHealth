@@ -379,6 +379,85 @@ class TestValidationAndOptionalPaths(unittest.TestCase):
             nltk_english_stopwords()
 
 
+class TestTrainerIntegration(unittest.TestCase):
+    """Trains and evaluates KeyClass with PyHealth's Trainer and its metrics."""
+
+    @staticmethod
+    def dataset(with_gold):
+        rng = np.random.default_rng(0)
+        samples = []
+        for i in range(12):
+            category = i % 3
+            weak = np.full(3, 0.1)
+            weak[category] = 0.8
+            sample = {
+                "patient_id": str(i),
+                "embedding": (np.eye(3)[category] + 0.1 * rng.normal(size=3)).tolist(),
+                "weak_labels": weak.tolist(),
+            }
+            if with_gold:
+                gold = np.eye(3)[category]
+                gold[(category + 1) % 3] = i % 2  # some notes have two diagnoses
+                sample["gold_labels"] = gold.tolist()
+            samples.append(sample)
+        output_schema = {"weak_labels": "tensor"}
+        if with_gold:
+            output_schema["gold_labels"] = "tensor"
+        return create_sample_dataset(
+            samples=samples,
+            input_schema={"embedding": "tensor"},
+            output_schema=output_schema,
+        )
+
+    def train_and_evaluate(self, with_gold):
+        from pyhealth.trainer import Trainer
+
+        torch.manual_seed(0)
+        dataset = self.dataset(with_gold)
+        model = KeyClass(
+            dataset,
+            3,
+            ["cardiac", "resp", "renal"],
+            hidden_dims=(8,),
+            gold_key="gold_labels" if with_gold else None,
+        )
+        loader = get_dataloader(dataset, batch_size=4)
+        trainer = Trainer(
+            model=model,
+            metrics=["f1_samples", "roc_auc_macro"],
+            enable_logging=False,
+        )
+        trainer.train(train_dataloader=loader, val_dataloader=loader, epochs=2)
+        y_true, _, _ = trainer.inference(loader)
+        return trainer.evaluate(loader), y_true
+
+    def test_trainer_with_weak_labels_only(self):
+        scores, y_true = self.train_and_evaluate(with_gold=False)
+        # Weak labels at or above 1/3 become the binary y_true for the metrics.
+        np.testing.assert_array_equal(y_true, np.eye(3)[np.arange(12) % 3])
+        for key in ("loss", "f1_samples", "roc_auc_macro"):
+            self.assertTrue(np.isfinite(scores[key]), key)
+
+    def test_trainer_scores_against_gold_labels(self):
+        scores, y_true = self.train_and_evaluate(with_gold=True)
+        expected = np.eye(3)[np.arange(12) % 3]
+        expected[np.arange(12), (np.arange(12) + 1) % 3] = np.arange(12) % 2
+        np.testing.assert_array_equal(y_true, expected)
+        for key in ("loss", "f1_samples", "roc_auc_macro"):
+            self.assertTrue(np.isfinite(scores[key]), key)
+
+    def test_gold_labels_do_not_change_the_loss(self):
+        dataset = self.dataset(with_gold=True)
+        batch = next(iter(get_dataloader(dataset, batch_size=4)))
+        model = KeyClass(dataset, 3, ["a", "b", "c"], gold_key="gold_labels").eval()
+        weak_only = {k: v for k, v in batch.items() if k != "gold_labels"}
+        torch.testing.assert_close(model(**batch)["loss"], model(**weak_only)["loss"])
+        with self.assertRaises(ValueError):
+            model(**{**batch, "gold_labels": batch["gold_labels"] * 0.5})
+        with self.assertRaises(ValueError):
+            model(**{**batch, "gold_labels": batch["gold_labels"][:, :2]})
+
+
 class TestClinicalTextEncoder(unittest.TestCase):
     """Runs the encoder on a tiny randomly initialized BERT; nothing is downloaded."""
 

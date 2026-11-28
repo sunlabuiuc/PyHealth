@@ -15,6 +15,16 @@ class ClinicalTextEncoder:
     text selection. The model is loaded, and downloaded if needed, only when
     the encoder is constructed.
 
+    This is a small class rather than a call to
+    ``pyhealth.models.clip_stress_utils.encode_stress_prompts``, which does a
+    similar Hugging Face pass for a different model. That helper loads the
+    model on every call, averages over padding by default, and rejects empty
+    input. KeyClass encodes three sets of texts (phrases, descriptions and
+    notes) with one loaded model, needs padding excluded so the result does
+    not depend on batch size, and gets empty sets of phrases or notes. The
+    ``encode(texts)`` method is the only interface ``KeywordLabeler`` needs,
+    so any object with that method can replace this class.
+
     Args:
         model_name: Hugging Face model ID or local snapshot directory, for
             example ``"bionlp/bluebert_pubmed_mimic_uncased_L-12_H-768_A-12"``.
