@@ -46,6 +46,7 @@ from .sequence_embedding import (
     SequenceEmbeddingModel as SequenceEmbeddingModel,
 )
 from .armr import ARMR as ARMR
+from .ga2m import GA2M as GA2M
 from .gamenet import GAMENet, GAMENetLayer
 from .jamba_ehr import JambaEHR, JambaLayer
 from .joint_seq_image import (
@@ -53,6 +54,11 @@ from .joint_seq_image import (
 )
 from .logistic_regression import LogisticRegression
 from .gan import GAN
+from .glip import (
+    GLIP as GLIP,
+    GLIPDetector as GLIPDetector,
+    build_caption as build_caption,
+)
 from .gnn import GAT, GCN
 from .graph_torchvision_model import Graph_TorchvisionModel
 from .graphcare import GraphCare

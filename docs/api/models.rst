@@ -296,6 +296,7 @@ API Reference
     models/pyhealth.models.BaseModel
     models/pyhealth.models.NeuralFineGray
     models/pyhealth.models.LogisticRegression
+    models/pyhealth.models.GA2M
     models/pyhealth.models.MLP
     models/pyhealth.models.CNN
     models/pyhealth.models.UNet
@@ -379,6 +380,7 @@ API Reference
     models/pyhealth.models.RealTimeTDCNNLSTM
     models/pyhealth.models.TRACE
     models/pyhealth.models.MIRA
+    models/pyhealth.models.GLIP
     models/pyhealth.models.UDC
     models/pyhealth.models.DescEmb
     models/pyhealth.models.bulk_rna_bert

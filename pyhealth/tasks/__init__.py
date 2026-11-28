@@ -79,6 +79,7 @@ from .signal_forecasting import (
     PTBXLForecasting as PTBXLForecasting,
     SleepEDFForecasting as SleepEDFForecasting,
 )
+from .polyp_detection import PolypDetection as PolypDetection
 from .physionet2012_inhospital_mortality import (
     PhysioNet2012InHospitalMortality as PhysioNet2012InHospitalMortality,
     build_mortality_sample as build_mortality_sample,
@@ -132,6 +133,9 @@ from .ehr_text_serialization import (
 )
 from .in_hospital_mortality_meds import (
     InHospitalMortalityMEDS as InHospitalMortalityMEDS,
+)
+from .in_hospital_mortality_48h_mimic3 import (
+    InHospitalMortality48hMIMIC3 as InHospitalMortality48hMIMIC3,
 )
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
 from .kits23_classification import (

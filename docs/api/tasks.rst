@@ -218,6 +218,7 @@ Available Tasks
     Competing-Risk Preprocessing <tasks/pyhealth.tasks.competing_risks>
     In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
     In-Hospital Mortality (MEDS) <tasks/pyhealth.tasks.InHospitalMortalityMEDS>
+    In-Hospital Mortality 48h (MIMIC-III) <tasks/pyhealth.tasks.InHospitalMortality48hMIMIC3>
     Real-Time ICU Mortality with Next States (MIMIC-IV) <tasks/pyhealth.tasks.RealTimeICUMortalityMIMIC4>
     Real-Time ICU Mortality with Next States (eICU) <tasks/pyhealth.tasks.RealTimeICUMortalityEICU>
     Real-Time ICU Mortality with Next States (PhysioNet 2012) <tasks/pyhealth.tasks.RealTimeICUMortalityPhysioNet2012>
@@ -295,6 +296,7 @@ Available Tasks
     ChestX-ray14 Multilabel Classification <tasks/pyhealth.tasks.ChestXray14MultilabelClassification>
     HAM10000 Skin Lesion Classification <tasks/pyhealth.tasks.HAM10000Classification>
     PH2 Artifact Sensitivity Classification <tasks/pyhealth.tasks.PH2ArtifactClassification>
+    Polyp Detection <tasks/pyhealth.tasks.PolypDetection>
     MSD Segmentation <tasks/pyhealth.tasks.MSDSegmentationTask>
     CHAOS Segmentation Tasks <tasks/pyhealth.tasks.CHAOSSegmentation>
     RSNA Pneumonia Classification <tasks/pyhealth.tasks.RSNAPneumoniaClassification>
