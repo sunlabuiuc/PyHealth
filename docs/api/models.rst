@@ -60,6 +60,9 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.td_cnn_lstm`
      - You want real-time ICU mortality risk for each measurement-time state of irregular event streams
      - Temporal-difference training needs paired ``next_*`` successor states and a custom loop that calls ``model.update_target()`` after each optimizer step
+   * - :doc:`models/pyhealth.models.RealTimeTDCNNLSTM`
+     - You want TD-trained real-time ICU mortality risk with the standard ``Trainer``, on the ``RealTimeICUMortality*`` tasks (MIMIC-IV, eICU, PhysioNet 2012)
+     - The target-network update runs inside ``forward``, so ``Trainer.train`` works unchanged; also covers the paper's class-balanced supervised baselines and λ-mixed targets
 
 How BaseModel Works
 --------------------
@@ -373,6 +376,7 @@ API Reference
     models/pyhealth.models.APN
     models/pyhealth.models.JointSeqImage
     models/pyhealth.models.td_cnn_lstm
+    models/pyhealth.models.RealTimeTDCNNLSTM
     models/pyhealth.models.TRACE
     models/pyhealth.models.MIRA
     models/pyhealth.models.UDC

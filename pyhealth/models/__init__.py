@@ -121,6 +121,8 @@ from .protoecgnet import (
     ResNet2dBackbone as ResNet2dBackbone,
 )
 from .td_cnn_lstm import TDCNNLSTM as TDCNNLSTM
+from .realtime_td_cnn_lstm import RealTimeTDCNNLSTM as RealTimeTDCNNLSTM
+from .realtime_td_cnn_lstm import RealTimeTDCNNLSTMEncoder as RealTimeTDCNNLSTMEncoder
 from .generators.halo import HALO
 from .generators.gpt2 import GPT2
 from .generators.promptehr import PromptEHR
