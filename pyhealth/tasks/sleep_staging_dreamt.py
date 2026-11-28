@@ -9,9 +9,9 @@ Reference:
     Advancing Sleep Staging with Smartwatches." CHIL 2025 (PMLR 287).
 """
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, ClassVar
-from collections.abc import Sequence
 
 import numpy as np
 import pandas as pd
