@@ -358,6 +358,13 @@ from .yaib_eicu import (
 from .tcga_survival_prediction import TCGASurvivalPrediction as TCGASurvivalPrediction
 from .query_focused_ehr import QueryFocusedEHRTask as QueryFocusedEHRTask
 
+# Imported last: this task imports pyhealth.datasets, which imports the tasks
+# above, so they must already be defined.
+from .medmod_mortality_mimic4 import (
+    MedModInHospitalMortality as MedModInHospitalMortality,
+)
+
+
 def __getattr__(name: str):
     if name == "MPFClinicalPredictionTask":
         from .mpf_clinical_prediction import MPFClinicalPredictionTask

@@ -653,6 +653,7 @@ Available Datasets
     datasets/pyhealth.datasets.MIMIC4EDDataset
     datasets/pyhealth.datasets.KiTS23Dataset
     datasets/pyhealth.datasets.MIMIC4ImaGenomeDataset
+    datasets/pyhealth.datasets.MedModMIMIC4Dataset
     datasets/pyhealth.datasets.BrainTumorMRIDataset
     datasets/pyhealth.datasets.FHIRDataset
     datasets/pyhealth.datasets.MEDSDataset

@@ -255,6 +255,7 @@ Available Tasks
     EHR Generation <tasks/pyhealth.tasks.generate_ehr>
     Length of Stay Prediction <tasks/pyhealth.tasks.length_of_stay_prediction>
     Length of Stay Prediction (StageNet MIMIC-IV) <tasks/pyhealth.tasks.length_of_stay_stagenet_mimic4>
+    MedMod In-Hospital Mortality (MIMIC-IV + CXR) <tasks/pyhealth.tasks.MedModInHospitalMortality>
     Medical Transcriptions Classification <tasks/pyhealth.tasks.MedicalTranscriptionsClassification>
     MPF Clinical Prediction (FHIR) <tasks/pyhealth.tasks.mpf_clinical_prediction>
     Mortality Prediction (Next Visit) <tasks/pyhealth.tasks.mortality_prediction>
