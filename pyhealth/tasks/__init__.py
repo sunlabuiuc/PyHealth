@@ -46,6 +46,9 @@ from .chaos_segmentation import (
 from .brain_tumor_mri_classification import (
     BrainTumorMRIClassification as BrainTumorMRIClassification,
 )
+from .clinical_presence_mortality_mimic3 import (
+    ClinicalPresenceMortalityMIMIC3 as ClinicalPresenceMortalityMIMIC3,
+)
 from .covid19_cxr_classification import COVID19CXRClassification
 from .covid19_cxr_generation import (
     COVID19CXRImageGeneration as COVID19CXRImageGeneration,
