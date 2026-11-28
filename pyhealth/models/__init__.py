@@ -196,6 +196,11 @@ from .game import (
     load_game_embeddings as load_game_embeddings,
     normalize_game_code as normalize_game_code,
 )
+from .giantmed import (
+    GiantMed as GiantMed,
+    HuggingFaceGiantMedGenerator as HuggingFaceGiantMedGenerator,
+    MediEvidenceFilter as MediEvidenceFilter,
+)
 from .medtok import (
     MedTokEmbedding as MedTokEmbedding,
     apply_medtok as apply_medtok,

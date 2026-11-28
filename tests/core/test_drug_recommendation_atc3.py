@@ -112,6 +112,33 @@ class TestDrugRecommendationATC3(unittest.TestCase):
         self.assertNotIn("0", first_sample["drugs"])
         self.assertNotIn("9999", first_sample["drugs"])
 
+    def test_task_mapping_modes_and_cache_identity(self):
+        from types import SimpleNamespace
+
+        from pyhealth.datasets.base_dataset import BaseDataset
+
+        dataset = SimpleNamespace(cache_dir=Path("/tmp/test-cache"))
+        for task_cls in (DrugRecommendationMIMIC3, DrugRecommendationMIMIC4):
+            default = task_cls()
+            self.assertEqual(default.cache_version, "ndc_to_atc3_v1")
+            self.assertNotIn("ndc_to_atc3", vars(default))
+            self.assertIsNone(default.ndc_to_atc3)
+            self.assertEqual(
+                default.map_drugs(["11111111111", "0", "11111111111", "22222222222"]),
+                ["A10B", "C03C"],
+            )
+            explicit = task_cls(ndc_to_atc3={"11111111111": "N02B"})
+            empty = task_cls(ndc_to_atc3={})
+            self.assertEqual(
+                explicit.map_drugs(["11111111111", "22222222222"]), ["N02B"]
+            )
+            self.assertEqual(empty.map_drugs(["11111111111"]), [])
+            paths = {
+                BaseDataset._task_cache_dir(dataset, task)
+                for task in (default, explicit, empty)
+            }
+            self.assertEqual(len(paths), 3)
+
     def test_mimic3_demo_drug_recommendation_maps_ndc_to_atc3(self):
         demo_path, cache_dir = self._copy_demo("mimic3demo")
         self._rewrite_prescription_ndcs(
@@ -137,9 +164,7 @@ class TestDrugRecommendationATC3(unittest.TestCase):
 
         self.crossmap_load.assert_called_once_with("NDC", "ATC")
         self._assert_atc3_samples(samples, "142582", "122098")
-        self.assertTrue(
-            all(kwargs == {"level": 3} for _, kwargs in self.mapper.calls)
-        )
+        self.assertTrue(all(kwargs == {"level": 3} for _, kwargs in self.mapper.calls))
 
     def test_mimic4_demo_drug_recommendation_maps_ndc_to_atc3(self):
         demo_path, cache_dir = self._copy_demo("mimic4demo")
@@ -167,9 +192,7 @@ class TestDrugRecommendationATC3(unittest.TestCase):
 
         self.crossmap_load.assert_called_once_with("NDC", "ATC")
         self._assert_atc3_samples(samples, "20001", "20002")
-        self.assertTrue(
-            all(kwargs == {"level": 3} for _, kwargs in self.mapper.calls)
-        )
+        self.assertTrue(all(kwargs == {"level": 3} for _, kwargs in self.mapper.calls))
 
 
 if __name__ == "__main__":
