@@ -16,9 +16,10 @@ normalization is required upstream. ``get_shape_functions()`` exposes each
 term's learned curve/surface, centered for interpretability, for visual
 inspection by a clinician.
 
-See ``examples/mimic3_mortality_ga2m.py`` for a full reproduction pipeline
-(bin-count ablation and the paper's two-phase pairwise-interaction
-selection) against :class:`~pyhealth.tasks.InHospitalMortality48hMIMIC3`.
+See ``examples/mimic3_mortality_ga2m.py`` for the full set of experiments
+(bin-count ablation, the paper's two-phase pairwise-interaction
+selection, and the clinician-pruning ablation) against
+:class:`~pyhealth.tasks.InHospitalMortality48hMIMIC3`.
 
 .. autoclass:: pyhealth.models.GA2M
     :members:

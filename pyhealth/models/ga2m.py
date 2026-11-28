@@ -11,10 +11,10 @@ by ordinary SGD through :class:`~pyhealth.trainer.Trainer`.
 from __future__ import annotations
 
 import itertools
-from typing import Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
 
 import torch
-import torch.nn as nn
+from torch import nn
 from torch.utils.data import DataLoader
 
 from ..datasets import SampleDataset, get_dataloader
@@ -57,6 +57,11 @@ class GA2M(BaseModel):
         feature_names: Optional names for the ``n_features`` columns of
             ``"features"``, used only to label :meth:`get_shape_functions`
             output. Does not import or depend on any task module.
+        excluded_features: Optional feature indices whose 1D terms are
+            removed (held at zero and left out of
+            :meth:`get_shape_functions`). Pairs may not use them. This
+            supports the paper's clinician-pruning ablation: retrain
+            without the risk curves doctors flagged as implausible.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset
@@ -81,9 +86,10 @@ class GA2M(BaseModel):
         self,
         dataset: SampleDataset,
         n_bins: int = 256,
-        pairs: Optional[Sequence[Tuple[int, int]]] = None,
-        pair_bins: Optional[int] = None,
-        feature_names: Optional[Sequence[str]] = None,
+        pairs: Sequence[tuple[int, int]] | None = None,
+        pair_bins: int | None = None,
+        feature_names: Sequence[str] | None = None,
+        excluded_features: Sequence[int] | None = None,
     ):
         super().__init__(dataset)
         if "features" not in self.feature_keys:
@@ -114,15 +120,24 @@ class GA2M(BaseModel):
             f"x{i}" for i in range(self.n_features)
         ]
 
+        self.excluded_features: list[int] = sorted(set(excluded_features or ()))
+        for j in self.excluded_features:
+            if not 0 <= j < self.n_features:
+                raise ValueError(f"Invalid excluded feature index {j!r}.")
+
         self.n_bins = n_bins
         self.pair_bins = pair_bins if pair_bins is not None else n_bins
-        self.pairs: List[Tuple[int, int]] = (
+        self.pairs: list[tuple[int, int]] = (
             [tuple(sorted(p)) for p in pairs] if pairs else []
         )
         seen_pairs = set()
         for i, j in self.pairs:
             if not (0 <= i < self.n_features and 0 <= j < self.n_features) or i == j:
                 raise ValueError(f"Invalid feature pair {(i, j)!r}.")
+            if i in self.excluded_features or j in self.excluded_features:
+                raise ValueError(
+                    f"Pair {(i, j)!r} uses an excluded feature."
+                )
             if (i, j) in seen_pairs:
                 raise ValueError(
                     f"Duplicate feature pair {(i, j)!r} in `pairs` (after "
@@ -141,6 +156,11 @@ class GA2M(BaseModel):
                 for i, j in self.pairs
             }
         )
+
+        # 1 for kept 1D terms, 0 for excluded ones (multiplies terms_1d).
+        mask = torch.ones(self.n_features, 1)
+        mask[self.excluded_features] = 0.0
+        self.register_buffer("term_mask", mask)
 
         # Quantile edges, (n_features, n_bins - 1) / (n_features, pair_bins - 1).
         # Buffers (not Parameters): learned from data once, not by SGD.
@@ -187,7 +207,7 @@ class GA2M(BaseModel):
         quantiles = torch.linspace(0, 1, n_edges + 2)[1:-1]
         return torch.quantile(observed.double(), quantiles.double()).float()
 
-    def fit_bins(self, train_data: DataLoader | SampleDataset) -> "GA2M":
+    def fit_bins(self, train_data: DataLoader | SampleDataset) -> GA2M:
         """Recomputes quantile bin edges from ``train_data`` only.
 
         Call this explicitly with a train-split loader/dataset (e.g. from
@@ -238,7 +258,7 @@ class GA2M(BaseModel):
         idx = idx.masked_fill(missing, 0)
         return idx
 
-    def forward(self, **kwargs: torch.Tensor) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs: torch.Tensor) -> dict[str, torch.Tensor]:
         """Forward pass.
 
         Args:
@@ -260,7 +280,8 @@ class GA2M(BaseModel):
         feature_idx = torch.arange(self.n_features, device=x.device).expand_as(
             bins_1d
         )
-        logit = self.bias + self.terms_1d[feature_idx, bins_1d].sum(dim=1)
+        terms_1d = self.terms_1d * self.term_mask
+        logit = self.bias + terms_1d[feature_idx, bins_1d].sum(dim=1)
 
         if self.pairs:
             bins_2d = self._bin_indices(x, self.pair_bin_edges)
@@ -278,9 +299,28 @@ class GA2M(BaseModel):
             results["y_true"] = y_true
         return results
 
+    def smoothness_penalty(self) -> torch.Tensor:
+        """Mean squared second difference of every 1D term over its real
+        (non-missing) bins, and of every 2D term along both axes.
+
+        Adding ``lam * model.smoothness_penalty()`` to the loss discourages
+        jagged risk curves when bins are fine and some bins hold few
+        training samples. The reserved missing bin is not smoothed.
+        """
+        terms_1d = (self.terms_1d * self.term_mask)[:, 1:]
+        if terms_1d.shape[1] < 3:
+            return self.bias.new_zeros(())
+        penalty = terms_1d.diff(n=2, dim=1).pow(2).mean()
+        for table in self.terms_2d.values():
+            real = table[1:, 1:]
+            if real.shape[0] >= 3:
+                penalty = penalty + real.diff(n=2, dim=0).pow(2).mean()
+                penalty = penalty + real.diff(n=2, dim=1).pow(2).mean()
+        return penalty
+
     def get_shape_functions(
         self,
-    ) -> Dict[object, Tuple[torch.Tensor, torch.Tensor]]:
+    ) -> dict[object, tuple[torch.Tensor, torch.Tensor]]:
         """Centered 1D and 2D shape functions, for plotting/inspection.
 
         Each term is centered by subtracting the mean of its *real* bins
@@ -305,8 +345,10 @@ class GA2M(BaseModel):
             row/column index 0 similarly reserved for "that feature was
             missing".
         """
-        shapes: Dict[object, Tuple[torch.Tensor, torch.Tensor]] = {}
+        shapes: dict[object, tuple[torch.Tensor, torch.Tensor]] = {}
         for j, name in enumerate(self.feature_names):
+            if j in self.excluded_features:
+                continue
             table = self.terms_1d[j].detach()
             shapes[name] = (self.bin_edges[j].detach(), table - table[1:].mean())
         for i, j in self.pairs:
@@ -321,7 +363,7 @@ class GA2M(BaseModel):
 
 def rank_pairs_by_contribution_variance(
     model: GA2M, data: DataLoader | SampleDataset
-) -> List[Tuple[Tuple[int, int], float]]:
+) -> list[tuple[tuple[int, int], float]]:
     """Ranks ``model``'s 2D terms by their contribution variance on ``data``.
 
     Implements the pair-selection half of the paper's procedure: train a
@@ -354,7 +396,7 @@ def rank_pairs_by_contribution_variance(
         else get_dataloader(data, batch_size=1024, shuffle=False)
     )
     model.eval()
-    contributions: Dict[Tuple[int, int], List[torch.Tensor]] = {
+    contributions: dict[tuple[int, int], list[torch.Tensor]] = {
         pair: [] for pair in model.pairs
     }
     with torch.no_grad():
@@ -371,7 +413,7 @@ def rank_pairs_by_contribution_variance(
     return sorted(variances.items(), key=lambda item: item[1], reverse=True)
 
 
-def all_pairs(n_features: int) -> List[Tuple[int, int]]:
+def all_pairs(n_features: int) -> list[tuple[int, int]]:
     """Every unordered feature-index pair, e.g. all 561 pairs for 34 features.
 
     Examples:

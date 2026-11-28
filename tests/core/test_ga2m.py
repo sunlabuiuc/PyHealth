@@ -6,8 +6,8 @@ import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models.ga2m import (
-    MISSING_VALUE,
     GA2M,
+    MISSING_VALUE,
     all_pairs,
     rank_pairs_by_contribution_variance,
 )
@@ -231,6 +231,39 @@ class TestGA2M(unittest.TestCase):
         # The missing bin's displayed value is relative to that same
         # baseline (not its own, now-meaningless, "self-mean").
         torch.testing.assert_close(values[0], torch.tensor(1000.0) - real_mean)
+
+    def test_excluded_feature_has_no_effect_or_gradient(self):
+        model = GA2M(dataset=self.dataset, n_bins=4, excluded_features=[1])
+        with torch.no_grad():
+            model.terms_1d[1] = 5.0  # must be ignored by forward
+        batch = next(iter(get_dataloader(self.dataset, batch_size=4)))
+        ret = model(**batch)
+        ret["loss"].backward()
+        self.assertTrue(torch.all(model.terms_1d.grad[1] == 0))
+        self.assertTrue(torch.any(model.terms_1d.grad[0] != 0))
+        with torch.no_grad():
+            model.terms_1d[1] = 0.0
+        torch.testing.assert_close(model(**batch)["logit"], ret["logit"])
+        self.assertNotIn("x1", model.get_shape_functions())
+
+    def test_smoothness_penalty_zero_for_linear_curves_only(self):
+        model = GA2M(dataset=self.dataset, n_bins=4, pairs=[(0, 1)])
+        with torch.no_grad():
+            model.terms_1d[:, 1:] = torch.tensor([1.0, 2.0, 3.0, 4.0])
+            model.terms_1d[:, 0] = 100.0  # missing bin: not smoothed
+        self.assertAlmostEqual(model.smoothness_penalty().item(), 0.0, places=6)
+        with torch.no_grad():
+            model.terms_1d[0, 2] = 5.0
+        penalty = model.smoothness_penalty()
+        self.assertGreater(penalty.item(), 0.0)
+        penalty.backward()
+        self.assertTrue(torch.all(model.terms_1d.grad[:, 0] == 0))
+
+    def test_excluded_feature_rejected_in_pairs_and_range(self):
+        with self.assertRaises(ValueError):
+            GA2M(dataset=self.dataset, pairs=[(0, 1)], excluded_features=[1])
+        with self.assertRaises(ValueError):
+            GA2M(dataset=self.dataset, excluded_features=[99])
 
     def test_missing_only_feature_falls_back_to_single_bin(self):
         """A feature with fewer than 2 observed values still produces a

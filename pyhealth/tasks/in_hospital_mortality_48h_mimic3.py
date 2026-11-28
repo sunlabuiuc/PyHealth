@@ -19,8 +19,9 @@ team locally, outside this PyHealth contribution.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Any, Callable, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar
 
 import polars as pl
 
@@ -33,7 +34,7 @@ MISSING = -1.0
 #: The 17 Harutyunyan/Hegselmann clinical variables, in a fixed (alphabetical)
 #: order. ``FEATURE_NAMES`` is ``[f"{v}_mean" for v in VARIABLES] +
 #: [f"{v}_std" for v in VARIABLES]`` (34 features total).
-VARIABLES: ClassVar[List[str]] = [
+VARIABLES: ClassVar[list[str]] = [
     "capillary_refill_rate",
     "diastolic_blood_pressure",
     "fraction_inspired_oxygen",
@@ -53,7 +54,7 @@ VARIABLES: ClassVar[List[str]] = [
     "ph",
 ]
 
-FEATURE_NAMES: ClassVar[List[str]] = [f"{v}_mean" for v in VARIABLES] + [
+FEATURE_NAMES: ClassVar[list[str]] = [f"{v}_mean" for v in VARIABLES] + [
     f"{v}_std" for v in VARIABLES
 ]
 
@@ -74,7 +75,8 @@ def _in_to_cm(value: float) -> float:
     return value * 2.54
 
 
-_IDENTITY: Callable[[float], float] = lambda value: value  # noqa: E731
+def _IDENTITY(value: float) -> float:
+    return value
 
 
 def _rescale_fio2(value: float) -> float:
@@ -97,7 +99,7 @@ def _rescale_oxygen_saturation(value: float) -> float:
 #: Per-variable rescaling applied after unit conversion and before outlier
 #: filtering, for variables whose raw scale (fraction vs. percentage) is
 #: inconsistent across MIMIC-III sources.
-_RESCALE_FNS: Dict[str, Callable[[float], float]] = {
+_RESCALE_FNS: dict[str, Callable[[float], float]] = {
     "fraction_inspired_oxygen": _rescale_fio2,
     "oxygen_saturation": _rescale_oxygen_saturation,
 }
@@ -106,13 +108,13 @@ _RESCALE_FNS: Dict[str, Callable[[float], float]] = {
 # channel_info.json (GCS components) and mimic3benchmark/preprocessing.py's
 # clean_crr (capillary refill rate). Keys are lower-cased/stripped before
 # lookup, to be robust to the casing variants MIMIC-III chartevents uses.
-_CRR_MAP: Dict[str, float] = {
+_CRR_MAP: dict[str, float] = {
     "normal <3 secs": 0.0,
     "brisk": 0.0,
     "abnormal >3 secs": 1.0,
     "delayed": 1.0,
 }
-_GCS_EYE_MAP: Dict[str, float] = {
+_GCS_EYE_MAP: dict[str, float] = {
     "none": 0.0,
     "1 no response": 1.0,
     "2 to pain": 2.0,
@@ -122,7 +124,7 @@ _GCS_EYE_MAP: Dict[str, float] = {
     "4 spontaneously": 4.0,
     "spontaneously": 4.0,
 }
-_GCS_MOTOR_MAP: Dict[str, float] = {
+_GCS_MOTOR_MAP: dict[str, float] = {
     "1 no response": 1.0,
     "no response": 1.0,
     "2 abnorm extensn": 2.0,
@@ -136,7 +138,7 @@ _GCS_MOTOR_MAP: Dict[str, float] = {
     "6 obeys commands": 6.0,
     "obeys commands": 6.0,
 }
-_GCS_VERBAL_MAP: Dict[str, float] = {
+_GCS_VERBAL_MAP: dict[str, float] = {
     "no response-ett": 1.0,
     "no response": 1.0,
     "1 no response": 1.0,
@@ -159,7 +161,7 @@ _GCS_VERBAL_MAP: Dict[str, float] = {
 # Itemids and units adapted from mimic3benchmark/resources/
 # itemid_to_variable_map.csv (STATUS=ready rows), CareVue + MetaVision +
 # labevents sources.
-_VARIABLE_SPECS: Dict[str, Dict[str, Any]] = {
+_VARIABLE_SPECS: dict[str, dict[str, Any]] = {
     "capillary_refill_rate": {
         "chart_itemids": {"3348", "115", "8377"},
         "categorical": _CRR_MAP,
@@ -250,7 +252,7 @@ _VARIABLE_SPECS: Dict[str, Dict[str, Any]] = {
 # dropped before computing mean/std for that variable's window, approximating
 # the paper's implausible-measurement filtering (the exact count of dropped
 # rows depends on the real cohort, reproduced locally, not here).
-VARIABLE_RANGES: ClassVar[Dict[str, tuple]] = {
+VARIABLE_RANGES: ClassVar[dict[str, tuple]] = {
     "capillary_refill_rate": (0, 1),
     "diastolic_blood_pressure": (0, 375),
     "fraction_inspired_oxygen": (0.2, 1.1),
@@ -272,9 +274,9 @@ VARIABLE_RANGES: ClassVar[Dict[str, tuple]] = {
 
 
 def _build_itemid_index():
-    chart_variable: Dict[str, str] = {}
-    chart_unit: Dict[str, Callable[[float], float]] = {}
-    lab_variable: Dict[str, str] = {}
+    chart_variable: dict[str, str] = {}
+    chart_unit: dict[str, Callable[[float], float]] = {}
+    lab_variable: dict[str, str] = {}
     for variable, spec in _VARIABLE_SPECS.items():
         for itemid in spec.get("chart_itemids", ()):
             chart_variable[itemid] = variable
@@ -299,14 +301,14 @@ def _build_itemid_index():
 _CHART_ITEMID_VARIABLE, _CHART_ITEMID_UNIT, _LAB_ITEMID_VARIABLE = (
     _build_itemid_index()
 )
-_CATEGORICAL_VARIABLES: Dict[str, Dict[str, float]] = {
+_CATEGORICAL_VARIABLES: dict[str, dict[str, float]] = {
     name: spec["categorical"]
     for name, spec in _VARIABLE_SPECS.items()
     if "categorical" in spec
 }
 
 
-def _hadm_key(value: Any) -> Optional[int]:
+def _hadm_key(value: Any) -> int | None:
     """Normalizes a hadm_id to a plain int for joining across tables.
 
     ADMISSIONS and ICUSTAYS are scanned as independent dask/polars tables,
@@ -326,7 +328,7 @@ def _hadm_key(value: Any) -> Optional[int]:
     return int(float(value))
 
 
-def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
+def _parse_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
@@ -337,7 +339,7 @@ def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
     return None
 
 
-def _mean_std(values: List[float]) -> tuple:
+def _mean_std(values: list[float]) -> tuple:
     if not values:
         return MISSING, MISSING
     if len(values) == 1:
@@ -383,15 +385,15 @@ class InHospitalMortality48hMIMIC3(BaseTask):
     """
 
     task_name: str = "InHospitalMortality48hMIMIC3"
-    input_schema: Dict[str, str] = {"features": "tensor"}
-    output_schema: Dict[str, str] = {"mortality": "binary"}
+    input_schema: ClassVar[dict[str, str]] = {"features": "tensor"}
+    output_schema: ClassVar[dict[str, str]] = {"mortality": "binary"}
 
     #: Hours of data observed from ICU admission.
     observation_window_hours: float = 48.0
     #: Minimum age (years) at ICU admission to be included.
     min_age_years: float = 18.0
 
-    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
         demographics = patient.get_events(event_type="patients")
         if len(demographics) != 1:
             return []
@@ -421,13 +423,13 @@ class InHospitalMortality48hMIMIC3(BaseTask):
                 continue
 
             window_end = intime + timedelta(hours=self.observation_window_hours)
-            values_by_variable: Dict[str, List[float]] = {v: [] for v in VARIABLES}
+            values_by_variable: dict[str, list[float]] = {v: [] for v in VARIABLES}
             self._collect_chart_values(patient, intime, window_end, values_by_variable)
             self._collect_lab_values(patient, intime, window_end, values_by_variable)
 
-            features: List[float] = []
-            means: List[float] = []
-            stds: List[float] = []
+            features: list[float] = []
+            means: list[float] = []
+            stds: list[float] = []
             for variable in VARIABLES:
                 mean, std = _mean_std(values_by_variable[variable])
                 means.append(mean)
@@ -446,7 +448,7 @@ class InHospitalMortality48hMIMIC3(BaseTask):
         return samples
 
     @staticmethod
-    def _filter_outliers(variable: str, value: float) -> Optional[float]:
+    def _filter_outliers(variable: str, value: float) -> float | None:
         bounds = VARIABLE_RANGES.get(variable)
         if bounds is None:
             return value
@@ -460,7 +462,7 @@ class InHospitalMortality48hMIMIC3(BaseTask):
         patient: Any,
         start: datetime,
         end: datetime,
-        values_by_variable: Dict[str, List[float]],
+        values_by_variable: dict[str, list[float]],
     ) -> None:
         df = patient.get_events(
             event_type="chartevents", start=start, end=end, return_df=True
@@ -499,7 +501,7 @@ class InHospitalMortality48hMIMIC3(BaseTask):
         patient: Any,
         start: datetime,
         end: datetime,
-        values_by_variable: Dict[str, List[float]],
+        values_by_variable: dict[str, list[float]],
     ) -> None:
         if not _LAB_ITEMID_VARIABLE:
             return
