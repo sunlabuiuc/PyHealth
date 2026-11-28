@@ -26,7 +26,7 @@ from collections.abc import Sequence
 from fractions import Fraction
 from itertools import pairwise
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import torch
@@ -82,6 +82,20 @@ _RK_STRING_MAP: dict[str, int] = {
 }
 
 _PEAK_BACKENDS = ("auto", "scipy", "neurokit", "biosppy")
+
+#: ISRUC channel names that carry ECG in the released recordings.
+_ISRUC_ECG_CHANNELS = (
+    "X2",
+    "ECG II",
+    "ECG I",
+    "ECG",
+    "EKG II",
+    "EKG I",
+    "EKG",
+)
+
+#: ISRUC score codes -> canonical five-class stages.
+_ISRUC_SCORE_MAP = {0: 0, 1: 1, 2: 2, 3: 3, 5: 4, -1: -1}
 
 
 def _clean_signal(waveform: Sequence[float]) -> np.ndarray:
@@ -173,7 +187,7 @@ def _beat_annotations_to_ibi(
         Float64 sample-and-hold IBI array.
 
     Examples:
-        >>> _beat_annotations_to_ibi([0, 50], 50, 2.0, 60)[0]
+        >>> float(_beat_annotations_to_ibi([0, 50], 50, 2.0, 60)[0])
         1.0
     """
     return _peaks_to_ibi(samples, fs, max_ibi, length)
@@ -225,6 +239,58 @@ def _heart_rate_to_ibi(
     ibi = np.interp(out_times, time_array - time_array[0], values)
     ibi[ibi >= max_ibi] = 0.0
     return ibi.astype(np.float64)
+
+
+def _heart_rate_to_grid(
+    times: Sequence[float],
+    bpm: Sequence[float],
+    points: int,
+    epoch_seconds: float,
+    max_ibi: float = 2.0,
+    min_ibi: float = 0.3,
+) -> np.ndarray:
+    """Interpolates ``60 / bpm`` onto one fixed-size epoch grid.
+
+    Args:
+        times: Heart-rate times relative to the epoch start, in seconds.
+        bpm: Heart rate in beats per minute at each time.
+        points: Number of samples in the returned IBI row.
+        epoch_seconds: Epoch duration in seconds.
+        max_ibi: Intervals at or above this many seconds become zero.
+        min_ibi: Intervals below this many seconds become zero.
+
+    Returns:
+        Float32 IBI row of shape ``(points,)``. Values outside the observed
+        heart-rate span and outside ``[min_ibi, max_ibi)`` are zero.
+
+    Examples:
+        >>> row = _heart_rate_to_grid([0.0, 30.0], [60.0, 60.0], 4, 30.0)
+        >>> row.tolist()
+        [1.0, 1.0, 1.0, 1.0]
+    """
+    time_array = np.asarray(times, dtype=np.float64).reshape(-1)
+    rate_array = np.asarray(bpm, dtype=np.float64).reshape(-1)
+    zeros = np.zeros(max(int(points), 0), dtype=np.float32)
+    if time_array.size != rate_array.size or time_array.size < 2:
+        return zeros
+    finite = np.isfinite(time_array) & np.isfinite(rate_array) & (rate_array > 0)
+    time_array, rate_array = time_array[finite], rate_array[finite]
+    if time_array.size < 2:
+        return zeros
+    order = np.argsort(time_array, kind="stable")
+    time_array, rate_array = time_array[order], rate_array[order]
+    time_array, first = np.unique(time_array, return_index=True)
+    rate_array = rate_array[first]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        values = 60.0 / rate_array
+    values[~np.isfinite(values)] = 0.0
+    values[(values < min_ibi) | (values >= max_ibi)] = 0.0
+    rate = points / epoch_seconds
+    grid = np.arange(int(points), dtype=np.float64) / rate
+    ibi = np.interp(grid, time_array, values)
+    outside = (grid < time_array[0]) | (grid > time_array[-1])
+    ibi[outside] = 0.0
+    return ibi.astype(np.float32)
 
 
 def _resample_rows(signal: np.ndarray, points: int) -> np.ndarray:
@@ -642,6 +708,86 @@ def _nsrr_samples(task: _SleepStagingIBIBase, patient: Any) -> list[dict[str, An
     return samples
 
 
+def _isruc_samples(task: "_SleepStagingIBIBase", patient: Any) -> list[dict]:
+    """Builds one IBI sample per ISRUC recording of a patient.
+
+    Args:
+        task: A configured :class:`SleepStagingIBIISRUC`.
+        patient: A patient from :class:`~pyhealth.datasets.ISRUCDataset`.
+
+    Returns:
+        Samples with final three-class IBI tensors. Recordings without a
+        resolvable ECG channel are skipped with a warning.
+    """
+    import mne
+
+    from pyhealth.tasks.sleep_staging_isruc import (
+        base_channel_name,
+        read_isruc_scores,
+    )
+
+    samples: list[dict] = []
+    label_attr = f"label_file_{task.scorer_index}"
+    channels = task.channel_aliases
+    for event in patient.get_events():
+        label_file = str(getattr(event, label_attr, "") or "")
+        if not label_file.strip() or label_file.lower() in {"nan", "none"}:
+            logger.warning(
+                "Skipping ISRUC recording of patient %s: missing %s",
+                patient.patient_id,
+                label_attr,
+            )
+            continue
+        try:
+            raw = mne.io.read_raw_edf(
+                str(event.signal_file), preload=True, verbose="error"
+            )
+            by_base: dict[str, str] = {}
+            for name in raw.ch_names:
+                by_base.setdefault(base_channel_name(name), name)
+            channel = next((c for c in channels if c in by_base), None)
+            if channel is None:
+                logger.warning(
+                    "Skipping %s: no ECG channel among %s; channels are %s",
+                    event.signal_file,
+                    channels,
+                    raw.ch_names,
+                )
+                raw.close()
+                continue
+            signal = raw.get_data(picks=[by_base[channel]])[0]
+            fs = float(raw.info["sfreq"])
+            raw.close()
+            signal, fs = _resample_to_rate(signal, fs, task.source_fs)
+            scores = read_isruc_scores(label_file)
+            native = round(task.source_fs * task.epoch_seconds)
+            n_epochs = min(len(scores), int(len(signal) // native))
+            if n_epochs <= 0:
+                continue
+            labels = np.asarray(
+                [_ISRUC_SCORE_MAP.get(int(score), -1) for score in scores],
+                dtype=np.int64,
+            )[:n_epochs]
+            waveforms = signal[: n_epochs * native].reshape(n_epochs, native)
+            rows = task._waveforms_to_rows(waveforms)
+            record_id = str(
+                getattr(event, "session_id", None)
+                or Path(str(event.signal_file)).stem
+            )
+            samples.extend(
+                task._finalize(
+                    rows, labels, patient.patient_id, record_id
+                )
+            )
+        except (OSError, RuntimeError, ValueError) as err:
+            logger.warning(
+                "Skipping ISRUC recording of patient %s: %s",
+                patient.patient_id,
+                err,
+            )
+    return samples
+
+
 class SleepStagingIBIDREAMT(_SleepStagingIBIBase):
     """Per-recording IBI sleep staging for :class:`~pyhealth.datasets.DREAMTDataset`.
 
@@ -974,3 +1120,233 @@ class SleepStagingIBIMESA(_SleepStagingIBIBase):
             'SleepStagingIBIMESA'
         """
         return _nsrr_samples(self, patient)
+
+
+class SleepStagingIBISleepAccel(_SleepStagingIBIBase):
+    """Heart-rate-derived IBI staging for Sleep-Accel recordings.
+
+    Sleep-Accel has no raw ECG or PPG waveform. Each 30 s epoch is converted
+    by interpolating ``60 / bpm`` onto a uniform 25 Hz grid, producing 750
+    samples by default. Labels are Wake ``0``, NREM ``1``, REM ``2`` and
+    unknown ``-1``.
+
+    Args:
+        epoch_seconds: Seconds per epoch.
+        points_per_epoch: Number of IBI samples per epoch.
+        max_epochs: Maximum epochs per recording.
+        min_epochs: Drop recordings with fewer epochs than this.
+        max_ibi: Intervals at or above this many seconds become zero.
+        min_ibi: Intervals below this many seconds become zero.
+        heart_rate_padding: Seconds of neighbouring heart-rate samples
+            included on each side of an epoch for edge interpolation.
+        require_signal: Drop epochs with no heart-rate sample inside the
+            epoch window.
+
+    Attributes:
+        task_name: ``"SleepStagingIBISleepAccel"``.
+        input_schema: Shared ``signal``/``lengths`` schema.
+        output_schema: Long-tensor ``label`` schema.
+
+    Examples:
+        >>> from pyhealth.tasks import SleepStagingIBISleepAccel
+        >>> task = SleepStagingIBISleepAccel()
+        >>> task.task_name, task.points_per_epoch
+        ('SleepStagingIBISleepAccel', 750)
+    """
+
+    task_name = "SleepStagingIBISleepAccel"
+    signal_type = "hr"
+
+    def __init__(
+        self,
+        epoch_seconds: float = 30.0,
+        points_per_epoch: int = 750,
+        max_epochs: int = 1100,
+        min_epochs: int = 1,
+        max_ibi: float = 2.0,
+        min_ibi: float = 0.3,
+        heart_rate_padding: float = 60.0,
+        require_signal: bool = True,
+    ) -> None:
+        if max_ibi <= 0 or min_ibi <= 0 or min_ibi >= max_ibi:
+            raise ValueError("require 0 < min_ibi < max_ibi")
+        if heart_rate_padding < 0 or not np.isfinite(heart_rate_padding):
+            raise ValueError("heart_rate_padding must be finite and non-negative")
+        self.min_ibi = float(min_ibi)
+        self.heart_rate_padding = float(heart_rate_padding)
+        self.require_signal = bool(require_signal)
+        super().__init__(
+            epoch_seconds=epoch_seconds,
+            points_per_epoch=points_per_epoch,
+            max_epochs=max_epochs,
+            min_epochs=min_epochs,
+            max_ibi=max_ibi,
+            peak_backend="auto",
+        )
+        self.source_fs = self.points_per_epoch / self.epoch_seconds
+
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
+        """Builds one heart-rate-derived IBI sample per recording.
+
+        Args:
+            patient: A patient from a PyHealth Sleep-Accel dataset.
+
+        Returns:
+            Samples with ``signal`` of shape ``(T, 750)``, three-class
+            ``label`` of shape ``(T,)`` and ``lengths == T``.
+
+        Examples:
+            >>> SleepStagingIBISleepAccel().max_epochs
+            1100
+        """
+        from pyhealth.datasets.sleep_accel import (
+            load_sleep_accel_heart_rate,
+            load_sleep_accel_stages,
+        )
+
+        events = patient.get_events(event_type="sleep_accel")
+        if not events:
+            events = patient.get_events()
+        samples: list[dict[str, Any]] = []
+        for event in events:
+            try:
+                stages, starts = load_sleep_accel_stages(event.label_file)
+                times, bpm = load_sleep_accel_heart_rate(event.heart_rate_file)
+                n_epochs = min(len(stages), len(starts))
+                if n_epochs <= 0:
+                    continue
+                rows: list[np.ndarray] = []
+                labels: list[int] = []
+                for index in range(n_epochs):
+                    start = float(starts[index])
+                    end = start + self.epoch_seconds
+                    core = (times >= start) & (times < end)
+                    if self.require_signal and not core.any():
+                        continue
+                    selected = (
+                        (times >= start - self.heart_rate_padding)
+                        & (times < end + self.heart_rate_padding)
+                    )
+                    rows.append(
+                        _heart_rate_to_grid(
+                            times[selected] - start,
+                            bpm[selected],
+                            self.points_per_epoch,
+                            self.epoch_seconds,
+                            self.max_ibi,
+                            self.min_ibi,
+                        )
+                    )
+                    labels.append(int(stages[index]))
+                if not rows:
+                    continue
+                record_id = str(
+                    getattr(event, "record_name", None)
+                    or Path(str(event.label_file)).name.split("_", 1)[0]
+                )
+                samples.extend(
+                    self._finalize(
+                        np.asarray(rows, dtype=np.float32),
+                        np.asarray(labels, dtype=np.int64),
+                        patient.patient_id,
+                        record_id,
+                    )
+                )
+            except (OSError, ValueError) as err:
+                logger.warning(
+                    "Skipping Sleep-Accel recording of patient %s: %s",
+                    patient.patient_id,
+                    err,
+                )
+        return samples
+
+
+class SleepStagingIBIISRUC(_SleepStagingIBIBase):
+    """ECG-derived IBI staging for ISRUC-Sleep recordings.
+
+    The task reads one expert's hypnogram and the ECG channel of each ISRUC
+    recording, detects beats at the native 200 Hz rate, and strides the IBI
+    signal by eight to produce 750 samples per 30 s epoch. Labels are Wake
+    ``0``, NREM ``1``, REM ``2`` and unknown ``-1``.
+
+    Args:
+        scorer: ``"expert1"`` or ``"expert2"`` hypnogram.
+        channel: Optional ECG channel override. Defaults to the released
+            candidates, beginning with ``"X2"``.
+        source_fs: Sampling rate used for the epoch grid.
+        downsample_factor: Integer stride from ``source_fs`` to 25 Hz.
+        epoch_seconds: Seconds per epoch.
+        points_per_epoch: Number of IBI samples per epoch.
+        max_epochs: Maximum epochs per recording.
+        min_epochs: Drop recordings with fewer epochs than this.
+        max_ibi: Intervals at or above this many seconds become zero.
+        peak_backend: Peak detector, or ``"auto"`` for the preferred
+            installed backend with a scipy fallback.
+
+    Attributes:
+        task_name: ``"SleepStagingIBIISRUC"``.
+        input_schema: Shared ``signal``/``lengths`` schema.
+        output_schema: Long-tensor ``label`` schema.
+
+    Examples:
+        >>> from pyhealth.tasks import SleepStagingIBIISRUC
+        >>> task = SleepStagingIBIISRUC(scorer="expert2")
+        >>> task.scorer, task.downsample_factor
+        ('expert2', 8)
+    """
+
+    task_name = "SleepStagingIBIISRUC"
+    signal_type = "ecg"
+
+    def __init__(
+        self,
+        scorer: Literal["expert1", "expert2"] = "expert1",
+        channel: str | None = None,
+        source_fs: float = 200.0,
+        # Original stride: https://github.com/WillKeWang/WatchSleepNet_public/blob/main/dataset_preparation/public_datasets/extract_and_save_ibi.py#L123
+        downsample_factor: int = 8,
+        epoch_seconds: float = 30.0,
+        points_per_epoch: int = 750,
+        max_epochs: int = 1100,
+        min_epochs: int = 1,
+        max_ibi: float = 2.0,
+        peak_backend: str = "auto",
+    ) -> None:
+        if scorer not in ("expert1", "expert2"):
+            raise ValueError("scorer must be 'expert1' or 'expert2'")
+        if source_fs <= 0 or not np.isfinite(source_fs):
+            raise ValueError("source_fs must be positive and finite")
+        if downsample_factor <= 0:
+            raise ValueError("downsample_factor must be positive")
+        self.scorer = scorer
+        self.scorer_index = 1 if scorer == "expert1" else 2
+        candidates = _ISRUC_ECG_CHANNELS
+        if channel:
+            candidates = (str(channel), *_ISRUC_ECG_CHANNELS)
+        self.channel_aliases = tuple(dict.fromkeys(candidates))
+        self.source_fs = float(source_fs)
+        self.downsample_factor = int(downsample_factor)
+        super().__init__(
+            epoch_seconds=epoch_seconds,
+            points_per_epoch=points_per_epoch,
+            max_epochs=max_epochs,
+            min_epochs=min_epochs,
+            max_ibi=max_ibi,
+            peak_backend=peak_backend,
+        )
+
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
+        """Builds one IBI sample per ISRUC recording of a patient.
+
+        Args:
+            patient: A patient from a PyHealth ISRUC dataset.
+
+        Returns:
+            Samples with ``signal`` of shape ``(T, 750)``, three-class
+            ``label`` of shape ``(T,)`` and ``lengths == T``.
+
+        Examples:
+            >>> SleepStagingIBIISRUC().task_name
+            'SleepStagingIBIISRUC'
+        """
+        return _isruc_samples(self, patient)
